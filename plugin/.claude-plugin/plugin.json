@@ -1,5 +1,5 @@
 {
-  "name": "interface-built-right",
+  "name": "ibr",
   "version": "0.1.0",
   "description": "Visual regression testing for Claude Code - capture, compare, and analyze UI changes",
   "author": {
