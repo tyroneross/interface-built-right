@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Local development
+.ibr/
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test output
+coverage/
+.vitest/
+
+# Web UI
+web-ui/.next/
+web-ui/node_modules/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Playwright
+playwright-report/
+test-results/

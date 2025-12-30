@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design 3: Dashboard with Side Panel</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-900: #111827;
+      --green-600: #16a34a;
+      --green-50: #f0fdf4;
+      --amber-600: #d97706;
+      --red-600: #dc2626;
+      --blue-600: #2563eb;
+      --blue-50: #eff6ff;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--gray-100);
+      color: var(--gray-900);
+      line-height: 1.5;
+      min-height: 100vh;
+    }
+
+    /* Three-line hierarchy */
+    .title { font-size: 16px; font-weight: 500; color: var(--gray-900); }
+    .description { font-size: 14px; color: var(--gray-600); margin-top: 3px; }
+    .metadata { font-size: 11px; color: var(--gray-500); margin-top: 4px; }
+
+    /* Section headers */
+    .section-header {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 12px 16px 8px;
+    }
+
+    /* Layout */
+    .layout {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* Header */
+    .header {
+      background: white;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 12px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .back-link {
+      color: var(--gray-600);
+      text-decoration: none;
+      min-height: 44px;
+      min-width: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+    }
+
+    .back-link:hover {
+      background: var(--gray-100);
+    }
+
+    .session-title {
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    /* Main content */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Image canvas */
+    .canvas {
+      flex: 1;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .canvas-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .view-toggle {
+      display: flex;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .view-btn {
+      padding: 8px 16px;
+      font-size: 13px;
+      border: none;
+      background: none;
+      color: var(--gray-600);
+      cursor: pointer;
+      min-height: 44px;
+    }
+
+    .view-btn.active {
+      background: var(--gray-900);
+      color: white;
+    }
+
+    .view-btn:not(.active):hover {
+      background: var(--gray-50);
+    }
+
+    .view-btn + .view-btn {
+      border-left: 1px solid var(--gray-200);
+    }
+
+    .image-container {
+      flex: 1;
+      background: white;
+      border: 1px solid var(--gray-200);
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .image-row {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+    }
+
+    .image-pane {
+      flex: 1;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .image-pane + .image-pane {
+      border-top: 1px solid var(--gray-100);
+    }
+
+    .image-pane-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 8px;
+    }
+
+    .image-pane img {
+      width: 100%;
+      height: auto;
+      border-radius: 6px;
+      border: 1px solid var(--gray-200);
+    }
+
+    /* Side panel (slides up from bottom on mobile) */
+    .side-panel {
+      background: white;
+      border-top: 1px solid var(--gray-200);
+    }
+
+    /* Grouped sections */
+    .panel-group {
+      border-bottom: 1px solid var(--gray-100);
+    }
+
+    .panel-row {
+      padding: 12px 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+
+    .panel-row + .panel-row {
+      border-top: 1px solid var(--gray-50);
+    }
+
+    .panel-label {
+      font-size: 13px;
+      color: var(--gray-500);
+    }
+
+    .panel-value {
+      font-size: 13px;
+      color: var(--gray-900);
+      text-align: right;
+    }
+
+    /* Status text colors */
+    .status-match { color: var(--green-600); font-weight: 500; }
+    .status-expected { color: var(--blue-600); font-weight: 500; }
+    .status-unexpected { color: var(--amber-600); font-weight: 500; }
+    .status-broken { color: var(--red-600); font-weight: 500; }
+
+    /* Analysis block */
+    .analysis {
+      padding: 16px;
+    }
+
+    .analysis-summary {
+      font-size: 14px;
+      color: var(--gray-700);
+      line-height: 1.6;
+    }
+
+    /* Feedback */
+    .feedback {
+      padding: 16px;
+      border-top: 1px solid var(--gray-100);
+    }
+
+    .feedback-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-700);
+      margin-bottom: 8px;
+    }
+
+    .feedback-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .feedback-input {
+      flex: 1;
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    .feedback-input:focus {
+      outline: none;
+      border-color: var(--gray-400);
+    }
+
+    .feedback-send {
+      height: 44px;
+      width: 44px;
+      background: var(--gray-900);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .feedback-send:hover {
+      background: var(--gray-700);
+    }
+
+    .feedback-send svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    /* Desktop: side-by-side layout */
+    @media (min-width: 1024px) {
+      .layout {
+        flex-direction: row;
+        padding-top: 56px;
+      }
+
+      .header {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+      }
+
+      .main {
+        flex: 1;
+        overflow: auto;
+      }
+
+      .canvas {
+        padding: 24px;
+      }
+
+      .image-row {
+        flex-direction: row;
+      }
+
+      .image-pane + .image-pane {
+        border-top: none;
+        border-left: 1px solid var(--gray-100);
+      }
+
+      .side-panel {
+        width: 320px;
+        border-top: none;
+        border-left: 1px solid var(--gray-200);
+        height: calc(100vh - 56px);
+        overflow-y: auto;
+        position: sticky;
+        top: 56px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <a href="#" class="back-link">
+          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M15 18l-6-6 6-6"/>
+          </svg>
+        </a>
+        <span class="session-title">Dashboard Header Update</span>
+      </div>
+      <span class="metadata">sess_abc123</span>
+    </header>
+
+    <!-- Main Canvas -->
+    <main class="main">
+      <div class="canvas">
+        <div class="canvas-header">
+          <span class="metadata">Comparing baseline vs current</span>
+          <div class="view-toggle">
+            <button class="view-btn active">Split</button>
+            <button class="view-btn">Overlay</button>
+            <button class="view-btn">Diff</button>
+          </div>
+        </div>
+
+        <div class="image-container">
+          <div class="image-row">
+            <div class="image-pane">
+              <span class="image-pane-label">Baseline</span>
+              <img src="https://placehold.co/800x600/f5f5f5/333?text=Baseline" alt="Baseline">
+            </div>
+            <div class="image-pane">
+              <span class="image-pane-label">Current</span>
+              <img src="https://placehold.co/800x600/1a1a1a/fff?text=Current" alt="Current">
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Side Panel -->
+    <aside class="side-panel">
+      <div class="section-header">Status</div>
+      <div class="panel-group">
+        <div class="panel-row">
+          <span class="panel-label">Verdict</span>
+          <span class="panel-value status-expected">EXPECTED CHANGE</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">Difference</span>
+          <span class="panel-value">8.2%</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">Pixels Changed</span>
+          <span class="panel-value">6,560</span>
+        </div>
+      </div>
+
+      <div class="section-header">Session</div>
+      <div class="panel-group">
+        <div class="panel-row">
+          <span class="panel-label">URL</span>
+          <span class="panel-value">localhost:3000/dashboard</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">Viewport</span>
+          <span class="panel-value">1920 × 1080</span>
+        </div>
+        <div class="panel-row">
+          <span class="panel-label">Created</span>
+          <span class="panel-value">Dec 29, 10:30 AM</span>
+        </div>
+      </div>
+
+      <div class="section-header">Analysis</div>
+      <div class="analysis">
+        <p class="analysis-summary">
+          Header background changed from light (#f5f5f5) to dark (#1a1a1a). Layout structure unchanged. No unexpected visual regressions detected.
+        </p>
+      </div>
+
+      <div class="feedback">
+        <div class="feedback-label">Feedback for Claude</div>
+        <div class="feedback-row">
+          <input type="text" class="feedback-input" placeholder="What should change...">
+          <button class="feedback-send">
+            <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>

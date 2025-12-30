@@ -1,0 +1,7 @@
+{
+  "baseUrl": "http://localhost:3000",
+  "outputDir": "./.ibr",
+  "viewport": "desktop",
+  "threshold": 1,
+  "fullPage": true
+}

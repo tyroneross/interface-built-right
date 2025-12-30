@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Design 2: Minimal with Top Tabs</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    :root {
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-400: #9ca3af;
+      --gray-500: #6b7280;
+      --gray-600: #4b5563;
+      --gray-700: #374151;
+      --gray-900: #111827;
+      --green-600: #16a34a;
+      --amber-600: #d97706;
+      --red-600: #dc2626;
+      --blue-600: #2563eb;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: white;
+      color: var(--gray-900);
+      line-height: 1.5;
+    }
+
+    /* Three-line hierarchy */
+    .title { font-size: 16px; font-weight: 500; color: var(--gray-900); }
+    .description { font-size: 14px; color: var(--gray-600); margin-top: 3px; }
+    .metadata { font-size: 11px; color: var(--gray-500); margin-top: 4px; }
+
+    /* Top navigation bar */
+    .topbar {
+      position: sticky;
+      top: 0;
+      background: white;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 16px;
+      z-index: 10;
+    }
+
+    .topbar-content {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 56px;
+    }
+
+    .back-link {
+      font-size: 14px;
+      color: var(--gray-600);
+      text-decoration: none;
+      min-height: 44px;
+      min-width: 44px;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .back-link:hover { color: var(--gray-900); }
+
+    /* Tabs - bottom border style (Fiverr-style) */
+    .tabs {
+      display: flex;
+      gap: 24px;
+      border-bottom: 1px solid var(--gray-200);
+      padding: 0 16px;
+      overflow-x: auto;
+    }
+
+    .tab {
+      padding: 12px 0;
+      font-size: 14px;
+      border: none;
+      background: none;
+      color: var(--gray-600);
+      cursor: pointer;
+      white-space: nowrap;
+      min-height: 44px;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tab.active {
+      color: var(--gray-900);
+      font-weight: 500;
+      border-bottom-color: var(--gray-900);
+    }
+
+    .tab:hover:not(.active) {
+      color: var(--gray-900);
+    }
+
+    /* Content area */
+    .content {
+      padding: 16px;
+    }
+
+    /* Session info row */
+    .session-info {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--gray-100);
+      margin-bottom: 16px;
+    }
+
+    .session-meta {
+      flex: 1;
+    }
+
+    /* Status - text color only, inline */
+    .status-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .status-match { color: var(--green-600); font-weight: 500; font-size: 14px; }
+    .status-expected { color: var(--blue-600); font-weight: 500; font-size: 14px; }
+    .status-unexpected { color: var(--amber-600); font-weight: 500; font-size: 14px; }
+    .status-broken { color: var(--red-600); font-weight: 500; font-size: 14px; }
+
+    .diff-stat {
+      font-size: 14px;
+      color: var(--gray-600);
+    }
+
+    /* Image viewer - full width, clean */
+    .image-viewer {
+      position: relative;
+    }
+
+    .image-viewer img {
+      width: 100%;
+      display: block;
+      border-radius: 8px;
+      border: 1px solid var(--gray-200);
+    }
+
+    .image-labels {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 8px;
+    }
+
+    .image-label {
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Split view */
+    .split-view {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .split-pane {
+      flex: 1;
+    }
+
+    .split-pane img {
+      width: 100%;
+      display: block;
+      border-radius: 8px;
+      border: 1px solid var(--gray-200);
+    }
+
+    /* Feedback - sticky bottom on mobile */
+    .feedback-panel {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background: white;
+      border-top: 1px solid var(--gray-200);
+      padding: 12px 16px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .feedback-input {
+      flex: 1;
+      height: 44px;
+      padding: 0 12px;
+      border: 1px solid var(--gray-200);
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+    }
+
+    .feedback-input:focus {
+      outline: none;
+      border-color: var(--gray-400);
+    }
+
+    .feedback-button {
+      height: 44px;
+      padding: 0 20px;
+      background: var(--gray-900);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .feedback-button:hover {
+      background: var(--gray-700);
+    }
+
+    /* Spacer for fixed feedback */
+    .bottom-spacer {
+      height: 80px;
+    }
+
+    /* Desktop */
+    @media (min-width: 768px) {
+      .topbar { padding: 0 24px; }
+      .tabs { padding: 0 24px; }
+      .content { padding: 24px; }
+
+      .session-info {
+        flex-direction: row;
+        align-items: flex-start;
+        justify-content: space-between;
+      }
+
+      .split-view {
+        flex-direction: row;
+      }
+
+      .feedback-panel {
+        position: static;
+        border: 1px solid var(--gray-200);
+        border-radius: 12px;
+        margin-top: 24px;
+        padding: 16px;
+      }
+
+      .bottom-spacer {
+        display: none;
+      }
+
+      .feedback-input {
+        height: 48px;
+      }
+
+      .feedback-button {
+        height: 48px;
+      }
+    }
+
+    @media (min-width: 1024px) {
+      .content {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Top Bar -->
+  <header class="topbar">
+    <div class="topbar-content">
+      <a href="#" class="back-link">← Sessions</a>
+      <span class="metadata">sess_abc123</span>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="tabs">
+    <button class="tab active">Compare</button>
+    <button class="tab">Overlay</button>
+    <button class="tab">Diff</button>
+    <button class="tab">Details</button>
+  </nav>
+
+  <!-- Content -->
+  <main class="content">
+    <!-- Session Info -->
+    <div class="session-info">
+      <div class="session-meta">
+        <div class="title">Dashboard Header Update</div>
+        <div class="description">http://localhost:3000/dashboard</div>
+        <div class="metadata">Desktop (1920×1080) • Dec 29, 2025, 10:30 AM</div>
+      </div>
+      <div class="status-row">
+        <span class="status-expected">EXPECTED CHANGE</span>
+        <span class="diff-stat">8.2% diff</span>
+      </div>
+    </div>
+
+    <!-- Image Comparison -->
+    <div class="split-view">
+      <div class="split-pane">
+        <div class="image-label">Baseline</div>
+        <img src="https://placehold.co/800x600/f5f5f5/333?text=Baseline" alt="Baseline">
+      </div>
+      <div class="split-pane">
+        <div class="image-label">Current</div>
+        <img src="https://placehold.co/800x600/1a1a1a/fff?text=Current" alt="Current">
+      </div>
+    </div>
+
+    <!-- Feedback (desktop position) -->
+    <div class="feedback-panel" style="display: none;">
+      <input type="text" class="feedback-input" placeholder="Tell Claude what to change...">
+      <button class="feedback-button">Send</button>
+    </div>
+
+    <div class="bottom-spacer"></div>
+  </main>
+
+  <!-- Feedback (mobile sticky) -->
+  <div class="feedback-panel">
+    <input type="text" class="feedback-input" placeholder="Tell Claude what to change...">
+    <button class="feedback-button">Send</button>
+  </div>
+
+  <script>
+    // Show desktop feedback, hide mobile on larger screens
+    const mediaQuery = window.matchMedia('(min-width: 768px)');
+    function handleScreenChange(e) {
+      const mobileFeedback = document.querySelector('body > .feedback-panel');
+      const desktopFeedback = document.querySelector('.content .feedback-panel');
+      if (e.matches) {
+        mobileFeedback.style.display = 'none';
+        desktopFeedback.style.display = 'flex';
+      } else {
+        mobileFeedback.style.display = 'flex';
+        desktopFeedback.style.display = 'none';
+      }
+    }
+    mediaQuery.addEventListener('change', handleScreenChange);
+    handleScreenChange(mediaQuery);
+  </script>
+</body>
+</html>
