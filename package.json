@@ -22,12 +22,19 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
-    "build:cli": "tsup src/bin/ibr.ts --format esm --outDir dist/bin --clean",
+    "build:cli": "tsup src/bin/ibr.ts --format cjs --outDir dist/bin",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",
     "test": "vitest",
     "prepublishOnly": "npm run build",
-    "ibr": "tsx src/bin/ibr.ts"
+    "ibr": "tsx src/bin/ibr.ts",
+    "ui": "cd web-ui && npm run dev",
+    "snapshot": "tsx src/bin/ibr.ts start",
+    "compare": "tsx src/bin/ibr.ts check",
+    "diff": "tsx src/bin/ibr.ts check",
+    "sessions": "tsx src/bin/ibr.ts list",
+    "login": "tsx src/bin/ibr.ts login",
+    "logout": "tsx src/bin/ibr.ts logout"
   },
   "keywords": [
     "visual-regression",
