@@ -1,6 +1,6 @@
 {
   "name": "interface-built-right",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Visual regression testing for Claude Code - capture baselines, compare changes, iterate automatically",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
