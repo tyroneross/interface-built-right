@@ -12,10 +12,10 @@ export default defineConfig([
     treeshake: true,
     external: ['playwright'],
   },
-  // CLI build
+  // CLI build (CJS for shebang compatibility)
   {
     entry: ['src/bin/ibr.ts'],
-    format: ['esm'],
+    format: ['cjs'],
     outDir: 'dist/bin',
     clean: false,
     sourcemap: true,
