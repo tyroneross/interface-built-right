@@ -1,27 +1,29 @@
 ---
 description: Compare current page state against baseline screenshot
-arguments:
-  - name: sessionId
-    description: Session ID to check (defaults to most recent)
-    required: false
 ---
 
 # /ibr-compare
 
 Compare the current state of a page against its baseline screenshot.
 
-## Usage
+## Instructions
 
-```
-/ibr-compare [sessionId]
+When this command is invoked:
+
+1. First, list available sessions:
+```bash
+cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run sessions
 ```
 
-## Examples
+2. If there are multiple sessions, ask the user which one to compare:
+   "Which session would you like to compare? (Enter session ID or press Enter for most recent)"
 
+3. Run the comparison:
+```bash
+cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run compare -- <session-id> --format json
 ```
-/ibr-compare
-/ibr-compare sess_abc123
-```
+
+If no sessions exist, prompt the user to capture a snapshot first with `/ibr-snapshot`.
 
 ## What This Does
 
@@ -37,11 +39,5 @@ Compare the current state of a page against its baseline screenshot.
 - `EXPECTED_CHANGE` - Changes detected, appear intentional
 - `UNEXPECTED_CHANGE` - Changes in unexpected areas
 - `LAYOUT_BROKEN` - Significant structural issues
-
-## Implementation
-
-```bash
-cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run compare -- ${sessionId || ''} --format json
-```
 
 Use `/ibr-ui` to view the visual diff in the browser.
