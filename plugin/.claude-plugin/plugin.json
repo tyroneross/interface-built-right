@@ -1,0 +1,12 @@
+{
+  "name": "interface-built-right",
+  "version": "0.1.0",
+  "description": "Visual regression testing for Claude Code - capture, compare, and analyze UI changes",
+  "author": {
+    "name": "Tyrone Ross"
+  },
+  "homepage": "https://github.com/tyroneross/interface-built-right",
+  "repository": "https://github.com/tyroneross/interface-built-right",
+  "license": "MIT",
+  "keywords": ["testing", "visual-regression", "screenshots", "ui", "playwright"]
+}
