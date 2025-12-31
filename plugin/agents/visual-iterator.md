@@ -1,14 +1,8 @@
 ---
 name: visual-iterator
-description: Autonomous visual regression testing agent that captures baselines, compares changes, and iterates on issues automatically. Use this for hands-off UI development with automatic visual verification.
-tools:
-  - Bash
-  - Read
-  - Write
-  - Edit
-  - Glob
-  - Grep
-color: purple
+description: Use this agent when making UI changes that need visual verification. Captures baselines, compares screenshots, and auto-fixes visual issues. Invoke when user says "check my UI", "visual test", or "verify the frontend looks right".
+tools: "Bash, Read, Write, Edit, Glob, Grep"
+model: sonnet
 ---
 
 # Visual Iterator Agent

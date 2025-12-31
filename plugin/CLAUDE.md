@@ -10,7 +10,7 @@ When working on UI/frontend files (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.
 
 1. **Before making changes**: Capture a baseline
    ```bash
-   npx ibr start http://localhost:3000/page-you-will-edit --name "feature-name"
+   npx ibr start http://localhost:5000/page-you-will-edit --name "feature-name"
    ```
 
 2. **After making changes**: Compare against baseline
@@ -34,7 +34,7 @@ When working on UI/frontend files (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.
 
 - `/ibr:snapshot` - Capture baseline (prompts for URL)
 - `/ibr:compare` - Compare current state against baseline
-- `/ibr:ui` - Open web UI at localhost:4242
+- `/ibr:ui` - Open web UI at localhost:4200
 
 ## Programmatic API
 
@@ -44,7 +44,7 @@ For more control, use the API directly:
 import { InterfaceBuiltRight } from 'interface-built-right';
 
 const ibr = new InterfaceBuiltRight({
-  baseUrl: 'http://localhost:3000',
+  baseUrl: 'http://localhost:5000',
   outputDir: './.ibr',
   threshold: 1.0, // % diff allowed
 });
@@ -118,8 +118,8 @@ await ibr.close();
 
 If the page requires login:
 ```bash
-npx ibr login http://localhost:3000/login  # Opens browser for manual auth
-npx ibr start http://localhost:3000/dashboard  # Now uses saved auth
+npx ibr login http://localhost:5000/login  # Opens browser for manual auth
+npx ibr start http://localhost:5000/dashboard  # Now uses saved auth
 ```
 
 ## Viewports
@@ -127,5 +127,5 @@ npx ibr start http://localhost:3000/dashboard  # Now uses saved auth
 Available presets: `desktop`, `desktop-lg`, `desktop-sm`, `laptop`, `tablet`, `tablet-landscape`, `mobile`, `mobile-lg`, `iphone-14`, `iphone-14-pro-max`
 
 ```bash
-npx ibr start http://localhost:3000 --viewport mobile
+npx ibr start http://localhost:5000 --viewport mobile
 ```

@@ -2,7 +2,7 @@
 description: Compare current page state against baseline screenshot and show visual diff
 ---
 
-# /ibr-compare
+# /ibr:compare
 
 Compare the current state of a page against its baseline screenshot.
 
@@ -10,33 +10,38 @@ Compare the current state of a page against its baseline screenshot.
 
 1. First, list available sessions:
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run sessions
+npx ibr list
 ```
 
 2. If multiple sessions exist, ask the user: **"Which session would you like to compare?"** (show session IDs)
 
-3. Run the comparison:
+3. Run the comparison (uses most recent session if no ID specified):
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run compare -- <session-id> --format json
+npx ibr check
 ```
 
-If no sessions exist, inform the user to capture a snapshot first with `/ibr-snapshot`.
+Or with specific session:
+```bash
+npx ibr check <session-id> --format json
+```
+
+If no sessions exist, inform the user to capture a snapshot first with `/ibr:snapshot`.
 
 ## What This Does
 
 1. Retrieves the session
 2. Captures new screenshot of the URL
 3. Compares against baseline using pixelmatch
-4. Generates diff image
-5. Returns comparison report
+4. Generates diff image highlighting changes
+5. Returns comparison report with verdict
 
 ## Verdicts
 
 - **MATCH** - No visual changes detected
 - **EXPECTED_CHANGE** - Changes detected, appear intentional
 - **UNEXPECTED_CHANGE** - Changes in unexpected areas (needs review)
-- **LAYOUT_BROKEN** - Significant structural issues detected
+- **LAYOUT_BROKEN** - Significant structural issues detected (>50% diff)
 
 ## Next Steps
 
-Use `/ibr-ui` to view the visual diff in the browser.
+Use `/ibr:ui` to view the visual diff in the browser.

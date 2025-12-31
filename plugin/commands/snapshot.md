@@ -2,22 +2,27 @@
 description: Capture a baseline screenshot of a URL before making UI changes
 ---
 
-# /ibr-snapshot
+# /ibr:snapshot
 
 Capture a baseline screenshot before making UI changes.
 
 ## Instructions
 
-1. Ask the user: **"What URL would you like to capture?"** (e.g., http://localhost:3000/dashboard)
+1. Ask the user: **"What URL would you like to capture?"** (e.g., http://localhost:5000/dashboard)
 
 2. Once the user provides the URL, run:
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run snapshot -- "<url>"
+npx ibr start "<url>"
 ```
 
-3. Optionally ask if they want to name this session:
+3. Optionally add a session name for easier reference:
 ```bash
-cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run snapshot -- "<url>" --name "<session-name>"
+npx ibr start "<url>" --name "<session-name>"
+```
+
+4. To capture a specific component instead of full page:
+```bash
+npx ibr start "<url>" --selector ".header"
 ```
 
 ## What This Does
@@ -25,10 +30,10 @@ cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run snapshot -- "<url>" --name "<session-name
 1. Launches headless browser (Playwright)
 2. Navigates to the URL
 3. Waits for network idle
-4. Captures full-page screenshot
+4. Captures full-page screenshot (or element if --selector used)
 5. Saves as baseline for comparison
 6. Returns session ID (e.g., sess_abc123)
 
 ## Next Steps
 
-After making UI changes, use `/ibr-compare` to check differences.
+After making UI changes, use `/ibr:compare` to check differences.
