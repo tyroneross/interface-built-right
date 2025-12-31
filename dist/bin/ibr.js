@@ -2291,14 +2291,21 @@ program.command("init").description("Initialize .ibrrc.json configuration file")
   } else if (options.port) {
     baseUrl = `http://localhost:${options.port}`;
   } else {
-    const candidatePorts = [4242, 4321, 5555, 6789, 7777, 8181, 9090];
-    const availablePort = await findAvailablePort(candidatePorts);
-    if (availablePort) {
-      baseUrl = `http://localhost:${availablePort}`;
-      console.log(`Auto-selected port ${availablePort} (available)`);
+    const preferredPort = 5e3;
+    const fallbackPorts = [5050, 5555, 4242, 4321, 6789, 7777];
+    if (!await isPortInUse(preferredPort)) {
+      baseUrl = `http://localhost:${preferredPort}`;
+      console.log(`Using default port ${preferredPort}`);
     } else {
-      baseUrl = "http://localhost:YOUR_PORT";
-      console.log("All common ports in use. Please edit baseUrl in .ibrrc.json");
+      console.log(`Port ${preferredPort} in use, finding alternative...`);
+      const availablePort = await findAvailablePort(fallbackPorts);
+      if (availablePort) {
+        baseUrl = `http://localhost:${availablePort}`;
+        console.log(`Auto-selected port ${availablePort}`);
+      } else {
+        baseUrl = "http://localhost:YOUR_PORT";
+        console.log("All candidate ports in use. Please edit baseUrl in .ibrrc.json");
+      }
     }
   }
   const config = {

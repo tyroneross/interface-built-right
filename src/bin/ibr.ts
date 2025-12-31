@@ -753,17 +753,24 @@ program
       // User specified port
       baseUrl = `http://localhost:${options.port}`;
     } else {
-      // Auto-detect available port from uncommon ports
-      const candidatePorts = [4242, 4321, 5555, 6789, 7777, 8181, 9090];
-      const availablePort = await findAvailablePort(candidatePorts);
+      // Try port 5000 first, then auto-detect from alternatives
+      const preferredPort = 5000;
+      const fallbackPorts = [5050, 5555, 4242, 4321, 6789, 7777];
 
-      if (availablePort) {
-        baseUrl = `http://localhost:${availablePort}`;
-        console.log(`Auto-selected port ${availablePort} (available)`);
+      if (!(await isPortInUse(preferredPort))) {
+        baseUrl = `http://localhost:${preferredPort}`;
+        console.log(`Using default port ${preferredPort}`);
       } else {
-        // All candidate ports in use, use placeholder
-        baseUrl = 'http://localhost:YOUR_PORT';
-        console.log('All common ports in use. Please edit baseUrl in .ibrrc.json');
+        console.log(`Port ${preferredPort} in use, finding alternative...`);
+        const availablePort = await findAvailablePort(fallbackPorts);
+
+        if (availablePort) {
+          baseUrl = `http://localhost:${availablePort}`;
+          console.log(`Auto-selected port ${availablePort}`);
+        } else {
+          baseUrl = 'http://localhost:YOUR_PORT';
+          console.log('All candidate ports in use. Please edit baseUrl in .ibrrc.json');
+        }
       }
     }
 
