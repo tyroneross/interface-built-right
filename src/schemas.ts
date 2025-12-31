@@ -2,9 +2,10 @@ import { z } from 'zod';
 
 /**
  * Viewport configuration for screenshot capture
+ * Supports predefined names or custom dimensions
  */
 export const ViewportSchema = z.object({
-  name: z.enum(['desktop', 'mobile', 'tablet']),
+  name: z.string().min(1).max(50),
   width: z.number().min(320).max(3840),
   height: z.number().min(480).max(2160),
 });
@@ -13,9 +14,16 @@ export const ViewportSchema = z.object({
  * Predefined viewport configurations
  */
 export const VIEWPORTS = {
-  desktop: { name: 'desktop' as const, width: 1920, height: 1080 },
-  mobile: { name: 'mobile' as const, width: 375, height: 667 },
-  tablet: { name: 'tablet' as const, width: 768, height: 1024 },
+  desktop: { name: 'desktop', width: 1920, height: 1080 },
+  'desktop-lg': { name: 'desktop-lg', width: 2560, height: 1440 },
+  'desktop-sm': { name: 'desktop-sm', width: 1440, height: 900 },
+  laptop: { name: 'laptop', width: 1366, height: 768 },
+  tablet: { name: 'tablet', width: 768, height: 1024 },
+  'tablet-landscape': { name: 'tablet-landscape', width: 1024, height: 768 },
+  mobile: { name: 'mobile', width: 375, height: 667 },
+  'mobile-lg': { name: 'mobile-lg', width: 414, height: 896 },
+  'iphone-14': { name: 'iphone-14', width: 390, height: 844 },
+  'iphone-14-pro-max': { name: 'iphone-14-pro-max', width: 430, height: 932 },
 } as const;
 
 /**
@@ -25,10 +33,25 @@ export const ConfigSchema = z.object({
   baseUrl: z.string().url('Must be a valid URL'),
   outputDir: z.string().default('./.ibr'),
   viewport: ViewportSchema.default(VIEWPORTS.desktop),
+  viewports: z.array(ViewportSchema).optional(), // Multi-viewport support
   threshold: z.number().min(0).max(100).default(1.0),
   fullPage: z.boolean().default(true),
   waitForNetworkIdle: z.boolean().default(true),
   timeout: z.number().min(1000).max(120000).default(30000),
+});
+
+/**
+ * Session query options
+ */
+export const SessionQuerySchema = z.object({
+  route: z.string().optional(),
+  url: z.string().optional(),
+  status: z.enum(['baseline', 'compared', 'pending']).optional(),
+  name: z.string().optional(),
+  createdAfter: z.date().optional(),
+  createdBefore: z.date().optional(),
+  viewport: z.string().optional(),
+  limit: z.number().min(1).max(100).default(50),
 });
 
 /**
@@ -120,6 +143,7 @@ export const ComparisonReportSchema = z.object({
 // Type exports - auto-generated from schemas
 export type Viewport = z.infer<typeof ViewportSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
+export type SessionQuery = z.infer<typeof SessionQuerySchema>;
 export type ComparisonResult = z.infer<typeof ComparisonResultSchema>;
 export type ChangedRegion = z.infer<typeof ChangedRegionSchema>;
 export type Verdict = z.infer<typeof VerdictSchema>;

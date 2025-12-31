@@ -1,4 +1,4 @@
-import { ConfigSchema, VIEWPORTS, type Config, type Session, type ComparisonReport } from './schemas.js';
+import { ConfigSchema, VIEWPORTS, type Config, type Session, type SessionQuery, type ComparisonReport } from './schemas.js';
 import { captureScreenshot, closeBrowser } from './capture.js';
 import { compareImages, analyzeComparison } from './compare.js';
 import {
@@ -11,6 +11,10 @@ import {
   deleteSession,
   cleanSessions,
   getSessionPaths,
+  findSessions,
+  getTimeline,
+  getSessionsByRoute,
+  getSessionStats,
 } from './session.js';
 import { generateReport } from './report.js';
 import type { StartSessionOptions, StartSessionResult, CleanOptions } from './types.js';
@@ -139,6 +143,40 @@ export class InterfaceBuiltRight {
   }
 
   /**
+   * Find sessions matching query criteria
+   */
+  async find(query: Partial<SessionQuery> = {}): Promise<Session[]> {
+    return findSessions(this.config.outputDir, query);
+  }
+
+  /**
+   * Get timeline of sessions for a specific route
+   * Returns sessions in chronological order (oldest first)
+   */
+  async getTimeline(route: string, limit: number = 10): Promise<Session[]> {
+    return getTimeline(this.config.outputDir, route, limit);
+  }
+
+  /**
+   * Get sessions grouped by route
+   */
+  async getSessionsByRoute(): Promise<Record<string, Session[]>> {
+    return getSessionsByRoute(this.config.outputDir);
+  }
+
+  /**
+   * Get session statistics
+   */
+  async getStats(): Promise<{
+    total: number;
+    byStatus: Record<string, number>;
+    byViewport: Record<string, number>;
+    byVerdict: Record<string, number>;
+  }> {
+    return getSessionStats(this.config.outputDir);
+  }
+
+  /**
    * Update baseline with current screenshot
    */
   async updateBaseline(sessionId?: string): Promise<Session> {
@@ -226,6 +264,10 @@ export {
   cleanSessions,
   getSessionPaths,
   generateSessionId,
+  findSessions,
+  getTimeline,
+  getSessionsByRoute,
+  getSessionStats,
 } from './session.js';
 export { generateReport, formatReportText, formatReportJson, formatReportMinimal, formatSessionSummary } from './report.js';
 export { VIEWPORTS };

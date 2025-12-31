@@ -230,7 +230,7 @@ program
 program
   .command('serve')
   .description('Start the comparison viewer web UI')
-  .option('-p, --port <port>', 'Port number', '4200')
+  .option('-p, --port <port>', 'Port number', '4242')
   .option('--no-open', 'Do not open browser automatically')
   .action(async (options: { port: string; open?: boolean }) => {
     const { spawn } = await import('child_process');

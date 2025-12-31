@@ -43,7 +43,7 @@ npx ibr --help
 |---------|-------------|
 | `npx ibr start <url>` | Capture baseline screenshot |
 | `npx ibr check [sessionId]` | Compare current state against baseline |
-| `npx ibr serve` | Open web UI at localhost:4200 |
+| `npx ibr serve` | Open web UI at localhost:4242 |
 | `npx ibr list` | List all sessions |
 | `npx ibr update [sessionId]` | Update baseline with current screenshot |
 | `npx ibr clean --older-than 7d` | Clean old sessions |
@@ -68,7 +68,7 @@ npx ibr check
 
 # 5. View in web UI
 npx ibr serve
-# → Opens http://localhost:4200 with side-by-side comparison
+# → Opens http://localhost:4242 with side-by-side comparison
 
 # 6. If changes look good, update baseline
 npx ibr update

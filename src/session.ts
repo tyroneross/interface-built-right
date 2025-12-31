@@ -1,7 +1,7 @@
 import { nanoid } from 'nanoid';
 import { mkdir, readFile, writeFile, readdir, rm } from 'fs/promises';
 import { join } from 'path';
-import { SessionSchema, type Session, type Viewport, type ComparisonResult, type Analysis } from './schemas.js';
+import { SessionSchema, SessionQuerySchema, type Session, type SessionQuery, type Viewport, type ComparisonResult, type Analysis } from './schemas.js';
 import type { SessionPaths, CleanOptions } from './types.js';
 
 const SESSION_PREFIX = 'sess_';
@@ -223,4 +223,148 @@ export async function cleanSessions(
   }
 
   return { deleted, kept };
+}
+
+/**
+ * Find sessions matching query criteria
+ */
+export async function findSessions(
+  outputDir: string,
+  query: Partial<SessionQuery> = {}
+): Promise<Session[]> {
+  // Validate query with defaults
+  const validatedQuery = SessionQuerySchema.parse({
+    limit: 50,
+    ...query,
+  });
+
+  const allSessions = await listSessions(outputDir);
+  let filtered = allSessions;
+
+  // Filter by route (extract path from URL)
+  if (validatedQuery.route) {
+    const routePattern = validatedQuery.route.toLowerCase();
+    filtered = filtered.filter(s => {
+      try {
+        const urlPath = new URL(s.url).pathname.toLowerCase();
+        return urlPath.includes(routePattern) || urlPath === routePattern;
+      } catch {
+        return s.url.toLowerCase().includes(routePattern);
+      }
+    });
+  }
+
+  // Filter by URL (exact or partial match)
+  if (validatedQuery.url) {
+    const urlPattern = validatedQuery.url.toLowerCase();
+    filtered = filtered.filter(s => s.url.toLowerCase().includes(urlPattern));
+  }
+
+  // Filter by status
+  if (validatedQuery.status) {
+    filtered = filtered.filter(s => s.status === validatedQuery.status);
+  }
+
+  // Filter by name
+  if (validatedQuery.name) {
+    const namePattern = validatedQuery.name.toLowerCase();
+    filtered = filtered.filter(s => s.name.toLowerCase().includes(namePattern));
+  }
+
+  // Filter by viewport
+  if (validatedQuery.viewport) {
+    const viewportPattern = validatedQuery.viewport.toLowerCase();
+    filtered = filtered.filter(s => s.viewport.name.toLowerCase() === viewportPattern);
+  }
+
+  // Filter by date range
+  if (validatedQuery.createdAfter) {
+    const afterTime = validatedQuery.createdAfter.getTime();
+    filtered = filtered.filter(s => new Date(s.createdAt).getTime() >= afterTime);
+  }
+
+  if (validatedQuery.createdBefore) {
+    const beforeTime = validatedQuery.createdBefore.getTime();
+    filtered = filtered.filter(s => new Date(s.createdAt).getTime() <= beforeTime);
+  }
+
+  // Apply limit
+  return filtered.slice(0, validatedQuery.limit);
+}
+
+/**
+ * Get timeline of sessions for a specific route/URL
+ * Returns sessions in chronological order (oldest first) for tracking changes over time
+ */
+export async function getTimeline(
+  outputDir: string,
+  route: string,
+  limit: number = 10
+): Promise<Session[]> {
+  const sessions = await findSessions(outputDir, { route, limit });
+  // Reverse to get chronological order (oldest first)
+  return sessions.reverse();
+}
+
+/**
+ * Get sessions grouped by route
+ */
+export async function getSessionsByRoute(
+  outputDir: string
+): Promise<Record<string, Session[]>> {
+  const allSessions = await listSessions(outputDir);
+  const byRoute: Record<string, Session[]> = {};
+
+  for (const session of allSessions) {
+    let route: string;
+    try {
+      route = new URL(session.url).pathname;
+    } catch {
+      route = session.url;
+    }
+
+    if (!byRoute[route]) {
+      byRoute[route] = [];
+    }
+    byRoute[route].push(session);
+  }
+
+  return byRoute;
+}
+
+/**
+ * Get session statistics
+ */
+export async function getSessionStats(outputDir: string): Promise<{
+  total: number;
+  byStatus: Record<string, number>;
+  byViewport: Record<string, number>;
+  byVerdict: Record<string, number>;
+}> {
+  const sessions = await listSessions(outputDir);
+
+  const byStatus: Record<string, number> = {};
+  const byViewport: Record<string, number> = {};
+  const byVerdict: Record<string, number> = {};
+
+  for (const session of sessions) {
+    // Count by status
+    byStatus[session.status] = (byStatus[session.status] || 0) + 1;
+
+    // Count by viewport
+    const viewportName = session.viewport.name;
+    byViewport[viewportName] = (byViewport[viewportName] || 0) + 1;
+
+    // Count by verdict
+    if (session.analysis?.verdict) {
+      byVerdict[session.analysis.verdict] = (byVerdict[session.analysis.verdict] || 0) + 1;
+    }
+  }
+
+  return {
+    total: sessions.length,
+    byStatus,
+    byViewport,
+    byVerdict,
+  };
 }

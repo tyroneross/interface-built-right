@@ -1,5 +1,5 @@
 ---
-description: Launch the IBR visual comparison web UI dashboard at localhost:4200
+description: Launch the IBR visual comparison web UI dashboard at localhost:4242
 ---
 
 # /ibr-ui
@@ -14,7 +14,7 @@ Start the web UI server:
 cd ${CLAUDE_PLUGIN_ROOT}/.. && npm run ui
 ```
 
-Then inform the user the dashboard is available at: **http://localhost:4200**
+Then inform the user the dashboard is available at: **http://localhost:4242**
 
 ## Features
 
