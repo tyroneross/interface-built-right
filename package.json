@@ -1,5 +1,5 @@
 {
-  "name": "interface-built-right",
+  "name": "@tyroneross/interface-built-right",
   "version": "0.1.0",
   "description": "Visual regression testing for Claude Code - capture baselines, compare changes, iterate automatically",
   "repository": {
