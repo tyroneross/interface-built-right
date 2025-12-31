@@ -35,6 +35,7 @@ export class InterfaceBuiltRight {
       name = this.generateSessionName(path),
       viewport = this.config.viewport,
       fullPage = this.config.fullPage,
+      selector,
     } = options;
 
     const url = this.resolveUrl(path);
@@ -52,6 +53,7 @@ export class InterfaceBuiltRight {
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
+      selector,
     });
 
     return {

@@ -62,13 +62,15 @@ program
   .command('start <url>')
   .description('Start a visual session by capturing a baseline screenshot')
   .option('-n, --name <name>', 'Session name')
+  .option('-s, --selector <css>', 'CSS selector to capture specific element')
   .option('--no-full-page', 'Capture only the viewport, not full page')
-  .action(async (url: string, options: { name?: string; fullPage?: boolean }) => {
+  .action(async (url: string, options: { name?: string; fullPage?: boolean; selector?: string }) => {
     try {
       const ibr = await createIBR(program.opts());
       const result = await ibr.startSession(url, {
         name: options.name,
         fullPage: options.fullPage,
+        selector: options.selector,
       });
 
       console.log(`Session started: ${result.sessionId}`);

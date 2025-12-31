@@ -2,6 +2,14 @@
   "name": "interface-built-right",
   "version": "0.1.0",
   "description": "Visual regression testing for Claude Code - capture baselines, compare changes, iterate automatically",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tyroneross/interface-built-right.git"
+  },
+  "homepage": "https://github.com/tyroneross/interface-built-right#readme",
+  "bugs": {
+    "url": "https://github.com/tyroneross/interface-built-right/issues"
+  },
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",

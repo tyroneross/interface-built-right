@@ -976,6 +976,8 @@ interface StartSessionOptions {
     name?: string;
     viewport?: Viewport;
     fullPage?: boolean;
+    /** CSS selector to capture specific element instead of full page */
+    selector?: string;
 }
 /**
  * Result from starting a session
@@ -995,6 +997,8 @@ interface CaptureOptions {
     fullPage?: boolean;
     waitForNetworkIdle?: boolean;
     timeout?: number;
+    /** CSS selector to capture specific element instead of full page */
+    selector?: string;
 }
 /**
  * Options for comparing images

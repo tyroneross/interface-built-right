@@ -14,6 +14,8 @@ export interface StartSessionOptions {
   name?: string;
   viewport?: Viewport;
   fullPage?: boolean;
+  /** CSS selector to capture specific element instead of full page */
+  selector?: string;
 }
 
 /**
@@ -35,6 +37,8 @@ export interface CaptureOptions {
   fullPage?: boolean;
   waitForNetworkIdle?: boolean;
   timeout?: number;
+  /** CSS selector to capture specific element instead of full page */
+  selector?: string;
 }
 
 /**

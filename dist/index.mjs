@@ -182,7 +182,8 @@ async function captureScreenshot(options) {
     fullPage = true,
     waitForNetworkIdle = true,
     timeout = 3e4,
-    outputDir
+    outputDir,
+    selector
   } = options;
   await mkdir(dirname(outputPath), { recursive: true });
   let storageState;
@@ -221,11 +222,22 @@ async function captureScreenshot(options) {
         }
       `
     });
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-      type: "png"
-    });
+    if (selector) {
+      const element = await page.waitForSelector(selector, { timeout: 5e3 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: "png"
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: "png"
+      });
+    }
     return outputPath;
   } finally {
     await context.close();
@@ -242,7 +254,8 @@ async function captureWithDiagnostics(options) {
     fullPage = true,
     waitForNetworkIdle = true,
     timeout = 3e4,
-    outputDir
+    outputDir,
+    selector
   } = options;
   const startTime = Date.now();
   let navigationTime = 0;
@@ -340,11 +353,22 @@ async function captureWithDiagnostics(options) {
       `
     });
     const renderStart = Date.now();
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-      type: "png"
-    });
+    if (selector) {
+      const element = await page.waitForSelector(selector, { timeout: 5e3 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: "png"
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: "png"
+      });
+    }
     renderTime = Date.now() - renderStart;
     await context.close();
     if (navigationTime > 5e3) {
@@ -1304,7 +1328,8 @@ var InterfaceBuiltRight = class {
     const {
       name = this.generateSessionName(path),
       viewport = this.config.viewport,
-      fullPage = this.config.fullPage
+      fullPage = this.config.fullPage,
+      selector
     } = options;
     const url = this.resolveUrl(path);
     const session = await createSession(this.config.outputDir, url, name, viewport);
@@ -1316,7 +1341,8 @@ var InterfaceBuiltRight = class {
       fullPage,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
-      outputDir: this.config.outputDir
+      outputDir: this.config.outputDir,
+      selector
     });
     return {
       sessionId: session.id,

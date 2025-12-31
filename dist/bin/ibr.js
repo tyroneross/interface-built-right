@@ -390,7 +390,8 @@ async function captureScreenshot(options) {
     fullPage = true,
     waitForNetworkIdle = true,
     timeout = 3e4,
-    outputDir
+    outputDir,
+    selector
   } = options;
   await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
   let storageState;
@@ -429,11 +430,22 @@ async function captureScreenshot(options) {
         }
       `
     });
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-      type: "png"
-    });
+    if (selector) {
+      const element = await page.waitForSelector(selector, { timeout: 5e3 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: "png"
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: "png"
+      });
+    }
     return outputPath;
   } finally {
     await context.close();
@@ -465,7 +477,8 @@ async function captureWithDiagnostics(options) {
     fullPage = true,
     waitForNetworkIdle = true,
     timeout = 3e4,
-    outputDir
+    outputDir,
+    selector
   } = options;
   const startTime = Date.now();
   let navigationTime = 0;
@@ -563,11 +576,22 @@ async function captureWithDiagnostics(options) {
       `
     });
     const renderStart = Date.now();
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-      type: "png"
-    });
+    if (selector) {
+      const element = await page.waitForSelector(selector, { timeout: 5e3 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: "png"
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: "png"
+      });
+    }
     renderTime = Date.now() - renderStart;
     await context.close();
     if (navigationTime > 5e3) {
@@ -1594,7 +1618,8 @@ var InterfaceBuiltRight = class {
     const {
       name = this.generateSessionName(path),
       viewport = this.config.viewport,
-      fullPage = this.config.fullPage
+      fullPage = this.config.fullPage,
+      selector
     } = options;
     const url = this.resolveUrl(path);
     const session = await createSession(this.config.outputDir, url, name, viewport);
@@ -1606,7 +1631,8 @@ var InterfaceBuiltRight = class {
       fullPage,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
-      outputDir: this.config.outputDir
+      outputDir: this.config.outputDir,
+      selector
     });
     return {
       sessionId: session.id,
@@ -1778,12 +1804,13 @@ async function createIBR(options = {}) {
 }
 program.name("ibr").description("Visual regression testing for Claude Code").version("0.1.0");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0");
-program.command("start <url>").description("Start a visual session by capturing a baseline screenshot").option("-n, --name <name>", "Session name").option("--no-full-page", "Capture only the viewport, not full page").action(async (url, options) => {
+program.command("start <url>").description("Start a visual session by capturing a baseline screenshot").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport, not full page").action(async (url, options) => {
   try {
     const ibr = await createIBR(program.opts());
     const result = await ibr.startSession(url, {
       name: options.name,
-      fullPage: options.fullPage
+      fullPage: options.fullPage,
+      selector: options.selector
     });
     console.log(`Session started: ${result.sessionId}`);
     console.log(`Baseline: ${result.baseline}`);

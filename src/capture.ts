@@ -85,6 +85,7 @@ export async function captureScreenshot(
     waitForNetworkIdle = true,
     timeout = 30000,
     outputDir,
+    selector,
   } = options;
 
   // Ensure output directory exists
@@ -136,12 +137,24 @@ export async function captureScreenshot(
       `,
     });
 
-    // Take screenshot
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-      type: 'png',
-    });
+    // Take screenshot - element or full page
+    if (selector) {
+      // Wait for element and capture just that element
+      const element = await page.waitForSelector(selector, { timeout: 5000 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: 'png',
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: 'png',
+      });
+    }
 
     return outputPath;
   } finally {
@@ -199,6 +212,7 @@ export async function captureWithDiagnostics(
     waitForNetworkIdle = true,
     timeout = 30000,
     outputDir,
+    selector,
   } = options;
 
   const startTime = Date.now();
@@ -321,13 +335,24 @@ export async function captureWithDiagnostics(
       `,
     });
 
-    // Take screenshot
+    // Take screenshot - element or full page
     const renderStart = Date.now();
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-      type: 'png',
-    });
+    if (selector) {
+      const element = await page.waitForSelector(selector, { timeout: 5000 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: 'png',
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: 'png',
+      });
+    }
     renderTime = Date.now() - renderStart;
 
     await context.close();
