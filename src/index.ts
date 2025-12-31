@@ -39,7 +39,7 @@ export class InterfaceBuiltRight {
     const session = await createSession(this.config.outputDir, url, name, viewport);
     const paths = getSessionPaths(this.config.outputDir, session.id);
 
-    // Capture baseline
+    // Capture baseline (outputDir enables auth state loading)
     await captureScreenshot({
       url,
       outputPath: paths.baseline,
@@ -47,6 +47,7 @@ export class InterfaceBuiltRight {
       fullPage,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
+      outputDir: this.config.outputDir,
     });
 
     return {
@@ -73,7 +74,7 @@ export class InterfaceBuiltRight {
 
     const paths = getSessionPaths(this.config.outputDir, session.id);
 
-    // Capture current screenshot
+    // Capture current screenshot (outputDir enables auth state loading)
     await captureScreenshot({
       url: session.url,
       outputPath: paths.current,
@@ -81,6 +82,7 @@ export class InterfaceBuiltRight {
       fullPage: this.config.fullPage,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
+      outputDir: this.config.outputDir,
     });
 
     // Compare images
@@ -152,7 +154,7 @@ export class InterfaceBuiltRight {
 
     const paths = getSessionPaths(this.config.outputDir, session.id);
 
-    // Capture new baseline
+    // Capture new baseline (outputDir enables auth state loading)
     await captureScreenshot({
       url: session.url,
       outputPath: paths.baseline,
@@ -160,6 +162,7 @@ export class InterfaceBuiltRight {
       fullPage: this.config.fullPage,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
+      outputDir: this.config.outputDir,
     });
 
     // Reset session status

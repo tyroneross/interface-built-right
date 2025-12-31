@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
@@ -235,25 +233,80 @@ program
   .option('-p, --port <port>', 'Port number', '4200')
   .option('--no-open', 'Do not open browser automatically')
   .action(async (options: { port: string; open?: boolean }) => {
-    console.log(`Starting web UI on http://localhost:${options.port}`);
-    console.log('');
-    console.log('Note: Web UI is not yet implemented. Coming soon!');
-    console.log('');
-    console.log('For now, you can view the comparison images directly:');
+    const { spawn } = await import('child_process');
+    const { resolve } = await import('path');
 
-    try {
-      const ibr = await createIBR(program.opts());
-      const session = await ibr.getMostRecentSession();
+    // Find web-ui directory relative to package root
+    // In CJS build, use process.cwd() or resolve from known location
+    const packageRoot = resolve(process.cwd());
+    let webUiDir = join(packageRoot, 'web-ui');
 
-      if (session) {
-        const config = ibr.getConfig();
-        console.log(`  Baseline: ${config.outputDir}/sessions/${session.id}/baseline.png`);
-        console.log(`  Current:  ${config.outputDir}/sessions/${session.id}/current.png`);
-        console.log(`  Diff:     ${config.outputDir}/sessions/${session.id}/diff.png`);
+    // If not found in cwd, try relative to node_modules install
+    if (!existsSync(webUiDir)) {
+      // Try finding it relative to this package when installed as dependency
+      const possiblePaths = [
+        join(packageRoot, 'node_modules', 'interface-built-right', 'web-ui'),
+        join(packageRoot, '..', 'interface-built-right', 'web-ui'),
+      ];
+      for (const p of possiblePaths) {
+        if (existsSync(p)) {
+          webUiDir = p;
+          break;
+        }
       }
-    } catch {
-      // Ignore errors
     }
+
+    // Check if web-ui exists
+    if (!existsSync(webUiDir)) {
+      console.log('Web UI not found. Please ensure web-ui directory exists.');
+      console.log('');
+      console.log('For now, you can view the comparison images directly:');
+
+      try {
+        const ibr = await createIBR(program.opts());
+        const session = await ibr.getMostRecentSession();
+
+        if (session) {
+          const config = ibr.getConfig();
+          console.log(`  Baseline: ${config.outputDir}/sessions/${session.id}/baseline.png`);
+          console.log(`  Current:  ${config.outputDir}/sessions/${session.id}/current.png`);
+          console.log(`  Diff:     ${config.outputDir}/sessions/${session.id}/diff.png`);
+        }
+      } catch {
+        // Ignore errors
+      }
+      return;
+    }
+
+    console.log(`Starting web UI on http://localhost:${options.port}`);
+    console.log('Press Ctrl+C to stop the server.');
+    console.log('');
+
+    // Start Next.js dev server
+    const server = spawn('npm', ['run', 'dev', '--', '-p', options.port], {
+      cwd: webUiDir,
+      stdio: 'inherit',
+      shell: true,
+    });
+
+    // Open browser after a short delay (if --no-open not specified)
+    if (options.open !== false) {
+      setTimeout(async () => {
+        const open = (await import('child_process')).exec;
+        const url = `http://localhost:${options.port}`;
+        // Cross-platform open command
+        const cmd = process.platform === 'darwin' ? 'open' :
+                    process.platform === 'win32' ? 'start' : 'xdg-open';
+        open(`${cmd} ${url}`);
+      }, 3000);
+    }
+
+    // Handle server exit
+    server.on('close', (code) => {
+      if (code !== 0) {
+        console.log(`Web UI server exited with code ${code}`);
+      }
+    });
   });
 
 // Login command - save auth state for authenticated captures

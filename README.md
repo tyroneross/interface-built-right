@@ -2,54 +2,120 @@
 
 Visual regression testing for Claude Code. Capture baselines, compare changes, iterate automatically.
 
-## The Problem
+## Quick Start
 
-When Claude makes UI changes, you currently have to:
-1. Manually take screenshots
-2. Copy/paste images back to Claude Code
-3. Explain what's wrong
-4. Repeat until correct
+```bash
+# 1. Install
+npm install github:tyroneross/interface-built-right
 
-**This is tedious and breaks flow.**
+# 2. Capture baseline of your app
+npx ibr start http://localhost:3000/dashboard --name my-feature
 
-## The Solution
+# 3. Make UI changes...
 
-Claude captures its own snapshots before/after changes and iterates on obvious issues automatically:
+# 4. Compare against baseline
+npx ibr check
 
-1. **Before changes**: Claude captures baseline of current UI state
-2. **During work**: Claude makes frontend changes
-3. **After changes**: Claude captures new snapshot
-4. **Auto-compare**: Claude compares both, identifies obvious issues
-5. **Self-iterate**: Claude fixes obvious problems without user intervention
-6. **Manual review** (optional): User views comparison UI, provides additional instructions
+# 5. View visual diff in browser
+npx ibr serve
+```
 
 ## Installation
 
+**From GitHub:**
 ```bash
-npm install interface-built-right
+npm install github:tyroneross/interface-built-right
 ```
 
-## CLI Usage
+**From local path:**
+```bash
+npm install /path/to/interface-built-right
+```
+
+**After install, verify it works:**
+```bash
+npx ibr --help
+```
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `npx ibr start <url>` | Capture baseline screenshot |
+| `npx ibr check [sessionId]` | Compare current state against baseline |
+| `npx ibr serve` | Open web UI at localhost:4200 |
+| `npx ibr list` | List all sessions |
+| `npx ibr update [sessionId]` | Update baseline with current screenshot |
+| `npx ibr clean --older-than 7d` | Clean old sessions |
+| `npx ibr login <url>` | Save auth state for protected pages |
+| `npx ibr logout` | Clear saved auth state |
+
+## Workflow Example
 
 ```bash
-# Start visual session (capture baseline)
-npx ibr start http://localhost:3000/dashboard --name dashboard-update
-# Output: Session started: sess_abc123
+# 1. Start your app
+cd my-app && npm run dev  # → localhost:3000
 
-# Check current state against baseline
-npx ibr check sess_abc123
-# Output: Comparison report (JSON or summary)
+# 2. Capture baseline before making changes
+npx ibr start http://localhost:3000/settings --name settings-redesign
+# → Session started: sess_Hk8mN2pQ
 
-# Open comparison UI
+# 3. Make your UI changes (edit components, styles, etc.)
+
+# 4. Compare against baseline
+npx ibr check
+# → Shows diff percentage and verdict
+
+# 5. View in web UI
 npx ibr serve
-# Opens http://localhost:4200
+# → Opens http://localhost:4200 with side-by-side comparison
 
-# List sessions
-npx ibr list
-
-# Clean old sessions
-npx ibr clean --older-than 7d
+# 6. If changes look good, update baseline
+npx ibr update
 ```
+
+## Authenticated Pages
+
+For pages behind login:
+
+```bash
+# 1. Save auth state (opens browser for manual login)
+npx ibr login http://localhost:3000/login
+# → Log in manually, then close browser
+
+# 2. Now captures will use your auth session
+npx ibr start http://localhost:3000/dashboard
+# → 🔐 Using saved authentication state
+
+# 3. Clear auth when done
+npx ibr logout
+```
+
+**Security notes:**
+- Auth state is stored per-user (`auth.{username}.json`)
+- 7-day expiration with auto-cleanup
+- Blocked in CI/CD and deployed environments
+- Add `.ibr/` to your `.gitignore`
+
+## Claude Code Plugin
+
+Add to your project's `.claude/settings.json`:
+
+```json
+{
+  "plugins": [
+    "node_modules/interface-built-right/plugin"
+  ]
+}
+```
+
+Then restart Claude Code. You'll have these commands:
+
+| Command | Description |
+|---------|-------------|
+| `/ibr:ui` | Launch web UI dashboard |
+| `/ibr:snapshot` | Capture baseline (prompts for URL) |
+| `/ibr:compare` | Compare against baseline |
 
 ## Programmatic API
 
@@ -59,81 +125,23 @@ import { InterfaceBuiltRight } from 'interface-built-right';
 const ibr = new InterfaceBuiltRight({
   baseUrl: 'http://localhost:3000',
   outputDir: './.ibr',
-  viewports: ['desktop'],
+  threshold: 1.0,  // % diff allowed
 });
 
-// Start a visual session (capture baseline)
-const session = await ibr.startSession('/dashboard', 'dashboard-update');
+// Capture baseline
+const { sessionId } = await ibr.startSession('/dashboard', {
+  name: 'dashboard-update',
+});
 
-// After making changes, check against baseline
-const result = await ibr.check(session.sessionId);
+// After making changes, compare
+const report = await ibr.check(sessionId);
 
-// Open comparison UI
-await ibr.serve();
+console.log(report.analysis.verdict);
+// → "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN"
+
+// Cleanup
+await ibr.close();
 ```
-
-## Claude Code Plugin
-
-Install the plugin to get these skills:
-
-- `/visual-start <url>` - Capture baseline before UI work
-- `/visual-check` - Compare current state against baseline
-- `/visual-view` - Open comparison UI in browser
-
-### Automatic Mode
-
-```
-User: "Update the dashboard header to use a darker background"
-
-Claude (automatically):
-1. Captures baseline screenshot
-2. Makes UI changes
-3. Captures new screenshot & compares
-4. If issues detected → fixes and re-checks
-5. Reports success when done
-```
-
-### Manual Mode (Default)
-
-```
-User: "Update the dashboard header"
-
-Claude:
-1. Makes UI changes
-2. Prompts: "Run /visual-view to see the changes"
-
-User: /visual-view
-→ Opens comparison UI at http://localhost:4200
-→ User reviews before/after/diff
-→ User provides feedback in FeedbackPanel
-```
-
-## Comparison Report Format
-
-Reports are structured for Claude to read and act on:
-
-```json
-{
-  "sessionId": "sess_abc123",
-  "comparison": {
-    "match": false,
-    "diffPercent": 8.2,
-    "diffPixels": 6560,
-    "threshold": 1.0
-  },
-  "analysis": {
-    "verdict": "EXPECTED_CHANGE",
-    "summary": "Header background changed. Layout intact.",
-    "unexpectedChanges": []
-  }
-}
-```
-
-**Verdict Types:**
-- `MATCH` - No visual changes
-- `EXPECTED_CHANGE` - Changes detected, appear intentional
-- `UNEXPECTED_CHANGE` - Changes in unexpected areas (needs review)
-- `LAYOUT_BROKEN` - Significant structural issues
 
 ## Configuration
 
@@ -144,24 +152,81 @@ Create `.ibrrc.json` in your project root:
   "baseUrl": "http://localhost:3000",
   "outputDir": "./.ibr",
   "viewport": "desktop",
-  "threshold": 1.0
+  "threshold": 1.0,
+  "fullPage": true
 }
 ```
 
-## Session Storage
+## Comparison Report
 
-Sessions are stored locally in `.ibr/sessions/`:
+Reports are structured for Claude to read and act on:
+
+```json
+{
+  "sessionId": "sess_abc123",
+  "comparison": {
+    "match": false,
+    "diffPercent": 8.2,
+    "diffPixels": 6560
+  },
+  "analysis": {
+    "verdict": "EXPECTED_CHANGE",
+    "summary": "Header background changed. Layout intact."
+  }
+}
+```
+
+**Verdicts:**
+- `MATCH` - No visual changes (within threshold)
+- `EXPECTED_CHANGE` - Changes detected, appear intentional
+- `UNEXPECTED_CHANGE` - Changes in unexpected areas
+- `LAYOUT_BROKEN` - Significant structural issues
+
+## File Structure
+
+Sessions are stored in `.ibr/sessions/`:
 
 ```
 .ibr/
-├── config.json
+├── auth.{username}.json   # Auth state (per-user)
 └── sessions/
     └── sess_abc123/
-        ├── session.json
-        ├── baseline.png
-        ├── current.png
-        └── diff.png
+        ├── session.json   # Session metadata
+        ├── baseline.png   # Original screenshot
+        ├── current.png    # After-changes screenshot
+        └── diff.png       # Visual diff
 ```
+
+## Troubleshooting
+
+**"Command not found: ibr"**
+```bash
+# Use npx or run from source
+npx ibr --help
+# OR
+npm run ibr -- --help
+```
+
+**"Playwright browsers not installed"**
+```bash
+npx playwright install chromium
+```
+
+**"Auth state expired"**
+```bash
+npx ibr login http://localhost:3000/login
+```
+
+**"Session not found"**
+```bash
+# List available sessions
+npx ibr list
+```
+
+## Requirements
+
+- Node.js 18+
+- Playwright (installed automatically)
 
 ## License
 
