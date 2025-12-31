@@ -254,6 +254,226 @@ var init_auth = __esm({
   }
 });
 
+// src/crawl.ts
+var crawl_exports = {};
+__export(crawl_exports, {
+  discoverPages: () => discoverPages,
+  getNavigationLinks: () => getNavigationLinks
+});
+async function discoverPages(options) {
+  const {
+    url,
+    maxPages = 5,
+    pathPrefix,
+    timeout = 1e4,
+    includeExternal = false
+  } = options;
+  const startTime = Date.now();
+  const startUrl = new import_url.URL(url);
+  const origin = startUrl.origin;
+  const discovered = /* @__PURE__ */ new Map();
+  const visited = /* @__PURE__ */ new Set();
+  const queue = [
+    { url, depth: 0 }
+  ];
+  let browser2 = null;
+  let totalLinks = 0;
+  try {
+    browser2 = await import_playwright3.chromium.launch({ headless: true });
+    const context = await browser2.newContext();
+    const page = await context.newPage();
+    while (queue.length > 0 && discovered.size < maxPages) {
+      const current = queue.shift();
+      if (!current) break;
+      const currentUrl = normalizeUrl(current.url);
+      if (visited.has(currentUrl)) continue;
+      visited.add(currentUrl);
+      try {
+        await page.goto(current.url, {
+          waitUntil: "domcontentloaded",
+          timeout
+        });
+        const title = await page.title();
+        const parsedUrl = new import_url.URL(current.url);
+        discovered.set(currentUrl, {
+          url: current.url,
+          path: parsedUrl.pathname,
+          title: title || parsedUrl.pathname,
+          linkText: current.linkText,
+          depth: current.depth
+        });
+        if (discovered.size >= maxPages) break;
+        const links = await page.evaluate(() => {
+          const anchors = Array.from(document.querySelectorAll("a[href]"));
+          return anchors.map((a) => ({
+            href: a.getAttribute("href") || "",
+            text: a.textContent?.trim() || ""
+          }));
+        });
+        totalLinks += links.length;
+        for (const link of links) {
+          if (discovered.size >= maxPages) break;
+          try {
+            const absoluteUrl = new import_url.URL(link.href, current.url);
+            const normalizedUrl = normalizeUrl(absoluteUrl.href);
+            if (visited.has(normalizedUrl)) continue;
+            if (!includeExternal && absoluteUrl.origin !== origin) continue;
+            if (pathPrefix && !absoluteUrl.pathname.startsWith(pathPrefix)) continue;
+            if (shouldSkipUrl(absoluteUrl)) continue;
+            queue.push({
+              url: absoluteUrl.href,
+              depth: current.depth + 1,
+              linkText: link.text
+            });
+          } catch {
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to load ${current.url}:`, error instanceof Error ? error.message : error);
+      }
+    }
+    await browser2.close();
+  } catch (error) {
+    if (browser2) await browser2.close();
+    throw error;
+  }
+  const crawlTime = Date.now() - startTime;
+  return {
+    baseUrl: origin,
+    pages: Array.from(discovered.values()).sort((a, b) => {
+      if (a.depth !== b.depth) return a.depth - b.depth;
+      return a.path.localeCompare(b.path);
+    }),
+    totalLinks,
+    crawlTime
+  };
+}
+function normalizeUrl(url) {
+  try {
+    const parsed = new import_url.URL(url);
+    let normalized = `${parsed.origin}${parsed.pathname}`;
+    if (normalized.endsWith("/") && normalized.length > 1) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  } catch {
+    return url;
+  }
+}
+function shouldSkipUrl(url) {
+  const path = url.pathname.toLowerCase();
+  const skipExtensions = [
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".css",
+    ".js",
+    ".json",
+    ".xml",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".mp3",
+    ".mp4",
+    ".webm",
+    ".zip",
+    ".tar",
+    ".gz"
+  ];
+  if (skipExtensions.some((ext) => path.endsWith(ext))) return true;
+  const skipPaths = [
+    "/api/",
+    "/static/",
+    "/assets/",
+    "/_next/",
+    "/fonts/",
+    "/images/",
+    "/img/",
+    "/cdn/",
+    "/admin/",
+    "/auth/"
+  ];
+  if (skipPaths.some((p) => path.includes(p))) return true;
+  if (url.hash && url.pathname === "/") return true;
+  return false;
+}
+async function getNavigationLinks(url) {
+  let browser2 = null;
+  try {
+    browser2 = await import_playwright3.chromium.launch({ headless: true });
+    const page = await browser2.newPage();
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 15e3
+    });
+    const origin = new import_url.URL(url).origin;
+    const navLinks = await page.evaluate(() => {
+      const selectors = [
+        "nav a[href]",
+        "header a[href]",
+        '[role="navigation"] a[href]',
+        ".nav a[href]",
+        ".navbar a[href]",
+        ".sidebar a[href]",
+        ".menu a[href]"
+      ];
+      const links = [];
+      const seen = /* @__PURE__ */ new Set();
+      for (const selector of selectors) {
+        const anchors = Array.from(document.querySelectorAll(selector));
+        for (const a of anchors) {
+          const href = a.getAttribute("href");
+          const text = a.textContent?.trim();
+          if (href && text && !seen.has(href)) {
+            seen.add(href);
+            links.push({ href, text });
+          }
+        }
+      }
+      return links;
+    });
+    await browser2.close();
+    const pages = [];
+    for (const link of navLinks) {
+      try {
+        const absoluteUrl = new import_url.URL(link.href, url);
+        if (absoluteUrl.origin !== origin) continue;
+        if (shouldSkipUrl(absoluteUrl)) continue;
+        pages.push({
+          url: absoluteUrl.href,
+          path: absoluteUrl.pathname,
+          title: link.text,
+          linkText: link.text,
+          depth: 1
+        });
+      } catch {
+      }
+    }
+    const uniquePages = /* @__PURE__ */ new Map();
+    for (const page2 of pages) {
+      if (!uniquePages.has(page2.path)) {
+        uniquePages.set(page2.path, page2);
+      }
+    }
+    return Array.from(uniquePages.values());
+  } catch (error) {
+    if (browser2) await browser2.close();
+    throw error;
+  }
+}
+var import_playwright3, import_url;
+var init_crawl = __esm({
+  "src/crawl.ts"() {
+    "use strict";
+    import_playwright3 = require("playwright");
+    import_url = require("url");
+  }
+});
+
 // src/bin/ibr.ts
 var import_commander = require("commander");
 var import_promises5 = require("fs/promises");
@@ -442,6 +662,58 @@ var import_pixelmatch = __toESM(require("pixelmatch"));
 var import_pngjs = require("pngjs");
 var import_promises3 = require("fs/promises");
 var import_path3 = require("path");
+var DEFAULT_REGIONS = [
+  { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
+  { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
+  { name: "content", location: "center", xStart: 0.2, xEnd: 1, yStart: 0.1, yEnd: 0.9 },
+  { name: "footer", location: "bottom", xStart: 0, xEnd: 1, yStart: 0.9, yEnd: 1 }
+];
+function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS) {
+  const changedRegions = [];
+  for (const region of regions) {
+    const xStart = Math.floor(region.xStart * width);
+    const xEnd = Math.floor(region.xEnd * width);
+    const yStart = Math.floor(region.yStart * height);
+    const yEnd = Math.floor(region.yEnd * height);
+    const regionWidth = xEnd - xStart;
+    const regionHeight = yEnd - yStart;
+    const regionPixels = regionWidth * regionHeight;
+    if (regionPixels === 0) continue;
+    let diffPixels = 0;
+    for (let y = yStart; y < yEnd; y++) {
+      for (let x = xStart; x < xEnd; x++) {
+        const idx = (y * width + x) * 4;
+        if (diffData[idx] === 255 && diffData[idx + 1] === 0 && diffData[idx + 2] === 0) {
+          diffPixels++;
+        }
+      }
+    }
+    const diffPercent = diffPixels / regionPixels * 100;
+    if (diffPercent > 0.1) {
+      const severity = diffPercent > 30 ? "critical" : diffPercent > 10 ? "unexpected" : "expected";
+      changedRegions.push({
+        location: region.location,
+        bounds: {
+          x: xStart,
+          y: yStart,
+          width: regionWidth,
+          height: regionHeight
+        },
+        description: `${region.name}: ${diffPercent.toFixed(1)}% changed`,
+        severity
+      });
+    }
+  }
+  return changedRegions.sort((a, b) => {
+    const severityOrder = { critical: 0, unexpected: 1, expected: 2 };
+    const aSev = severityOrder[a.severity];
+    const bSev = severityOrder[b.severity];
+    if (aSev !== bSev) return aSev - bSev;
+    const aPercent = parseFloat(a.description.match(/(\d+\.?\d*)%/)?.[1] || "0");
+    const bPercent = parseFloat(b.description.match(/(\d+\.?\d*)%/)?.[1] || "0");
+    return bPercent - aPercent;
+  });
+}
 async function compareImages(options) {
   const {
     baselinePath,
@@ -490,46 +762,65 @@ async function compareImages(options) {
     // Round to 2 decimal places
     diffPixels,
     totalPixels,
-    threshold
+    threshold,
+    // Include diff data for regional analysis
+    diffData: diff.data,
+    width,
+    height
   };
 }
 function analyzeComparison(result, thresholdPercent = 1) {
-  const { match, diffPercent, diffPixels } = result;
+  const { match, diffPercent, diffData, width, height } = result;
+  let detectedRegions = [];
+  if (diffData && width && height && !match) {
+    detectedRegions = detectChangedRegions(diffData, width, height);
+  }
+  const criticalRegions = detectedRegions.filter((r) => r.severity === "critical");
+  const unexpectedRegions = detectedRegions.filter((r) => r.severity === "unexpected");
+  const hasNavigationChanges = detectedRegions.some(
+    (r) => r.description.toLowerCase().includes("navigation") || r.description.toLowerCase().includes("header")
+  );
   let verdict;
   let summary;
   let recommendation = null;
   if (match || diffPercent === 0) {
     verdict = "MATCH";
     summary = "No visual changes detected. Screenshots are identical.";
+  } else if (criticalRegions.length > 0) {
+    verdict = "LAYOUT_BROKEN";
+    const regionNames = criticalRegions.map(
+      (r) => r.description.split(":")[0]
+    ).join(", ");
+    summary = `Critical changes in: ${regionNames}. Layout may be broken.`;
+    recommendation = `Major changes detected in ${regionNames}. Check for missing elements, broken layout, or loading errors.`;
+  } else if (unexpectedRegions.length > 0 || diffPercent > 20) {
+    verdict = "UNEXPECTED_CHANGE";
+    const regionNames = unexpectedRegions.length > 0 ? unexpectedRegions.map((r) => r.description.split(":")[0]).join(", ") : "multiple areas";
+    summary = `Significant changes in: ${regionNames} (${diffPercent}% overall).`;
+    recommendation = hasNavigationChanges ? "Navigation area changed - verify menu items and links are correct." : "Review changes carefully - some may be unintentional.";
   } else if (diffPercent <= thresholdPercent) {
     verdict = "EXPECTED_CHANGE";
-    summary = `Minor changes detected (${diffPercent}% difference). Changes appear intentional.`;
-  } else if (diffPercent <= 20) {
-    verdict = "EXPECTED_CHANGE";
-    summary = `Moderate changes detected (${diffPercent}% difference, ${diffPixels.toLocaleString()} pixels). Review the diff image to verify changes are as expected.`;
-  } else if (diffPercent <= 50) {
-    verdict = "UNEXPECTED_CHANGE";
-    summary = `Significant changes detected (${diffPercent}% difference). Some changes may be unintentional.`;
-    recommendation = "Review the diff image carefully. Large portions of the page have changed.";
+    summary = `Minor changes detected (${diffPercent}%). Within acceptable threshold.`;
   } else {
-    verdict = "LAYOUT_BROKEN";
-    summary = `Major changes detected (${diffPercent}% difference). Layout may be broken or page failed to load correctly.`;
-    recommendation = "Check for JavaScript errors, missing assets, or layout issues. The page appears significantly different from the baseline.";
+    verdict = "EXPECTED_CHANGE";
+    const regionNames = detectedRegions.length > 0 ? detectedRegions.map((r) => r.description.split(":")[0]).join(", ") : "content area";
+    summary = `Changes in: ${regionNames} (${diffPercent}% overall). Changes appear intentional.`;
   }
-  const changedRegions = [];
-  const unexpectedChanges = [];
-  if (!match) {
-    const region = {
+  const changedRegions = detectedRegions.filter((r) => r.severity === "expected");
+  const unexpectedChanges = detectedRegions.filter(
+    (r) => r.severity === "unexpected" || r.severity === "critical"
+  );
+  if (detectedRegions.length === 0 && !match) {
+    const fallbackRegion = {
       location: diffPercent > 50 ? "full" : "center",
-      bounds: { x: 0, y: 0, width: 0, height: 0 },
-      // Would need pixel analysis for accurate bounds
-      description: `${diffPercent}% of pixels changed`,
+      bounds: { x: 0, y: 0, width: width || 0, height: height || 0 },
+      description: `overall: ${diffPercent}% changed`,
       severity: verdict === "LAYOUT_BROKEN" ? "critical" : verdict === "UNEXPECTED_CHANGE" ? "unexpected" : "expected"
     };
     if (verdict === "UNEXPECTED_CHANGE" || verdict === "LAYOUT_BROKEN") {
-      unexpectedChanges.push(region);
+      unexpectedChanges.push(fallbackRegion);
     } else {
-      changedRegions.push(region);
+      changedRegions.push(fallbackRegion);
     }
   }
   return {
@@ -858,6 +1149,7 @@ function formatSessionSummary(session) {
 }
 
 // src/index.ts
+init_crawl();
 var InterfaceBuiltRight = class {
   config;
   constructor(options = {}) {
@@ -1248,6 +1540,134 @@ program.command("logout").description("Clear saved authentication state").action
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     await clearAuthState2(outputDir);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("scan <url>").description("Discover pages and capture baselines for each (up to 5 by default)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").option("-f, --format <format>", "Output format: json, text", "text").action(async (url, options) => {
+  try {
+    const { discoverPages: discoverPages2, getNavigationLinks: getNavigationLinks2 } = await Promise.resolve().then(() => (init_crawl(), crawl_exports));
+    console.log(`Scanning ${url}...`);
+    console.log("");
+    let pages;
+    if (options.navOnly) {
+      pages = await getNavigationLinks2(url);
+      console.log(`Found ${pages.length} navigation links:`);
+    } else {
+      const result = await discoverPages2({
+        url,
+        maxPages: parseInt(options.maxPages, 10),
+        pathPrefix: options.prefix
+      });
+      pages = result.pages;
+      console.log(`Discovered ${pages.length} pages (${result.crawlTime}ms):`);
+    }
+    console.log("");
+    if (options.format === "json") {
+      console.log(JSON.stringify(pages, null, 2));
+    } else {
+      for (const page of pages) {
+        console.log(`  ${page.path}`);
+        console.log(`    Title: ${page.title}`);
+        if (page.linkText && page.linkText !== page.title) {
+          console.log(`    Link: ${page.linkText}`);
+        }
+        console.log("");
+      }
+    }
+    console.log("To capture baselines for all discovered pages:");
+    console.log(`  npx ibr scan-start ${url} --max-pages ${options.maxPages}`);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("scan-start <url>").description("Discover pages and capture baseline for each").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").action(async (url, options) => {
+  try {
+    const { discoverPages: discoverPages2, getNavigationLinks: getNavigationLinks2 } = await Promise.resolve().then(() => (init_crawl(), crawl_exports));
+    const ibr = await createIBR(program.opts());
+    console.log(`Scanning ${url}...`);
+    let pages;
+    if (options.navOnly) {
+      pages = await getNavigationLinks2(url);
+    } else {
+      const result = await discoverPages2({
+        url,
+        maxPages: parseInt(options.maxPages, 10),
+        pathPrefix: options.prefix
+      });
+      pages = result.pages;
+    }
+    console.log(`Found ${pages.length} pages. Capturing baselines...`);
+    console.log("");
+    const sessions = [];
+    for (const page of pages) {
+      try {
+        console.log(`Capturing: ${page.path}`);
+        const result = await ibr.startSession(page.url, {
+          name: page.title.replace(/[^a-zA-Z0-9-_]/g, "-").toLowerCase().slice(0, 50)
+        });
+        sessions.push({ page, sessionId: result.sessionId });
+        console.log(`  \u2713 Session: ${result.sessionId}`);
+      } catch (error) {
+        console.log(`  \u2717 Failed: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    console.log("");
+    console.log(`Captured ${sessions.length}/${pages.length} pages.`);
+    console.log("");
+    console.log("To compare all after making changes:");
+    console.log("  npx ibr scan-check");
+    await ibr.close();
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("scan-check").description("Compare all sessions from the last scan-start").option("-f, --format <format>", "Output format: json, text, minimal", "text").action(async (options) => {
+  try {
+    const ibr = await createIBR(program.opts());
+    const sessions = await ibr.listSessions();
+    const recentSessions = sessions.filter((s) => {
+      const age = Date.now() - new Date(s.createdAt).getTime();
+      return age < 60 * 60 * 1e3 && s.status === "baseline";
+    });
+    if (recentSessions.length === 0) {
+      console.log("No recent baseline sessions found. Run scan-start first.");
+      return;
+    }
+    console.log(`Checking ${recentSessions.length} sessions...`);
+    console.log("");
+    const results = [];
+    for (const session of recentSessions) {
+      try {
+        console.log(`Checking: ${session.name}`);
+        const report = await ibr.check(session.id);
+        results.push({ session, report });
+        const icon = report.analysis.verdict === "MATCH" ? "\u2713" : report.analysis.verdict === "EXPECTED_CHANGE" ? "~" : report.analysis.verdict === "UNEXPECTED_CHANGE" ? "!" : "\u2717";
+        console.log(`  ${icon} ${report.analysis.verdict}: ${report.analysis.summary}`);
+      } catch (error) {
+        console.log(`  \u2717 Failed: ${error instanceof Error ? error.message : error}`);
+      }
+    }
+    console.log("");
+    const matches = results.filter((r) => r.report.analysis.verdict === "MATCH").length;
+    const expected = results.filter((r) => r.report.analysis.verdict === "EXPECTED_CHANGE").length;
+    const unexpected = results.filter((r) => r.report.analysis.verdict === "UNEXPECTED_CHANGE").length;
+    const broken = results.filter((r) => r.report.analysis.verdict === "LAYOUT_BROKEN").length;
+    console.log("Summary:");
+    console.log(`  \u2713 Match: ${matches}`);
+    console.log(`  ~ Expected: ${expected}`);
+    console.log(`  ! Unexpected: ${unexpected}`);
+    console.log(`  \u2717 Broken: ${broken}`);
+    if (unexpected > 0 || broken > 0) {
+      console.log("");
+      console.log("Issues detected. View in UI:");
+      console.log("  npx ibr serve");
+    }
+    await ibr.close();
+    if (broken > 0) process.exit(1);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);

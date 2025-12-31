@@ -1076,17 +1076,77 @@ declare function captureScreenshot(options: CaptureOptions & {
 declare function getViewport(name: 'desktop' | 'mobile' | 'tablet'): Viewport;
 
 /**
+ * Region detection configuration
+ * Divides page into semantic regions based on common layout patterns
+ */
+interface RegionConfig {
+    name: string;
+    location: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
+    xStart: number;
+    xEnd: number;
+    yStart: number;
+    yEnd: number;
+}
+/**
+ * Analyze diff image to detect which regions have changes
+ */
+declare function detectChangedRegions(diffData: Uint8Array, width: number, height: number, regions?: RegionConfig[]): ChangedRegion[];
+/**
+ * Extended comparison result with diff image data for regional analysis
+ */
+interface ExtendedComparisonResult extends ComparisonResult {
+    diffData?: Uint8Array;
+    width?: number;
+    height?: number;
+}
+/**
  * Compare two images using pixelmatch
  */
-declare function compareImages(options: CompareOptions): Promise<ComparisonResult>;
+declare function compareImages(options: CompareOptions): Promise<ExtendedComparisonResult>;
 /**
- * Analyze comparison result and generate verdict
+ * Analyze comparison result and generate verdict with regional analysis
  */
-declare function analyzeComparison(result: ComparisonResult, thresholdPercent?: number): Analysis;
+declare function analyzeComparison(result: ExtendedComparisonResult, thresholdPercent?: number): Analysis;
 /**
  * Get a human-readable verdict description
  */
 declare function getVerdictDescription(verdict: Verdict): string;
+
+interface CrawlOptions {
+    /** Starting URL */
+    url: string;
+    /** Maximum number of pages to discover (default: 5) */
+    maxPages?: number;
+    /** Only crawl pages under this path prefix */
+    pathPrefix?: string;
+    /** Timeout per page in ms (default: 10000) */
+    timeout?: number;
+    /** Include external links (default: false) */
+    includeExternal?: boolean;
+}
+interface DiscoveredPage {
+    url: string;
+    path: string;
+    title: string;
+    linkText?: string;
+    depth: number;
+}
+interface CrawlResult {
+    baseUrl: string;
+    pages: DiscoveredPage[];
+    totalLinks: number;
+    crawlTime: number;
+}
+/**
+ * Discover pages on a website by crawling from the starting URL
+ * Returns up to maxPages unique pages within the same origin
+ */
+declare function discoverPages(options: CrawlOptions): Promise<CrawlResult>;
+/**
+ * Quick scan to get navigation links from a page
+ * Useful for finding main pages without full crawl
+ */
+declare function getNavigationLinks(url: string): Promise<DiscoveredPage[]>;
 
 /**
  * Generate a unique session ID
@@ -1253,4 +1313,4 @@ declare class InterfaceBuiltRight {
     private generateSessionName;
 }
 
-export { type Analysis, AnalysisSchema, type AuthOptions, type CaptureOptions, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareOptions, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, InterfaceBuiltRight, type LoginOptions, type OutputFormat, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, ViewportSchema, analyzeComparison, captureScreenshot, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, findSessions, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };
+export { type Analysis, AnalysisSchema, type AuthOptions, type CaptureOptions, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareOptions, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type CrawlOptions, type CrawlResult, type DiscoveredPage, InterfaceBuiltRight, type LoginOptions, type OutputFormat, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, ViewportSchema, analyzeComparison, captureScreenshot, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverPages, findSessions, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };

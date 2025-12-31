@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { nanoid } from 'nanoid';
+import { URL as URL$1 } from 'url';
 
 // src/schemas.ts
 var ViewportSchema = z.object({
@@ -233,6 +234,58 @@ async function captureScreenshot(options) {
 function getViewport(name) {
   return VIEWPORTS[name];
 }
+var DEFAULT_REGIONS = [
+  { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
+  { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
+  { name: "content", location: "center", xStart: 0.2, xEnd: 1, yStart: 0.1, yEnd: 0.9 },
+  { name: "footer", location: "bottom", xStart: 0, xEnd: 1, yStart: 0.9, yEnd: 1 }
+];
+function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS) {
+  const changedRegions = [];
+  for (const region of regions) {
+    const xStart = Math.floor(region.xStart * width);
+    const xEnd = Math.floor(region.xEnd * width);
+    const yStart = Math.floor(region.yStart * height);
+    const yEnd = Math.floor(region.yEnd * height);
+    const regionWidth = xEnd - xStart;
+    const regionHeight = yEnd - yStart;
+    const regionPixels = regionWidth * regionHeight;
+    if (regionPixels === 0) continue;
+    let diffPixels = 0;
+    for (let y = yStart; y < yEnd; y++) {
+      for (let x = xStart; x < xEnd; x++) {
+        const idx = (y * width + x) * 4;
+        if (diffData[idx] === 255 && diffData[idx + 1] === 0 && diffData[idx + 2] === 0) {
+          diffPixels++;
+        }
+      }
+    }
+    const diffPercent = diffPixels / regionPixels * 100;
+    if (diffPercent > 0.1) {
+      const severity = diffPercent > 30 ? "critical" : diffPercent > 10 ? "unexpected" : "expected";
+      changedRegions.push({
+        location: region.location,
+        bounds: {
+          x: xStart,
+          y: yStart,
+          width: regionWidth,
+          height: regionHeight
+        },
+        description: `${region.name}: ${diffPercent.toFixed(1)}% changed`,
+        severity
+      });
+    }
+  }
+  return changedRegions.sort((a, b) => {
+    const severityOrder = { critical: 0, unexpected: 1, expected: 2 };
+    const aSev = severityOrder[a.severity];
+    const bSev = severityOrder[b.severity];
+    if (aSev !== bSev) return aSev - bSev;
+    const aPercent = parseFloat(a.description.match(/(\d+\.?\d*)%/)?.[1] || "0");
+    const bPercent = parseFloat(b.description.match(/(\d+\.?\d*)%/)?.[1] || "0");
+    return bPercent - aPercent;
+  });
+}
 async function compareImages(options) {
   const {
     baselinePath,
@@ -281,46 +334,65 @@ async function compareImages(options) {
     // Round to 2 decimal places
     diffPixels,
     totalPixels,
-    threshold
+    threshold,
+    // Include diff data for regional analysis
+    diffData: diff.data,
+    width,
+    height
   };
 }
 function analyzeComparison(result, thresholdPercent = 1) {
-  const { match, diffPercent, diffPixels } = result;
+  const { match, diffPercent, diffData, width, height } = result;
+  let detectedRegions = [];
+  if (diffData && width && height && !match) {
+    detectedRegions = detectChangedRegions(diffData, width, height);
+  }
+  const criticalRegions = detectedRegions.filter((r) => r.severity === "critical");
+  const unexpectedRegions = detectedRegions.filter((r) => r.severity === "unexpected");
+  const hasNavigationChanges = detectedRegions.some(
+    (r) => r.description.toLowerCase().includes("navigation") || r.description.toLowerCase().includes("header")
+  );
   let verdict;
   let summary;
   let recommendation = null;
   if (match || diffPercent === 0) {
     verdict = "MATCH";
     summary = "No visual changes detected. Screenshots are identical.";
+  } else if (criticalRegions.length > 0) {
+    verdict = "LAYOUT_BROKEN";
+    const regionNames = criticalRegions.map(
+      (r) => r.description.split(":")[0]
+    ).join(", ");
+    summary = `Critical changes in: ${regionNames}. Layout may be broken.`;
+    recommendation = `Major changes detected in ${regionNames}. Check for missing elements, broken layout, or loading errors.`;
+  } else if (unexpectedRegions.length > 0 || diffPercent > 20) {
+    verdict = "UNEXPECTED_CHANGE";
+    const regionNames = unexpectedRegions.length > 0 ? unexpectedRegions.map((r) => r.description.split(":")[0]).join(", ") : "multiple areas";
+    summary = `Significant changes in: ${regionNames} (${diffPercent}% overall).`;
+    recommendation = hasNavigationChanges ? "Navigation area changed - verify menu items and links are correct." : "Review changes carefully - some may be unintentional.";
   } else if (diffPercent <= thresholdPercent) {
     verdict = "EXPECTED_CHANGE";
-    summary = `Minor changes detected (${diffPercent}% difference). Changes appear intentional.`;
-  } else if (diffPercent <= 20) {
-    verdict = "EXPECTED_CHANGE";
-    summary = `Moderate changes detected (${diffPercent}% difference, ${diffPixels.toLocaleString()} pixels). Review the diff image to verify changes are as expected.`;
-  } else if (diffPercent <= 50) {
-    verdict = "UNEXPECTED_CHANGE";
-    summary = `Significant changes detected (${diffPercent}% difference). Some changes may be unintentional.`;
-    recommendation = "Review the diff image carefully. Large portions of the page have changed.";
+    summary = `Minor changes detected (${diffPercent}%). Within acceptable threshold.`;
   } else {
-    verdict = "LAYOUT_BROKEN";
-    summary = `Major changes detected (${diffPercent}% difference). Layout may be broken or page failed to load correctly.`;
-    recommendation = "Check for JavaScript errors, missing assets, or layout issues. The page appears significantly different from the baseline.";
+    verdict = "EXPECTED_CHANGE";
+    const regionNames = detectedRegions.length > 0 ? detectedRegions.map((r) => r.description.split(":")[0]).join(", ") : "content area";
+    summary = `Changes in: ${regionNames} (${diffPercent}% overall). Changes appear intentional.`;
   }
-  const changedRegions = [];
-  const unexpectedChanges = [];
-  if (!match) {
-    const region = {
+  const changedRegions = detectedRegions.filter((r) => r.severity === "expected");
+  const unexpectedChanges = detectedRegions.filter(
+    (r) => r.severity === "unexpected" || r.severity === "critical"
+  );
+  if (detectedRegions.length === 0 && !match) {
+    const fallbackRegion = {
       location: diffPercent > 50 ? "full" : "center",
-      bounds: { x: 0, y: 0, width: 0, height: 0 },
-      // Would need pixel analysis for accurate bounds
-      description: `${diffPercent}% of pixels changed`,
+      bounds: { x: 0, y: 0, width: width || 0, height: height || 0 },
+      description: `overall: ${diffPercent}% changed`,
       severity: verdict === "LAYOUT_BROKEN" ? "critical" : verdict === "UNEXPECTED_CHANGE" ? "unexpected" : "expected"
     };
     if (verdict === "UNEXPECTED_CHANGE" || verdict === "LAYOUT_BROKEN") {
-      unexpectedChanges.push(region);
+      unexpectedChanges.push(fallbackRegion);
     } else {
-      changedRegions.push(region);
+      changedRegions.push(fallbackRegion);
     }
   }
   return {
@@ -642,6 +714,211 @@ function formatSessionSummary(session) {
   }
   return `${session.id}  ${status}  ${viewport}  ${date}  ${session.name}${diffInfo}`;
 }
+async function discoverPages(options) {
+  const {
+    url,
+    maxPages = 5,
+    pathPrefix,
+    timeout = 1e4,
+    includeExternal = false
+  } = options;
+  const startTime = Date.now();
+  const startUrl = new URL$1(url);
+  const origin = startUrl.origin;
+  const discovered = /* @__PURE__ */ new Map();
+  const visited = /* @__PURE__ */ new Set();
+  const queue = [
+    { url, depth: 0 }
+  ];
+  let browser2 = null;
+  let totalLinks = 0;
+  try {
+    browser2 = await chromium.launch({ headless: true });
+    const context = await browser2.newContext();
+    const page = await context.newPage();
+    while (queue.length > 0 && discovered.size < maxPages) {
+      const current = queue.shift();
+      if (!current) break;
+      const currentUrl = normalizeUrl(current.url);
+      if (visited.has(currentUrl)) continue;
+      visited.add(currentUrl);
+      try {
+        await page.goto(current.url, {
+          waitUntil: "domcontentloaded",
+          timeout
+        });
+        const title = await page.title();
+        const parsedUrl = new URL$1(current.url);
+        discovered.set(currentUrl, {
+          url: current.url,
+          path: parsedUrl.pathname,
+          title: title || parsedUrl.pathname,
+          linkText: current.linkText,
+          depth: current.depth
+        });
+        if (discovered.size >= maxPages) break;
+        const links = await page.evaluate(() => {
+          const anchors = Array.from(document.querySelectorAll("a[href]"));
+          return anchors.map((a) => ({
+            href: a.getAttribute("href") || "",
+            text: a.textContent?.trim() || ""
+          }));
+        });
+        totalLinks += links.length;
+        for (const link of links) {
+          if (discovered.size >= maxPages) break;
+          try {
+            const absoluteUrl = new URL$1(link.href, current.url);
+            const normalizedUrl = normalizeUrl(absoluteUrl.href);
+            if (visited.has(normalizedUrl)) continue;
+            if (!includeExternal && absoluteUrl.origin !== origin) continue;
+            if (pathPrefix && !absoluteUrl.pathname.startsWith(pathPrefix)) continue;
+            if (shouldSkipUrl(absoluteUrl)) continue;
+            queue.push({
+              url: absoluteUrl.href,
+              depth: current.depth + 1,
+              linkText: link.text
+            });
+          } catch {
+          }
+        }
+      } catch (error) {
+        console.error(`Failed to load ${current.url}:`, error instanceof Error ? error.message : error);
+      }
+    }
+    await browser2.close();
+  } catch (error) {
+    if (browser2) await browser2.close();
+    throw error;
+  }
+  const crawlTime = Date.now() - startTime;
+  return {
+    baseUrl: origin,
+    pages: Array.from(discovered.values()).sort((a, b) => {
+      if (a.depth !== b.depth) return a.depth - b.depth;
+      return a.path.localeCompare(b.path);
+    }),
+    totalLinks,
+    crawlTime
+  };
+}
+function normalizeUrl(url) {
+  try {
+    const parsed = new URL$1(url);
+    let normalized = `${parsed.origin}${parsed.pathname}`;
+    if (normalized.endsWith("/") && normalized.length > 1) {
+      normalized = normalized.slice(0, -1);
+    }
+    return normalized;
+  } catch {
+    return url;
+  }
+}
+function shouldSkipUrl(url) {
+  const path = url.pathname.toLowerCase();
+  const skipExtensions = [
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".css",
+    ".js",
+    ".json",
+    ".xml",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".mp3",
+    ".mp4",
+    ".webm",
+    ".zip",
+    ".tar",
+    ".gz"
+  ];
+  if (skipExtensions.some((ext) => path.endsWith(ext))) return true;
+  const skipPaths = [
+    "/api/",
+    "/static/",
+    "/assets/",
+    "/_next/",
+    "/fonts/",
+    "/images/",
+    "/img/",
+    "/cdn/",
+    "/admin/",
+    "/auth/"
+  ];
+  if (skipPaths.some((p) => path.includes(p))) return true;
+  if (url.hash && url.pathname === "/") return true;
+  return false;
+}
+async function getNavigationLinks(url) {
+  let browser2 = null;
+  try {
+    browser2 = await chromium.launch({ headless: true });
+    const page = await browser2.newPage();
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: 15e3
+    });
+    const origin = new URL$1(url).origin;
+    const navLinks = await page.evaluate(() => {
+      const selectors = [
+        "nav a[href]",
+        "header a[href]",
+        '[role="navigation"] a[href]',
+        ".nav a[href]",
+        ".navbar a[href]",
+        ".sidebar a[href]",
+        ".menu a[href]"
+      ];
+      const links = [];
+      const seen = /* @__PURE__ */ new Set();
+      for (const selector of selectors) {
+        const anchors = Array.from(document.querySelectorAll(selector));
+        for (const a of anchors) {
+          const href = a.getAttribute("href");
+          const text = a.textContent?.trim();
+          if (href && text && !seen.has(href)) {
+            seen.add(href);
+            links.push({ href, text });
+          }
+        }
+      }
+      return links;
+    });
+    await browser2.close();
+    const pages = [];
+    for (const link of navLinks) {
+      try {
+        const absoluteUrl = new URL$1(link.href, url);
+        if (absoluteUrl.origin !== origin) continue;
+        if (shouldSkipUrl(absoluteUrl)) continue;
+        pages.push({
+          url: absoluteUrl.href,
+          path: absoluteUrl.pathname,
+          title: link.text,
+          linkText: link.text,
+          depth: 1
+        });
+      } catch {
+      }
+    }
+    const uniquePages = /* @__PURE__ */ new Map();
+    for (const page2 of pages) {
+      if (!uniquePages.has(page2.path)) {
+        uniquePages.set(page2.path, page2);
+      }
+    }
+    return Array.from(uniquePages.values());
+  } catch (error) {
+    if (browser2) await browser2.close();
+    throw error;
+  }
+}
 
 // src/index.ts
 var InterfaceBuiltRight = class {
@@ -813,6 +1090,6 @@ var InterfaceBuiltRight = class {
   }
 };
 
-export { AnalysisSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, InterfaceBuiltRight, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, analyzeComparison, captureScreenshot, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, findSessions, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };
+export { AnalysisSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, InterfaceBuiltRight, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, analyzeComparison, captureScreenshot, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverPages, findSessions, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

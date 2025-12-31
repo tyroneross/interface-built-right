@@ -348,6 +348,191 @@ program
     }
   });
 
+// Scan command - discover and test multiple pages
+program
+  .command('scan <url>')
+  .description('Discover pages and capture baselines for each (up to 5 by default)')
+  .option('-n, --max-pages <count>', 'Maximum pages to discover', '5')
+  .option('-p, --prefix <path>', 'Only scan pages under this path prefix')
+  .option('--nav-only', 'Only scan navigation links (faster)')
+  .option('-f, --format <format>', 'Output format: json, text', 'text')
+  .action(async (url: string, options: { maxPages: string; prefix?: string; navOnly?: boolean; format: string }) => {
+    try {
+      const { discoverPages, getNavigationLinks } = await import('../crawl.js');
+
+      console.log(`Scanning ${url}...`);
+      console.log('');
+
+      let pages;
+
+      if (options.navOnly) {
+        // Quick nav-only scan
+        pages = await getNavigationLinks(url);
+        console.log(`Found ${pages.length} navigation links:`);
+      } else {
+        // Full crawl
+        const result = await discoverPages({
+          url,
+          maxPages: parseInt(options.maxPages, 10),
+          pathPrefix: options.prefix,
+        });
+        pages = result.pages;
+        console.log(`Discovered ${pages.length} pages (${result.crawlTime}ms):`);
+      }
+
+      console.log('');
+
+      if (options.format === 'json') {
+        console.log(JSON.stringify(pages, null, 2));
+      } else {
+        for (const page of pages) {
+          console.log(`  ${page.path}`);
+          console.log(`    Title: ${page.title}`);
+          if (page.linkText && page.linkText !== page.title) {
+            console.log(`    Link: ${page.linkText}`);
+          }
+          console.log('');
+        }
+      }
+
+      // Ask if user wants to capture baselines
+      console.log('To capture baselines for all discovered pages:');
+      console.log(`  npx ibr scan-start ${url} --max-pages ${options.maxPages}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Scan-start command - discover and capture baselines for multiple pages
+program
+  .command('scan-start <url>')
+  .description('Discover pages and capture baseline for each')
+  .option('-n, --max-pages <count>', 'Maximum pages to discover', '5')
+  .option('-p, --prefix <path>', 'Only scan pages under this path prefix')
+  .option('--nav-only', 'Only scan navigation links (faster)')
+  .action(async (url: string, options: { maxPages: string; prefix?: string; navOnly?: boolean }) => {
+    try {
+      const { discoverPages, getNavigationLinks } = await import('../crawl.js');
+      const ibr = await createIBR(program.opts());
+
+      console.log(`Scanning ${url}...`);
+
+      let pages;
+
+      if (options.navOnly) {
+        pages = await getNavigationLinks(url);
+      } else {
+        const result = await discoverPages({
+          url,
+          maxPages: parseInt(options.maxPages, 10),
+          pathPrefix: options.prefix,
+        });
+        pages = result.pages;
+      }
+
+      console.log(`Found ${pages.length} pages. Capturing baselines...`);
+      console.log('');
+
+      const sessions = [];
+
+      for (const page of pages) {
+        try {
+          console.log(`Capturing: ${page.path}`);
+          const result = await ibr.startSession(page.url, {
+            name: page.title.replace(/[^a-zA-Z0-9-_]/g, '-').toLowerCase().slice(0, 50),
+          });
+          sessions.push({ page, sessionId: result.sessionId });
+          console.log(`  ✓ Session: ${result.sessionId}`);
+        } catch (error) {
+          console.log(`  ✗ Failed: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+
+      console.log('');
+      console.log(`Captured ${sessions.length}/${pages.length} pages.`);
+      console.log('');
+      console.log('To compare all after making changes:');
+      console.log('  npx ibr scan-check');
+
+      await ibr.close();
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Scan-check command - compare all recent sessions
+program
+  .command('scan-check')
+  .description('Compare all sessions from the last scan-start')
+  .option('-f, --format <format>', 'Output format: json, text, minimal', 'text')
+  .action(async (options: { format: string }) => {
+    try {
+      const ibr = await createIBR(program.opts());
+      const sessions = await ibr.listSessions();
+
+      // Get sessions from the last hour (likely from same scan)
+      const recentSessions = sessions.filter(s => {
+        const age = Date.now() - new Date(s.createdAt).getTime();
+        return age < 60 * 60 * 1000 && s.status === 'baseline';
+      });
+
+      if (recentSessions.length === 0) {
+        console.log('No recent baseline sessions found. Run scan-start first.');
+        return;
+      }
+
+      console.log(`Checking ${recentSessions.length} sessions...`);
+      console.log('');
+
+      const results = [];
+
+      for (const session of recentSessions) {
+        try {
+          console.log(`Checking: ${session.name}`);
+          const report = await ibr.check(session.id);
+          results.push({ session, report });
+
+          const icon = report.analysis.verdict === 'MATCH' ? '✓' :
+                       report.analysis.verdict === 'EXPECTED_CHANGE' ? '~' :
+                       report.analysis.verdict === 'UNEXPECTED_CHANGE' ? '!' : '✗';
+          console.log(`  ${icon} ${report.analysis.verdict}: ${report.analysis.summary}`);
+        } catch (error) {
+          console.log(`  ✗ Failed: ${error instanceof Error ? error.message : error}`);
+        }
+      }
+
+      console.log('');
+
+      // Summary
+      const matches = results.filter(r => r.report.analysis.verdict === 'MATCH').length;
+      const expected = results.filter(r => r.report.analysis.verdict === 'EXPECTED_CHANGE').length;
+      const unexpected = results.filter(r => r.report.analysis.verdict === 'UNEXPECTED_CHANGE').length;
+      const broken = results.filter(r => r.report.analysis.verdict === 'LAYOUT_BROKEN').length;
+
+      console.log('Summary:');
+      console.log(`  ✓ Match: ${matches}`);
+      console.log(`  ~ Expected: ${expected}`);
+      console.log(`  ! Unexpected: ${unexpected}`);
+      console.log(`  ✗ Broken: ${broken}`);
+
+      if (unexpected > 0 || broken > 0) {
+        console.log('');
+        console.log('Issues detected. View in UI:');
+        console.log('  npx ibr serve');
+      }
+
+      await ibr.close();
+
+      // Exit with error if issues
+      if (broken > 0) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Init command
 program
   .command('init')

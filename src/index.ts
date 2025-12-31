@@ -252,7 +252,9 @@ export class InterfaceBuiltRight {
 export * from './schemas.js';
 export * from './types.js';
 export { captureScreenshot, closeBrowser, getViewport } from './capture.js';
-export { compareImages, analyzeComparison, getVerdictDescription } from './compare.js';
+export { compareImages, analyzeComparison, getVerdictDescription, detectChangedRegions } from './compare.js';
+export { discoverPages, getNavigationLinks } from './crawl.js';
+export type { CrawlOptions, CrawlResult, DiscoveredPage } from './crawl.js';
 export {
   createSession,
   getSession,
