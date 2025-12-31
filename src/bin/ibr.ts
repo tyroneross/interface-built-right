@@ -705,20 +705,70 @@ program
     }
   });
 
+// Helper to check if port is in use
+async function isPortInUse(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const net = require('net');
+    const server = net.createServer();
+    server.once('error', () => resolve(true));
+    server.once('listening', () => {
+      server.close();
+      resolve(false);
+    });
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+// Find available port from list
+async function findAvailablePort(ports: number[]): Promise<number | null> {
+  for (const port of ports) {
+    if (!(await isPortInUse(port))) {
+      return port;
+    }
+  }
+  return null;
+}
+
 // Init command
 program
   .command('init')
   .description('Initialize .ibrrc.json configuration file')
-  .action(async () => {
+  .option('-p, --port <port>', 'Port for baseUrl (auto-detects available port if not specified)')
+  .option('-u, --url <url>', 'Full base URL (overrides port)')
+  .action(async (options: { port?: string; url?: string }) => {
     const configPath = join(process.cwd(), '.ibrrc.json');
 
     if (existsSync(configPath)) {
       console.log('.ibrrc.json already exists.');
+      console.log('Edit it directly or delete and run init again.');
       return;
     }
 
+    let baseUrl: string;
+
+    if (options.url) {
+      // User specified full URL
+      baseUrl = options.url;
+    } else if (options.port) {
+      // User specified port
+      baseUrl = `http://localhost:${options.port}`;
+    } else {
+      // Auto-detect available port from uncommon ports
+      const candidatePorts = [4242, 4321, 5555, 6789, 7777, 8181, 9090];
+      const availablePort = await findAvailablePort(candidatePorts);
+
+      if (availablePort) {
+        baseUrl = `http://localhost:${availablePort}`;
+        console.log(`Auto-selected port ${availablePort} (available)`);
+      } else {
+        // All candidate ports in use, use placeholder
+        baseUrl = 'http://localhost:YOUR_PORT';
+        console.log('All common ports in use. Please edit baseUrl in .ibrrc.json');
+      }
+    }
+
     const config = {
-      baseUrl: 'http://localhost:3000',
+      baseUrl,
       outputDir: './.ibr',
       viewport: 'desktop',
       threshold: 1.0,
@@ -728,10 +778,13 @@ program
     const { writeFile } = await import('fs/promises');
     await writeFile(configPath, JSON.stringify(config, null, 2));
 
+    console.log('');
     console.log('Created .ibrrc.json');
     console.log('');
     console.log('Configuration:');
     console.log(JSON.stringify(config, null, 2));
+    console.log('');
+    console.log('Edit baseUrl to match your dev server.');
   });
 
 program.parse();

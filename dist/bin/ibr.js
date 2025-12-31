@@ -2258,14 +2258,51 @@ program.command("diagnose <url>").description("Diagnose page load issues with de
     process.exit(1);
   }
 });
-program.command("init").description("Initialize .ibrrc.json configuration file").action(async () => {
+async function isPortInUse(port) {
+  return new Promise((resolve2) => {
+    const net = require("net");
+    const server = net.createServer();
+    server.once("error", () => resolve2(true));
+    server.once("listening", () => {
+      server.close();
+      resolve2(false);
+    });
+    server.listen(port, "127.0.0.1");
+  });
+}
+async function findAvailablePort(ports) {
+  for (const port of ports) {
+    if (!await isPortInUse(port)) {
+      return port;
+    }
+  }
+  return null;
+}
+program.command("init").description("Initialize .ibrrc.json configuration file").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").action(async (options) => {
   const configPath = (0, import_path5.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs2.existsSync)(configPath)) {
     console.log(".ibrrc.json already exists.");
+    console.log("Edit it directly or delete and run init again.");
     return;
   }
+  let baseUrl;
+  if (options.url) {
+    baseUrl = options.url;
+  } else if (options.port) {
+    baseUrl = `http://localhost:${options.port}`;
+  } else {
+    const candidatePorts = [4242, 4321, 5555, 6789, 7777, 8181, 9090];
+    const availablePort = await findAvailablePort(candidatePorts);
+    if (availablePort) {
+      baseUrl = `http://localhost:${availablePort}`;
+      console.log(`Auto-selected port ${availablePort} (available)`);
+    } else {
+      baseUrl = "http://localhost:YOUR_PORT";
+      console.log("All common ports in use. Please edit baseUrl in .ibrrc.json");
+    }
+  }
   const config = {
-    baseUrl: "http://localhost:3000",
+    baseUrl,
     outputDir: "./.ibr",
     viewport: "desktop",
     threshold: 1,
@@ -2273,10 +2310,13 @@ program.command("init").description("Initialize .ibrrc.json configuration file")
   };
   const { writeFile: writeFile4 } = await import("fs/promises");
   await writeFile4(configPath, JSON.stringify(config, null, 2));
+  console.log("");
   console.log("Created .ibrrc.json");
   console.log("");
   console.log("Configuration:");
   console.log(JSON.stringify(config, null, 2));
+  console.log("");
+  console.log("Edit baseUrl to match your dev server.");
 });
 program.parse();
 //# sourceMappingURL=ibr.js.map
