@@ -1061,6 +1061,29 @@ interface LoginOptions {
 }
 
 /**
+ * Capture result with timing and diagnostic info
+ */
+interface CaptureResult {
+    success: boolean;
+    outputPath?: string;
+    timing: {
+        navigationMs: number;
+        renderMs: number;
+        totalMs: number;
+    };
+    diagnostics: {
+        httpStatus?: number;
+        consoleErrors: string[];
+        networkErrors: string[];
+        suggestions: string[];
+    };
+    error?: {
+        type: 'timeout' | 'navigation' | 'screenshot' | 'unknown';
+        message: string;
+        suggestion: string;
+    };
+}
+/**
  * Close the browser instance
  */
 declare function closeBrowser(): Promise<void>;
@@ -1074,6 +1097,97 @@ declare function captureScreenshot(options: CaptureOptions & {
  * Get viewport dimensions by name
  */
 declare function getViewport(name: 'desktop' | 'mobile' | 'tablet'): Viewport;
+/**
+ * Enhanced capture with detailed timing and diagnostics
+ * Returns actionable info for debugging slow loads or errors
+ */
+declare function captureWithDiagnostics(options: CaptureOptions & {
+    outputDir?: string;
+}): Promise<CaptureResult>;
+
+/**
+ * UI metrics extracted from a page for consistency checking
+ */
+interface PageMetrics {
+    url: string;
+    path: string;
+    title: string;
+    layout: {
+        headerHeight: number | null;
+        navWidth: number | null;
+        contentPadding: {
+            top: number;
+            right: number;
+            bottom: number;
+            left: number;
+        } | null;
+        footerHeight: number | null;
+    };
+    typography: {
+        bodyFontFamily: string | null;
+        bodyFontSize: string | null;
+        headingFontFamily: string | null;
+        h1FontSize: string | null;
+        h2FontSize: string | null;
+        lineHeight: string | null;
+    };
+    colors: {
+        backgroundColor: string | null;
+        textColor: string | null;
+        linkColor: string | null;
+        primaryButtonBg: string | null;
+        primaryButtonText: string | null;
+    };
+    spacing: {
+        buttonPadding: string | null;
+        cardPadding: string | null;
+        sectionGap: string | null;
+    };
+}
+/**
+ * Inconsistency found between pages
+ */
+interface Inconsistency {
+    type: 'layout' | 'typography' | 'color' | 'spacing';
+    property: string;
+    severity: 'info' | 'warning' | 'error';
+    description: string;
+    pages: Array<{
+        path: string;
+        value: string | number | null;
+    }>;
+    suggestion?: string;
+}
+/**
+ * Consistency check result
+ */
+interface ConsistencyResult {
+    pages: PageMetrics[];
+    inconsistencies: Inconsistency[];
+    score: number;
+    summary: string;
+}
+/**
+ * Consistency check options
+ */
+interface ConsistencyOptions {
+    /** URLs to check */
+    urls: string[];
+    /** Enable verbose output */
+    verbose?: boolean;
+    /** Timeout per page (ms) */
+    timeout?: number;
+    /** Ignore certain property types */
+    ignore?: Array<'layout' | 'typography' | 'color' | 'spacing'>;
+}
+/**
+ * Check UI consistency across multiple pages
+ */
+declare function checkConsistency(options: ConsistencyOptions): Promise<ConsistencyResult>;
+/**
+ * Format consistency result for display
+ */
+declare function formatConsistencyReport(result: ConsistencyResult): string;
 
 /**
  * Region detection configuration
@@ -1313,4 +1427,4 @@ declare class InterfaceBuiltRight {
     private generateSessionName;
 }
 
-export { type Analysis, AnalysisSchema, type AuthOptions, type CaptureOptions, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareOptions, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type CrawlOptions, type CrawlResult, type DiscoveredPage, InterfaceBuiltRight, type LoginOptions, type OutputFormat, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, ViewportSchema, analyzeComparison, captureScreenshot, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverPages, findSessions, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };
+export { type Analysis, AnalysisSchema, type AuthOptions, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareOptions, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type DiscoveredPage, type Inconsistency, InterfaceBuiltRight, type LoginOptions, type OutputFormat, type PageMetrics, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, ViewportSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverPages, findSessions, formatConsistencyReport, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };

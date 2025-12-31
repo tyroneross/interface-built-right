@@ -251,7 +251,10 @@ export class InterfaceBuiltRight {
 // Export everything for programmatic use
 export * from './schemas.js';
 export * from './types.js';
-export { captureScreenshot, closeBrowser, getViewport } from './capture.js';
+export { captureScreenshot, closeBrowser, getViewport, captureWithDiagnostics } from './capture.js';
+export type { CaptureResult } from './capture.js';
+export { checkConsistency, formatConsistencyReport } from './consistency.js';
+export type { ConsistencyOptions, ConsistencyResult, PageMetrics, Inconsistency } from './consistency.js';
 export { compareImages, analyzeComparison, getVerdictDescription, detectChangedRegions } from './compare.js';
 export { discoverPages, getNavigationLinks } from './crawl.js';
 export type { CrawlOptions, CrawlResult, DiscoveredPage } from './crawl.js';

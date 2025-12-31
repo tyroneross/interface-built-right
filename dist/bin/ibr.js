@@ -30,6 +30,111 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/schemas.ts
+var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, SessionSchema, ComparisonReportSchema;
+var init_schemas = __esm({
+  "src/schemas.ts"() {
+    "use strict";
+    import_zod = require("zod");
+    ViewportSchema = import_zod.z.object({
+      name: import_zod.z.string().min(1).max(50),
+      width: import_zod.z.number().min(320).max(3840),
+      height: import_zod.z.number().min(480).max(2160)
+    });
+    VIEWPORTS = {
+      desktop: { name: "desktop", width: 1920, height: 1080 },
+      "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440 },
+      "desktop-sm": { name: "desktop-sm", width: 1440, height: 900 },
+      laptop: { name: "laptop", width: 1366, height: 768 },
+      tablet: { name: "tablet", width: 768, height: 1024 },
+      "tablet-landscape": { name: "tablet-landscape", width: 1024, height: 768 },
+      mobile: { name: "mobile", width: 375, height: 667 },
+      "mobile-lg": { name: "mobile-lg", width: 414, height: 896 },
+      "iphone-14": { name: "iphone-14", width: 390, height: 844 },
+      "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 }
+    };
+    ConfigSchema = import_zod.z.object({
+      baseUrl: import_zod.z.string().url("Must be a valid URL"),
+      outputDir: import_zod.z.string().default("./.ibr"),
+      viewport: ViewportSchema.default(VIEWPORTS.desktop),
+      viewports: import_zod.z.array(ViewportSchema).optional(),
+      // Multi-viewport support
+      threshold: import_zod.z.number().min(0).max(100).default(1),
+      fullPage: import_zod.z.boolean().default(true),
+      waitForNetworkIdle: import_zod.z.boolean().default(true),
+      timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4)
+    });
+    SessionQuerySchema = import_zod.z.object({
+      route: import_zod.z.string().optional(),
+      url: import_zod.z.string().optional(),
+      status: import_zod.z.enum(["baseline", "compared", "pending"]).optional(),
+      name: import_zod.z.string().optional(),
+      createdAfter: import_zod.z.date().optional(),
+      createdBefore: import_zod.z.date().optional(),
+      viewport: import_zod.z.string().optional(),
+      limit: import_zod.z.number().min(1).max(100).default(50)
+    });
+    ComparisonResultSchema = import_zod.z.object({
+      match: import_zod.z.boolean(),
+      diffPercent: import_zod.z.number(),
+      diffPixels: import_zod.z.number(),
+      totalPixels: import_zod.z.number(),
+      threshold: import_zod.z.number()
+    });
+    ChangedRegionSchema = import_zod.z.object({
+      location: import_zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
+      bounds: import_zod.z.object({
+        x: import_zod.z.number(),
+        y: import_zod.z.number(),
+        width: import_zod.z.number(),
+        height: import_zod.z.number()
+      }),
+      description: import_zod.z.string(),
+      severity: import_zod.z.enum(["expected", "unexpected", "critical"])
+    });
+    VerdictSchema = import_zod.z.enum([
+      "MATCH",
+      "EXPECTED_CHANGE",
+      "UNEXPECTED_CHANGE",
+      "LAYOUT_BROKEN"
+    ]);
+    AnalysisSchema = import_zod.z.object({
+      verdict: VerdictSchema,
+      summary: import_zod.z.string(),
+      changedRegions: import_zod.z.array(ChangedRegionSchema),
+      unexpectedChanges: import_zod.z.array(ChangedRegionSchema),
+      recommendation: import_zod.z.string().nullable()
+    });
+    SessionStatusSchema = import_zod.z.enum(["baseline", "compared", "pending"]);
+    SessionSchema = import_zod.z.object({
+      id: import_zod.z.string(),
+      name: import_zod.z.string(),
+      url: import_zod.z.string().url(),
+      viewport: ViewportSchema,
+      status: SessionStatusSchema,
+      createdAt: import_zod.z.string().datetime(),
+      updatedAt: import_zod.z.string().datetime(),
+      comparison: ComparisonResultSchema.optional(),
+      analysis: AnalysisSchema.optional()
+    });
+    ComparisonReportSchema = import_zod.z.object({
+      sessionId: import_zod.z.string(),
+      sessionName: import_zod.z.string(),
+      url: import_zod.z.string(),
+      timestamp: import_zod.z.string().datetime(),
+      viewport: ViewportSchema,
+      comparison: ComparisonResultSchema,
+      analysis: AnalysisSchema,
+      files: import_zod.z.object({
+        baseline: import_zod.z.string(),
+        current: import_zod.z.string(),
+        diff: import_zod.z.string()
+      }),
+      webViewUrl: import_zod.z.string().optional()
+    });
+  }
+});
+
 // src/auth.ts
 var auth_exports = {};
 __export(auth_exports, {
@@ -254,6 +359,502 @@ var init_auth = __esm({
   }
 });
 
+// src/capture.ts
+var capture_exports = {};
+__export(capture_exports, {
+  captureMultipleViewports: () => captureMultipleViewports,
+  captureScreenshot: () => captureScreenshot,
+  captureWithDiagnostics: () => captureWithDiagnostics,
+  closeBrowser: () => closeBrowser,
+  getViewport: () => getViewport
+});
+async function getBrowser() {
+  if (!browser) {
+    browser = await import_playwright2.chromium.launch({
+      headless: true
+    });
+  }
+  return browser;
+}
+async function closeBrowser() {
+  if (browser) {
+    await browser.close();
+    browser = null;
+  }
+}
+async function captureScreenshot(options) {
+  const {
+    url,
+    outputPath,
+    viewport = VIEWPORTS.desktop,
+    fullPage = true,
+    waitForNetworkIdle = true,
+    timeout = 3e4,
+    outputDir
+  } = options;
+  await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
+  let storageState;
+  if (outputDir && !isDeployedEnvironment()) {
+    const authState = await loadAuthState(outputDir);
+    if (authState) {
+      storageState = authState;
+      console.log("\u{1F510} Using saved authentication state");
+    }
+  }
+  const browserInstance = await getBrowser();
+  const context = await browserInstance.newContext({
+    viewport: {
+      width: viewport.width,
+      height: viewport.height
+    },
+    // Disable animations for consistent screenshots
+    reducedMotion: "reduce",
+    // Load auth state if available (Playwright accepts object or file path)
+    ...storageState ? { storageState } : {}
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(url, {
+      waitUntil: waitForNetworkIdle ? "networkidle" : "load",
+      timeout
+    });
+    await page.waitForTimeout(500);
+    await page.addStyleTag({
+      content: `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }
+      `
+    });
+    await page.screenshot({
+      path: outputPath,
+      fullPage,
+      type: "png"
+    });
+    return outputPath;
+  } finally {
+    await context.close();
+  }
+}
+function getViewport(name) {
+  return VIEWPORTS[name];
+}
+async function captureMultipleViewports(url, outputDir, viewports = ["desktop"], options = {}) {
+  const results = {};
+  for (const viewportName of viewports) {
+    const viewport = getViewport(viewportName);
+    const outputPath = `${outputDir}/${viewportName}.png`;
+    await captureScreenshot({
+      url,
+      outputPath,
+      viewport,
+      ...options
+    });
+    results[viewportName] = outputPath;
+  }
+  return results;
+}
+async function captureWithDiagnostics(options) {
+  const {
+    url,
+    outputPath,
+    viewport = VIEWPORTS.desktop,
+    fullPage = true,
+    waitForNetworkIdle = true,
+    timeout = 3e4,
+    outputDir
+  } = options;
+  const startTime = Date.now();
+  let navigationTime = 0;
+  let renderTime = 0;
+  const consoleErrors = [];
+  const networkErrors = [];
+  const suggestions = [];
+  let httpStatus;
+  try {
+    await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
+    let storageState;
+    if (outputDir && !isDeployedEnvironment()) {
+      const authState = await loadAuthState(outputDir);
+      if (authState) {
+        storageState = authState;
+      }
+    }
+    const browserInstance = await getBrowser();
+    const context = await browserInstance.newContext({
+      viewport: {
+        width: viewport.width,
+        height: viewport.height
+      },
+      reducedMotion: "reduce",
+      ...storageState ? { storageState } : {}
+    });
+    const page = await context.newPage();
+    page.on("console", (msg) => {
+      if (msg.type() === "error") {
+        consoleErrors.push(msg.text());
+      }
+    });
+    page.on("requestfailed", (request) => {
+      const failure = request.failure();
+      networkErrors.push(`${request.url()}: ${failure?.errorText || "failed"}`);
+    });
+    page.on("response", (response) => {
+      if (response.url() === url || response.url() === url + "/") {
+        httpStatus = response.status();
+      }
+    });
+    try {
+      const navStart = Date.now();
+      await page.goto(url, {
+        waitUntil: waitForNetworkIdle ? "networkidle" : "load",
+        timeout
+      });
+      navigationTime = Date.now() - navStart;
+    } catch (navError) {
+      await context.close();
+      const errorMsg = navError instanceof Error ? navError.message : String(navError);
+      const isTimeout = errorMsg.includes("Timeout");
+      if (isTimeout) {
+        suggestions.push(`Page took longer than ${timeout}ms to load`);
+        suggestions.push("Try increasing timeout: --timeout 60000");
+        if (waitForNetworkIdle) {
+          suggestions.push('Try disabling network idle wait: use "load" instead of "networkidle"');
+        }
+      }
+      if (networkErrors.length > 0) {
+        suggestions.push(`${networkErrors.length} network request(s) failed`);
+      }
+      if (httpStatus && httpStatus >= 400) {
+        suggestions.push(`Server returned HTTP ${httpStatus}`);
+      }
+      return {
+        success: false,
+        timing: {
+          navigationMs: Date.now() - startTime,
+          renderMs: 0,
+          totalMs: Date.now() - startTime
+        },
+        diagnostics: {
+          httpStatus,
+          consoleErrors,
+          networkErrors,
+          suggestions
+        },
+        error: {
+          type: isTimeout ? "timeout" : "navigation",
+          message: errorMsg,
+          suggestion: isTimeout ? `Increase timeout or check if ${url} is responding` : `Check if the server is running at ${url}`
+        }
+      };
+    }
+    await page.waitForTimeout(500);
+    await page.addStyleTag({
+      content: `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }
+      `
+    });
+    const renderStart = Date.now();
+    await page.screenshot({
+      path: outputPath,
+      fullPage,
+      type: "png"
+    });
+    renderTime = Date.now() - renderStart;
+    await context.close();
+    if (navigationTime > 5e3) {
+      suggestions.push(`Slow page load: ${(navigationTime / 1e3).toFixed(1)}s`);
+    }
+    if (consoleErrors.length > 0) {
+      suggestions.push(`${consoleErrors.length} JavaScript error(s) detected`);
+    }
+    return {
+      success: true,
+      outputPath,
+      timing: {
+        navigationMs: navigationTime,
+        renderMs: renderTime,
+        totalMs: Date.now() - startTime
+      },
+      diagnostics: {
+        httpStatus,
+        consoleErrors,
+        networkErrors,
+        suggestions
+      }
+    };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      timing: {
+        navigationMs: navigationTime,
+        renderMs: renderTime,
+        totalMs: Date.now() - startTime
+      },
+      diagnostics: {
+        httpStatus,
+        consoleErrors,
+        networkErrors,
+        suggestions
+      },
+      error: {
+        type: "unknown",
+        message: errorMsg,
+        suggestion: "Check browser installation: npx playwright install chromium"
+      }
+    };
+  }
+}
+var import_playwright2, import_promises2, import_path2, browser;
+var init_capture = __esm({
+  "src/capture.ts"() {
+    "use strict";
+    import_playwright2 = require("playwright");
+    import_promises2 = require("fs/promises");
+    import_path2 = require("path");
+    init_schemas();
+    init_auth();
+    browser = null;
+  }
+});
+
+// src/consistency.ts
+var consistency_exports = {};
+__export(consistency_exports, {
+  checkConsistency: () => checkConsistency,
+  formatConsistencyReport: () => formatConsistencyReport
+});
+async function extractMetrics(page, url) {
+  const parsedUrl = new URL(url);
+  const metrics = await page.evaluate(() => {
+    const getComputedStyleProp = (selector, prop) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      return window.getComputedStyle(el).getPropertyValue(prop) || null;
+    };
+    const getElementHeight = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      return el.getBoundingClientRect().height;
+    };
+    const getElementWidth = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      return el.getBoundingClientRect().width;
+    };
+    const headerSelectors = ["header", '[role="banner"]', ".header", "#header", "nav"];
+    const navSelectors = ["nav", '[role="navigation"]', ".sidebar", ".nav", "#sidebar"];
+    const mainSelectors = ["main", '[role="main"]', ".content", "#content", ".main"];
+    const footerSelectors = ["footer", '[role="contentinfo"]', ".footer", "#footer"];
+    const buttonSelectors = ["button", ".btn", '[role="button"]', "a.button"];
+    const cardSelectors = [".card", '[class*="card"]', ".panel", ".box"];
+    const findFirst = (selectors, fn) => {
+      for (const sel of selectors) {
+        const result = fn(sel);
+        if (result !== null) return result;
+      }
+      return null;
+    };
+    const getContentPadding = () => {
+      for (const sel of mainSelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const style = window.getComputedStyle(el);
+          return {
+            top: parseFloat(style.paddingTop) || 0,
+            right: parseFloat(style.paddingRight) || 0,
+            bottom: parseFloat(style.paddingBottom) || 0,
+            left: parseFloat(style.paddingLeft) || 0
+          };
+        }
+      }
+      return null;
+    };
+    return {
+      title: document.title,
+      layout: {
+        headerHeight: findFirst(headerSelectors, getElementHeight),
+        navWidth: findFirst(navSelectors, getElementWidth),
+        contentPadding: getContentPadding(),
+        footerHeight: findFirst(footerSelectors, getElementHeight)
+      },
+      typography: {
+        bodyFontFamily: getComputedStyleProp("body", "font-family"),
+        bodyFontSize: getComputedStyleProp("body", "font-size"),
+        headingFontFamily: getComputedStyleProp("h1, h2, h3", "font-family"),
+        h1FontSize: getComputedStyleProp("h1", "font-size"),
+        h2FontSize: getComputedStyleProp("h2", "font-size"),
+        lineHeight: getComputedStyleProp("body", "line-height")
+      },
+      colors: {
+        backgroundColor: getComputedStyleProp("body", "background-color"),
+        textColor: getComputedStyleProp("body", "color"),
+        linkColor: getComputedStyleProp("a", "color"),
+        primaryButtonBg: findFirst(buttonSelectors, (s) => getComputedStyleProp(s, "background-color")),
+        primaryButtonText: findFirst(buttonSelectors, (s) => getComputedStyleProp(s, "color"))
+      },
+      spacing: {
+        buttonPadding: findFirst(buttonSelectors, (s) => getComputedStyleProp(s, "padding")),
+        cardPadding: findFirst(cardSelectors, (s) => getComputedStyleProp(s, "padding")),
+        sectionGap: getComputedStyleProp("main > *", "margin-bottom")
+      }
+    };
+  });
+  return {
+    url,
+    path: parsedUrl.pathname,
+    ...metrics
+  };
+}
+function findInconsistencies(pages, ignore = []) {
+  const inconsistencies = [];
+  const checkProperty = (type, property, getValue, description, severity = "warning") => {
+    if (ignore.includes(type)) return;
+    const values = pages.map((p) => ({
+      path: p.path,
+      value: getValue(p)
+    }));
+    const nonNullValues = values.filter((v) => v.value !== null);
+    if (nonNullValues.length < 2) return;
+    const uniqueValues = new Set(nonNullValues.map((v) => String(v.value)));
+    if (uniqueValues.size > 1) {
+      inconsistencies.push({
+        type,
+        property,
+        severity,
+        description,
+        pages: values
+      });
+    }
+  };
+  checkProperty("layout", "headerHeight", (p) => p.layout.headerHeight, "Header height differs across pages");
+  checkProperty("layout", "navWidth", (p) => p.layout.navWidth, "Navigation width differs across pages");
+  checkProperty("layout", "footerHeight", (p) => p.layout.footerHeight, "Footer height differs across pages");
+  checkProperty("typography", "bodyFontFamily", (p) => p.typography.bodyFontFamily, "Body font family differs across pages", "error");
+  checkProperty("typography", "bodyFontSize", (p) => p.typography.bodyFontSize, "Body font size differs across pages");
+  checkProperty("typography", "headingFontFamily", (p) => p.typography.headingFontFamily, "Heading font family differs across pages", "error");
+  checkProperty("typography", "h1FontSize", (p) => p.typography.h1FontSize, "H1 font size differs across pages");
+  checkProperty("typography", "lineHeight", (p) => p.typography.lineHeight, "Line height differs across pages");
+  checkProperty("color", "backgroundColor", (p) => p.colors.backgroundColor, "Background color differs across pages");
+  checkProperty("color", "textColor", (p) => p.colors.textColor, "Text color differs across pages", "error");
+  checkProperty("color", "linkColor", (p) => p.colors.linkColor, "Link color differs across pages");
+  checkProperty("color", "primaryButtonBg", (p) => p.colors.primaryButtonBg, "Primary button background differs across pages");
+  checkProperty("spacing", "buttonPadding", (p) => p.spacing.buttonPadding, "Button padding differs across pages");
+  checkProperty("spacing", "cardPadding", (p) => p.spacing.cardPadding, "Card padding differs across pages");
+  return inconsistencies;
+}
+function calculateScore(inconsistencies) {
+  if (inconsistencies.length === 0) return 100;
+  const weights = { error: 10, warning: 5, info: 1 };
+  const totalPenalty = inconsistencies.reduce((sum, i) => sum + weights[i.severity], 0);
+  return Math.max(0, 100 - totalPenalty);
+}
+async function checkConsistency(options) {
+  const { urls, timeout = 15e3, ignore = [] } = options;
+  let browser2 = null;
+  const pages = [];
+  try {
+    browser2 = await import_playwright3.chromium.launch({ headless: true });
+    const context = await browser2.newContext({
+      viewport: { width: 1920, height: 1080 }
+    });
+    const page = await context.newPage();
+    for (const url of urls) {
+      try {
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout
+        });
+        const metrics = await extractMetrics(page, url);
+        pages.push(metrics);
+      } catch (error) {
+        console.error(`Failed to analyze ${url}:`, error instanceof Error ? error.message : error);
+      }
+    }
+    await browser2.close();
+  } catch (error) {
+    if (browser2) await browser2.close();
+    throw error;
+  }
+  if (pages.length < 2) {
+    return {
+      pages,
+      inconsistencies: [],
+      score: 100,
+      summary: "Need at least 2 pages to check consistency"
+    };
+  }
+  const inconsistencies = findInconsistencies(pages, ignore);
+  const score = calculateScore(inconsistencies);
+  const errorCount = inconsistencies.filter((i) => i.severity === "error").length;
+  const warningCount = inconsistencies.filter((i) => i.severity === "warning").length;
+  let summary;
+  if (score === 100) {
+    summary = `All ${pages.length} pages are consistent.`;
+  } else if (score >= 80) {
+    summary = `Minor inconsistencies found across ${pages.length} pages. ${warningCount} warning(s).`;
+  } else if (score >= 50) {
+    summary = `Notable inconsistencies found. ${errorCount} error(s), ${warningCount} warning(s).`;
+  } else {
+    summary = `Significant style inconsistencies detected. ${errorCount} error(s), ${warningCount} warning(s). Review recommended.`;
+  }
+  return {
+    pages,
+    inconsistencies,
+    score,
+    summary
+  };
+}
+function formatConsistencyReport(result) {
+  const lines = [];
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("  UI CONSISTENCY REPORT");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("");
+  lines.push(`Score: ${result.score}/100`);
+  lines.push(`Pages analyzed: ${result.pages.length}`);
+  lines.push(`Summary: ${result.summary}`);
+  lines.push("");
+  if (result.inconsistencies.length === 0) {
+    lines.push("\u2713 No inconsistencies found");
+  } else {
+    lines.push("Inconsistencies:");
+    lines.push("");
+    for (const issue of result.inconsistencies) {
+      const icon = issue.severity === "error" ? "\u2717" : issue.severity === "warning" ? "!" : "\u2139";
+      lines.push(`  ${icon} [${issue.type}] ${issue.description}`);
+      for (const page of issue.pages) {
+        if (page.value !== null) {
+          lines.push(`      ${page.path}: ${page.value}`);
+        }
+      }
+      lines.push("");
+    }
+  }
+  lines.push("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push("Pages analyzed:");
+  for (const page of result.pages) {
+    lines.push(`  \u2022 ${page.path} (${page.title})`);
+  }
+  return lines.join("\n");
+}
+var import_playwright3;
+var init_consistency = __esm({
+  "src/consistency.ts"() {
+    "use strict";
+    import_playwright3 = require("playwright");
+  }
+});
+
 // src/crawl.ts
 var crawl_exports = {};
 __export(crawl_exports, {
@@ -279,7 +880,7 @@ async function discoverPages(options) {
   let browser2 = null;
   let totalLinks = 0;
   try {
-    browser2 = await import_playwright3.chromium.launch({ headless: true });
+    browser2 = await import_playwright4.chromium.launch({ headless: true });
     const context = await browser2.newContext();
     const page = await context.newPage();
     while (queue.length > 0 && discovered.size < maxPages) {
@@ -404,7 +1005,7 @@ function shouldSkipUrl(url) {
 async function getNavigationLinks(url) {
   let browser2 = null;
   try {
-    browser2 = await import_playwright3.chromium.launch({ headless: true });
+    browser2 = await import_playwright4.chromium.launch({ headless: true });
     const page = await browser2.newPage();
     await page.goto(url, {
       waitUntil: "domcontentloaded",
@@ -465,11 +1066,11 @@ async function getNavigationLinks(url) {
     throw error;
   }
 }
-var import_playwright3, import_url;
+var import_playwright4, import_url;
 var init_crawl = __esm({
   "src/crawl.ts"() {
     "use strict";
-    import_playwright3 = require("playwright");
+    import_playwright4 = require("playwright");
     import_url = require("url");
   }
 });
@@ -480,182 +1081,9 @@ var import_promises5 = require("fs/promises");
 var import_path5 = require("path");
 var import_fs2 = require("fs");
 
-// src/schemas.ts
-var import_zod = require("zod");
-var ViewportSchema = import_zod.z.object({
-  name: import_zod.z.string().min(1).max(50),
-  width: import_zod.z.number().min(320).max(3840),
-  height: import_zod.z.number().min(480).max(2160)
-});
-var VIEWPORTS = {
-  desktop: { name: "desktop", width: 1920, height: 1080 },
-  "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440 },
-  "desktop-sm": { name: "desktop-sm", width: 1440, height: 900 },
-  laptop: { name: "laptop", width: 1366, height: 768 },
-  tablet: { name: "tablet", width: 768, height: 1024 },
-  "tablet-landscape": { name: "tablet-landscape", width: 1024, height: 768 },
-  mobile: { name: "mobile", width: 375, height: 667 },
-  "mobile-lg": { name: "mobile-lg", width: 414, height: 896 },
-  "iphone-14": { name: "iphone-14", width: 390, height: 844 },
-  "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 }
-};
-var ConfigSchema = import_zod.z.object({
-  baseUrl: import_zod.z.string().url("Must be a valid URL"),
-  outputDir: import_zod.z.string().default("./.ibr"),
-  viewport: ViewportSchema.default(VIEWPORTS.desktop),
-  viewports: import_zod.z.array(ViewportSchema).optional(),
-  // Multi-viewport support
-  threshold: import_zod.z.number().min(0).max(100).default(1),
-  fullPage: import_zod.z.boolean().default(true),
-  waitForNetworkIdle: import_zod.z.boolean().default(true),
-  timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4)
-});
-var SessionQuerySchema = import_zod.z.object({
-  route: import_zod.z.string().optional(),
-  url: import_zod.z.string().optional(),
-  status: import_zod.z.enum(["baseline", "compared", "pending"]).optional(),
-  name: import_zod.z.string().optional(),
-  createdAfter: import_zod.z.date().optional(),
-  createdBefore: import_zod.z.date().optional(),
-  viewport: import_zod.z.string().optional(),
-  limit: import_zod.z.number().min(1).max(100).default(50)
-});
-var ComparisonResultSchema = import_zod.z.object({
-  match: import_zod.z.boolean(),
-  diffPercent: import_zod.z.number(),
-  diffPixels: import_zod.z.number(),
-  totalPixels: import_zod.z.number(),
-  threshold: import_zod.z.number()
-});
-var ChangedRegionSchema = import_zod.z.object({
-  location: import_zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
-  bounds: import_zod.z.object({
-    x: import_zod.z.number(),
-    y: import_zod.z.number(),
-    width: import_zod.z.number(),
-    height: import_zod.z.number()
-  }),
-  description: import_zod.z.string(),
-  severity: import_zod.z.enum(["expected", "unexpected", "critical"])
-});
-var VerdictSchema = import_zod.z.enum([
-  "MATCH",
-  "EXPECTED_CHANGE",
-  "UNEXPECTED_CHANGE",
-  "LAYOUT_BROKEN"
-]);
-var AnalysisSchema = import_zod.z.object({
-  verdict: VerdictSchema,
-  summary: import_zod.z.string(),
-  changedRegions: import_zod.z.array(ChangedRegionSchema),
-  unexpectedChanges: import_zod.z.array(ChangedRegionSchema),
-  recommendation: import_zod.z.string().nullable()
-});
-var SessionStatusSchema = import_zod.z.enum(["baseline", "compared", "pending"]);
-var SessionSchema = import_zod.z.object({
-  id: import_zod.z.string(),
-  name: import_zod.z.string(),
-  url: import_zod.z.string().url(),
-  viewport: ViewportSchema,
-  status: SessionStatusSchema,
-  createdAt: import_zod.z.string().datetime(),
-  updatedAt: import_zod.z.string().datetime(),
-  comparison: ComparisonResultSchema.optional(),
-  analysis: AnalysisSchema.optional()
-});
-var ComparisonReportSchema = import_zod.z.object({
-  sessionId: import_zod.z.string(),
-  sessionName: import_zod.z.string(),
-  url: import_zod.z.string(),
-  timestamp: import_zod.z.string().datetime(),
-  viewport: ViewportSchema,
-  comparison: ComparisonResultSchema,
-  analysis: AnalysisSchema,
-  files: import_zod.z.object({
-    baseline: import_zod.z.string(),
-    current: import_zod.z.string(),
-    diff: import_zod.z.string()
-  }),
-  webViewUrl: import_zod.z.string().optional()
-});
-
-// src/capture.ts
-var import_playwright2 = require("playwright");
-var import_promises2 = require("fs/promises");
-var import_path2 = require("path");
-init_auth();
-var browser = null;
-async function getBrowser() {
-  if (!browser) {
-    browser = await import_playwright2.chromium.launch({
-      headless: true
-    });
-  }
-  return browser;
-}
-async function closeBrowser() {
-  if (browser) {
-    await browser.close();
-    browser = null;
-  }
-}
-async function captureScreenshot(options) {
-  const {
-    url,
-    outputPath,
-    viewport = VIEWPORTS.desktop,
-    fullPage = true,
-    waitForNetworkIdle = true,
-    timeout = 3e4,
-    outputDir
-  } = options;
-  await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
-  let storageState;
-  if (outputDir && !isDeployedEnvironment()) {
-    const authState = await loadAuthState(outputDir);
-    if (authState) {
-      storageState = authState;
-      console.log("\u{1F510} Using saved authentication state");
-    }
-  }
-  const browserInstance = await getBrowser();
-  const context = await browserInstance.newContext({
-    viewport: {
-      width: viewport.width,
-      height: viewport.height
-    },
-    // Disable animations for consistent screenshots
-    reducedMotion: "reduce",
-    // Load auth state if available (Playwright accepts object or file path)
-    ...storageState ? { storageState } : {}
-  });
-  const page = await context.newPage();
-  try {
-    await page.goto(url, {
-      waitUntil: waitForNetworkIdle ? "networkidle" : "load",
-      timeout
-    });
-    await page.waitForTimeout(500);
-    await page.addStyleTag({
-      content: `
-        *, *::before, *::after {
-          animation-duration: 0s !important;
-          animation-delay: 0s !important;
-          transition-duration: 0s !important;
-          transition-delay: 0s !important;
-        }
-      `
-    });
-    await page.screenshot({
-      path: outputPath,
-      fullPage,
-      type: "png"
-    });
-    return outputPath;
-  } finally {
-    await context.close();
-  }
-}
+// src/index.ts
+init_schemas();
+init_capture();
 
 // src/compare.ts
 var import_pixelmatch = __toESM(require("pixelmatch"));
@@ -850,6 +1278,7 @@ function getVerdictDescription(verdict) {
 var import_nanoid = require("nanoid");
 var import_promises4 = require("fs/promises");
 var import_path4 = require("path");
+init_schemas();
 var SESSION_PREFIX = "sess_";
 function generateSessionId() {
   return `${SESSION_PREFIX}${(0, import_nanoid.nanoid)(10)}`;
@@ -1149,6 +1578,9 @@ function formatSessionSummary(session) {
 }
 
 // src/index.ts
+init_schemas();
+init_capture();
+init_consistency();
 init_crawl();
 var InterfaceBuiltRight = class {
   config;
@@ -1668,6 +2100,132 @@ program.command("scan-check").description("Compare all sessions from the last sc
     }
     await ibr.close();
     if (broken > 0) process.exit(1);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("consistency <url>").description("Check UI consistency across multiple pages (opt-in)").option("-n, --max-pages <count>", "Maximum pages to check", "5").option("--nav-only", "Only check navigation links (faster)").option("--ignore <types>", "Ignore certain checks (layout,typography,color,spacing)", "").option("-f, --format <format>", "Output format: json, text", "text").option("--confirm", "Skip confirmation prompt (for automation/Claude Code)").action(async (url, options) => {
+  try {
+    if (!options.confirm) {
+      console.log("");
+      console.log("\u26A0\uFE0F  Consistency Check");
+      console.log("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+      console.log("This will analyze UI styles across multiple pages to");
+      console.log("detect potential inconsistencies (fonts, colors, spacing).");
+      console.log("");
+      console.log("Note: Some style differences may be intentional.");
+      console.log("");
+      console.log("To proceed, run with --confirm flag:");
+      console.log(`  npx ibr consistency ${url} --confirm`);
+      console.log("");
+      console.log("Or for Claude Code automation:");
+      console.log(`  npx ibr consistency ${url} --confirm --format json`);
+      return;
+    }
+    const { discoverPages: discoverPages2, getNavigationLinks: getNavigationLinks2 } = await Promise.resolve().then(() => (init_crawl(), crawl_exports));
+    const { checkConsistency: checkConsistency2, formatConsistencyReport: formatConsistencyReport2 } = await Promise.resolve().then(() => (init_consistency(), consistency_exports));
+    console.log(`Discovering pages from ${url}...`);
+    let pages;
+    if (options.navOnly) {
+      pages = await getNavigationLinks2(url);
+    } else {
+      const result2 = await discoverPages2({
+        url,
+        maxPages: parseInt(options.maxPages, 10)
+      });
+      pages = result2.pages;
+    }
+    if (pages.length < 2) {
+      console.log("Need at least 2 pages to check consistency.");
+      return;
+    }
+    console.log(`Found ${pages.length} pages. Analyzing styles...`);
+    console.log("");
+    const urls = pages.map((p) => p.url);
+    const ignore = options.ignore ? options.ignore.split(",") : [];
+    const result = await checkConsistency2({
+      urls,
+      ignore
+    });
+    if (options.format === "json") {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(formatConsistencyReport2(result));
+    }
+    if (result.score < 50) {
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("diagnose <url>").description("Diagnose page load issues with detailed timing and error info").option("--timeout <ms>", "Timeout in milliseconds", "30000").action(async (url, options) => {
+  try {
+    const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser2 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
+    const { join: join4 } = await import("path");
+    const outputDir = program.opts().output || "./.ibr";
+    console.log(`Diagnosing ${url}...`);
+    console.log("");
+    const result = await captureWithDiagnostics2({
+      url,
+      outputPath: join4(outputDir, "diagnose", "test.png"),
+      timeout: parseInt(options.timeout, 10),
+      outputDir
+    });
+    await closeBrowser2();
+    console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+    console.log("  PAGE DIAGNOSTICS");
+    console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+    console.log("");
+    if (result.success) {
+      console.log("\u2713 Page loaded successfully");
+      console.log("");
+    } else {
+      console.log("\u2717 Page failed to load");
+      console.log(`  Error: ${result.error?.message}`);
+      console.log(`  Suggestion: ${result.error?.suggestion}`);
+      console.log("");
+    }
+    console.log("Timing:");
+    console.log(`  Navigation: ${result.timing.navigationMs}ms`);
+    console.log(`  Render: ${result.timing.renderMs}ms`);
+    console.log(`  Total: ${result.timing.totalMs}ms`);
+    console.log("");
+    if (result.diagnostics.httpStatus) {
+      console.log(`HTTP Status: ${result.diagnostics.httpStatus}`);
+    }
+    if (result.diagnostics.consoleErrors.length > 0) {
+      console.log("");
+      console.log("Console Errors:");
+      for (const err of result.diagnostics.consoleErrors.slice(0, 5)) {
+        console.log(`  \u2022 ${err.substring(0, 100)}${err.length > 100 ? "..." : ""}`);
+      }
+      if (result.diagnostics.consoleErrors.length > 5) {
+        console.log(`  ... and ${result.diagnostics.consoleErrors.length - 5} more`);
+      }
+    }
+    if (result.diagnostics.networkErrors.length > 0) {
+      console.log("");
+      console.log("Network Errors:");
+      for (const err of result.diagnostics.networkErrors.slice(0, 5)) {
+        console.log(`  \u2022 ${err.substring(0, 100)}${err.length > 100 ? "..." : ""}`);
+      }
+      if (result.diagnostics.networkErrors.length > 5) {
+        console.log(`  ... and ${result.diagnostics.networkErrors.length - 5} more`);
+      }
+    }
+    if (result.diagnostics.suggestions.length > 0) {
+      console.log("");
+      console.log("Suggestions:");
+      for (const suggestion of result.diagnostics.suggestions) {
+        console.log(`  \u2192 ${suggestion}`);
+      }
+    }
+    if (!result.success) {
+      process.exit(1);
+    }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);

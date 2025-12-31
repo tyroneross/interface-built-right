@@ -240,6 +240,163 @@ async function captureScreenshot(options) {
 function getViewport(name) {
   return VIEWPORTS[name];
 }
+async function captureWithDiagnostics(options) {
+  const {
+    url,
+    outputPath,
+    viewport = VIEWPORTS.desktop,
+    fullPage = true,
+    waitForNetworkIdle = true,
+    timeout = 3e4,
+    outputDir
+  } = options;
+  const startTime = Date.now();
+  let navigationTime = 0;
+  let renderTime = 0;
+  const consoleErrors = [];
+  const networkErrors = [];
+  const suggestions = [];
+  let httpStatus;
+  try {
+    await promises.mkdir(path.dirname(outputPath), { recursive: true });
+    let storageState;
+    if (outputDir && !isDeployedEnvironment()) {
+      const authState = await loadAuthState(outputDir);
+      if (authState) {
+        storageState = authState;
+      }
+    }
+    const browserInstance = await getBrowser();
+    const context = await browserInstance.newContext({
+      viewport: {
+        width: viewport.width,
+        height: viewport.height
+      },
+      reducedMotion: "reduce",
+      ...storageState ? { storageState } : {}
+    });
+    const page = await context.newPage();
+    page.on("console", (msg) => {
+      if (msg.type() === "error") {
+        consoleErrors.push(msg.text());
+      }
+    });
+    page.on("requestfailed", (request) => {
+      const failure = request.failure();
+      networkErrors.push(`${request.url()}: ${failure?.errorText || "failed"}`);
+    });
+    page.on("response", (response) => {
+      if (response.url() === url || response.url() === url + "/") {
+        httpStatus = response.status();
+      }
+    });
+    try {
+      const navStart = Date.now();
+      await page.goto(url, {
+        waitUntil: waitForNetworkIdle ? "networkidle" : "load",
+        timeout
+      });
+      navigationTime = Date.now() - navStart;
+    } catch (navError) {
+      await context.close();
+      const errorMsg = navError instanceof Error ? navError.message : String(navError);
+      const isTimeout = errorMsg.includes("Timeout");
+      if (isTimeout) {
+        suggestions.push(`Page took longer than ${timeout}ms to load`);
+        suggestions.push("Try increasing timeout: --timeout 60000");
+        if (waitForNetworkIdle) {
+          suggestions.push('Try disabling network idle wait: use "load" instead of "networkidle"');
+        }
+      }
+      if (networkErrors.length > 0) {
+        suggestions.push(`${networkErrors.length} network request(s) failed`);
+      }
+      if (httpStatus && httpStatus >= 400) {
+        suggestions.push(`Server returned HTTP ${httpStatus}`);
+      }
+      return {
+        success: false,
+        timing: {
+          navigationMs: Date.now() - startTime,
+          renderMs: 0,
+          totalMs: Date.now() - startTime
+        },
+        diagnostics: {
+          httpStatus,
+          consoleErrors,
+          networkErrors,
+          suggestions
+        },
+        error: {
+          type: isTimeout ? "timeout" : "navigation",
+          message: errorMsg,
+          suggestion: isTimeout ? `Increase timeout or check if ${url} is responding` : `Check if the server is running at ${url}`
+        }
+      };
+    }
+    await page.waitForTimeout(500);
+    await page.addStyleTag({
+      content: `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }
+      `
+    });
+    const renderStart = Date.now();
+    await page.screenshot({
+      path: outputPath,
+      fullPage,
+      type: "png"
+    });
+    renderTime = Date.now() - renderStart;
+    await context.close();
+    if (navigationTime > 5e3) {
+      suggestions.push(`Slow page load: ${(navigationTime / 1e3).toFixed(1)}s`);
+    }
+    if (consoleErrors.length > 0) {
+      suggestions.push(`${consoleErrors.length} JavaScript error(s) detected`);
+    }
+    return {
+      success: true,
+      outputPath,
+      timing: {
+        navigationMs: navigationTime,
+        renderMs: renderTime,
+        totalMs: Date.now() - startTime
+      },
+      diagnostics: {
+        httpStatus,
+        consoleErrors,
+        networkErrors,
+        suggestions
+      }
+    };
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      timing: {
+        navigationMs: navigationTime,
+        renderMs: renderTime,
+        totalMs: Date.now() - startTime
+      },
+      diagnostics: {
+        httpStatus,
+        consoleErrors,
+        networkErrors,
+        suggestions
+      },
+      error: {
+        type: "unknown",
+        message: errorMsg,
+        suggestion: "Check browser installation: npx playwright install chromium"
+      }
+    };
+  }
+}
 var DEFAULT_REGIONS = [
   { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
   { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
@@ -720,6 +877,220 @@ function formatSessionSummary(session) {
   }
   return `${session.id}  ${status}  ${viewport}  ${date}  ${session.name}${diffInfo}`;
 }
+async function extractMetrics(page, url) {
+  const parsedUrl = new URL(url);
+  const metrics = await page.evaluate(() => {
+    const getComputedStyleProp = (selector, prop) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      return window.getComputedStyle(el).getPropertyValue(prop) || null;
+    };
+    const getElementHeight = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      return el.getBoundingClientRect().height;
+    };
+    const getElementWidth = (selector) => {
+      const el = document.querySelector(selector);
+      if (!el) return null;
+      return el.getBoundingClientRect().width;
+    };
+    const headerSelectors = ["header", '[role="banner"]', ".header", "#header", "nav"];
+    const navSelectors = ["nav", '[role="navigation"]', ".sidebar", ".nav", "#sidebar"];
+    const mainSelectors = ["main", '[role="main"]', ".content", "#content", ".main"];
+    const footerSelectors = ["footer", '[role="contentinfo"]', ".footer", "#footer"];
+    const buttonSelectors = ["button", ".btn", '[role="button"]', "a.button"];
+    const cardSelectors = [".card", '[class*="card"]', ".panel", ".box"];
+    const findFirst = (selectors, fn) => {
+      for (const sel of selectors) {
+        const result = fn(sel);
+        if (result !== null) return result;
+      }
+      return null;
+    };
+    const getContentPadding = () => {
+      for (const sel of mainSelectors) {
+        const el = document.querySelector(sel);
+        if (el) {
+          const style = window.getComputedStyle(el);
+          return {
+            top: parseFloat(style.paddingTop) || 0,
+            right: parseFloat(style.paddingRight) || 0,
+            bottom: parseFloat(style.paddingBottom) || 0,
+            left: parseFloat(style.paddingLeft) || 0
+          };
+        }
+      }
+      return null;
+    };
+    return {
+      title: document.title,
+      layout: {
+        headerHeight: findFirst(headerSelectors, getElementHeight),
+        navWidth: findFirst(navSelectors, getElementWidth),
+        contentPadding: getContentPadding(),
+        footerHeight: findFirst(footerSelectors, getElementHeight)
+      },
+      typography: {
+        bodyFontFamily: getComputedStyleProp("body", "font-family"),
+        bodyFontSize: getComputedStyleProp("body", "font-size"),
+        headingFontFamily: getComputedStyleProp("h1, h2, h3", "font-family"),
+        h1FontSize: getComputedStyleProp("h1", "font-size"),
+        h2FontSize: getComputedStyleProp("h2", "font-size"),
+        lineHeight: getComputedStyleProp("body", "line-height")
+      },
+      colors: {
+        backgroundColor: getComputedStyleProp("body", "background-color"),
+        textColor: getComputedStyleProp("body", "color"),
+        linkColor: getComputedStyleProp("a", "color"),
+        primaryButtonBg: findFirst(buttonSelectors, (s) => getComputedStyleProp(s, "background-color")),
+        primaryButtonText: findFirst(buttonSelectors, (s) => getComputedStyleProp(s, "color"))
+      },
+      spacing: {
+        buttonPadding: findFirst(buttonSelectors, (s) => getComputedStyleProp(s, "padding")),
+        cardPadding: findFirst(cardSelectors, (s) => getComputedStyleProp(s, "padding")),
+        sectionGap: getComputedStyleProp("main > *", "margin-bottom")
+      }
+    };
+  });
+  return {
+    url,
+    path: parsedUrl.pathname,
+    ...metrics
+  };
+}
+function findInconsistencies(pages, ignore = []) {
+  const inconsistencies = [];
+  const checkProperty = (type, property, getValue, description, severity = "warning") => {
+    if (ignore.includes(type)) return;
+    const values = pages.map((p) => ({
+      path: p.path,
+      value: getValue(p)
+    }));
+    const nonNullValues = values.filter((v) => v.value !== null);
+    if (nonNullValues.length < 2) return;
+    const uniqueValues = new Set(nonNullValues.map((v) => String(v.value)));
+    if (uniqueValues.size > 1) {
+      inconsistencies.push({
+        type,
+        property,
+        severity,
+        description,
+        pages: values
+      });
+    }
+  };
+  checkProperty("layout", "headerHeight", (p) => p.layout.headerHeight, "Header height differs across pages");
+  checkProperty("layout", "navWidth", (p) => p.layout.navWidth, "Navigation width differs across pages");
+  checkProperty("layout", "footerHeight", (p) => p.layout.footerHeight, "Footer height differs across pages");
+  checkProperty("typography", "bodyFontFamily", (p) => p.typography.bodyFontFamily, "Body font family differs across pages", "error");
+  checkProperty("typography", "bodyFontSize", (p) => p.typography.bodyFontSize, "Body font size differs across pages");
+  checkProperty("typography", "headingFontFamily", (p) => p.typography.headingFontFamily, "Heading font family differs across pages", "error");
+  checkProperty("typography", "h1FontSize", (p) => p.typography.h1FontSize, "H1 font size differs across pages");
+  checkProperty("typography", "lineHeight", (p) => p.typography.lineHeight, "Line height differs across pages");
+  checkProperty("color", "backgroundColor", (p) => p.colors.backgroundColor, "Background color differs across pages");
+  checkProperty("color", "textColor", (p) => p.colors.textColor, "Text color differs across pages", "error");
+  checkProperty("color", "linkColor", (p) => p.colors.linkColor, "Link color differs across pages");
+  checkProperty("color", "primaryButtonBg", (p) => p.colors.primaryButtonBg, "Primary button background differs across pages");
+  checkProperty("spacing", "buttonPadding", (p) => p.spacing.buttonPadding, "Button padding differs across pages");
+  checkProperty("spacing", "cardPadding", (p) => p.spacing.cardPadding, "Card padding differs across pages");
+  return inconsistencies;
+}
+function calculateScore(inconsistencies) {
+  if (inconsistencies.length === 0) return 100;
+  const weights = { error: 10, warning: 5, info: 1 };
+  const totalPenalty = inconsistencies.reduce((sum, i) => sum + weights[i.severity], 0);
+  return Math.max(0, 100 - totalPenalty);
+}
+async function checkConsistency(options) {
+  const { urls, timeout = 15e3, ignore = [] } = options;
+  let browser2 = null;
+  const pages = [];
+  try {
+    browser2 = await playwright.chromium.launch({ headless: true });
+    const context = await browser2.newContext({
+      viewport: { width: 1920, height: 1080 }
+    });
+    const page = await context.newPage();
+    for (const url of urls) {
+      try {
+        await page.goto(url, {
+          waitUntil: "domcontentloaded",
+          timeout
+        });
+        const metrics = await extractMetrics(page, url);
+        pages.push(metrics);
+      } catch (error) {
+        console.error(`Failed to analyze ${url}:`, error instanceof Error ? error.message : error);
+      }
+    }
+    await browser2.close();
+  } catch (error) {
+    if (browser2) await browser2.close();
+    throw error;
+  }
+  if (pages.length < 2) {
+    return {
+      pages,
+      inconsistencies: [],
+      score: 100,
+      summary: "Need at least 2 pages to check consistency"
+    };
+  }
+  const inconsistencies = findInconsistencies(pages, ignore);
+  const score = calculateScore(inconsistencies);
+  const errorCount = inconsistencies.filter((i) => i.severity === "error").length;
+  const warningCount = inconsistencies.filter((i) => i.severity === "warning").length;
+  let summary;
+  if (score === 100) {
+    summary = `All ${pages.length} pages are consistent.`;
+  } else if (score >= 80) {
+    summary = `Minor inconsistencies found across ${pages.length} pages. ${warningCount} warning(s).`;
+  } else if (score >= 50) {
+    summary = `Notable inconsistencies found. ${errorCount} error(s), ${warningCount} warning(s).`;
+  } else {
+    summary = `Significant style inconsistencies detected. ${errorCount} error(s), ${warningCount} warning(s). Review recommended.`;
+  }
+  return {
+    pages,
+    inconsistencies,
+    score,
+    summary
+  };
+}
+function formatConsistencyReport(result) {
+  const lines = [];
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("  UI CONSISTENCY REPORT");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("");
+  lines.push(`Score: ${result.score}/100`);
+  lines.push(`Pages analyzed: ${result.pages.length}`);
+  lines.push(`Summary: ${result.summary}`);
+  lines.push("");
+  if (result.inconsistencies.length === 0) {
+    lines.push("\u2713 No inconsistencies found");
+  } else {
+    lines.push("Inconsistencies:");
+    lines.push("");
+    for (const issue of result.inconsistencies) {
+      const icon = issue.severity === "error" ? "\u2717" : issue.severity === "warning" ? "!" : "\u2139";
+      lines.push(`  ${icon} [${issue.type}] ${issue.description}`);
+      for (const page of issue.pages) {
+        if (page.value !== null) {
+          lines.push(`      ${page.path}: ${page.value}`);
+        }
+      }
+      lines.push("");
+    }
+  }
+  lines.push("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push("Pages analyzed:");
+  for (const page of result.pages) {
+    lines.push(`  \u2022 ${page.path} (${page.title})`);
+  }
+  return lines.join("\n");
+}
 async function discoverPages(options) {
   const {
     url: url$1,
@@ -1110,6 +1481,8 @@ exports.VerdictSchema = VerdictSchema;
 exports.ViewportSchema = ViewportSchema;
 exports.analyzeComparison = analyzeComparison;
 exports.captureScreenshot = captureScreenshot;
+exports.captureWithDiagnostics = captureWithDiagnostics;
+exports.checkConsistency = checkConsistency;
 exports.cleanSessions = cleanSessions;
 exports.closeBrowser = closeBrowser;
 exports.compareImages = compareImages;
@@ -1118,6 +1491,7 @@ exports.deleteSession = deleteSession;
 exports.detectChangedRegions = detectChangedRegions;
 exports.discoverPages = discoverPages;
 exports.findSessions = findSessions;
+exports.formatConsistencyReport = formatConsistencyReport;
 exports.formatReportJson = formatReportJson;
 exports.formatReportMinimal = formatReportMinimal;
 exports.formatReportText = formatReportText;

@@ -533,6 +533,176 @@ program
     }
   });
 
+// Consistency check command - compare UI consistency across pages
+program
+  .command('consistency <url>')
+  .description('Check UI consistency across multiple pages (opt-in)')
+  .option('-n, --max-pages <count>', 'Maximum pages to check', '5')
+  .option('--nav-only', 'Only check navigation links (faster)')
+  .option('--ignore <types>', 'Ignore certain checks (layout,typography,color,spacing)', '')
+  .option('-f, --format <format>', 'Output format: json, text', 'text')
+  .option('--confirm', 'Skip confirmation prompt (for automation/Claude Code)')
+  .action(async (url: string, options: {
+    maxPages: string;
+    navOnly?: boolean;
+    ignore: string;
+    format: string;
+    confirm?: boolean;
+  }) => {
+    try {
+      // Permission check - require explicit confirmation unless --confirm flag
+      if (!options.confirm) {
+        console.log('');
+        console.log('⚠️  Consistency Check');
+        console.log('───────────────────────────────────────────────────');
+        console.log('This will analyze UI styles across multiple pages to');
+        console.log('detect potential inconsistencies (fonts, colors, spacing).');
+        console.log('');
+        console.log('Note: Some style differences may be intentional.');
+        console.log('');
+        console.log('To proceed, run with --confirm flag:');
+        console.log(`  npx ibr consistency ${url} --confirm`);
+        console.log('');
+        console.log('Or for Claude Code automation:');
+        console.log(`  npx ibr consistency ${url} --confirm --format json`);
+        return;
+      }
+
+      const { discoverPages, getNavigationLinks } = await import('../crawl.js');
+      const { checkConsistency, formatConsistencyReport } = await import('../consistency.js');
+
+      console.log(`Discovering pages from ${url}...`);
+
+      let pages;
+      if (options.navOnly) {
+        pages = await getNavigationLinks(url);
+      } else {
+        const result = await discoverPages({
+          url,
+          maxPages: parseInt(options.maxPages, 10),
+        });
+        pages = result.pages;
+      }
+
+      if (pages.length < 2) {
+        console.log('Need at least 2 pages to check consistency.');
+        return;
+      }
+
+      console.log(`Found ${pages.length} pages. Analyzing styles...`);
+      console.log('');
+
+      const urls = pages.map(p => p.url);
+      const ignore = options.ignore ? options.ignore.split(',') as Array<'layout' | 'typography' | 'color' | 'spacing'> : [];
+
+      const result = await checkConsistency({
+        urls,
+        ignore,
+      });
+
+      if (options.format === 'json') {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatConsistencyReport(result));
+      }
+
+      // Exit with error if score is low
+      if (result.score < 50) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Diagnose command - enhanced error diagnostics for a URL
+program
+  .command('diagnose <url>')
+  .description('Diagnose page load issues with detailed timing and error info')
+  .option('--timeout <ms>', 'Timeout in milliseconds', '30000')
+  .action(async (url: string, options: { timeout: string }) => {
+    try {
+      const { captureWithDiagnostics, closeBrowser } = await import('../capture.js');
+      const { join } = await import('path');
+      const outputDir = program.opts().output || './.ibr';
+
+      console.log(`Diagnosing ${url}...`);
+      console.log('');
+
+      const result = await captureWithDiagnostics({
+        url,
+        outputPath: join(outputDir, 'diagnose', 'test.png'),
+        timeout: parseInt(options.timeout, 10),
+        outputDir,
+      });
+
+      await closeBrowser();
+
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('  PAGE DIAGNOSTICS');
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('');
+
+      if (result.success) {
+        console.log('✓ Page loaded successfully');
+        console.log('');
+      } else {
+        console.log('✗ Page failed to load');
+        console.log(`  Error: ${result.error?.message}`);
+        console.log(`  Suggestion: ${result.error?.suggestion}`);
+        console.log('');
+      }
+
+      console.log('Timing:');
+      console.log(`  Navigation: ${result.timing.navigationMs}ms`);
+      console.log(`  Render: ${result.timing.renderMs}ms`);
+      console.log(`  Total: ${result.timing.totalMs}ms`);
+      console.log('');
+
+      if (result.diagnostics.httpStatus) {
+        console.log(`HTTP Status: ${result.diagnostics.httpStatus}`);
+      }
+
+      if (result.diagnostics.consoleErrors.length > 0) {
+        console.log('');
+        console.log('Console Errors:');
+        for (const err of result.diagnostics.consoleErrors.slice(0, 5)) {
+          console.log(`  • ${err.substring(0, 100)}${err.length > 100 ? '...' : ''}`);
+        }
+        if (result.diagnostics.consoleErrors.length > 5) {
+          console.log(`  ... and ${result.diagnostics.consoleErrors.length - 5} more`);
+        }
+      }
+
+      if (result.diagnostics.networkErrors.length > 0) {
+        console.log('');
+        console.log('Network Errors:');
+        for (const err of result.diagnostics.networkErrors.slice(0, 5)) {
+          console.log(`  • ${err.substring(0, 100)}${err.length > 100 ? '...' : ''}`);
+        }
+        if (result.diagnostics.networkErrors.length > 5) {
+          console.log(`  ... and ${result.diagnostics.networkErrors.length - 5} more`);
+        }
+      }
+
+      if (result.diagnostics.suggestions.length > 0) {
+        console.log('');
+        console.log('Suggestions:');
+        for (const suggestion of result.diagnostics.suggestions) {
+          console.log(`  → ${suggestion}`);
+        }
+      }
+
+      if (!result.success) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Init command
 program
   .command('init')
