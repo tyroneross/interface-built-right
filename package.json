@@ -17,9 +17,11 @@
   },
   "files": [
     "dist",
-    "plugin"
+    "plugin",
+    "scripts"
   ],
   "scripts": {
+    "postinstall": "node scripts/postinstall.js || true",
     "dev": "tsx watch src/index.ts",
     "build": "tsup",
     "build:cli": "tsup src/bin/ibr.ts --format cjs --outDir dist/bin",

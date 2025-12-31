@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Build output
-dist/
+# Build output - dist/ is committed for GitHub installs to work
+# dist/
 
 # Local development
 .ibr/
