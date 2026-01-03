@@ -1,9 +1,11 @@
 'use client';
 
+import { useState } from 'react';
 import ViewTabs, { type ViewMode } from './ViewTabs';
 import SplitView from './SplitView';
 import OverlayView from './OverlayView';
 import DiffView from './DiffView';
+import { ImageModal } from '../ui';
 
 interface Session {
   id: string;
@@ -52,6 +54,12 @@ export default function ComparisonCanvas({
   viewMode,
   onViewModeChange,
 }: ComparisonCanvasProps) {
+  const [modalImage, setModalImage] = useState<{ url: string; label: string } | null>(null);
+
+  const handleImageClick = (url: string, label: string) => {
+    setModalImage({ url, label });
+  };
+
   return (
     <div className="flex flex-1 flex-col gap-3 overflow-hidden p-4">
       {/* Canvas header */}
@@ -64,10 +72,18 @@ export default function ComparisonCanvas({
 
       {/* Image container */}
       <div className="flex flex-1 overflow-hidden rounded-xl border border-gray-200 bg-white">
-        {viewMode === 'split' && <SplitView sessionId={session.id} />}
-        {viewMode === 'overlay' && <OverlayView sessionId={session.id} />}
-        {viewMode === 'diff' && <DiffView sessionId={session.id} />}
+        {viewMode === 'split' && <SplitView sessionId={session.id} onImageClick={handleImageClick} />}
+        {viewMode === 'overlay' && <OverlayView sessionId={session.id} onImageClick={handleImageClick} />}
+        {viewMode === 'diff' && <DiffView sessionId={session.id} onImageClick={handleImageClick} />}
       </div>
+
+      {/* Image expand modal */}
+      <ImageModal
+        imageUrl={modalImage?.url || ''}
+        label={modalImage?.label || ''}
+        isOpen={!!modalImage}
+        onClose={() => setModalImage(null)}
+      />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Visual regression testing for Claude Code - capture baselines, compare changes, iterate automatically",
   "repository": {
     "type": "git",

@@ -14,3 +14,6 @@ export type { BadgeProps, BadgeVariant } from './Badge';
 
 export { Skeleton, SkeletonListItem, SkeletonCard } from './Skeleton';
 export type { SkeletonProps, SkeletonVariant } from './Skeleton';
+
+export { ImageModal } from './ImageModal';
+export type { ImageModalProps } from './ImageModal';

@@ -77,7 +77,7 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
 program
   .name('ibr')
   .description('Visual regression testing for Claude Code')
-  .version('0.2.2');
+  .version('0.2.3');
 
 // Global options
 program
