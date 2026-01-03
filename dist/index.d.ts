@@ -978,6 +978,8 @@ interface StartSessionOptions {
     fullPage?: boolean;
     /** CSS selector to capture specific element instead of full page */
     selector?: string;
+    /** CSS selector to wait for before capturing screenshot */
+    waitFor?: string;
 }
 /**
  * Result from starting a session
@@ -999,6 +1001,8 @@ interface CaptureOptions {
     timeout?: number;
     /** CSS selector to capture specific element instead of full page */
     selector?: string;
+    /** CSS selector to wait for before capturing screenshot */
+    waitFor?: string;
 }
 /**
  * Options for comparing images

@@ -86,6 +86,7 @@ export async function captureScreenshot(
     timeout = 30000,
     outputDir,
     selector,
+    waitFor,
   } = options;
 
   // Ensure output directory exists
@@ -121,6 +122,11 @@ export async function captureScreenshot(
       waitUntil: waitForNetworkIdle ? 'networkidle' : 'load',
       timeout,
     });
+
+    // Wait for specific selector if provided (for dynamic content)
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout });
+    }
 
     // Wait for any remaining animations to settle
     await page.waitForTimeout(500);

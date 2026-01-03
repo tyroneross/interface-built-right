@@ -189,7 +189,8 @@ async function captureScreenshot(options) {
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
-    selector
+    selector,
+    waitFor
   } = options;
   await promises.mkdir(path.dirname(outputPath), { recursive: true });
   let storageState;
@@ -217,6 +218,9 @@ async function captureScreenshot(options) {
       waitUntil: waitForNetworkIdle ? "networkidle" : "load",
       timeout
     });
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout });
+    }
     await page.waitForTimeout(500);
     await page.addStyleTag({
       content: `
@@ -1349,7 +1353,8 @@ var InterfaceBuiltRight = class {
       name = this.generateSessionName(path),
       viewport = this.config.viewport,
       fullPage = this.config.fullPage,
-      selector
+      selector,
+      waitFor
     } = options;
     const url = this.resolveUrl(path);
     const session = await createSession(this.config.outputDir, url, name, viewport);
@@ -1362,7 +1367,8 @@ var InterfaceBuiltRight = class {
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
-      selector
+      selector,
+      waitFor
     });
     return {
       sessionId: session.id,

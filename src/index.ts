@@ -36,6 +36,7 @@ export class InterfaceBuiltRight {
       viewport = this.config.viewport,
       fullPage = this.config.fullPage,
       selector,
+      waitFor,
     } = options;
 
     const url = this.resolveUrl(path);
@@ -54,6 +55,7 @@ export class InterfaceBuiltRight {
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
       selector,
+      waitFor,
     });
 
     return {

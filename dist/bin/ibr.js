@@ -391,7 +391,8 @@ async function captureScreenshot(options) {
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
-    selector
+    selector,
+    waitFor
   } = options;
   await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
   let storageState;
@@ -419,6 +420,9 @@ async function captureScreenshot(options) {
       waitUntil: waitForNetworkIdle ? "networkidle" : "load",
       timeout
     });
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout });
+    }
     await page.waitForTimeout(500);
     await page.addStyleTag({
       content: `
@@ -1099,21 +1103,483 @@ var init_crawl = __esm({
   }
 });
 
-// src/live-session.ts
-var live_session_exports = {};
-__export(live_session_exports, {
-  LiveSession: () => LiveSession,
-  liveSessionManager: () => liveSessionManager
+// src/browser-server.ts
+var browser_server_exports = {};
+__export(browser_server_exports, {
+  PersistentSession: () => PersistentSession,
+  connectToBrowserServer: () => connectToBrowserServer,
+  isServerRunning: () => isServerRunning,
+  listActiveSessions: () => listActiveSessions,
+  startBrowserServer: () => startBrowserServer,
+  stopBrowserServer: () => stopBrowserServer
 });
-var import_playwright5, import_promises5, import_fs2, import_path5, import_nanoid2, LiveSession, LiveSessionManager, liveSessionManager;
-var init_live_session = __esm({
-  "src/live-session.ts"() {
+function getPaths(outputDir) {
+  return {
+    stateFile: (0, import_path5.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path5.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path5.join)(outputDir, "sessions")
+  };
+}
+async function isServerRunning(outputDir) {
+  const { stateFile } = getPaths(outputDir);
+  if (!(0, import_fs2.existsSync)(stateFile)) {
+    return false;
+  }
+  try {
+    const content = await (0, import_promises5.readFile)(stateFile, "utf-8");
+    const state = JSON.parse(content);
+    const browser2 = await import_playwright5.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
+    await browser2.close();
+    return true;
+  } catch {
+    await cleanupServerState(outputDir);
+    return false;
+  }
+}
+async function cleanupServerState(outputDir) {
+  const { stateFile } = getPaths(outputDir);
+  try {
+    await (0, import_promises5.unlink)(stateFile);
+  } catch {
+  }
+}
+async function startBrowserServer(outputDir, options = {}) {
+  const { stateFile, profileDir } = getPaths(outputDir);
+  const headless = options.headless ?? !options.debug;
+  const isolated = options.isolated ?? true;
+  if (await isServerRunning(outputDir)) {
+    throw new Error("Browser server already running. Use session:close all to stop it first.");
+  }
+  await (0, import_promises5.mkdir)(outputDir, { recursive: true });
+  if (isolated) {
+    await (0, import_promises5.mkdir)(profileDir, { recursive: true });
+  }
+  const server = await import_playwright5.chromium.launchServer({
+    headless,
+    slowMo: options.debug ? 100 : 0
+  });
+  const wsEndpoint = server.wsEndpoint();
+  const state = {
+    wsEndpoint,
+    pid: process.pid,
+    startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    headless,
+    isolatedProfile: isolated ? profileDir : ""
+  };
+  await (0, import_promises5.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  return { server, wsEndpoint };
+}
+async function connectToBrowserServer(outputDir) {
+  const { stateFile } = getPaths(outputDir);
+  if (!(0, import_fs2.existsSync)(stateFile)) {
+    return null;
+  }
+  try {
+    const content = await (0, import_promises5.readFile)(stateFile, "utf-8");
+    const state = JSON.parse(content);
+    const browser2 = await import_playwright5.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
+    return browser2;
+  } catch (error) {
+    await cleanupServerState(outputDir);
+    return null;
+  }
+}
+async function stopBrowserServer(outputDir) {
+  const { stateFile, profileDir } = getPaths(outputDir);
+  if (!(0, import_fs2.existsSync)(stateFile)) {
+    return false;
+  }
+  try {
+    const content = await (0, import_promises5.readFile)(stateFile, "utf-8");
+    const state = JSON.parse(content);
+    const browser2 = await import_playwright5.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
+    await browser2.close();
+    await (0, import_promises5.unlink)(stateFile);
+    return true;
+  } catch {
+    await cleanupServerState(outputDir);
+    return false;
+  }
+}
+async function listActiveSessions(outputDir) {
+  const { sessionsDir } = getPaths(outputDir);
+  if (!(0, import_fs2.existsSync)(sessionsDir)) {
+    return [];
+  }
+  const { readdir: readdir2 } = await import("fs/promises");
+  const entries = await readdir2(sessionsDir, { withFileTypes: true });
+  const liveSessions = [];
+  for (const entry of entries) {
+    if (entry.isDirectory() && entry.name.startsWith("live_")) {
+      const statePath = (0, import_path5.join)(sessionsDir, entry.name, "live-session.json");
+      if ((0, import_fs2.existsSync)(statePath)) {
+        liveSessions.push(entry.name);
+      }
+    }
+  }
+  return liveSessions;
+}
+var import_playwright5, import_promises5, import_fs2, import_path5, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var init_browser_server = __esm({
+  "src/browser-server.ts"() {
     "use strict";
     import_playwright5 = require("playwright");
     import_promises5 = require("fs/promises");
     import_fs2 = require("fs");
     import_path5 = require("path");
     import_nanoid2 = require("nanoid");
+    init_schemas();
+    SERVER_STATE_FILE = "browser-server.json";
+    ISOLATED_PROFILE_DIR = "browser-profile";
+    PersistentSession = class _PersistentSession {
+      browser;
+      context;
+      page;
+      state;
+      sessionDir;
+      constructor(browser2, context, page, state, sessionDir) {
+        this.browser = browser2;
+        this.context = context;
+        this.page = page;
+        this.state = state;
+        this.sessionDir = sessionDir;
+      }
+      /**
+       * Create a new session using the browser server
+       */
+      static async create(outputDir, options) {
+        const { url, name, viewport = VIEWPORTS.desktop, waitFor, timeout = 3e4 } = options;
+        const browser2 = await connectToBrowserServer(outputDir);
+        if (!browser2) {
+          throw new Error(
+            "No browser server running.\nStart one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
+          );
+        }
+        const sessionId = `live_${(0, import_nanoid2.nanoid)(10)}`;
+        const sessionsDir = (0, import_path5.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path5.join)(sessionsDir, sessionId);
+        await (0, import_promises5.mkdir)(sessionDir, { recursive: true });
+        const context = await browser2.newContext({
+          viewport: {
+            width: viewport.width,
+            height: viewport.height
+          },
+          reducedMotion: "reduce"
+        });
+        const page = await context.newPage();
+        const navStart = Date.now();
+        await page.goto(url, {
+          waitUntil: "networkidle",
+          timeout
+        });
+        if (waitFor) {
+          await page.waitForSelector(waitFor, { timeout });
+        }
+        const navDuration = Date.now() - navStart;
+        const state = {
+          id: sessionId,
+          url,
+          name: name || new URL(url).pathname,
+          viewport,
+          createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+          pageIndex: 0,
+          actions: [{
+            type: "navigate",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { url, waitFor },
+            success: true,
+            duration: navDuration
+          }]
+        };
+        await (0, import_promises5.writeFile)(
+          (0, import_path5.join)(sessionDir, "live-session.json"),
+          JSON.stringify(state, null, 2)
+        );
+        await page.screenshot({
+          path: (0, import_path5.join)(sessionDir, "baseline.png"),
+          fullPage: false
+        });
+        return new _PersistentSession(browser2, context, page, state, sessionDir);
+      }
+      /**
+       * Get session from browser server by ID
+       */
+      static async get(outputDir, sessionId) {
+        const sessionDir = (0, import_path5.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path5.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs2.existsSync)(statePath)) {
+          return null;
+        }
+        const browser2 = await connectToBrowserServer(outputDir);
+        if (!browser2) {
+          return null;
+        }
+        const content = await (0, import_promises5.readFile)(statePath, "utf-8");
+        const state = JSON.parse(content);
+        const contexts = browser2.contexts();
+        let context;
+        let page;
+        if (contexts.length > 0) {
+          for (const ctx of contexts) {
+            const pages = ctx.pages();
+            for (const p of pages) {
+              if (p.url().includes(new URL(state.url).host)) {
+                context = ctx;
+                page = p;
+                return new _PersistentSession(browser2, context, page, state, sessionDir);
+              }
+            }
+          }
+        }
+        context = await browser2.newContext({
+          viewport: {
+            width: state.viewport.width,
+            height: state.viewport.height
+          },
+          reducedMotion: "reduce"
+        });
+        page = await context.newPage();
+        await page.goto(state.url, { waitUntil: "networkidle" });
+        return new _PersistentSession(browser2, context, page, state, sessionDir);
+      }
+      get id() {
+        return this.state.id;
+      }
+      get url() {
+        return this.page?.url() || this.state.url;
+      }
+      get actions() {
+        return [...this.state.actions];
+      }
+      async recordAction(action) {
+        this.state.actions.push(action);
+        await this.saveState();
+      }
+      async saveState() {
+        await (0, import_promises5.writeFile)(
+          (0, import_path5.join)(this.sessionDir, "live-session.json"),
+          JSON.stringify(this.state, null, 2)
+        );
+      }
+      async navigate(url, options) {
+        const start = Date.now();
+        try {
+          await this.page.goto(url, {
+            waitUntil: "networkidle",
+            timeout: options?.timeout || 3e4
+          });
+          if (options?.waitFor) {
+            await this.page.waitForSelector(options.waitFor, { timeout: options?.timeout || 3e4 });
+          }
+          this.state.url = url;
+          await this.recordAction({
+            type: "navigate",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { url, waitFor: options?.waitFor },
+            success: true,
+            duration: Date.now() - start
+          });
+        } catch (error) {
+          await this.recordAction({
+            type: "navigate",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { url },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      async click(selector, options) {
+        const start = Date.now();
+        try {
+          await this.page.click(selector, { timeout: options?.timeout || 5e3 });
+          await this.recordAction({
+            type: "click",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { selector },
+            success: true,
+            duration: Date.now() - start
+          });
+        } catch (error) {
+          await this.recordAction({
+            type: "click",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { selector },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      async type(selector, text, options) {
+        const start = Date.now();
+        try {
+          await this.page.fill(selector, "");
+          await this.page.type(selector, text, { delay: options?.delay || 0 });
+          await this.recordAction({
+            type: "type",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text },
+            success: true,
+            duration: Date.now() - start
+          });
+        } catch (error) {
+          await this.recordAction({
+            type: "type",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      async waitFor(selectorOrTime, options) {
+        const start = Date.now();
+        try {
+          if (typeof selectorOrTime === "number") {
+            await this.page.waitForTimeout(selectorOrTime);
+          } else {
+            await this.page.waitForSelector(selectorOrTime, { timeout: options?.timeout || 3e4 });
+          }
+          await this.recordAction({
+            type: "wait",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { target: selectorOrTime },
+            success: true,
+            duration: Date.now() - start
+          });
+        } catch (error) {
+          await this.recordAction({
+            type: "wait",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { target: selectorOrTime },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      async screenshot(options) {
+        const start = Date.now();
+        const screenshotName = options?.name || `screenshot-${Date.now()}`;
+        const outputPath = (0, import_path5.join)(this.sessionDir, `${screenshotName}.png`);
+        try {
+          await this.page.addStyleTag({
+            content: `
+          *, *::before, *::after {
+            animation-duration: 0s !important;
+            animation-delay: 0s !important;
+            transition-duration: 0s !important;
+            transition-delay: 0s !important;
+          }
+        `
+          });
+          if (options?.selector) {
+            const element = await this.page.waitForSelector(options.selector, { timeout: 5e3 });
+            if (!element) {
+              throw new Error(`Element not found: ${options.selector}`);
+            }
+            await element.screenshot({ path: outputPath, type: "png" });
+          } else {
+            await this.page.screenshot({
+              path: outputPath,
+              fullPage: options?.fullPage ?? true,
+              type: "png"
+            });
+          }
+          await this.recordAction({
+            type: "screenshot",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { name: screenshotName, path: outputPath, selector: options?.selector },
+            success: true,
+            duration: Date.now() - start
+          });
+          return outputPath;
+        } catch (error) {
+          await this.recordAction({
+            type: "screenshot",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { name: screenshotName, selector: options?.selector },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      async press(key) {
+        await this.page.keyboard.press(key);
+      }
+      async evaluate(script) {
+        return this.page.evaluate(script);
+      }
+      async content() {
+        return this.page.content();
+      }
+      async title() {
+        return this.page.title();
+      }
+      /**
+       * Get text content from a specific selector
+       */
+      async textContent(selector) {
+        return this.page.textContent(selector);
+      }
+      /**
+       * Get inner text from a specific selector (visible text only)
+       */
+      async innerText(selector) {
+        return this.page.innerText(selector);
+      }
+      /**
+       * Get all matching elements' text content
+       */
+      async allTextContent(selector) {
+        const elements = await this.page.$$(selector);
+        const texts = [];
+        for (const el of elements) {
+          const text = await el.textContent();
+          if (text) texts.push(text.trim());
+        }
+        return texts;
+      }
+      /**
+       * Close just this session (not the browser server)
+       */
+      async close() {
+        await this.context.close();
+      }
+      /**
+       * Get raw Playwright page
+       */
+      getPage() {
+        return this.page;
+      }
+    };
+  }
+});
+
+// src/live-session.ts
+var live_session_exports = {};
+__export(live_session_exports, {
+  LiveSession: () => LiveSession,
+  liveSessionManager: () => liveSessionManager
+});
+var import_playwright6, import_promises6, import_fs3, import_path6, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
+var init_live_session = __esm({
+  "src/live-session.ts"() {
+    "use strict";
+    import_playwright6 = require("playwright");
+    import_promises6 = require("fs/promises");
+    import_fs3 = require("fs");
+    import_path6 = require("path");
+    import_nanoid3 = require("nanoid");
     init_schemas();
     LiveSession = class _LiveSession {
       browser = null;
@@ -1125,7 +1591,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, browser2, context, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path5.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path6.join)(outputDir, "sessions", state.id);
         this.browser = browser2;
         this.context = context;
         this.page = page;
@@ -1142,10 +1608,10 @@ var init_live_session = __esm({
           debug = false,
           timeout = 3e4
         } = options;
-        const sessionId = `live_${(0, import_nanoid2.nanoid)(10)}`;
-        const sessionDir = (0, import_path5.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises5.mkdir)(sessionDir, { recursive: true });
-        const browser2 = await import_playwright5.chromium.launch({
+        const sessionId = `live_${(0, import_nanoid3.nanoid)(10)}`;
+        const sessionDir = (0, import_path6.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises6.mkdir)(sessionDir, { recursive: true });
+        const browser2 = await import_playwright6.chromium.launch({
           headless: !sandbox && !debug,
           slowMo: debug ? 100 : 0,
           devtools: debug
@@ -1179,12 +1645,12 @@ var init_live_session = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises5.writeFile)(
-          (0, import_path5.join)(sessionDir, "live-session.json"),
+        await (0, import_promises6.writeFile)(
+          (0, import_path6.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path5.join)(sessionDir, "baseline.png"),
+          path: (0, import_path6.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _LiveSession(state, outputDir, browser2, context, page);
@@ -1194,14 +1660,14 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path5.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path5.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs2.existsSync)(statePath)) {
+        const sessionDir = (0, import_path6.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path6.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs3.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises5.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises6.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
-        const browser2 = await import_playwright5.chromium.launch({
+        const browser2 = await import_playwright6.chromium.launch({
           headless: !state.sandbox
         });
         const context = await browser2.newContext({
@@ -1244,8 +1710,8 @@ var init_live_session = __esm({
        * Save session state
        */
       async saveState() {
-        await (0, import_promises5.writeFile)(
-          (0, import_path5.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises6.writeFile)(
+          (0, import_path6.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -1480,7 +1946,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path5.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path6.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -1653,9 +2119,9 @@ var init_live_session = __esm({
 
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises6 = require("fs/promises");
-var import_path6 = require("path");
-var import_fs3 = require("fs");
+var import_promises7 = require("fs/promises");
+var import_path7 = require("path");
+var import_fs4 = require("fs");
 
 // src/index.ts
 init_schemas();
@@ -2171,7 +2637,8 @@ var InterfaceBuiltRight = class {
       name = this.generateSessionName(path),
       viewport = this.config.viewport,
       fullPage = this.config.fullPage,
-      selector
+      selector,
+      waitFor
     } = options;
     const url = this.resolveUrl(path);
     const session = await createSession(this.config.outputDir, url, name, viewport);
@@ -2184,7 +2651,8 @@ var InterfaceBuiltRight = class {
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
-      selector
+      selector,
+      waitFor
     });
     return {
       sessionId: session.id,
@@ -2332,10 +2800,10 @@ var InterfaceBuiltRight = class {
 // src/bin/ibr.ts
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path6.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs3.existsSync)(configPath)) {
+  const configPath = (0, import_path7.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs4.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises6.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises7.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -2379,14 +2847,15 @@ async function createIBR(options = {}) {
 }
 program.name("ibr").description("Visual regression testing for Claude Code").version("0.2.2");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0");
-program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
+program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const ibr = await createIBR(program.opts());
     const result = await ibr.startSession(resolvedUrl, {
       name: options.name,
       fullPage: options.fullPage,
-      selector: options.selector
+      selector: options.selector,
+      waitFor: options.waitFor
     });
     console.log(`Session started: ${result.sessionId}`);
     console.log(`Baseline: ${result.baseline}`);
@@ -2615,20 +3084,20 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn } = await import("child_process");
   const { resolve: resolve2 } = await import("path");
   const packageRoot = resolve2(process.cwd());
-  let webUiDir = (0, import_path6.join)(packageRoot, "web-ui");
-  if (!(0, import_fs3.existsSync)(webUiDir)) {
+  let webUiDir = (0, import_path7.join)(packageRoot, "web-ui");
+  if (!(0, import_fs4.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path6.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path6.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path7.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path7.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs3.existsSync)(p)) {
+      if ((0, import_fs4.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs3.existsSync)(webUiDir)) {
+  if (!(0, import_fs4.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -2717,51 +3186,105 @@ program.command("logout").description("Clear saved authentication state").action
     process.exit(1);
   }
 });
-program.command("session:start [url]").description("Start an interactive browser session (keeps browser alive)").option("-n, --name <name>", "Session name").option("--sandbox", "Show visible browser window (required for user to toggle)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
+program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
+    const {
+      startBrowserServer: startBrowserServer2,
+      isServerRunning: isServerRunning2,
+      PersistentSession: PersistentSession2
+    } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const resolvedUrl = await resolveBaseUrl(url);
-    if (!options.sandbox && !options.debug) {
-      console.log("Starting headless session...");
-    } else if (options.debug) {
-      console.log("Starting debug session (visible + slow motion + devtools)...");
+    const headless = !options.sandbox && !options.debug;
+    const serverRunning = await isServerRunning2(outputDir);
+    if (!serverRunning) {
+      console.log(headless ? "Starting headless browser server..." : "Starting visible browser server...");
+      const { server } = await startBrowserServer2(outputDir, {
+        headless,
+        debug: options.debug,
+        isolated: true
+        // Prevents conflicts with Playwright MCP
+      });
+      const session = await PersistentSession2.create(outputDir, {
+        url: resolvedUrl,
+        name: options.name,
+        waitFor: options.waitFor,
+        viewport: VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop
+      });
+      console.log("");
+      console.log(`Session started: ${session.id}`);
+      console.log(`URL: ${session.url}`);
+      console.log("");
+      console.log("Available commands (run in another terminal):");
+      console.log(`  npx ibr session:click ${session.id} "<selector>"`);
+      console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
+      console.log(`  npx ibr session:screenshot ${session.id}`);
+      console.log(`  npx ibr session:wait ${session.id} "<selector>"`);
+      console.log("");
+      console.log("To close: npx ibr session:close all");
+      console.log("");
+      console.log("Browser server running. Press Ctrl+C to stop.");
+      await new Promise((resolve2) => {
+        const cleanup = async () => {
+          console.log("\nShutting down browser server...");
+          server.close();
+          resolve2();
+        };
+        process.on("SIGINT", cleanup);
+        process.on("SIGTERM", cleanup);
+      });
     } else {
-      console.log("Starting sandbox session (visible browser)...");
+      console.log("Connecting to existing browser server...");
+      const session = await PersistentSession2.create(outputDir, {
+        url: resolvedUrl,
+        name: options.name,
+        waitFor: options.waitFor,
+        viewport: VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop
+      });
+      console.log("");
+      console.log(`Session started: ${session.id}`);
+      console.log(`URL: ${session.url}`);
+      console.log("");
+      console.log("Use session commands to interact:");
+      console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
+      console.log(`  npx ibr session:click ${session.id} "<selector>"`);
     }
-    const session = await liveSessionManager2.create(outputDir, {
-      url: resolvedUrl,
-      name: options.name,
-      viewport: VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop,
-      sandbox: options.sandbox,
-      debug: options.debug
-    });
-    console.log("");
-    console.log(`Session started: ${session.id}`);
-    console.log(`URL: ${session.url}`);
-    console.log("");
-    console.log("Available commands:");
-    console.log(`  npx ibr session:click ${session.id} "<selector>"`);
-    console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
-    console.log(`  npx ibr session:screenshot ${session.id}`);
-    console.log(`  npx ibr session:close ${session.id}`);
-    console.log("");
-    console.log("Note: Session stays active until closed. Use session:close when done.");
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
 });
+async function getSession2(outputDir, sessionId) {
+  const { PersistentSession: PersistentSession2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+  if (!await isServerRunning2(outputDir)) {
+    console.error("No browser server running.");
+    console.log("");
+    console.log("Start one with:");
+    console.log("  npx ibr session:start <url>");
+    console.log("");
+    console.log("The first session:start launches the server and keeps it alive.");
+    console.log("Run session commands in a separate terminal.");
+    process.exit(1);
+  }
+  const session = await PersistentSession2.get(outputDir, sessionId);
+  if (!session) {
+    console.error(`Session not found: ${sessionId}`);
+    console.log("");
+    console.log("This can happen if:");
+    console.log("  1. The session ID is incorrect");
+    console.log("  2. The session was created with a different browser server");
+    console.log("");
+    console.log("List sessions with: npx ibr session:list");
+    process.exit(1);
+  }
+  return session;
+}
 program.command("session:click <sessionId> <selector>").description("Click an element in an active session").action(async (sessionId, selector) => {
   try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      console.log("Active sessions:", liveSessionManager2.list().join(", ") || "none");
-      process.exit(1);
-    }
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
     await session.click(selector);
     console.log(`Clicked: ${selector}`);
   } catch (error) {
@@ -2769,47 +3292,17 @@ program.command("session:click <sessionId> <selector>").description("Click an el
     process.exit(1);
   }
 });
-program.command("session:type <sessionId> <selector> <text>").description("Type text into an element in an active session").option("--delay <ms>", "Delay between keystrokes", "0").action(async (sessionId, selector, text, options) => {
+program.command("session:type <sessionId> <selector> <text>").description("Type text into an element in an active session").option("--delay <ms>", "Delay between keystrokes", "0").option("--submit", "Press Enter after typing").action(async (sessionId, selector, text, options) => {
   try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
-    }
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
     await session.type(selector, text, { delay: parseInt(options.delay, 10) });
     console.log(`Typed "${text.length > 20 ? text.slice(0, 20) + "..." : text}" into: ${selector}`);
-  } catch (error) {
-    console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-});
-program.command("session:fill <sessionId> <fieldsJson>").description('Fill multiple form fields (JSON array: [{"selector": "...", "value": "..."}])').action(async (sessionId, fieldsJson) => {
-  try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
+    if (options.submit) {
+      await session.press("Enter");
+      console.log("Pressed Enter");
     }
-    const fields = JSON.parse(fieldsJson);
-    await session.fill(fields);
-    console.log(`Filled ${fields.length} field(s)`);
-  } catch (error) {
-    console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-});
-program.command("session:hover <sessionId> <selector>").description("Hover over an element in an active session").action(async (sessionId, selector) => {
-  try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
-    }
-    await session.hover(selector);
-    console.log(`Hovered: ${selector}`);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
@@ -2817,12 +3310,9 @@ program.command("session:hover <sessionId> <selector>").description("Hover over 
 });
 program.command("session:screenshot <sessionId>").description("Take a screenshot of the current page state").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").action(async (sessionId, options) => {
   try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
-    }
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
     const path = await session.screenshot({
       name: options.name,
       selector: options.selector,
@@ -2834,44 +3324,11 @@ program.command("session:screenshot <sessionId>").description("Take a screenshot
     process.exit(1);
   }
 });
-program.command("session:eval <sessionId> <script>").description("Execute JavaScript in the page context").action(async (sessionId, script) => {
-  try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
-    }
-    const result = await session.evaluate(script);
-    console.log("Result:", JSON.stringify(result, null, 2));
-  } catch (error) {
-    console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-});
-program.command("session:navigate <sessionId> <url>").description("Navigate to a new URL in an active session").action(async (sessionId, url) => {
-  try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
-    }
-    await session.navigate(url);
-    console.log(`Navigated to: ${url}`);
-  } catch (error) {
-    console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
-  }
-});
 program.command("session:wait <sessionId> <selectorOrMs>").description("Wait for a selector to appear or a duration (in ms)").action(async (sessionId, selectorOrMs) => {
   try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const session = liveSessionManager2.get(sessionId);
-    if (!session) {
-      console.error(`Session not found or not active: ${sessionId}`);
-      process.exit(1);
-    }
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
     const isNumber = /^\d+$/.test(selectorOrMs);
     if (isNumber) {
       await session.waitFor(parseInt(selectorOrMs, 10));
@@ -2885,42 +3342,119 @@ program.command("session:wait <sessionId> <selectorOrMs>").description("Wait for
     process.exit(1);
   }
 });
+program.command("session:navigate <sessionId> <url>").description("Navigate to a new URL in an active session").option("-w, --wait-for <selector>", "Wait for selector after navigation").action(async (sessionId, url, options) => {
+  try {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
+    await session.navigate(url, { waitFor: options.waitFor });
+    console.log(`Navigated to: ${url}`);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
 program.command("session:list").description("List all active interactive sessions").action(async () => {
   try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
-    const sessions = liveSessionManager2.list();
+    const { isServerRunning: isServerRunning2, listActiveSessions: listActiveSessions2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const serverRunning = await isServerRunning2(outputDir);
+    const sessions = await listActiveSessions2(outputDir);
+    console.log(`Browser server: ${serverRunning ? "running" : "not running"}`);
+    console.log("");
     if (sessions.length === 0) {
-      console.log("No active sessions.");
+      console.log("No sessions found.");
       console.log("");
       console.log("Start one with:");
       console.log("  npx ibr session:start <url>");
       return;
     }
-    console.log("Active sessions:");
+    console.log("Sessions:");
     for (const id of sessions) {
-      const session = liveSessionManager2.get(id);
-      if (session) {
-        console.log(`  ${id}  ${session.url}`);
-      }
+      console.log(`  ${id}`);
     }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
 });
-program.command("session:close <sessionId>").description("Close an active session and its browser").action(async (sessionId) => {
+program.command("session:close <sessionId>").description('Close a session (use "all" to stop browser server)').action(async (sessionId) => {
   try {
-    const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
+    const { stopBrowserServer: stopBrowserServer2, PersistentSession: PersistentSession2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
     if (sessionId === "all") {
-      await liveSessionManager2.closeAll();
-      console.log("All sessions closed.");
+      const stopped = await stopBrowserServer2(outputDir);
+      if (stopped) {
+        console.log("Browser server stopped. All sessions closed.");
+      } else {
+        console.log("No browser server running.");
+      }
       return;
     }
-    const closed = await liveSessionManager2.close(sessionId);
-    if (closed) {
+    if (!await isServerRunning2(outputDir)) {
+      console.log("No browser server running.");
+      return;
+    }
+    const session = await PersistentSession2.get(outputDir, sessionId);
+    if (session) {
+      await session.close();
       console.log(`Session closed: ${sessionId}`);
     } else {
       console.log(`Session not found: ${sessionId}`);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("session:html <sessionId>").description("Get the full page HTML/DOM structure").option("-s, --selector <css>", "Get HTML of specific element only").action(async (sessionId, options) => {
+  try {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
+    if (options.selector) {
+      const html = await session.evaluate((sel) => {
+        const el = document.querySelector(sel);
+        return el ? el.outerHTML : null;
+      });
+      if (html) {
+        console.log(html);
+      } else {
+        console.error(`Element not found: ${options.selector}`);
+        process.exit(1);
+      }
+    } else {
+      const html = await session.content();
+      console.log(html);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("session:text <sessionId> <selector>").description("Get text content from a specific element").option("-a, --all", "Get text from all matching elements").action(async (sessionId, selector, options) => {
+  try {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
+    if (options.all) {
+      const texts = await session.allTextContent(selector);
+      if (texts.length === 0) {
+        console.error(`No elements found: ${selector}`);
+        process.exit(1);
+      }
+      texts.forEach((text, i) => {
+        console.log(`[${i + 1}] ${text}`);
+      });
+    } else {
+      const text = await session.textContent(selector);
+      if (text === null) {
+        console.error(`Element not found: ${selector}`);
+        process.exit(1);
+      }
+      console.log(text.trim());
     }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
@@ -3145,13 +3679,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser2 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join5 } = await import("path");
+    const { join: join6 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join5(outputDir, "diagnose", "test.png"),
+      outputPath: join6(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -3268,8 +3802,8 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize .ibrrc.json configuration file").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").action(async (options) => {
-  const configPath = (0, import_path6.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs3.existsSync)(configPath)) {
+  const configPath = (0, import_path7.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs4.existsSync)(configPath)) {
     console.log(".ibrrc.json already exists.");
     console.log("Edit it directly or delete and run init again.");
     return;
@@ -3304,8 +3838,8 @@ program.command("init").description("Initialize .ibrrc.json configuration file")
     threshold: 1,
     fullPage: true
   };
-  const { writeFile: writeFile5 } = await import("fs/promises");
-  await writeFile5(configPath, JSON.stringify(config, null, 2));
+  const { writeFile: writeFile6 } = await import("fs/promises");
+  await writeFile6(configPath, JSON.stringify(config, null, 2));
   console.log("");
   console.log("Created .ibrrc.json");
   console.log("");

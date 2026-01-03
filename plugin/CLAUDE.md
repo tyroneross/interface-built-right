@@ -22,13 +22,13 @@ You have access to `interface-built-right` for visual regression testing. Use it
 - Integration with `/ibr:replicate` workflow
 - Extracted HTML/CSS for higher fidelity replication
 
-**When Playwright MCP is appropriate (IBR can't do these):**
-- Interactive testing (clicking buttons, filling forms)
-- Multi-step user flow simulation
-- Testing JavaScript interactions
-- Hovering, dragging, keyboard input
+**When Playwright MCP is still appropriate:**
+- Complex multi-tab scenarios
 - Handling dialogs and file uploads
-- Any task requiring page interaction
+- Advanced browser DevTools integration
+- When you need MCP's snapshot accessibility tree
+
+**For interactive testing, IBR now supports persistent sessions (see below).**
 
 **Mode commands:**
 - `/prefer-ibr` — Soft preference (default). IBR recommended, Playwright allowed.
@@ -193,6 +193,150 @@ Available presets: `desktop`, `desktop-lg`, `desktop-sm`, `laptop`, `tablet`, `t
 ```bash
 npx ibr start http://localhost:5000 --viewport mobile
 ```
+
+## Interactive Sessions (Browser Server Mode)
+
+For pages requiring user interaction (search forms, dynamic content, multi-step flows), use IBR's persistent session mode. This keeps a browser alive across multiple CLI commands.
+
+### Key Concept
+
+The first `session:start` launches a **browser server** that persists. Run interaction commands from a **separate terminal**. The browser stays alive until you close it.
+
+### Starting an Interactive Session
+
+```bash
+# Terminal 1: Start browser server (keeps running)
+npx ibr session:start http://localhost:3000 --name "search-test"
+
+# Output shows session ID: live_XYZ123
+# Browser server running. Press Ctrl+C to stop.
+```
+
+### Interacting with the Session
+
+```bash
+# Terminal 2: Run commands against the session
+
+# Type into a search box
+npx ibr session:type live_XYZ123 "input[name=search]" "quantum computing"
+
+# Click the submit button
+npx ibr session:click live_XYZ123 "button[type=submit]"
+
+# Wait for results to appear
+npx ibr session:wait live_XYZ123 ".search-results"
+
+# Take a screenshot of the results
+npx ibr session:screenshot live_XYZ123 --name "search-results"
+```
+
+### Session Commands Reference
+
+| Command | Purpose |
+|---------|---------|
+| `session:start <url>` | Start browser server + first session |
+| `session:type <id> <selector> <text>` | Type text into element |
+| `session:click <id> <selector>` | Click an element |
+| `session:wait <id> <selector|ms>` | Wait for selector or duration |
+| `session:screenshot <id>` | Capture screenshot |
+| `session:navigate <id> <url>` | Go to a new URL |
+| `session:list` | Show active sessions |
+| `session:close all` | Stop browser server |
+
+### Options
+
+```bash
+# Wait for specific content before capture
+npx ibr session:start http://localhost:3000 --wait-for ".main-content"
+
+# Type and submit (press Enter after typing)
+npx ibr session:type live_XYZ "input" "query" --submit
+
+# Navigate and wait for content
+npx ibr session:navigate live_XYZ http://localhost:3000/results --wait-for ".results"
+```
+
+### When to Use Interactive Sessions
+
+Use `session:*` commands when:
+- Testing search functionality (type query → submit → verify results)
+- Testing forms that require input before showing content
+- Capturing state after JavaScript interactions
+- Multi-step user flows
+
+Use regular `ibr start` when:
+- Page content loads on initial page load
+- No user interaction needed
+- Just capturing static content
+
+### Browser Mode
+
+Sessions are **headless by default** (no visible browser). Use flags for debugging:
+
+```bash
+# Show browser window
+npx ibr session:start http://localhost:3000 --sandbox
+
+# Show browser + slow motion + devtools
+npx ibr session:start http://localhost:3000 --debug
+```
+
+### Browser Isolation
+
+IBR uses an isolated browser profile to avoid conflicts with Playwright MCP. Both can run simultaneously without interference.
+
+## Wait-For Pattern
+
+For dynamic content that loads after initial page render, use `--wait-for`:
+
+```bash
+# Wait for search results before capturing
+npx ibr start http://localhost:3000/?q=test --wait-for ".search-results"
+
+# Wait for lazy-loaded images
+npx ibr start http://localhost:3000/gallery --wait-for "img[data-loaded='true']"
+
+# Wait for skeleton to be replaced
+npx ibr start http://localhost:3000/dashboard --wait-for ":not(.skeleton)"
+```
+
+This ensures the screenshot captures the fully-loaded state, not loading spinners or empty containers.
+
+## DOM and Text Extraction
+
+For inspecting page structure or extracting text content:
+
+```bash
+# Get full page HTML
+npx ibr session:html <id>
+
+# Get HTML of specific element
+npx ibr session:html <id> --selector ".chat-container"
+
+# Get text from specific element
+npx ibr session:text <id> ".ai-response"
+
+# Get text from all matching elements
+npx ibr session:text <id> ".message" --all
+```
+
+### Priority Order — Use the Right Tool
+
+| Situation | Use | Why |
+|-----------|-----|-----|
+| Visual comparison | Screenshot | Default, handles 90% of cases |
+| "Does it look right?" | Screenshot | Visual is the answer |
+| "What did the AI respond?" | Screenshot + Vision | You can read the image |
+| Verify specific element exists | `session:html --selector` | Check structure |
+| Extract exact text for assertion | `session:text` | Precise matching |
+| Find the right selector | `session:html` | Inspect DOM structure |
+| Compare text across versions | `session:text` | Text diff, not pixel diff |
+
+**Default to screenshots.** Only use `session:html` or `session:text` when:
+- You need exact text (not visual approximation)
+- You need to inspect DOM structure
+- You're building automation that requires selectors
+- Vision can't reliably read the content
 
 ## Reference Image Workflow
 

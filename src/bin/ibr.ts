@@ -92,10 +92,11 @@ program
   .description('Capture a baseline screenshot (auto-detects dev server if no URL)')
   .option('-n, --name <name>', 'Session name')
   .option('-s, --selector <css>', 'CSS selector to capture specific element')
+  .option('-w, --wait-for <selector>', 'Wait for selector before screenshot')
   .option('--no-full-page', 'Capture only the viewport, not full page')
   .option('--sandbox', 'Show visible browser window (default: headless)')
   .option('--debug', 'Visible browser + slow motion + devtools')
-  .action(async (url: string | undefined, options: { name?: string; fullPage?: boolean; selector?: string; sandbox?: boolean; debug?: boolean }) => {
+  .action(async (url: string | undefined, options: { name?: string; fullPage?: boolean; selector?: string; waitFor?: string; sandbox?: boolean; debug?: boolean }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const ibr = await createIBR(program.opts());
@@ -103,6 +104,7 @@ program
         name: options.name,
         fullPage: options.fullPage,
         selector: options.selector,
+        waitFor: options.waitFor,
       });
 
       console.log(`Session started: ${result.sessionId}`);
@@ -564,54 +566,129 @@ program
 // ============================================================
 // LIVE SESSION COMMANDS - Interactive browser sessions
 // ============================================================
+// Uses Browser Server mode for persistent sessions across CLI invocations.
+// The first session:start launches a headless browser server that persists
+// until session:close all is called.
 
-// Session start command - create interactive session
+// Session start command - create interactive session with persistent browser
 program
   .command('session:start [url]')
-  .description('Start an interactive browser session (keeps browser alive)')
+  .description('Start an interactive browser session (browser persists across commands)')
   .option('-n, --name <name>', 'Session name')
-  .option('--sandbox', 'Show visible browser window (required for user to toggle)')
+  .option('-w, --wait-for <selector>', 'Wait for selector before considering page ready')
+  .option('--sandbox', 'Show visible browser window (default: headless)')
   .option('--debug', 'Visible browser + slow motion + devtools')
-  .action(async (url: string | undefined, options: { name?: string; sandbox?: boolean; debug?: boolean }) => {
+  .action(async (url: string | undefined, options: { name?: string; waitFor?: string; sandbox?: boolean; debug?: boolean }) => {
     try {
-      const { liveSessionManager } = await import('../live-session.js');
+      const {
+        startBrowserServer,
+        isServerRunning,
+        PersistentSession,
+      } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const resolvedUrl = await resolveBaseUrl(url);
+      const headless = !options.sandbox && !options.debug;
 
-      // Sandbox must be explicitly requested
-      if (!options.sandbox && !options.debug) {
-        console.log('Starting headless session...');
-      } else if (options.debug) {
-        console.log('Starting debug session (visible + slow motion + devtools)...');
+      // Check if browser server is already running
+      const serverRunning = await isServerRunning(outputDir);
+
+      if (!serverRunning) {
+        // First session - launch browser server and keep process alive
+        console.log(headless ? 'Starting headless browser server...' : 'Starting visible browser server...');
+
+        const { server } = await startBrowserServer(outputDir, {
+          headless,
+          debug: options.debug,
+          isolated: true,  // Prevents conflicts with Playwright MCP
+        });
+
+        // Create the session
+        const session = await PersistentSession.create(outputDir, {
+          url: resolvedUrl,
+          name: options.name,
+          waitFor: options.waitFor,
+          viewport: VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop,
+        });
+
+        console.log('');
+        console.log(`Session started: ${session.id}`);
+        console.log(`URL: ${session.url}`);
+        console.log('');
+        console.log('Available commands (run in another terminal):');
+        console.log(`  npx ibr session:click ${session.id} "<selector>"`);
+        console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
+        console.log(`  npx ibr session:screenshot ${session.id}`);
+        console.log(`  npx ibr session:wait ${session.id} "<selector>"`);
+        console.log('');
+        console.log('To close: npx ibr session:close all');
+        console.log('');
+        console.log('Browser server running. Press Ctrl+C to stop.');
+
+        // Keep process alive until SIGINT
+        await new Promise<void>((resolve) => {
+          const cleanup = async () => {
+            console.log('\nShutting down browser server...');
+            server.close();
+            resolve();
+          };
+          process.on('SIGINT', cleanup);
+          process.on('SIGTERM', cleanup);
+        });
       } else {
-        console.log('Starting sandbox session (visible browser)...');
+        // Browser server already running - just create new session
+        console.log('Connecting to existing browser server...');
+
+        const session = await PersistentSession.create(outputDir, {
+          url: resolvedUrl,
+          name: options.name,
+          waitFor: options.waitFor,
+          viewport: VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop,
+        });
+
+        console.log('');
+        console.log(`Session started: ${session.id}`);
+        console.log(`URL: ${session.url}`);
+        console.log('');
+        console.log('Use session commands to interact:');
+        console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
+        console.log(`  npx ibr session:click ${session.id} "<selector>"`);
       }
-
-      const session = await liveSessionManager.create(outputDir, {
-        url: resolvedUrl,
-        name: options.name,
-        viewport: VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop,
-        sandbox: options.sandbox,
-        debug: options.debug,
-      });
-
-      console.log('');
-      console.log(`Session started: ${session.id}`);
-      console.log(`URL: ${session.url}`);
-      console.log('');
-      console.log('Available commands:');
-      console.log(`  npx ibr session:click ${session.id} "<selector>"`);
-      console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
-      console.log(`  npx ibr session:screenshot ${session.id}`);
-      console.log(`  npx ibr session:close ${session.id}`);
-      console.log('');
-      console.log('Note: Session stays active until closed. Use session:close when done.');
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
     }
   });
+
+// Helper for session commands that need to connect
+async function getSession(outputDir: string, sessionId: string) {
+  const { PersistentSession, isServerRunning } = await import('../browser-server.js');
+
+  if (!(await isServerRunning(outputDir))) {
+    console.error('No browser server running.');
+    console.log('');
+    console.log('Start one with:');
+    console.log('  npx ibr session:start <url>');
+    console.log('');
+    console.log('The first session:start launches the server and keeps it alive.');
+    console.log('Run session commands in a separate terminal.');
+    process.exit(1);
+  }
+
+  const session = await PersistentSession.get(outputDir, sessionId);
+  if (!session) {
+    console.error(`Session not found: ${sessionId}`);
+    console.log('');
+    console.log('This can happen if:');
+    console.log('  1. The session ID is incorrect');
+    console.log('  2. The session was created with a different browser server');
+    console.log('');
+    console.log('List sessions with: npx ibr session:list');
+    process.exit(1);
+  }
+
+  return session;
+}
 
 // Session click command
 program
@@ -619,14 +696,9 @@ program
   .description('Click an element in an active session')
   .action(async (sessionId: string, selector: string) => {
     try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        console.log('Active sessions:', liveSessionManager.list().join(', ') || 'none');
-        process.exit(1);
-      }
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
 
       await session.click(selector);
       console.log(`Clicked: ${selector}`);
@@ -641,63 +713,20 @@ program
   .command('session:type <sessionId> <selector> <text>')
   .description('Type text into an element in an active session')
   .option('--delay <ms>', 'Delay between keystrokes', '0')
-  .action(async (sessionId: string, selector: string, text: string, options: { delay: string }) => {
+  .option('--submit', 'Press Enter after typing')
+  .action(async (sessionId: string, selector: string, text: string, options: { delay: string; submit?: boolean }) => {
     try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
-      }
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
 
       await session.type(selector, text, { delay: parseInt(options.delay, 10) });
       console.log(`Typed "${text.length > 20 ? text.slice(0, 20) + '...' : text}" into: ${selector}`);
-    } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-  });
 
-// Session fill command - fill multiple form fields
-program
-  .command('session:fill <sessionId> <fieldsJson>')
-  .description('Fill multiple form fields (JSON array: [{"selector": "...", "value": "..."}])')
-  .action(async (sessionId: string, fieldsJson: string) => {
-    try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
+      if (options.submit) {
+        await session.press('Enter');
+        console.log('Pressed Enter');
       }
-
-      const fields = JSON.parse(fieldsJson);
-      await session.fill(fields);
-      console.log(`Filled ${fields.length} field(s)`);
-    } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-  });
-
-// Session hover command
-program
-  .command('session:hover <sessionId> <selector>')
-  .description('Hover over an element in an active session')
-  .action(async (sessionId: string, selector: string) => {
-    try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
-      }
-
-      await session.hover(selector);
-      console.log(`Hovered: ${selector}`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
@@ -713,13 +742,9 @@ program
   .option('--no-full-page', 'Capture only the viewport')
   .action(async (sessionId: string, options: { name?: string; selector?: string; fullPage?: boolean }) => {
     try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
-      }
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
 
       const path = await session.screenshot({
         name: options.name,
@@ -733,63 +758,15 @@ program
     }
   });
 
-// Session evaluate command - run JavaScript
-program
-  .command('session:eval <sessionId> <script>')
-  .description('Execute JavaScript in the page context')
-  .action(async (sessionId: string, script: string) => {
-    try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
-      }
-
-      const result = await session.evaluate(script);
-      console.log('Result:', JSON.stringify(result, null, 2));
-    } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-  });
-
-// Session navigate command
-program
-  .command('session:navigate <sessionId> <url>')
-  .description('Navigate to a new URL in an active session')
-  .action(async (sessionId: string, url: string) => {
-    try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
-      }
-
-      await session.navigate(url);
-      console.log(`Navigated to: ${url}`);
-    } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
-    }
-  });
-
 // Session wait command
 program
   .command('session:wait <sessionId> <selectorOrMs>')
   .description('Wait for a selector to appear or a duration (in ms)')
   .action(async (sessionId: string, selectorOrMs: string) => {
     try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const session = liveSessionManager.get(sessionId);
-
-      if (!session) {
-        console.error(`Session not found or not active: ${sessionId}`);
-        process.exit(1);
-      }
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
 
       const isNumber = /^\d+$/.test(selectorOrMs);
       if (isNumber) {
@@ -805,29 +782,52 @@ program
     }
   });
 
+// Session navigate command
+program
+  .command('session:navigate <sessionId> <url>')
+  .description('Navigate to a new URL in an active session')
+  .option('-w, --wait-for <selector>', 'Wait for selector after navigation')
+  .action(async (sessionId: string, url: string, options: { waitFor?: string }) => {
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
+
+      await session.navigate(url, { waitFor: options.waitFor });
+      console.log(`Navigated to: ${url}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Session list command
 program
   .command('session:list')
   .description('List all active interactive sessions')
   .action(async () => {
     try {
-      const { liveSessionManager } = await import('../live-session.js');
-      const sessions = liveSessionManager.list();
+      const { isServerRunning, listActiveSessions } = await import('../browser-server.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      const serverRunning = await isServerRunning(outputDir);
+      const sessions = await listActiveSessions(outputDir);
+
+      console.log(`Browser server: ${serverRunning ? 'running' : 'not running'}`);
+      console.log('');
 
       if (sessions.length === 0) {
-        console.log('No active sessions.');
+        console.log('No sessions found.');
         console.log('');
         console.log('Start one with:');
         console.log('  npx ibr session:start <url>');
         return;
       }
 
-      console.log('Active sessions:');
+      console.log('Sessions:');
       for (const id of sessions) {
-        const session = liveSessionManager.get(id);
-        if (session) {
-          console.log(`  ${id}  ${session.url}`);
-        }
+        console.log(`  ${id}`);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
@@ -838,22 +838,102 @@ program
 // Session close command
 program
   .command('session:close <sessionId>')
-  .description('Close an active session and its browser')
+  .description('Close a session (use "all" to stop browser server)')
   .action(async (sessionId: string) => {
     try {
-      const { liveSessionManager } = await import('../live-session.js');
+      const { stopBrowserServer, PersistentSession, isServerRunning } = await import('../browser-server.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
 
       if (sessionId === 'all') {
-        await liveSessionManager.closeAll();
-        console.log('All sessions closed.');
+        const stopped = await stopBrowserServer(outputDir);
+        if (stopped) {
+          console.log('Browser server stopped. All sessions closed.');
+        } else {
+          console.log('No browser server running.');
+        }
         return;
       }
 
-      const closed = await liveSessionManager.close(sessionId);
-      if (closed) {
+      // Close individual session
+      if (!(await isServerRunning(outputDir))) {
+        console.log('No browser server running.');
+        return;
+      }
+
+      const session = await PersistentSession.get(outputDir, sessionId);
+      if (session) {
+        await session.close();
         console.log(`Session closed: ${sessionId}`);
       } else {
         console.log(`Session not found: ${sessionId}`);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session HTML command - get page DOM
+program
+  .command('session:html <sessionId>')
+  .description('Get the full page HTML/DOM structure')
+  .option('-s, --selector <css>', 'Get HTML of specific element only')
+  .action(async (sessionId: string, options: { selector?: string }) => {
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
+
+      if (options.selector) {
+        // Get outer HTML of specific element
+        const html = await session.evaluate((sel: string) => {
+          const el = document.querySelector(sel);
+          return el ? el.outerHTML : null;
+        });
+        if (html) {
+          console.log(html);
+        } else {
+          console.error(`Element not found: ${options.selector}`);
+          process.exit(1);
+        }
+      } else {
+        const html = await session.content();
+        console.log(html);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session text command - get text content
+program
+  .command('session:text <sessionId> <selector>')
+  .description('Get text content from a specific element')
+  .option('-a, --all', 'Get text from all matching elements')
+  .action(async (sessionId: string, selector: string, options: { all?: boolean }) => {
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
+
+      if (options.all) {
+        const texts = await session.allTextContent(selector);
+        if (texts.length === 0) {
+          console.error(`No elements found: ${selector}`);
+          process.exit(1);
+        }
+        texts.forEach((text, i) => {
+          console.log(`[${i + 1}] ${text}`);
+        });
+      } else {
+        const text = await session.textContent(selector);
+        if (text === null) {
+          console.error(`Element not found: ${selector}`);
+          process.exit(1);
+        }
+        console.log(text.trim());
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);

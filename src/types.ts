@@ -16,6 +16,8 @@ export interface StartSessionOptions {
   fullPage?: boolean;
   /** CSS selector to capture specific element instead of full page */
   selector?: string;
+  /** CSS selector to wait for before capturing screenshot */
+  waitFor?: string;
 }
 
 /**
@@ -39,6 +41,8 @@ export interface CaptureOptions {
   timeout?: number;
   /** CSS selector to capture specific element instead of full page */
   selector?: string;
+  /** CSS selector to wait for before capturing screenshot */
+  waitFor?: string;
 }
 
 /**
