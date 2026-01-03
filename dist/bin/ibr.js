@@ -1283,20 +1283,6 @@ function analyzeComparison(result, thresholdPercent = 1) {
     recommendation
   };
 }
-function getVerdictDescription(verdict) {
-  switch (verdict) {
-    case "MATCH":
-      return "No changes - screenshots match";
-    case "EXPECTED_CHANGE":
-      return "Changes detected - appear intentional";
-    case "UNEXPECTED_CHANGE":
-      return "Unexpected changes - review required";
-    case "LAYOUT_BROKEN":
-      return "Layout broken - significant issues detected";
-    default:
-      return "Unknown verdict";
-  }
-}
 
 // src/session.ts
 var import_nanoid = require("nanoid");
@@ -1546,19 +1532,33 @@ function generateReport(session, comparison, analysis, outputDir, webViewPort) {
   }
   return report;
 }
+function getVerdictIndicator(verdict) {
+  switch (verdict) {
+    case "MATCH":
+      return { symbol: "[PASS]", label: "No visual changes detected" };
+    case "EXPECTED_CHANGE":
+      return { symbol: "[OK]  ", label: "Changes detected, appear intentional" };
+    case "UNEXPECTED_CHANGE":
+      return { symbol: "[WARN]", label: "Unexpected changes - investigate" };
+    case "LAYOUT_BROKEN":
+      return { symbol: "[FAIL]", label: "Layout broken - fix required" };
+    default:
+      return { symbol: "[????]", label: "Unknown verdict" };
+  }
+}
 function formatReportText(report) {
   const lines = [];
+  const { symbol, label } = getVerdictIndicator(report.analysis.verdict);
+  lines.push("");
+  lines.push(`${symbol} ${report.analysis.verdict} - ${label}`);
+  lines.push("");
+  lines.push(`Diff: ${report.comparison.diffPercent}% (${report.comparison.diffPixels.toLocaleString()} pixels)`);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
   lines.push(`Session: ${report.sessionName} (${report.sessionId})`);
   lines.push(`URL: ${report.url}`);
   lines.push(`Viewport: ${report.viewport.name} (${report.viewport.width}x${report.viewport.height})`);
-  lines.push("");
-  lines.push("Comparison Results:");
-  lines.push(`  Match: ${report.comparison.match ? "Yes" : "No"}`);
-  lines.push(`  Diff: ${report.comparison.diffPercent}% (${report.comparison.diffPixels.toLocaleString()} pixels)`);
-  lines.push(`  Threshold: ${report.comparison.threshold}%`);
-  lines.push("");
-  lines.push(`Verdict: ${report.analysis.verdict}`);
-  lines.push(`  ${getVerdictDescription(report.analysis.verdict)}`);
   lines.push("");
   lines.push(`Summary: ${report.analysis.summary}`);
   if (report.analysis.recommendation) {
@@ -1802,12 +1802,13 @@ async function createIBR(options = {}) {
   };
   return new InterfaceBuiltRight(merged);
 }
-program.name("ibr").description("Visual regression testing for Claude Code").version("0.1.0");
+program.name("ibr").description("Visual regression testing for Claude Code").version("0.2.2");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0");
-program.command("start <url>").description("Start a visual session by capturing a baseline screenshot").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport, not full page").action(async (url, options) => {
+program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport, not full page").action(async (url, options) => {
   try {
+    const resolvedUrl = await resolveBaseUrl(url);
     const ibr = await createIBR(program.opts());
-    const result = await ibr.startSession(url, {
+    const result = await ibr.startSession(resolvedUrl, {
       name: options.name,
       fullPage: options.fullPage,
       selector: options.selector
@@ -1815,7 +1816,81 @@ program.command("start <url>").description("Start a visual session by capturing 
     console.log(`Session started: ${result.sessionId}`);
     console.log(`Baseline: ${result.baseline}`);
     console.log(`URL: ${result.session.url}`);
+    console.log("");
+    console.log("Next: Make your changes, then run:");
+    console.log(`  npx ibr check ${result.sessionId}`);
     await ibr.close();
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("auto").description("Zero-config: detect server, scan pages, open viewer").option("-n, --max-pages <count>", "Maximum pages to scan", "5").option("--nav-only", "Only scan navigation links (faster)").option("--no-open", "Do not open browser automatically").action(async (options) => {
+  try {
+    const baseUrl = await detectDevServer();
+    if (!baseUrl) {
+      console.log("No dev server detected.");
+      console.log("");
+      console.log("Start your dev server, then run:");
+      console.log("  npx ibr auto");
+      console.log("");
+      console.log("Or specify a URL:");
+      console.log("  npx ibr scan-start http://localhost:3000");
+      return;
+    }
+    console.log(`Detected: ${baseUrl}`);
+    console.log("");
+    const { discoverPages: discoverPages2, getNavigationLinks: getNavigationLinks2 } = await Promise.resolve().then(() => (init_crawl(), crawl_exports));
+    const ibr = await createIBR(program.opts());
+    let pages;
+    if (options.navOnly) {
+      pages = await getNavigationLinks2(baseUrl);
+      console.log(`Found ${pages.length} navigation links.`);
+    } else {
+      const result = await discoverPages2({
+        url: baseUrl,
+        maxPages: parseInt(options.maxPages, 10)
+      });
+      pages = result.pages;
+      console.log(`Discovered ${pages.length} pages.`);
+    }
+    if (pages.length === 0) {
+      console.log("No pages found to capture.");
+      await ibr.close();
+      return;
+    }
+    console.log("Capturing baselines...");
+    console.log("");
+    let captured = 0;
+    for (const page of pages) {
+      try {
+        const result = await ibr.startSession(page.url, {
+          name: page.title.replace(/[^a-zA-Z0-9-_]/g, "-").toLowerCase().slice(0, 50)
+        });
+        captured++;
+        console.log(`  ${page.path} -> ${result.sessionId}`);
+      } catch {
+        console.log(`  ${page.path} -> failed`);
+      }
+    }
+    await ibr.close();
+    console.log("");
+    console.log(`Captured ${captured}/${pages.length} pages.`);
+    console.log("");
+    console.log("Next steps:");
+    console.log("  1. Make your UI changes");
+    console.log("  2. Run: npx ibr scan-check");
+    console.log("  3. View: npx ibr serve");
+    if (options.open !== false && captured > 0) {
+      console.log("");
+      console.log("Opening viewer...");
+      const { spawn } = await import("child_process");
+      spawn("npx", ["ibr", "serve"], {
+        stdio: "inherit",
+        shell: true,
+        detached: true
+      }).unref();
+    }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
@@ -1835,10 +1910,49 @@ program.command("check [sessionId]").description("Compare current state against 
       default:
         console.log(formatReportText(report));
     }
+    if (options.format === "text") {
+      console.log("");
+      if (report.analysis.verdict === "MATCH") {
+        console.log("All good! To capture more pages: npx ibr scan");
+      } else if (report.analysis.verdict === "EXPECTED_CHANGE") {
+        console.log("To accept as new baseline: npx ibr update");
+      } else if (report.analysis.verdict === "UNEXPECTED_CHANGE" || report.analysis.verdict === "LAYOUT_BROKEN") {
+        console.log("View diff in browser: npx ibr serve");
+      }
+    }
     await ibr.close();
     if (!report.comparison.match && (report.analysis.verdict === "UNEXPECTED_CHANGE" || report.analysis.verdict === "LAYOUT_BROKEN")) {
       process.exit(1);
     }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("status").description("Show sessions awaiting comparison (baselines without checks)").action(async () => {
+  try {
+    const ibr = await createIBR(program.opts());
+    const sessions = await ibr.listSessions();
+    const pending = sessions.filter((s) => s.status === "baseline");
+    if (pending.length === 0) {
+      console.log("No pending visual checks.");
+      console.log("");
+      console.log("To capture a baseline:");
+      console.log('  npx ibr start <url> --name "feature-name"');
+      return;
+    }
+    console.log("Pending visual checks:");
+    console.log("");
+    for (const session of pending) {
+      const age = Date.now() - new Date(session.createdAt).getTime();
+      const ageStr = age < 6e4 ? "just now" : age < 36e5 ? `${Math.floor(age / 6e4)}m ago` : age < 864e5 ? `${Math.floor(age / 36e5)}h ago` : `${Math.floor(age / 864e5)}d ago`;
+      const urlPath = new URL(session.url).pathname;
+      console.log(`  ${session.id}  ${urlPath.padEnd(20)}  ${ageStr.padEnd(10)}  ${session.name || ""}`);
+    }
+    console.log("");
+    console.log("Run comparison:");
+    console.log("  npx ibr check              # checks most recent");
+    console.log("  npx ibr check <session-id> # checks specific session");
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
@@ -1868,7 +1982,7 @@ program.command("list").description("List all sessions").option("-f, --format <f
     process.exit(1);
   }
 });
-program.command("update [sessionId]").description("Update baseline with current screenshot").action(async (sessionId) => {
+program.command("update [sessionId]").alias("approve").description("Update baseline with current screenshot (alias: approve)").action(async (sessionId) => {
   try {
     const ibr = await createIBR(program.opts());
     const session = await ibr.updateBaseline(sessionId);
@@ -2004,18 +2118,19 @@ program.command("logout").description("Clear saved authentication state").action
     process.exit(1);
   }
 });
-program.command("scan <url>").description("Discover pages and capture baselines for each (up to 5 by default)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").option("-f, --format <format>", "Output format: json, text", "text").action(async (url, options) => {
+program.command("scan [url]").description("Discover pages (auto-detects dev server if no URL)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").option("-f, --format <format>", "Output format: json, text", "text").action(async (url, options) => {
   try {
+    const resolvedUrl = await resolveBaseUrl(url);
     const { discoverPages: discoverPages2, getNavigationLinks: getNavigationLinks2 } = await Promise.resolve().then(() => (init_crawl(), crawl_exports));
-    console.log(`Scanning ${url}...`);
+    console.log(`Scanning ${resolvedUrl}...`);
     console.log("");
     let pages;
     if (options.navOnly) {
-      pages = await getNavigationLinks2(url);
+      pages = await getNavigationLinks2(resolvedUrl);
       console.log(`Found ${pages.length} navigation links:`);
     } else {
       const result = await discoverPages2({
-        url,
+        url: resolvedUrl,
         maxPages: parseInt(options.maxPages, 10),
         pathPrefix: options.prefix
       });
@@ -2035,24 +2150,25 @@ program.command("scan <url>").description("Discover pages and capture baselines 
         console.log("");
       }
     }
-    console.log("To capture baselines for all discovered pages:");
-    console.log(`  npx ibr scan-start ${url} --max-pages ${options.maxPages}`);
+    console.log("To capture baselines for these pages:");
+    console.log(`  npx ibr scan-start`);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
 });
-program.command("scan-start <url>").description("Discover pages and capture baseline for each").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").action(async (url, options) => {
+program.command("scan-start [url]").description("Discover pages and capture baselines (auto-detects dev server if no URL)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").action(async (url, options) => {
   try {
+    const resolvedUrl = await resolveBaseUrl(url);
     const { discoverPages: discoverPages2, getNavigationLinks: getNavigationLinks2 } = await Promise.resolve().then(() => (init_crawl(), crawl_exports));
     const ibr = await createIBR(program.opts());
-    console.log(`Scanning ${url}...`);
+    console.log(`Scanning ${resolvedUrl}...`);
     let pages;
     if (options.navOnly) {
-      pages = await getNavigationLinks2(url);
+      pages = await getNavigationLinks2(resolvedUrl);
     } else {
       const result = await discoverPages2({
-        url,
+        url: resolvedUrl,
         maxPages: parseInt(options.maxPages, 10),
         pathPrefix: options.prefix
       });
@@ -2068,15 +2184,15 @@ program.command("scan-start <url>").description("Discover pages and capture base
           name: page.title.replace(/[^a-zA-Z0-9-_]/g, "-").toLowerCase().slice(0, 50)
         });
         sessions.push({ page, sessionId: result.sessionId });
-        console.log(`  \u2713 Session: ${result.sessionId}`);
+        console.log(`  Done: ${result.sessionId}`);
       } catch (error) {
-        console.log(`  \u2717 Failed: ${error instanceof Error ? error.message : error}`);
+        console.log(`  Failed: ${error instanceof Error ? error.message : error}`);
       }
     }
     console.log("");
     console.log(`Captured ${sessions.length}/${pages.length} pages.`);
     console.log("");
-    console.log("To compare all after making changes:");
+    console.log("Next: Make your changes, then run:");
     console.log("  npx ibr scan-check");
     await ibr.close();
   } catch (error) {
@@ -2188,15 +2304,16 @@ program.command("consistency <url>").description("Check UI consistency across mu
     process.exit(1);
   }
 });
-program.command("diagnose <url>").description("Diagnose page load issues with detailed timing and error info").option("--timeout <ms>", "Timeout in milliseconds", "30000").action(async (url, options) => {
+program.command("diagnose [url]").description("Diagnose page load issues (auto-detects dev server if no URL)").option("--timeout <ms>", "Timeout in milliseconds", "30000").action(async (url, options) => {
   try {
+    const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser2 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
     const { join: join4 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
-    console.log(`Diagnosing ${url}...`);
+    console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
-      url,
+      url: resolvedUrl,
       outputPath: join4(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
@@ -2277,6 +2394,41 @@ async function findAvailablePort(ports) {
     }
   }
   return null;
+}
+var DEV_SERVER_PORTS = [3e3, 3001, 5173, 5174, 4200, 8080, 8e3, 5e3, 3100, 4321];
+async function detectDevServer() {
+  for (const port of DEV_SERVER_PORTS) {
+    if (await isPortInUse(port)) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1e3);
+        await fetch(`http://localhost:${port}`, {
+          signal: controller.signal,
+          method: "HEAD"
+        });
+        clearTimeout(timeout);
+        return `http://localhost:${port}`;
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
+}
+async function resolveBaseUrl(providedUrl) {
+  if (providedUrl) {
+    return providedUrl;
+  }
+  const config = await loadConfig();
+  if (config.baseUrl) {
+    return config.baseUrl;
+  }
+  const detected = await detectDevServer();
+  if (detected) {
+    console.log(`Auto-detected dev server: ${detected}`);
+    return detected;
+  }
+  throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize .ibrrc.json configuration file").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").action(async (options) => {
   const configPath = (0, import_path5.join)(process.cwd(), ".ibrrc.json");

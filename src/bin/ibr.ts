@@ -48,7 +48,7 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
 program
   .name('ibr')
   .description('Visual regression testing for Claude Code')
-  .version('0.1.0');
+  .version('0.2.2');
 
 // Global options
 program
@@ -59,15 +59,16 @@ program
 
 // Start command
 program
-  .command('start <url>')
-  .description('Start a visual session by capturing a baseline screenshot')
+  .command('start [url]')
+  .description('Capture a baseline screenshot (auto-detects dev server if no URL)')
   .option('-n, --name <name>', 'Session name')
   .option('-s, --selector <css>', 'CSS selector to capture specific element')
   .option('--no-full-page', 'Capture only the viewport, not full page')
-  .action(async (url: string, options: { name?: string; fullPage?: boolean; selector?: string }) => {
+  .action(async (url: string | undefined, options: { name?: string; fullPage?: boolean; selector?: string }) => {
     try {
+      const resolvedUrl = await resolveBaseUrl(url);
       const ibr = await createIBR(program.opts());
-      const result = await ibr.startSession(url, {
+      const result = await ibr.startSession(resolvedUrl, {
         name: options.name,
         fullPage: options.fullPage,
         selector: options.selector,
@@ -76,8 +77,102 @@ program
       console.log(`Session started: ${result.sessionId}`);
       console.log(`Baseline: ${result.baseline}`);
       console.log(`URL: ${result.session.url}`);
+      console.log('');
+      console.log('Next: Make your changes, then run:');
+      console.log(`  npx ibr check ${result.sessionId}`);
 
       await ibr.close();
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Auto command - zero-config workflow
+program
+  .command('auto')
+  .description('Zero-config: detect server, scan pages, open viewer')
+  .option('-n, --max-pages <count>', 'Maximum pages to scan', '5')
+  .option('--nav-only', 'Only scan navigation links (faster)')
+  .option('--no-open', 'Do not open browser automatically')
+  .action(async (options: { maxPages: string; navOnly?: boolean; open?: boolean }) => {
+    try {
+      // 1. Detect dev server
+      const baseUrl = await detectDevServer();
+      if (!baseUrl) {
+        console.log('No dev server detected.');
+        console.log('');
+        console.log('Start your dev server, then run:');
+        console.log('  npx ibr auto');
+        console.log('');
+        console.log('Or specify a URL:');
+        console.log('  npx ibr scan-start http://localhost:3000');
+        return;
+      }
+
+      console.log(`Detected: ${baseUrl}`);
+      console.log('');
+
+      // 2. Discover and capture pages
+      const { discoverPages, getNavigationLinks } = await import('../crawl.js');
+      const ibr = await createIBR(program.opts());
+
+      let pages;
+      if (options.navOnly) {
+        pages = await getNavigationLinks(baseUrl);
+        console.log(`Found ${pages.length} navigation links.`);
+      } else {
+        const result = await discoverPages({
+          url: baseUrl,
+          maxPages: parseInt(options.maxPages, 10),
+        });
+        pages = result.pages;
+        console.log(`Discovered ${pages.length} pages.`);
+      }
+
+      if (pages.length === 0) {
+        console.log('No pages found to capture.');
+        await ibr.close();
+        return;
+      }
+
+      console.log('Capturing baselines...');
+      console.log('');
+
+      let captured = 0;
+      for (const page of pages) {
+        try {
+          const result = await ibr.startSession(page.url, {
+            name: page.title.replace(/[^a-zA-Z0-9-_]/g, '-').toLowerCase().slice(0, 50),
+          });
+          captured++;
+          console.log(`  ${page.path} -> ${result.sessionId}`);
+        } catch {
+          console.log(`  ${page.path} -> failed`);
+        }
+      }
+
+      await ibr.close();
+
+      console.log('');
+      console.log(`Captured ${captured}/${pages.length} pages.`);
+      console.log('');
+      console.log('Next steps:');
+      console.log('  1. Make your UI changes');
+      console.log('  2. Run: npx ibr scan-check');
+      console.log('  3. View: npx ibr serve');
+
+      // 3. Optionally open viewer
+      if (options.open !== false && captured > 0) {
+        console.log('');
+        console.log('Opening viewer...');
+        const { spawn } = await import('child_process');
+        spawn('npx', ['ibr', 'serve'], {
+          stdio: 'inherit',
+          shell: true,
+          detached: true,
+        }).unref();
+      }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
@@ -105,6 +200,18 @@ program
           console.log(formatReportText(report));
       }
 
+      // Contextual tips based on verdict
+      if (options.format === 'text') {
+        console.log('');
+        if (report.analysis.verdict === 'MATCH') {
+          console.log('All good! To capture more pages: npx ibr scan');
+        } else if (report.analysis.verdict === 'EXPECTED_CHANGE') {
+          console.log('To accept as new baseline: npx ibr update');
+        } else if (report.analysis.verdict === 'UNEXPECTED_CHANGE' || report.analysis.verdict === 'LAYOUT_BROKEN') {
+          console.log('View diff in browser: npx ibr serve');
+        }
+      }
+
       await ibr.close();
 
       // Exit with error code if not matching and not expected
@@ -113,6 +220,50 @@ program
            report.analysis.verdict === 'LAYOUT_BROKEN')) {
         process.exit(1);
       }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Status command - show pending baselines
+program
+  .command('status')
+  .description('Show sessions awaiting comparison (baselines without checks)')
+  .action(async () => {
+    try {
+      const ibr = await createIBR(program.opts());
+      const sessions = await ibr.listSessions();
+
+      // Filter to baseline-only sessions (not yet compared)
+      const pending = sessions.filter(s => s.status === 'baseline');
+
+      if (pending.length === 0) {
+        console.log('No pending visual checks.');
+        console.log('');
+        console.log('To capture a baseline:');
+        console.log('  npx ibr start <url> --name "feature-name"');
+        return;
+      }
+
+      console.log('Pending visual checks:');
+      console.log('');
+
+      for (const session of pending) {
+        const age = Date.now() - new Date(session.createdAt).getTime();
+        const ageStr = age < 60000 ? 'just now' :
+                       age < 3600000 ? `${Math.floor(age / 60000)}m ago` :
+                       age < 86400000 ? `${Math.floor(age / 3600000)}h ago` :
+                       `${Math.floor(age / 86400000)}d ago`;
+
+        const urlPath = new URL(session.url).pathname;
+        console.log(`  ${session.id}  ${urlPath.padEnd(20)}  ${ageStr.padEnd(10)}  ${session.name || ''}`);
+      }
+
+      console.log('');
+      console.log('Run comparison:');
+      console.log('  npx ibr check              # checks most recent');
+      console.log('  npx ibr check <session-id> # checks specific session');
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
@@ -154,7 +305,8 @@ program
 // Update command
 program
   .command('update [sessionId]')
-  .description('Update baseline with current screenshot')
+  .alias('approve')
+  .description('Update baseline with current screenshot (alias: approve)')
   .action(async (sessionId: string | undefined) => {
     try {
       const ibr = await createIBR(program.opts());
@@ -352,29 +504,30 @@ program
 
 // Scan command - discover and test multiple pages
 program
-  .command('scan <url>')
-  .description('Discover pages and capture baselines for each (up to 5 by default)')
+  .command('scan [url]')
+  .description('Discover pages (auto-detects dev server if no URL)')
   .option('-n, --max-pages <count>', 'Maximum pages to discover', '5')
   .option('-p, --prefix <path>', 'Only scan pages under this path prefix')
   .option('--nav-only', 'Only scan navigation links (faster)')
   .option('-f, --format <format>', 'Output format: json, text', 'text')
-  .action(async (url: string, options: { maxPages: string; prefix?: string; navOnly?: boolean; format: string }) => {
+  .action(async (url: string | undefined, options: { maxPages: string; prefix?: string; navOnly?: boolean; format: string }) => {
     try {
+      const resolvedUrl = await resolveBaseUrl(url);
       const { discoverPages, getNavigationLinks } = await import('../crawl.js');
 
-      console.log(`Scanning ${url}...`);
+      console.log(`Scanning ${resolvedUrl}...`);
       console.log('');
 
       let pages;
 
       if (options.navOnly) {
         // Quick nav-only scan
-        pages = await getNavigationLinks(url);
+        pages = await getNavigationLinks(resolvedUrl);
         console.log(`Found ${pages.length} navigation links:`);
       } else {
         // Full crawl
         const result = await discoverPages({
-          url,
+          url: resolvedUrl,
           maxPages: parseInt(options.maxPages, 10),
           pathPrefix: options.prefix,
         });
@@ -397,9 +550,9 @@ program
         }
       }
 
-      // Ask if user wants to capture baselines
-      console.log('To capture baselines for all discovered pages:');
-      console.log(`  npx ibr scan-start ${url} --max-pages ${options.maxPages}`);
+      // Contextual tip
+      console.log('To capture baselines for these pages:');
+      console.log(`  npx ibr scan-start`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
@@ -408,25 +561,26 @@ program
 
 // Scan-start command - discover and capture baselines for multiple pages
 program
-  .command('scan-start <url>')
-  .description('Discover pages and capture baseline for each')
+  .command('scan-start [url]')
+  .description('Discover pages and capture baselines (auto-detects dev server if no URL)')
   .option('-n, --max-pages <count>', 'Maximum pages to discover', '5')
   .option('-p, --prefix <path>', 'Only scan pages under this path prefix')
   .option('--nav-only', 'Only scan navigation links (faster)')
-  .action(async (url: string, options: { maxPages: string; prefix?: string; navOnly?: boolean }) => {
+  .action(async (url: string | undefined, options: { maxPages: string; prefix?: string; navOnly?: boolean }) => {
     try {
+      const resolvedUrl = await resolveBaseUrl(url);
       const { discoverPages, getNavigationLinks } = await import('../crawl.js');
       const ibr = await createIBR(program.opts());
 
-      console.log(`Scanning ${url}...`);
+      console.log(`Scanning ${resolvedUrl}...`);
 
       let pages;
 
       if (options.navOnly) {
-        pages = await getNavigationLinks(url);
+        pages = await getNavigationLinks(resolvedUrl);
       } else {
         const result = await discoverPages({
-          url,
+          url: resolvedUrl,
           maxPages: parseInt(options.maxPages, 10),
           pathPrefix: options.prefix,
         });
@@ -445,16 +599,16 @@ program
             name: page.title.replace(/[^a-zA-Z0-9-_]/g, '-').toLowerCase().slice(0, 50),
           });
           sessions.push({ page, sessionId: result.sessionId });
-          console.log(`  ✓ Session: ${result.sessionId}`);
+          console.log(`  Done: ${result.sessionId}`);
         } catch (error) {
-          console.log(`  ✗ Failed: ${error instanceof Error ? error.message : error}`);
+          console.log(`  Failed: ${error instanceof Error ? error.message : error}`);
         }
       }
 
       console.log('');
       console.log(`Captured ${sessions.length}/${pages.length} pages.`);
       console.log('');
-      console.log('To compare all after making changes:');
+      console.log('Next: Make your changes, then run:');
       console.log('  npx ibr scan-check');
 
       await ibr.close();
@@ -620,20 +774,21 @@ program
 
 // Diagnose command - enhanced error diagnostics for a URL
 program
-  .command('diagnose <url>')
-  .description('Diagnose page load issues with detailed timing and error info')
+  .command('diagnose [url]')
+  .description('Diagnose page load issues (auto-detects dev server if no URL)')
   .option('--timeout <ms>', 'Timeout in milliseconds', '30000')
-  .action(async (url: string, options: { timeout: string }) => {
+  .action(async (url: string | undefined, options: { timeout: string }) => {
     try {
+      const resolvedUrl = await resolveBaseUrl(url);
       const { captureWithDiagnostics, closeBrowser } = await import('../capture.js');
       const { join } = await import('path');
       const outputDir = program.opts().output || './.ibr';
 
-      console.log(`Diagnosing ${url}...`);
+      console.log(`Diagnosing ${resolvedUrl}...`);
       console.log('');
 
       const result = await captureWithDiagnostics({
-        url,
+        url: resolvedUrl,
         outputPath: join(outputDir, 'diagnose', 'test.png'),
         timeout: parseInt(options.timeout, 10),
         outputDir,
@@ -727,6 +882,52 @@ async function findAvailablePort(ports: number[]): Promise<number | null> {
     }
   }
   return null;
+}
+
+// Common dev server ports (ordered by likelihood)
+const DEV_SERVER_PORTS = [3000, 3001, 5173, 5174, 4200, 8080, 8000, 5000, 3100, 4321];
+
+// Detect running dev server by checking common ports
+async function detectDevServer(): Promise<string | null> {
+  for (const port of DEV_SERVER_PORTS) {
+    if (await isPortInUse(port)) {
+      // Verify it responds to HTTP
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 1000);
+        await fetch(`http://localhost:${port}`, {
+          signal: controller.signal,
+          method: 'HEAD'
+        });
+        clearTimeout(timeout);
+        return `http://localhost:${port}`;
+      } catch {
+        // Port in use but not HTTP, try next
+        continue;
+      }
+    }
+  }
+  return null;
+}
+
+// Resolve URL: use provided, or from config, or auto-detect
+async function resolveBaseUrl(providedUrl?: string): Promise<string> {
+  if (providedUrl) {
+    return providedUrl;
+  }
+
+  const config = await loadConfig();
+  if (config.baseUrl) {
+    return config.baseUrl;
+  }
+
+  const detected = await detectDevServer();
+  if (detected) {
+    console.log(`Auto-detected dev server: ${detected}`);
+    return detected;
+  }
+
+  throw new Error('No URL provided and no dev server detected. Start your dev server or specify a URL.');
 }
 
 // Init command

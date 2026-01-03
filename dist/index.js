@@ -847,19 +847,33 @@ function generateReport(session, comparison, analysis, outputDir, webViewPort) {
   }
   return report;
 }
+function getVerdictIndicator(verdict) {
+  switch (verdict) {
+    case "MATCH":
+      return { symbol: "[PASS]", label: "No visual changes detected" };
+    case "EXPECTED_CHANGE":
+      return { symbol: "[OK]  ", label: "Changes detected, appear intentional" };
+    case "UNEXPECTED_CHANGE":
+      return { symbol: "[WARN]", label: "Unexpected changes - investigate" };
+    case "LAYOUT_BROKEN":
+      return { symbol: "[FAIL]", label: "Layout broken - fix required" };
+    default:
+      return { symbol: "[????]", label: "Unknown verdict" };
+  }
+}
 function formatReportText(report) {
   const lines = [];
+  const { symbol, label } = getVerdictIndicator(report.analysis.verdict);
+  lines.push("");
+  lines.push(`${symbol} ${report.analysis.verdict} - ${label}`);
+  lines.push("");
+  lines.push(`Diff: ${report.comparison.diffPercent}% (${report.comparison.diffPixels.toLocaleString()} pixels)`);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
   lines.push(`Session: ${report.sessionName} (${report.sessionId})`);
   lines.push(`URL: ${report.url}`);
   lines.push(`Viewport: ${report.viewport.name} (${report.viewport.width}x${report.viewport.height})`);
-  lines.push("");
-  lines.push("Comparison Results:");
-  lines.push(`  Match: ${report.comparison.match ? "Yes" : "No"}`);
-  lines.push(`  Diff: ${report.comparison.diffPercent}% (${report.comparison.diffPixels.toLocaleString()} pixels)`);
-  lines.push(`  Threshold: ${report.comparison.threshold}%`);
-  lines.push("");
-  lines.push(`Verdict: ${report.analysis.verdict}`);
-  lines.push(`  ${getVerdictDescription(report.analysis.verdict)}`);
   lines.push("");
   lines.push(`Summary: ${report.analysis.summary}`);
   if (report.analysis.recommendation) {

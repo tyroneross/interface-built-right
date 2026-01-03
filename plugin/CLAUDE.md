@@ -4,6 +4,29 @@
 
 You have access to `interface-built-right` for visual regression testing. Use it to capture UI screenshots, compare changes, and verify your frontend work is correct.
 
+## When to Use IBR
+
+**Use for:**
+- Modifying UI components (*.tsx, *.jsx, *.vue, *.svelte)
+- Changing CSS/styling
+- Updating layouts or page structure
+- Before PR review on frontend changes
+
+**Skip for:**
+- Backend-only changes (APIs, database, server logic)
+- Config file updates
+- Documentation changes
+- Type-only changes
+
+## Workflow
+
+**The key is: baseline BEFORE changes, check AFTER changes.**
+
+1. BEFORE making UI changes: `npx ibr start <url> --name "feature-name"`
+2. Make your code changes
+3. AFTER changes are complete: `npx ibr check`
+4. Review verdict and iterate if needed
+
 ## Default Workflow
 
 When working on UI/frontend files (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.scss`):
@@ -30,11 +53,22 @@ When working on UI/frontend files (`.tsx`, `.jsx`, `.vue`, `.svelte`, `.css`, `.
    - Run `npx ibr check` again
    - Repeat until `MATCH` or `EXPECTED_CHANGE`
 
+**Important timing:** Do NOT run `ibr check` immediately after `ibr start`. You need to make code changes first - otherwise you're comparing identical states.
+
 ## Slash Commands
 
-- `/ibr:snapshot` - Capture baseline (prompts for URL)
-- `/ibr:compare` - Compare current state against baseline
+- `/ibr:snapshot` - Capture baseline BEFORE making UI changes
+- `/ibr:compare` - Compare AFTER making UI changes
 - `/ibr:ui` - Open web UI at localhost:4200
+
+## CLI Quick Reference
+
+```bash
+npx ibr status              # Show pending baselines awaiting check
+npx ibr start <url>         # Capture baseline
+npx ibr check               # Compare against baseline
+npx ibr list                # List all sessions
+```
 
 ## Programmatic API
 

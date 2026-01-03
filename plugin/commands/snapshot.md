@@ -34,6 +34,10 @@ npx ibr start "<url>" --selector ".header"
 5. Saves as baseline for comparison
 6. Returns session ID (e.g., sess_abc123)
 
+## Timing
+
+Run this BEFORE making any UI changes. The baseline captures the current state so you can compare against it after your changes.
+
 ## Next Steps
 
 After making UI changes, use `/ibr:compare` to check differences.

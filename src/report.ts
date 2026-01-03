@@ -1,5 +1,4 @@
 import type { Session, ComparisonResult, Analysis, ComparisonReport } from './schemas.js';
-import { getVerdictDescription } from './compare.js';
 import { getSessionPaths } from './session.js';
 
 /**
@@ -37,22 +36,41 @@ export function generateReport(
 }
 
 /**
+ * Get verdict indicator (text-based, no emojis)
+ */
+function getVerdictIndicator(verdict: string): { symbol: string; label: string } {
+  switch (verdict) {
+    case 'MATCH':
+      return { symbol: '[PASS]', label: 'No visual changes detected' };
+    case 'EXPECTED_CHANGE':
+      return { symbol: '[OK]  ', label: 'Changes detected, appear intentional' };
+    case 'UNEXPECTED_CHANGE':
+      return { symbol: '[WARN]', label: 'Unexpected changes - investigate' };
+    case 'LAYOUT_BROKEN':
+      return { symbol: '[FAIL]', label: 'Layout broken - fix required' };
+    default:
+      return { symbol: '[????]', label: 'Unknown verdict' };
+  }
+}
+
+/**
  * Format report as human-readable text
  */
 export function formatReportText(report: ComparisonReport): string {
   const lines: string[] = [];
+  const { symbol, label } = getVerdictIndicator(report.analysis.verdict);
 
+  // Verdict first - most important info
+  lines.push('');
+  lines.push(`${symbol} ${report.analysis.verdict} - ${label}`);
+  lines.push('');
+  lines.push(`Diff: ${report.comparison.diffPercent}% (${report.comparison.diffPixels.toLocaleString()} pixels)`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
   lines.push(`Session: ${report.sessionName} (${report.sessionId})`);
   lines.push(`URL: ${report.url}`);
   lines.push(`Viewport: ${report.viewport.name} (${report.viewport.width}x${report.viewport.height})`);
-  lines.push('');
-  lines.push('Comparison Results:');
-  lines.push(`  Match: ${report.comparison.match ? 'Yes' : 'No'}`);
-  lines.push(`  Diff: ${report.comparison.diffPercent}% (${report.comparison.diffPixels.toLocaleString()} pixels)`);
-  lines.push(`  Threshold: ${report.comparison.threshold}%`);
-  lines.push('');
-  lines.push(`Verdict: ${report.analysis.verdict}`);
-  lines.push(`  ${getVerdictDescription(report.analysis.verdict)}`);
   lines.push('');
   lines.push(`Summary: ${report.analysis.summary}`);
 

@@ -27,6 +27,10 @@ npx ibr check <session-id> --format json
 
 If no sessions exist, inform the user to capture a snapshot first with `/ibr:snapshot`.
 
+## Timing
+
+Run this AFTER making UI changes. Do NOT run immediately after capturing a baseline - you need to make code changes first, otherwise you're comparing identical states and will always get MATCH.
+
 ## What This Does
 
 1. Retrieves the session
