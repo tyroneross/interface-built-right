@@ -34,3 +34,9 @@ web-ui/node_modules/
 # Playwright
 playwright-report/
 test-results/
+
+# Claude Code
+.claude/
+.claude-code-debugger/
+CLAUDE.md
+*.tgz

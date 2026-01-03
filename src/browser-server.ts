@@ -10,6 +10,7 @@ import { VIEWPORTS, type Viewport } from './schemas.js';
  */
 interface BrowserServerState {
   wsEndpoint: string;
+  cdpUrl?: string;  // CDP URL for reconnection (shares contexts)
   pid: number;
   startedAt: string;
   headless: boolean;
@@ -135,19 +136,24 @@ export async function startBrowserServer(
     await mkdir(profileDir, { recursive: true });
   }
 
-  // Launch browser server
-  // Note: Isolation is handled at the context level, not browser level
-  // This avoids conflicts with Playwright MCP which uses its own browser instance
+  // Find an available port for CDP debugging
+  const debugPort = 9222 + Math.floor(Math.random() * 1000);
+
+  // Launch browser server with CDP debugging enabled
+  // This allows connectOverCDP to work and share contexts across reconnections
   const server = await chromium.launchServer({
     headless,
     slowMo: options.debug ? 100 : 0,
+    args: [`--remote-debugging-port=${debugPort}`],
   });
 
   const wsEndpoint = server.wsEndpoint();
+  const cdpUrl = `http://127.0.0.1:${debugPort}`;
 
   // Save server state
   const state: BrowserServerState = {
     wsEndpoint,
+    cdpUrl,
     pid: process.pid,
     startedAt: new Date().toISOString(),
     headless,
@@ -161,6 +167,7 @@ export async function startBrowserServer(
 
 /**
  * Connect to existing browser server
+ * Uses CDP connection which shares contexts across reconnections
  */
 export async function connectToBrowserServer(outputDir: string): Promise<Browser | null> {
   const { stateFile } = getPaths(outputDir);
@@ -173,6 +180,15 @@ export async function connectToBrowserServer(outputDir: string): Promise<Browser
     const content = await readFile(stateFile, 'utf-8');
     const state: BrowserServerState = JSON.parse(content);
 
+    // Use connectOverCDP to share contexts across reconnections
+    // This is critical - chromium.connect() creates isolated contexts per connection
+    // but connectOverCDP shares the same browser instance and sees all contexts
+    if (state.cdpUrl) {
+      const browser = await chromium.connectOverCDP(state.cdpUrl, { timeout: 5000 });
+      return browser;
+    }
+
+    // Fallback to standard connect (older state files without cdpUrl)
     const browser = await chromium.connect(state.wsEndpoint, { timeout: 5000 });
     return browser;
   } catch (error) {
@@ -346,12 +362,14 @@ export class PersistentSession {
     let context: BrowserContext;
     let page: Page;
 
+    const targetHost = new URL(state.url).host;
+
     if (contexts.length > 0) {
       // Try to find the page with matching URL
       for (const ctx of contexts) {
         const pages = ctx.pages();
         for (const p of pages) {
-          if (p.url().includes(new URL(state.url).host)) {
+          if (p.url().includes(targetHost)) {
             context = ctx;
             page = p;
             return new PersistentSession(browser, context, page, state, sessionDir);
@@ -469,19 +487,21 @@ export class PersistentSession {
     try {
       // Use locator API with visible filter - auto-targets visible input
       const locator = this.page.locator(selector).filter({ visible: true }).first();
-      await locator.fill('');
 
-      if (options?.delay) {
+      // Clear existing content and fill with new text
+      await locator.fill('', { timeout });
+
+      if (options?.delay && options.delay > 0) {
         // Type character by character with delay
-        await locator.pressSequentially(text, { delay: options.delay });
+        await locator.pressSequentially(text, { delay: options.delay, timeout });
       } else {
         // Fast fill
-        await locator.fill(text);
+        await locator.fill(text, { timeout });
       }
 
       // Submit if requested (press Enter)
       if (options?.submit) {
-        await locator.press('Enter');
+        await locator.press('Enter', { timeout });
         // Wait for navigation/network after submit
         if (options?.waitAfter) {
           await this.page.waitForTimeout(options.waitAfter);

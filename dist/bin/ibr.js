@@ -1154,13 +1154,17 @@ async function startBrowserServer(outputDir, options = {}) {
   if (isolated) {
     await (0, import_promises5.mkdir)(profileDir, { recursive: true });
   }
+  const debugPort = 9222 + Math.floor(Math.random() * 1e3);
   const server = await import_playwright5.chromium.launchServer({
     headless,
-    slowMo: options.debug ? 100 : 0
+    slowMo: options.debug ? 100 : 0,
+    args: [`--remote-debugging-port=${debugPort}`]
   });
   const wsEndpoint = server.wsEndpoint();
+  const cdpUrl = `http://127.0.0.1:${debugPort}`;
   const state = {
     wsEndpoint,
+    cdpUrl,
     pid: process.pid,
     startedAt: (/* @__PURE__ */ new Date()).toISOString(),
     headless,
@@ -1177,6 +1181,10 @@ async function connectToBrowserServer(outputDir) {
   try {
     const content = await (0, import_promises5.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
+    if (state.cdpUrl) {
+      const browser3 = await import_playwright5.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
+      return browser3;
+    }
     const browser2 = await import_playwright5.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
     return browser2;
   } catch (error) {
@@ -1319,11 +1327,12 @@ var init_browser_server = __esm({
         const contexts = browser2.contexts();
         let context;
         let page;
+        const targetHost = new URL(state.url).host;
         if (contexts.length > 0) {
           for (const ctx of contexts) {
             const pages = ctx.pages();
             for (const p of pages) {
-              if (p.url().includes(new URL(state.url).host)) {
+              if (p.url().includes(targetHost)) {
                 context = ctx;
                 page = p;
                 return new _PersistentSession(browser2, context, page, state, sessionDir);
@@ -1421,14 +1430,14 @@ var init_browser_server = __esm({
         const timeout = options?.timeout || 5e3;
         try {
           const locator = this.page.locator(selector).filter({ visible: true }).first();
-          await locator.fill("");
-          if (options?.delay) {
-            await locator.pressSequentially(text, { delay: options.delay });
+          await locator.fill("", { timeout });
+          if (options?.delay && options.delay > 0) {
+            await locator.pressSequentially(text, { delay: options.delay, timeout });
           } else {
-            await locator.fill(text);
+            await locator.fill(text, { timeout });
           }
           if (options?.submit) {
-            await locator.press("Enter");
+            await locator.press("Enter", { timeout });
             if (options?.waitAfter) {
               await this.page.waitForTimeout(options.waitAfter);
             } else {
@@ -2868,7 +2877,7 @@ async function createIBR(options = {}) {
   };
   return new InterfaceBuiltRight(merged);
 }
-program.name("ibr").description("Visual regression testing for Claude Code").version("0.2.2");
+program.name("ibr").description("Visual regression testing for Claude Code").version("0.2.4");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
