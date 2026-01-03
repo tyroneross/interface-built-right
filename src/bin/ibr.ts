@@ -704,7 +704,9 @@ program
       console.log(`Clicked: ${selector}`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      console.log('');
+      console.log('Tip: Session is still active. You can retry with a different selector.');
+      console.log('    Use session:html to inspect the DOM structure.');
     }
   });
 
@@ -729,7 +731,8 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      console.log('');
+      console.log('Tip: Session is still active. Try a different selector or use session:html to inspect.');
     }
   });
 
@@ -754,7 +757,8 @@ program
       console.log(`Screenshot saved: ${path}`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      console.log('');
+      console.log('Tip: Session is still active. Try without --selector for full page.');
     }
   });
 
@@ -778,7 +782,8 @@ program
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      console.log('');
+      console.log('Tip: Session is still active. Element may not exist yet or selector is wrong.');
     }
   });
 
@@ -797,7 +802,8 @@ program
       console.log(`Navigated to: ${url}`);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
-      process.exit(1);
+      console.log('');
+      console.log('Tip: Session is still active. Check URL or try without --wait-for.');
     }
   });
 

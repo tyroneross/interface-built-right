@@ -1393,8 +1393,10 @@ var init_browser_server = __esm({
       }
       async click(selector, options) {
         const start = Date.now();
+        const timeout = options?.timeout || 5e3;
         try {
-          await this.page.click(selector, { timeout: options?.timeout || 5e3 });
+          await this.page.waitForSelector(selector, { state: "visible", timeout });
+          await this.page.click(selector, { timeout });
           await this.recordAction({
             type: "click",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -1416,7 +1418,9 @@ var init_browser_server = __esm({
       }
       async type(selector, text, options) {
         const start = Date.now();
+        const timeout = options?.timeout || 5e3;
         try {
+          await this.page.waitForSelector(selector, { state: "visible", timeout });
           await this.page.fill(selector, "");
           await this.page.type(selector, text, { delay: options?.delay || 0 });
           await this.recordAction({
@@ -1444,7 +1448,10 @@ var init_browser_server = __esm({
           if (typeof selectorOrTime === "number") {
             await this.page.waitForTimeout(selectorOrTime);
           } else {
-            await this.page.waitForSelector(selectorOrTime, { timeout: options?.timeout || 3e4 });
+            await this.page.waitForSelector(selectorOrTime, {
+              state: "visible",
+              timeout: options?.timeout || 3e4
+            });
           }
           await this.recordAction({
             type: "wait",
@@ -3289,7 +3296,9 @@ program.command("session:click <sessionId> <selector>").description("Click an el
     console.log(`Clicked: ${selector}`);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
+    console.log("");
+    console.log("Tip: Session is still active. You can retry with a different selector.");
+    console.log("    Use session:html to inspect the DOM structure.");
   }
 });
 program.command("session:type <sessionId> <selector> <text>").description("Type text into an element in an active session").option("--delay <ms>", "Delay between keystrokes", "0").option("--submit", "Press Enter after typing").action(async (sessionId, selector, text, options) => {
@@ -3305,7 +3314,8 @@ program.command("session:type <sessionId> <selector> <text>").description("Type 
     }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
+    console.log("");
+    console.log("Tip: Session is still active. Try a different selector or use session:html to inspect.");
   }
 });
 program.command("session:screenshot <sessionId>").description("Take a screenshot of the current page state").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").action(async (sessionId, options) => {
@@ -3321,7 +3331,8 @@ program.command("session:screenshot <sessionId>").description("Take a screenshot
     console.log(`Screenshot saved: ${path}`);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
+    console.log("");
+    console.log("Tip: Session is still active. Try without --selector for full page.");
   }
 });
 program.command("session:wait <sessionId> <selectorOrMs>").description("Wait for a selector to appear or a duration (in ms)").action(async (sessionId, selectorOrMs) => {
@@ -3339,7 +3350,8 @@ program.command("session:wait <sessionId> <selectorOrMs>").description("Wait for
     }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
+    console.log("");
+    console.log("Tip: Session is still active. Element may not exist yet or selector is wrong.");
   }
 });
 program.command("session:navigate <sessionId> <url>").description("Navigate to a new URL in an active session").option("-w, --wait-for <selector>", "Wait for selector after navigation").action(async (sessionId, url, options) => {
@@ -3351,7 +3363,8 @@ program.command("session:navigate <sessionId> <url>").description("Navigate to a
     console.log(`Navigated to: ${url}`);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
-    process.exit(1);
+    console.log("");
+    console.log("Tip: Session is still active. Check URL or try without --wait-for.");
   }
 });
 program.command("session:list").description("List all active interactive sessions").action(async () => {

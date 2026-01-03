@@ -435,9 +435,12 @@ export class PersistentSession {
 
   async click(selector: string, options?: { timeout?: number }): Promise<void> {
     const start = Date.now();
+    const timeout = options?.timeout || 5000;
 
     try {
-      await this.page.click(selector, { timeout: options?.timeout || 5000 });
+      // Wait for element to be visible before clicking
+      await this.page.waitForSelector(selector, { state: 'visible', timeout });
+      await this.page.click(selector, { timeout });
       await this.recordAction({
         type: 'click',
         timestamp: new Date().toISOString(),
@@ -460,8 +463,11 @@ export class PersistentSession {
 
   async type(selector: string, text: string, options?: { delay?: number; timeout?: number }): Promise<void> {
     const start = Date.now();
+    const timeout = options?.timeout || 5000;
 
     try {
+      // Wait for element to be visible before typing
+      await this.page.waitForSelector(selector, { state: 'visible', timeout });
       await this.page.fill(selector, '');
       await this.page.type(selector, text, { delay: options?.delay || 0 });
       await this.recordAction({
@@ -491,7 +497,11 @@ export class PersistentSession {
       if (typeof selectorOrTime === 'number') {
         await this.page.waitForTimeout(selectorOrTime);
       } else {
-        await this.page.waitForSelector(selectorOrTime, { timeout: options?.timeout || 30000 });
+        // Wait for element to be visible, not just present in DOM
+        await this.page.waitForSelector(selectorOrTime, {
+          state: 'visible',
+          timeout: options?.timeout || 30000
+        });
       }
       await this.recordAction({
         type: 'wait',
