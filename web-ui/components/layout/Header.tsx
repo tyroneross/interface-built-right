@@ -3,9 +3,10 @@ import React from 'react';
 interface HeaderProps {
   onToggleLibrary: () => void;
   onNewSession: () => void;
+  onUploadReference?: () => void;
 }
 
-export function Header({ onToggleLibrary, onNewSession }: HeaderProps) {
+export function Header({ onToggleLibrary, onNewSession, onUploadReference }: HeaderProps) {
   return (
     <header className="bg-white border-b border-gray-200 px-4 flex items-center justify-between h-14 shrink-0">
       <div className="flex items-center gap-3">
@@ -23,6 +24,17 @@ export function Header({ onToggleLibrary, onNewSession }: HeaderProps) {
         </span>
       </div>
       <div className="flex items-center gap-2">
+        {onUploadReference && (
+          <button
+            onClick={onUploadReference}
+            className="inline-flex items-center justify-center gap-1.5 px-4 h-9 text-[13px] font-medium rounded-lg bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150 min-w-11"
+          >
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+            Upload Reference
+          </button>
+        )}
         <button
           onClick={onNewSession}
           className="inline-flex items-center justify-center gap-1.5 px-4 h-9 text-[13px] font-medium rounded-lg bg-gray-900 text-white hover:bg-gray-700 transition-all duration-150 min-w-11"

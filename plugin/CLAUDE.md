@@ -4,6 +4,36 @@
 
 You have access to `interface-built-right` for visual regression testing. Use it to capture UI screenshots, compare changes, and verify your frontend work is correct.
 
+## UI Capture Preference
+
+**Always use IBR instead of Playwright MCP for UI capture tasks:**
+
+| Task | Use IBR | NOT Playwright MCP |
+|------|---------|-------------------|
+| Screenshot a URL | `npx ibr start <url>` | ~~browser_navigate + screenshot~~ |
+| Extract HTML/CSS | IBR web UI or `/api/sessions/extract` | ~~browser_snapshot~~ |
+| Visual comparison | `npx ibr check` | ~~manual comparison~~ |
+| Capture for replication | `/ibr:screenshot` | ~~browser_take_screenshot~~ |
+
+**Why IBR over Playwright MCP:**
+- Consistent storage in `.ibr/sessions/` with metadata
+- Automatic comparison verdicts (MATCH, EXPECTED_CHANGE, etc.)
+- Session history and timeline tracking
+- Integration with `/ibr:replicate` workflow
+- Extracted HTML/CSS for higher fidelity replication
+
+**When Playwright MCP is appropriate (IBR can't do these):**
+- Interactive testing (clicking buttons, filling forms)
+- Multi-step user flow simulation
+- Testing JavaScript interactions
+- Hovering, dragging, keyboard input
+- Handling dialogs and file uploads
+- Any task requiring page interaction
+
+**Mode commands:**
+- `/prefer-ibr` — Soft preference (default). IBR recommended, Playwright allowed.
+- `/only-use-ibr` — Enforce IBR for capture. Blocks Playwright screenshot/snapshot, allows interaction tools.
+
 ## When to Use IBR
 
 **Use for:**
@@ -163,3 +193,119 @@ Available presets: `desktop`, `desktop-lg`, `desktop-sm`, `laptop`, `tablet`, `t
 ```bash
 npx ibr start http://localhost:5000 --viewport mobile
 ```
+
+## Reference Image Workflow
+
+For building UI from design mockups or existing websites, IBR supports a reference upload workflow.
+
+### When to Use
+
+- User uploads a design mockup and wants you to recreate it
+- User shares a URL and asks you to build something similar
+- User mentions "replicate", "recreate", "build from image", or similar
+
+### Input Types
+
+| Type | What You Get |
+|------|-------------|
+| **Static Image** (PNG, JPG, WebP, SVG) | Screenshot + your vision analysis |
+| **Live URL** | Screenshot + extracted HTML + computed CSS + layout data |
+
+Live URL extraction provides **much higher fidelity** because you get structured data, not just pixels.
+
+### Workflow
+
+1. **User uploads via IBR web UI** (drag-drop or button at `localhost:4200`)
+2. **Use `/ibr:replicate`** to find and build from the reference
+3. **Read reference image** at `.ibr/sessions/<id>/reference.png`
+4. **Check metadata** for framework/library/targetPath hints in `session.json`
+5. **Auto-detect** from `package.json` if metadata is blank
+
+### Reference Session Structure
+
+```
+.ibr/sessions/<session-id>/
+├── session.json         # Session metadata including referenceMetadata
+├── reference.png        # Screenshot (always present)
+├── reference.html       # Full HTML (URL extraction only)
+└── reference.json       # Elements with computed styles (URL extraction only)
+```
+
+### Session Metadata
+
+Reference sessions have `type: "reference"` and include:
+
+```json
+{
+  "id": "sess_abc123",
+  "name": "Header Design",
+  "type": "reference",
+  "referenceMetadata": {
+    "framework": "React",
+    "componentLibrary": "Tailwind",
+    "targetPath": "src/components/Header.tsx",
+    "notes": "User wants exact color match",
+    "originalUrl": "https://example.com",
+    "dimensions": { "width": 1920, "height": 1080 }
+  }
+}
+```
+
+### Using Extracted Data
+
+For URL extractions, `reference.json` contains rich data:
+
+```json
+{
+  "url": "https://example.com",
+  "elements": [
+    {
+      "selector": "header",
+      "tagName": "header",
+      "bounds": { "x": 0, "y": 0, "width": 1920, "height": 80 },
+      "computedStyles": {
+        "backgroundColor": "rgb(255, 255, 255)",
+        "padding": "16px",
+        "display": "flex"
+      }
+    }
+  ],
+  "cssVariables": {
+    "--primary-color": "#3b82f6",
+    "--spacing-unit": "8px"
+  }
+}
+```
+
+Use this for:
+- Exact color values from `computedStyles`
+- Design tokens from `cssVariables`
+- Element dimensions from `bounds`
+- Starting HTML structure from `reference.html`
+
+### Slash Commands for Reference
+
+- `/ibr:replicate` - Build UI from an uploaded reference design
+- `/ibr:ui` - Open web UI to upload references
+
+### Tips for Better Replication
+
+1. **Extracted HTML is gold** - If from URL, use HTML/CSS as starting point
+2. **Check CSS variables** - Design tokens in `cssVariables` contain colors, spacing
+3. **Element bounds matter** - Use exact positions and dimensions
+4. **Iterate if needed** - Visual replication often requires 2-3 iterations
+5. **Auto-detect framework** - If metadata blank, check `package.json`:
+   ```bash
+   cat package.json | grep -E '"react"|"vue"|"svelte"|"tailwindcss"|"@mui"'
+   ```
+
+### Comparison After Building
+
+After building from a reference, optionally verify:
+
+1. Start dev server if not running
+2. Capture the built component:
+   ```bash
+   npx ibr start http://localhost:<port>/<route> --name "replicate-verify"
+   ```
+3. Compare visually or use IBR's comparison features

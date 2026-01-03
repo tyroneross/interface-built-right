@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>microsoft/playwright - GitHub Mockup</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      background-color: #0d1117;
+      color: #e6edf3;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* Header */
+    .header {
+      background-color: #010409;
+      border-bottom: 1px solid #30363d;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .hamburger {
+      color: #e6edf3;
+      cursor: pointer;
+    }
+
+    .github-logo {
+      width: 32px;
+      height: 32px;
+    }
+
+    .breadcrumb {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 16px;
+    }
+
+    .breadcrumb a {
+      color: #e6edf3;
+      text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+      text-decoration: underline;
+    }
+
+    .breadcrumb-separator {
+      color: #848d97;
+    }
+
+    .search-box {
+      flex: 1;
+      max-width: 400px;
+      margin-left: auto;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 5px 12px;
+      background-color: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #848d97;
+      font-size: 14px;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-left: 16px;
+    }
+
+    .header-icon {
+      color: #e6edf3;
+      cursor: pointer;
+      opacity: 0.8;
+    }
+
+    .avatar {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #f78166, #da3633);
+    }
+
+    /* Tab Navigation */
+    .tab-nav {
+      background-color: #010409;
+      padding: 0 32px;
+      border-bottom: 1px solid #30363d;
+    }
+
+    .tab-list {
+      display: flex;
+      gap: 8px;
+      list-style: none;
+    }
+
+    .tab-item {
+      padding: 8px 16px;
+      color: #e6edf3;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .tab-item.active {
+      border-bottom-color: #f78166;
+    }
+
+    .tab-item:hover {
+      background-color: #21262d;
+      border-radius: 6px 6px 0 0;
+    }
+
+    .tab-icon {
+      width: 16px;
+      height: 16px;
+      opacity: 0.7;
+    }
+
+    .tab-count {
+      background-color: #30363d;
+      padding: 0 6px;
+      border-radius: 10px;
+      font-size: 12px;
+    }
+
+    /* Warning Banner */
+    .warning-banner {
+      background-color: #0d1117;
+      border-bottom: 1px solid #30363d;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .warning-icon {
+      color: #d29922;
+      font-size: 16px;
+    }
+
+    .warning-text {
+      flex: 1;
+      color: #e6edf3;
+      font-size: 14px;
+    }
+
+    .warning-text a {
+      color: #58a6ff;
+      text-decoration: none;
+    }
+
+    .warning-text a:hover {
+      text-decoration: underline;
+    }
+
+    .enable-2fa-btn {
+      background-color: #21262d;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      padding: 5px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .enable-2fa-btn:hover {
+      background-color: #30363d;
+    }
+
+    /* Main Content */
+    .main-content {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 24px 32px;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 24px;
+    }
+
+    /* Repo Header */
+    .repo-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .repo-icon {
+      width: 24px;
+      height: 24px;
+      color: #848d97;
+    }
+
+    .repo-name {
+      font-size: 20px;
+      font-weight: 600;
+    }
+
+    .repo-name a {
+      color: #58a6ff;
+      text-decoration: none;
+    }
+
+    .repo-name a:hover {
+      text-decoration: underline;
+    }
+
+    .visibility-badge {
+      background-color: transparent;
+      border: 1px solid #30363d;
+      color: #848d97;
+      padding: 0 7px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .repo-actions {
+      display: flex;
+      gap: 8px;
+      margin-left: auto;
+    }
+
+    .action-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #21262d;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      padding: 3px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+    }
+
+    .action-btn:hover {
+      background-color: #30363d;
+    }
+
+    .action-count {
+      background-color: #30363d;
+      padding: 0 6px;
+      border-radius: 10px;
+      margin-left: 4px;
+    }
+
+    .dropdown-arrow {
+      border-left: 1px solid #30363d;
+      padding-left: 8px;
+      margin-left: 4px;
+    }
+
+    /* File Browser Header */
+    .file-browser-header {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px;
+      background-color: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 6px 6px 0 0;
+      margin-top: 16px;
+    }
+
+    .branch-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #21262d;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .branch-icon {
+      width: 16px;
+      height: 16px;
+      color: #848d97;
+    }
+
+    .branch-info {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      color: #848d97;
+      font-size: 14px;
+    }
+
+    .branch-info a {
+      color: #e6edf3;
+      text-decoration: none;
+    }
+
+    .branch-info a:hover {
+      text-decoration: underline;
+    }
+
+    .file-search {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .file-search-input {
+      padding: 5px 12px;
+      background-color: #0d1117;
+      border: 1px solid #30363d;
+      border-radius: 6px;
+      color: #848d97;
+      width: 180px;
+    }
+
+    .add-file-btn {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background-color: #21262d;
+      border: 1px solid #30363d;
+      color: #e6edf3;
+      padding: 5px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    .code-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background-color: #238636;
+      border: 1px solid #238636;
+      color: #ffffff;
+      padding: 5px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    /* Commit Info Bar */
+    .commit-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background-color: #161b22;
+      border-left: 1px solid #30363d;
+      border-right: 1px solid #30363d;
+    }
+
+    .commit-avatar {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #79c0ff, #58a6ff);
+    }
+
+    .commit-author {
+      font-weight: 600;
+      color: #e6edf3;
+    }
+
+    .commit-message {
+      color: #e6edf3;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .commit-icons {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #848d97;
+    }
+
+    .commit-sha {
+      color: #58a6ff;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .commit-date {
+      color: #848d97;
+    }
+
+    .commit-count {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      color: #e6edf3;
+    }
+
+    /* File List */
+    .file-list {
+      border: 1px solid #30363d;
+      border-top: none;
+      border-radius: 0 0 6px 6px;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: 24px 1fr 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 8px 16px;
+      border-bottom: 1px solid #21262d;
+    }
+
+    .file-row:last-child {
+      border-bottom: none;
+    }
+
+    .file-row:hover {
+      background-color: #161b22;
+    }
+
+    .file-icon {
+      width: 16px;
+      height: 16px;
+      color: #848d97;
+    }
+
+    .file-icon.folder {
+      color: #54aeff;
+    }
+
+    .file-name {
+      color: #e6edf3;
+    }
+
+    .file-name a {
+      color: #e6edf3;
+      text-decoration: none;
+    }
+
+    .file-name a:hover {
+      color: #58a6ff;
+      text-decoration: underline;
+    }
+
+    .file-commit {
+      color: #848d97;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-commit a {
+      color: #848d97;
+      text-decoration: none;
+    }
+
+    .file-commit a:hover {
+      color: #58a6ff;
+      text-decoration: underline;
+    }
+
+    .file-date {
+      color: #848d97;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    /* Sidebar */
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .sidebar-section {
+      padding-bottom: 16px;
+      border-bottom: 1px solid #21262d;
+    }
+
+    .sidebar-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #e6edf3;
+      margin-bottom: 12px;
+    }
+
+    .sidebar-description {
+      color: #e6edf3;
+      line-height: 1.5;
+      margin-bottom: 12px;
+    }
+
+    .sidebar-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #58a6ff;
+      text-decoration: none;
+      margin-bottom: 12px;
+    }
+
+    .sidebar-link:hover {
+      text-decoration: underline;
+    }
+
+    .topic-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .topic-tag {
+      background-color: #388bfd26;
+      color: #58a6ff;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      text-decoration: none;
+    }
+
+    .topic-tag:hover {
+      background-color: #58a6ff;
+      color: #ffffff;
+    }
+
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #e6edf3;
+      padding: 4px 0;
+    }
+
+    .sidebar-item-icon {
+      width: 16px;
+      height: 16px;
+      color: #848d97;
+    }
+
+    /* SVG Icons */
+    svg {
+      fill: currentColor;
+    }
+  </style>
+</head>
+<body>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="hamburger">
+        <svg width="16" height="16" viewBox="0 0 16 16">
+          <path d="M1 2.75A.75.75 0 0 1 1.75 2h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 2.75Zm0 5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75ZM1.75 12h12.5a.75.75 0 0 1 0 1.5H1.75a.75.75 0 0 1 0-1.5Z"/>
+        </svg>
+      </div>
+      <svg class="github-logo" viewBox="0 0 32 32" fill="#e6edf3">
+        <path d="M16 0C7.16 0 0 7.16 0 16c0 7.08 4.58 13.06 10.94 15.18.8.14 1.1-.34 1.1-.76 0-.38-.02-1.64-.02-2.98-4.02.74-5.06-.98-5.38-1.88-.18-.46-.96-1.88-1.64-2.26-.56-.3-1.36-1.04-.02-1.06 1.26-.02 2.16 1.16 2.46 1.64 1.44 2.42 3.74 1.74 4.66 1.32.14-1.04.56-1.74 1.02-2.14-3.56-.4-7.28-1.78-7.28-7.9 0-1.74.62-3.18 1.64-4.3-.16-.4-.72-2.04.16-4.24 0 0 1.34-.42 4.4 1.64 1.28-.36 2.64-.54 4-.54s2.72.18 4 .54c3.06-2.08 4.4-1.64 4.4-1.64.88 2.2.32 3.84.16 4.24 1.02 1.12 1.64 2.54 1.64 4.3 0 6.14-3.74 7.5-7.3 7.9.58.5 1.08 1.46 1.08 2.96 0 2.14-.02 3.86-.02 4.4 0 .42.3.92 1.1.76C27.42 29.06 32 23.06 32 16 32 7.16 24.84 0 16 0Z"/>
+      </svg>
+      <div class="breadcrumb">
+        <a href="#">microsoft</a>
+        <span class="breadcrumb-separator">/</span>
+        <a href="#"><strong>playwright</strong></a>
+      </div>
+    </div>
+    <div class="search-box">
+      <input type="text" class="search-input" placeholder="Type / to search">
+    </div>
+    <div class="header-right">
+      <span class="header-icon">+</span>
+      <span class="header-icon">🔔</span>
+      <span class="header-icon">📥</span>
+      <div class="avatar"></div>
+    </div>
+  </header>
+
+  <!-- Tab Navigation -->
+  <nav class="tab-nav">
+    <ul class="tab-list">
+      <li class="tab-item active">
+        <svg class="tab-icon" viewBox="0 0 16 16"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.744 3.744 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>
+        Code
+      </li>
+      <li class="tab-item">
+        <svg class="tab-icon" viewBox="0 0 16 16"><path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Z"/></svg>
+        Issues <span class="tab-count">553</span>
+      </li>
+      <li class="tab-item">
+        <svg class="tab-icon" viewBox="0 0 16 16"><path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25Zm5.677-.177L9.573.677A.25.25 0 0 1 10 .854V2.5h1A2.5 2.5 0 0 1 13.5 5v5.628a2.251 2.251 0 1 1-1.5 0V5a1 1 0 0 0-1-1h-1v1.646a.25.25 0 0 1-.427.177L7.177 3.427a.25.25 0 0 1 0-.354ZM3.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0 9.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm8.25.75a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Z"/></svg>
+        Pull requests <span class="tab-count">12</span>
+      </li>
+      <li class="tab-item">
+        <svg class="tab-icon" viewBox="0 0 16 16"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"/></svg>
+        Actions
+      </li>
+      <li class="tab-item">
+        <svg class="tab-icon" viewBox="0 0 16 16"><path d="M8.75 1.75V5H12a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h3.25V1.75a.75.75 0 0 1 1.5 0ZM4.5 9v4h7V9Z"/></svg>
+        Models
+      </li>
+      <li class="tab-item">
+        <svg class="tab-icon" viewBox="0 0 16 16"><path d="M9.504.43a1.516 1.516 0 0 1 2.437 1.713L10.415 5.5h2.123c1.57 0 2.346 1.909 1.22 3.004l-7.34 7.142a1.249 1.249 0 0 1-.871.354h-.302a1.25 1.25 0 0 1-1.157-1.723L5.633 10.5H3.462c-1.57 0-2.346-1.909-1.22-3.004L9.504.43Z"/></svg>
+        Security
+      </li>
+      <li class="tab-item">
+        <svg class="tab-icon" viewBox="0 0 16 16"><path d="M1.5 1.75V13.5h13.75a.75.75 0 0 1 0 1.5H.75a.75.75 0 0 1-.75-.75V1.75a.75.75 0 0 1 1.5 0Zm14.28 2.53-5.25 5.25a.75.75 0 0 1-1.06 0L7 7.06 4.28 9.78a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042l3.25-3.25a.75.75 0 0 1 1.06 0L10 7.94l4.72-4.72a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042Z"/></svg>
+        Insights
+      </li>
+    </ul>
+  </nav>
+
+  <!-- Warning Banner -->
+  <div class="warning-banner">
+    <span class="warning-icon">⚠️</span>
+    <p class="warning-text">
+      GitHub users are <a href="#">now required</a> to enable two-factor authentication as an additional security measure. Your activity on GitHub includes you in this requirement. You will need to enable two-factor authentication on your account before February 13, 2026, or be restricted from account actions.
+    </p>
+    <button class="enable-2fa-btn">Enable 2FA</button>
+  </div>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <div class="content-area">
+      <!-- Repo Header -->
+      <div class="repo-header">
+        <svg class="repo-icon" viewBox="0 0 16 16">
+          <path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.708A2.486 2.486 0 0 1 4.5 9h8ZM5 12.25a.25.25 0 0 1 .25-.25h3.5a.25.25 0 0 1 .25.25v3.25a.25.25 0 0 1-.4.2l-1.45-1.087a.249.249 0 0 0-.3 0L5.4 15.7a.25.25 0 0 1-.4-.2Z"/>
+        </svg>
+        <span class="repo-name">
+          <a href="#">playwright</a>
+        </span>
+        <span class="visibility-badge">Public</span>
+        <div class="repo-actions">
+          <button class="action-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 2c1.981 0 3.671.992 4.933 2.078 1.27 1.091 2.187 2.345 2.637 3.023a1.62 1.62 0 0 1 0 1.798c-.45.678-1.367 1.932-2.637 3.023C11.67 13.008 9.981 14 8 14c-1.981 0-3.671-.992-4.933-2.078C1.797 10.83.88 9.576.43 8.898a1.62 1.62 0 0 1 0-1.798c.45-.677 1.367-1.931 2.637-3.022C4.33 2.992 6.019 2 8 2ZM1.679 7.932a.12.12 0 0 0 0 .136c.411.622 1.241 1.75 2.366 2.717C5.176 11.758 6.527 12.5 8 12.5c1.473 0 2.825-.742 3.955-1.715 1.124-.967 1.954-2.096 2.366-2.717a.12.12 0 0 0 0-.136c-.412-.621-1.242-1.75-2.366-2.717C10.824 4.242 9.473 3.5 8 3.5c-1.473 0-2.824.742-3.955 1.715-1.124.967-1.954 2.096-2.366 2.717ZM8 10a2 2 0 1 1-.001-3.999A2 2 0 0 1 8 10Z"/></svg>
+            Watch <span class="action-count">548</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <button class="action-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16"><path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z"/></svg>
+            Fork <span class="action-count">5k</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+          <button class="action-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Zm0 2.445L6.615 5.5a.75.75 0 0 1-.564.41l-3.097.45 2.24 2.184a.75.75 0 0 1 .216.664l-.528 3.084 2.769-1.456a.75.75 0 0 1 .698 0l2.77 1.456-.53-3.084a.75.75 0 0 1 .216-.664l2.24-2.183-3.096-.45a.75.75 0 0 1-.564-.41L8 2.694Z"/></svg>
+            Star <span class="action-count">80.8k</span>
+            <span class="dropdown-arrow">▼</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- File Browser Header -->
+      <div class="file-browser-header">
+        <button class="branch-selector">
+          <svg class="branch-icon" viewBox="0 0 16 16"><path d="M9.5 3.25a2.25 2.25 0 1 1 3 2.122V6A2.5 2.5 0 0 1 10 8.5H6a1 1 0 0 0-1 1v1.128a2.251 2.251 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.5 0v1.836A2.493 2.493 0 0 1 6 7h4a1 1 0 0 0 1-1v-.628A2.25 2.25 0 0 1 9.5 3.25Zm-6 0a.75.75 0 1 0 1.5 0 .75.75 0 0 0-1.5 0Zm8.25-.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5ZM4.25 12a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z"/></svg>
+          main ▼
+        </button>
+        <div class="branch-info">
+          <span><a href="#">76</a> Branches</span>
+          <span><a href="#">155</a> Tags</span>
+        </div>
+        <div class="file-search">
+          <input type="text" class="file-search-input" placeholder="Go to file">
+          <button class="add-file-btn">Add file ▼</button>
+          <button class="code-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="white"><path d="m11.28 3.22 4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734L13.94 8l-3.72-3.72a.749.749 0 0 1 .326-1.275.749.749 0 0 1 .734.215Zm-6.56 0a.751.751 0 0 1 1.042.018.751.751 0 0 1 .018 1.042L2.06 8l3.72 3.72a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L.47 8.53a.75.75 0 0 1 0-1.06Z"/></svg>
+            Code ▼
+          </button>
+        </div>
+      </div>
+
+      <!-- Commit Info Bar -->
+      <div class="commit-bar">
+        <div class="commit-avatar"></div>
+        <span class="commit-author">dgozman</span>
+        <span class="commit-message">fix(recorder): make sure initial language is set correctly for ports...</span>
+        <div class="commit-icons">
+          <span>💬</span>
+          <span style="color: #f85149;">✕</span>
+        </div>
+        <span class="commit-sha">1359b5f</span>
+        <span class="commit-date">· 2 days ago</span>
+        <span class="commit-count">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="#848d97"><path d="M11.93 8.5a4.002 4.002 0 0 1-7.86 0H.75a.75.75 0 0 1 0-1.5h3.32a4.002 4.002 0 0 1 7.86 0h3.32a.75.75 0 0 1 0 1.5Zm-1.43-.75a2.5 2.5 0 1 0-5 0 2.5 2.5 0 0 0 5 0Z"/></svg>
+          15,851 Commits
+        </span>
+      </div>
+
+      <!-- File List -->
+      <div class="file-list">
+        <div class="file-row">
+          <svg class="file-icon folder" viewBox="0 0 16 16"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>
+          <span class="file-name"><a href="#">.github</a></span>
+          <span class="file-commit"><a href="#">test(bidi): make PR test runs green (#38632)</a></span>
+          <span class="file-date">2 weeks ago</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon folder" viewBox="0 0 16 16"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>
+          <span class="file-name"><a href="#">browser_patches</a></span>
+          <span class="file-commit"><a href="#">chore: update browser_patches (#38286)</a></span>
+          <span class="file-date">2 months ago</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon folder" viewBox="0 0 16 16"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>
+          <span class="file-name"><a href="#">docs/src</a></span>
+          <span class="file-commit"><a href="#">chore: add expectAria to perform (#38640)</a></span>
+          <span class="file-date">last week</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon folder" viewBox="0 0 16 16"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>
+          <span class="file-name"><a href="#">examples</a></span>
+          <span class="file-commit"><a href="#">chore: allow generating expectation after each step (#38...</a></span>
+          <span class="file-date">2 days ago</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon folder" viewBox="0 0 16 16"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>
+          <span class="file-name"><a href="#">packages</a></span>
+          <span class="file-commit"><a href="#">fix(recorder): make sure initial language is set correctly fo...</a></span>
+          <span class="file-date">2 days ago</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon folder" viewBox="0 0 16 16"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>
+          <span class="file-name"><a href="#">tests</a></span>
+          <span class="file-commit"><a href="#">fix(recorder): make sure initial language is set correctly fo...</a></span>
+          <span class="file-date">2 days ago</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon folder" viewBox="0 0 16 16"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1H1.75Z"/></svg>
+          <span class="file-name"><a href="#">utils</a></span>
+          <span class="file-commit"><a href="#">chore: add expectAria to perform (#38640)</a></span>
+          <span class="file-date">last week</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon" viewBox="0 0 16 16"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/></svg>
+          <span class="file-name"><a href="#">.editorconfig</a></span>
+          <span class="file-commit"><a href="#">Initial commit</a></span>
+          <span class="file-date">7 years ago</span>
+        </div>
+        <div class="file-row">
+          <svg class="file-icon" viewBox="0 0 16 16"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25V6h-2.75A1.75 1.75 0 0 1 9 4.25V1.5Zm6.75.062V4.25c0 .138.112.25.25.25h2.688l-.011-.013-2.914-2.914-.013-.011Z"/></svg>
+          <span class="file-name"><a href="#">.gitattributes</a></span>
+          <span class="file-commit"><a href="#">feat: implement a new image comparison function (#19166...</a></span>
+          <span class="file-date">4 years ago</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <h2 class="sidebar-title">About</h2>
+        <p class="sidebar-description">
+          Playwright is a framework for Web Testing and Automation. It allows testing Chromium, Firefox and WebKit with a single API.
+        </p>
+        <a href="#" class="sidebar-link">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="#848d97"><path d="M7.775 3.275a.75.75 0 0 0 1.06 1.06l1.25-1.25a2 2 0 1 1 2.83 2.83l-2.5 2.5a2 2 0 0 1-2.83 0 .75.75 0 0 0-1.06 1.06 3.5 3.5 0 0 0 4.95 0l2.5-2.5a3.5 3.5 0 0 0-4.95-4.95l-1.25 1.25Zm-.025 5.45-1.25 1.25a2 2 0 0 1-2.83-2.83l2.5-2.5a2 2 0 0 1 2.83 0 .75.75 0 0 0 1.06-1.06 3.5 3.5 0 0 0-4.95 0l-2.5 2.5a3.5 3.5 0 1 0 4.95 4.95l1.25-1.25a.75.75 0 0 0-1.06-1.06Z"/></svg>
+          playwright.dev
+        </a>
+        <div class="topic-tags">
+          <a href="#" class="topic-tag">electron</a>
+          <a href="#" class="topic-tag">javascript</a>
+          <a href="#" class="topic-tag">testing</a>
+          <a href="#" class="topic-tag">firefox</a>
+          <a href="#" class="topic-tag">chrome</a>
+          <a href="#" class="topic-tag">automation</a>
+          <a href="#" class="topic-tag">web</a>
+          <a href="#" class="topic-tag">test</a>
+          <a href="#" class="topic-tag">chromium</a>
+          <a href="#" class="topic-tag">test-automation</a>
+          <a href="#" class="topic-tag">testing-tools</a>
+          <a href="#" class="topic-tag">webkit</a>
+          <a href="#" class="topic-tag">end-to-end-testing</a>
+          <a href="#" class="topic-tag">e2e-testing</a>
+          <a href="#" class="topic-tag">playwright</a>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-item">
+          <svg class="sidebar-item-icon" viewBox="0 0 16 16"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.744 3.744 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>
+          Readme
+        </div>
+        <div class="sidebar-item">
+          <svg class="sidebar-item-icon" viewBox="0 0 16 16"><path d="M8.75.75V2h.985c.304 0 .603.08.867.231l1.29.736c.038.022.08.033.124.033h2.234a.75.75 0 0 1 0 1.5h-.427l2.111 4.692a.75.75 0 0 1-.154.838l-.53-.53.53.53-.001.002-.002.002-.006.006-.006.005-.01.01a3.4 3.4 0 0 1-.168.145 4.823 4.823 0 0 1-.628.425c-.555.32-1.387.675-2.484.758-.036.003-.072.004-.109.004-.015 0-.03-.001-.045-.003a3.756 3.756 0 0 1-.156.014l-.109.001h-.002c-.114 0-.227-.01-.337-.03a2.75 2.75 0 0 1-2.57 1.79v1.048H10.5a.75.75 0 0 1 0 1.5h-5a.75.75 0 0 1 0-1.5h1.25V11.75a2.75 2.75 0 0 1-2.547-1.706 3.45 3.45 0 0 1-.51.03h-.001l-.109-.001c-.054-.002-.108-.006-.156-.014-.015.002-.03.003-.045.003a.75.75 0 0 1-.109-.004c-1.097-.083-1.929-.438-2.484-.758a4.823 4.823 0 0 1-.628-.425 3.4 3.4 0 0 1-.168-.145l-.01-.01-.006-.005-.006-.006-.002-.002-.001-.002L.38 8.25l.53.53a.75.75 0 0 1-.154-.838l2.1-4.673H2.5a.75.75 0 0 1 0-1.5h2.236c.043 0 .085-.011.123-.033l1.29-.736c.264-.151.563-.231.867-.231H8V.75a.75.75 0 0 1 1.5 0Zm-5 9.5c.38 0 .864-.064 1.372-.222l-.017.013a3.384 3.384 0 0 1-1.355.209Zm5.5 0c-.385-.001-.839-.063-1.355-.209l.017.013c.508.158.992.221 1.372.222l-.034-.026ZM8 9.5a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5Z"/></svg>
+          Apache-2.0 license
+        </div>
+        <div class="sidebar-item">
+          <svg class="sidebar-item-icon" viewBox="0 0 16 16"><path d="M8.048 2.241c.964-.709 2.079-1.238 3.325-1.241a4.616 4.616 0 0 1 3.282 1.355c.41.408.757.86.996 1.428.238.568.348 1.206.347 1.968 0 2.193-1.505 4.254-3.081 5.862-1.496 1.526-3.213 2.796-4.249 3.563l-.22.163a.749.749 0 0 1-.895 0l-.221-.163c-1.036-.767-2.753-2.037-4.248-3.562C1.51 9.972.007 7.912.007 5.72c0-.763.109-1.4.347-1.966.24-.568.587-1.02.996-1.428a4.614 4.614 0 0 1 3.282-1.355c1.247.003 2.362.532 3.326 1.24l.09.067.09-.067ZM1.507 5.723c0 1.658 1.254 3.405 2.722 4.902 1.215 1.24 2.61 2.296 3.77 3.152 1.161-.856 2.556-1.912 3.77-3.152 1.469-1.497 2.723-3.244 2.723-4.902a3.1 3.1 0 0 0-.242-1.377 2.633 2.633 0 0 0-.677-.964A3.122 3.122 0 0 0 11.36 2.5c-.89.002-1.77.42-2.561 1.155a7.003 7.003 0 0 0-.799.86.746.746 0 0 1-1.001 0 7.003 7.003 0 0 0-.799-.86c-.79-.734-1.67-1.152-2.56-1.155a3.122 3.122 0 0 0-2.212.91 2.633 2.633 0 0 0-.678.964 3.1 3.1 0 0 0-.242 1.377v-.028Z"/></svg>
+          Code of conduct
+        </div>
+      </div>
+    </aside>
+  </main>
+</body>
+</html>

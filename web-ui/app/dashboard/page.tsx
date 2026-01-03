@@ -14,7 +14,7 @@ import { ComparisonCanvas } from '@/components/comparison';
 import type { ViewMode } from '@/components/comparison';
 
 // Session components
-import { NewSessionModal } from '@/components/sessions/NewSessionModal';
+import { NewSessionModal, UploadReferenceModal } from '@/components/sessions';
 
 // Hooks and types
 import { useSessions, useSessionActions } from '@/lib/hooks';
@@ -32,6 +32,8 @@ export default function DashboardPage() {
   const [filter, setFilter] = useState<FilterType>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isNewSessionOpen, setIsNewSessionOpen] = useState(false);
+  const [isUploadOpen, setIsUploadOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
 
   // Auto-select first session when loaded
@@ -165,6 +167,50 @@ export default function DashboardPage() {
     [selectedSessionId]
   );
 
+  const handleUploadReference = useCallback(
+    async (data: FormData | { type: 'url'; url: string; metadata: Record<string, string> }) => {
+      try {
+        setUploading(true);
+
+        let response: Response;
+
+        if (data instanceof FormData) {
+          // Static image upload
+          response = await fetch('/api/sessions/upload', {
+            method: 'POST',
+            body: data,
+          });
+        } else {
+          // URL extraction
+          response = await fetch('/api/sessions/extract', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              url: data.url,
+              metadata: data.metadata,
+            }),
+          });
+        }
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Upload failed');
+        }
+
+        const result = await response.json();
+        await refetch();
+        setSelectedSessionId(result.sessionId);
+        setIsUploadOpen(false);
+      } catch (error) {
+        console.error('Upload error:', error);
+        alert(error instanceof Error ? error.message : 'Upload failed');
+      } finally {
+        setUploading(false);
+      }
+    },
+    [refetch]
+  );
+
   // Error state
   if (error) {
     return (
@@ -193,6 +239,7 @@ export default function DashboardPage() {
       <Header
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
         onNewSession={() => setIsNewSessionOpen(true)}
+        onUploadReference={() => setIsUploadOpen(true)}
       />
 
       {/* Main content */}
@@ -273,6 +320,14 @@ export default function DashboardPage() {
         onClose={() => setIsNewSessionOpen(false)}
         onSubmit={handleCreateSession}
         isLoading={creating}
+      />
+
+      {/* Upload Reference Modal */}
+      <UploadReferenceModal
+        open={isUploadOpen}
+        onClose={() => setIsUploadOpen(false)}
+        onSubmit={handleUploadReference}
+        isLoading={uploading}
       />
     </div>
   );

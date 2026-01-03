@@ -3,3 +3,4 @@ export { SessionList } from './SessionList';
 export { SessionFilters } from './SessionFilters';
 export { SessionSearch } from './SessionSearch';
 export { NewSessionModal } from './NewSessionModal';
+export { UploadReferenceModal } from './UploadReferenceModal';

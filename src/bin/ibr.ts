@@ -64,7 +64,9 @@ program
   .option('-n, --name <name>', 'Session name')
   .option('-s, --selector <css>', 'CSS selector to capture specific element')
   .option('--no-full-page', 'Capture only the viewport, not full page')
-  .action(async (url: string | undefined, options: { name?: string; fullPage?: boolean; selector?: string }) => {
+  .option('--sandbox', 'Show visible browser window (default: headless)')
+  .option('--debug', 'Visible browser + slow motion + devtools')
+  .action(async (url: string | undefined, options: { name?: string; fullPage?: boolean; selector?: string; sandbox?: boolean; debug?: boolean }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const ibr = await createIBR(program.opts());
@@ -496,6 +498,344 @@ program
       const outputDir = globalOpts.output || './.ibr';
 
       await clearAuthState(outputDir);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================
+// LIVE SESSION COMMANDS - Interactive browser sessions
+// ============================================================
+
+// Session start command - create interactive session
+program
+  .command('session:start [url]')
+  .description('Start an interactive browser session (keeps browser alive)')
+  .option('-n, --name <name>', 'Session name')
+  .option('--sandbox', 'Show visible browser window (required for user to toggle)')
+  .option('--debug', 'Visible browser + slow motion + devtools')
+  .action(async (url: string | undefined, options: { name?: string; sandbox?: boolean; debug?: boolean }) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const resolvedUrl = await resolveBaseUrl(url);
+
+      // Sandbox must be explicitly requested
+      if (!options.sandbox && !options.debug) {
+        console.log('Starting headless session...');
+      } else if (options.debug) {
+        console.log('Starting debug session (visible + slow motion + devtools)...');
+      } else {
+        console.log('Starting sandbox session (visible browser)...');
+      }
+
+      const session = await liveSessionManager.create(outputDir, {
+        url: resolvedUrl,
+        name: options.name,
+        viewport: VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop,
+        sandbox: options.sandbox,
+        debug: options.debug,
+      });
+
+      console.log('');
+      console.log(`Session started: ${session.id}`);
+      console.log(`URL: ${session.url}`);
+      console.log('');
+      console.log('Available commands:');
+      console.log(`  npx ibr session:click ${session.id} "<selector>"`);
+      console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
+      console.log(`  npx ibr session:screenshot ${session.id}`);
+      console.log(`  npx ibr session:close ${session.id}`);
+      console.log('');
+      console.log('Note: Session stays active until closed. Use session:close when done.');
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session click command
+program
+  .command('session:click <sessionId> <selector>')
+  .description('Click an element in an active session')
+  .action(async (sessionId: string, selector: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        console.log('Active sessions:', liveSessionManager.list().join(', ') || 'none');
+        process.exit(1);
+      }
+
+      await session.click(selector);
+      console.log(`Clicked: ${selector}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session type command
+program
+  .command('session:type <sessionId> <selector> <text>')
+  .description('Type text into an element in an active session')
+  .option('--delay <ms>', 'Delay between keystrokes', '0')
+  .action(async (sessionId: string, selector: string, text: string, options: { delay: string }) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      await session.type(selector, text, { delay: parseInt(options.delay, 10) });
+      console.log(`Typed "${text.length > 20 ? text.slice(0, 20) + '...' : text}" into: ${selector}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session fill command - fill multiple form fields
+program
+  .command('session:fill <sessionId> <fieldsJson>')
+  .description('Fill multiple form fields (JSON array: [{"selector": "...", "value": "..."}])')
+  .action(async (sessionId: string, fieldsJson: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      const fields = JSON.parse(fieldsJson);
+      await session.fill(fields);
+      console.log(`Filled ${fields.length} field(s)`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session hover command
+program
+  .command('session:hover <sessionId> <selector>')
+  .description('Hover over an element in an active session')
+  .action(async (sessionId: string, selector: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      await session.hover(selector);
+      console.log(`Hovered: ${selector}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session screenshot command
+program
+  .command('session:screenshot <sessionId>')
+  .description('Take a screenshot of the current page state')
+  .option('-n, --name <name>', 'Screenshot name')
+  .option('-s, --selector <css>', 'CSS selector to capture specific element')
+  .option('--no-full-page', 'Capture only the viewport')
+  .action(async (sessionId: string, options: { name?: string; selector?: string; fullPage?: boolean }) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      const path = await session.screenshot({
+        name: options.name,
+        selector: options.selector,
+        fullPage: options.fullPage,
+      });
+      console.log(`Screenshot saved: ${path}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session evaluate command - run JavaScript
+program
+  .command('session:eval <sessionId> <script>')
+  .description('Execute JavaScript in the page context')
+  .action(async (sessionId: string, script: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      const result = await session.evaluate(script);
+      console.log('Result:', JSON.stringify(result, null, 2));
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session navigate command
+program
+  .command('session:navigate <sessionId> <url>')
+  .description('Navigate to a new URL in an active session')
+  .action(async (sessionId: string, url: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      await session.navigate(url);
+      console.log(`Navigated to: ${url}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session wait command
+program
+  .command('session:wait <sessionId> <selectorOrMs>')
+  .description('Wait for a selector to appear or a duration (in ms)')
+  .action(async (sessionId: string, selectorOrMs: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      const isNumber = /^\d+$/.test(selectorOrMs);
+      if (isNumber) {
+        await session.waitFor(parseInt(selectorOrMs, 10));
+        console.log(`Waited ${selectorOrMs}ms`);
+      } else {
+        await session.waitFor(selectorOrMs);
+        console.log(`Found: ${selectorOrMs}`);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session list command
+program
+  .command('session:list')
+  .description('List all active interactive sessions')
+  .action(async () => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const sessions = liveSessionManager.list();
+
+      if (sessions.length === 0) {
+        console.log('No active sessions.');
+        console.log('');
+        console.log('Start one with:');
+        console.log('  npx ibr session:start <url>');
+        return;
+      }
+
+      console.log('Active sessions:');
+      for (const id of sessions) {
+        const session = liveSessionManager.get(id);
+        if (session) {
+          console.log(`  ${id}  ${session.url}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session close command
+program
+  .command('session:close <sessionId>')
+  .description('Close an active session and its browser')
+  .action(async (sessionId: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+
+      if (sessionId === 'all') {
+        await liveSessionManager.closeAll();
+        console.log('All sessions closed.');
+        return;
+      }
+
+      const closed = await liveSessionManager.close(sessionId);
+      if (closed) {
+        console.log(`Session closed: ${sessionId}`);
+      } else {
+        console.log(`Session not found: ${sessionId}`);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session actions command - show action history
+program
+  .command('session:actions <sessionId>')
+  .description('Show action history for a session')
+  .action(async (sessionId: string) => {
+    try {
+      const { liveSessionManager } = await import('../live-session.js');
+      const session = liveSessionManager.get(sessionId);
+
+      if (!session) {
+        console.error(`Session not found or not active: ${sessionId}`);
+        process.exit(1);
+      }
+
+      const actions = session.actions;
+      console.log(`Actions for ${sessionId}:`);
+      console.log('');
+
+      for (const action of actions) {
+        const icon = action.success ? '✓' : '✗';
+        const duration = action.duration ? `(${action.duration}ms)` : '';
+        console.log(`  ${icon} ${action.type} ${duration}`);
+        if (action.params) {
+          const params = Object.entries(action.params)
+            .map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`)
+            .join(', ');
+          console.log(`      ${params}`);
+        }
+        if (!action.success && action.error) {
+          console.log(`      Error: ${action.error}`);
+        }
+      }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);

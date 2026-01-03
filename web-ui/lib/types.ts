@@ -1,7 +1,27 @@
 export interface Viewport {
-  name: 'desktop' | 'mobile' | 'tablet';
+  name: 'desktop' | 'mobile' | 'tablet' | 'reference';
   width: number;
   height: number;
+}
+
+// Session type discriminator
+export type SessionType = 'capture' | 'reference';
+
+// Reference metadata for uploaded/extracted designs
+export interface ReferenceMetadata {
+  framework?: string;
+  componentLibrary?: string;
+  targetPath?: string;
+  notes?: string;
+  originalFileName?: string;
+  originalUrl?: string;
+  uploadedAt?: string;
+  extractedAt?: string;
+  fileSize?: number;
+  dimensions: {
+    width: number;
+    height: number;
+  };
 }
 
 export interface ComparisonResult {
@@ -21,13 +41,15 @@ export interface Analysis {
 export interface Session {
   id: string;
   name: string;
-  url: string;
+  url?: string; // Optional for reference sessions (image upload)
+  type?: SessionType; // 'capture' (default) or 'reference'
   viewport: Viewport;
   status: 'baseline' | 'compared' | 'pending';
   createdAt: string;
   updatedAt: string;
   comparison?: ComparisonResult;
   analysis?: Analysis;
+  referenceMetadata?: ReferenceMetadata; // For reference sessions
 }
 
 export interface ComparisonReport {
