@@ -1395,8 +1395,8 @@ var init_browser_server = __esm({
         const start = Date.now();
         const timeout = options?.timeout || 5e3;
         try {
-          await this.page.waitForSelector(selector, { state: "visible", timeout });
-          await this.page.click(selector, { timeout });
+          const locator = this.page.locator(selector).filter({ visible: true }).first();
+          await locator.click({ timeout });
           await this.recordAction({
             type: "click",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -1420,13 +1420,28 @@ var init_browser_server = __esm({
         const start = Date.now();
         const timeout = options?.timeout || 5e3;
         try {
-          await this.page.waitForSelector(selector, { state: "visible", timeout });
-          await this.page.fill(selector, "");
-          await this.page.type(selector, text, { delay: options?.delay || 0 });
+          const locator = this.page.locator(selector).filter({ visible: true }).first();
+          await locator.fill("");
+          if (options?.delay) {
+            await locator.pressSequentially(text, { delay: options.delay });
+          } else {
+            await locator.fill(text);
+          }
+          if (options?.submit) {
+            await locator.press("Enter");
+            if (options?.waitAfter) {
+              await this.page.waitForTimeout(options.waitAfter);
+            } else {
+              await this.page.waitForLoadState("networkidle", { timeout: 1e4 }).catch(() => {
+              });
+            }
+          } else if (options?.waitAfter) {
+            await this.page.waitForTimeout(options.waitAfter);
+          }
           await this.recordAction({
             type: "type",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-            params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text },
+            params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text, submit: options?.submit },
             success: true,
             duration: Date.now() - start
           });
@@ -1448,7 +1463,8 @@ var init_browser_server = __esm({
           if (typeof selectorOrTime === "number") {
             await this.page.waitForTimeout(selectorOrTime);
           } else {
-            await this.page.waitForSelector(selectorOrTime, {
+            const locator = this.page.locator(selectorOrTime).filter({ visible: true }).first();
+            await locator.waitFor({
               state: "visible",
               timeout: options?.timeout || 3e4
             });
@@ -3287,7 +3303,7 @@ async function getSession2(outputDir, sessionId) {
   }
   return session;
 }
-program.command("session:click <sessionId> <selector>").description("Click an element in an active session").action(async (sessionId, selector) => {
+program.command("session:click <sessionId> <selector>").description("Click an element in an active session (auto-targets visible elements)").action(async (sessionId, selector) => {
   try {
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
@@ -3295,27 +3311,45 @@ program.command("session:click <sessionId> <selector>").description("Click an el
     await session.click(selector);
     console.log(`Clicked: ${selector}`);
   } catch (error) {
-    console.error("Error:", error instanceof Error ? error.message : error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error:", msg);
     console.log("");
-    console.log("Tip: Session is still active. You can retry with a different selector.");
-    console.log("    Use session:html to inspect the DOM structure.");
+    if (msg.includes("not visible") || msg.includes("Timeout")) {
+      console.log("Tip: IBR auto-filters to visible elements. Element may be:");
+      console.log("     - Hidden by CSS (display:none, visibility:hidden)");
+      console.log("     - Off-screen or zero-sized");
+      console.log('     Use session:html --selector "' + selector + '" to inspect');
+    } else {
+      console.log("Tip: Session is still active. Use session:html to inspect the DOM.");
+    }
   }
 });
-program.command("session:type <sessionId> <selector> <text>").description("Type text into an element in an active session").option("--delay <ms>", "Delay between keystrokes", "0").option("--submit", "Press Enter after typing").action(async (sessionId, selector, text, options) => {
+program.command("session:type <sessionId> <selector> <text>").description("Type text into an element in an active session").option("--delay <ms>", "Delay between keystrokes", "0").option("--submit", "Press Enter after typing (waits for network idle)").option("--wait-after <ms>", "Wait this long after typing/submitting before next command").action(async (sessionId, selector, text, options) => {
   try {
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
-    await session.type(selector, text, { delay: parseInt(options.delay, 10) });
-    console.log(`Typed "${text.length > 20 ? text.slice(0, 20) + "..." : text}" into: ${selector}`);
+    await session.type(selector, text, {
+      delay: parseInt(options.delay, 10),
+      submit: options.submit,
+      waitAfter: options.waitAfter ? parseInt(options.waitAfter, 10) : void 0
+    });
+    const action = options.submit ? "Typed and submitted" : "Typed";
+    console.log(`${action}: "${text.length > 20 ? text.slice(0, 20) + "..." : text}" into: ${selector}`);
     if (options.submit) {
-      await session.press("Enter");
-      console.log("Pressed Enter");
+      console.log("Waited for network idle after submit");
     }
   } catch (error) {
-    console.error("Error:", error instanceof Error ? error.message : error);
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error:", msg);
     console.log("");
-    console.log("Tip: Session is still active. Try a different selector or use session:html to inspect.");
+    if (msg.includes("not visible") || msg.includes("multiple elements")) {
+      console.log("Tip: IBR auto-filters to visible elements. If still failing:");
+      console.log("     - Use session:html to inspect the DOM");
+      console.log("     - Try a more specific selector (add class, id, or attribute)");
+    } else {
+      console.log("Tip: Session is still active. Use session:html to inspect the page.");
+    }
   }
 });
 program.command("session:screenshot <sessionId>").description("Take a screenshot of the current page state").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").action(async (sessionId, options) => {

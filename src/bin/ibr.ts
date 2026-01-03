@@ -693,7 +693,7 @@ async function getSession(outputDir: string, sessionId: string) {
 // Session click command
 program
   .command('session:click <sessionId> <selector>')
-  .description('Click an element in an active session')
+  .description('Click an element in an active session (auto-targets visible elements)')
   .action(async (sessionId: string, selector: string) => {
     try {
       const globalOpts = program.opts();
@@ -703,10 +703,17 @@ program
       await session.click(selector);
       console.log(`Clicked: ${selector}`);
     } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Error:', msg);
       console.log('');
-      console.log('Tip: Session is still active. You can retry with a different selector.');
-      console.log('    Use session:html to inspect the DOM structure.');
+      if (msg.includes('not visible') || msg.includes('Timeout')) {
+        console.log('Tip: IBR auto-filters to visible elements. Element may be:');
+        console.log('     - Hidden by CSS (display:none, visibility:hidden)');
+        console.log('     - Off-screen or zero-sized');
+        console.log('     Use session:html --selector "' + selector + '" to inspect');
+      } else {
+        console.log('Tip: Session is still active. Use session:html to inspect the DOM.');
+      }
     }
   });
 
@@ -715,24 +722,37 @@ program
   .command('session:type <sessionId> <selector> <text>')
   .description('Type text into an element in an active session')
   .option('--delay <ms>', 'Delay between keystrokes', '0')
-  .option('--submit', 'Press Enter after typing')
-  .action(async (sessionId: string, selector: string, text: string, options: { delay: string; submit?: boolean }) => {
+  .option('--submit', 'Press Enter after typing (waits for network idle)')
+  .option('--wait-after <ms>', 'Wait this long after typing/submitting before next command')
+  .action(async (sessionId: string, selector: string, text: string, options: { delay: string; submit?: boolean; waitAfter?: string }) => {
     try {
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
 
-      await session.type(selector, text, { delay: parseInt(options.delay, 10) });
-      console.log(`Typed "${text.length > 20 ? text.slice(0, 20) + '...' : text}" into: ${selector}`);
+      await session.type(selector, text, {
+        delay: parseInt(options.delay, 10),
+        submit: options.submit,
+        waitAfter: options.waitAfter ? parseInt(options.waitAfter, 10) : undefined,
+      });
 
+      const action = options.submit ? 'Typed and submitted' : 'Typed';
+      console.log(`${action}: "${text.length > 20 ? text.slice(0, 20) + '...' : text}" into: ${selector}`);
       if (options.submit) {
-        await session.press('Enter');
-        console.log('Pressed Enter');
+        console.log('Waited for network idle after submit');
       }
     } catch (error) {
-      console.error('Error:', error instanceof Error ? error.message : error);
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Error:', msg);
       console.log('');
-      console.log('Tip: Session is still active. Try a different selector or use session:html to inspect.');
+      // Smart error suggestions
+      if (msg.includes('not visible') || msg.includes('multiple elements')) {
+        console.log('Tip: IBR auto-filters to visible elements. If still failing:');
+        console.log('     - Use session:html to inspect the DOM');
+        console.log('     - Try a more specific selector (add class, id, or attribute)');
+      } else {
+        console.log('Tip: Session is still active. Use session:html to inspect the page.');
+      }
     }
   });
 

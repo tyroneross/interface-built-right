@@ -438,9 +438,10 @@ export class PersistentSession {
     const timeout = options?.timeout || 5000;
 
     try {
-      // Wait for element to be visible before clicking
-      await this.page.waitForSelector(selector, { state: 'visible', timeout });
-      await this.page.click(selector, { timeout });
+      // Use locator API with visible filter - targets only visible elements
+      // This is BETTER than waitForSelector which waits for first match to become visible
+      const locator = this.page.locator(selector).filter({ visible: true }).first();
+      await locator.click({ timeout });
       await this.recordAction({
         type: 'click',
         timestamp: new Date().toISOString(),
@@ -461,19 +462,41 @@ export class PersistentSession {
     }
   }
 
-  async type(selector: string, text: string, options?: { delay?: number; timeout?: number }): Promise<void> {
+  async type(selector: string, text: string, options?: { delay?: number; timeout?: number; submit?: boolean; waitAfter?: number }): Promise<void> {
     const start = Date.now();
     const timeout = options?.timeout || 5000;
 
     try {
-      // Wait for element to be visible before typing
-      await this.page.waitForSelector(selector, { state: 'visible', timeout });
-      await this.page.fill(selector, '');
-      await this.page.type(selector, text, { delay: options?.delay || 0 });
+      // Use locator API with visible filter - auto-targets visible input
+      const locator = this.page.locator(selector).filter({ visible: true }).first();
+      await locator.fill('');
+
+      if (options?.delay) {
+        // Type character by character with delay
+        await locator.pressSequentially(text, { delay: options.delay });
+      } else {
+        // Fast fill
+        await locator.fill(text);
+      }
+
+      // Submit if requested (press Enter)
+      if (options?.submit) {
+        await locator.press('Enter');
+        // Wait for navigation/network after submit
+        if (options?.waitAfter) {
+          await this.page.waitForTimeout(options.waitAfter);
+        } else {
+          // Default: wait for network idle after submit
+          await this.page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+        }
+      } else if (options?.waitAfter) {
+        await this.page.waitForTimeout(options.waitAfter);
+      }
+
       await this.recordAction({
         type: 'type',
         timestamp: new Date().toISOString(),
-        params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text },
+        params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text, submit: options?.submit },
         success: true,
         duration: Date.now() - start,
       });
@@ -497,8 +520,9 @@ export class PersistentSession {
       if (typeof selectorOrTime === 'number') {
         await this.page.waitForTimeout(selectorOrTime);
       } else {
-        // Wait for element to be visible, not just present in DOM
-        await this.page.waitForSelector(selectorOrTime, {
+        // Use locator API with visible filter - waits for visible element only
+        const locator = this.page.locator(selectorOrTime).filter({ visible: true }).first();
+        await locator.waitFor({
           state: 'visible',
           timeout: options?.timeout || 30000
         });
