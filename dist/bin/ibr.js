@@ -1183,6 +1183,10 @@ var init_live_session = __esm({
           (0, import_path5.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
+        await page.screenshot({
+          path: (0, import_path5.join)(sessionDir, "baseline.png"),
+          fullPage: false
+        });
         return new _LiveSession(state, outputDir, browser2, context, page);
       }
       /**

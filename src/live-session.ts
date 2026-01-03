@@ -154,6 +154,12 @@ export class LiveSession {
       JSON.stringify(state, null, 2)
     );
 
+    // Capture initial screenshot as baseline for UI display
+    await page.screenshot({
+      path: join(sessionDir, 'baseline.png'),
+      fullPage: false,
+    });
+
     return new LiveSession(state, outputDir, browser, context, page);
   }
 
