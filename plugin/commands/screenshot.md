@@ -47,7 +47,7 @@ Screenshots are stored in `.ibr/sessions/<session-id>/`:
 
 If capturing a reference for UI replication, prefer the IBR web UI upload:
 
-1. Open IBR dashboard: `npx ibr ui` or go to `localhost:4200`
+1. Open IBR dashboard: `npx ibr serve` or go to `localhost:4200`
 2. Click "Upload Reference"
 3. Use "From URL" tab for live extraction (gets HTML/CSS too)
 4. Or drag-drop an image file

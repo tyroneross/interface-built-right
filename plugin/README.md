@@ -6,7 +6,7 @@ Visual regression testing plugin for Claude Code.
 
 | Command | Description |
 |---------|-------------|
-| `/ibr:ui` | Launch the web UI dashboard at localhost:4242 |
+| `/ibr:ui` | Launch the web UI dashboard at localhost:4200 |
 | `/ibr:snapshot` | Capture a baseline screenshot of a URL |
 | `/ibr:compare` | Compare current state against baseline |
 
@@ -43,7 +43,7 @@ Then reference:
 1. **Capture baseline**: `/ibr:snapshot` → Enter URL when prompted
 2. **Make UI changes**: Edit your components
 3. **Compare**: `/ibr:compare` → See visual diff
-4. **View in UI**: `/ibr:ui` → Open dashboard at localhost:4242
+4. **View in UI**: `/ibr:ui` → Open dashboard at localhost:4200
 
 ## Requirements
 

@@ -16,6 +16,8 @@ npx ibr serve
 
 Then inform the user the dashboard is available at: **http://localhost:4200**
 
+Note: If port 4200 is in use, IBR will automatically find the next available port and display it in the console output.
+
 To open a specific session directly:
 ```bash
 npx ibr serve --open <session-id>

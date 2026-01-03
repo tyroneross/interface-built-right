@@ -8,7 +8,8 @@ import DiffView from './DiffView';
 interface Session {
   id: string;
   name: string;
-  url: string;
+  url?: string;  // Optional for reference sessions
+  type?: 'capture' | 'reference' | 'interactive';
   status: string;
   createdAt: string;
   viewport: {
@@ -27,6 +28,16 @@ interface Session {
     verdict: string;
     summary: string;
     recommendation: string | null;
+  };
+  interactiveMetadata?: {
+    sandbox: boolean;
+    actions: Array<{
+      type: string;
+      timestamp: string;
+      params: Record<string, unknown>;
+      success: boolean;
+    }>;
+    active: boolean;
   };
 }
 

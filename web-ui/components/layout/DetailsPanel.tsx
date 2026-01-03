@@ -1,17 +1,19 @@
 import React, { useState } from 'react';
 
-type VerdictStatus = 'match' | 'expected' | 'changed' | 'broken' | 'pending';
+type VerdictStatus = 'match' | 'expected' | 'changed' | 'broken' | 'pending' | 'active' | 'closed';
 
 export interface SessionDetails {
   id: string;
   name: string;
-  url: string;
+  url?: string;
   viewport: string;
   timestamp: string;
   verdict: VerdictStatus;
   difference: string;
   pixelsChanged: string;
   analysis: string;
+  type?: 'capture' | 'reference' | 'interactive';
+  actionCount?: number;
 }
 
 interface DetailsPanelProps {
@@ -29,6 +31,8 @@ const verdictColors: Record<VerdictStatus, string> = {
   changed: 'text-amber-600',
   broken: 'text-red-600',
   pending: 'text-gray-500',
+  active: 'text-blue-600',
+  closed: 'text-gray-500',
 };
 
 const verdictLabels: Record<VerdictStatus, string> = {
@@ -37,6 +41,8 @@ const verdictLabels: Record<VerdictStatus, string> = {
   changed: 'CHANGED',
   broken: 'BROKEN',
   pending: 'PENDING',
+  active: 'LIVE SESSION',
+  closed: 'SESSION ENDED',
 };
 
 export function DetailsPanel({

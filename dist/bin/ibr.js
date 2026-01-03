@@ -2338,6 +2338,29 @@ async function loadConfig() {
   }
   return {};
 }
+var IBR_DEFAULT_PORT = 4200;
+async function isPortAvailable(port) {
+  return new Promise((resolve2) => {
+    import("net").then(({ createServer }) => {
+      const server = createServer();
+      server.once("error", () => resolve2(false));
+      server.once("listening", () => {
+        server.close();
+        resolve2(true);
+      });
+      server.listen(port, "127.0.0.1");
+    });
+  });
+}
+async function findAvailablePort(startPort, maxAttempts = 10) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No available ports found in range ${startPort}-${startPort + maxAttempts - 1}`);
+}
 async function createIBR(options = {}) {
   const config = await loadConfig();
   const merged = {
@@ -2584,7 +2607,7 @@ program.command("delete <sessionId>").description("Delete a specific session").a
     process.exit(1);
   }
 });
-program.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", "Port number", "4242").option("--no-open", "Do not open browser automatically").action(async (options) => {
+program.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
   const { spawn } = await import("child_process");
   const { resolve: resolve2 } = await import("path");
   const packageRoot = resolve2(process.cwd());
@@ -2618,10 +2641,34 @@ program.command("serve").description("Start the comparison viewer web UI").optio
     }
     return;
   }
-  console.log(`Starting web UI on http://localhost:${options.port}`);
+  let port;
+  if (options.port) {
+    port = parseInt(options.port, 10);
+    if (!await isPortAvailable(port)) {
+      console.log(`Port ${port} is already in use.`);
+      try {
+        port = await findAvailablePort(port + 1);
+        console.log(`Using next available port: ${port}`);
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : "Failed to find available port");
+        process.exit(1);
+      }
+    }
+  } else {
+    try {
+      port = await findAvailablePort(IBR_DEFAULT_PORT);
+      if (port !== IBR_DEFAULT_PORT) {
+        console.log(`Default port ${IBR_DEFAULT_PORT} in use, using port ${port}`);
+      }
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : "Failed to find available port");
+      process.exit(1);
+    }
+  }
+  console.log(`Starting web UI on http://localhost:${port}`);
   console.log("Press Ctrl+C to stop the server.");
   console.log("");
-  const server = spawn("npm", ["run", "dev", "--", "-p", options.port], {
+  const server = spawn("npm", ["run", "dev", "--", "-p", String(port)], {
     cwd: webUiDir,
     stdio: "inherit",
     shell: true
@@ -2629,7 +2676,7 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   if (options.open !== false) {
     setTimeout(async () => {
       const open = (await import("child_process")).exec;
-      const url = `http://localhost:${options.port}`;
+      const url = `http://localhost:${port}`;
       const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       open(`${cmd} ${url}`);
     }, 3e3);
@@ -3173,7 +3220,7 @@ async function isPortInUse(port) {
     server.listen(port, "127.0.0.1");
   });
 }
-async function findAvailablePort(ports) {
+async function findAvailablePortFromList(ports) {
   for (const port of ports) {
     if (!await isPortInUse(port)) {
       return port;
@@ -3230,13 +3277,13 @@ program.command("init").description("Initialize .ibrrc.json configuration file")
     baseUrl = `http://localhost:${options.port}`;
   } else {
     const preferredPort = 5e3;
-    const fallbackPorts = [5050, 5555, 4242, 4321, 6789, 7777];
+    const fallbackPorts = [5050, 5555, 4200, 4321, 6789, 7777];
     if (!await isPortInUse(preferredPort)) {
       baseUrl = `http://localhost:${preferredPort}`;
       console.log(`Using default port ${preferredPort}`);
     } else {
       console.log(`Port ${preferredPort} in use, finding alternative...`);
-      const availablePort = await findAvailablePort(fallbackPorts);
+      const availablePort = await findAvailablePortFromList(fallbackPorts);
       if (availablePort) {
         baseUrl = `http://localhost:${availablePort}`;
         console.log(`Auto-selected port ${availablePort}`);

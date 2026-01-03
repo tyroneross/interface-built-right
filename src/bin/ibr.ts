@@ -28,6 +28,35 @@ async function loadConfig(): Promise<Partial<Config>> {
   return {};
 }
 
+// Default IBR UI port
+const IBR_DEFAULT_PORT = 4200;
+
+// Check if a port is available
+async function isPortAvailable(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    import('net').then(({ createServer }) => {
+      const server = createServer();
+      server.once('error', () => resolve(false));
+      server.once('listening', () => {
+        server.close();
+        resolve(true);
+      });
+      server.listen(port, '127.0.0.1');
+    });
+  });
+}
+
+// Find an available port starting from the given port
+async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<number> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = startPort + i;
+    if (await isPortAvailable(port)) {
+      return port;
+    }
+  }
+  throw new Error(`No available ports found in range ${startPort}-${startPort + maxAttempts - 1}`);
+}
+
 // Create IBR instance with config
 async function createIBR(options: Record<string, unknown> = {}): Promise<InterfaceBuiltRight> {
   const config = await loadConfig();
@@ -386,9 +415,9 @@ program
 program
   .command('serve')
   .description('Start the comparison viewer web UI')
-  .option('-p, --port <port>', 'Port number', '4242')
+  .option('-p, --port <port>', `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`)
   .option('--no-open', 'Do not open browser automatically')
-  .action(async (options: { port: string; open?: boolean }) => {
+  .action(async (options: { port?: string; open?: boolean }) => {
     const { spawn } = await import('child_process');
     const { resolve } = await import('path');
 
@@ -434,12 +463,40 @@ program
       return;
     }
 
-    console.log(`Starting web UI on http://localhost:${options.port}`);
+    // Determine port: use specified, or find available starting from default
+    let port: number;
+    if (options.port) {
+      port = parseInt(options.port, 10);
+      // Check if specified port is available
+      if (!(await isPortAvailable(port))) {
+        console.log(`Port ${port} is already in use.`);
+        try {
+          port = await findAvailablePort(port + 1);
+          console.log(`Using next available port: ${port}`);
+        } catch (e) {
+          console.error(e instanceof Error ? e.message : 'Failed to find available port');
+          process.exit(1);
+        }
+      }
+    } else {
+      // Auto-find available port starting from default
+      try {
+        port = await findAvailablePort(IBR_DEFAULT_PORT);
+        if (port !== IBR_DEFAULT_PORT) {
+          console.log(`Default port ${IBR_DEFAULT_PORT} in use, using port ${port}`);
+        }
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : 'Failed to find available port');
+        process.exit(1);
+      }
+    }
+
+    console.log(`Starting web UI on http://localhost:${port}`);
     console.log('Press Ctrl+C to stop the server.');
     console.log('');
 
     // Start Next.js dev server
-    const server = spawn('npm', ['run', 'dev', '--', '-p', options.port], {
+    const server = spawn('npm', ['run', 'dev', '--', '-p', String(port)], {
       cwd: webUiDir,
       stdio: 'inherit',
       shell: true,
@@ -449,7 +506,7 @@ program
     if (options.open !== false) {
       setTimeout(async () => {
         const open = (await import('child_process')).exec;
-        const url = `http://localhost:${options.port}`;
+        const url = `http://localhost:${port}`;
         // Cross-platform open command
         const cmd = process.platform === 'darwin' ? 'open' :
                     process.platform === 'win32' ? 'start' : 'xdg-open';
@@ -1215,7 +1272,7 @@ async function isPortInUse(port: number): Promise<boolean> {
 }
 
 // Find available port from list
-async function findAvailablePort(ports: number[]): Promise<number | null> {
+async function findAvailablePortFromList(ports: number[]): Promise<number | null> {
   for (const port of ports) {
     if (!(await isPortInUse(port))) {
       return port;
@@ -1296,14 +1353,14 @@ program
     } else {
       // Try port 5000 first, then auto-detect from alternatives
       const preferredPort = 5000;
-      const fallbackPorts = [5050, 5555, 4242, 4321, 6789, 7777];
+      const fallbackPorts = [5050, 5555, 4200, 4321, 6789, 7777];
 
       if (!(await isPortInUse(preferredPort))) {
         baseUrl = `http://localhost:${preferredPort}`;
         console.log(`Using default port ${preferredPort}`);
       } else {
         console.log(`Port ${preferredPort} in use, finding alternative...`);
-        const availablePort = await findAvailablePort(fallbackPorts);
+        const availablePort = await findAvailablePortFromList(fallbackPorts);
 
         if (availablePort) {
           baseUrl = `http://localhost:${availablePort}`;

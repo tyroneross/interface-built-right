@@ -5,7 +5,25 @@ export interface Viewport {
 }
 
 // Session type discriminator
-export type SessionType = 'capture' | 'reference';
+export type SessionType = 'capture' | 'reference' | 'interactive';
+
+// Interactive session action record
+export interface ActionRecord {
+  type: 'navigate' | 'click' | 'type' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait';
+  timestamp: string;
+  params: Record<string, unknown>;
+  success: boolean;
+  error?: string;
+  duration?: number;
+}
+
+// Interactive session metadata
+export interface InteractiveMetadata {
+  sandbox: boolean;
+  actions: ActionRecord[];
+  lastActionAt?: string;
+  active: boolean;  // Browser still running
+}
 
 // Reference metadata for uploaded/extracted designs
 export interface ReferenceMetadata {
@@ -42,14 +60,15 @@ export interface Session {
   id: string;
   name: string;
   url?: string; // Optional for reference sessions (image upload)
-  type?: SessionType; // 'capture' (default) or 'reference'
+  type?: SessionType; // 'capture' (default), 'reference', or 'interactive'
   viewport: Viewport;
-  status: 'baseline' | 'compared' | 'pending';
+  status: 'baseline' | 'compared' | 'pending' | 'active' | 'closed';
   createdAt: string;
   updatedAt: string;
   comparison?: ComparisonResult;
   analysis?: Analysis;
   referenceMetadata?: ReferenceMetadata; // For reference sessions
+  interactiveMetadata?: InteractiveMetadata; // For interactive sessions
 }
 
 export interface ComparisonReport {
@@ -64,7 +83,7 @@ export interface ComparisonReport {
 }
 
 export type ViewMode = 'split' | 'overlay' | 'diff';
-export type FilterType = 'all' | 'changed' | 'broken';
+export type FilterType = 'all' | 'changed' | 'broken' | 'live';
 
 // API Request/Response Types
 export interface CreateSessionRequest {

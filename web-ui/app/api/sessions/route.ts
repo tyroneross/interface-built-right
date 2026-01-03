@@ -4,9 +4,67 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import type { Session, InteractiveMetadata } from '@/lib/types';
 
 const execAsync = promisify(exec);
 const IBR_DIR = process.env.IBR_DIR || './.ibr';
+
+// Check if a live session's browser is still running
+// (In practice this is managed by liveSessionManager in-memory)
+function isLiveSessionActive(sessionDir: string): boolean {
+  // Check for a .active marker file that live-session.ts could create
+  // For now, we'll mark all live sessions as closed since browser state
+  // doesn't persist across process restarts
+  return false;
+}
+
+// Convert live-session.json to Session format
+function convertLiveSession(liveData: {
+  id: string;
+  url: string;
+  name: string;
+  viewport: { name: string; width: number; height: number };
+  sandbox: boolean;
+  createdAt: string;
+  actions: Array<{
+    type: string;
+    timestamp: string;
+    params: Record<string, unknown>;
+    success: boolean;
+    error?: string;
+    duration?: number;
+  }>;
+}, isActive: boolean): Session {
+  const lastAction = liveData.actions[liveData.actions.length - 1];
+
+  return {
+    id: liveData.id,
+    name: liveData.name,
+    url: liveData.url,
+    type: 'interactive',
+    viewport: {
+      name: liveData.viewport.name as 'desktop' | 'mobile' | 'tablet' | 'reference',
+      width: liveData.viewport.width,
+      height: liveData.viewport.height,
+    },
+    status: isActive ? 'active' : 'closed',
+    createdAt: liveData.createdAt,
+    updatedAt: lastAction?.timestamp || liveData.createdAt,
+    interactiveMetadata: {
+      sandbox: liveData.sandbox,
+      actions: liveData.actions.map(a => ({
+        type: a.type as 'navigate' | 'click' | 'type' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait',
+        timestamp: a.timestamp,
+        params: a.params,
+        success: a.success,
+        error: a.error,
+        duration: a.duration,
+      })),
+      lastActionAt: lastAction?.timestamp,
+      active: isActive,
+    },
+  };
+}
 
 export async function GET() {
   try {
@@ -17,14 +75,28 @@ export async function GET() {
     }
 
     const entries = await readdir(sessionsDir, { withFileTypes: true });
-    const sessions = [];
+    const sessions: Session[] = [];
 
     for (const entry of entries) {
-      if (entry.isDirectory() && entry.name.startsWith('sess_')) {
+      if (!entry.isDirectory()) continue;
+
+      // Regular capture/reference sessions (sess_*)
+      if (entry.name.startsWith('sess_')) {
         const sessionPath = join(sessionsDir, entry.name, 'session.json');
         if (existsSync(sessionPath)) {
           const content = await readFile(sessionPath, 'utf-8');
           sessions.push(JSON.parse(content));
+        }
+      }
+
+      // Interactive/live sessions (live_*)
+      if (entry.name.startsWith('live_')) {
+        const sessionPath = join(sessionsDir, entry.name, 'live-session.json');
+        if (existsSync(sessionPath)) {
+          const content = await readFile(sessionPath, 'utf-8');
+          const liveData = JSON.parse(content);
+          const isActive = isLiveSessionActive(join(sessionsDir, entry.name));
+          sessions.push(convertLiveSession(liveData, isActive));
         }
       }
     }

@@ -1,8 +1,8 @@
 import React from 'react';
 
-type FilterType = 'all' | 'changed' | 'broken';
+type FilterType = 'all' | 'changed' | 'broken' | 'live';
 
-type SessionStatus = 'match' | 'changed' | 'broken' | 'pending';
+type SessionStatus = 'match' | 'changed' | 'broken' | 'pending' | 'active' | 'closed';
 
 export interface Session {
   id: string;
@@ -10,6 +10,7 @@ export interface Session {
   thumbnail?: string;
   status: SessionStatus;
   metadata: string;
+  type?: 'capture' | 'reference' | 'interactive';
 }
 
 interface LibraryPanelProps {
@@ -29,6 +30,8 @@ const statusColors: Record<SessionStatus, string> = {
   changed: 'bg-amber-600',
   broken: 'bg-red-600',
   pending: 'bg-gray-400',
+  active: 'bg-blue-500',
+  closed: 'bg-gray-500',
 };
 
 export function LibraryPanel({
@@ -64,7 +67,7 @@ export function LibraryPanel({
       </div>
 
       {/* Filters */}
-      <div className="flex gap-1 p-2 border-b border-gray-100">
+      <div className="flex gap-1 p-2 border-b border-gray-100 flex-wrap">
         <button
           onClick={() => onFilterChange('all')}
           className={`px-2.5 py-1 text-xs rounded-md border-0 cursor-pointer transition-colors ${
@@ -94,6 +97,16 @@ export function LibraryPanel({
           }`}
         >
           Broken
+        </button>
+        <button
+          onClick={() => onFilterChange('live')}
+          className={`px-2.5 py-1 text-xs rounded-md border-0 cursor-pointer transition-colors ${
+            filter === 'live'
+              ? 'bg-blue-600 text-white'
+              : 'bg-transparent text-blue-600 hover:bg-blue-50'
+          }`}
+        >
+          Live
         </button>
       </div>
 
@@ -125,8 +138,24 @@ export function LibraryPanel({
 
             {/* Info */}
             <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-medium text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis">
-                {session.name}
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] font-medium text-gray-900 whitespace-nowrap overflow-hidden text-ellipsis">
+                  {session.name}
+                </span>
+                {session.type === 'interactive' && (
+                  <span className={`px-1.5 py-0.5 text-[9px] font-medium rounded ${
+                    session.status === 'active'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-gray-100 text-gray-500'
+                  }`}>
+                    {session.status === 'active' ? 'LIVE' : 'ENDED'}
+                  </span>
+                )}
+                {session.type === 'reference' && (
+                  <span className="px-1.5 py-0.5 text-[9px] font-medium rounded bg-purple-100 text-purple-700">
+                    REF
+                  </span>
+                )}
               </div>
               <div className="text-[11px] text-gray-500">
                 {session.metadata}

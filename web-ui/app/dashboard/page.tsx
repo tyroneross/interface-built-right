@@ -51,6 +51,7 @@ export default function DashboardPage() {
       thumbnail: `/api/sessions/${s.id}/images/baseline`,
       status: getSessionStatus(s),
       metadata: getSessionMetadata(s),
+      type: s.type,
     }));
   }, [sessions]);
 
@@ -63,6 +64,8 @@ export default function DashboardPage() {
       result = result.filter((s) => s.status === 'changed');
     } else if (filter === 'broken') {
       result = result.filter((s) => s.status === 'broken');
+    } else if (filter === 'live') {
+      result = result.filter((s) => s.type === 'interactive');
     }
 
     // Apply search
@@ -83,6 +86,26 @@ export default function DashboardPage() {
   const sessionDetails: SessionDetails | undefined = useMemo(() => {
     if (!selectedSession) return undefined;
 
+    // Interactive sessions have different details
+    if (selectedSession.type === 'interactive') {
+      const actions = selectedSession.interactiveMetadata?.actions || [];
+      return {
+        id: selectedSession.id,
+        name: selectedSession.name,
+        url: selectedSession.url,
+        viewport: `${selectedSession.viewport.name} (${selectedSession.viewport.width}×${selectedSession.viewport.height})`,
+        timestamp: formatDate(selectedSession.createdAt),
+        verdict: getVerdictStatus(selectedSession),
+        difference: `${actions.length} actions`,
+        pixelsChanged: selectedSession.interactiveMetadata?.sandbox ? 'Sandbox mode' : 'Headless',
+        analysis: actions.length > 0
+          ? `Last action: ${actions[actions.length - 1].type}`
+          : 'No actions recorded',
+        type: 'interactive',
+        actionCount: actions.length,
+      };
+    }
+
     return {
       id: selectedSession.id,
       name: selectedSession.name,
@@ -97,6 +120,7 @@ export default function DashboardPage() {
         ? `${selectedSession.comparison.diffPixels.toLocaleString()} changed`
         : 'N/A',
       analysis: selectedSession.analysis?.summary || 'No analysis available yet.',
+      type: selectedSession.type,
     };
   }, [selectedSession]);
 
@@ -334,7 +358,13 @@ export default function DashboardPage() {
 }
 
 // Helper functions
-function getSessionStatus(session: Session): 'match' | 'changed' | 'broken' | 'pending' {
+function getSessionStatus(session: Session): 'match' | 'changed' | 'broken' | 'pending' | 'active' | 'closed' {
+  // Interactive sessions have their own status
+  if (session.type === 'interactive') {
+    return session.status === 'active' ? 'active' : 'closed';
+  }
+
+  // Regular sessions use analysis verdict
   if (!session.analysis) return 'pending';
   switch (session.analysis.verdict) {
     case 'MATCH':
@@ -350,6 +380,21 @@ function getSessionStatus(session: Session): 'match' | 'changed' | 'broken' | 'p
 }
 
 function getSessionMetadata(session: Session): string {
+  // Interactive sessions show action count
+  if (session.type === 'interactive') {
+    const actionCount = session.interactiveMetadata?.actions?.length || 0;
+    return `${actionCount} action${actionCount !== 1 ? 's' : ''}`;
+  }
+
+  // Reference sessions show source
+  if (session.type === 'reference') {
+    if (session.referenceMetadata?.originalUrl) {
+      return 'From URL';
+    }
+    return 'Uploaded';
+  }
+
+  // Regular capture sessions
   if (!session.comparison) return 'Not compared';
   if (session.comparison.match) return 'Match';
   return `${session.comparison.diffPercent.toFixed(1)}% changed`;
@@ -357,7 +402,12 @@ function getSessionMetadata(session: Session): string {
 
 function getVerdictStatus(
   session: Session
-): 'match' | 'expected' | 'changed' | 'broken' | 'pending' {
+): 'match' | 'expected' | 'changed' | 'broken' | 'pending' | 'active' | 'closed' {
+  // Interactive sessions use their status
+  if (session.type === 'interactive') {
+    return session.status === 'active' ? 'active' : 'closed';
+  }
+
   if (!session.analysis) return 'pending';
   switch (session.analysis.verdict) {
     case 'MATCH':
