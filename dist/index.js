@@ -165,7 +165,7 @@ var EnhancedElementSchema = zod.z.object({
   // Position
   bounds: BoundsSchema,
   // Styles (subset)
-  computedStyles: zod.z.record(zod.z.string()).optional(),
+  computedStyles: zod.z.record(zod.z.string(), zod.z.string()).optional(),
   // Interactivity
   interactive: InteractiveStateSchema,
   // Accessibility
@@ -201,11 +201,11 @@ var AuditResultSchema = zod.z.object({
 var RuleSeveritySchema = zod.z.enum(["off", "warn", "error"]);
 var RuleSettingSchema = zod.z.union([
   RuleSeveritySchema,
-  zod.z.tuple([RuleSeveritySchema, zod.z.record(zod.z.unknown())])
+  zod.z.tuple([RuleSeveritySchema, zod.z.record(zod.z.string(), zod.z.unknown())])
 ]);
 var RulesConfigSchema = zod.z.object({
   extends: zod.z.array(zod.z.string()).optional(),
-  rules: zod.z.record(RuleSettingSchema).optional()
+  rules: zod.z.record(zod.z.string(), RuleSettingSchema).optional()
 });
 var ViolationSchema = zod.z.object({
   ruleId: zod.z.string(),

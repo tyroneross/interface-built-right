@@ -139,7 +139,7 @@ const disabledNoVisualRule: Rule = {
     const hasDisabledCursor = cursor === 'not-allowed' || cursor === 'default';
 
     // Check for visual indication via computed styles
-    const bgColor = element.computedStyles?.backgroundColor;
+    const bgColor = element.computedStyles?.backgroundColor as string | undefined;
     const hasGrayedBg = bgColor?.includes('gray') || bgColor?.includes('rgb(200') || bgColor?.includes('rgb(220');
 
     if (!hasDisabledCursor && !hasGrayedBg) {

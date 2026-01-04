@@ -165,7 +165,7 @@ var init_schemas = __esm({
       // Position
       bounds: BoundsSchema,
       // Styles (subset)
-      computedStyles: import_zod.z.record(import_zod.z.string()).optional(),
+      computedStyles: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
       // Interactivity
       interactive: InteractiveStateSchema,
       // Accessibility
@@ -201,11 +201,11 @@ var init_schemas = __esm({
     RuleSeveritySchema = import_zod.z.enum(["off", "warn", "error"]);
     RuleSettingSchema = import_zod.z.union([
       RuleSeveritySchema,
-      import_zod.z.tuple([RuleSeveritySchema, import_zod.z.record(import_zod.z.unknown())])
+      import_zod.z.tuple([RuleSeveritySchema, import_zod.z.record(import_zod.z.string(), import_zod.z.unknown())])
     ]);
     RulesConfigSchema = import_zod.z.object({
       extends: import_zod.z.array(import_zod.z.string()).optional(),
-      rules: import_zod.z.record(RuleSettingSchema).optional()
+      rules: import_zod.z.record(import_zod.z.string(), RuleSettingSchema).optional()
     });
     ViolationSchema = import_zod.z.object({
       ruleId: import_zod.z.string(),
@@ -388,7 +388,7 @@ async function performLogin(options) {
   console.log("   Future captures will use this authentication.\n");
   return authStatePath;
 }
-async function saveAuthState(context, authStatePath, outputDir) {
+async function saveAuthState(context, authStatePath, _outputDir) {
   const state = await context.storageState();
   const currentUser = (0, import_os.userInfo)().username;
   const storedState = {
@@ -2307,7 +2307,6 @@ function analyzeElements(elements, isMobile = false) {
 async function extractCSSVariables(page) {
   return page.evaluate(() => {
     const root = document.documentElement;
-    const computed = window.getComputedStyle(root);
     const variables = {};
     const sheets = Array.from(document.styleSheets);
     sheets.forEach((sheet) => {
@@ -2576,7 +2575,6 @@ async function startBrowserServer(outputDir, options = {}) {
   const debugPort = 9222 + Math.floor(Math.random() * 1e3);
   const server = await import_playwright6.chromium.launchServer({
     headless,
-    slowMo: options.debug ? 100 : 0,
     args: [`--remote-debugging-port=${debugPort}`]
   });
   const wsEndpoint = server.wsEndpoint();
@@ -2612,7 +2610,7 @@ async function connectToBrowserServer(outputDir) {
   }
 }
 async function stopBrowserServer(outputDir) {
-  const { stateFile, profileDir } = getPaths(outputDir);
+  const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
   if (!(0, import_fs4.existsSync)(stateFile)) {
     return false;
   }
@@ -2660,6 +2658,7 @@ var init_browser_server = __esm({
     SERVER_STATE_FILE = "browser-server.json";
     ISOLATED_PROFILE_DIR = "browser-profile";
     PersistentSession = class _PersistentSession {
+      // Browser reference kept for potential future cleanup operations
       browser;
       context;
       page;
@@ -3050,6 +3049,7 @@ var init_live_session = __esm({
       context = null;
       page = null;
       state;
+      // Output directory kept for potential future directory operations
       outputDir;
       sessionDir;
       constructor(state, outputDir, browser3, context, page) {
@@ -4443,10 +4443,8 @@ program.command("audit [url]").description("Audit a page for UI issues (handlers
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const globalOpts = program.opts();
-    const outputDir = globalOpts.output || "./.ibr";
     const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const { register: register2 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
-    const { startBrowserServer: startBrowserServer2, connectToBrowserServer: connectToBrowserServer2, stopBrowserServer: stopBrowserServer2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
     const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
     const { chromium: chromium8 } = await import("playwright");
     register2();
@@ -5046,10 +5044,11 @@ program.command("session:html <sessionId>").description("Get the full page HTML/
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
     if (options.selector) {
-      const html = await session.evaluate((sel) => {
-        const el = document.querySelector(sel);
-        return el ? el.outerHTML : null;
-      });
+      const escapedSelector = options.selector.replace(/'/g, "\\'");
+      const html = await session.evaluate(`(() => {
+          const el = document.querySelector('${escapedSelector}');
+          return el ? el.outerHTML : null;
+        })()`);
       if (html) {
         console.log(html);
       } else {
@@ -5202,7 +5201,7 @@ program.command("scan-start [url]").description("Discover pages and capture base
     process.exit(1);
   }
 });
-program.command("scan-check").description("Compare all sessions from the last scan-start").option("-f, --format <format>", "Output format: json, text, minimal", "text").action(async (options) => {
+program.command("scan-check").description("Compare all sessions from the last scan-start").option("-f, --format <format>", "Output format: json, text, minimal", "text").action(async (_options) => {
   try {
     const ibr = await createIBR(program.opts());
     const sessions = await ibr.listSessions();

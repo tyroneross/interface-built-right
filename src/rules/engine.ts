@@ -149,7 +149,7 @@ export function runRules(
   config: RulesConfig
 ): Violation[] {
   // No rules by default - user must configure in .ibr/rules.json or pass --rules flag
-  const { rules, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
+  const { rules, settings } = mergeRuleSettings(config.extends ?? [], config.rules as Record<string, RuleSetting> | undefined);
   const violations: Violation[] = [];
 
   for (const element of elements) {

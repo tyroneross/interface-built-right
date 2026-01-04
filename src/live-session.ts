@@ -1,5 +1,5 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
+import { writeFile, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
@@ -69,7 +69,8 @@ export class LiveSession {
   private context: BrowserContext | null = null;
   private page: Page | null = null;
   private state: LiveSessionState;
-  private outputDir: string;
+  // Output directory kept for potential future directory operations
+  public readonly outputDir: string;
   private sessionDir: string;
 
   private constructor(

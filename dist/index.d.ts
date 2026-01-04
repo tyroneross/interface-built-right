@@ -8,15 +8,7 @@ declare const ViewportSchema: z.ZodObject<{
     name: z.ZodString;
     width: z.ZodNumber;
     height: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    name: string;
-    width: number;
-    height: number;
-}, {
-    name: string;
-    width: number;
-    height: number;
-}>;
+}, z.core.$strip>;
 /**
  * Predefined viewport configurations
  */
@@ -82,98 +74,34 @@ declare const ConfigSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-    }, {
-        name: string;
-        width: number;
-        height: number;
-    }>>;
+    }, z.core.$strip>>;
     viewports: z.ZodOptional<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-    }, {
-        name: string;
-        width: number;
-        height: number;
-    }>, "many">>;
+    }, z.core.$strip>>>;
     threshold: z.ZodDefault<z.ZodNumber>;
     fullPage: z.ZodDefault<z.ZodBoolean>;
     waitForNetworkIdle: z.ZodDefault<z.ZodBoolean>;
     timeout: z.ZodDefault<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    baseUrl: string;
-    outputDir: string;
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-    };
-    threshold: number;
-    fullPage: boolean;
-    waitForNetworkIdle: boolean;
-    timeout: number;
-    viewports?: {
-        name: string;
-        width: number;
-        height: number;
-    }[] | undefined;
-}, {
-    baseUrl: string;
-    outputDir?: string | undefined;
-    viewport?: {
-        name: string;
-        width: number;
-        height: number;
-    } | undefined;
-    viewports?: {
-        name: string;
-        width: number;
-        height: number;
-    }[] | undefined;
-    threshold?: number | undefined;
-    fullPage?: boolean | undefined;
-    waitForNetworkIdle?: boolean | undefined;
-    timeout?: number | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Session query options
  */
 declare const SessionQuerySchema: z.ZodObject<{
     route: z.ZodOptional<z.ZodString>;
     url: z.ZodOptional<z.ZodString>;
-    status: z.ZodOptional<z.ZodEnum<["baseline", "compared", "pending"]>>;
+    status: z.ZodOptional<z.ZodEnum<{
+        baseline: "baseline";
+        compared: "compared";
+        pending: "pending";
+    }>>;
     name: z.ZodOptional<z.ZodString>;
     createdAfter: z.ZodOptional<z.ZodDate>;
     createdBefore: z.ZodOptional<z.ZodDate>;
     viewport: z.ZodOptional<z.ZodString>;
     limit: z.ZodDefault<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    limit: number;
-    name?: string | undefined;
-    status?: "baseline" | "compared" | "pending" | undefined;
-    viewport?: string | undefined;
-    url?: string | undefined;
-    route?: string | undefined;
-    createdAfter?: Date | undefined;
-    createdBefore?: Date | undefined;
-}, {
-    name?: string | undefined;
-    status?: "baseline" | "compared" | "pending" | undefined;
-    viewport?: string | undefined;
-    url?: string | undefined;
-    route?: string | undefined;
-    createdAfter?: Date | undefined;
-    createdBefore?: Date | undefined;
-    limit?: number | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Comparison result from pixelmatch
  */
@@ -183,213 +111,106 @@ declare const ComparisonResultSchema: z.ZodObject<{
     diffPixels: z.ZodNumber;
     totalPixels: z.ZodNumber;
     threshold: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    threshold: number;
-    match: boolean;
-    diffPercent: number;
-    diffPixels: number;
-    totalPixels: number;
-}, {
-    threshold: number;
-    match: boolean;
-    diffPercent: number;
-    diffPixels: number;
-    totalPixels: number;
-}>;
+}, z.core.$strip>;
 /**
  * Changed region detected in comparison
  */
 declare const ChangedRegionSchema: z.ZodObject<{
-    location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+    location: z.ZodEnum<{
+        top: "top";
+        bottom: "bottom";
+        left: "left";
+        right: "right";
+        center: "center";
+        full: "full";
+    }>;
     bounds: z.ZodObject<{
         x: z.ZodNumber;
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>;
+    }, z.core.$strip>;
     description: z.ZodString;
-    severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-}, "strip", z.ZodTypeAny, {
-    location: "top" | "bottom" | "left" | "right" | "center" | "full";
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    description: string;
-    severity: "expected" | "unexpected" | "critical";
-}, {
-    location: "top" | "bottom" | "left" | "right" | "center" | "full";
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    description: string;
-    severity: "expected" | "unexpected" | "critical";
-}>;
+    severity: z.ZodEnum<{
+        expected: "expected";
+        unexpected: "unexpected";
+        critical: "critical";
+    }>;
+}, z.core.$strip>;
 /**
  * Analysis verdict types
  */
-declare const VerdictSchema: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+declare const VerdictSchema: z.ZodEnum<{
+    MATCH: "MATCH";
+    EXPECTED_CHANGE: "EXPECTED_CHANGE";
+    UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+    LAYOUT_BROKEN: "LAYOUT_BROKEN";
+}>;
 /**
  * Analysis result
  */
 declare const AnalysisSchema: z.ZodObject<{
-    verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+    verdict: z.ZodEnum<{
+        MATCH: "MATCH";
+        EXPECTED_CHANGE: "EXPECTED_CHANGE";
+        UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+        LAYOUT_BROKEN: "LAYOUT_BROKEN";
+    }>;
     summary: z.ZodString;
     changedRegions: z.ZodArray<z.ZodObject<{
-        location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+        location: z.ZodEnum<{
+            top: "top";
+            bottom: "bottom";
+            left: "left";
+            right: "right";
+            center: "center";
+            full: "full";
+        }>;
         bounds: z.ZodObject<{
             x: z.ZodNumber;
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>;
+        }, z.core.$strip>;
         description: z.ZodString;
-        severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-    }, "strip", z.ZodTypeAny, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }>, "many">;
+        severity: z.ZodEnum<{
+            expected: "expected";
+            unexpected: "unexpected";
+            critical: "critical";
+        }>;
+    }, z.core.$strip>>;
     unexpectedChanges: z.ZodArray<z.ZodObject<{
-        location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+        location: z.ZodEnum<{
+            top: "top";
+            bottom: "bottom";
+            left: "left";
+            right: "right";
+            center: "center";
+            full: "full";
+        }>;
         bounds: z.ZodObject<{
             x: z.ZodNumber;
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>;
+        }, z.core.$strip>;
         description: z.ZodString;
-        severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-    }, "strip", z.ZodTypeAny, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }>, "many">;
+        severity: z.ZodEnum<{
+            expected: "expected";
+            unexpected: "unexpected";
+            critical: "critical";
+        }>;
+    }, z.core.$strip>>;
     recommendation: z.ZodNullable<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-    summary: string;
-    changedRegions: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    unexpectedChanges: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    recommendation: string | null;
-}, {
-    verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-    summary: string;
-    changedRegions: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    unexpectedChanges: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    recommendation: string | null;
-}>;
+}, z.core.$strip>;
 /**
  * Session status
  */
-declare const SessionStatusSchema: z.ZodEnum<["baseline", "compared", "pending"]>;
+declare const SessionStatusSchema: z.ZodEnum<{
+    baseline: "baseline";
+    compared: "compared";
+    pending: "pending";
+}>;
 /**
  * Visual session
  */
@@ -401,16 +222,12 @@ declare const SessionSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-    }, {
-        name: string;
-        width: number;
-        height: number;
+    }, z.core.$strip>;
+    status: z.ZodEnum<{
+        baseline: "baseline";
+        compared: "compared";
+        pending: "pending";
     }>;
-    status: z.ZodEnum<["baseline", "compared", "pending"]>;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
     comparison: z.ZodOptional<z.ZodObject<{
@@ -419,251 +236,62 @@ declare const SessionSchema: z.ZodObject<{
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }>>;
+    }, z.core.$strip>>;
     analysis: z.ZodOptional<z.ZodObject<{
-        verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+        verdict: z.ZodEnum<{
+            MATCH: "MATCH";
+            EXPECTED_CHANGE: "EXPECTED_CHANGE";
+            UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+            LAYOUT_BROKEN: "LAYOUT_BROKEN";
+        }>;
         summary: z.ZodString;
         changedRegions: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         recommendation: z.ZodNullable<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    name: string;
-    status: "baseline" | "compared" | "pending";
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-    };
-    id: string;
-    url: string;
-    createdAt: string;
-    updatedAt: string;
-    comparison?: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    } | undefined;
-    analysis?: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    } | undefined;
-}, {
-    name: string;
-    status: "baseline" | "compared" | "pending";
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-    };
-    id: string;
-    url: string;
-    createdAt: string;
-    updatedAt: string;
-    comparison?: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    } | undefined;
-    analysis?: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    } | undefined;
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 /**
  * Full comparison report
  */
@@ -676,288 +304,75 @@ declare const ComparisonReportSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-    }, {
-        name: string;
-        width: number;
-        height: number;
-    }>;
+    }, z.core.$strip>;
     comparison: z.ZodObject<{
         match: z.ZodBoolean;
         diffPercent: z.ZodNumber;
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }>;
+    }, z.core.$strip>;
     analysis: z.ZodObject<{
-        verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+        verdict: z.ZodEnum<{
+            MATCH: "MATCH";
+            EXPECTED_CHANGE: "EXPECTED_CHANGE";
+            UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+            LAYOUT_BROKEN: "LAYOUT_BROKEN";
+        }>;
         summary: z.ZodString;
         changedRegions: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         recommendation: z.ZodNullable<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }>;
+    }, z.core.$strip>;
     files: z.ZodObject<{
         baseline: z.ZodString;
         current: z.ZodString;
         diff: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        baseline: string;
-        current: string;
-        diff: string;
-    }, {
-        baseline: string;
-        current: string;
-        diff: string;
-    }>;
+    }, z.core.$strip>;
     webViewUrl: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-    };
-    url: string;
-    comparison: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    };
-    analysis: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    };
-    sessionId: string;
-    sessionName: string;
-    timestamp: string;
-    files: {
-        baseline: string;
-        current: string;
-        diff: string;
-    };
-    webViewUrl?: string | undefined;
-}, {
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-    };
-    url: string;
-    comparison: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    };
-    analysis: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    };
-    sessionId: string;
-    sessionName: string;
-    timestamp: string;
-    files: {
-        baseline: string;
-        current: string;
-        diff: string;
-    };
-    webViewUrl?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Element interactivity detection
  */
@@ -970,25 +385,7 @@ declare const InteractiveStateSchema: z.ZodObject<{
     hasReactHandler: z.ZodOptional<z.ZodBoolean>;
     hasVueHandler: z.ZodOptional<z.ZodBoolean>;
     hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
-}, "strip", z.ZodTypeAny, {
-    hasOnClick: boolean;
-    hasHref: boolean;
-    isDisabled: boolean;
-    tabIndex: number;
-    cursor: string;
-    hasReactHandler?: boolean | undefined;
-    hasVueHandler?: boolean | undefined;
-    hasAngularHandler?: boolean | undefined;
-}, {
-    hasOnClick: boolean;
-    hasHref: boolean;
-    isDisabled: boolean;
-    tabIndex: number;
-    cursor: string;
-    hasReactHandler?: boolean | undefined;
-    hasVueHandler?: boolean | undefined;
-    hasAngularHandler?: boolean | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Accessibility attributes
  */
@@ -997,17 +394,7 @@ declare const A11yAttributesSchema: z.ZodObject<{
     ariaLabel: z.ZodNullable<z.ZodString>;
     ariaDescribedBy: z.ZodNullable<z.ZodString>;
     ariaHidden: z.ZodOptional<z.ZodBoolean>;
-}, "strip", z.ZodTypeAny, {
-    role: string | null;
-    ariaLabel: string | null;
-    ariaDescribedBy: string | null;
-    ariaHidden?: boolean | undefined;
-}, {
-    role: string | null;
-    ariaLabel: string | null;
-    ariaDescribedBy: string | null;
-    ariaHidden?: boolean | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Element bounds
  */
@@ -1016,17 +403,7 @@ declare const BoundsSchema: z.ZodObject<{
     y: z.ZodNumber;
     width: z.ZodNumber;
     height: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    width: number;
-    height: number;
-    x: number;
-    y: number;
-}, {
-    width: number;
-    height: number;
-    x: number;
-    y: number;
-}>;
+}, z.core.$strip>;
 /**
  * Enhanced element with interactivity and accessibility
  */
@@ -1041,17 +418,7 @@ declare const EnhancedElementSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>;
+    }, z.core.$strip>;
     computedStyles: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     interactive: z.ZodObject<{
         hasOnClick: z.ZodBoolean;
@@ -1062,129 +429,35 @@ declare const EnhancedElementSchema: z.ZodObject<{
         hasReactHandler: z.ZodOptional<z.ZodBoolean>;
         hasVueHandler: z.ZodOptional<z.ZodBoolean>;
         hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
-    }, "strip", z.ZodTypeAny, {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    }, {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    }>;
+    }, z.core.$strip>;
     a11y: z.ZodObject<{
         role: z.ZodNullable<z.ZodString>;
         ariaLabel: z.ZodNullable<z.ZodString>;
         ariaDescribedBy: z.ZodNullable<z.ZodString>;
         ariaHidden: z.ZodOptional<z.ZodBoolean>;
-    }, "strip", z.ZodTypeAny, {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-    }, {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-    }>;
+    }, z.core.$strip>;
     sourceHint: z.ZodOptional<z.ZodObject<{
         dataTestId: z.ZodNullable<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        dataTestId: string | null;
-    }, {
-        dataTestId: string | null;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    selector: string;
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    tagName: string;
-    interactive: {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    };
-    a11y: {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-    };
-    id?: string | undefined;
-    className?: string | undefined;
-    text?: string | undefined;
-    computedStyles?: Record<string, string> | undefined;
-    sourceHint?: {
-        dataTestId: string | null;
-    } | undefined;
-}, {
-    selector: string;
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    tagName: string;
-    interactive: {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    };
-    a11y: {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-    };
-    id?: string | undefined;
-    className?: string | undefined;
-    text?: string | undefined;
-    computedStyles?: Record<string, string> | undefined;
-    sourceHint?: {
-        dataTestId: string | null;
-    } | undefined;
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 /**
  * Element issue detected during audit
  */
 declare const ElementIssueSchema: z.ZodObject<{
-    type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
-    severity: z.ZodEnum<["error", "warning", "info"]>;
+    type: z.ZodEnum<{
+        NO_HANDLER: "NO_HANDLER";
+        PLACEHOLDER_LINK: "PLACEHOLDER_LINK";
+        TOUCH_TARGET_SMALL: "TOUCH_TARGET_SMALL";
+        MISSING_ARIA_LABEL: "MISSING_ARIA_LABEL";
+        DISABLED_NO_VISUAL: "DISABLED_NO_VISUAL";
+    }>;
+    severity: z.ZodEnum<{
+        error: "error";
+        warning: "warning";
+        info: "info";
+    }>;
     message: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-    severity: "error" | "warning" | "info";
-}, {
-    message: string;
-    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-    severity: "error" | "warning" | "info";
-}>;
+}, z.core.$strip>;
 /**
  * Audit result for a captured page
  */
@@ -1194,39 +467,21 @@ declare const AuditResultSchema: z.ZodObject<{
     withHandlers: z.ZodNumber;
     withoutHandlers: z.ZodNumber;
     issues: z.ZodArray<z.ZodObject<{
-        type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
-        severity: z.ZodEnum<["error", "warning", "info"]>;
+        type: z.ZodEnum<{
+            NO_HANDLER: "NO_HANDLER";
+            PLACEHOLDER_LINK: "PLACEHOLDER_LINK";
+            TOUCH_TARGET_SMALL: "TOUCH_TARGET_SMALL";
+            MISSING_ARIA_LABEL: "MISSING_ARIA_LABEL";
+            DISABLED_NO_VISUAL: "DISABLED_NO_VISUAL";
+        }>;
+        severity: z.ZodEnum<{
+            error: "error";
+            warning: "warning";
+            info: "info";
+        }>;
         message: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }, {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }>, "many">;
-}, "strip", z.ZodTypeAny, {
-    issues: {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }[];
-    totalElements: number;
-    interactiveCount: number;
-    withHandlers: number;
-    withoutHandlers: number;
-}, {
-    issues: {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }[];
-    totalElements: number;
-    interactiveCount: number;
-    withHandlers: number;
-    withoutHandlers: number;
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 type Viewport = z.infer<typeof ViewportSchema>;
 type Config = z.infer<typeof ConfigSchema>;
 type SessionQuery = z.infer<typeof SessionQuerySchema>;
@@ -1246,31 +501,48 @@ type AuditResult = z.infer<typeof AuditResultSchema>;
 /**
  * Rule severity levels
  */
-declare const RuleSeveritySchema: z.ZodEnum<["off", "warn", "error"]>;
+declare const RuleSeveritySchema: z.ZodEnum<{
+    error: "error";
+    off: "off";
+    warn: "warn";
+}>;
 /**
  * Individual rule setting
  */
-declare const RuleSettingSchema: z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>;
+declare const RuleSettingSchema: z.ZodUnion<readonly [z.ZodEnum<{
+    error: "error";
+    off: "off";
+    warn: "warn";
+}>, z.ZodTuple<[z.ZodEnum<{
+    error: "error";
+    off: "off";
+    warn: "warn";
+}>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>;
 /**
  * Rules configuration (user's .ibr/rules.json)
  */
 declare const RulesConfigSchema: z.ZodObject<{
-    extends: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    rules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>>>;
-}, "strip", z.ZodTypeAny, {
-    extends?: string[] | undefined;
-    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
-}, {
-    extends?: string[] | undefined;
-    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
-}>;
+    extends: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    rules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodEnum<{
+        error: "error";
+        off: "off";
+        warn: "warn";
+    }>, z.ZodTuple<[z.ZodEnum<{
+        error: "error";
+        off: "off";
+        warn: "warn";
+    }>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>>>;
+}, z.core.$strip>;
 /**
  * Violation detected by a rule
  */
 declare const ViolationSchema: z.ZodObject<{
     ruleId: z.ZodString;
     ruleName: z.ZodString;
-    severity: z.ZodEnum<["warn", "error"]>;
+    severity: z.ZodEnum<{
+        error: "error";
+        warn: "warn";
+    }>;
     message: z.ZodString;
     element: z.ZodOptional<z.ZodString>;
     bounds: z.ZodOptional<z.ZodObject<{
@@ -1278,45 +550,9 @@ declare const ViolationSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>>;
+    }, z.core.$strip>>;
     fix: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    severity: "error" | "warn";
-    ruleId: string;
-    ruleName: string;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-    element?: string | undefined;
-    fix?: string | undefined;
-}, {
-    message: string;
-    severity: "error" | "warn";
-    ruleId: string;
-    ruleName: string;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-    element?: string | undefined;
-    fix?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Full audit report with rule violations
  */
@@ -1327,7 +563,10 @@ declare const RuleAuditResultSchema: z.ZodObject<{
     violations: z.ZodArray<z.ZodObject<{
         ruleId: z.ZodString;
         ruleName: z.ZodString;
-        severity: z.ZodEnum<["warn", "error"]>;
+        severity: z.ZodEnum<{
+            error: "error";
+            warn: "warn";
+        }>;
         message: z.ZodString;
         element: z.ZodOptional<z.ZodString>;
         bounds: z.ZodOptional<z.ZodObject<{
@@ -1335,105 +574,15 @@ declare const RuleAuditResultSchema: z.ZodObject<{
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>>;
+        }, z.core.$strip>>;
         fix: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }, {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }>, "many">;
+    }, z.core.$strip>>;
     summary: z.ZodObject<{
         errors: z.ZodNumber;
         warnings: z.ZodNumber;
         passed: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        errors: number;
-        warnings: number;
-        passed: number;
-    }, {
-        errors: number;
-        warnings: number;
-        passed: number;
-    }>;
-}, "strip", z.ZodTypeAny, {
-    url: string;
-    summary: {
-        errors: number;
-        warnings: number;
-        passed: number;
-    };
-    timestamp: string;
-    elementsScanned: number;
-    violations: {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-}, {
-    url: string;
-    summary: {
-        errors: number;
-        warnings: number;
-        passed: number;
-    };
-    timestamp: string;
-    elementsScanned: number;
-    violations: {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-}>;
+    }, z.core.$strip>;
+}, z.core.$strip>;
 type RuleSeverity = z.infer<typeof RuleSeveritySchema>;
 type RuleSetting = z.infer<typeof RuleSettingSchema>;
 type RulesConfig = z.infer<typeof RulesConfigSchema>;

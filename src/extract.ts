@@ -1,7 +1,7 @@
 import { chromium, type Browser, type Page } from 'playwright';
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
 import type { Viewport, EnhancedElement, ElementIssue, AuditResult } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
 
@@ -483,7 +483,6 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
 async function extractCSSVariables(page: Page): Promise<CSSVariables> {
   return page.evaluate(() => {
     const root = document.documentElement;
-    const computed = window.getComputedStyle(root);
     const variables: CSSVariables = {};
 
     // Get all CSS rules from stylesheets

@@ -1,12 +1,13 @@
 import { chromium } from 'playwright';
 import { mkdir, access, readFile, writeFile, unlink, chmod, stat } from 'fs/promises';
-import { join, dirname, resolve } from 'path';
+import { join, resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
 import { userInfo, homedir } from 'os';
 import { createHash, randomBytes } from 'crypto';
 import type { LoginOptions } from './types.js';
 
-const AUTH_STATE_FILE = 'auth.json';
+// Auth state file name (reserved for future use)
+// const AUTH_STATE_FILE = 'auth.json';
 
 /**
  * Auth state with metadata for security
@@ -275,9 +276,9 @@ export async function performLogin(options: LoginOptions): Promise<string> {
  * Save auth state with metadata and secure permissions
  */
 async function saveAuthState(
-  context: Awaited<ReturnType<typeof chromium.launch>>['contexts'][0],
+  context: import('playwright').BrowserContext,
   authStatePath: string,
-  outputDir: string
+  _outputDir: string
 ): Promise<void> {
   const state = await context.storageState();
   const currentUser = userInfo().username;

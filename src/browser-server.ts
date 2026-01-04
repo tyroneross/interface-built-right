@@ -1,5 +1,5 @@
 import { chromium, type BrowserServer, type Browser, type BrowserContext, type Page } from 'playwright';
-import { writeFile, readFile, unlink, mkdir, rm } from 'fs/promises';
+import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
@@ -145,9 +145,9 @@ export async function startBrowserServer(
 
   // Launch browser server with CDP debugging enabled
   // This allows connectOverCDP to work and share contexts across reconnections
+  // Note: slowMo is not available on launchServer, only on launch()
   const server = await chromium.launchServer({
     headless,
-    slowMo: options.debug ? 100 : 0,
     args: [`--remote-debugging-port=${debugPort}`],
   });
 
@@ -206,7 +206,7 @@ export async function connectToBrowserServer(outputDir: string): Promise<Browser
  * Stop the browser server
  */
 export async function stopBrowserServer(outputDir: string): Promise<boolean> {
-  const { stateFile, profileDir } = getPaths(outputDir);
+  const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
 
   if (!existsSync(stateFile)) {
     return false;
@@ -238,7 +238,8 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
  * Persistent session that connects to browser server
  */
 export class PersistentSession {
-  private browser: Browser;
+  // Browser reference kept for potential future cleanup operations
+  public readonly browser: Browser;
   private context: BrowserContext;
   private page: Page;
   private state: SessionState;

@@ -190,7 +190,7 @@ export const EnhancedElementSchema = z.object({
   bounds: BoundsSchema,
 
   // Styles (subset)
-  computedStyles: z.record(z.string()).optional(),
+  computedStyles: z.record(z.string(), z.string()).optional(),
 
   // Interactivity
   interactive: InteractiveStateSchema,
@@ -258,7 +258,7 @@ export const RuleSeveritySchema = z.enum(['off', 'warn', 'error']);
  */
 export const RuleSettingSchema = z.union([
   RuleSeveritySchema,
-  z.tuple([RuleSeveritySchema, z.record(z.unknown())]),
+  z.tuple([RuleSeveritySchema, z.record(z.string(), z.unknown())]),
 ]);
 
 /**
@@ -266,7 +266,7 @@ export const RuleSettingSchema = z.union([
  */
 export const RulesConfigSchema = z.object({
   extends: z.array(z.string()).optional(),
-  rules: z.record(RuleSettingSchema).optional(),
+  rules: z.record(z.string(), RuleSettingSchema).optional(),
 });
 
 /**

@@ -271,12 +271,10 @@ program
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const globalOpts = program.opts();
-      const outputDir = globalOpts.output || './.ibr';
 
-      // Import rule engine and browser server
+      // Import rule engine and browser
       const { loadRulesConfig, runRules, createAuditResult, formatAuditResult } = await import('../rules/engine.js');
       const { register } = await import('../rules/presets/minimal.js');
-      const { startBrowserServer, connectToBrowserServer, stopBrowserServer, isServerRunning } = await import('../browser-server.js');
       const { extractInteractiveElements } = await import('../extract.js');
       const { chromium } = await import('playwright');
 
@@ -1109,10 +1107,11 @@ program
 
       if (options.selector) {
         // Get outer HTML of specific element
-        const html = await session.evaluate((sel: string) => {
-          const el = document.querySelector(sel);
+        const escapedSelector = options.selector.replace(/'/g, "\\'");
+        const html = await session.evaluate(`(() => {
+          const el = document.querySelector('${escapedSelector}');
           return el ? el.outerHTML : null;
-        });
+        })()`);
         if (html) {
           console.log(html);
         } else {
@@ -1322,7 +1321,7 @@ program
   .command('scan-check')
   .description('Compare all sessions from the last scan-start')
   .option('-f, --format <format>', 'Output format: json, text, minimal', 'text')
-  .action(async (options: { format: string }) => {
+  .action(async (_options: { format: string }) => {
     try {
       const ibr = await createIBR(program.opts());
       const sessions = await ibr.listSessions();
