@@ -1,6 +1,6 @@
 {
   "name": "ibr",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Visual regression testing for Claude Code - capture, compare, and analyze UI changes",
   "author": {
     "name": "Tyrone Ross"
