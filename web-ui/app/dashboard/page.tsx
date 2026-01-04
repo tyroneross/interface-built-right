@@ -126,10 +126,10 @@ export default function DashboardPage() {
 
   // Action handlers
   const handleCreateSession = useCallback(
-    async (data: { url: string; name: string; viewport: string }) => {
+    async (data: { url?: string; name: string; viewport: string }) => {
       const session = await create({
-        url: data.url,
-        name: data.name || undefined,
+        url: data.url || undefined,  // Optional - can create without capturing
+        name: data.name,
       });
       if (session) {
         await refetch();

@@ -9,7 +9,7 @@ interface Viewport {
 }
 
 interface NewSessionFormData {
-  url: string;
+  url?: string;  // Optional - can create session with just name
   name: string;
   viewport: string;
 }
@@ -44,10 +44,11 @@ export function NewSessionModal({ open, onClose, onSubmit, isLoading = false }: 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!url.trim()) return;
+    // Name is required, URL is optional
+    if (!name.trim()) return;
 
     await onSubmit({
-      url: url.trim(),
+      url: url.trim() || undefined,
       name: name.trim(),
       viewport,
     });
@@ -85,26 +86,10 @@ export function NewSessionModal({ open, onClose, onSubmit, isLoading = false }: 
         {/* Body */}
         <form onSubmit={handleSubmit}>
           <div className="px-4 py-4 space-y-4">
-            {/* URL Field */}
-            <div>
-              <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1.5">
-                URL
-              </label>
-              <input
-                id="url"
-                type="url"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="http://localhost:3000/dashboard"
-                required
-                className="w-full h-11 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
-              />
-            </div>
-
-            {/* Session Name Field */}
+            {/* Session Name Field - Required */}
             <div>
               <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1.5">
-                Session Name
+                Session Name <span className="text-red-500">*</span>
               </label>
               <input
                 id="name"
@@ -112,8 +97,27 @@ export function NewSessionModal({ open, onClose, onSubmit, isLoading = false }: 
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g., header-update"
+                required
                 className="w-full h-11 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
               />
+            </div>
+
+            {/* URL Field - Optional */}
+            <div>
+              <label htmlFor="url" className="block text-sm font-medium text-gray-700 mb-1.5">
+                URL <span className="text-gray-400 text-xs font-normal">(optional)</span>
+              </label>
+              <input
+                id="url"
+                type="url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                placeholder="http://localhost:3000/dashboard"
+                className="w-full h-11 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-gray-400"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Leave empty to create a session without capturing
+              </p>
             </div>
 
             {/* Viewport Dropdown */}
@@ -148,7 +152,7 @@ export function NewSessionModal({ open, onClose, onSubmit, isLoading = false }: 
             </button>
             <button
               type="submit"
-              disabled={!url.trim() || isLoading}
+              disabled={!name.trim() || isLoading}
               className="min-w-20 h-9 px-4 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-700 transition-colors disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {isLoading ? (
@@ -163,7 +167,7 @@ export function NewSessionModal({ open, onClose, onSubmit, isLoading = false }: 
                   >
                     <circle cx="8" cy="8" r="6" strokeDasharray="10 30" />
                   </svg>
-                  Capturing...
+                  {url.trim() ? 'Capturing...' : 'Creating...'}
                 </>
               ) : (
                 <>
@@ -171,7 +175,7 @@ export function NewSessionModal({ open, onClose, onSubmit, isLoading = false }: 
                     <rect x="3" y="3" width="10" height="10" rx="1" />
                     <path d="M7 3v10" />
                   </svg>
-                  Capture Baseline
+                  {url.trim() ? 'Capture Baseline' : 'Create Session'}
                 </>
               )}
             </button>

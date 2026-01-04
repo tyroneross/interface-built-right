@@ -87,8 +87,8 @@ export type FilterType = 'all' | 'changed' | 'broken' | 'live';
 
 // API Request/Response Types
 export interface CreateSessionRequest {
-  url: string;
-  name?: string;
+  url?: string;  // Optional - can create session without capturing
+  name: string;  // Required - session name
   viewport?: Viewport;
 }
 

@@ -263,11 +263,11 @@ program
 program
   .command('audit [url]')
   .description('Audit a page for UI issues (handlers, accessibility, touch targets)')
-  .option('-r, --rules <preset>', 'Rule preset: minimal (default)', 'minimal')
+  .option('-r, --rules <preset>', 'Rule preset to use (e.g., minimal). No rules by default - configure in .ibr/rules.json')
   .option('--check-apis [dir]', 'Cross-reference UI API calls against backend routes')
   .option('--json', 'Output as JSON')
   .option('--fail-on <level>', 'Exit non-zero on errors/warnings', 'error')
-  .action(async (url: string | undefined, options: { rules: string; checkApis?: string | boolean; json?: boolean; failOn: string }) => {
+  .action(async (url: string | undefined, options: { rules?: string; checkApis?: string | boolean; json?: boolean; failOn: string }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const globalOpts = program.opts();
@@ -283,9 +283,10 @@ program
       // Register presets
       register();
 
-      // Load rules config
+      // Load rules config - no rules by default, user must configure
       const rulesConfig = await loadRulesConfig(process.cwd());
-      if (options.rules && options.rules !== 'minimal') {
+      if (options.rules) {
+        // CLI flag overrides config file
         rulesConfig.extends = [options.rules];
       }
 
@@ -437,7 +438,8 @@ program
   .command('list')
   .description('List all sessions')
   .option('-f, --format <format>', 'Output format: json, text', 'text')
-  .action(async (options: { format: string }) => {
+  .option('--by-app', 'Group sessions by app/branch (git context)')
+  .action(async (options: { format: string; byApp?: boolean }) => {
     try {
       const ibr = await createIBR(program.opts());
       const sessions = await ibr.listSessions();
@@ -449,6 +451,44 @@ program
 
       if (options.format === 'json') {
         console.log(JSON.stringify(sessions, null, 2));
+      } else if (options.byApp) {
+        // Group by app context
+        const { getAppContext } = await import('../git-context.js');
+        const context = await getAppContext(process.cwd()).catch(() => null);
+        const currentApp = context?.appName || 'unknown';
+        const currentBranch = context?.branch || 'unknown';
+
+        // Group sessions by URL domain or infer from session paths
+        const groups: Map<string, typeof sessions> = new Map();
+
+        for (const session of sessions) {
+          let groupKey = 'Other';
+          try {
+            if (session.url) {
+              const url = new URL(session.url);
+              groupKey = url.hostname;
+            }
+          } catch {
+            groupKey = 'Other';
+          }
+
+          if (!groups.has(groupKey)) {
+            groups.set(groupKey, []);
+          }
+          groups.get(groupKey)!.push(session);
+        }
+
+        console.log(`Current App: ${currentApp} (${currentBranch})`);
+        console.log('');
+
+        for (const [groupName, groupSessions] of groups) {
+          console.log(`${groupName} (${groupSessions.length} sessions)`);
+          console.log('-'.repeat(50));
+          for (const session of groupSessions) {
+            console.log(`  ${formatSessionSummary(session)}`);
+          }
+          console.log('');
+        }
       } else {
         console.log('Sessions:');
         console.log('');

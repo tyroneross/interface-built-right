@@ -67,13 +67,20 @@ export function listPresets(): string[] {
 
 /**
  * Load rules configuration from .ibr/rules.json
+ *
+ * By default, NO rules are enforced - rules must be explicitly configured by user.
+ * Users can:
+ * - Create .ibr/rules.json to define rules
+ * - Pass --rules flag to CLI to use optional presets
+ * - Define custom rules in the config
  */
 export async function loadRulesConfig(projectDir: string): Promise<RulesConfig> {
   const configPath = join(projectDir, '.ibr', 'rules.json');
 
   if (!existsSync(configPath)) {
-    // Return default config extending minimal
-    return { extends: ['minimal'] };
+    // Return empty config - no rules by default
+    // Users must explicitly configure rules
+    return { extends: [], rules: {} };
   }
 
   try {
@@ -81,7 +88,8 @@ export async function loadRulesConfig(projectDir: string): Promise<RulesConfig> 
     return JSON.parse(content) as RulesConfig;
   } catch (error) {
     console.warn(`Failed to parse rules.json: ${error}`);
-    return { extends: ['minimal'] };
+    // Return empty config on error - don't force any rules
+    return { extends: [], rules: {} };
   }
 }
 
@@ -140,7 +148,8 @@ export function runRules(
   context: RuleContext,
   config: RulesConfig
 ): Violation[] {
-  const { rules, settings } = mergeRuleSettings(config.extends ?? ['minimal'], config.rules);
+  // No rules by default - user must configure in .ibr/rules.json or pass --rules flag
+  const { rules, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
   const violations: Violation[] = [];
 
   for (const element of elements) {

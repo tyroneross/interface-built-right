@@ -122,40 +122,74 @@ export async function POST(request: NextRequest) {
   try {
     const { url, name, viewport = 'desktop' } = await request.json();
 
-    if (!url) {
-      return NextResponse.json({ error: 'URL is required' }, { status: 400 });
+    if (!name) {
+      return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    // Build CLI command
-    const args = [`start "${url}"`];
-    if (name) args.push(`--name "${name}"`);
-    args.push(`--viewport ${viewport}`);
+    // If URL is provided, use CLI to capture; otherwise create empty session
+    if (url) {
+      // Build CLI command
+      const args = [`start "${url}"`];
+      args.push(`--name "${name}"`);
+      args.push(`--viewport ${viewport}`);
 
-    // Run ibr CLI command from parent directory
-    const parentDir = join(process.cwd(), '..');
-    const command = `npm run ibr -- ${args.join(' ')}`;
+      // Run ibr CLI command from parent directory
+      const parentDir = join(process.cwd(), '..');
+      const command = `npm run ibr -- ${args.join(' ')}`;
 
-    const { stdout, stderr } = await execAsync(command, { cwd: parentDir });
+      const { stdout, stderr } = await execAsync(command, { cwd: parentDir });
 
-    // Parse session ID from output
-    // Note: nanoid can include dashes and underscores, so use a more permissive regex
-    const sessionIdMatch = stdout.match(/Session started: (sess_[\w-]+)/);
-    if (!sessionIdMatch) {
-      console.error('CLI output:', stdout, stderr);
-      return NextResponse.json(
-        { error: 'Failed to parse session ID from CLI output' },
-        { status: 500 }
-      );
+      // Parse session ID from output
+      // Note: nanoid can include dashes and underscores, so use a more permissive regex
+      const sessionIdMatch = stdout.match(/Session started: (sess_[\w-]+)/);
+      if (!sessionIdMatch) {
+        console.error('CLI output:', stdout, stderr);
+        return NextResponse.json(
+          { error: 'Failed to parse session ID from CLI output' },
+          { status: 500 }
+        );
+      }
+
+      const sessionId = sessionIdMatch[1];
+
+      // Read the created session
+      const sessionPath = join(process.cwd(), IBR_DIR, 'sessions', sessionId, 'session.json');
+      const content = await readFile(sessionPath, 'utf-8');
+      const session = JSON.parse(content);
+
+      return NextResponse.json({ session, sessionId });
+    } else {
+      // Create empty session without capturing
+      const { nanoid } = await import('nanoid');
+      const sessionId = `sess_${nanoid(10)}`;
+      const sessionDir = join(process.cwd(), IBR_DIR, 'sessions', sessionId);
+
+      // Create session directory
+      await mkdir(sessionDir, { recursive: true });
+
+      // Create minimal session
+      const now = new Date().toISOString();
+      const session: Session = {
+        id: sessionId,
+        name,
+        url: '',  // No URL - empty session
+        type: 'capture',
+        viewport: {
+          name: viewport as 'desktop' | 'mobile' | 'tablet',
+          width: viewport === 'mobile' ? 375 : viewport === 'tablet' ? 768 : 1920,
+          height: viewport === 'mobile' ? 667 : viewport === 'tablet' ? 1024 : 1080,
+        },
+        status: 'pending',
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      // Save session.json
+      const sessionPath = join(sessionDir, 'session.json');
+      await writeFile(sessionPath, JSON.stringify(session, null, 2));
+
+      return NextResponse.json({ session, sessionId });
     }
-
-    const sessionId = sessionIdMatch[1];
-
-    // Read the created session
-    const sessionPath = join(process.cwd(), IBR_DIR, 'sessions', sessionId, 'session.json');
-    const content = await readFile(sessionPath, 'utf-8');
-    const session = JSON.parse(content);
-
-    return NextResponse.json({ session, sessionId });
   } catch (error) {
     console.error('Error creating session:', error);
     return NextResponse.json(

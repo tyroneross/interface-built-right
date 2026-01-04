@@ -752,6 +752,117 @@ var init_capture = __esm({
   }
 });
 
+// src/git-context.ts
+var git_context_exports = {};
+__export(git_context_exports, {
+  getAppContext: () => getAppContext,
+  getAppName: () => getAppName,
+  getGitContext: () => getGitContext,
+  getSessionBasePath: () => getSessionBasePath
+});
+async function parseGitConfig(configPath) {
+  try {
+    const content = await (0, import_promises4.readFile)(configPath, "utf-8");
+    const lines = content.split("\n");
+    let currentRemote = null;
+    let remoteUrl = null;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const remoteMatch = trimmed.match(/^\[remote "(.+)"\]$/);
+      if (remoteMatch) {
+        currentRemote = remoteMatch[1];
+        continue;
+      }
+      if (currentRemote && trimmed.startsWith("url = ")) {
+        remoteUrl = trimmed.substring(6).trim();
+        break;
+      }
+    }
+    return { remote: currentRemote, remoteUrl };
+  } catch {
+    return { remote: null, remoteUrl: null };
+  }
+}
+function extractRepoName(remoteUrl) {
+  try {
+    const sshMatch = remoteUrl.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (sshMatch) {
+      const parts = sshMatch[1].split("/");
+      return parts[parts.length - 1].replace(/\.git$/, "");
+    }
+    const httpsMatch = remoteUrl.match(/\/([^/]+?)(?:\.git)?$/);
+    if (httpsMatch) {
+      return httpsMatch[1].replace(/\.git$/, "");
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function getCurrentBranch(dir) {
+  try {
+    const branch = (0, import_child_process.execSync)("git branch --show-current", {
+      cwd: dir,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"]
+    }).trim();
+    return branch || null;
+  } catch {
+    return null;
+  }
+}
+async function getGitContext(dir) {
+  const gitConfigPath = (0, import_path4.join)(dir, ".git", "config");
+  const { remote, remoteUrl } = await parseGitConfig(gitConfigPath);
+  const repoName = remoteUrl ? extractRepoName(remoteUrl) : null;
+  const branch = getCurrentBranch(dir);
+  return {
+    repoName,
+    branch,
+    remote,
+    remoteUrl
+  };
+}
+async function getAppName(dir) {
+  try {
+    const packageJsonPath = (0, import_path4.join)(dir, "package.json");
+    const content = await (0, import_promises4.readFile)(packageJsonPath, "utf-8");
+    const packageJson = JSON.parse(content);
+    if (packageJson.name) {
+      const name = packageJson.name;
+      const scopeMatch = name.match(/^@[^/]+\/(.+)$/);
+      return scopeMatch ? scopeMatch[1] : name;
+    }
+  } catch {
+  }
+  return (0, import_path4.basename)(dir);
+}
+async function getAppContext(dir) {
+  const [gitContext, appName] = await Promise.all([
+    getGitContext(dir),
+    getAppName(dir)
+  ]);
+  return {
+    ...gitContext,
+    appName
+  };
+}
+function getSessionBasePath(outputDir, context) {
+  if (context.repoName && context.branch) {
+    return (0, import_path4.join)(outputDir, "apps", context.appName, context.branch, "sessions");
+  }
+  return (0, import_path4.join)(outputDir, "sessions");
+}
+var import_promises4, import_path4, import_child_process;
+var init_git_context = __esm({
+  "src/git-context.ts"() {
+    "use strict";
+    import_promises4 = require("fs/promises");
+    import_path4 = require("path");
+    import_child_process = require("child_process");
+  }
+});
+
 // src/consistency.ts
 var consistency_exports = {};
 __export(consistency_exports, {
@@ -1815,16 +1926,16 @@ function listPresets() {
   return Array.from(presets.keys());
 }
 async function loadRulesConfig(projectDir) {
-  const configPath = (0, import_path5.join)(projectDir, ".ibr", "rules.json");
+  const configPath = (0, import_path6.join)(projectDir, ".ibr", "rules.json");
   if (!(0, import_fs2.existsSync)(configPath)) {
-    return { extends: ["minimal"] };
+    return { extends: [], rules: {} };
   }
   try {
-    const content = await (0, import_promises5.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises6.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch (error) {
     console.warn(`Failed to parse rules.json: ${error}`);
-    return { extends: ["minimal"] };
+    return { extends: [], rules: {} };
   }
 }
 function mergeRuleSettings(presetNames, userRules = {}) {
@@ -1860,7 +1971,7 @@ function mergeRuleSettings(presetNames, userRules = {}) {
   return { rules: allRules, settings };
 }
 function runRules(elements, context, config) {
-  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? ["minimal"], config.rules);
+  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
   const violations = [];
   for (const element of elements) {
     for (const rule of rules2) {
@@ -1919,13 +2030,13 @@ function formatAuditResult(result) {
   lines.push(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.passed} passed`);
   return lines.join("\n");
 }
-var import_promises5, import_fs2, import_path5, presets;
+var import_promises6, import_fs2, import_path6, presets;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
-    import_promises5 = require("fs/promises");
+    import_promises6 = require("fs/promises");
     import_fs2 = require("fs");
-    import_path5 = require("path");
+    import_path6 = require("path");
     presets = /* @__PURE__ */ new Map();
     Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
     });
@@ -1956,16 +2067,16 @@ async function closeBrowser2() {
   }
 }
 async function checkLock(outputDir) {
-  const lockPath = (0, import_path6.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path7.join)(outputDir, LOCK_FILE);
   if (!(0, import_fs3.existsSync)(lockPath)) {
     return false;
   }
   try {
-    const content = await (0, import_promises6.readFile)(lockPath, "utf-8");
+    const content = await (0, import_promises7.readFile)(lockPath, "utf-8");
     const timestamp = parseInt(content, 10);
     const age = Date.now() - timestamp;
     if (age > LOCK_TIMEOUT_MS) {
-      await (0, import_promises6.unlink)(lockPath);
+      await (0, import_promises7.unlink)(lockPath);
       return false;
     }
     return true;
@@ -1974,13 +2085,13 @@ async function checkLock(outputDir) {
   }
 }
 async function createLock(outputDir) {
-  const lockPath = (0, import_path6.join)(outputDir, LOCK_FILE);
-  await (0, import_promises6.writeFile)(lockPath, Date.now().toString());
+  const lockPath = (0, import_path7.join)(outputDir, LOCK_FILE);
+  await (0, import_promises7.writeFile)(lockPath, Date.now().toString());
 }
 async function releaseLock(outputDir) {
-  const lockPath = (0, import_path6.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path7.join)(outputDir, LOCK_FILE);
   try {
-    await (0, import_promises6.unlink)(lockPath);
+    await (0, import_promises7.unlink)(lockPath);
   } catch {
   }
 }
@@ -2248,8 +2359,8 @@ async function extractFromURL(options) {
   if (await checkLock(outputDir)) {
     throw new Error("Another extraction is in progress. Please wait.");
   }
-  const sessionDir = (0, import_path6.join)(outputDir, "sessions", sessionId);
-  await (0, import_promises6.mkdir)(sessionDir, { recursive: true });
+  const sessionDir = (0, import_path7.join)(outputDir, "sessions", sessionId);
+  await (0, import_promises7.mkdir)(sessionDir, { recursive: true });
   await createLock(outputDir);
   const browserInstance = await getBrowser2();
   let timeoutHandle = null;
@@ -2291,7 +2402,7 @@ async function extractFromURL(options) {
           elements.push(...extracted);
         }
         const cssVariables = await extractCSSVariables(page);
-        const screenshotPath = (0, import_path6.join)(sessionDir, "reference.png");
+        const screenshotPath = (0, import_path7.join)(sessionDir, "reference.png");
         await page.screenshot({
           path: screenshotPath,
           fullPage: true,
@@ -2306,11 +2417,11 @@ async function extractFromURL(options) {
           cssVariables,
           screenshotPath
         };
-        await (0, import_promises6.writeFile)(
-          (0, import_path6.join)(sessionDir, "reference.json"),
+        await (0, import_promises7.writeFile)(
+          (0, import_path7.join)(sessionDir, "reference.json"),
           JSON.stringify(result2, null, 2)
         );
-        await (0, import_promises6.writeFile)((0, import_path6.join)(sessionDir, "reference.html"), html);
+        await (0, import_promises7.writeFile)((0, import_path7.join)(sessionDir, "reference.html"), html);
         return result2;
       } finally {
         await context.close();
@@ -2326,25 +2437,25 @@ async function extractFromURL(options) {
   }
 }
 function getReferenceSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path6.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path7.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path6.join)(root, "session.json"),
-    reference: (0, import_path6.join)(root, "reference.png"),
-    referenceHtml: (0, import_path6.join)(root, "reference.html"),
-    referenceData: (0, import_path6.join)(root, "reference.json"),
-    current: (0, import_path6.join)(root, "current.png"),
-    diff: (0, import_path6.join)(root, "diff.png")
+    sessionJson: (0, import_path7.join)(root, "session.json"),
+    reference: (0, import_path7.join)(root, "reference.png"),
+    referenceHtml: (0, import_path7.join)(root, "reference.html"),
+    referenceData: (0, import_path7.join)(root, "reference.json"),
+    current: (0, import_path7.join)(root, "current.png"),
+    diff: (0, import_path7.join)(root, "diff.png")
   };
 }
-var import_playwright5, import_promises6, import_fs3, import_path6, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
+var import_playwright5, import_promises7, import_fs3, import_path7, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
 var init_extract = __esm({
   "src/extract.ts"() {
     "use strict";
     import_playwright5 = require("playwright");
-    import_promises6 = require("fs/promises");
+    import_promises7 = require("fs/promises");
     import_fs3 = require("fs");
-    import_path6 = require("path");
+    import_path7 = require("path");
     init_schemas();
     LOCK_FILE = ".extracting";
     LOCK_TIMEOUT_MS = 18e4;
@@ -2423,9 +2534,9 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path7.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path7.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path7.join)(outputDir, "sessions")
+    stateFile: (0, import_path8.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path8.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path8.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
@@ -2434,7 +2545,7 @@ async function isServerRunning(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises7.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises8.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const browser3 = await import_playwright6.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
     await browser3.close();
@@ -2447,7 +2558,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises7.unlink)(stateFile);
+    await (0, import_promises8.unlink)(stateFile);
   } catch {
   }
 }
@@ -2458,9 +2569,9 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises7.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises8.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises7.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises8.mkdir)(profileDir, { recursive: true });
   }
   const debugPort = 9222 + Math.floor(Math.random() * 1e3);
   const server = await import_playwright6.chromium.launchServer({
@@ -2478,7 +2589,7 @@ async function startBrowserServer(outputDir, options = {}) {
     headless,
     isolatedProfile: isolated ? profileDir : ""
   };
-  await (0, import_promises7.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await (0, import_promises8.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { server, wsEndpoint };
 }
 async function connectToBrowserServer(outputDir) {
@@ -2487,7 +2598,7 @@ async function connectToBrowserServer(outputDir) {
     return null;
   }
   try {
-    const content = await (0, import_promises7.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises8.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (state.cdpUrl) {
       const browser4 = await import_playwright6.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
@@ -2506,11 +2617,11 @@ async function stopBrowserServer(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises7.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises8.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const browser3 = await import_playwright6.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
     await browser3.close();
-    await (0, import_promises7.unlink)(stateFile);
+    await (0, import_promises8.unlink)(stateFile);
     return true;
   } catch {
     await cleanupServerState(outputDir);
@@ -2527,7 +2638,7 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path7.join)(sessionsDir, entry.name, "live-session.json");
+      const statePath = (0, import_path8.join)(sessionsDir, entry.name, "live-session.json");
       if ((0, import_fs4.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
@@ -2535,14 +2646,14 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_playwright6, import_promises7, import_fs4, import_path7, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright6, import_promises8, import_fs4, import_path8, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     import_playwright6 = require("playwright");
-    import_promises7 = require("fs/promises");
+    import_promises8 = require("fs/promises");
     import_fs4 = require("fs");
-    import_path7 = require("path");
+    import_path8 = require("path");
     import_nanoid2 = require("nanoid");
     init_schemas();
     init_extract();
@@ -2573,9 +2684,9 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${(0, import_nanoid2.nanoid)(10)}`;
-        const sessionsDir = (0, import_path7.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path7.join)(sessionsDir, sessionId);
-        await (0, import_promises7.mkdir)(sessionDir, { recursive: true });
+        const sessionsDir = (0, import_path8.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path8.join)(sessionsDir, sessionId);
+        await (0, import_promises8.mkdir)(sessionDir, { recursive: true });
         const context = await browser3.newContext({
           viewport: {
             width: viewport.width,
@@ -2608,12 +2719,12 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises7.writeFile)(
-          (0, import_path7.join)(sessionDir, "live-session.json"),
+        await (0, import_promises8.writeFile)(
+          (0, import_path8.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path7.join)(sessionDir, "baseline.png"),
+          path: (0, import_path8.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(browser3, context, page, state, sessionDir);
@@ -2622,8 +2733,8 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path7.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path7.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path8.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path8.join)(sessionDir, "live-session.json");
         if (!(0, import_fs4.existsSync)(statePath)) {
           return null;
         }
@@ -2631,7 +2742,7 @@ var init_browser_server = __esm({
         if (!browser3) {
           return null;
         }
-        const content = await (0, import_promises7.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises8.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const contexts = browser3.contexts();
         let context;
@@ -2674,8 +2785,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises7.writeFile)(
-          (0, import_path7.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises8.writeFile)(
+          (0, import_path8.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -2809,7 +2920,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path7.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path8.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -2924,14 +3035,14 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright7, import_promises8, import_fs5, import_path8, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright7, import_promises9, import_fs5, import_path9, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     import_playwright7 = require("playwright");
-    import_promises8 = require("fs/promises");
+    import_promises9 = require("fs/promises");
     import_fs5 = require("fs");
-    import_path8 = require("path");
+    import_path9 = require("path");
     import_nanoid3 = require("nanoid");
     init_schemas();
     LiveSession = class _LiveSession {
@@ -2944,7 +3055,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, browser3, context, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path8.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path9.join)(outputDir, "sessions", state.id);
         this.browser = browser3;
         this.context = context;
         this.page = page;
@@ -2962,8 +3073,8 @@ var init_live_session = __esm({
           timeout = 3e4
         } = options;
         const sessionId = `live_${(0, import_nanoid3.nanoid)(10)}`;
-        const sessionDir = (0, import_path8.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises8.mkdir)(sessionDir, { recursive: true });
+        const sessionDir = (0, import_path9.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises9.mkdir)(sessionDir, { recursive: true });
         const browser3 = await import_playwright7.chromium.launch({
           headless: !sandbox && !debug,
           slowMo: debug ? 100 : 0,
@@ -2998,12 +3109,12 @@ var init_live_session = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises8.writeFile)(
-          (0, import_path8.join)(sessionDir, "live-session.json"),
+        await (0, import_promises9.writeFile)(
+          (0, import_path9.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path8.join)(sessionDir, "baseline.png"),
+          path: (0, import_path9.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _LiveSession(state, outputDir, browser3, context, page);
@@ -3013,12 +3124,12 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path8.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path8.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path9.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path9.join)(sessionDir, "live-session.json");
         if (!(0, import_fs5.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises8.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises9.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const browser3 = await import_playwright7.chromium.launch({
           headless: !state.sandbox
@@ -3063,8 +3174,8 @@ var init_live_session = __esm({
        * Save session state
        */
       async saveState() {
-        await (0, import_promises8.writeFile)(
-          (0, import_path8.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises9.writeFile)(
+          (0, import_path9.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -3299,7 +3410,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path8.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path9.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -3472,8 +3583,8 @@ var init_live_session = __esm({
 
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises9 = require("fs/promises");
-var import_path9 = require("path");
+var import_promises10 = require("fs/promises");
+var import_path10 = require("path");
 var import_fs6 = require("fs");
 
 // src/index.ts
@@ -3657,21 +3768,22 @@ function analyzeComparison(result, thresholdPercent = 1) {
 
 // src/session.ts
 var import_nanoid = require("nanoid");
-var import_promises4 = require("fs/promises");
-var import_path4 = require("path");
+var import_promises5 = require("fs/promises");
+var import_path5 = require("path");
 init_schemas();
+init_git_context();
 var SESSION_PREFIX = "sess_";
 function generateSessionId() {
   return `${SESSION_PREFIX}${(0, import_nanoid.nanoid)(10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path4.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path5.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path4.join)(root, "session.json"),
-    baseline: (0, import_path4.join)(root, "baseline.png"),
-    current: (0, import_path4.join)(root, "current.png"),
-    diff: (0, import_path4.join)(root, "diff.png")
+    sessionJson: (0, import_path5.join)(root, "session.json"),
+    baseline: (0, import_path5.join)(root, "baseline.png"),
+    current: (0, import_path5.join)(root, "current.png"),
+    diff: (0, import_path5.join)(root, "diff.png")
   };
 }
 async function createSession(outputDir, url, name, viewport) {
@@ -3687,14 +3799,14 @@ async function createSession(outputDir, url, name, viewport) {
     createdAt: now,
     updatedAt: now
   };
-  await (0, import_promises4.mkdir)(paths.root, { recursive: true });
-  await (0, import_promises4.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
+  await (0, import_promises5.mkdir)(paths.root, { recursive: true });
+  await (0, import_promises5.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
   return session;
 }
 async function getSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    const content = await (0, import_promises4.readFile)(paths.sessionJson, "utf-8");
+    const content = await (0, import_promises5.readFile)(paths.sessionJson, "utf-8");
     const data = JSON.parse(content);
     return SessionSchema.parse(data);
   } catch {
@@ -3712,7 +3824,7 @@ async function updateSession(outputDir, sessionId, updates) {
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const paths = getSessionPaths(outputDir, sessionId);
-  await (0, import_promises4.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
+  await (0, import_promises5.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
   return updated;
 }
 async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
@@ -3723,9 +3835,9 @@ async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
   });
 }
 async function listSessions(outputDir) {
-  const sessionsDir = (0, import_path4.join)(outputDir, "sessions");
+  const sessionsDir = (0, import_path5.join)(outputDir, "sessions");
   try {
-    const entries = await (0, import_promises4.readdir)(sessionsDir, { withFileTypes: true });
+    const entries = await (0, import_promises5.readdir)(sessionsDir, { withFileTypes: true });
     const sessions = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
@@ -3749,7 +3861,7 @@ async function getMostRecentSession(outputDir) {
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    await (0, import_promises4.rm)(paths.root, { recursive: true, force: true });
+    await (0, import_promises5.rm)(paths.root, { recursive: true, force: true });
     return true;
   } catch {
     return false;
@@ -4154,10 +4266,10 @@ var InterfaceBuiltRight = class {
 // src/bin/ibr.ts
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path9.join)(process.cwd(), ".ibrrc.json");
+  const configPath = (0, import_path10.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs6.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises9.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises10.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -4327,7 +4439,7 @@ program.command("check [sessionId]").description("Compare current state against 
     process.exit(1);
   }
 });
-program.command("audit [url]").description("Audit a page for UI issues (handlers, accessibility, touch targets)").option("-r, --rules <preset>", "Rule preset: minimal (default)", "minimal").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
+program.command("audit [url]").description("Audit a page for UI issues (handlers, accessibility, touch targets)").option("-r, --rules <preset>", "Rule preset to use (e.g., minimal). No rules by default - configure in .ibr/rules.json").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const globalOpts = program.opts();
@@ -4339,7 +4451,7 @@ program.command("audit [url]").description("Audit a page for UI issues (handlers
     const { chromium: chromium8 } = await import("playwright");
     register2();
     const rulesConfig = await loadRulesConfig2(process.cwd());
-    if (options.rules && options.rules !== "minimal") {
+    if (options.rules) {
       rulesConfig.extends = [options.rules];
     }
     console.log(`Auditing ${resolvedUrl}...`);
@@ -4444,7 +4556,7 @@ program.command("status").description("Show sessions awaiting comparison (baseli
     process.exit(1);
   }
 });
-program.command("list").description("List all sessions").option("-f, --format <format>", "Output format: json, text", "text").action(async (options) => {
+program.command("list").description("List all sessions").option("-f, --format <format>", "Output format: json, text", "text").option("--by-app", "Group sessions by app/branch (git context)").action(async (options) => {
   try {
     const ibr = await createIBR(program.opts());
     const sessions = await ibr.listSessions();
@@ -4454,6 +4566,37 @@ program.command("list").description("List all sessions").option("-f, --format <f
     }
     if (options.format === "json") {
       console.log(JSON.stringify(sessions, null, 2));
+    } else if (options.byApp) {
+      const { getAppContext: getAppContext2 } = await Promise.resolve().then(() => (init_git_context(), git_context_exports));
+      const context = await getAppContext2(process.cwd()).catch(() => null);
+      const currentApp = context?.appName || "unknown";
+      const currentBranch = context?.branch || "unknown";
+      const groups = /* @__PURE__ */ new Map();
+      for (const session of sessions) {
+        let groupKey = "Other";
+        try {
+          if (session.url) {
+            const url = new URL(session.url);
+            groupKey = url.hostname;
+          }
+        } catch {
+          groupKey = "Other";
+        }
+        if (!groups.has(groupKey)) {
+          groups.set(groupKey, []);
+        }
+        groups.get(groupKey).push(session);
+      }
+      console.log(`Current App: ${currentApp} (${currentBranch})`);
+      console.log("");
+      for (const [groupName, groupSessions] of groups) {
+        console.log(`${groupName} (${groupSessions.length} sessions)`);
+        console.log("-".repeat(50));
+        for (const session of groupSessions) {
+          console.log(`  ${formatSessionSummary(session)}`);
+        }
+        console.log("");
+      }
     } else {
       console.log("Sessions:");
       console.log("");
@@ -4526,11 +4669,11 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn } = await import("child_process");
   const { resolve: resolve2 } = await import("path");
   const packageRoot = resolve2(process.cwd());
-  let webUiDir = (0, import_path9.join)(packageRoot, "web-ui");
+  let webUiDir = (0, import_path10.join)(packageRoot, "web-ui");
   if (!(0, import_fs6.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path9.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path9.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path10.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path10.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
       if ((0, import_fs6.existsSync)(p)) {
@@ -5166,13 +5309,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join9 } = await import("path");
+    const { join: join10 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join9(outputDir, "diagnose", "test.png"),
+      outputPath: join10(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -5289,7 +5432,7 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize .ibrrc.json configuration file").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").action(async (options) => {
-  const configPath = (0, import_path9.join)(process.cwd(), ".ibrrc.json");
+  const configPath = (0, import_path10.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs6.existsSync)(configPath)) {
     console.log(".ibrrc.json already exists.");
     console.log("Edit it directly or delete and run init again.");
