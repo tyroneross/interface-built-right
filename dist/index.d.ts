@@ -958,6 +958,275 @@ declare const ComparisonReportSchema: z.ZodObject<{
     };
     webViewUrl?: string | undefined;
 }>;
+/**
+ * Element interactivity detection
+ */
+declare const InteractiveStateSchema: z.ZodObject<{
+    hasOnClick: z.ZodBoolean;
+    hasHref: z.ZodBoolean;
+    isDisabled: z.ZodBoolean;
+    tabIndex: z.ZodNumber;
+    cursor: z.ZodString;
+    hasReactHandler: z.ZodOptional<z.ZodBoolean>;
+    hasVueHandler: z.ZodOptional<z.ZodBoolean>;
+    hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
+}, "strip", z.ZodTypeAny, {
+    hasOnClick: boolean;
+    hasHref: boolean;
+    isDisabled: boolean;
+    tabIndex: number;
+    cursor: string;
+    hasReactHandler?: boolean | undefined;
+    hasVueHandler?: boolean | undefined;
+    hasAngularHandler?: boolean | undefined;
+}, {
+    hasOnClick: boolean;
+    hasHref: boolean;
+    isDisabled: boolean;
+    tabIndex: number;
+    cursor: string;
+    hasReactHandler?: boolean | undefined;
+    hasVueHandler?: boolean | undefined;
+    hasAngularHandler?: boolean | undefined;
+}>;
+/**
+ * Accessibility attributes
+ */
+declare const A11yAttributesSchema: z.ZodObject<{
+    role: z.ZodNullable<z.ZodString>;
+    ariaLabel: z.ZodNullable<z.ZodString>;
+    ariaDescribedBy: z.ZodNullable<z.ZodString>;
+    ariaHidden: z.ZodOptional<z.ZodBoolean>;
+}, "strip", z.ZodTypeAny, {
+    role: string | null;
+    ariaLabel: string | null;
+    ariaDescribedBy: string | null;
+    ariaHidden?: boolean | undefined;
+}, {
+    role: string | null;
+    ariaLabel: string | null;
+    ariaDescribedBy: string | null;
+    ariaHidden?: boolean | undefined;
+}>;
+/**
+ * Element bounds
+ */
+declare const BoundsSchema: z.ZodObject<{
+    x: z.ZodNumber;
+    y: z.ZodNumber;
+    width: z.ZodNumber;
+    height: z.ZodNumber;
+}, "strip", z.ZodTypeAny, {
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+}, {
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+}>;
+/**
+ * Enhanced element with interactivity and accessibility
+ */
+declare const EnhancedElementSchema: z.ZodObject<{
+    selector: z.ZodString;
+    tagName: z.ZodString;
+    id: z.ZodOptional<z.ZodString>;
+    className: z.ZodOptional<z.ZodString>;
+    text: z.ZodOptional<z.ZodString>;
+    bounds: z.ZodObject<{
+        x: z.ZodNumber;
+        y: z.ZodNumber;
+        width: z.ZodNumber;
+        height: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }>;
+    computedStyles: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    interactive: z.ZodObject<{
+        hasOnClick: z.ZodBoolean;
+        hasHref: z.ZodBoolean;
+        isDisabled: z.ZodBoolean;
+        tabIndex: z.ZodNumber;
+        cursor: z.ZodString;
+        hasReactHandler: z.ZodOptional<z.ZodBoolean>;
+        hasVueHandler: z.ZodOptional<z.ZodBoolean>;
+        hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    }, {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    }>;
+    a11y: z.ZodObject<{
+        role: z.ZodNullable<z.ZodString>;
+        ariaLabel: z.ZodNullable<z.ZodString>;
+        ariaDescribedBy: z.ZodNullable<z.ZodString>;
+        ariaHidden: z.ZodOptional<z.ZodBoolean>;
+    }, "strip", z.ZodTypeAny, {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    }, {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    }>;
+    sourceHint: z.ZodOptional<z.ZodObject<{
+        dataTestId: z.ZodNullable<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        dataTestId: string | null;
+    }, {
+        dataTestId: string | null;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    selector: string;
+    bounds: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    };
+    tagName: string;
+    interactive: {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    };
+    a11y: {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    };
+    id?: string | undefined;
+    className?: string | undefined;
+    text?: string | undefined;
+    computedStyles?: Record<string, string> | undefined;
+    sourceHint?: {
+        dataTestId: string | null;
+    } | undefined;
+}, {
+    selector: string;
+    bounds: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    };
+    tagName: string;
+    interactive: {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    };
+    a11y: {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    };
+    id?: string | undefined;
+    className?: string | undefined;
+    text?: string | undefined;
+    computedStyles?: Record<string, string> | undefined;
+    sourceHint?: {
+        dataTestId: string | null;
+    } | undefined;
+}>;
+/**
+ * Element issue detected during audit
+ */
+declare const ElementIssueSchema: z.ZodObject<{
+    type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
+    severity: z.ZodEnum<["error", "warning", "info"]>;
+    message: z.ZodString;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+    severity: "error" | "warning" | "info";
+}, {
+    message: string;
+    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+    severity: "error" | "warning" | "info";
+}>;
+/**
+ * Audit result for a captured page
+ */
+declare const AuditResultSchema: z.ZodObject<{
+    totalElements: z.ZodNumber;
+    interactiveCount: z.ZodNumber;
+    withHandlers: z.ZodNumber;
+    withoutHandlers: z.ZodNumber;
+    issues: z.ZodArray<z.ZodObject<{
+        type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
+        severity: z.ZodEnum<["error", "warning", "info"]>;
+        message: z.ZodString;
+    }, "strip", z.ZodTypeAny, {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }, {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }>, "many">;
+}, "strip", z.ZodTypeAny, {
+    issues: {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }[];
+    totalElements: number;
+    interactiveCount: number;
+    withHandlers: number;
+    withoutHandlers: number;
+}, {
+    issues: {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }[];
+    totalElements: number;
+    interactiveCount: number;
+    withHandlers: number;
+    withoutHandlers: number;
+}>;
 type Viewport = z.infer<typeof ViewportSchema>;
 type Config = z.infer<typeof ConfigSchema>;
 type SessionQuery = z.infer<typeof SessionQuerySchema>;
@@ -968,6 +1237,208 @@ type Analysis = z.infer<typeof AnalysisSchema>;
 type SessionStatus = z.infer<typeof SessionStatusSchema>;
 type Session = z.infer<typeof SessionSchema>;
 type ComparisonReport = z.infer<typeof ComparisonReportSchema>;
+type InteractiveState = z.infer<typeof InteractiveStateSchema>;
+type A11yAttributes = z.infer<typeof A11yAttributesSchema>;
+type Bounds = z.infer<typeof BoundsSchema>;
+type EnhancedElement = z.infer<typeof EnhancedElementSchema>;
+type ElementIssue = z.infer<typeof ElementIssueSchema>;
+type AuditResult = z.infer<typeof AuditResultSchema>;
+/**
+ * Rule severity levels
+ */
+declare const RuleSeveritySchema: z.ZodEnum<["off", "warn", "error"]>;
+/**
+ * Individual rule setting
+ */
+declare const RuleSettingSchema: z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>;
+/**
+ * Rules configuration (user's .ibr/rules.json)
+ */
+declare const RulesConfigSchema: z.ZodObject<{
+    extends: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    rules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>>>;
+}, "strip", z.ZodTypeAny, {
+    extends?: string[] | undefined;
+    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
+}, {
+    extends?: string[] | undefined;
+    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
+}>;
+/**
+ * Violation detected by a rule
+ */
+declare const ViolationSchema: z.ZodObject<{
+    ruleId: z.ZodString;
+    ruleName: z.ZodString;
+    severity: z.ZodEnum<["warn", "error"]>;
+    message: z.ZodString;
+    element: z.ZodOptional<z.ZodString>;
+    bounds: z.ZodOptional<z.ZodObject<{
+        x: z.ZodNumber;
+        y: z.ZodNumber;
+        width: z.ZodNumber;
+        height: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }>>;
+    fix: z.ZodOptional<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    severity: "error" | "warn";
+    ruleId: string;
+    ruleName: string;
+    bounds?: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    } | undefined;
+    element?: string | undefined;
+    fix?: string | undefined;
+}, {
+    message: string;
+    severity: "error" | "warn";
+    ruleId: string;
+    ruleName: string;
+    bounds?: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    } | undefined;
+    element?: string | undefined;
+    fix?: string | undefined;
+}>;
+/**
+ * Full audit report with rule violations
+ */
+declare const RuleAuditResultSchema: z.ZodObject<{
+    url: z.ZodString;
+    timestamp: z.ZodString;
+    elementsScanned: z.ZodNumber;
+    violations: z.ZodArray<z.ZodObject<{
+        ruleId: z.ZodString;
+        ruleName: z.ZodString;
+        severity: z.ZodEnum<["warn", "error"]>;
+        message: z.ZodString;
+        element: z.ZodOptional<z.ZodString>;
+        bounds: z.ZodOptional<z.ZodObject<{
+            x: z.ZodNumber;
+            y: z.ZodNumber;
+            width: z.ZodNumber;
+            height: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }>>;
+        fix: z.ZodOptional<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }, {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }>, "many">;
+    summary: z.ZodObject<{
+        errors: z.ZodNumber;
+        warnings: z.ZodNumber;
+        passed: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        errors: number;
+        warnings: number;
+        passed: number;
+    }, {
+        errors: number;
+        warnings: number;
+        passed: number;
+    }>;
+}, "strip", z.ZodTypeAny, {
+    url: string;
+    summary: {
+        errors: number;
+        warnings: number;
+        passed: number;
+    };
+    timestamp: string;
+    elementsScanned: number;
+    violations: {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }[];
+}, {
+    url: string;
+    summary: {
+        errors: number;
+        warnings: number;
+        passed: number;
+    };
+    timestamp: string;
+    elementsScanned: number;
+    violations: {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }[];
+}>;
+type RuleSeverity = z.infer<typeof RuleSeveritySchema>;
+type RuleSetting = z.infer<typeof RuleSettingSchema>;
+type RulesConfig = z.infer<typeof RulesConfigSchema>;
+type Violation = z.infer<typeof ViolationSchema>;
+type RuleAuditResult = z.infer<typeof RuleAuditResultSchema>;
 
 /**
  * Options for starting a visual session
@@ -1357,6 +1828,85 @@ declare function formatReportJson(report: ComparisonReport): string;
  */
 declare function formatSessionSummary(session: Session): string;
 
+/**
+ * integration.ts
+ * Extract API calls from TypeScript/React component files
+ *
+ * Detects:
+ * - fetch() calls
+ * - axios methods (get, post, put, delete, patch, etc.)
+ * - Template literals and variable URLs
+ */
+interface ApiCall {
+    endpoint: string;
+    method: string;
+    sourceFile: string;
+    lineNumber?: number;
+    callerContext?: string;
+    isDynamic?: boolean;
+}
+/**
+ * Represents an API route discovered in the project
+ */
+interface ApiRoute {
+    route: string;
+    method: string[];
+    sourceFile: string;
+    isDynamic: boolean;
+}
+/**
+ * Parse a single file for fetch/axios calls
+ *
+ * @param filePath - Absolute path to TypeScript/React file
+ * @returns Array of API calls found in the file
+ */
+declare function extractApiCalls(filePath: string): Promise<ApiCall[]>;
+/**
+ * Recursively scan directory for TypeScript/React files and extract API calls
+ *
+ * @param dir - Directory to scan
+ * @param pattern - File pattern to match (default: TypeScript/React files)
+ * @returns Array of all API calls found
+ */
+declare function scanDirectoryForApiCalls(dir: string, _pattern?: string): Promise<ApiCall[]>;
+/**
+ * Group API calls by endpoint
+ */
+declare function groupByEndpoint(calls: ApiCall[]): Map<string, ApiCall[]>;
+/**
+ * Group API calls by source file
+ */
+declare function groupByFile(calls: ApiCall[]): Map<string, ApiCall[]>;
+/**
+ * Filter calls to only include specific HTTP methods
+ */
+declare function filterByMethod(calls: ApiCall[], methods: string[]): ApiCall[];
+/**
+ * Filter calls to only include specific endpoints (supports wildcards)
+ */
+declare function filterByEndpoint(calls: ApiCall[], endpointPattern: string): ApiCall[];
+/**
+ * Discover API routes from Next.js/Remix file structure
+ * Supports Next.js App Router (app/api) and Pages Router (pages/api)
+ */
+declare function discoverApiRoutes(projectDir: string): Promise<ApiRoute[]>;
+/**
+ * Convert file path to API route
+ * Examples:
+ * - app/api/users/route.ts -> /api/users
+ * - app/api/users/[id]/route.ts -> /api/users/[id]
+ * - pages/api/users.ts -> /api/users
+ * - pages/api/users/[id].ts -> /api/users/[id]
+ */
+declare function filePathToRoute(filePath: string, projectDir: string): string;
+/**
+ * Cross-reference API calls against routes, return orphans
+ */
+declare function findOrphanEndpoints(apiCalls: ApiCall[], apiRoutes: ApiRoute[]): {
+    call: ApiCall;
+    searchedLocations: string[];
+}[];
+
 declare class InterfaceBuiltRight {
     private config;
     constructor(options?: Partial<Config>);
@@ -1435,4 +1985,4 @@ declare class InterfaceBuiltRight {
     private generateSessionName;
 }
 
-export { type Analysis, AnalysisSchema, type AuthOptions, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareOptions, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type DiscoveredPage, type Inconsistency, InterfaceBuiltRight, type LoginOptions, type OutputFormat, type PageMetrics, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, ViewportSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverPages, findSessions, formatConsistencyReport, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };
+export { type A11yAttributes, A11yAttributesSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRoute, type AuditResult, AuditResultSchema, type AuthOptions, type Bounds, BoundsSchema, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareOptions, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type Inconsistency, type InteractiveState, InteractiveStateSchema, InterfaceBuiltRight, type LoginOptions, type OutputFormat, type PageMetrics, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, ViewportSchema, type Violation, ViolationSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverApiRoutes, discoverPages, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findOrphanEndpoints, findSessions, formatConsistencyReport, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, markSessionCompared, scanDirectoryForApiCalls, updateSession };

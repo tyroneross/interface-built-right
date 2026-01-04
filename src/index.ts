@@ -279,4 +279,16 @@ export {
   getSessionStats,
 } from './session.js';
 export { generateReport, formatReportText, formatReportJson, formatReportMinimal, formatSessionSummary } from './report.js';
+export {
+  extractApiCalls,
+  scanDirectoryForApiCalls,
+  discoverApiRoutes,
+  filePathToRoute,
+  findOrphanEndpoints,
+  groupByEndpoint,
+  groupByFile,
+  filterByMethod,
+  filterByEndpoint,
+} from './integration.js';
+export type { ApiCall, ApiRoute } from './integration.js';
 export { VIEWPORTS };

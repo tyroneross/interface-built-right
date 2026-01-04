@@ -2,7 +2,7 @@ import { chromium, type Browser, type Page } from 'playwright';
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, dirname } from 'path';
-import type { Viewport } from './schemas.js';
+import type { Viewport, EnhancedElement, ElementIssue, AuditResult } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
 
 /**
@@ -228,6 +228,253 @@ async function extractElementStyles(
     },
     { sel: selector, props: CSS_PROPERTIES_TO_EXTRACT }
   );
+}
+
+/**
+ * Interactive element selectors for audit
+ */
+const INTERACTIVE_SELECTORS = [
+  'button',
+  'a[href]',
+  'a:not([href])',  // Links without href (potential issues)
+  'input[type="submit"]',
+  'input[type="button"]',
+  'input[type="text"]',
+  'input[type="email"]',
+  'input[type="password"]',
+  'select',
+  'textarea',
+  '[role="button"]',
+  '[role="link"]',
+  '[onclick]',
+  '[tabindex]:not([tabindex="-1"])',
+];
+
+/**
+ * Extract enhanced interactive elements with handler detection
+ */
+export async function extractInteractiveElements(page: Page): Promise<EnhancedElement[]> {
+  return page.evaluate((selectors) => {
+    const seen = new Set<Element>();
+    const elements: EnhancedElement[] = [];
+
+    // Helper: Generate unique selector
+    function generateSelector(el: HTMLElement): string {
+      if (el.id) return `#${el.id}`;
+
+      const path: string[] = [];
+      let current: HTMLElement | null = el;
+
+      while (current && current !== document.body) {
+        let selector = current.tagName.toLowerCase();
+        if (current.id) {
+          selector = `#${current.id}`;
+          path.unshift(selector);
+          break;
+        } else if (current.className && typeof current.className === 'string') {
+          const classes = current.className.split(' ').filter(c => c.trim() && !c.includes(':'));
+          if (classes.length > 0) {
+            selector += `.${classes[0]}`;
+          }
+        }
+
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            c => c.tagName === current!.tagName
+          );
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+        }
+
+        path.unshift(selector);
+        current = current.parentElement;
+      }
+
+      return path.join(' > ').slice(0, 200);
+    }
+
+    // Helper: Detect click handlers
+    function detectHandlers(el: HTMLElement) {
+      const keys = Object.keys(el);
+
+      // React 17+ uses __reactProps$
+      const reactPropsKey = keys.find(k => k.startsWith('__reactProps$'));
+      let hasReactHandler = false;
+      if (reactPropsKey) {
+        const props = (el as any)[reactPropsKey];
+        hasReactHandler = !!(props?.onClick || props?.onSubmit || props?.onMouseDown);
+      }
+
+      // Also check React fiber
+      const fiberKey = keys.find(k => k.startsWith('__reactFiber$'));
+      if (!hasReactHandler && fiberKey) {
+        const fiber = (el as any)[fiberKey];
+        hasReactHandler = !!(fiber?.pendingProps?.onClick || fiber?.memoizedProps?.onClick);
+      }
+
+      // Vue uses __vue__ or __vnode
+      const hasVueHandler = !!(
+        (el as any).__vue__?.$listeners?.click ||
+        (el as any).__vnode?.props?.onClick
+      );
+
+      // Angular uses __ngContext__
+      const hasAngularHandler = !!(el as any).__ngContext__ || el.hasAttribute('ng-click');
+
+      // Vanilla DOM
+      const hasVanillaHandler = typeof (el as any).onclick === 'function' ||
+                                 el.hasAttribute('onclick');
+
+      return {
+        hasReactHandler,
+        hasVueHandler,
+        hasAngularHandler,
+        hasVanillaHandler,
+        hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler,
+      };
+    }
+
+    // Process each selector
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          seen.add(el);
+
+          const htmlEl = el as HTMLElement;
+          const rect = htmlEl.getBoundingClientRect();
+          const computed = window.getComputedStyle(htmlEl);
+          const handlers = detectHandlers(htmlEl);
+
+          // Check href for links
+          const href = htmlEl.getAttribute('href');
+          const hasValidHref = href !== null && href !== '#' && href !== '' &&
+                               !href.startsWith('javascript:');
+
+          elements.push({
+            selector: generateSelector(htmlEl),
+            tagName: htmlEl.tagName.toLowerCase(),
+            id: htmlEl.id || undefined,
+            className: typeof htmlEl.className === 'string' ? htmlEl.className : undefined,
+            text: (htmlEl.textContent || '').trim().slice(0, 100) || undefined,
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            computedStyles: {
+              cursor: computed.cursor,
+              color: computed.color,
+              backgroundColor: computed.backgroundColor,
+            },
+            interactive: {
+              hasOnClick: handlers.hasAnyHandler,
+              hasHref: hasValidHref,
+              isDisabled: htmlEl.hasAttribute('disabled') ||
+                          htmlEl.getAttribute('aria-disabled') === 'true' ||
+                          computed.pointerEvents === 'none',
+              tabIndex: parseInt(htmlEl.getAttribute('tabindex') || '0', 10),
+              cursor: computed.cursor,
+              hasReactHandler: handlers.hasReactHandler || undefined,
+              hasVueHandler: handlers.hasVueHandler || undefined,
+              hasAngularHandler: handlers.hasAngularHandler || undefined,
+            },
+            a11y: {
+              role: htmlEl.getAttribute('role'),
+              ariaLabel: htmlEl.getAttribute('aria-label'),
+              ariaDescribedBy: htmlEl.getAttribute('aria-describedby'),
+              ariaHidden: htmlEl.getAttribute('aria-hidden') === 'true' || undefined,
+            },
+            sourceHint: {
+              dataTestId: htmlEl.getAttribute('data-testid'),
+            },
+          });
+        });
+      } catch {
+        // Skip invalid selectors
+      }
+    }
+
+    return elements;
+  }, INTERACTIVE_SELECTORS);
+}
+
+/**
+ * Analyze elements and detect issues
+ */
+export function analyzeElements(elements: EnhancedElement[], isMobile = false): AuditResult {
+  const issues: ElementIssue[] = [];
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+
+  const interactiveElements = elements.filter(el => {
+    const isButton = el.tagName === 'button' || el.a11y.role === 'button';
+    const isLink = el.tagName === 'a';
+    const isInput = ['input', 'select', 'textarea'].includes(el.tagName);
+    const looksClickable = el.interactive.cursor === 'pointer';
+    return isButton || isLink || isInput || looksClickable;
+  });
+
+  for (const el of interactiveElements) {
+    const isButton = el.tagName === 'button' || el.a11y.role === 'button';
+    const isLink = el.tagName === 'a';
+    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref;
+
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+    }
+
+    // Check: Button without handler
+    if (isButton && !el.interactive.hasOnClick && !el.interactive.isDisabled) {
+      issues.push({
+        type: 'NO_HANDLER',
+        severity: 'error',
+        message: `Button "${el.text || el.selector}" has no click handler`,
+      });
+    }
+
+    // Check: Link with placeholder href
+    if (isLink && !el.interactive.hasHref && !el.interactive.hasOnClick) {
+      issues.push({
+        type: 'PLACEHOLDER_LINK',
+        severity: 'error',
+        message: `Link "${el.text || el.selector}" has placeholder href and no handler`,
+      });
+    }
+
+    // Check: Touch target too small (mobile)
+    const minSize = isMobile ? 44 : 24;
+    if (el.bounds.width < minSize || el.bounds.height < minSize) {
+      issues.push({
+        type: 'TOUCH_TARGET_SMALL',
+        severity: isMobile ? 'error' : 'warning',
+        message: `"${el.text || el.selector}" touch target is ${el.bounds.width}x${el.bounds.height}px (min: ${minSize}px)`,
+      });
+    }
+
+    // Check: Missing aria-label on interactive element without text
+    if (hasHandler && !el.text && !el.a11y.ariaLabel) {
+      issues.push({
+        type: 'MISSING_ARIA_LABEL',
+        severity: 'warning',
+        message: `"${el.selector}" is interactive but has no text or aria-label`,
+      });
+    }
+  }
+
+  return {
+    totalElements: elements.length,
+    interactiveCount: interactiveElements.length,
+    withHandlers,
+    withoutHandlers,
+    issues,
+  };
 }
 
 /**

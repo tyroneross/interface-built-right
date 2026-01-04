@@ -1,0 +1,18 @@
+# IBR Available
+
+This project uses IBR (Interface Built Right) for UI verification.
+
+## Commands
+
+```bash
+npx ibr audit <url>              # Check UI for issues
+npx ibr session:start <url>      # Start interactive session
+npx ibr session:screenshot <id>  # Capture with element audit
+npx ibr list                     # List sessions
+```
+
+## Use for
+
+- Verifying buttons and forms work
+- Checking interactive elements have handlers
+- Detecting accessibility issues

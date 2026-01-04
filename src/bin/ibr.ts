@@ -259,6 +259,88 @@ program
     }
   });
 
+// Audit command - full UI audit with configurable rules
+program
+  .command('audit [url]')
+  .description('Audit a page for UI issues (handlers, accessibility, touch targets)')
+  .option('-r, --rules <preset>', 'Rule preset: minimal (default)', 'minimal')
+  .option('--json', 'Output as JSON')
+  .option('--fail-on <level>', 'Exit non-zero on errors/warnings', 'error')
+  .action(async (url: string | undefined, options: { rules: string; json?: boolean; failOn: string }) => {
+    try {
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      // Import rule engine and browser server
+      const { loadRulesConfig, runRules, createAuditResult, formatAuditResult } = await import('../rules/engine.js');
+      const { register } = await import('../rules/presets/minimal.js');
+      const { startBrowserServer, connectToBrowserServer, stopBrowserServer, isServerRunning } = await import('../browser-server.js');
+      const { extractInteractiveElements } = await import('../extract.js');
+      const { chromium } = await import('playwright');
+
+      // Register presets
+      register();
+
+      // Load rules config
+      const rulesConfig = await loadRulesConfig(process.cwd());
+      if (options.rules && options.rules !== 'minimal') {
+        rulesConfig.extends = [options.rules];
+      }
+
+      console.log(`Auditing ${resolvedUrl}...`);
+      console.log('');
+
+      // Launch browser for audit
+      const browser = await chromium.launch({ headless: true });
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        reducedMotion: 'reduce',
+      });
+
+      const page = await context.newPage();
+      await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+      // Extract elements
+      const elements = await extractInteractiveElements(page);
+
+      // Run rules
+      const isMobile = viewport.width < 768;
+      const violations = runRules(elements, {
+        isMobile,
+        viewportWidth: viewport.width,
+        viewportHeight: viewport.height,
+        url: resolvedUrl,
+        allElements: elements,
+      }, rulesConfig);
+
+      // Create result
+      const result = createAuditResult(resolvedUrl, elements, violations);
+
+      await context.close();
+      await browser.close();
+
+      // Output
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatAuditResult(result));
+      }
+
+      // Exit code based on --fail-on
+      if (options.failOn === 'error' && result.summary.errors > 0) {
+        process.exit(1);
+      } else if (options.failOn === 'warning' && (result.summary.errors > 0 || result.summary.warnings > 0)) {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Status command - show pending baselines
 program
   .command('status')
@@ -759,22 +841,46 @@ program
 // Session screenshot command
 program
   .command('session:screenshot <sessionId>')
-  .description('Take a screenshot of the current page state')
+  .description('Take a screenshot and audit interactive elements')
   .option('-n, --name <name>', 'Screenshot name')
   .option('-s, --selector <css>', 'CSS selector to capture specific element')
   .option('--no-full-page', 'Capture only the viewport')
-  .action(async (sessionId: string, options: { name?: string; selector?: string; fullPage?: boolean }) => {
+  .option('--json', 'Output audit results as JSON')
+  .action(async (sessionId: string, options: { name?: string; selector?: string; fullPage?: boolean; json?: boolean }) => {
     try {
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
 
-      const path = await session.screenshot({
+      const { path, elements, audit } = await session.screenshot({
         name: options.name,
         selector: options.selector,
         fullPage: options.fullPage,
       });
-      console.log(`Screenshot saved: ${path}`);
+
+      if (options.json) {
+        console.log(JSON.stringify({ path, elements, audit }, null, 2));
+      } else {
+        console.log(`Screenshot saved: ${path}`);
+        console.log('');
+        console.log('Element Audit:');
+        console.log(`  Total elements: ${audit.totalElements}`);
+        console.log(`  Interactive: ${audit.interactiveCount}`);
+        console.log(`  With handlers: ${audit.withHandlers}`);
+        console.log(`  Without handlers: ${audit.withoutHandlers}`);
+
+        if (audit.issues.length > 0) {
+          console.log('');
+          console.log('Issues detected:');
+          for (const issue of audit.issues) {
+            const icon = issue.severity === 'error' ? '✗' : issue.severity === 'warning' ? '!' : 'i';
+            console.log(`  ${icon} [${issue.type}] ${issue.message}`);
+          }
+        } else {
+          console.log('');
+          console.log('No issues detected.');
+        }
+      }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       console.log('');

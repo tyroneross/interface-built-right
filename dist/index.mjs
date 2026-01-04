@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { chromium } from 'playwright';
+import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, readdir, rm, stat, unlink } from 'fs/promises';
+import * as path from 'path';
 import { dirname, join } from 'path';
 import { userInfo } from 'os';
 import { randomBytes } from 'crypto';
@@ -105,6 +107,103 @@ var ComparisonReportSchema = z.object({
     diff: z.string()
   }),
   webViewUrl: z.string().optional()
+});
+var InteractiveStateSchema = z.object({
+  hasOnClick: z.boolean(),
+  hasHref: z.boolean(),
+  isDisabled: z.boolean(),
+  tabIndex: z.number(),
+  cursor: z.string(),
+  // Framework-specific detection
+  hasReactHandler: z.boolean().optional(),
+  hasVueHandler: z.boolean().optional(),
+  hasAngularHandler: z.boolean().optional()
+});
+var A11yAttributesSchema = z.object({
+  role: z.string().nullable(),
+  ariaLabel: z.string().nullable(),
+  ariaDescribedBy: z.string().nullable(),
+  ariaHidden: z.boolean().optional()
+});
+var BoundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number()
+});
+var EnhancedElementSchema = z.object({
+  // Identity
+  selector: z.string(),
+  tagName: z.string(),
+  id: z.string().optional(),
+  className: z.string().optional(),
+  text: z.string().optional(),
+  // Position
+  bounds: BoundsSchema,
+  // Styles (subset)
+  computedStyles: z.record(z.string()).optional(),
+  // Interactivity
+  interactive: InteractiveStateSchema,
+  // Accessibility
+  a11y: A11yAttributesSchema,
+  // Source hints for debugging
+  sourceHint: z.object({
+    dataTestId: z.string().nullable()
+  }).optional()
+});
+var ElementIssueSchema = z.object({
+  type: z.enum([
+    "NO_HANDLER",
+    // Interactive-looking but no handler
+    "PLACEHOLDER_LINK",
+    // href="#" without handler
+    "TOUCH_TARGET_SMALL",
+    // < 44px on mobile
+    "MISSING_ARIA_LABEL",
+    // Interactive without label
+    "DISABLED_NO_VISUAL"
+    // Disabled but no visual indication
+  ]),
+  severity: z.enum(["error", "warning", "info"]),
+  message: z.string()
+});
+var AuditResultSchema = z.object({
+  totalElements: z.number(),
+  interactiveCount: z.number(),
+  withHandlers: z.number(),
+  withoutHandlers: z.number(),
+  issues: z.array(ElementIssueSchema)
+});
+var RuleSeveritySchema = z.enum(["off", "warn", "error"]);
+var RuleSettingSchema = z.union([
+  RuleSeveritySchema,
+  z.tuple([RuleSeveritySchema, z.record(z.unknown())])
+]);
+var RulesConfigSchema = z.object({
+  extends: z.array(z.string()).optional(),
+  rules: z.record(RuleSettingSchema).optional()
+});
+var ViolationSchema = z.object({
+  ruleId: z.string(),
+  ruleName: z.string(),
+  severity: z.enum(["warn", "error"]),
+  message: z.string(),
+  element: z.string().optional(),
+  // Selector of violating element
+  bounds: BoundsSchema.optional(),
+  fix: z.string().optional()
+  // Suggested fix
+});
+var RuleAuditResultSchema = z.object({
+  url: z.string(),
+  timestamp: z.string(),
+  elementsScanned: z.number(),
+  violations: z.array(ViolationSchema),
+  summary: z.object({
+    errors: z.number(),
+    warnings: z.number(),
+    passed: z.number()
+  })
 });
 function isDeployedEnvironment() {
   return !!(process.env.VERCEL || process.env.NETLIFY || process.env.CI || process.env.GITHUB_ACTIONS || process.env.GITLAB_CI || process.env.CIRCLECI || process.env.JENKINS_URL || process.env.TRAVIS || process.env.HEROKU || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AZURE_FUNCTIONS_ENVIRONMENT);
@@ -1228,7 +1327,7 @@ function normalizeUrl(url) {
   }
 }
 function shouldSkipUrl(url) {
-  const path = url.pathname.toLowerCase();
+  const path2 = url.pathname.toLowerCase();
   const skipExtensions = [
     ".pdf",
     ".jpg",
@@ -1251,7 +1350,7 @@ function shouldSkipUrl(url) {
     ".tar",
     ".gz"
   ];
-  if (skipExtensions.some((ext) => path.endsWith(ext))) return true;
+  if (skipExtensions.some((ext) => path2.endsWith(ext))) return true;
   const skipPaths = [
     "/api/",
     "/static/",
@@ -1264,7 +1363,7 @@ function shouldSkipUrl(url) {
     "/admin/",
     "/auth/"
   ];
-  if (skipPaths.some((p) => path.includes(p))) return true;
+  if (skipPaths.some((p) => path2.includes(p))) return true;
   if (url.hash && url.pathname === "/") return true;
   return false;
 }
@@ -1332,6 +1431,417 @@ async function getNavigationLinks(url) {
     throw error;
   }
 }
+function extractCallerContext(content, targetLine) {
+  const lines = content.split("\n");
+  for (let i = targetLine - 1; i >= Math.max(0, targetLine - 30); i--) {
+    const line = lines[i];
+    const functionMatch = line.match(/(?:export\s+)?(?:async\s+)?function\s+(\w+)/);
+    const arrowMatch = line.match(/(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s*)?\(/);
+    const componentMatch = line.match(/(?:export\s+)?(?:const|function)\s+([A-Z]\w+)/);
+    if (functionMatch) return functionMatch[1];
+    if (arrowMatch) return arrowMatch[1];
+    if (componentMatch) return componentMatch[1];
+  }
+  return void 0;
+}
+function parseEndpoint(rawEndpoint) {
+  const hasTemplateLiteral = rawEndpoint.includes("${") || rawEndpoint.includes("`");
+  const hasConcatenation = /['"].*\+|^\w+$/.test(rawEndpoint);
+  if (hasTemplateLiteral || hasConcatenation) {
+    return {
+      endpoint: rawEndpoint.replace(/`/g, "").replace(/\$\{[^}]+\}/g, "{dynamic}"),
+      isDynamic: true
+    };
+  }
+  return {
+    endpoint: rawEndpoint.replace(/['"]/g, ""),
+    isDynamic: false
+  };
+}
+function extractFromContent(content, sourceFile) {
+  const calls = [];
+  const lines = content.split("\n");
+  const fetchPattern = /fetch\s*\(\s*(['"`])([^'"`]+)\1/g;
+  const fetchWithOptionsPattern = /fetch\s*\(\s*(['"`])([^'"`]+)\1\s*,\s*\{[^}]*method\s*:\s*['"](\w+)['"]/g;
+  const axiosPattern = /axios\.(get|post|put|delete|patch|head|options)\s*\(\s*(['"`])([^'"`]+)\2/g;
+  const axiosConfigPattern = /axios\s*\(\s*\{[^}]*url\s*:\s*(['"`])([^'"`]+)\1[^}]*method\s*:\s*['"](\w+)['"]/g;
+  const templateLiteralPattern = /(?:fetch|axios(?:\.\w+)?)\s*\(\s*`([^`]+)`/g;
+  const urlVariablePattern = /const\s+(\w*[Uu]rl\w*)\s*=\s*(['"`])([^'"`]+)\2/g;
+  const urlUsagePattern = /(?:fetch|axios(?:\.\w+)?)\s*\(\s*(\w+)/g;
+  const urlVariables = /* @__PURE__ */ new Map();
+  lines.forEach((line, index) => {
+    let match;
+    const urlVarRegex = new RegExp(urlVariablePattern.source, "g");
+    while ((match = urlVarRegex.exec(line)) !== null) {
+      urlVariables.set(match[1], {
+        endpoint: match[3],
+        lineNumber: index + 1
+      });
+    }
+  });
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1;
+    let match;
+    const fetchOptsRegex = new RegExp(fetchWithOptionsPattern.source, "g");
+    while ((match = fetchOptsRegex.exec(line)) !== null) {
+      const { endpoint, isDynamic } = parseEndpoint(match[2]);
+      calls.push({
+        endpoint,
+        method: match[3].toUpperCase(),
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic
+      });
+    }
+    const fetchRegex = new RegExp(fetchPattern.source, "g");
+    while ((match = fetchRegex.exec(line)) !== null) {
+      if (!line.includes("method:")) {
+        const { endpoint, isDynamic } = parseEndpoint(match[2]);
+        calls.push({
+          endpoint,
+          method: "GET",
+          sourceFile,
+          lineNumber,
+          callerContext: extractCallerContext(content, lineNumber),
+          isDynamic
+        });
+      }
+    }
+    const axiosRegex = new RegExp(axiosPattern.source, "g");
+    while ((match = axiosRegex.exec(line)) !== null) {
+      const { endpoint, isDynamic } = parseEndpoint(match[3]);
+      calls.push({
+        endpoint,
+        method: match[1].toUpperCase(),
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic
+      });
+    }
+    const axiosConfigRegex = new RegExp(axiosConfigPattern.source, "g");
+    while ((match = axiosConfigRegex.exec(line)) !== null) {
+      const { endpoint, isDynamic } = parseEndpoint(match[2]);
+      calls.push({
+        endpoint,
+        method: match[3].toUpperCase(),
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic
+      });
+    }
+    const templateRegex = new RegExp(templateLiteralPattern.source, "g");
+    while ((match = templateRegex.exec(line)) !== null) {
+      const { endpoint } = parseEndpoint(match[1]);
+      let method = "GET";
+      const methodMatch = line.match(/method\s*:\s*['"](\w+)['"]/);
+      if (methodMatch) {
+        method = methodMatch[1].toUpperCase();
+      }
+      calls.push({
+        endpoint,
+        method,
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic: true
+        // Template literals are always dynamic
+      });
+    }
+    const urlUsageRegex = new RegExp(urlUsagePattern.source, "g");
+    while ((match = urlUsageRegex.exec(line)) !== null) {
+      const varName = match[1];
+      if (urlVariables.has(varName)) {
+        const urlInfo = urlVariables.get(varName);
+        const { endpoint, isDynamic } = parseEndpoint(urlInfo.endpoint);
+        let method = "GET";
+        const methodMatch = line.match(/method\s*:\s*['"](\w+)['"]/);
+        if (methodMatch) {
+          method = methodMatch[1].toUpperCase();
+        }
+        calls.push({
+          endpoint,
+          method,
+          sourceFile,
+          lineNumber,
+          callerContext: extractCallerContext(content, lineNumber),
+          isDynamic
+        });
+      }
+    }
+  });
+  const uniqueCalls = calls.filter(
+    (call, index, self) => index === self.findIndex(
+      (c) => c.endpoint === call.endpoint && c.method === call.method && c.lineNumber === call.lineNumber
+    )
+  );
+  return uniqueCalls;
+}
+async function extractApiCalls(filePath) {
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    return extractFromContent(content, filePath);
+  } catch (error) {
+    console.error(`Error reading file ${filePath}:`, error);
+    return [];
+  }
+}
+async function scanDirectoryForApiCalls(dir, _pattern = "**/*.{ts,tsx,js,jsx}") {
+  const allCalls = [];
+  async function scanDir(currentDir) {
+    try {
+      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (!["node_modules", "dist", "build", ".git", "coverage"].includes(entry.name)) {
+            await scanDir(fullPath);
+          }
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name);
+          if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
+            const calls = await extractApiCalls(fullPath);
+            allCalls.push(...calls);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error scanning directory ${currentDir}:`, error);
+    }
+  }
+  await scanDir(dir);
+  return allCalls;
+}
+function groupByEndpoint(calls) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const call of calls) {
+    const key = call.endpoint;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key).push(call);
+  }
+  return grouped;
+}
+function groupByFile(calls) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const call of calls) {
+    const key = call.sourceFile;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key).push(call);
+  }
+  return grouped;
+}
+function filterByMethod(calls, methods) {
+  const upperMethods = methods.map((m) => m.toUpperCase());
+  return calls.filter((call) => upperMethods.includes(call.method));
+}
+function filterByEndpoint(calls, endpointPattern) {
+  const regex = new RegExp(
+    "^" + endpointPattern.replace(/\*/g, ".*").replace(/\?/g, ".") + "$"
+  );
+  return calls.filter((call) => regex.test(call.endpoint));
+}
+async function discoverApiRoutes(projectDir) {
+  const routes = [];
+  const appApiDir = path.join(projectDir, "app", "api");
+  if (await directoryExists(appApiDir)) {
+    const appRoutes = await discoverAppRouterRoutes(appApiDir, projectDir);
+    routes.push(...appRoutes);
+  }
+  const pagesApiDir = path.join(projectDir, "pages", "api");
+  if (await directoryExists(pagesApiDir)) {
+    const pagesRoutes = await discoverPagesRouterRoutes(pagesApiDir, projectDir);
+    routes.push(...pagesRoutes);
+  }
+  const srcAppApiDir = path.join(projectDir, "src", "app", "api");
+  if (await directoryExists(srcAppApiDir)) {
+    const srcAppRoutes = await discoverAppRouterRoutes(srcAppApiDir, projectDir);
+    routes.push(...srcAppRoutes);
+  }
+  const srcPagesApiDir = path.join(projectDir, "src", "pages", "api");
+  if (await directoryExists(srcPagesApiDir)) {
+    const srcPagesRoutes = await discoverPagesRouterRoutes(srcPagesApiDir, projectDir);
+    routes.push(...srcPagesRoutes);
+  }
+  return routes;
+}
+function filePathToRoute(filePath, projectDir) {
+  const normalizedFilePath = path.normalize(filePath);
+  const normalizedProjectDir = path.normalize(projectDir);
+  const relativePath = path.relative(normalizedProjectDir, normalizedFilePath);
+  let routePath = relativePath.replace(/\.(ts|tsx|js|jsx)$/, "");
+  routePath = routePath.replace(/\/route$/, "");
+  routePath = routePath.replace(/\\route$/, "");
+  let apiPath = "";
+  if (routePath.includes("app/api/") || routePath.includes("app\\api\\")) {
+    apiPath = routePath.split(/app[/\\]api[/\\]/)[1] || "";
+  } else if (routePath.includes("src/app/api/") || routePath.includes("src\\app\\api\\")) {
+    apiPath = routePath.split(/src[/\\]app[/\\]api[/\\]/)[1] || "";
+  } else if (routePath.includes("pages/api/") || routePath.includes("pages\\api\\")) {
+    apiPath = routePath.split(/pages[/\\]api[/\\]/)[1] || "";
+  } else if (routePath.includes("src/pages/api/") || routePath.includes("src\\pages\\api\\")) {
+    apiPath = routePath.split(/src[/\\]pages[/\\]api[/\\]/)[1] || "";
+  }
+  const route = "/api/" + (apiPath ? apiPath.replace(/\\/g, "/") : "");
+  return route;
+}
+function findOrphanEndpoints(apiCalls, apiRoutes) {
+  const orphans = [];
+  for (const call of apiCalls) {
+    const endpoint = call.endpoint;
+    if (!endpoint.startsWith("/api") && !endpoint.includes("/api/")) {
+      continue;
+    }
+    if (endpoint.includes("{dynamic}")) {
+      continue;
+    }
+    let apiPath = endpoint;
+    if (endpoint.includes("/api/")) {
+      apiPath = "/api/" + endpoint.split("/api/")[1].split("?")[0];
+    }
+    const matchedRoute = apiRoutes.find((route) => {
+      const methodMatches = route.method.includes(call.method) || route.method.includes("ALL");
+      if (!methodMatches) {
+        return false;
+      }
+      return routeMatchesEndpoint(route.route, apiPath);
+    });
+    if (!matchedRoute) {
+      const searchedLocations = generatePossibleRouteFiles(apiPath);
+      orphans.push({
+        call,
+        searchedLocations
+      });
+    }
+  }
+  return orphans;
+}
+function routeMatchesEndpoint(routePattern, endpoint) {
+  const routeParts = routePattern.split("/").filter(Boolean);
+  const endpointParts = endpoint.split("/").filter(Boolean);
+  if (routeParts.length !== endpointParts.length) {
+    return false;
+  }
+  for (let i = 0; i < routeParts.length; i++) {
+    const routePart = routeParts[i];
+    const endpointPart = endpointParts[i];
+    if (routePart.startsWith("[") && routePart.endsWith("]")) {
+      continue;
+    }
+    if (routePart !== endpointPart) {
+      return false;
+    }
+  }
+  return true;
+}
+function generatePossibleRouteFiles(apiPath) {
+  const pathWithoutApi = apiPath.replace(/^\/api\//, "");
+  const locations = [];
+  locations.push(`app/api/${pathWithoutApi}/route.ts`);
+  locations.push(`app/api/${pathWithoutApi}/route.js`);
+  locations.push(`src/app/api/${pathWithoutApi}/route.ts`);
+  locations.push(`src/app/api/${pathWithoutApi}/route.js`);
+  locations.push(`pages/api/${pathWithoutApi}.ts`);
+  locations.push(`pages/api/${pathWithoutApi}.js`);
+  locations.push(`src/pages/api/${pathWithoutApi}.ts`);
+  locations.push(`src/pages/api/${pathWithoutApi}.js`);
+  return locations;
+}
+async function discoverAppRouterRoutes(apiDir, projectDir) {
+  const routes = [];
+  try {
+    const files = await findRouteFiles(apiDir, "route");
+    for (const file of files) {
+      const content = await fs.readFile(file, "utf-8");
+      const methods = extractHttpMethods(content);
+      const route = filePathToRoute(file, projectDir);
+      const isDynamic = route.includes("[") && route.includes("]");
+      if (methods.length > 0) {
+        routes.push({
+          route,
+          method: methods,
+          sourceFile: file,
+          isDynamic
+        });
+      }
+    }
+  } catch (error) {
+  }
+  return routes;
+}
+async function discoverPagesRouterRoutes(apiDir, projectDir) {
+  const routes = [];
+  try {
+    const files = await findRouteFiles(apiDir);
+    for (const file of files) {
+      const content = await fs.readFile(file, "utf-8");
+      const methods = extractHttpMethods(content);
+      const route = filePathToRoute(file, projectDir);
+      const isDynamic = route.includes("[") && route.includes("]");
+      if (methods.length > 0 || content.includes("export default")) {
+        routes.push({
+          route,
+          method: methods.length > 0 ? methods : ["GET", "POST", "PUT", "DELETE", "PATCH"],
+          sourceFile: file,
+          isDynamic
+        });
+      }
+    }
+  } catch (error) {
+  }
+  return routes;
+}
+async function findRouteFiles(dir, filename) {
+  const files = [];
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const subFiles = await findRouteFiles(fullPath, filename);
+        files.push(...subFiles);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name);
+        const baseName = path.basename(entry.name, ext);
+        if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
+          if (filename) {
+            if (baseName === filename) {
+              files.push(fullPath);
+            }
+          } else {
+            files.push(fullPath);
+          }
+        }
+      }
+    }
+  } catch (error) {
+  }
+  return files;
+}
+function extractHttpMethods(content) {
+  const methods = [];
+  const httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+  for (const method of httpMethods) {
+    const exportPattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\s*\\(`, "g");
+    if (exportPattern.test(content)) {
+      methods.push(method);
+    }
+  }
+  return methods;
+}
+async function directoryExists(dir) {
+  try {
+    const stat3 = await fs.stat(dir);
+    return stat3.isDirectory();
+  } catch {
+    return false;
+  }
+}
 
 // src/index.ts
 var InterfaceBuiltRight = class {
@@ -1342,15 +1852,15 @@ var InterfaceBuiltRight = class {
   /**
    * Start a visual session by capturing a baseline screenshot
    */
-  async startSession(path, options = {}) {
+  async startSession(path2, options = {}) {
     const {
-      name = this.generateSessionName(path),
+      name = this.generateSessionName(path2),
       viewport = this.config.viewport,
       fullPage = this.config.fullPage,
       selector,
       waitFor
     } = options;
-    const url = this.resolveUrl(path);
+    const url = this.resolveUrl(path2);
     const session = await createSession(this.config.outputDir, url, name, viewport);
     const paths = getSessionPaths(this.config.outputDir, session.id);
     await captureScreenshot({
@@ -1493,20 +2003,20 @@ var InterfaceBuiltRight = class {
   /**
    * Resolve a path to full URL
    */
-  resolveUrl(path) {
-    if (path.startsWith("http://") || path.startsWith("https://")) {
-      return path;
+  resolveUrl(path2) {
+    if (path2.startsWith("http://") || path2.startsWith("https://")) {
+      return path2;
     }
-    return `${this.config.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+    return `${this.config.baseUrl}${path2.startsWith("/") ? path2 : `/${path2}`}`;
   }
   /**
    * Generate a session name from path
    */
-  generateSessionName(path) {
-    return path.replace(/^\/+/, "").replace(/\//g, "-").replace(/[^a-zA-Z0-9-_]/g, "") || "homepage";
+  generateSessionName(path2) {
+    return path2.replace(/^\/+/, "").replace(/\//g, "-").replace(/[^a-zA-Z0-9-_]/g, "") || "homepage";
   }
 };
 
-export { AnalysisSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, InterfaceBuiltRight, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverPages, findSessions, formatConsistencyReport, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, listSessions, markSessionCompared, updateSession };
+export { A11yAttributesSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, ElementIssueSchema, EnhancedElementSchema, InteractiveStateSchema, InterfaceBuiltRight, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverApiRoutes, discoverPages, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findOrphanEndpoints, findSessions, formatConsistencyReport, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, markSessionCompared, scanDirectoryForApiCalls, updateSession };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

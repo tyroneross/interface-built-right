@@ -140,6 +140,96 @@ export const ComparisonReportSchema = z.object({
   webViewUrl: z.string().optional(),
 });
 
+/**
+ * Element interactivity detection
+ */
+export const InteractiveStateSchema = z.object({
+  hasOnClick: z.boolean(),
+  hasHref: z.boolean(),
+  isDisabled: z.boolean(),
+  tabIndex: z.number(),
+  cursor: z.string(),
+  // Framework-specific detection
+  hasReactHandler: z.boolean().optional(),
+  hasVueHandler: z.boolean().optional(),
+  hasAngularHandler: z.boolean().optional(),
+});
+
+/**
+ * Accessibility attributes
+ */
+export const A11yAttributesSchema = z.object({
+  role: z.string().nullable(),
+  ariaLabel: z.string().nullable(),
+  ariaDescribedBy: z.string().nullable(),
+  ariaHidden: z.boolean().optional(),
+});
+
+/**
+ * Element bounds
+ */
+export const BoundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+
+/**
+ * Enhanced element with interactivity and accessibility
+ */
+export const EnhancedElementSchema = z.object({
+  // Identity
+  selector: z.string(),
+  tagName: z.string(),
+  id: z.string().optional(),
+  className: z.string().optional(),
+  text: z.string().optional(),
+
+  // Position
+  bounds: BoundsSchema,
+
+  // Styles (subset)
+  computedStyles: z.record(z.string()).optional(),
+
+  // Interactivity
+  interactive: InteractiveStateSchema,
+
+  // Accessibility
+  a11y: A11yAttributesSchema,
+
+  // Source hints for debugging
+  sourceHint: z.object({
+    dataTestId: z.string().nullable(),
+  }).optional(),
+});
+
+/**
+ * Element issue detected during audit
+ */
+export const ElementIssueSchema = z.object({
+  type: z.enum([
+    'NO_HANDLER',           // Interactive-looking but no handler
+    'PLACEHOLDER_LINK',     // href="#" without handler
+    'TOUCH_TARGET_SMALL',   // < 44px on mobile
+    'MISSING_ARIA_LABEL',   // Interactive without label
+    'DISABLED_NO_VISUAL',   // Disabled but no visual indication
+  ]),
+  severity: z.enum(['error', 'warning', 'info']),
+  message: z.string(),
+});
+
+/**
+ * Audit result for a captured page
+ */
+export const AuditResultSchema = z.object({
+  totalElements: z.number(),
+  interactiveCount: z.number(),
+  withHandlers: z.number(),
+  withoutHandlers: z.number(),
+  issues: z.array(ElementIssueSchema),
+});
+
 // Type exports - auto-generated from schemas
 export type Viewport = z.infer<typeof ViewportSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
@@ -151,3 +241,65 @@ export type Analysis = z.infer<typeof AnalysisSchema>;
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export type Session = z.infer<typeof SessionSchema>;
 export type ComparisonReport = z.infer<typeof ComparisonReportSchema>;
+export type InteractiveState = z.infer<typeof InteractiveStateSchema>;
+export type A11yAttributes = z.infer<typeof A11yAttributesSchema>;
+export type Bounds = z.infer<typeof BoundsSchema>;
+export type EnhancedElement = z.infer<typeof EnhancedElementSchema>;
+export type ElementIssue = z.infer<typeof ElementIssueSchema>;
+export type AuditResult = z.infer<typeof AuditResultSchema>;
+
+/**
+ * Rule severity levels
+ */
+export const RuleSeveritySchema = z.enum(['off', 'warn', 'error']);
+
+/**
+ * Individual rule setting
+ */
+export const RuleSettingSchema = z.union([
+  RuleSeveritySchema,
+  z.tuple([RuleSeveritySchema, z.record(z.unknown())]),
+]);
+
+/**
+ * Rules configuration (user's .ibr/rules.json)
+ */
+export const RulesConfigSchema = z.object({
+  extends: z.array(z.string()).optional(),
+  rules: z.record(RuleSettingSchema).optional(),
+});
+
+/**
+ * Violation detected by a rule
+ */
+export const ViolationSchema = z.object({
+  ruleId: z.string(),
+  ruleName: z.string(),
+  severity: z.enum(['warn', 'error']),
+  message: z.string(),
+  element: z.string().optional(),  // Selector of violating element
+  bounds: BoundsSchema.optional(),
+  fix: z.string().optional(),       // Suggested fix
+});
+
+/**
+ * Full audit report with rule violations
+ */
+export const RuleAuditResultSchema = z.object({
+  url: z.string(),
+  timestamp: z.string(),
+  elementsScanned: z.number(),
+  violations: z.array(ViolationSchema),
+  summary: z.object({
+    errors: z.number(),
+    warnings: z.number(),
+    passed: z.number(),
+  }),
+});
+
+// Rule-related type exports
+export type RuleSeverity = z.infer<typeof RuleSeveritySchema>;
+export type RuleSetting = z.infer<typeof RuleSettingSchema>;
+export type RulesConfig = z.infer<typeof RulesConfigSchema>;
+export type Violation = z.infer<typeof ViolationSchema>;
+export type RuleAuditResult = z.infer<typeof RuleAuditResultSchema>;

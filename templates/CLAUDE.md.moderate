@@ -1,0 +1,48 @@
+# IBR UI Verification
+
+## When to Use IBR
+
+Run `npx ibr audit <url>` when:
+- Building or editing interactive components (buttons, forms, links)
+- User reports something "doesn't work" or is "broken"
+- Before marking UI work complete
+- After editing files in `components/**`, `*.tsx`, `*.jsx`
+
+## Quick Commands
+
+```bash
+# Audit a page for issues
+npx ibr audit http://localhost:3000
+
+# Interactive session (for pages requiring user input)
+npx ibr session:start http://localhost:3000
+npx ibr session:type <id> "input" "search text"
+npx ibr session:click <id> "button[type=submit]"
+npx ibr session:screenshot <id>
+
+# Check what was captured
+npx ibr list
+```
+
+## What IBR Detects
+
+| Issue | Description |
+|-------|-------------|
+| NO_HANDLER | Button without click handler |
+| PLACEHOLDER_LINK | Link with `href="#"` and no handler |
+| TOUCH_TARGET_SMALL | Element below 44px (mobile) or 24px (desktop) |
+| MISSING_ARIA_LABEL | Interactive element without accessible label |
+
+## Recommended Workflow
+
+1. Make UI changes
+2. Run `npx ibr audit <url>`
+3. If errors: fix and re-run
+4. If clean: proceed to completion
+
+## Trigger Keywords
+
+Consider using IBR when task mentions:
+- UI, button, form, component, layout, design
+- "doesn't work", "broken", "not clickable"
+- interactive, click handler, navigation

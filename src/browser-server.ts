@@ -3,7 +3,8 @@ import { writeFile, readFile, unlink, mkdir, rm } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
-import { VIEWPORTS, type Viewport } from './schemas.js';
+import { VIEWPORTS, type Viewport, type EnhancedElement, type AuditResult } from './schemas.js';
+import { extractInteractiveElements, analyzeElements } from './extract.js';
 
 /**
  * Browser server state persisted to disk
@@ -28,6 +29,9 @@ interface SessionState {
   createdAt: string;
   pageIndex: number;  // Index in the browser context
   actions: ActionRecord[];
+  // Element audit data (captured on each screenshot)
+  elements?: EnhancedElement[];
+  audit?: AuditResult;
 }
 
 /**
@@ -567,7 +571,7 @@ export class PersistentSession {
     }
   }
 
-  async screenshot(options?: { name?: string; fullPage?: boolean; selector?: string }): Promise<string> {
+  async screenshot(options?: { name?: string; fullPage?: boolean; selector?: string }): Promise<{ path: string; elements: EnhancedElement[]; audit: AuditResult }> {
     const start = Date.now();
     const screenshotName = options?.name || `screenshot-${Date.now()}`;
     const outputPath = join(this.sessionDir, `${screenshotName}.png`);
@@ -599,15 +603,33 @@ export class PersistentSession {
         });
       }
 
+      // Extract interactive elements for audit
+      const elements = await extractInteractiveElements(this.page);
+
+      // Analyze for issues (detect mobile by viewport width)
+      const isMobile = this.state.viewport.width < 768;
+      const audit = analyzeElements(elements, isMobile);
+
+      // Store in session state
+      this.state.elements = elements;
+      this.state.audit = audit;
+      await this.saveState();
+
       await this.recordAction({
         type: 'screenshot',
         timestamp: new Date().toISOString(),
-        params: { name: screenshotName, path: outputPath, selector: options?.selector },
+        params: {
+          name: screenshotName,
+          path: outputPath,
+          selector: options?.selector,
+          elementsCount: elements.length,
+          issuesCount: audit.issues.length,
+        },
         success: true,
         duration: Date.now() - start,
       });
 
-      return outputPath;
+      return { path: outputPath, elements, audit };
     } catch (error) {
       await this.recordAction({
         type: 'screenshot',

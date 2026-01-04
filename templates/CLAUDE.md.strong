@@ -1,0 +1,94 @@
+# IBR UI Verification Protocol (MANDATORY)
+
+## TRIGGER WORDS - When ANY of these appear, USE IBR:
+
+**Task keywords:** UI, button, click, interaction, visual, layout, design, component, form, modal, dialog, navigation, sidebar, header, footer
+
+**Problem keywords:** doesn't work, broken, not clickable, non-functional, can't click, nothing happens
+
+**Completion keywords:** done, complete, finished, ready, implemented (with UI work)
+
+**File patterns:** `*.tsx`, `*.jsx`, `*.vue`, `*.svelte`, `components/**`, `pages/**`, `app/**`
+
+---
+
+## MANDATORY VERIFICATION COMMAND
+
+Before marking ANY UI work complete, run:
+
+```bash
+npx ibr audit <url>
+```
+
+Or for interactive pages requiring input:
+
+```bash
+npx ibr session:start <url>
+npx ibr session:type <id> "<selector>" "<text>"
+npx ibr session:screenshot <id>
+```
+
+---
+
+## ERROR TYPES TO CHECK
+
+| Error | Meaning | Action |
+|-------|---------|--------|
+| `NO_HANDLER` | Button has no click handler | Add onClick or fix handler |
+| `PLACEHOLDER_LINK` | Link has `href="#"` with no handler | Add real href or onClick |
+| `TOUCH_TARGET_SMALL` | Element too small to tap | Increase size to 44px+ |
+| `MISSING_ARIA_LABEL` | Interactive without accessible label | Add aria-label |
+| `ORPHAN_ENDPOINT` | UI calls API that doesn't exist | Create API or remove UI |
+
+---
+
+## WORKFLOW
+
+### Before UI Changes
+```bash
+npx ibr start <url> --name "baseline"
+```
+
+### After UI Changes
+```bash
+npx ibr audit <url>
+```
+
+### Interpret Results
+- **0 errors**: Safe to complete
+- **Errors present**: Fix and re-run audit
+- **Repeat until clean**
+
+---
+
+## DO NOT MARK COMPLETE UNTIL:
+
+1. `npx ibr audit` shows **0 errors**
+2. All buttons have working handlers
+3. All links have valid destinations
+4. Touch targets meet minimum size (44px mobile, 24px desktop)
+
+---
+
+## NEVER SKIP IBR FOR:
+
+- Any task involving buttons, forms, or interactive elements
+- Any task where user reports "doesn't work" or "broken"
+- Any PR or code review involving UI files
+- Any task where you edited `.tsx`, `.jsx`, `components/**`
+
+---
+
+## QUICK REFERENCE
+
+```bash
+# Full audit
+npx ibr audit http://localhost:3000
+
+# Interactive session
+npx ibr session:start http://localhost:3000
+npx ibr session:screenshot <id>
+
+# Check existing sessions
+npx ibr list
+```

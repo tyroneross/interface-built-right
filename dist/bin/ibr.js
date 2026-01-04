@@ -31,7 +31,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
 ));
 
 // src/schemas.ts
-var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, SessionSchema, ComparisonReportSchema;
+var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, BoundsSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema;
 var init_schemas = __esm({
   "src/schemas.ts"() {
     "use strict";
@@ -131,6 +131,103 @@ var init_schemas = __esm({
         diff: import_zod.z.string()
       }),
       webViewUrl: import_zod.z.string().optional()
+    });
+    InteractiveStateSchema = import_zod.z.object({
+      hasOnClick: import_zod.z.boolean(),
+      hasHref: import_zod.z.boolean(),
+      isDisabled: import_zod.z.boolean(),
+      tabIndex: import_zod.z.number(),
+      cursor: import_zod.z.string(),
+      // Framework-specific detection
+      hasReactHandler: import_zod.z.boolean().optional(),
+      hasVueHandler: import_zod.z.boolean().optional(),
+      hasAngularHandler: import_zod.z.boolean().optional()
+    });
+    A11yAttributesSchema = import_zod.z.object({
+      role: import_zod.z.string().nullable(),
+      ariaLabel: import_zod.z.string().nullable(),
+      ariaDescribedBy: import_zod.z.string().nullable(),
+      ariaHidden: import_zod.z.boolean().optional()
+    });
+    BoundsSchema = import_zod.z.object({
+      x: import_zod.z.number(),
+      y: import_zod.z.number(),
+      width: import_zod.z.number(),
+      height: import_zod.z.number()
+    });
+    EnhancedElementSchema = import_zod.z.object({
+      // Identity
+      selector: import_zod.z.string(),
+      tagName: import_zod.z.string(),
+      id: import_zod.z.string().optional(),
+      className: import_zod.z.string().optional(),
+      text: import_zod.z.string().optional(),
+      // Position
+      bounds: BoundsSchema,
+      // Styles (subset)
+      computedStyles: import_zod.z.record(import_zod.z.string()).optional(),
+      // Interactivity
+      interactive: InteractiveStateSchema,
+      // Accessibility
+      a11y: A11yAttributesSchema,
+      // Source hints for debugging
+      sourceHint: import_zod.z.object({
+        dataTestId: import_zod.z.string().nullable()
+      }).optional()
+    });
+    ElementIssueSchema = import_zod.z.object({
+      type: import_zod.z.enum([
+        "NO_HANDLER",
+        // Interactive-looking but no handler
+        "PLACEHOLDER_LINK",
+        // href="#" without handler
+        "TOUCH_TARGET_SMALL",
+        // < 44px on mobile
+        "MISSING_ARIA_LABEL",
+        // Interactive without label
+        "DISABLED_NO_VISUAL"
+        // Disabled but no visual indication
+      ]),
+      severity: import_zod.z.enum(["error", "warning", "info"]),
+      message: import_zod.z.string()
+    });
+    AuditResultSchema = import_zod.z.object({
+      totalElements: import_zod.z.number(),
+      interactiveCount: import_zod.z.number(),
+      withHandlers: import_zod.z.number(),
+      withoutHandlers: import_zod.z.number(),
+      issues: import_zod.z.array(ElementIssueSchema)
+    });
+    RuleSeveritySchema = import_zod.z.enum(["off", "warn", "error"]);
+    RuleSettingSchema = import_zod.z.union([
+      RuleSeveritySchema,
+      import_zod.z.tuple([RuleSeveritySchema, import_zod.z.record(import_zod.z.unknown())])
+    ]);
+    RulesConfigSchema = import_zod.z.object({
+      extends: import_zod.z.array(import_zod.z.string()).optional(),
+      rules: import_zod.z.record(RuleSettingSchema).optional()
+    });
+    ViolationSchema = import_zod.z.object({
+      ruleId: import_zod.z.string(),
+      ruleName: import_zod.z.string(),
+      severity: import_zod.z.enum(["warn", "error"]),
+      message: import_zod.z.string(),
+      element: import_zod.z.string().optional(),
+      // Selector of violating element
+      bounds: BoundsSchema.optional(),
+      fix: import_zod.z.string().optional()
+      // Suggested fix
+    });
+    RuleAuditResultSchema = import_zod.z.object({
+      url: import_zod.z.string(),
+      timestamp: import_zod.z.string(),
+      elementsScanned: import_zod.z.number(),
+      violations: import_zod.z.array(ViolationSchema),
+      summary: import_zod.z.object({
+        errors: import_zod.z.number(),
+        warnings: import_zod.z.number(),
+        passed: import_zod.z.number()
+      })
     });
   }
 });
@@ -240,11 +337,11 @@ async function performLogin(options) {
   console.log(`   User: ${currentUser}`);
   console.log("   Navigate to your login page and complete authentication.");
   console.log("   When finished, close the browser window to save your session.\n");
-  const browser2 = await import_playwright.chromium.launch({
+  const browser3 = await import_playwright.chromium.launch({
     headless: false
     // Visible browser for manual login
   });
-  const context = await browser2.newContext({
+  const context = await browser3.newContext({
     viewport: { width: 1280, height: 800 }
   });
   const page = await context.newPage();
@@ -255,24 +352,24 @@ async function performLogin(options) {
     });
     await Promise.race([
       new Promise((resolve2) => {
-        browser2.on("disconnected", () => resolve2());
+        browser3.on("disconnected", () => resolve2());
       }),
       new Promise((_, reject) => {
         setTimeout(() => reject(new Error("Login timeout exceeded")), timeout);
       })
     ]);
   } catch (error) {
-    if (browser2.isConnected()) {
+    if (browser3.isConnected()) {
       await saveAuthState(context, authStatePath, outputDir);
-      await browser2.close();
+      await browser3.close();
     }
     if (error instanceof Error && error.message.includes("timeout")) {
       throw error;
     }
   }
-  if (browser2.isConnected()) {
+  if (browser3.isConnected()) {
     await saveAuthState(context, authStatePath, outputDir);
-    await browser2.close();
+    await browser3.close();
   } else {
     console.log("\n\u26A0\uFE0F  Browser was closed. Attempting to save any captured state...");
     const newBrowser = await import_playwright.chromium.launch({ headless: true });
@@ -788,11 +885,11 @@ function calculateScore(inconsistencies) {
 }
 async function checkConsistency(options) {
   const { urls, timeout = 15e3, ignore = [] } = options;
-  let browser2 = null;
+  let browser3 = null;
   const pages = [];
   try {
-    browser2 = await import_playwright3.chromium.launch({ headless: true });
-    const context = await browser2.newContext({
+    browser3 = await import_playwright3.chromium.launch({ headless: true });
+    const context = await browser3.newContext({
       viewport: { width: 1920, height: 1080 }
     });
     const page = await context.newPage();
@@ -808,9 +905,9 @@ async function checkConsistency(options) {
         console.error(`Failed to analyze ${url}:`, error instanceof Error ? error.message : error);
       }
     }
-    await browser2.close();
+    await browser3.close();
   } catch (error) {
-    if (browser2) await browser2.close();
+    if (browser3) await browser3.close();
     throw error;
   }
   if (pages.length < 2) {
@@ -905,11 +1002,11 @@ async function discoverPages(options) {
   const queue = [
     { url, depth: 0 }
   ];
-  let browser2 = null;
+  let browser3 = null;
   let totalLinks = 0;
   try {
-    browser2 = await import_playwright4.chromium.launch({ headless: true });
-    const context = await browser2.newContext();
+    browser3 = await import_playwright4.chromium.launch({ headless: true });
+    const context = await browser3.newContext();
     const page = await context.newPage();
     while (queue.length > 0 && discovered.size < maxPages) {
       const current = queue.shift();
@@ -961,9 +1058,9 @@ async function discoverPages(options) {
         console.error(`Failed to load ${current.url}:`, error instanceof Error ? error.message : error);
       }
     }
-    await browser2.close();
+    await browser3.close();
   } catch (error) {
-    if (browser2) await browser2.close();
+    if (browser3) await browser3.close();
     throw error;
   }
   const crawlTime = Date.now() - startTime;
@@ -1031,10 +1128,10 @@ function shouldSkipUrl(url) {
   return false;
 }
 async function getNavigationLinks(url) {
-  let browser2 = null;
+  let browser3 = null;
   try {
-    browser2 = await import_playwright4.chromium.launch({ headless: true });
-    const page = await browser2.newPage();
+    browser3 = await import_playwright4.chromium.launch({ headless: true });
+    const page = await browser3.newPage();
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout: 15e3
@@ -1065,7 +1162,7 @@ async function getNavigationLinks(url) {
       }
       return links;
     });
-    await browser2.close();
+    await browser3.close();
     const pages = [];
     for (const link of navLinks) {
       try {
@@ -1090,7 +1187,7 @@ async function getNavigationLinks(url) {
     }
     return Array.from(uniquePages.values());
   } catch (error) {
-    if (browser2) await browser2.close();
+    if (browser3) await browser3.close();
     throw error;
   }
 }
@@ -1100,6 +1197,784 @@ var init_crawl = __esm({
     "use strict";
     import_playwright4 = require("playwright");
     import_url = require("url");
+  }
+});
+
+// src/rules/presets/minimal.ts
+var minimal_exports = {};
+__export(minimal_exports, {
+  register: () => register,
+  rules: () => rules
+});
+function register() {
+  registerPreset(minimalPreset);
+}
+var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
+var init_minimal = __esm({
+  "src/rules/presets/minimal.ts"() {
+    "use strict";
+    init_engine();
+    noHandlerRule = {
+      id: "no-handler",
+      name: "No Click Handler",
+      description: "Interactive elements like buttons must have click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isButton = element.tagName === "button" || element.a11y.role === "button";
+        const isDisabled = element.interactive.isDisabled;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isButton && !isDisabled && !hasHandler) {
+          return {
+            ruleId: "no-handler",
+            ruleName: "No Click Handler",
+            severity: "error",
+            message: `Button "${element.text || element.selector}" has no click handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add an onClick handler or make the button disabled"
+          };
+        }
+        return null;
+      }
+    };
+    placeholderLinkRule = {
+      id: "placeholder-link",
+      name: "Placeholder Link",
+      description: "Links must have valid hrefs or click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isLink = element.tagName === "a";
+        const hasValidHref = element.interactive.hasHref;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isLink && !hasValidHref && !hasHandler) {
+          return {
+            ruleId: "placeholder-link",
+            ruleName: "Placeholder Link",
+            severity: "error",
+            message: `Link "${element.text || element.selector}" has placeholder href and no handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add a valid href or onClick handler"
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetRule = {
+      id: "touch-target-small",
+      name: "Touch Target Too Small",
+      description: "Interactive elements must meet minimum touch target size",
+      defaultSeverity: "warn",
+      check: (element, context, options) => {
+        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive) return null;
+        const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+        const { width, height } = element.bounds;
+        if (width < minSize || height < minSize) {
+          return {
+            ruleId: "touch-target-small",
+            ruleName: "Touch Target Too Small",
+            severity: "warn",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${minSize}x${minSize}px`
+          };
+        }
+        return null;
+      }
+    };
+    missingAriaLabelRule = {
+      id: "missing-aria-label",
+      name: "Missing Accessible Label",
+      description: "Interactive elements without text need aria-label",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        const hasAriaLabel = element.a11y.ariaLabel && element.a11y.ariaLabel.trim().length > 0;
+        if (!hasText && !hasAriaLabel) {
+          return {
+            ruleId: "missing-aria-label",
+            ruleName: "Missing Accessible Label",
+            severity: "warn",
+            message: `"${element.selector}" is interactive but has no text or aria-label`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add visible text or aria-label attribute"
+          };
+        }
+        return null;
+      }
+    };
+    disabledNoVisualRule = {
+      id: "disabled-no-visual",
+      name: "Disabled Without Visual",
+      description: "Disabled elements should have visual indication",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        if (!element.interactive.isDisabled) return null;
+        const cursor = element.interactive.cursor;
+        const hasDisabledCursor = cursor === "not-allowed" || cursor === "default";
+        const bgColor = element.computedStyles?.backgroundColor;
+        const hasGrayedBg = bgColor?.includes("gray") || bgColor?.includes("rgb(200") || bgColor?.includes("rgb(220");
+        if (!hasDisabledCursor && !hasGrayedBg) {
+          return {
+            ruleId: "disabled-no-visual",
+            ruleName: "Disabled Without Visual",
+            severity: "warn",
+            message: `"${element.text || element.selector}" is disabled but has no visual indication`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add cursor: not-allowed and/or gray background to disabled state"
+          };
+        }
+        return null;
+      }
+    };
+    minimalPreset = {
+      name: "minimal",
+      description: "Basic interactivity and accessibility checks",
+      rules: [
+        noHandlerRule,
+        placeholderLinkRule,
+        touchTargetRule,
+        missingAriaLabelRule,
+        disabledNoVisualRule
+      ],
+      defaults: {
+        "no-handler": "error",
+        "placeholder-link": "error",
+        "touch-target-small": "warn",
+        "missing-aria-label": "warn",
+        "disabled-no-visual": "warn"
+      }
+    };
+    rules = {
+      noHandlerRule,
+      placeholderLinkRule,
+      touchTargetRule,
+      missingAriaLabelRule,
+      disabledNoVisualRule
+    };
+  }
+});
+
+// src/rules/engine.ts
+var engine_exports = {};
+__export(engine_exports, {
+  createAuditResult: () => createAuditResult,
+  formatAuditResult: () => formatAuditResult,
+  getPreset: () => getPreset,
+  listPresets: () => listPresets,
+  loadRulesConfig: () => loadRulesConfig,
+  registerPreset: () => registerPreset,
+  runRules: () => runRules
+});
+function registerPreset(preset) {
+  presets.set(preset.name, preset);
+}
+function getPreset(name) {
+  return presets.get(name);
+}
+function listPresets() {
+  return Array.from(presets.keys());
+}
+async function loadRulesConfig(projectDir) {
+  const configPath = (0, import_path5.join)(projectDir, ".ibr", "rules.json");
+  if (!(0, import_fs2.existsSync)(configPath)) {
+    return { extends: ["minimal"] };
+  }
+  try {
+    const content = await (0, import_promises5.readFile)(configPath, "utf-8");
+    return JSON.parse(content);
+  } catch (error) {
+    console.warn(`Failed to parse rules.json: ${error}`);
+    return { extends: ["minimal"] };
+  }
+}
+function mergeRuleSettings(presetNames, userRules = {}) {
+  const allRules = [];
+  const settings = /* @__PURE__ */ new Map();
+  const seenRuleIds = /* @__PURE__ */ new Set();
+  for (const presetName of presetNames) {
+    const preset = presets.get(presetName);
+    if (!preset) {
+      console.warn(`Unknown preset: ${presetName}`);
+      continue;
+    }
+    for (const rule of preset.rules) {
+      if (!seenRuleIds.has(rule.id)) {
+        allRules.push(rule);
+        seenRuleIds.add(rule.id);
+        const defaultSetting = preset.defaults[rule.id] ?? rule.defaultSeverity;
+        if (typeof defaultSetting === "string") {
+          settings.set(rule.id, { severity: defaultSetting });
+        } else {
+          settings.set(rule.id, { severity: defaultSetting[0], options: defaultSetting[1] });
+        }
+      }
+    }
+  }
+  for (const [ruleId, setting] of Object.entries(userRules)) {
+    if (typeof setting === "string") {
+      settings.set(ruleId, { severity: setting });
+    } else {
+      settings.set(ruleId, { severity: setting[0], options: setting[1] });
+    }
+  }
+  return { rules: allRules, settings };
+}
+function runRules(elements, context, config) {
+  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? ["minimal"], config.rules);
+  const violations = [];
+  for (const element of elements) {
+    for (const rule of rules2) {
+      const setting = settings.get(rule.id);
+      if (!setting || setting.severity === "off") {
+        continue;
+      }
+      const violation = rule.check(element, context, setting.options);
+      if (violation) {
+        violations.push({
+          ...violation,
+          severity: setting.severity
+        });
+      }
+    }
+  }
+  return violations;
+}
+function createAuditResult(url, elements, violations) {
+  const errors = violations.filter((v) => v.severity === "error").length;
+  const warnings = violations.filter((v) => v.severity === "warn").length;
+  return {
+    url,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    elementsScanned: elements.length,
+    violations,
+    summary: {
+      errors,
+      warnings,
+      passed: elements.length - errors - warnings
+    }
+  };
+}
+function formatAuditResult(result) {
+  const lines = [];
+  lines.push(`IBR Audit: ${result.url}`);
+  lines.push(`Scanned: ${result.elementsScanned} elements`);
+  lines.push("");
+  if (result.violations.length === 0) {
+    lines.push("No violations found.");
+  } else {
+    lines.push(`Found ${result.summary.errors} errors, ${result.summary.warnings} warnings:`);
+    lines.push("");
+    for (const v of result.violations) {
+      const icon = v.severity === "error" ? "\u2717" : "!";
+      lines.push(`  ${icon} [${v.ruleId}] ${v.message}`);
+      if (v.element) {
+        lines.push(`    Element: ${v.element.slice(0, 60)}${v.element.length > 60 ? "..." : ""}`);
+      }
+      if (v.fix) {
+        lines.push(`    Fix: ${v.fix}`);
+      }
+    }
+  }
+  lines.push("");
+  lines.push(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.passed} passed`);
+  return lines.join("\n");
+}
+var import_promises5, import_fs2, import_path5, presets;
+var init_engine = __esm({
+  "src/rules/engine.ts"() {
+    "use strict";
+    import_promises5 = require("fs/promises");
+    import_fs2 = require("fs");
+    import_path5 = require("path");
+    presets = /* @__PURE__ */ new Map();
+    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
+    });
+  }
+});
+
+// src/extract.ts
+var extract_exports = {};
+__export(extract_exports, {
+  analyzeElements: () => analyzeElements,
+  closeBrowser: () => closeBrowser2,
+  extractFromURL: () => extractFromURL,
+  extractInteractiveElements: () => extractInteractiveElements,
+  getReferenceSessionPaths: () => getReferenceSessionPaths
+});
+async function getBrowser2() {
+  if (!browser2) {
+    browser2 = await import_playwright5.chromium.launch({
+      headless: true
+    });
+  }
+  return browser2;
+}
+async function closeBrowser2() {
+  if (browser2) {
+    await browser2.close();
+    browser2 = null;
+  }
+}
+async function checkLock(outputDir) {
+  const lockPath = (0, import_path6.join)(outputDir, LOCK_FILE);
+  if (!(0, import_fs3.existsSync)(lockPath)) {
+    return false;
+  }
+  try {
+    const content = await (0, import_promises6.readFile)(lockPath, "utf-8");
+    const timestamp = parseInt(content, 10);
+    const age = Date.now() - timestamp;
+    if (age > LOCK_TIMEOUT_MS) {
+      await (0, import_promises6.unlink)(lockPath);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function createLock(outputDir) {
+  const lockPath = (0, import_path6.join)(outputDir, LOCK_FILE);
+  await (0, import_promises6.writeFile)(lockPath, Date.now().toString());
+}
+async function releaseLock(outputDir) {
+  const lockPath = (0, import_path6.join)(outputDir, LOCK_FILE);
+  try {
+    await (0, import_promises6.unlink)(lockPath);
+  } catch {
+  }
+}
+async function extractElementStyles(page, selector) {
+  return page.evaluate(
+    ({ sel, props }) => {
+      const elements = document.querySelectorAll(sel);
+      const results = [];
+      elements.forEach((el, index) => {
+        const htmlEl = el;
+        const rect = htmlEl.getBoundingClientRect();
+        const computed = window.getComputedStyle(htmlEl);
+        const styles = {};
+        props.forEach((prop) => {
+          const value = computed.getPropertyValue(
+            prop.replace(/([A-Z])/g, "-$1").toLowerCase()
+          );
+          if (value && value !== "none" && value !== "normal" && value !== "0px") {
+            styles[prop] = value;
+          }
+        });
+        results.push({
+          selector: `${sel}:nth-of-type(${index + 1})`,
+          tagName: htmlEl.tagName.toLowerCase(),
+          id: htmlEl.id || void 0,
+          className: htmlEl.className || void 0,
+          bounds: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          },
+          computedStyles: styles
+        });
+      });
+      return results;
+    },
+    { sel: selector, props: CSS_PROPERTIES_TO_EXTRACT }
+  );
+}
+async function extractInteractiveElements(page) {
+  return page.evaluate((selectors) => {
+    const seen = /* @__PURE__ */ new Set();
+    const elements = [];
+    function generateSelector(el) {
+      if (el.id) return `#${el.id}`;
+      const path = [];
+      let current = el;
+      while (current && current !== document.body) {
+        let selector = current.tagName.toLowerCase();
+        if (current.id) {
+          selector = `#${current.id}`;
+          path.unshift(selector);
+          break;
+        } else if (current.className && typeof current.className === "string") {
+          const classes = current.className.split(" ").filter((c) => c.trim() && !c.includes(":"));
+          if (classes.length > 0) {
+            selector += `.${classes[0]}`;
+          }
+        }
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            (c) => c.tagName === current.tagName
+          );
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+        }
+        path.unshift(selector);
+        current = current.parentElement;
+      }
+      return path.join(" > ").slice(0, 200);
+    }
+    function detectHandlers(el) {
+      const keys = Object.keys(el);
+      const reactPropsKey = keys.find((k) => k.startsWith("__reactProps$"));
+      let hasReactHandler = false;
+      if (reactPropsKey) {
+        const props = el[reactPropsKey];
+        hasReactHandler = !!(props?.onClick || props?.onSubmit || props?.onMouseDown);
+      }
+      const fiberKey = keys.find((k) => k.startsWith("__reactFiber$"));
+      if (!hasReactHandler && fiberKey) {
+        const fiber = el[fiberKey];
+        hasReactHandler = !!(fiber?.pendingProps?.onClick || fiber?.memoizedProps?.onClick);
+      }
+      const hasVueHandler = !!(el.__vue__?.$listeners?.click || el.__vnode?.props?.onClick);
+      const hasAngularHandler = !!el.__ngContext__ || el.hasAttribute("ng-click");
+      const hasVanillaHandler = typeof el.onclick === "function" || el.hasAttribute("onclick");
+      return {
+        hasReactHandler,
+        hasVueHandler,
+        hasAngularHandler,
+        hasVanillaHandler,
+        hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler
+      };
+    }
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          seen.add(el);
+          const htmlEl = el;
+          const rect = htmlEl.getBoundingClientRect();
+          const computed = window.getComputedStyle(htmlEl);
+          const handlers = detectHandlers(htmlEl);
+          const href = htmlEl.getAttribute("href");
+          const hasValidHref = href !== null && href !== "#" && href !== "" && !href.startsWith("javascript:");
+          elements.push({
+            selector: generateSelector(htmlEl),
+            tagName: htmlEl.tagName.toLowerCase(),
+            id: htmlEl.id || void 0,
+            className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
+            text: (htmlEl.textContent || "").trim().slice(0, 100) || void 0,
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            },
+            computedStyles: {
+              cursor: computed.cursor,
+              color: computed.color,
+              backgroundColor: computed.backgroundColor
+            },
+            interactive: {
+              hasOnClick: handlers.hasAnyHandler,
+              hasHref: hasValidHref,
+              isDisabled: htmlEl.hasAttribute("disabled") || htmlEl.getAttribute("aria-disabled") === "true" || computed.pointerEvents === "none",
+              tabIndex: parseInt(htmlEl.getAttribute("tabindex") || "0", 10),
+              cursor: computed.cursor,
+              hasReactHandler: handlers.hasReactHandler || void 0,
+              hasVueHandler: handlers.hasVueHandler || void 0,
+              hasAngularHandler: handlers.hasAngularHandler || void 0
+            },
+            a11y: {
+              role: htmlEl.getAttribute("role"),
+              ariaLabel: htmlEl.getAttribute("aria-label"),
+              ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
+              ariaHidden: htmlEl.getAttribute("aria-hidden") === "true" || void 0
+            },
+            sourceHint: {
+              dataTestId: htmlEl.getAttribute("data-testid")
+            }
+          });
+        });
+      } catch {
+      }
+    }
+    return elements;
+  }, INTERACTIVE_SELECTORS);
+}
+function analyzeElements(elements, isMobile = false) {
+  const issues = [];
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  const interactiveElements = elements.filter((el) => {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a";
+    const isInput = ["input", "select", "textarea"].includes(el.tagName);
+    const looksClickable = el.interactive.cursor === "pointer";
+    return isButton || isLink || isInput || looksClickable;
+  });
+  for (const el of interactiveElements) {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a";
+    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref;
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+    }
+    if (isButton && !el.interactive.hasOnClick && !el.interactive.isDisabled) {
+      issues.push({
+        type: "NO_HANDLER",
+        severity: "error",
+        message: `Button "${el.text || el.selector}" has no click handler`
+      });
+    }
+    if (isLink && !el.interactive.hasHref && !el.interactive.hasOnClick) {
+      issues.push({
+        type: "PLACEHOLDER_LINK",
+        severity: "error",
+        message: `Link "${el.text || el.selector}" has placeholder href and no handler`
+      });
+    }
+    const minSize = isMobile ? 44 : 24;
+    if (el.bounds.width < minSize || el.bounds.height < minSize) {
+      issues.push({
+        type: "TOUCH_TARGET_SMALL",
+        severity: isMobile ? "error" : "warning",
+        message: `"${el.text || el.selector}" touch target is ${el.bounds.width}x${el.bounds.height}px (min: ${minSize}px)`
+      });
+    }
+    if (hasHandler && !el.text && !el.a11y.ariaLabel) {
+      issues.push({
+        type: "MISSING_ARIA_LABEL",
+        severity: "warning",
+        message: `"${el.selector}" is interactive but has no text or aria-label`
+      });
+    }
+  }
+  return {
+    totalElements: elements.length,
+    interactiveCount: interactiveElements.length,
+    withHandlers,
+    withoutHandlers,
+    issues
+  };
+}
+async function extractCSSVariables(page) {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const computed = window.getComputedStyle(root);
+    const variables = {};
+    const sheets = Array.from(document.styleSheets);
+    sheets.forEach((sheet) => {
+      try {
+        const rules2 = Array.from(sheet.cssRules || []);
+        rules2.forEach((rule) => {
+          if (rule instanceof CSSStyleRule && rule.selectorText === ":root") {
+            const style = rule.style;
+            for (let i = 0; i < style.length; i++) {
+              const prop = style[i];
+              if (prop.startsWith("--")) {
+                variables[prop] = style.getPropertyValue(prop).trim();
+              }
+            }
+          }
+        });
+      } catch {
+      }
+    });
+    const rootStyles = getComputedStyle(root);
+    ["--primary", "--secondary", "--accent", "--background", "--foreground", "--border", "--radius", "--spacing"].forEach((prefix) => {
+      for (let i = 0; i < 20; i++) {
+        const variations = [
+          prefix,
+          `${prefix}-${i}`,
+          `${prefix}-color`,
+          `${prefix}-bg`
+        ];
+        variations.forEach((varName) => {
+          const value = rootStyles.getPropertyValue(varName).trim();
+          if (value && !variables[varName]) {
+            variables[varName] = value;
+          }
+        });
+      }
+    });
+    return variables;
+  });
+}
+async function extractFromURL(options) {
+  const {
+    url,
+    outputDir,
+    sessionId,
+    viewport = VIEWPORTS.desktop,
+    timeout = EXTRACTION_TIMEOUT_MS,
+    selectors = DEFAULT_SELECTORS
+  } = options;
+  if (await checkLock(outputDir)) {
+    throw new Error("Another extraction is in progress. Please wait.");
+  }
+  const sessionDir = (0, import_path6.join)(outputDir, "sessions", sessionId);
+  await (0, import_promises6.mkdir)(sessionDir, { recursive: true });
+  await createLock(outputDir);
+  const browserInstance = await getBrowser2();
+  let timeoutHandle = null;
+  try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(new Error(`Extraction timed out after ${timeout}ms`));
+      }, timeout);
+    });
+    const extractionPromise = async () => {
+      const context = await browserInstance.newContext({
+        viewport: {
+          width: viewport.width,
+          height: viewport.height
+        },
+        reducedMotion: "reduce"
+      });
+      const page = await context.newPage();
+      try {
+        await page.goto(url, {
+          waitUntil: "networkidle",
+          timeout
+        });
+        await page.waitForTimeout(500);
+        await page.addStyleTag({
+          content: `
+            *, *::before, *::after {
+              animation-duration: 0s !important;
+              animation-delay: 0s !important;
+              transition-duration: 0s !important;
+              transition-delay: 0s !important;
+            }
+          `
+        });
+        const html = await page.content();
+        const elements = [];
+        for (const selector of selectors) {
+          const extracted = await extractElementStyles(page, selector);
+          elements.push(...extracted);
+        }
+        const cssVariables = await extractCSSVariables(page);
+        const screenshotPath = (0, import_path6.join)(sessionDir, "reference.png");
+        await page.screenshot({
+          path: screenshotPath,
+          fullPage: true,
+          type: "png"
+        });
+        const result2 = {
+          url,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          viewport,
+          html,
+          elements,
+          cssVariables,
+          screenshotPath
+        };
+        await (0, import_promises6.writeFile)(
+          (0, import_path6.join)(sessionDir, "reference.json"),
+          JSON.stringify(result2, null, 2)
+        );
+        await (0, import_promises6.writeFile)((0, import_path6.join)(sessionDir, "reference.html"), html);
+        return result2;
+      } finally {
+        await context.close();
+      }
+    };
+    const result = await Promise.race([extractionPromise(), timeoutPromise]);
+    return result;
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
+    await releaseLock(outputDir);
+  }
+}
+function getReferenceSessionPaths(outputDir, sessionId) {
+  const root = (0, import_path6.join)(outputDir, "sessions", sessionId);
+  return {
+    root,
+    sessionJson: (0, import_path6.join)(root, "session.json"),
+    reference: (0, import_path6.join)(root, "reference.png"),
+    referenceHtml: (0, import_path6.join)(root, "reference.html"),
+    referenceData: (0, import_path6.join)(root, "reference.json"),
+    current: (0, import_path6.join)(root, "current.png"),
+    diff: (0, import_path6.join)(root, "diff.png")
+  };
+}
+var import_playwright5, import_promises6, import_fs3, import_path6, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
+var init_extract = __esm({
+  "src/extract.ts"() {
+    "use strict";
+    import_playwright5 = require("playwright");
+    import_promises6 = require("fs/promises");
+    import_fs3 = require("fs");
+    import_path6 = require("path");
+    init_schemas();
+    LOCK_FILE = ".extracting";
+    LOCK_TIMEOUT_MS = 18e4;
+    EXTRACTION_TIMEOUT_MS = 12e4;
+    DEFAULT_SELECTORS = [
+      "header",
+      "nav",
+      "main",
+      "section",
+      "article",
+      "aside",
+      "footer",
+      "h1",
+      "h2",
+      "h3",
+      "button",
+      "a[href]",
+      "form",
+      "input",
+      "img"
+    ];
+    CSS_PROPERTIES_TO_EXTRACT = [
+      "display",
+      "position",
+      "width",
+      "height",
+      "padding",
+      "margin",
+      "backgroundColor",
+      "color",
+      "fontSize",
+      "fontFamily",
+      "fontWeight",
+      "lineHeight",
+      "textAlign",
+      "borderRadius",
+      "border",
+      "boxShadow",
+      "gap",
+      "flexDirection",
+      "alignItems",
+      "justifyContent",
+      "gridTemplateColumns",
+      "gridTemplateRows"
+    ];
+    browser2 = null;
+    INTERACTIVE_SELECTORS = [
+      "button",
+      "a[href]",
+      "a:not([href])",
+      // Links without href (potential issues)
+      'input[type="submit"]',
+      'input[type="button"]',
+      'input[type="text"]',
+      'input[type="email"]',
+      'input[type="password"]',
+      "select",
+      "textarea",
+      '[role="button"]',
+      '[role="link"]',
+      "[onclick]",
+      '[tabindex]:not([tabindex="-1"])'
+    ];
   }
 });
 
@@ -1115,21 +1990,21 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path5.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path5.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path5.join)(outputDir, "sessions")
+    stateFile: (0, import_path7.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path7.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path7.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs2.existsSync)(stateFile)) {
+  if (!(0, import_fs4.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises5.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises7.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
-    const browser2 = await import_playwright5.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
-    await browser2.close();
+    const browser3 = await import_playwright6.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
+    await browser3.close();
     return true;
   } catch {
     await cleanupServerState(outputDir);
@@ -1139,7 +2014,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises5.unlink)(stateFile);
+    await (0, import_promises7.unlink)(stateFile);
   } catch {
   }
 }
@@ -1150,12 +2025,12 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises5.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises7.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises5.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises7.mkdir)(profileDir, { recursive: true });
   }
   const debugPort = 9222 + Math.floor(Math.random() * 1e3);
-  const server = await import_playwright5.chromium.launchServer({
+  const server = await import_playwright6.chromium.launchServer({
     headless,
     slowMo: options.debug ? 100 : 0,
     args: [`--remote-debugging-port=${debugPort}`]
@@ -1170,23 +2045,23 @@ async function startBrowserServer(outputDir, options = {}) {
     headless,
     isolatedProfile: isolated ? profileDir : ""
   };
-  await (0, import_promises5.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await (0, import_promises7.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { server, wsEndpoint };
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs2.existsSync)(stateFile)) {
+  if (!(0, import_fs4.existsSync)(stateFile)) {
     return null;
   }
   try {
-    const content = await (0, import_promises5.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises7.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (state.cdpUrl) {
-      const browser3 = await import_playwright5.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
-      return browser3;
+      const browser4 = await import_playwright6.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
+      return browser4;
     }
-    const browser2 = await import_playwright5.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
-    return browser2;
+    const browser3 = await import_playwright6.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
+    return browser3;
   } catch (error) {
     await cleanupServerState(outputDir);
     return null;
@@ -1194,15 +2069,15 @@ async function connectToBrowserServer(outputDir) {
 }
 async function stopBrowserServer(outputDir) {
   const { stateFile, profileDir } = getPaths(outputDir);
-  if (!(0, import_fs2.existsSync)(stateFile)) {
+  if (!(0, import_fs4.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises5.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises7.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
-    const browser2 = await import_playwright5.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
-    await browser2.close();
-    await (0, import_promises5.unlink)(stateFile);
+    const browser3 = await import_playwright6.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
+    await browser3.close();
+    await (0, import_promises7.unlink)(stateFile);
     return true;
   } catch {
     await cleanupServerState(outputDir);
@@ -1211,7 +2086,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs2.existsSync)(sessionsDir)) {
+  if (!(0, import_fs4.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir2 } = await import("fs/promises");
@@ -1219,24 +2094,25 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path5.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs2.existsSync)(statePath)) {
+      const statePath = (0, import_path7.join)(sessionsDir, entry.name, "live-session.json");
+      if ((0, import_fs4.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_playwright5, import_promises5, import_fs2, import_path5, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright6, import_promises7, import_fs4, import_path7, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
-    import_playwright5 = require("playwright");
-    import_promises5 = require("fs/promises");
-    import_fs2 = require("fs");
-    import_path5 = require("path");
+    import_playwright6 = require("playwright");
+    import_promises7 = require("fs/promises");
+    import_fs4 = require("fs");
+    import_path7 = require("path");
     import_nanoid2 = require("nanoid");
     init_schemas();
+    init_extract();
     SERVER_STATE_FILE = "browser-server.json";
     ISOLATED_PROFILE_DIR = "browser-profile";
     PersistentSession = class _PersistentSession {
@@ -1245,8 +2121,8 @@ var init_browser_server = __esm({
       page;
       state;
       sessionDir;
-      constructor(browser2, context, page, state, sessionDir) {
-        this.browser = browser2;
+      constructor(browser3, context, page, state, sessionDir) {
+        this.browser = browser3;
         this.context = context;
         this.page = page;
         this.state = state;
@@ -1257,17 +2133,17 @@ var init_browser_server = __esm({
        */
       static async create(outputDir, options) {
         const { url, name, viewport = VIEWPORTS.desktop, waitFor, timeout = 3e4 } = options;
-        const browser2 = await connectToBrowserServer(outputDir);
-        if (!browser2) {
+        const browser3 = await connectToBrowserServer(outputDir);
+        if (!browser3) {
           throw new Error(
             "No browser server running.\nStart one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
           );
         }
         const sessionId = `live_${(0, import_nanoid2.nanoid)(10)}`;
-        const sessionsDir = (0, import_path5.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path5.join)(sessionsDir, sessionId);
-        await (0, import_promises5.mkdir)(sessionDir, { recursive: true });
-        const context = await browser2.newContext({
+        const sessionsDir = (0, import_path7.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path7.join)(sessionsDir, sessionId);
+        await (0, import_promises7.mkdir)(sessionDir, { recursive: true });
+        const context = await browser3.newContext({
           viewport: {
             width: viewport.width,
             height: viewport.height
@@ -1299,32 +2175,32 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises5.writeFile)(
-          (0, import_path5.join)(sessionDir, "live-session.json"),
+        await (0, import_promises7.writeFile)(
+          (0, import_path7.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path5.join)(sessionDir, "baseline.png"),
+          path: (0, import_path7.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
-        return new _PersistentSession(browser2, context, page, state, sessionDir);
+        return new _PersistentSession(browser3, context, page, state, sessionDir);
       }
       /**
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path5.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path5.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs2.existsSync)(statePath)) {
+        const sessionDir = (0, import_path7.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path7.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs4.existsSync)(statePath)) {
           return null;
         }
-        const browser2 = await connectToBrowserServer(outputDir);
-        if (!browser2) {
+        const browser3 = await connectToBrowserServer(outputDir);
+        if (!browser3) {
           return null;
         }
-        const content = await (0, import_promises5.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises7.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
-        const contexts = browser2.contexts();
+        const contexts = browser3.contexts();
         let context;
         let page;
         const targetHost = new URL(state.url).host;
@@ -1335,12 +2211,12 @@ var init_browser_server = __esm({
               if (p.url().includes(targetHost)) {
                 context = ctx;
                 page = p;
-                return new _PersistentSession(browser2, context, page, state, sessionDir);
+                return new _PersistentSession(browser3, context, page, state, sessionDir);
               }
             }
           }
         }
-        context = await browser2.newContext({
+        context = await browser3.newContext({
           viewport: {
             width: state.viewport.width,
             height: state.viewport.height
@@ -1349,7 +2225,7 @@ var init_browser_server = __esm({
         });
         page = await context.newPage();
         await page.goto(state.url, { waitUntil: "networkidle" });
-        return new _PersistentSession(browser2, context, page, state, sessionDir);
+        return new _PersistentSession(browser3, context, page, state, sessionDir);
       }
       get id() {
         return this.state.id;
@@ -1365,8 +2241,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises5.writeFile)(
-          (0, import_path5.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises7.writeFile)(
+          (0, import_path7.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -1500,7 +2376,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path5.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path7.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -1525,14 +2401,26 @@ var init_browser_server = __esm({
               type: "png"
             });
           }
+          const elements = await extractInteractiveElements(this.page);
+          const isMobile = this.state.viewport.width < 768;
+          const audit = analyzeElements(elements, isMobile);
+          this.state.elements = elements;
+          this.state.audit = audit;
+          await this.saveState();
           await this.recordAction({
             type: "screenshot",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-            params: { name: screenshotName, path: outputPath, selector: options?.selector },
+            params: {
+              name: screenshotName,
+              path: outputPath,
+              selector: options?.selector,
+              elementsCount: elements.length,
+              issuesCount: audit.issues.length
+            },
             success: true,
             duration: Date.now() - start
           });
-          return outputPath;
+          return { path: outputPath, elements, audit };
         } catch (error) {
           await this.recordAction({
             type: "screenshot",
@@ -1603,14 +2491,14 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright6, import_promises6, import_fs3, import_path6, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright7, import_promises8, import_fs5, import_path8, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
-    import_playwright6 = require("playwright");
-    import_promises6 = require("fs/promises");
-    import_fs3 = require("fs");
-    import_path6 = require("path");
+    import_playwright7 = require("playwright");
+    import_promises8 = require("fs/promises");
+    import_fs5 = require("fs");
+    import_path8 = require("path");
     import_nanoid3 = require("nanoid");
     init_schemas();
     LiveSession = class _LiveSession {
@@ -1620,11 +2508,11 @@ var init_live_session = __esm({
       state;
       outputDir;
       sessionDir;
-      constructor(state, outputDir, browser2, context, page) {
+      constructor(state, outputDir, browser3, context, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path6.join)(outputDir, "sessions", state.id);
-        this.browser = browser2;
+        this.sessionDir = (0, import_path8.join)(outputDir, "sessions", state.id);
+        this.browser = browser3;
         this.context = context;
         this.page = page;
       }
@@ -1641,14 +2529,14 @@ var init_live_session = __esm({
           timeout = 3e4
         } = options;
         const sessionId = `live_${(0, import_nanoid3.nanoid)(10)}`;
-        const sessionDir = (0, import_path6.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises6.mkdir)(sessionDir, { recursive: true });
-        const browser2 = await import_playwright6.chromium.launch({
+        const sessionDir = (0, import_path8.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises8.mkdir)(sessionDir, { recursive: true });
+        const browser3 = await import_playwright7.chromium.launch({
           headless: !sandbox && !debug,
           slowMo: debug ? 100 : 0,
           devtools: debug
         });
-        const context = await browser2.newContext({
+        const context = await browser3.newContext({
           viewport: {
             width: viewport.width,
             height: viewport.height
@@ -1677,32 +2565,32 @@ var init_live_session = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises6.writeFile)(
-          (0, import_path6.join)(sessionDir, "live-session.json"),
+        await (0, import_promises8.writeFile)(
+          (0, import_path8.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path6.join)(sessionDir, "baseline.png"),
+          path: (0, import_path8.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
-        return new _LiveSession(state, outputDir, browser2, context, page);
+        return new _LiveSession(state, outputDir, browser3, context, page);
       }
       /**
        * Resume an existing live session (if browser still running)
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path6.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path6.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs3.existsSync)(statePath)) {
+        const sessionDir = (0, import_path8.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path8.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs5.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises6.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises8.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
-        const browser2 = await import_playwright6.chromium.launch({
+        const browser3 = await import_playwright7.chromium.launch({
           headless: !state.sandbox
         });
-        const context = await browser2.newContext({
+        const context = await browser3.newContext({
           viewport: {
             width: state.viewport.width,
             height: state.viewport.height
@@ -1711,7 +2599,7 @@ var init_live_session = __esm({
         });
         const page = await context.newPage();
         await page.goto(state.url, { waitUntil: "networkidle" });
-        return new _LiveSession(state, outputDir, browser2, context, page);
+        return new _LiveSession(state, outputDir, browser3, context, page);
       }
       /**
        * Get session ID
@@ -1742,8 +2630,8 @@ var init_live_session = __esm({
        * Save session state
        */
       async saveState() {
-        await (0, import_promises6.writeFile)(
-          (0, import_path6.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises8.writeFile)(
+          (0, import_path8.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -1978,7 +2866,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path6.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path8.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -2151,9 +3039,9 @@ var init_live_session = __esm({
 
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises7 = require("fs/promises");
-var import_path7 = require("path");
-var import_fs4 = require("fs");
+var import_promises9 = require("fs/promises");
+var import_path9 = require("path");
+var import_fs6 = require("fs");
 
 // src/index.ts
 init_schemas();
@@ -2832,10 +3720,10 @@ var InterfaceBuiltRight = class {
 // src/bin/ibr.ts
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path7.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs4.existsSync)(configPath)) {
+  const configPath = (0, import_path9.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs6.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises7.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises9.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -3005,6 +3893,58 @@ program.command("check [sessionId]").description("Compare current state against 
     process.exit(1);
   }
 });
+program.command("audit [url]").description("Audit a page for UI issues (handlers, accessibility, touch targets)").option("-r, --rules <preset>", "Rule preset: minimal (default)", "minimal").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
+  try {
+    const resolvedUrl = await resolveBaseUrl(url);
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
+    const { register: register2 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
+    const { startBrowserServer: startBrowserServer2, connectToBrowserServer: connectToBrowserServer2, stopBrowserServer: stopBrowserServer2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+    const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
+    const { chromium: chromium8 } = await import("playwright");
+    register2();
+    const rulesConfig = await loadRulesConfig2(process.cwd());
+    if (options.rules && options.rules !== "minimal") {
+      rulesConfig.extends = [options.rules];
+    }
+    console.log(`Auditing ${resolvedUrl}...`);
+    console.log("");
+    const browser3 = await chromium8.launch({ headless: true });
+    const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+    const context = await browser3.newContext({
+      viewport: { width: viewport.width, height: viewport.height },
+      reducedMotion: "reduce"
+    });
+    const page = await context.newPage();
+    await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
+    const elements = await extractInteractiveElements2(page);
+    const isMobile = viewport.width < 768;
+    const violations = runRules2(elements, {
+      isMobile,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      url: resolvedUrl,
+      allElements: elements
+    }, rulesConfig);
+    const result = createAuditResult2(resolvedUrl, elements, violations);
+    await context.close();
+    await browser3.close();
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(formatAuditResult2(result));
+    }
+    if (options.failOn === "error" && result.summary.errors > 0) {
+      process.exit(1);
+    } else if (options.failOn === "warning" && (result.summary.errors > 0 || result.summary.warnings > 0)) {
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
 program.command("status").description("Show sessions awaiting comparison (baselines without checks)").action(async () => {
   try {
     const ibr = await createIBR(program.opts());
@@ -3116,20 +4056,20 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn } = await import("child_process");
   const { resolve: resolve2 } = await import("path");
   const packageRoot = resolve2(process.cwd());
-  let webUiDir = (0, import_path7.join)(packageRoot, "web-ui");
-  if (!(0, import_fs4.existsSync)(webUiDir)) {
+  let webUiDir = (0, import_path9.join)(packageRoot, "web-ui");
+  if (!(0, import_fs6.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path7.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path7.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path9.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path9.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs4.existsSync)(p)) {
+      if ((0, import_fs6.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs4.existsSync)(webUiDir)) {
+  if (!(0, import_fs6.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -3361,17 +4301,38 @@ program.command("session:type <sessionId> <selector> <text>").description("Type 
     }
   }
 });
-program.command("session:screenshot <sessionId>").description("Take a screenshot of the current page state").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").action(async (sessionId, options) => {
+program.command("session:screenshot <sessionId>").description("Take a screenshot and audit interactive elements").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").option("--json", "Output audit results as JSON").action(async (sessionId, options) => {
   try {
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
-    const path = await session.screenshot({
+    const { path, elements, audit } = await session.screenshot({
       name: options.name,
       selector: options.selector,
       fullPage: options.fullPage
     });
-    console.log(`Screenshot saved: ${path}`);
+    if (options.json) {
+      console.log(JSON.stringify({ path, elements, audit }, null, 2));
+    } else {
+      console.log(`Screenshot saved: ${path}`);
+      console.log("");
+      console.log("Element Audit:");
+      console.log(`  Total elements: ${audit.totalElements}`);
+      console.log(`  Interactive: ${audit.interactiveCount}`);
+      console.log(`  With handlers: ${audit.withHandlers}`);
+      console.log(`  Without handlers: ${audit.withoutHandlers}`);
+      if (audit.issues.length > 0) {
+        console.log("");
+        console.log("Issues detected:");
+        for (const issue of audit.issues) {
+          const icon = issue.severity === "error" ? "\u2717" : issue.severity === "warning" ? "!" : "i";
+          console.log(`  ${icon} [${issue.type}] ${issue.message}`);
+        }
+      } else {
+        console.log("");
+        console.log("No issues detected.");
+      }
+    }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     console.log("");
@@ -3734,18 +4695,18 @@ program.command("consistency <url>").description("Check UI consistency across mu
 program.command("diagnose [url]").description("Diagnose page load issues (auto-detects dev server if no URL)").option("--timeout <ms>", "Timeout in milliseconds", "30000").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
-    const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser2 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join6 } = await import("path");
+    const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
+    const { join: join8 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join6(outputDir, "diagnose", "test.png"),
+      outputPath: join8(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
-    await closeBrowser2();
+    await closeBrowser3();
     console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
     console.log("  PAGE DIAGNOSTICS");
     console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
@@ -3858,8 +4819,8 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize .ibrrc.json configuration file").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").action(async (options) => {
-  const configPath = (0, import_path7.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs4.existsSync)(configPath)) {
+  const configPath = (0, import_path9.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs6.existsSync)(configPath)) {
     console.log(".ibrrc.json already exists.");
     console.log("Edit it directly or delete and run init again.");
     return;
@@ -3894,8 +4855,8 @@ program.command("init").description("Initialize .ibrrc.json configuration file")
     threshold: 1,
     fullPage: true
   };
-  const { writeFile: writeFile6 } = await import("fs/promises");
-  await writeFile6(configPath, JSON.stringify(config, null, 2));
+  const { writeFile: writeFile7 } = await import("fs/promises");
+  await writeFile7(configPath, JSON.stringify(config, null, 2));
   console.log("");
   console.log("Created .ibrrc.json");
   console.log("");
