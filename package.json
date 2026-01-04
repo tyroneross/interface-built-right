@@ -14,7 +14,7 @@
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "bin": {
-    "ibr": "./dist/bin/ibr.js"
+    "ibr": "dist/bin/ibr.js"
   },
   "exports": {
     ".": {
