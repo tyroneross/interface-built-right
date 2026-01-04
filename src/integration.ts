@@ -281,16 +281,24 @@ export async function scanDirectoryForApiCalls(
         const fullPath = path.join(currentDir, entry.name);
 
         if (entry.isDirectory()) {
-          // Skip node_modules, dist, build, etc.
-          if (!['node_modules', 'dist', 'build', '.git', 'coverage'].includes(entry.name)) {
+          // Skip node_modules, dist, build, .next, etc.
+          const skipDirs = ['node_modules', 'dist', 'build', '.git', 'coverage', '.next', '__tests__', '__mocks__'];
+          if (!skipDirs.includes(entry.name)) {
             await scanDir(fullPath);
           }
         } else if (entry.isFile()) {
           // Check if file matches pattern
           const ext = path.extname(entry.name);
           if (['.ts', '.tsx', '.js', '.jsx'].includes(ext)) {
-            const calls = await extractApiCalls(fullPath);
-            allCalls.push(...calls);
+            // Skip test files, spec files, and files with example patterns
+            const isTestFile = entry.name.includes('.test.') ||
+                              entry.name.includes('.spec.') ||
+                              entry.name.includes('.mock.') ||
+                              entry.name === 'integration.ts'; // Skip self (contains example patterns)
+            if (!isTestFile) {
+              const calls = await extractApiCalls(fullPath);
+              allCalls.push(...calls);
+            }
           }
         }
       }
@@ -358,38 +366,77 @@ export function filterByEndpoint(calls: ApiCall[], endpointPattern: string): Api
 /**
  * Discover API routes from Next.js/Remix file structure
  * Supports Next.js App Router (app/api) and Pages Router (pages/api)
+ * Also searches subdirectories (like web-ui/) for nested Next.js apps
  */
 export async function discoverApiRoutes(projectDir: string): Promise<ApiRoute[]> {
   const routes: ApiRoute[] = [];
 
-  // Check for Next.js App Router (app/api/**/route.ts)
-  const appApiDir = path.join(projectDir, 'app', 'api');
-  if (await directoryExists(appApiDir)) {
-    const appRoutes = await discoverAppRouterRoutes(appApiDir, projectDir);
-    routes.push(...appRoutes);
+  // Discover routes in a specific directory
+  async function discoverInDir(dir: string): Promise<void> {
+    // Check for Next.js App Router (app/api/**/route.ts)
+    const appApiDir = path.join(dir, 'app', 'api');
+    if (await directoryExists(appApiDir)) {
+      const appRoutes = await discoverAppRouterRoutes(appApiDir, dir);
+      routes.push(...appRoutes);
+    }
+
+    // Check for Next.js Pages Router (pages/api/**/*.ts)
+    const pagesApiDir = path.join(dir, 'pages', 'api');
+    if (await directoryExists(pagesApiDir)) {
+      const pagesRoutes = await discoverPagesRouterRoutes(pagesApiDir, dir);
+      routes.push(...pagesRoutes);
+    }
+
+    // Check for src directory variants
+    const srcAppApiDir = path.join(dir, 'src', 'app', 'api');
+    if (await directoryExists(srcAppApiDir)) {
+      const srcAppRoutes = await discoverAppRouterRoutes(srcAppApiDir, dir);
+      routes.push(...srcAppRoutes);
+    }
+
+    const srcPagesApiDir = path.join(dir, 'src', 'pages', 'api');
+    if (await directoryExists(srcPagesApiDir)) {
+      const srcPagesRoutes = await discoverPagesRouterRoutes(srcPagesApiDir, dir);
+      routes.push(...srcPagesRoutes);
+    }
   }
 
-  // Check for Next.js Pages Router (pages/api/**/*.ts)
-  const pagesApiDir = path.join(projectDir, 'pages', 'api');
-  if (await directoryExists(pagesApiDir)) {
-    const pagesRoutes = await discoverPagesRouterRoutes(pagesApiDir, projectDir);
-    routes.push(...pagesRoutes);
-  }
+  // Discover in project root
+  await discoverInDir(projectDir);
 
-  // Check for src directory variants
-  const srcAppApiDir = path.join(projectDir, 'src', 'app', 'api');
-  if (await directoryExists(srcAppApiDir)) {
-    const srcAppRoutes = await discoverAppRouterRoutes(srcAppApiDir, projectDir);
-    routes.push(...srcAppRoutes);
-  }
+  // Also check subdirectories for nested apps (e.g., web-ui/, frontend/, client/)
+  try {
+    const entries = await fs.readdir(projectDir, { withFileTypes: true });
+    const skipDirs = ['node_modules', 'dist', 'build', '.git', 'coverage', '.next'];
 
-  const srcPagesApiDir = path.join(projectDir, 'src', 'pages', 'api');
-  if (await directoryExists(srcPagesApiDir)) {
-    const srcPagesRoutes = await discoverPagesRouterRoutes(srcPagesApiDir, projectDir);
-    routes.push(...srcPagesRoutes);
+    for (const entry of entries) {
+      if (entry.isDirectory() && !skipDirs.includes(entry.name)) {
+        const subDir = path.join(projectDir, entry.name);
+
+        // Check if this subdir has a package.json (indicating it's a sub-project)
+        const hasPackageJson = await fileExists(path.join(subDir, 'package.json'));
+        if (hasPackageJson) {
+          await discoverInDir(subDir);
+        }
+      }
+    }
+  } catch {
+    // Ignore errors reading directory
   }
 
   return routes;
+}
+
+/**
+ * Check if a file exists
+ */
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    const stat = await fs.stat(filePath);
+    return stat.isFile();
+  } catch {
+    return false;
+  }
 }
 
 /**

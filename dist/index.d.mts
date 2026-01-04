@@ -1037,6 +1037,7 @@ declare function filterByEndpoint(calls: ApiCall[], endpointPattern: string): Ap
 /**
  * Discover API routes from Next.js/Remix file structure
  * Supports Next.js App Router (app/api) and Pages Router (pages/api)
+ * Also searches subdirectories (like web-ui/) for nested Next.js apps
  */
 declare function discoverApiRoutes(projectDir: string): Promise<ApiRoute[]>;
 /**

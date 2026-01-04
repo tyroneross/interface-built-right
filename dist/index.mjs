@@ -1596,14 +1596,18 @@ async function scanDirectoryForApiCalls(dir, _pattern = "**/*.{ts,tsx,js,jsx}") 
       for (const entry of entries) {
         const fullPath = path.join(currentDir, entry.name);
         if (entry.isDirectory()) {
-          if (!["node_modules", "dist", "build", ".git", "coverage"].includes(entry.name)) {
+          const skipDirs = ["node_modules", "dist", "build", ".git", "coverage", ".next", "__tests__", "__mocks__"];
+          if (!skipDirs.includes(entry.name)) {
             await scanDir(fullPath);
           }
         } else if (entry.isFile()) {
           const ext = path.extname(entry.name);
           if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
-            const calls = await extractApiCalls(fullPath);
-            allCalls.push(...calls);
+            const isTestFile = entry.name.includes(".test.") || entry.name.includes(".spec.") || entry.name.includes(".mock.") || entry.name === "integration.ts";
+            if (!isTestFile) {
+              const calls = await extractApiCalls(fullPath);
+              allCalls.push(...calls);
+            }
           }
         }
       }
@@ -1648,27 +1652,52 @@ function filterByEndpoint(calls, endpointPattern) {
 }
 async function discoverApiRoutes(projectDir) {
   const routes = [];
-  const appApiDir = path.join(projectDir, "app", "api");
-  if (await directoryExists(appApiDir)) {
-    const appRoutes = await discoverAppRouterRoutes(appApiDir, projectDir);
-    routes.push(...appRoutes);
+  async function discoverInDir(dir) {
+    const appApiDir = path.join(dir, "app", "api");
+    if (await directoryExists(appApiDir)) {
+      const appRoutes = await discoverAppRouterRoutes(appApiDir, dir);
+      routes.push(...appRoutes);
+    }
+    const pagesApiDir = path.join(dir, "pages", "api");
+    if (await directoryExists(pagesApiDir)) {
+      const pagesRoutes = await discoverPagesRouterRoutes(pagesApiDir, dir);
+      routes.push(...pagesRoutes);
+    }
+    const srcAppApiDir = path.join(dir, "src", "app", "api");
+    if (await directoryExists(srcAppApiDir)) {
+      const srcAppRoutes = await discoverAppRouterRoutes(srcAppApiDir, dir);
+      routes.push(...srcAppRoutes);
+    }
+    const srcPagesApiDir = path.join(dir, "src", "pages", "api");
+    if (await directoryExists(srcPagesApiDir)) {
+      const srcPagesRoutes = await discoverPagesRouterRoutes(srcPagesApiDir, dir);
+      routes.push(...srcPagesRoutes);
+    }
   }
-  const pagesApiDir = path.join(projectDir, "pages", "api");
-  if (await directoryExists(pagesApiDir)) {
-    const pagesRoutes = await discoverPagesRouterRoutes(pagesApiDir, projectDir);
-    routes.push(...pagesRoutes);
-  }
-  const srcAppApiDir = path.join(projectDir, "src", "app", "api");
-  if (await directoryExists(srcAppApiDir)) {
-    const srcAppRoutes = await discoverAppRouterRoutes(srcAppApiDir, projectDir);
-    routes.push(...srcAppRoutes);
-  }
-  const srcPagesApiDir = path.join(projectDir, "src", "pages", "api");
-  if (await directoryExists(srcPagesApiDir)) {
-    const srcPagesRoutes = await discoverPagesRouterRoutes(srcPagesApiDir, projectDir);
-    routes.push(...srcPagesRoutes);
+  await discoverInDir(projectDir);
+  try {
+    const entries = await fs.readdir(projectDir, { withFileTypes: true });
+    const skipDirs = ["node_modules", "dist", "build", ".git", "coverage", ".next"];
+    for (const entry of entries) {
+      if (entry.isDirectory() && !skipDirs.includes(entry.name)) {
+        const subDir = path.join(projectDir, entry.name);
+        const hasPackageJson = await fileExists(path.join(subDir, "package.json"));
+        if (hasPackageJson) {
+          await discoverInDir(subDir);
+        }
+      }
+    }
+  } catch {
   }
   return routes;
+}
+async function fileExists(filePath) {
+  try {
+    const stat3 = await fs.stat(filePath);
+    return stat3.isFile();
+  } catch {
+    return false;
+  }
 }
 function filePathToRoute(filePath, projectDir) {
   const normalizedFilePath = path.normalize(filePath);
