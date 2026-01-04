@@ -748,7 +748,8 @@ program
   .option('-w, --wait-for <selector>', 'Wait for selector before considering page ready')
   .option('--sandbox', 'Show visible browser window (default: headless)')
   .option('--debug', 'Visible browser + slow motion + devtools')
-  .action(async (url: string | undefined, options: { name?: string; waitFor?: string; sandbox?: boolean; debug?: boolean }) => {
+  .option('--low-memory', 'Reduce memory usage for lower-powered machines (4GB RAM)')
+  .action(async (url: string | undefined, options: { name?: string; waitFor?: string; sandbox?: boolean; debug?: boolean; lowMemory?: boolean }) => {
     try {
       const {
         startBrowserServer,
@@ -765,12 +766,14 @@ program
 
       if (!serverRunning) {
         // First session - launch browser server and keep process alive
-        console.log(headless ? 'Starting headless browser server...' : 'Starting visible browser server...');
+        const modeLabel = options.lowMemory ? ' (low-memory mode)' : '';
+        console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
 
         const { server } = await startBrowserServer(outputDir, {
           headless,
           debug: options.debug,
           isolated: true,  // Prevents conflicts with Playwright MCP
+          lowMemory: options.lowMemory,
         });
 
         // Create the session

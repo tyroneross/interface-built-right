@@ -16,6 +16,7 @@ interface BrowserServerState {
   startedAt: string;
   headless: boolean;
   isolatedProfile: string;
+  lowMemory?: boolean;  // Whether low-memory mode is enabled
 }
 
 /**
@@ -64,6 +65,7 @@ export interface BrowserServerOptions {
   headless?: boolean;  // Default: true
   debug?: boolean;     // Visible + slowMo + devtools
   isolated?: boolean;  // Use isolated profile (default: true)
+  lowMemory?: boolean; // Reduce memory usage for lower-powered machines
 }
 
 const SERVER_STATE_FILE = 'browser-server.json';
@@ -143,12 +145,36 @@ export async function startBrowserServer(
   // Find an available port for CDP debugging
   const debugPort = 9222 + Math.floor(Math.random() * 1000);
 
+  // Build browser args
+  const browserArgs: string[] = [`--remote-debugging-port=${debugPort}`];
+
+  // Low memory mode args - reduces Chromium memory footprint
+  // Useful for lower-powered machines (4GB RAM, older CPUs)
+  if (options.lowMemory) {
+    browserArgs.push(
+      '--disable-gpu',                    // Disable GPU acceleration
+      '--disable-dev-shm-usage',          // Use /tmp instead of /dev/shm
+      '--disable-extensions',             // No extensions
+      '--disable-background-networking',  // Reduce background activity
+      '--disable-default-apps',           // No default Chrome apps
+      '--disable-sync',                   // No Chrome sync
+      '--no-first-run',                   // Skip first run tasks
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-renderer-backgrounding',
+      '--disable-features=TranslateUI',
+      '--disable-ipc-flooding-protection',
+      '--memory-pressure-off',            // Don't respond to memory pressure
+      '--js-flags=--max-old-space-size=256', // Limit V8 heap to 256MB
+    );
+  }
+
   // Launch browser server with CDP debugging enabled
   // This allows connectOverCDP to work and share contexts across reconnections
   // Note: slowMo is not available on launchServer, only on launch()
   const server = await chromium.launchServer({
     headless,
-    args: [`--remote-debugging-port=${debugPort}`],
+    args: browserArgs,
   });
 
   const wsEndpoint = server.wsEndpoint();
@@ -162,6 +188,7 @@ export async function startBrowserServer(
     startedAt: new Date().toISOString(),
     headless,
     isolatedProfile: isolated ? profileDir : '',
+    lowMemory: options.lowMemory,
   };
 
   await writeFile(stateFile, JSON.stringify(state, null, 2));

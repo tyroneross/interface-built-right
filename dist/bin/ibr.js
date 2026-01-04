@@ -2602,9 +2602,37 @@ async function startBrowserServer(outputDir, options = {}) {
     await (0, import_promises8.mkdir)(profileDir, { recursive: true });
   }
   const debugPort = 9222 + Math.floor(Math.random() * 1e3);
+  const browserArgs = [`--remote-debugging-port=${debugPort}`];
+  if (options.lowMemory) {
+    browserArgs.push(
+      "--disable-gpu",
+      // Disable GPU acceleration
+      "--disable-dev-shm-usage",
+      // Use /tmp instead of /dev/shm
+      "--disable-extensions",
+      // No extensions
+      "--disable-background-networking",
+      // Reduce background activity
+      "--disable-default-apps",
+      // No default Chrome apps
+      "--disable-sync",
+      // No Chrome sync
+      "--no-first-run",
+      // Skip first run tasks
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+      "--disable-features=TranslateUI",
+      "--disable-ipc-flooding-protection",
+      "--memory-pressure-off",
+      // Don't respond to memory pressure
+      "--js-flags=--max-old-space-size=256"
+      // Limit V8 heap to 256MB
+    );
+  }
   const server = await import_playwright6.chromium.launchServer({
     headless,
-    args: [`--remote-debugging-port=${debugPort}`]
+    args: browserArgs
   });
   const wsEndpoint = server.wsEndpoint();
   const cdpUrl = `http://127.0.0.1:${debugPort}`;
@@ -2614,7 +2642,8 @@ async function startBrowserServer(outputDir, options = {}) {
     pid: process.pid,
     startedAt: (/* @__PURE__ */ new Date()).toISOString(),
     headless,
-    isolatedProfile: isolated ? profileDir : ""
+    isolatedProfile: isolated ? profileDir : "",
+    lowMemory: options.lowMemory
   };
   await (0, import_promises8.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { server, wsEndpoint };
@@ -4799,7 +4828,7 @@ program.command("logout").description("Clear saved authentication state").action
     process.exit(1);
   }
 });
-program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
+program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").action(async (url, options) => {
   try {
     const {
       startBrowserServer: startBrowserServer2,
@@ -4812,12 +4841,14 @@ program.command("session:start [url]").description("Start an interactive browser
     const headless = !options.sandbox && !options.debug;
     const serverRunning = await isServerRunning2(outputDir);
     if (!serverRunning) {
-      console.log(headless ? "Starting headless browser server..." : "Starting visible browser server...");
+      const modeLabel = options.lowMemory ? " (low-memory mode)" : "";
+      console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
       const { server } = await startBrowserServer2(outputDir, {
         headless,
         debug: options.debug,
-        isolated: true
+        isolated: true,
         // Prevents conflicts with Playwright MCP
+        lowMemory: options.lowMemory
       });
       const session = await PersistentSession2.create(outputDir, {
         url: resolvedUrl,

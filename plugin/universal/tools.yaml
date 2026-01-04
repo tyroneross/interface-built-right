@@ -1,0 +1,306 @@
+# IBR Universal Tool Definitions
+# Source of truth for generating platform-specific integrations
+#
+# Targets:
+#   - Claude Code plugin (default, .claude-plugin/)
+#   - MCP server (Cursor, Windsurf, Warp, Codex, Continue)
+#   - Cody custom commands (.vscode/cody.json)
+#   - Aider conventions (CONVENTIONS.md)
+
+meta:
+  name: ibr
+  version: "0.3.0"
+  description: Visual regression testing and UI audit tool
+  repository: https://github.com/tyroneross/interface-built-right
+
+# Tool definitions
+tools:
+  # ============================================
+  # Core Visual Regression Tools
+  # ============================================
+
+  - id: ibr_start
+    name: Capture Baseline
+    description: Capture a baseline screenshot before making UI changes
+    category: visual-regression
+    params:
+      - name: url
+        type: string
+        required: true
+        description: URL to capture (or auto-detect dev server if omitted)
+      - name: name
+        type: string
+        required: false
+        description: Descriptive name for the session
+      - name: viewport
+        type: string
+        required: false
+        default: desktop
+        enum: [desktop, mobile, tablet, laptop]
+        description: Viewport preset to use
+    cli: "npx ibr start {url} --name {name} --viewport {viewport}"
+    returns:
+      - sessionId: string
+      - baselinePath: string
+    example: |
+      npx ibr start http://localhost:3000/dashboard --name "header-redesign"
+
+  - id: ibr_check
+    name: Compare Changes
+    description: Compare current page state against baseline screenshot
+    category: visual-regression
+    params:
+      - name: sessionId
+        type: string
+        required: false
+        description: Session ID to check (uses most recent if omitted)
+    cli: "npx ibr check {sessionId}"
+    returns:
+      - verdict: string  # MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN
+      - diffPercent: number
+      - diffPath: string
+    example: |
+      npx ibr check sess_abc123
+
+  - id: ibr_update
+    name: Update Baseline
+    description: Accept current screenshot as new baseline
+    category: visual-regression
+    params:
+      - name: sessionId
+        type: string
+        required: false
+        description: Session ID to update
+    cli: "npx ibr update {sessionId}"
+    example: |
+      npx ibr update sess_abc123
+
+  # ============================================
+  # UI Audit Tools
+  # ============================================
+
+  - id: ibr_audit
+    name: Audit UI
+    description: Audit a page for UI issues (handlers, accessibility, touch targets, orphan APIs)
+    category: audit
+    params:
+      - name: url
+        type: string
+        required: true
+        description: URL to audit
+      - name: rules
+        type: string
+        required: false
+        default: minimal
+        description: Rule preset to use
+      - name: checkApis
+        type: string
+        required: false
+        description: Directory to cross-reference API calls against
+    cli: "npx ibr audit {url} --rules {rules} --check-apis {checkApis}"
+    returns:
+      - elementsScanned: number
+      - errors: number
+      - warnings: number
+      - violations: array
+    example: |
+      npx ibr audit http://localhost:3000 --rules minimal --check-apis .
+
+  # ============================================
+  # Session Management Tools
+  # ============================================
+
+  - id: ibr_list
+    name: List Sessions
+    description: List all visual regression sessions
+    category: management
+    params: []
+    cli: "npx ibr list"
+    returns:
+      - sessions: array
+
+  - id: ibr_status
+    name: Show Pending
+    description: Show sessions awaiting comparison
+    category: management
+    params: []
+    cli: "npx ibr status"
+
+  - id: ibr_serve
+    name: Open Web UI
+    description: Start the comparison viewer web UI
+    category: management
+    params:
+      - name: port
+        type: number
+        required: false
+        default: 4200
+    cli: "npx ibr serve --port {port}"
+
+  # ============================================
+  # Interactive Session Tools
+  # ============================================
+
+  - id: ibr_session_start
+    name: Start Interactive Session
+    description: Start a persistent browser session for multi-step interactions
+    category: interactive
+    params:
+      - name: url
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: false
+      - name: waitFor
+        type: string
+        required: false
+        description: CSS selector to wait for before ready
+      - name: lowMemory
+        type: boolean
+        required: false
+        default: false
+        description: Enable low-memory mode for weaker machines
+    cli: "npx ibr session:start {url} --name {name} --wait-for {waitFor} {lowMemory ? '--low-memory' : ''}"
+    returns:
+      - sessionId: string
+    example: |
+      npx ibr session:start http://localhost:3000 --name "search-test"
+
+  - id: ibr_session_click
+    name: Click Element
+    description: Click an element in an active session
+    category: interactive
+    params:
+      - name: sessionId
+        type: string
+        required: true
+      - name: selector
+        type: string
+        required: true
+    cli: "npx ibr session:click {sessionId} {selector}"
+
+  - id: ibr_session_type
+    name: Type Text
+    description: Type text into an element
+    category: interactive
+    params:
+      - name: sessionId
+        type: string
+        required: true
+      - name: selector
+        type: string
+        required: true
+      - name: text
+        type: string
+        required: true
+      - name: submit
+        type: boolean
+        required: false
+        default: false
+        description: Press Enter after typing
+    cli: "npx ibr session:type {sessionId} {selector} {text} {submit ? '--submit' : ''}"
+
+  - id: ibr_session_screenshot
+    name: Take Screenshot
+    description: Capture screenshot and audit elements in session
+    category: interactive
+    params:
+      - name: sessionId
+        type: string
+        required: true
+      - name: name
+        type: string
+        required: false
+    cli: "npx ibr session:screenshot {sessionId} --name {name}"
+    returns:
+      - path: string
+      - elementsCount: number
+      - issuesCount: number
+
+  - id: ibr_session_wait
+    name: Wait For
+    description: Wait for a selector or duration
+    category: interactive
+    params:
+      - name: sessionId
+        type: string
+        required: true
+      - name: target
+        type: string
+        required: true
+        description: CSS selector or milliseconds
+    cli: "npx ibr session:wait {sessionId} {target}"
+
+  - id: ibr_session_close
+    name: Close Session
+    description: Close a session or stop browser server
+    category: interactive
+    params:
+      - name: sessionId
+        type: string
+        required: true
+        description: Session ID or "all" to stop browser server
+    cli: "npx ibr session:close {sessionId}"
+
+# Prompt templates (referenced by commands/skills)
+prompts:
+  snapshot_before:
+    description: Capture baseline BEFORE making UI changes
+    template: |
+      Capture a baseline screenshot with IBR before making changes.
+
+      ```bash
+      npx ibr start {url} --name "{name}"
+      ```
+
+      This creates a session that can be compared after changes.
+
+  compare_after:
+    description: Compare AFTER making UI changes
+    template: |
+      Compare current state against the baseline.
+
+      ```bash
+      npx ibr check
+      ```
+
+      Interpret the verdict:
+      - MATCH - No visual changes
+      - EXPECTED_CHANGE - Intentional changes detected
+      - UNEXPECTED_CHANGE - Review needed
+      - LAYOUT_BROKEN - Fix before continuing
+
+  ui_audit:
+    description: Full UI/UX workflow audit
+    file: prompts/ui-audit.md
+
+# Platform-specific notes
+platforms:
+  claude-code:
+    notes: |
+      Primary target. Plugin already exists at plugin/.claude-plugin/
+      Commands are markdown files in plugin/commands/
+      Agents are markdown files in plugin/agents/
+
+  mcp:
+    notes: |
+      MCP server covers: Cursor, Windsurf, Warp, Codex, Continue.dev
+      Uses stdio transport (local process)
+      Config locations vary by IDE:
+        - Cursor: VS Code MCP settings
+        - Windsurf: ~/.codeium/windsurf/mcp_config.json
+        - Codex: ~/.codex/config.toml
+        - Continue: config.json mcpServers section
+
+  cody:
+    notes: |
+      Sourcegraph Cody uses custom commands in JSON format
+      Stored in .vscode/cody.json (workspace) or ~/.vscode/code.json (user)
+      Supports modes: ask, edit, insert
+
+  aider:
+    notes: |
+      Aider uses CONVENTIONS.md or .aider.conf.yml
+      Read-only context via --read flag
+      No native tool API, just prompt context
