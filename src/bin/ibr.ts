@@ -264,9 +264,10 @@ program
   .command('audit [url]')
   .description('Audit a page for UI issues (handlers, accessibility, touch targets)')
   .option('-r, --rules <preset>', 'Rule preset: minimal (default)', 'minimal')
+  .option('--check-apis [dir]', 'Cross-reference UI API calls against backend routes')
   .option('--json', 'Output as JSON')
   .option('--fail-on <level>', 'Exit non-zero on errors/warnings', 'error')
-  .action(async (url: string | undefined, options: { rules: string; json?: boolean; failOn: string }) => {
+  .action(async (url: string | undefined, options: { rules: string; checkApis?: string | boolean; json?: boolean; failOn: string }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const globalOpts = program.opts();
@@ -322,17 +323,63 @@ program
       await context.close();
       await browser.close();
 
+      // Run integration checks if requested
+      let integrationResult: { orphanCount: number; orphans: Array<{ endpoint: string; method: string; file: string; line?: number }> } | null = null;
+
+      if (options.checkApis) {
+        const { scanDirectoryForApiCalls, discoverApiRoutes, findOrphanEndpoints } = await import('../integration.js');
+
+        const projectDir = typeof options.checkApis === 'string' ? options.checkApis : process.cwd();
+
+        const [apiCalls, apiRoutes] = await Promise.all([
+          scanDirectoryForApiCalls(projectDir),
+          discoverApiRoutes(projectDir),
+        ]);
+
+        const orphans = findOrphanEndpoints(apiCalls, apiRoutes);
+
+        integrationResult = {
+          orphanCount: orphans.length,
+          orphans: orphans.map(o => ({
+            endpoint: o.call.endpoint,
+            method: o.call.method,
+            file: o.call.sourceFile,
+            line: o.call.lineNumber,
+          })),
+        };
+      }
+
       // Output
       if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
+        console.log(JSON.stringify({
+          ...result,
+          integration: integrationResult,
+        }, null, 2));
       } else {
         console.log(formatAuditResult(result));
+
+        // Print integration results if available
+        if (integrationResult && integrationResult.orphanCount > 0) {
+          console.log('');
+          console.log('Integration Issues:');
+          console.log(`  ${integrationResult.orphanCount} orphan API calls (UI calls backend that doesn't exist):`);
+          console.log('');
+
+          for (const orphan of integrationResult.orphans) {
+            console.log(`  ! ${orphan.method} ${orphan.endpoint}`);
+            console.log(`    Called from: ${orphan.file}${orphan.line ? `:${orphan.line}` : ''}`);
+          }
+        } else if (integrationResult) {
+          console.log('');
+          console.log('Integration: All API calls have matching backend routes.');
+        }
       }
 
       // Exit code based on --fail-on
-      if (options.failOn === 'error' && result.summary.errors > 0) {
+      const hasIntegrationErrors = integrationResult && integrationResult.orphanCount > 0;
+      if (options.failOn === 'error' && (result.summary.errors > 0 || hasIntegrationErrors)) {
         process.exit(1);
-      } else if (options.failOn === 'warning' && (result.summary.errors > 0 || result.summary.warnings > 0)) {
+      } else if (options.failOn === 'warning' && (result.summary.errors > 0 || result.summary.warnings > 0 || hasIntegrationErrors)) {
         process.exit(1);
       }
     } catch (error) {

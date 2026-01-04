@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile, readdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { SessionSchema, SessionQuerySchema, type Session, type SessionQuery, type Viewport, type ComparisonResult, type Analysis } from './schemas.js';
 import type { SessionPaths, CleanOptions } from './types.js';
+import { getAppContext, getSessionBasePath, type AppContext } from './git-context.js';
 
 const SESSION_PREFIX = 'sess_';
 
@@ -14,7 +15,7 @@ export function generateSessionId(): string {
 }
 
 /**
- * Get paths for a session
+ * Get paths for a session (legacy flat structure)
  */
 export function getSessionPaths(outputDir: string, sessionId: string): SessionPaths {
   const root = join(outputDir, 'sessions', sessionId);
@@ -25,6 +26,53 @@ export function getSessionPaths(outputDir: string, sessionId: string): SessionPa
     current: join(root, 'current.png'),
     diff: join(root, 'diff.png'),
   };
+}
+
+/**
+ * Get paths for a session with git context awareness
+ * Uses: .ibr/apps/{appName}/{branch}/sessions/{sessionId}/
+ * Falls back to flat structure for non-git projects
+ */
+export function getSessionPathsWithContext(
+  outputDir: string,
+  sessionId: string,
+  context: AppContext | null
+): SessionPaths {
+  const basePath = context
+    ? getSessionBasePath(outputDir, context)
+    : join(outputDir, 'sessions');
+
+  const root = join(basePath, sessionId);
+  return {
+    root,
+    sessionJson: join(root, 'session.json'),
+    baseline: join(root, 'baseline.png'),
+    current: join(root, 'current.png'),
+    diff: join(root, 'diff.png'),
+  };
+}
+
+// Cached app context to avoid repeated git lookups
+let cachedContext: AppContext | null = null;
+let contextCacheDir: string | null = null;
+
+/**
+ * Get cached app context for current directory
+ */
+export async function getCachedAppContext(projectDir: string): Promise<AppContext | null> {
+  if (contextCacheDir === projectDir && cachedContext !== null) {
+    return cachedContext;
+  }
+
+  try {
+    cachedContext = await getAppContext(projectDir);
+    contextCacheDir = projectDir;
+    return cachedContext;
+  } catch {
+    cachedContext = null;
+    contextCacheDir = projectDir;
+    return null;
+  }
 }
 
 /**

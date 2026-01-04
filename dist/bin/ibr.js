@@ -1087,7 +1087,7 @@ function normalizeUrl(url) {
   }
 }
 function shouldSkipUrl(url) {
-  const path = url.pathname.toLowerCase();
+  const path2 = url.pathname.toLowerCase();
   const skipExtensions = [
     ".pdf",
     ".jpg",
@@ -1110,7 +1110,7 @@ function shouldSkipUrl(url) {
     ".tar",
     ".gz"
   ];
-  if (skipExtensions.some((ext) => path.endsWith(ext))) return true;
+  if (skipExtensions.some((ext) => path2.endsWith(ext))) return true;
   const skipPaths = [
     "/api/",
     "/static/",
@@ -1123,7 +1123,7 @@ function shouldSkipUrl(url) {
     "/admin/",
     "/auth/"
   ];
-  if (skipPaths.some((p) => path.includes(p))) return true;
+  if (skipPaths.some((p) => path2.includes(p))) return true;
   if (url.hash && url.pathname === "/") return true;
   return false;
 }
@@ -1197,6 +1197,439 @@ var init_crawl = __esm({
     "use strict";
     import_playwright4 = require("playwright");
     import_url = require("url");
+  }
+});
+
+// src/integration.ts
+var integration_exports = {};
+__export(integration_exports, {
+  discoverApiRoutes: () => discoverApiRoutes,
+  extractApiCalls: () => extractApiCalls,
+  filePathToRoute: () => filePathToRoute,
+  filterByEndpoint: () => filterByEndpoint,
+  filterByMethod: () => filterByMethod,
+  findOrphanEndpoints: () => findOrphanEndpoints,
+  groupByEndpoint: () => groupByEndpoint,
+  groupByFile: () => groupByFile,
+  scanDirectoryForApiCalls: () => scanDirectoryForApiCalls
+});
+function extractCallerContext(content, targetLine) {
+  const lines = content.split("\n");
+  for (let i = targetLine - 1; i >= Math.max(0, targetLine - 30); i--) {
+    const line = lines[i];
+    const functionMatch = line.match(/(?:export\s+)?(?:async\s+)?function\s+(\w+)/);
+    const arrowMatch = line.match(/(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s*)?\(/);
+    const componentMatch = line.match(/(?:export\s+)?(?:const|function)\s+([A-Z]\w+)/);
+    if (functionMatch) return functionMatch[1];
+    if (arrowMatch) return arrowMatch[1];
+    if (componentMatch) return componentMatch[1];
+  }
+  return void 0;
+}
+function parseEndpoint(rawEndpoint) {
+  const hasTemplateLiteral = rawEndpoint.includes("${") || rawEndpoint.includes("`");
+  const hasConcatenation = /['"].*\+|^\w+$/.test(rawEndpoint);
+  if (hasTemplateLiteral || hasConcatenation) {
+    return {
+      endpoint: rawEndpoint.replace(/`/g, "").replace(/\$\{[^}]+\}/g, "{dynamic}"),
+      isDynamic: true
+    };
+  }
+  return {
+    endpoint: rawEndpoint.replace(/['"]/g, ""),
+    isDynamic: false
+  };
+}
+function extractFromContent(content, sourceFile) {
+  const calls = [];
+  const lines = content.split("\n");
+  const fetchPattern = /fetch\s*\(\s*(['"`])([^'"`]+)\1/g;
+  const fetchWithOptionsPattern = /fetch\s*\(\s*(['"`])([^'"`]+)\1\s*,\s*\{[^}]*method\s*:\s*['"](\w+)['"]/g;
+  const axiosPattern = /axios\.(get|post|put|delete|patch|head|options)\s*\(\s*(['"`])([^'"`]+)\2/g;
+  const axiosConfigPattern = /axios\s*\(\s*\{[^}]*url\s*:\s*(['"`])([^'"`]+)\1[^}]*method\s*:\s*['"](\w+)['"]/g;
+  const templateLiteralPattern = /(?:fetch|axios(?:\.\w+)?)\s*\(\s*`([^`]+)`/g;
+  const urlVariablePattern = /const\s+(\w*[Uu]rl\w*)\s*=\s*(['"`])([^'"`]+)\2/g;
+  const urlUsagePattern = /(?:fetch|axios(?:\.\w+)?)\s*\(\s*(\w+)/g;
+  const urlVariables = /* @__PURE__ */ new Map();
+  lines.forEach((line, index) => {
+    let match;
+    const urlVarRegex = new RegExp(urlVariablePattern.source, "g");
+    while ((match = urlVarRegex.exec(line)) !== null) {
+      urlVariables.set(match[1], {
+        endpoint: match[3],
+        lineNumber: index + 1
+      });
+    }
+  });
+  lines.forEach((line, index) => {
+    const lineNumber = index + 1;
+    let match;
+    const fetchOptsRegex = new RegExp(fetchWithOptionsPattern.source, "g");
+    while ((match = fetchOptsRegex.exec(line)) !== null) {
+      const { endpoint, isDynamic } = parseEndpoint(match[2]);
+      calls.push({
+        endpoint,
+        method: match[3].toUpperCase(),
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic
+      });
+    }
+    const fetchRegex = new RegExp(fetchPattern.source, "g");
+    while ((match = fetchRegex.exec(line)) !== null) {
+      if (!line.includes("method:")) {
+        const { endpoint, isDynamic } = parseEndpoint(match[2]);
+        calls.push({
+          endpoint,
+          method: "GET",
+          sourceFile,
+          lineNumber,
+          callerContext: extractCallerContext(content, lineNumber),
+          isDynamic
+        });
+      }
+    }
+    const axiosRegex = new RegExp(axiosPattern.source, "g");
+    while ((match = axiosRegex.exec(line)) !== null) {
+      const { endpoint, isDynamic } = parseEndpoint(match[3]);
+      calls.push({
+        endpoint,
+        method: match[1].toUpperCase(),
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic
+      });
+    }
+    const axiosConfigRegex = new RegExp(axiosConfigPattern.source, "g");
+    while ((match = axiosConfigRegex.exec(line)) !== null) {
+      const { endpoint, isDynamic } = parseEndpoint(match[2]);
+      calls.push({
+        endpoint,
+        method: match[3].toUpperCase(),
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic
+      });
+    }
+    const templateRegex = new RegExp(templateLiteralPattern.source, "g");
+    while ((match = templateRegex.exec(line)) !== null) {
+      const { endpoint } = parseEndpoint(match[1]);
+      let method = "GET";
+      const methodMatch = line.match(/method\s*:\s*['"](\w+)['"]/);
+      if (methodMatch) {
+        method = methodMatch[1].toUpperCase();
+      }
+      calls.push({
+        endpoint,
+        method,
+        sourceFile,
+        lineNumber,
+        callerContext: extractCallerContext(content, lineNumber),
+        isDynamic: true
+        // Template literals are always dynamic
+      });
+    }
+    const urlUsageRegex = new RegExp(urlUsagePattern.source, "g");
+    while ((match = urlUsageRegex.exec(line)) !== null) {
+      const varName = match[1];
+      if (urlVariables.has(varName)) {
+        const urlInfo = urlVariables.get(varName);
+        const { endpoint, isDynamic } = parseEndpoint(urlInfo.endpoint);
+        let method = "GET";
+        const methodMatch = line.match(/method\s*:\s*['"](\w+)['"]/);
+        if (methodMatch) {
+          method = methodMatch[1].toUpperCase();
+        }
+        calls.push({
+          endpoint,
+          method,
+          sourceFile,
+          lineNumber,
+          callerContext: extractCallerContext(content, lineNumber),
+          isDynamic
+        });
+      }
+    }
+  });
+  const uniqueCalls = calls.filter(
+    (call, index, self) => index === self.findIndex(
+      (c) => c.endpoint === call.endpoint && c.method === call.method && c.lineNumber === call.lineNumber
+    )
+  );
+  return uniqueCalls;
+}
+async function extractApiCalls(filePath) {
+  try {
+    const content = await fs.readFile(filePath, "utf-8");
+    return extractFromContent(content, filePath);
+  } catch (error) {
+    console.error(`Error reading file ${filePath}:`, error);
+    return [];
+  }
+}
+async function scanDirectoryForApiCalls(dir, _pattern = "**/*.{ts,tsx,js,jsx}") {
+  const allCalls = [];
+  async function scanDir(currentDir) {
+    try {
+      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          if (!["node_modules", "dist", "build", ".git", "coverage"].includes(entry.name)) {
+            await scanDir(fullPath);
+          }
+        } else if (entry.isFile()) {
+          const ext = path.extname(entry.name);
+          if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
+            const calls = await extractApiCalls(fullPath);
+            allCalls.push(...calls);
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error scanning directory ${currentDir}:`, error);
+    }
+  }
+  await scanDir(dir);
+  return allCalls;
+}
+function groupByEndpoint(calls) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const call of calls) {
+    const key = call.endpoint;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key).push(call);
+  }
+  return grouped;
+}
+function groupByFile(calls) {
+  const grouped = /* @__PURE__ */ new Map();
+  for (const call of calls) {
+    const key = call.sourceFile;
+    if (!grouped.has(key)) {
+      grouped.set(key, []);
+    }
+    grouped.get(key).push(call);
+  }
+  return grouped;
+}
+function filterByMethod(calls, methods) {
+  const upperMethods = methods.map((m) => m.toUpperCase());
+  return calls.filter((call) => upperMethods.includes(call.method));
+}
+function filterByEndpoint(calls, endpointPattern) {
+  const regex = new RegExp(
+    "^" + endpointPattern.replace(/\*/g, ".*").replace(/\?/g, ".") + "$"
+  );
+  return calls.filter((call) => regex.test(call.endpoint));
+}
+async function discoverApiRoutes(projectDir) {
+  const routes = [];
+  const appApiDir = path.join(projectDir, "app", "api");
+  if (await directoryExists(appApiDir)) {
+    const appRoutes = await discoverAppRouterRoutes(appApiDir, projectDir);
+    routes.push(...appRoutes);
+  }
+  const pagesApiDir = path.join(projectDir, "pages", "api");
+  if (await directoryExists(pagesApiDir)) {
+    const pagesRoutes = await discoverPagesRouterRoutes(pagesApiDir, projectDir);
+    routes.push(...pagesRoutes);
+  }
+  const srcAppApiDir = path.join(projectDir, "src", "app", "api");
+  if (await directoryExists(srcAppApiDir)) {
+    const srcAppRoutes = await discoverAppRouterRoutes(srcAppApiDir, projectDir);
+    routes.push(...srcAppRoutes);
+  }
+  const srcPagesApiDir = path.join(projectDir, "src", "pages", "api");
+  if (await directoryExists(srcPagesApiDir)) {
+    const srcPagesRoutes = await discoverPagesRouterRoutes(srcPagesApiDir, projectDir);
+    routes.push(...srcPagesRoutes);
+  }
+  return routes;
+}
+function filePathToRoute(filePath, projectDir) {
+  const normalizedFilePath = path.normalize(filePath);
+  const normalizedProjectDir = path.normalize(projectDir);
+  const relativePath = path.relative(normalizedProjectDir, normalizedFilePath);
+  let routePath = relativePath.replace(/\.(ts|tsx|js|jsx)$/, "");
+  routePath = routePath.replace(/\/route$/, "");
+  routePath = routePath.replace(/\\route$/, "");
+  let apiPath = "";
+  if (routePath.includes("app/api/") || routePath.includes("app\\api\\")) {
+    apiPath = routePath.split(/app[/\\]api[/\\]/)[1] || "";
+  } else if (routePath.includes("src/app/api/") || routePath.includes("src\\app\\api\\")) {
+    apiPath = routePath.split(/src[/\\]app[/\\]api[/\\]/)[1] || "";
+  } else if (routePath.includes("pages/api/") || routePath.includes("pages\\api\\")) {
+    apiPath = routePath.split(/pages[/\\]api[/\\]/)[1] || "";
+  } else if (routePath.includes("src/pages/api/") || routePath.includes("src\\pages\\api\\")) {
+    apiPath = routePath.split(/src[/\\]pages[/\\]api[/\\]/)[1] || "";
+  }
+  const route = "/api/" + (apiPath ? apiPath.replace(/\\/g, "/") : "");
+  return route;
+}
+function findOrphanEndpoints(apiCalls, apiRoutes) {
+  const orphans = [];
+  for (const call of apiCalls) {
+    const endpoint = call.endpoint;
+    if (!endpoint.startsWith("/api") && !endpoint.includes("/api/")) {
+      continue;
+    }
+    if (endpoint.includes("{dynamic}")) {
+      continue;
+    }
+    let apiPath = endpoint;
+    if (endpoint.includes("/api/")) {
+      apiPath = "/api/" + endpoint.split("/api/")[1].split("?")[0];
+    }
+    const matchedRoute = apiRoutes.find((route) => {
+      const methodMatches = route.method.includes(call.method) || route.method.includes("ALL");
+      if (!methodMatches) {
+        return false;
+      }
+      return routeMatchesEndpoint(route.route, apiPath);
+    });
+    if (!matchedRoute) {
+      const searchedLocations = generatePossibleRouteFiles(apiPath);
+      orphans.push({
+        call,
+        searchedLocations
+      });
+    }
+  }
+  return orphans;
+}
+function routeMatchesEndpoint(routePattern, endpoint) {
+  const routeParts = routePattern.split("/").filter(Boolean);
+  const endpointParts = endpoint.split("/").filter(Boolean);
+  if (routeParts.length !== endpointParts.length) {
+    return false;
+  }
+  for (let i = 0; i < routeParts.length; i++) {
+    const routePart = routeParts[i];
+    const endpointPart = endpointParts[i];
+    if (routePart.startsWith("[") && routePart.endsWith("]")) {
+      continue;
+    }
+    if (routePart !== endpointPart) {
+      return false;
+    }
+  }
+  return true;
+}
+function generatePossibleRouteFiles(apiPath) {
+  const pathWithoutApi = apiPath.replace(/^\/api\//, "");
+  const locations = [];
+  locations.push(`app/api/${pathWithoutApi}/route.ts`);
+  locations.push(`app/api/${pathWithoutApi}/route.js`);
+  locations.push(`src/app/api/${pathWithoutApi}/route.ts`);
+  locations.push(`src/app/api/${pathWithoutApi}/route.js`);
+  locations.push(`pages/api/${pathWithoutApi}.ts`);
+  locations.push(`pages/api/${pathWithoutApi}.js`);
+  locations.push(`src/pages/api/${pathWithoutApi}.ts`);
+  locations.push(`src/pages/api/${pathWithoutApi}.js`);
+  return locations;
+}
+async function discoverAppRouterRoutes(apiDir, projectDir) {
+  const routes = [];
+  try {
+    const files = await findRouteFiles(apiDir, "route");
+    for (const file of files) {
+      const content = await fs.readFile(file, "utf-8");
+      const methods = extractHttpMethods(content);
+      const route = filePathToRoute(file, projectDir);
+      const isDynamic = route.includes("[") && route.includes("]");
+      if (methods.length > 0) {
+        routes.push({
+          route,
+          method: methods,
+          sourceFile: file,
+          isDynamic
+        });
+      }
+    }
+  } catch (error) {
+  }
+  return routes;
+}
+async function discoverPagesRouterRoutes(apiDir, projectDir) {
+  const routes = [];
+  try {
+    const files = await findRouteFiles(apiDir);
+    for (const file of files) {
+      const content = await fs.readFile(file, "utf-8");
+      const methods = extractHttpMethods(content);
+      const route = filePathToRoute(file, projectDir);
+      const isDynamic = route.includes("[") && route.includes("]");
+      if (methods.length > 0 || content.includes("export default")) {
+        routes.push({
+          route,
+          method: methods.length > 0 ? methods : ["GET", "POST", "PUT", "DELETE", "PATCH"],
+          sourceFile: file,
+          isDynamic
+        });
+      }
+    }
+  } catch (error) {
+  }
+  return routes;
+}
+async function findRouteFiles(dir, filename) {
+  const files = [];
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const subFiles = await findRouteFiles(fullPath, filename);
+        files.push(...subFiles);
+      } else if (entry.isFile()) {
+        const ext = path.extname(entry.name);
+        const baseName = path.basename(entry.name, ext);
+        if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
+          if (filename) {
+            if (baseName === filename) {
+              files.push(fullPath);
+            }
+          } else {
+            files.push(fullPath);
+          }
+        }
+      }
+    }
+  } catch (error) {
+  }
+  return files;
+}
+function extractHttpMethods(content) {
+  const methods = [];
+  const httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"];
+  for (const method of httpMethods) {
+    const exportPattern = new RegExp(`export\\s+(?:async\\s+)?function\\s+${method}\\s*\\(`, "g");
+    if (exportPattern.test(content)) {
+      methods.push(method);
+    }
+  }
+  return methods;
+}
+async function directoryExists(dir) {
+  try {
+    const stat3 = await fs.stat(dir);
+    return stat3.isDirectory();
+  } catch {
+    return false;
+  }
+}
+var fs, path;
+var init_integration = __esm({
+  "src/integration.ts"() {
+    "use strict";
+    fs = __toESM(require("fs/promises"));
+    path = __toESM(require("path"));
   }
 });
 
@@ -1594,13 +2027,13 @@ async function extractInteractiveElements(page) {
     const elements = [];
     function generateSelector(el) {
       if (el.id) return `#${el.id}`;
-      const path = [];
+      const path2 = [];
       let current = el;
       while (current && current !== document.body) {
         let selector = current.tagName.toLowerCase();
         if (current.id) {
           selector = `#${current.id}`;
-          path.unshift(selector);
+          path2.unshift(selector);
           break;
         } else if (current.className && typeof current.className === "string") {
           const classes = current.className.split(" ").filter((c) => c.trim() && !c.includes(":"));
@@ -1618,10 +2051,10 @@ async function extractInteractiveElements(page) {
             selector += `:nth-of-type(${index})`;
           }
         }
-        path.unshift(selector);
+        path2.unshift(selector);
         current = current.parentElement;
       }
-      return path.join(" > ").slice(0, 200);
+      return path2.join(" > ").slice(0, 200);
     }
     function detectHandlers(el) {
       const keys = Object.keys(el);
@@ -2089,8 +2522,8 @@ async function listActiveSessions(outputDir) {
   if (!(0, import_fs4.existsSync)(sessionsDir)) {
     return [];
   }
-  const { readdir: readdir2 } = await import("fs/promises");
-  const entries = await readdir2(sessionsDir, { withFileTypes: true });
+  const { readdir: readdir3 } = await import("fs/promises");
+  const entries = await readdir3(sessionsDir, { withFileTypes: true });
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
@@ -3544,6 +3977,7 @@ init_schemas();
 init_capture();
 init_consistency();
 init_crawl();
+init_integration();
 var InterfaceBuiltRight = class {
   config;
   constructor(options = {}) {
@@ -3552,15 +3986,15 @@ var InterfaceBuiltRight = class {
   /**
    * Start a visual session by capturing a baseline screenshot
    */
-  async startSession(path, options = {}) {
+  async startSession(path2, options = {}) {
     const {
-      name = this.generateSessionName(path),
+      name = this.generateSessionName(path2),
       viewport = this.config.viewport,
       fullPage = this.config.fullPage,
       selector,
       waitFor
     } = options;
-    const url = this.resolveUrl(path);
+    const url = this.resolveUrl(path2);
     const session = await createSession(this.config.outputDir, url, name, viewport);
     const paths = getSessionPaths(this.config.outputDir, session.id);
     await captureScreenshot({
@@ -3703,17 +4137,17 @@ var InterfaceBuiltRight = class {
   /**
    * Resolve a path to full URL
    */
-  resolveUrl(path) {
-    if (path.startsWith("http://") || path.startsWith("https://")) {
-      return path;
+  resolveUrl(path2) {
+    if (path2.startsWith("http://") || path2.startsWith("https://")) {
+      return path2;
     }
-    return `${this.config.baseUrl}${path.startsWith("/") ? path : `/${path}`}`;
+    return `${this.config.baseUrl}${path2.startsWith("/") ? path2 : `/${path2}`}`;
   }
   /**
    * Generate a session name from path
    */
-  generateSessionName(path) {
-    return path.replace(/^\/+/, "").replace(/\//g, "-").replace(/[^a-zA-Z0-9-_]/g, "") || "homepage";
+  generateSessionName(path2) {
+    return path2.replace(/^\/+/, "").replace(/\//g, "-").replace(/[^a-zA-Z0-9-_]/g, "") || "homepage";
   }
 };
 
@@ -3893,7 +4327,7 @@ program.command("check [sessionId]").description("Compare current state against 
     process.exit(1);
   }
 });
-program.command("audit [url]").description("Audit a page for UI issues (handlers, accessibility, touch targets)").option("-r, --rules <preset>", "Rule preset: minimal (default)", "minimal").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
+program.command("audit [url]").description("Audit a page for UI issues (handlers, accessibility, touch targets)").option("-r, --rules <preset>", "Rule preset: minimal (default)", "minimal").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const globalOpts = program.opts();
@@ -3930,14 +4364,50 @@ program.command("audit [url]").description("Audit a page for UI issues (handlers
     const result = createAuditResult2(resolvedUrl, elements, violations);
     await context.close();
     await browser3.close();
+    let integrationResult = null;
+    if (options.checkApis) {
+      const { scanDirectoryForApiCalls: scanDirectoryForApiCalls2, discoverApiRoutes: discoverApiRoutes2, findOrphanEndpoints: findOrphanEndpoints2 } = await Promise.resolve().then(() => (init_integration(), integration_exports));
+      const projectDir = typeof options.checkApis === "string" ? options.checkApis : process.cwd();
+      const [apiCalls, apiRoutes] = await Promise.all([
+        scanDirectoryForApiCalls2(projectDir),
+        discoverApiRoutes2(projectDir)
+      ]);
+      const orphans = findOrphanEndpoints2(apiCalls, apiRoutes);
+      integrationResult = {
+        orphanCount: orphans.length,
+        orphans: orphans.map((o) => ({
+          endpoint: o.call.endpoint,
+          method: o.call.method,
+          file: o.call.sourceFile,
+          line: o.call.lineNumber
+        }))
+      };
+    }
     if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(JSON.stringify({
+        ...result,
+        integration: integrationResult
+      }, null, 2));
     } else {
       console.log(formatAuditResult2(result));
+      if (integrationResult && integrationResult.orphanCount > 0) {
+        console.log("");
+        console.log("Integration Issues:");
+        console.log(`  ${integrationResult.orphanCount} orphan API calls (UI calls backend that doesn't exist):`);
+        console.log("");
+        for (const orphan of integrationResult.orphans) {
+          console.log(`  ! ${orphan.method} ${orphan.endpoint}`);
+          console.log(`    Called from: ${orphan.file}${orphan.line ? `:${orphan.line}` : ""}`);
+        }
+      } else if (integrationResult) {
+        console.log("");
+        console.log("Integration: All API calls have matching backend routes.");
+      }
     }
-    if (options.failOn === "error" && result.summary.errors > 0) {
+    const hasIntegrationErrors = integrationResult && integrationResult.orphanCount > 0;
+    if (options.failOn === "error" && (result.summary.errors > 0 || hasIntegrationErrors)) {
       process.exit(1);
-    } else if (options.failOn === "warning" && (result.summary.errors > 0 || result.summary.warnings > 0)) {
+    } else if (options.failOn === "warning" && (result.summary.errors > 0 || result.summary.warnings > 0 || hasIntegrationErrors)) {
       process.exit(1);
     }
   } catch (error) {
@@ -4306,15 +4776,15 @@ program.command("session:screenshot <sessionId>").description("Take a screenshot
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
-    const { path, elements, audit } = await session.screenshot({
+    const { path: path2, elements, audit } = await session.screenshot({
       name: options.name,
       selector: options.selector,
       fullPage: options.fullPage
     });
     if (options.json) {
-      console.log(JSON.stringify({ path, elements, audit }, null, 2));
+      console.log(JSON.stringify({ path: path2, elements, audit }, null, 2));
     } else {
-      console.log(`Screenshot saved: ${path}`);
+      console.log(`Screenshot saved: ${path2}`);
       console.log("");
       console.log("Element Audit:");
       console.log(`  Total elements: ${audit.totalElements}`);
@@ -4696,13 +5166,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join8 } = await import("path");
+    const { join: join9 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join8(outputDir, "diagnose", "test.png"),
+      outputPath: join9(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });

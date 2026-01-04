@@ -1746,7 +1746,7 @@ declare function getNavigationLinks(url: string): Promise<DiscoveredPage[]>;
  */
 declare function generateSessionId(): string;
 /**
- * Get paths for a session
+ * Get paths for a session (legacy flat structure)
  */
 declare function getSessionPaths(outputDir: string, sessionId: string): SessionPaths;
 /**
