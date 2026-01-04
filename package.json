@@ -37,14 +37,15 @@
     "lint": "eslint src --ext .ts",
     "test": "vitest",
     "prepublishOnly": "npm run build",
-    "ibr": "tsx src/bin/ibr.ts",
+    "ibr": "node dist/bin/ibr.js",
+    "ibr:dev": "tsx src/bin/ibr.ts",
     "ui": "cd web-ui && npm run dev",
-    "snapshot": "tsx src/bin/ibr.ts start",
-    "compare": "tsx src/bin/ibr.ts check",
-    "diff": "tsx src/bin/ibr.ts check",
-    "sessions": "tsx src/bin/ibr.ts list",
-    "login": "tsx src/bin/ibr.ts login",
-    "logout": "tsx src/bin/ibr.ts logout"
+    "snapshot": "node dist/bin/ibr.js start",
+    "compare": "node dist/bin/ibr.js check",
+    "diff": "node dist/bin/ibr.js check",
+    "sessions": "node dist/bin/ibr.js list",
+    "login": "node dist/bin/ibr.js login",
+    "logout": "node dist/bin/ibr.js logout"
   },
   "keywords": [
     "visual-regression",

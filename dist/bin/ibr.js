@@ -2136,7 +2136,7 @@ async function extractInteractiveElements(page) {
   return page.evaluate((selectors) => {
     const seen = /* @__PURE__ */ new Set();
     const elements = [];
-    function generateSelector(el) {
+    const generateSelector = (el) => {
       if (el.id) return `#${el.id}`;
       const path2 = [];
       let current = el;
@@ -2166,8 +2166,8 @@ async function extractInteractiveElements(page) {
         current = current.parentElement;
       }
       return path2.join(" > ").slice(0, 200);
-    }
-    function detectHandlers(el) {
+    };
+    const detectHandlers = (el) => {
       const keys = Object.keys(el);
       const reactPropsKey = keys.find((k) => k.startsWith("__reactProps$"));
       let hasReactHandler = false;
@@ -2190,7 +2190,7 @@ async function extractInteractiveElements(page) {
         hasVanillaHandler,
         hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler
       };
-    }
+    };
     for (const selector of selectors) {
       try {
         document.querySelectorAll(selector).forEach((el) => {
@@ -4464,6 +4464,7 @@ program.command("audit [url]").description("Audit a page for UI issues (handlers
     });
     const page = await context.newPage();
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
+    await page.waitForTimeout(1e3);
     const elements = await extractInteractiveElements2(page);
     const isMobile = viewport.width < 768;
     const violations = runRules2(elements, {

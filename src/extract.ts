@@ -258,8 +258,8 @@ export async function extractInteractiveElements(page: Page): Promise<EnhancedEl
     const seen = new Set<Element>();
     const elements: EnhancedElement[] = [];
 
-    // Helper: Generate unique selector
-    function generateSelector(el: HTMLElement): string {
+    // Helper: Generate unique selector (arrow function to avoid __name bundling issue)
+    const generateSelector = (el: HTMLElement): string => {
       if (el.id) return `#${el.id}`;
 
       const path: string[] = [];
@@ -294,10 +294,10 @@ export async function extractInteractiveElements(page: Page): Promise<EnhancedEl
       }
 
       return path.join(' > ').slice(0, 200);
-    }
+    };
 
-    // Helper: Detect click handlers
-    function detectHandlers(el: HTMLElement) {
+    // Helper: Detect click handlers (arrow function to avoid __name bundling issue)
+    const detectHandlers = (el: HTMLElement) => {
       const keys = Object.keys(el);
 
       // React 17+ uses __reactProps$
@@ -335,7 +335,7 @@ export async function extractInteractiveElements(page: Page): Promise<EnhancedEl
         hasVanillaHandler,
         hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler,
       };
-    }
+    };
 
     // Process each selector
     for (const selector of selectors) {

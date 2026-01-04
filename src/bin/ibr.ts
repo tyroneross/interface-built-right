@@ -305,6 +305,9 @@ program
       const page = await context.newPage();
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
+      // Wait for React/Vue/Angular hydration
+      await page.waitForTimeout(1000);
+
       // Extract elements
       const elements = await extractInteractiveElements(page);
 
