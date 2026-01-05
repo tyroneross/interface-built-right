@@ -259,35 +259,72 @@ program
     }
   });
 
-// Audit command - full UI audit with configurable rules
+// Audit command - context-aware UI audit
 program
   .command('audit [url]')
-  .description('Audit a page for UI issues (handlers, accessibility, touch targets)')
-  .option('-r, --rules <preset>', 'Rule preset to use (e.g., minimal). No rules by default - configure in .ibr/rules.json')
+  .description('Audit a page against user\'s design framework (auto-detected from CLAUDE.md)')
+  .option('-r, --rules <preset>', 'Override with preset (minimal). Auto-detects from CLAUDE.md by default')
+  .option('--show-framework', 'Display detected design framework')
   .option('--check-apis [dir]', 'Cross-reference UI API calls against backend routes')
   .option('--json', 'Output as JSON')
   .option('--fail-on <level>', 'Exit non-zero on errors/warnings', 'error')
-  .action(async (url: string | undefined, options: { rules?: string; checkApis?: string | boolean; json?: boolean; failOn: string }) => {
+  .action(async (url: string | undefined, options: { rules?: string; showFramework?: boolean; checkApis?: string | boolean; json?: boolean; failOn: string }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const globalOpts = program.opts();
 
-      // Import rule engine and browser
-      const { loadRulesConfig, runRules, createAuditResult, formatAuditResult } = await import('../rules/engine.js');
+      // Import modules
+      const { loadRulesConfig, runRules, createAuditResult, formatAuditResult, registerPreset } = await import('../rules/engine.js');
       const { register } = await import('../rules/presets/minimal.js');
       const { extractInteractiveElements } = await import('../extract.js');
       const { chromium } = await import('playwright');
+      const { discoverUserContext, formatContextSummary } = await import('../context-loader.js');
+      const { generateRulesFromFramework, createPresetFromFramework } = await import('../rules/dynamic-rules.js');
 
-      // Register presets
+      // Register built-in presets
       register();
 
-      // Load rules config - no rules by default, user must configure
-      const rulesConfig = await loadRulesConfig(process.cwd());
-      if (options.rules) {
-        // CLI flag overrides config file
-        rulesConfig.extends = [options.rules];
+      // Discover user context (design framework from CLAUDE.md)
+      const userContext = await discoverUserContext(process.cwd());
+
+      // Show framework info if requested
+      if (options.showFramework) {
+        console.log(formatContextSummary(userContext));
+        console.log('');
+        if (!url) return; // Exit if just showing framework
       }
 
+      // Load rules config
+      const rulesConfig = await loadRulesConfig(process.cwd());
+
+      // Priority: CLI flag > config file > detected framework > minimal
+      if (options.rules) {
+        // CLI flag overrides everything
+        rulesConfig.extends = [options.rules];
+        console.log(`Using preset: ${options.rules}`);
+      } else if (rulesConfig.extends && rulesConfig.extends.length > 0) {
+        // Config file has explicit rules
+        console.log(`Using configured presets: ${rulesConfig.extends.join(', ')}`);
+      } else if (userContext.framework) {
+        // Auto-detect from CLAUDE.md
+        const preset = createPresetFromFramework(userContext.framework);
+        registerPreset(preset);
+        rulesConfig.extends = [preset.name];
+        console.log(`Detected: ${userContext.framework.name}`);
+        console.log(`Source: ${userContext.framework.source}`);
+        console.log(`Generated ${preset.rules.length} rules from ${userContext.framework.principles.length} principles`);
+      } else {
+        // No framework detected - show guidance
+        console.log('No design framework detected in CLAUDE.md.');
+        console.log('Running basic interactivity checks only.');
+        console.log('');
+        console.log('To enable design validation:');
+        console.log('  Add your framework to ~/.claude/CLAUDE.md or .claude/CLAUDE.md');
+        console.log('  Or use --rules minimal for basic checks');
+        rulesConfig.extends = ['minimal'];
+      }
+
+      console.log('');
       console.log(`Auditing ${resolvedUrl}...`);
       console.log('');
 
@@ -926,6 +963,26 @@ program
       } else {
         console.log('Tip: Session is still active. Use session:html to inspect the page.');
       }
+    }
+  });
+
+// Session press command - keyboard key press
+program
+  .command('session:press <sessionId> <key>')
+  .description('Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc.)')
+  .action(async (sessionId: string, key: string) => {
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
+
+      await session.press(key);
+      console.log(`Pressed: ${key}`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Error:', msg);
+      console.log('');
+      console.log('Tip: Valid keys include: Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, Space');
     }
   });
 

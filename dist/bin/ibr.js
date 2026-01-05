@@ -2550,6 +2550,529 @@ var init_extract = __esm({
   }
 });
 
+// src/framework-parser.ts
+function parseDesignFramework(content, sourcePath) {
+  const frameworkInfo = detectFrameworkName(content);
+  if (!frameworkInfo) {
+    const principles2 = extractPrinciples(content);
+    if (principles2.length >= 3) {
+      return {
+        name: "Custom Design Framework",
+        principles: principles2,
+        source: sourcePath,
+        rawContent: content
+      };
+    }
+    return null;
+  }
+  const principles = extractPrinciples(content);
+  if (principles.length === 0) {
+    return null;
+  }
+  return {
+    name: frameworkInfo.name,
+    version: frameworkInfo.version,
+    principles,
+    source: sourcePath,
+    rawContent: content
+  };
+}
+function detectFrameworkName(content) {
+  for (const pattern of FRAMEWORK_PATTERNS) {
+    const match = content.match(pattern);
+    if (match) {
+      const name = match[1].trim();
+      const version = match[2]?.trim();
+      if (!name.toLowerCase().includes("instructions") && !name.toLowerCase().includes("readme") && !name.toLowerCase().includes("overview")) {
+        return { name, version };
+      }
+    }
+  }
+  const knownFrameworks = [
+    "calm precision",
+    "material design",
+    "human interface guidelines",
+    "fluent design",
+    "ant design",
+    "carbon design",
+    "atlassian design"
+  ];
+  const contentLower = content.toLowerCase();
+  for (const framework of knownFrameworks) {
+    if (contentLower.includes(framework)) {
+      const regex = new RegExp(framework, "i");
+      const match = content.match(regex);
+      if (match) {
+        return { name: match[0] };
+      }
+    }
+  }
+  return null;
+}
+function extractPrinciples(content) {
+  const principles = [];
+  let principlesSection = content;
+  for (const pattern of PRINCIPLES_SECTION_PATTERNS) {
+    const match = content.match(pattern);
+    if (match) {
+      const startIndex = match.index || 0;
+      const afterMatch = content.slice(startIndex);
+      const nextMajorSection = afterMatch.match(/^##\s+[A-Z]/m);
+      if (nextMajorSection && nextMajorSection.index) {
+        principlesSection = afterMatch.slice(0, nextMajorSection.index);
+      } else {
+        principlesSection = afterMatch;
+      }
+      break;
+    }
+  }
+  const numberedMatches = principlesSection.matchAll(
+    /###\s*(\d+)\.\s*(.+?)(?:\n|\r\n)([\s\S]*?)(?=###\s*\d+\.|##\s|$)/g
+  );
+  for (const match of numberedMatches) {
+    const number = match[1];
+    const name = match[2].trim();
+    const body = match[3].trim();
+    const principle = parsePrincipleBody(number, name, body);
+    if (principle) {
+      principles.push(principle);
+    }
+  }
+  if (principles.length === 0) {
+    const bulletMatches = principlesSection.matchAll(
+      /[-*]\s*\*\*(.+?)\*\*[:\s]*(.+?)(?=\n[-*]|\n\n|$)/gs
+    );
+    let index = 1;
+    for (const match of bulletMatches) {
+      const name = match[1].trim();
+      const description = match[2].trim();
+      principles.push({
+        id: `principle-${index}`,
+        name,
+        description,
+        implementation: extractImplementationRules(description)
+      });
+      index++;
+    }
+  }
+  return principles;
+}
+function parsePrincipleBody(number, name, body) {
+  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const foundationMatch = body.match(
+    /\*\*(?:Foundation|Based on|Principle):\*\*\s*(.+?)(?:\n|$)/i
+  );
+  const foundation = foundationMatch ? foundationMatch[1].split(/[,+]/).map((f) => f.trim()).filter(Boolean) : void 0;
+  const lines = body.split("\n").filter((l) => l.trim());
+  let description = "";
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.toLowerCase().includes("foundation:")) continue;
+    if (trimmed.startsWith("-") || trimmed.startsWith("*")) continue;
+    description = trimmed;
+    break;
+  }
+  const implementation = extractImplementationRules(body);
+  return {
+    id: `${number}-${id}`,
+    name,
+    description: description || name,
+    foundation,
+    implementation
+  };
+}
+function extractImplementationRules(body) {
+  const rules2 = [];
+  const bulletMatches = body.matchAll(/^[-*]\s+(.+?)$/gm);
+  for (const match of bulletMatches) {
+    const rule = match[1].trim();
+    if (rule && rule.length > 5) {
+      rules2.push(rule);
+    }
+  }
+  if (rules2.length === 0) {
+    const sentences = body.split(/[.!]\s+/);
+    for (const sentence of sentences) {
+      const trimmed = sentence.trim();
+      if (trimmed.length > 10 && (trimmed.match(/^(use|don't|never|always|avoid|prefer|ensure)/i) || trimmed.match(/should|must|need to|better to/i))) {
+        rules2.push(trimmed);
+      }
+    }
+  }
+  return rules2;
+}
+var FRAMEWORK_PATTERNS, PRINCIPLES_SECTION_PATTERNS;
+var init_framework_parser = __esm({
+  "src/framework-parser.ts"() {
+    "use strict";
+    FRAMEWORK_PATTERNS = [
+      /^#\s*(.+?)\s*(\d+\.?\d*)?$/m,
+      // "# CALM PRECISION 6.1"
+      /^\*\*(.+?)\*\*\s*v?(\d+\.?\d*)?/m,
+      // "**Framework Name** v1.0"
+      /^##?\s*(?:Design\s+)?Framework:\s*(.+?)(?:\s+v?(\d+\.?\d*))?$/im
+    ];
+    PRINCIPLES_SECTION_PATTERNS = [
+      /^##\s*(?:CORE\s+)?PRINCIPLES?/im,
+      /^##\s*DESIGN\s+PRINCIPLES?/im,
+      /^##\s*GUIDELINES?/im,
+      /^##\s*RULES?/im
+    ];
+  }
+});
+
+// src/context-loader.ts
+var context_loader_exports = {};
+__export(context_loader_exports, {
+  discoverUserContext: () => discoverUserContext,
+  formatContextSummary: () => formatContextSummary
+});
+async function discoverUserContext(projectDir) {
+  const sources = [];
+  let framework;
+  const projectClaudePath = (0, import_path8.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
+  sources.push(projectClaudeResult.source);
+  if (projectClaudeResult.framework && !framework) {
+    framework = projectClaudeResult.framework;
+  }
+  const rootClaudePath = (0, import_path8.join)(projectDir, "CLAUDE.md");
+  const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
+  sources.push(rootClaudeResult.source);
+  if (rootClaudeResult.framework && !framework) {
+    framework = rootClaudeResult.framework;
+  }
+  const userClaudePath = (0, import_path8.join)((0, import_os2.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
+  sources.push(userClaudeResult.source);
+  if (userClaudeResult.framework && !framework) {
+    framework = userClaudeResult.framework;
+  }
+  const config = await loadIBRConfig(projectDir);
+  return {
+    projectDir,
+    framework,
+    sources,
+    config
+  };
+}
+async function tryLoadFramework(filePath, type) {
+  const source = {
+    path: filePath,
+    type,
+    found: false,
+    hasFramework: false
+  };
+  if (!(0, import_fs4.existsSync)(filePath)) {
+    return { source };
+  }
+  source.found = true;
+  try {
+    const content = await (0, import_promises8.readFile)(filePath, "utf-8");
+    const framework = parseDesignFramework(content, filePath);
+    if (framework) {
+      source.hasFramework = true;
+      return { source, framework };
+    }
+  } catch (error) {
+  }
+  return { source };
+}
+async function loadIBRConfig(projectDir) {
+  const configPath = (0, import_path8.join)(projectDir, ".ibrrc.json");
+  if (!(0, import_fs4.existsSync)(configPath)) {
+    return {};
+  }
+  try {
+    const content = await (0, import_promises8.readFile)(configPath, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return {};
+  }
+}
+function formatContextSummary(context) {
+  const lines = [];
+  if (context.framework) {
+    lines.push(`Design Framework: ${context.framework.name}`);
+    lines.push(`Source: ${context.framework.source}`);
+    lines.push(`Principles: ${context.framework.principles.length}`);
+  } else {
+    lines.push("No design framework detected.");
+    lines.push("");
+    lines.push("To enable design validation, add your framework to CLAUDE.md.");
+    lines.push("IBR will parse principles and generate validation rules automatically.");
+  }
+  lines.push("");
+  lines.push("Context sources checked:");
+  for (const source of context.sources) {
+    const status = !source.found ? "(not found)" : source.hasFramework ? "(framework detected)" : "(no framework)";
+    lines.push(`  ${source.type}: ${source.path} ${status}`);
+  }
+  return lines.join("\n");
+}
+var import_fs4, import_promises8, import_path8, import_os2;
+var init_context_loader = __esm({
+  "src/context-loader.ts"() {
+    "use strict";
+    import_fs4 = require("fs");
+    import_promises8 = require("fs/promises");
+    import_path8 = require("path");
+    import_os2 = require("os");
+    init_framework_parser();
+  }
+});
+
+// src/rules/dynamic-rules.ts
+var dynamic_rules_exports = {};
+__export(dynamic_rules_exports, {
+  createPresetFromFramework: () => createPresetFromFramework,
+  generateRulesFromFramework: () => generateRulesFromFramework,
+  getRulesSummary: () => getRulesSummary
+});
+function generateRulesFromFramework(framework) {
+  const rules2 = [];
+  for (let i = 0; i < framework.principles.length; i++) {
+    const principle = framework.principles[i];
+    const principleRules = generateRulesForPrinciple(principle, framework.name, i);
+    rules2.push(...principleRules);
+  }
+  return rules2;
+}
+function createPresetFromFramework(framework) {
+  const rules2 = generateRulesFromFramework(framework);
+  const defaults = {};
+  for (const rule of rules2) {
+    defaults[rule.id] = rule.defaultSeverity;
+  }
+  return {
+    name: framework.name.toLowerCase().replace(/\s+/g, "-"),
+    description: `Rules generated from ${framework.name}`,
+    rules: rules2,
+    defaults
+  };
+}
+function generateRulesForPrinciple(principle, frameworkName, index) {
+  const rules2 = [];
+  const baseId = principle.id || `principle-${index + 1}`;
+  const keywords = extractKeywords(principle);
+  if (keywords.has("group") || keywords.has("border") || keywords.has("isolate")) {
+    rules2.push(createBorderGroupingRule(principle, frameworkName, index));
+  }
+  if (keywords.has("size") || keywords.has("importance") || keywords.has("button") || keywords.has("fitts")) {
+    rules2.push(createButtonSizingRule(principle, frameworkName, index));
+  }
+  if (keywords.has("touch") || keywords.has("target") || keywords.has("44px") || keywords.has("mobile")) {
+    rules2.push(createTouchTargetRule(principle, frameworkName, index));
+  }
+  if (keywords.has("hierarchy") || keywords.has("title") || keywords.has("description") || keywords.has("metadata")) {
+    rules2.push(createHierarchyRule(principle, frameworkName, index));
+  }
+  if (keywords.has("status") || keywords.has("color") || keywords.has("background")) {
+    rules2.push(createStatusColorRule(principle, frameworkName, index));
+  }
+  if (keywords.has("content") || keywords.has("chrome") || keywords.has("70%")) {
+    rules2.push(createContentChromeRule(principle, frameworkName, index));
+  }
+  if (rules2.length === 0) {
+    rules2.push(createGenericPrincipleRule(principle, frameworkName, index));
+  }
+  return rules2;
+}
+function extractKeywords(principle) {
+  const text = [
+    principle.name,
+    principle.description,
+    ...principle.foundation || [],
+    ...principle.implementation
+  ].join(" ").toLowerCase();
+  return new Set(text.match(/\b\w+\b/g) || []);
+}
+function createBorderGroupingRule(principle, frameworkName, index) {
+  return {
+    id: `${principle.id}-border`,
+    name: `${principle.name}: Border Usage`,
+    description: principle.description,
+    defaultSeverity: "warn",
+    principleId: principle.id,
+    framework: frameworkName,
+    principleIndex: index,
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const hasBorder = style.border && style.border !== "none" && style.border !== "0px";
+      const isListItem = element.tagName === "li" || element.selector?.includes("item");
+      if (hasBorder && isListItem) {
+        return {
+          ruleId: `${principle.id}-border`,
+          ruleName: `${frameworkName}: ${principle.name}`,
+          severity: "warn",
+          message: `Individual borders on list items may isolate rather than group. Consider single group border per "${principle.name}".`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: "Use single border around group with dividers between items."
+        };
+      }
+      return null;
+    }
+  };
+}
+function createButtonSizingRule(principle, frameworkName, index) {
+  return {
+    id: `${principle.id}-button-size`,
+    name: `${principle.name}: Button Sizing`,
+    description: principle.description,
+    defaultSeverity: "warn",
+    principleId: principle.id,
+    framework: frameworkName,
+    principleIndex: index,
+    check: (element, context) => {
+      if (element.tagName !== "button" && element.role !== "button") return null;
+      const width = element.bounds?.width || 0;
+      const height = element.bounds?.height || 0;
+      const text = (element.text || element.innerText || "").toLowerCase();
+      const isPrimaryAction = /submit|save|confirm|checkout|buy|sign|login|register|continue/i.test(text);
+      if (isPrimaryAction && width < 120) {
+        return {
+          ruleId: `${principle.id}-button-size`,
+          ruleName: `${frameworkName}: ${principle.name}`,
+          severity: "warn",
+          message: `Primary action button "${text}" is ${width}px wide. Per "${principle.name}", primary actions should be more prominent.`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: "Increase button width to match importance of the action."
+        };
+      }
+      return null;
+    }
+  };
+}
+function createTouchTargetRule(principle, frameworkName, index) {
+  return {
+    id: `${principle.id}-touch-target`,
+    name: `${principle.name}: Touch Targets`,
+    description: principle.description,
+    defaultSeverity: "warn",
+    principleId: principle.id,
+    framework: frameworkName,
+    principleIndex: index,
+    check: (element, context) => {
+      if (!element.interactive?.isInteractive) return null;
+      const width = element.bounds?.width || 0;
+      const height = element.bounds?.height || 0;
+      const minSize = context.isMobile ? 44 : 24;
+      if (width < minSize || height < minSize) {
+        return {
+          ruleId: `${principle.id}-touch-target`,
+          ruleName: `${frameworkName}: ${principle.name}`,
+          severity: "warn",
+          message: `Interactive element is ${width}x${height}px, below ${minSize}px minimum per "${principle.name}".`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Increase to at least ${minSize}x${minSize}px for ${context.isMobile ? "mobile" : "desktop"}.`
+        };
+      }
+      return null;
+    }
+  };
+}
+function createHierarchyRule(principle, frameworkName, index) {
+  return {
+    id: `${principle.id}-hierarchy`,
+    name: `${principle.name}: Content Hierarchy`,
+    description: principle.description,
+    defaultSeverity: "warn",
+    principleId: principle.id,
+    framework: frameworkName,
+    principleIndex: index,
+    check: (_element, _context) => {
+      return null;
+    }
+  };
+}
+function createStatusColorRule(principle, frameworkName, index) {
+  return {
+    id: `${principle.id}-status`,
+    name: `${principle.name}: Status Indication`,
+    description: principle.description,
+    defaultSeverity: "warn",
+    principleId: principle.id,
+    framework: frameworkName,
+    principleIndex: index,
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const text = (element.text || element.innerText || "").toLowerCase();
+      const isStatusText = /success|error|warning|pending|active|inactive|status/i.test(text);
+      if (isStatusText && style.backgroundColor && style.backgroundColor !== "transparent") {
+        const bgColor = style.backgroundColor;
+        if (bgColor && !bgColor.includes("rgba") && !bgColor.includes("0.1") && !bgColor.includes("0.05")) {
+          return {
+            ruleId: `${principle.id}-status`,
+            ruleName: `${frameworkName}: ${principle.name}`,
+            severity: "warn",
+            message: `Status element "${text}" has heavy background. Per "${principle.name}", consider text color only.`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Use text color only for status indication, not background."
+          };
+        }
+      }
+      return null;
+    }
+  };
+}
+function createContentChromeRule(principle, frameworkName, index) {
+  return {
+    id: `${principle.id}-content-chrome`,
+    name: `${principle.name}: Content Ratio`,
+    description: principle.description,
+    defaultSeverity: "warn",
+    principleId: principle.id,
+    framework: frameworkName,
+    principleIndex: index,
+    check: (_element, _context) => {
+      return null;
+    }
+  };
+}
+function createGenericPrincipleRule(principle, frameworkName, index) {
+  return {
+    id: `${principle.id}-reminder`,
+    name: `${principle.name}`,
+    description: principle.description,
+    defaultSeverity: "warn",
+    principleId: principle.id,
+    framework: frameworkName,
+    principleIndex: index,
+    check: (_element, _context) => {
+      return null;
+    }
+  };
+}
+function getRulesSummary(rules2) {
+  const byPrinciple = /* @__PURE__ */ new Map();
+  for (const rule of rules2) {
+    const existing = byPrinciple.get(rule.principleId) || [];
+    existing.push(rule);
+    byPrinciple.set(rule.principleId, existing);
+  }
+  const lines = [];
+  lines.push(`Generated ${rules2.length} rules from ${byPrinciple.size} principles:`);
+  lines.push("");
+  for (const [principleId, principleRules] of byPrinciple) {
+    lines.push(`  ${principleId}: ${principleRules.length} rules`);
+    for (const rule of principleRules) {
+      lines.push(`    - ${rule.name}`);
+    }
+  }
+  return lines.join("\n");
+}
+var init_dynamic_rules = __esm({
+  "src/rules/dynamic-rules.ts"() {
+    "use strict";
+  }
+});
+
 // src/browser-server.ts
 var browser_server_exports = {};
 __export(browser_server_exports, {
@@ -2562,18 +3085,18 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path8.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path8.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path8.join)(outputDir, "sessions")
+    stateFile: (0, import_path9.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path9.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path9.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs4.existsSync)(stateFile)) {
+  if (!(0, import_fs5.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises8.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises9.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const browser3 = await import_playwright6.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
     await browser3.close();
@@ -2586,7 +3109,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises8.unlink)(stateFile);
+    await (0, import_promises9.unlink)(stateFile);
   } catch {
   }
 }
@@ -2597,9 +3120,9 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises8.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises9.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises8.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises9.mkdir)(profileDir, { recursive: true });
   }
   const debugPort = 9222 + Math.floor(Math.random() * 1e3);
   const browserArgs = [`--remote-debugging-port=${debugPort}`];
@@ -2645,16 +3168,16 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises8.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await (0, import_promises9.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { server, wsEndpoint };
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs4.existsSync)(stateFile)) {
+  if (!(0, import_fs5.existsSync)(stateFile)) {
     return null;
   }
   try {
-    const content = await (0, import_promises8.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises9.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (state.cdpUrl) {
       const browser4 = await import_playwright6.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
@@ -2669,15 +3192,15 @@ async function connectToBrowserServer(outputDir) {
 }
 async function stopBrowserServer(outputDir) {
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs4.existsSync)(stateFile)) {
+  if (!(0, import_fs5.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises8.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises9.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const browser3 = await import_playwright6.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
     await browser3.close();
-    await (0, import_promises8.unlink)(stateFile);
+    await (0, import_promises9.unlink)(stateFile);
     return true;
   } catch {
     await cleanupServerState(outputDir);
@@ -2686,7 +3209,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs4.existsSync)(sessionsDir)) {
+  if (!(0, import_fs5.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir3 } = await import("fs/promises");
@@ -2694,22 +3217,22 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path8.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs4.existsSync)(statePath)) {
+      const statePath = (0, import_path9.join)(sessionsDir, entry.name, "live-session.json");
+      if ((0, import_fs5.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_playwright6, import_promises8, import_fs4, import_path8, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright6, import_promises9, import_fs5, import_path9, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     import_playwright6 = require("playwright");
-    import_promises8 = require("fs/promises");
-    import_fs4 = require("fs");
-    import_path8 = require("path");
+    import_promises9 = require("fs/promises");
+    import_fs5 = require("fs");
+    import_path9 = require("path");
     import_nanoid2 = require("nanoid");
     init_schemas();
     init_extract();
@@ -2741,9 +3264,9 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${(0, import_nanoid2.nanoid)(10)}`;
-        const sessionsDir = (0, import_path8.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path8.join)(sessionsDir, sessionId);
-        await (0, import_promises8.mkdir)(sessionDir, { recursive: true });
+        const sessionsDir = (0, import_path9.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path9.join)(sessionsDir, sessionId);
+        await (0, import_promises9.mkdir)(sessionDir, { recursive: true });
         const context = await browser3.newContext({
           viewport: {
             width: viewport.width,
@@ -2776,12 +3299,12 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises8.writeFile)(
-          (0, import_path8.join)(sessionDir, "live-session.json"),
+        await (0, import_promises9.writeFile)(
+          (0, import_path9.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path8.join)(sessionDir, "baseline.png"),
+          path: (0, import_path9.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(browser3, context, page, state, sessionDir);
@@ -2790,16 +3313,16 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path8.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path8.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs4.existsSync)(statePath)) {
+        const sessionDir = (0, import_path9.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path9.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs5.existsSync)(statePath)) {
           return null;
         }
         const browser3 = await connectToBrowserServer(outputDir);
         if (!browser3) {
           return null;
         }
-        const content = await (0, import_promises8.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises9.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const contexts = browser3.contexts();
         let context;
@@ -2842,8 +3365,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises8.writeFile)(
-          (0, import_path8.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises9.writeFile)(
+          (0, import_path9.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -2977,7 +3500,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path8.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path9.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -3092,14 +3615,14 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright7, import_promises9, import_fs5, import_path9, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright7, import_promises10, import_fs6, import_path10, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     import_playwright7 = require("playwright");
-    import_promises9 = require("fs/promises");
-    import_fs5 = require("fs");
-    import_path9 = require("path");
+    import_promises10 = require("fs/promises");
+    import_fs6 = require("fs");
+    import_path10 = require("path");
     import_nanoid3 = require("nanoid");
     init_schemas();
     LiveSession = class _LiveSession {
@@ -3113,7 +3636,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, browser3, context, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path9.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path10.join)(outputDir, "sessions", state.id);
         this.browser = browser3;
         this.context = context;
         this.page = page;
@@ -3131,8 +3654,8 @@ var init_live_session = __esm({
           timeout = 3e4
         } = options;
         const sessionId = `live_${(0, import_nanoid3.nanoid)(10)}`;
-        const sessionDir = (0, import_path9.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises9.mkdir)(sessionDir, { recursive: true });
+        const sessionDir = (0, import_path10.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises10.mkdir)(sessionDir, { recursive: true });
         const browser3 = await import_playwright7.chromium.launch({
           headless: !sandbox && !debug,
           slowMo: debug ? 100 : 0,
@@ -3167,12 +3690,12 @@ var init_live_session = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises9.writeFile)(
-          (0, import_path9.join)(sessionDir, "live-session.json"),
+        await (0, import_promises10.writeFile)(
+          (0, import_path10.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path9.join)(sessionDir, "baseline.png"),
+          path: (0, import_path10.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _LiveSession(state, outputDir, browser3, context, page);
@@ -3182,12 +3705,12 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path9.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path9.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs5.existsSync)(statePath)) {
+        const sessionDir = (0, import_path10.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path10.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs6.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises9.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises10.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const browser3 = await import_playwright7.chromium.launch({
           headless: !state.sandbox
@@ -3232,8 +3755,8 @@ var init_live_session = __esm({
        * Save session state
        */
       async saveState() {
-        await (0, import_promises9.writeFile)(
-          (0, import_path9.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises10.writeFile)(
+          (0, import_path10.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -3468,7 +3991,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path9.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path10.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -3641,9 +4164,9 @@ var init_live_session = __esm({
 
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises10 = require("fs/promises");
-var import_path10 = require("path");
-var import_fs6 = require("fs");
+var import_promises11 = require("fs/promises");
+var import_path11 = require("path");
+var import_fs7 = require("fs");
 
 // src/index.ts
 init_schemas();
@@ -4324,10 +4847,10 @@ var InterfaceBuiltRight = class {
 // src/bin/ibr.ts
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path10.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs6.existsSync)(configPath)) {
+  const configPath = (0, import_path11.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs7.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises10.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises11.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -4497,19 +5020,46 @@ program.command("check [sessionId]").description("Compare current state against 
     process.exit(1);
   }
 });
-program.command("audit [url]").description("Audit a page for UI issues (handlers, accessibility, touch targets)").option("-r, --rules <preset>", "Rule preset to use (e.g., minimal). No rules by default - configure in .ibr/rules.json").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
+program.command("audit [url]").description("Audit a page against user's design framework (auto-detected from CLAUDE.md)").option("-r, --rules <preset>", "Override with preset (minimal). Auto-detects from CLAUDE.md by default").option("--show-framework", "Display detected design framework").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const globalOpts = program.opts();
-    const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
+    const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const { register: register2 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
     const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
     const { chromium: chromium8 } = await import("playwright");
+    const { discoverUserContext: discoverUserContext2, formatContextSummary: formatContextSummary2 } = await Promise.resolve().then(() => (init_context_loader(), context_loader_exports));
+    const { generateRulesFromFramework: generateRulesFromFramework2, createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
     register2();
+    const userContext = await discoverUserContext2(process.cwd());
+    if (options.showFramework) {
+      console.log(formatContextSummary2(userContext));
+      console.log("");
+      if (!url) return;
+    }
     const rulesConfig = await loadRulesConfig2(process.cwd());
     if (options.rules) {
       rulesConfig.extends = [options.rules];
+      console.log(`Using preset: ${options.rules}`);
+    } else if (rulesConfig.extends && rulesConfig.extends.length > 0) {
+      console.log(`Using configured presets: ${rulesConfig.extends.join(", ")}`);
+    } else if (userContext.framework) {
+      const preset = createPresetFromFramework2(userContext.framework);
+      registerPreset2(preset);
+      rulesConfig.extends = [preset.name];
+      console.log(`Detected: ${userContext.framework.name}`);
+      console.log(`Source: ${userContext.framework.source}`);
+      console.log(`Generated ${preset.rules.length} rules from ${userContext.framework.principles.length} principles`);
+    } else {
+      console.log("No design framework detected in CLAUDE.md.");
+      console.log("Running basic interactivity checks only.");
+      console.log("");
+      console.log("To enable design validation:");
+      console.log("  Add your framework to ~/.claude/CLAUDE.md or .claude/CLAUDE.md");
+      console.log("  Or use --rules minimal for basic checks");
+      rulesConfig.extends = ["minimal"];
     }
+    console.log("");
     console.log(`Auditing ${resolvedUrl}...`);
     console.log("");
     const browser3 = await chromium8.launch({ headless: true });
@@ -4726,20 +5276,20 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn } = await import("child_process");
   const { resolve: resolve2 } = await import("path");
   const packageRoot = resolve2(process.cwd());
-  let webUiDir = (0, import_path10.join)(packageRoot, "web-ui");
-  if (!(0, import_fs6.existsSync)(webUiDir)) {
+  let webUiDir = (0, import_path11.join)(packageRoot, "web-ui");
+  if (!(0, import_fs7.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path10.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path10.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path11.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path11.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs6.existsSync)(p)) {
+      if ((0, import_fs7.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs6.existsSync)(webUiDir)) {
+  if (!(0, import_fs7.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -4971,6 +5521,20 @@ program.command("session:type <sessionId> <selector> <text>").description("Type 
     } else {
       console.log("Tip: Session is still active. Use session:html to inspect the page.");
     }
+  }
+});
+program.command("session:press <sessionId> <key>").description("Press a keyboard key (Enter, Tab, Escape, ArrowDown, etc.)").action(async (sessionId, key) => {
+  try {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
+    await session.press(key);
+    console.log(`Pressed: ${key}`);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error:", msg);
+    console.log("");
+    console.log("Tip: Valid keys include: Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, Space");
   }
 });
 program.command("session:screenshot <sessionId>").description("Take a screenshot and audit interactive elements").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").option("--json", "Output audit results as JSON").action(async (sessionId, options) => {
@@ -5369,13 +5933,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join10 } = await import("path");
+    const { join: join11 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join10(outputDir, "diagnose", "test.png"),
+      outputPath: join11(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -5492,8 +6056,8 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize .ibrrc.json configuration file").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").action(async (options) => {
-  const configPath = (0, import_path10.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs6.existsSync)(configPath)) {
+  const configPath = (0, import_path11.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs7.existsSync)(configPath)) {
     console.log(".ibrrc.json already exists.");
     console.log("Edit it directly or delete and run init again.");
     return;

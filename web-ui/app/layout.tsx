@@ -27,6 +27,12 @@ export default function RootLayout({
                 >
                   Sessions
                 </a>
+                <a
+                  href="/workflows"
+                  className="text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Workflows
+                </a>
               </nav>
             </div>
           </div>

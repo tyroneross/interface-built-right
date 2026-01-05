@@ -22,10 +22,13 @@ fi
 
 ### If mode is "prefer" or file missing:
 
-Allow the tool. IBR is preferred but not enforced.
+Allow the tool but remind about IBR. Provides visible suggestion without blocking.
 
 ```json
-{"decision": "allow"}
+{
+  "decision": "continue",
+  "reason": "IBR Reminder: For screenshot/capture tasks, consider using IBR instead:\n• npx ibr session:start <url> --name \"description\"\n• npx ibr session:screenshot <id>\n\nIBR provides session tracking, comparison verdicts, and design framework validation.\n\nTo enforce IBR-only: run /only-use-ibr"
+}
 ```
 
 ### If mode is "only":
@@ -41,23 +44,26 @@ Block the capture tool and provide IBR alternatives.
 
 ## What This Hook Does NOT Block
 
-These Playwright tools are **never blocked** because IBR cannot perform these tasks:
+These Playwright tools are **never blocked**:
 
-- `browser_navigate` — Needed for interaction flows
-- `browser_click` — IBR can't click
-- `browser_type` — IBR can't type
-- `browser_fill_form` — IBR can't fill forms
-- `browser_select_option` — IBR can't select dropdowns
-- `browser_hover` — IBR can't hover
-- `browser_drag` — IBR can't drag
-- `browser_press_key` — IBR can't press keys
-- `browser_handle_dialog` — IBR can't handle dialogs
-- `browser_evaluate` — IBR can't execute JS
-- `browser_file_upload` — IBR can't upload files
-- `browser_tabs` — IBR can't manage tabs
-- `browser_wait_for` — IBR can't wait for conditions
-- `browser_console_messages` — IBR can't read console
-- `browser_network_requests` — IBR can't inspect network
+**IBR has equivalents (prefer IBR):**
+- `browser_navigate` — Use `session:navigate`
+- `browser_click` — Use `session:click`
+- `browser_type` — Use `session:type`
+- `browser_press_key` — Use `session:press`
+- `browser_wait_for` — Use `session:wait`
+
+**Playwright-only (no IBR equivalent):**
+- `browser_fill_form` — Complex form filling
+- `browser_select_option` — Dropdown selection
+- `browser_hover` — Hover interactions
+- `browser_drag` — Drag and drop
+- `browser_handle_dialog` — Alert/confirm dialogs
+- `browser_evaluate` — Execute JavaScript
+- `browser_file_upload` — File uploads
+- `browser_tabs` — Tab management
+- `browser_console_messages` — Console inspection
+- `browser_network_requests` — Network inspection
 
 ## Summary
 

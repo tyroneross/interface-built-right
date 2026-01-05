@@ -50,6 +50,22 @@ npx ibr --help
 | `npx ibr login <url>` | Save auth state for protected pages |
 | `npx ibr logout` | Clear saved auth state |
 
+### Interactive Session Commands
+
+For step-by-step UI testing:
+
+| Command | Description |
+|---------|-------------|
+| `npx ibr session:start <url>` | Start interactive browser session |
+| `npx ibr session:click <id> <selector>` | Click an element |
+| `npx ibr session:type <id> <selector> <text>` | Type into an element |
+| `npx ibr session:type <id> <selector> <text> --submit` | Type and press Enter |
+| `npx ibr session:press <id> <key>` | Press keyboard key (Enter, Tab, Escape, etc.) |
+| `npx ibr session:screenshot <id>` | Take screenshot and audit elements |
+| `npx ibr session:navigate <id> <url>` | Navigate to new URL |
+| `npx ibr session:wait <id> <selectorOrMs>` | Wait for element or duration |
+| `npx ibr session:close <id>` | Close session (use "all" to stop server) |
+
 ## Workflow Example
 
 ```bash
