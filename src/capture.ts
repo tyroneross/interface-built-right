@@ -1,9 +1,101 @@
-import { chromium, type Browser } from 'playwright';
+import { chromium, type Browser, type Page } from 'playwright';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
-import { VIEWPORTS, type Viewport } from './schemas.js';
-import type { CaptureOptions } from './types.js';
+import { VIEWPORTS, type Viewport, type LandmarkElement } from './schemas.js';
+import type { CaptureOptions, MaskOptions } from './types.js';
+import { DEFAULT_DYNAMIC_SELECTORS } from './types.js';
 import { loadAuthState, isDeployedEnvironment } from './auth.js';
+import { detectLandmarks } from './semantic/landmarks.js';
+import { classifyPageIntent, type PageIntent } from './semantic/page-intent.js';
+
+/**
+ * Apply dynamic content masking to a page before screenshot
+ */
+async function applyMasking(page: Page, mask?: MaskOptions): Promise<void> {
+  // Default: always disable animations
+  const hideAnimations = mask?.hideAnimations !== false;
+
+  // Build list of selectors to hide
+  const selectorsToHide: string[] = [];
+
+  // Add user-specified selectors
+  if (mask?.selectors) {
+    selectorsToHide.push(...mask.selectors);
+  }
+
+  // Add default dynamic selectors if enabled
+  if (mask?.hideDynamicContent) {
+    selectorsToHide.push(...DEFAULT_DYNAMIC_SELECTORS);
+  }
+
+  // Build CSS rules
+  const cssRules: string[] = [];
+
+  // Animation/transition disabling
+  if (hideAnimations) {
+    cssRules.push(`
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+        scroll-behavior: auto !important;
+      }
+      @keyframes none { }
+    `);
+  }
+
+  // Hide specified elements
+  if (selectorsToHide.length > 0) {
+    const selectorList = selectorsToHide.join(',\n');
+    cssRules.push(`
+      ${selectorList} {
+        visibility: hidden !important;
+        opacity: 0 !important;
+      }
+    `);
+  }
+
+  // Inject CSS
+  if (cssRules.length > 0) {
+    await page.addStyleTag({
+      content: cssRules.join('\n'),
+    });
+  }
+
+  // Apply text pattern masking via JavaScript
+  if (mask?.textPatterns && mask.textPatterns.length > 0) {
+    const placeholder = mask.placeholder || '███';
+    const patterns = mask.textPatterns.map(p =>
+      typeof p === 'string' ? p : p.source
+    );
+
+    await page.evaluate(({ patterns, placeholder }) => {
+      const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+
+      const textNodes: Text[] = [];
+      let node: Text | null;
+      while ((node = walker.nextNode() as Text | null)) {
+        textNodes.push(node);
+      }
+
+      for (const textNode of textNodes) {
+        let text = textNode.textContent || '';
+        for (const pattern of patterns) {
+          const regex = new RegExp(pattern, 'gi');
+          text = text.replace(regex, placeholder);
+        }
+        if (text !== textNode.textContent) {
+          textNode.textContent = text;
+        }
+      }
+    }, { patterns, placeholder });
+  }
+}
 
 /**
  * Capture result with timing and diagnostic info
@@ -131,17 +223,8 @@ export async function captureScreenshot(
     // Wait for any remaining animations to settle
     await page.waitForTimeout(500);
 
-    // Disable CSS animations and transitions
-    await page.addStyleTag({
-      content: `
-        *, *::before, *::after {
-          animation-duration: 0s !important;
-          animation-delay: 0s !important;
-          transition-duration: 0s !important;
-          transition-delay: 0s !important;
-        }
-      `,
-    });
+    // Apply dynamic content masking (includes animation disabling)
+    await applyMasking(page, options.mask);
 
     // Take screenshot - element or full page
     if (selector) {
@@ -163,6 +246,109 @@ export async function captureScreenshot(
     }
 
     return outputPath;
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * Capture result with landmark detection
+ */
+export interface CaptureWithLandmarksResult {
+  outputPath: string;
+  landmarkElements: LandmarkElement[];
+  pageIntent: PageIntent;
+}
+
+/**
+ * Capture a screenshot and detect landmark elements
+ * Used during baseline capture to store expected elements
+ */
+export async function captureWithLandmarks(
+  options: CaptureOptions & { outputDir?: string }
+): Promise<CaptureWithLandmarksResult> {
+  const {
+    url,
+    outputPath,
+    viewport = VIEWPORTS.desktop,
+    fullPage = true,
+    waitForNetworkIdle = true,
+    timeout = 30000,
+    outputDir,
+    selector,
+    waitFor,
+  } = options;
+
+  // Ensure output directory exists
+  await mkdir(dirname(outputPath), { recursive: true });
+
+  // Load auth state if available
+  let storageState: StorageState | undefined;
+  if (outputDir && !isDeployedEnvironment()) {
+    const authState = await loadAuthState(outputDir);
+    if (authState) {
+      storageState = authState as StorageState;
+      console.log('🔐 Using saved authentication state');
+    }
+  }
+
+  const browserInstance = await getBrowser();
+  const context = await browserInstance.newContext({
+    viewport: {
+      width: viewport.width,
+      height: viewport.height,
+    },
+    reducedMotion: 'reduce',
+    ...(storageState ? { storageState } : {}),
+  });
+
+  const page = await context.newPage();
+
+  try {
+    // Navigate to URL
+    await page.goto(url, {
+      waitUntil: waitForNetworkIdle ? 'networkidle' : 'load',
+      timeout,
+    });
+
+    // Wait for specific selector if provided
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout });
+    }
+
+    // Wait for animations to settle
+    await page.waitForTimeout(500);
+
+    // Detect page intent and landmarks while page is still open
+    const intentResult = await classifyPageIntent(page);
+    const landmarkElements = await detectLandmarks(page);
+
+    // Apply dynamic content masking (includes animation disabling)
+    await applyMasking(page, options.mask);
+
+    // Take screenshot
+    if (selector) {
+      const element = await page.waitForSelector(selector, { timeout: 5000 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: 'png',
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: 'png',
+      });
+    }
+
+    return {
+      outputPath,
+      landmarkElements,
+      pageIntent: intentResult.intent,
+    };
   } finally {
     await context.close();
   }
@@ -329,17 +515,8 @@ export async function captureWithDiagnostics(
     // Wait for animations to settle
     await page.waitForTimeout(500);
 
-    // Disable CSS animations
-    await page.addStyleTag({
-      content: `
-        *, *::before, *::after {
-          animation-duration: 0s !important;
-          animation-delay: 0s !important;
-          transition-duration: 0s !important;
-          transition-delay: 0s !important;
-        }
-      `,
-    });
+    // Apply dynamic content masking (includes animation disabling)
+    await applyMasking(page, options.mask);
 
     // Take screenshot - element or full page
     const renderStart = Date.now();

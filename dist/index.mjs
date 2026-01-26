@@ -1,17 +1,747 @@
 import { z } from 'zod';
 import { chromium } from 'playwright';
 import * as fs from 'fs/promises';
-import { mkdir, readFile, writeFile, readdir, rm, stat, unlink } from 'fs/promises';
+import { mkdir, readFile, writeFile, readdir, rm, access, stat, unlink } from 'fs/promises';
 import * as path from 'path';
 import { dirname, join } from 'path';
-import { userInfo } from 'os';
+import { tmpdir, userInfo } from 'os';
 import { randomBytes } from 'crypto';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { nanoid } from 'nanoid';
 import { URL as URL$1 } from 'url';
 
-// src/schemas.ts
+var __defProp = Object.defineProperty;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __esm = (fn, res) => function __init() {
+  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+
+// src/performance.ts
+var performance_exports = {};
+__export(performance_exports, {
+  PERFORMANCE_THRESHOLDS: () => PERFORMANCE_THRESHOLDS,
+  formatPerformanceResult: () => formatPerformanceResult,
+  measurePerformance: () => measurePerformance,
+  measureWebVitals: () => measureWebVitals
+});
+function rateMetric(value, thresholds) {
+  if (value === null) return null;
+  if (value <= thresholds.good) return "good";
+  if (value <= thresholds.poor) return "needs-improvement";
+  return "poor";
+}
+async function measureWebVitals(page) {
+  const metrics = await page.evaluate(() => {
+    return new Promise((resolve2) => {
+      const result = {
+        LCP: null,
+        FID: null,
+        CLS: null,
+        TTFB: null,
+        FCP: null,
+        TTI: null
+      };
+      const navEntry = performance.getEntriesByType("navigation")[0];
+      if (navEntry) {
+        result.TTFB = navEntry.responseStart - navEntry.requestStart;
+      }
+      const paintEntries = performance.getEntriesByType("paint");
+      const fcpEntry = paintEntries.find((e) => e.name === "first-contentful-paint");
+      if (fcpEntry) {
+        result.FCP = fcpEntry.startTime;
+      }
+      let lcpValue = null;
+      let clsValue = 0;
+      const lcpObserver = new PerformanceObserver((list) => {
+        const entries = list.getEntries();
+        const lastEntry = entries[entries.length - 1];
+        if (lastEntry) {
+          lcpValue = lastEntry.startTime;
+        }
+      });
+      const clsObserver = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          if (!entry.hadRecentInput) {
+            clsValue += entry.value;
+          }
+        }
+      });
+      try {
+        lcpObserver.observe({ type: "largest-contentful-paint", buffered: true });
+      } catch {
+      }
+      try {
+        clsObserver.observe({ type: "layout-shift", buffered: true });
+      } catch {
+      }
+      setTimeout(() => {
+        lcpObserver.disconnect();
+        clsObserver.disconnect();
+        result.LCP = lcpValue;
+        result.CLS = clsValue;
+        if (navEntry) {
+          result.TTI = navEntry.domInteractive;
+        }
+        resolve2(result);
+      }, 3e3);
+    });
+  });
+  return metrics;
+}
+async function measurePerformance(page) {
+  const metrics = await measureWebVitals(page);
+  const ratings = {
+    LCP: { value: metrics.LCP, rating: rateMetric(metrics.LCP, PERFORMANCE_THRESHOLDS.LCP) },
+    FID: { value: metrics.FID, rating: rateMetric(metrics.FID, PERFORMANCE_THRESHOLDS.FID) },
+    CLS: { value: metrics.CLS, rating: rateMetric(metrics.CLS, PERFORMANCE_THRESHOLDS.CLS) },
+    TTFB: { value: metrics.TTFB, rating: rateMetric(metrics.TTFB, PERFORMANCE_THRESHOLDS.TTFB) },
+    FCP: { value: metrics.FCP, rating: rateMetric(metrics.FCP, PERFORMANCE_THRESHOLDS.FCP) },
+    TTI: { value: metrics.TTI, rating: rateMetric(metrics.TTI, PERFORMANCE_THRESHOLDS.TTI) }
+  };
+  const issues = [];
+  const recommendations = [];
+  let passedVitals = 0;
+  let totalVitals = 0;
+  const coreVitals = ["LCP", "CLS", "TTFB", "FCP"];
+  for (const vital of coreVitals) {
+    const rated = ratings[vital];
+    if (rated.value !== null) {
+      totalVitals++;
+      if (rated.rating === "good") {
+        passedVitals++;
+      } else if (rated.rating === "poor") {
+        issues.push(`${vital} is poor (${formatMetric(vital, rated.value)})`);
+        recommendations.push(getRecommendation(vital));
+      } else if (rated.rating === "needs-improvement") {
+        issues.push(`${vital} needs improvement (${formatMetric(vital, rated.value)})`);
+      }
+    }
+  }
+  const poorCount = Object.values(ratings).filter((r) => r.rating === "poor").length;
+  const needsImprovementCount = Object.values(ratings).filter((r) => r.rating === "needs-improvement").length;
+  let overallRating = "good";
+  if (poorCount > 0) {
+    overallRating = "poor";
+  } else if (needsImprovementCount > 0) {
+    overallRating = "needs-improvement";
+  }
+  return {
+    metrics,
+    ratings,
+    summary: {
+      overallRating,
+      passedVitals,
+      totalVitals,
+      issues,
+      recommendations
+    }
+  };
+}
+function formatMetric(name, value) {
+  if (name === "CLS") {
+    return value.toFixed(3);
+  }
+  return `${Math.round(value)}ms`;
+}
+function getRecommendation(metric) {
+  const recommendations = {
+    LCP: "Optimize largest image/text block: use lazy loading, preload critical assets, optimize server response",
+    FID: "Reduce JavaScript execution time: split code, defer non-critical JS, use web workers",
+    CLS: "Reserve space for dynamic content: set explicit dimensions for images/ads/embeds",
+    TTFB: "Improve server response: use CDN, optimize database queries, enable caching",
+    FCP: "Eliminate render-blocking resources: inline critical CSS, defer non-critical JS",
+    TTI: "Reduce main thread work: minimize/defer JavaScript, reduce DOM size"
+  };
+  return recommendations[metric];
+}
+function formatPerformanceResult(result) {
+  const lines = [];
+  lines.push("Performance Metrics");
+  lines.push("===================");
+  lines.push("");
+  const ratingIcon = result.summary.overallRating === "good" ? "\u2713" : result.summary.overallRating === "needs-improvement" ? "~" : "\u2717";
+  const ratingColor = result.summary.overallRating === "good" ? "\x1B[32m" : result.summary.overallRating === "needs-improvement" ? "\x1B[33m" : "\x1B[31m";
+  lines.push(`Overall: ${ratingColor}${ratingIcon} ${result.summary.overallRating.toUpperCase()}\x1B[0m`);
+  lines.push(`Passed: ${result.summary.passedVitals}/${result.summary.totalVitals} core vitals`);
+  lines.push("");
+  lines.push("Core Web Vitals:");
+  const vitals = ["LCP", "FCP", "TTFB", "CLS"];
+  for (const vital of vitals) {
+    const rated = result.ratings[vital];
+    if (rated.value !== null) {
+      const icon = rated.rating === "good" ? "\u2713" : rated.rating === "needs-improvement" ? "~" : "\u2717";
+      const color = rated.rating === "good" ? "\x1B[32m" : rated.rating === "needs-improvement" ? "\x1B[33m" : "\x1B[31m";
+      lines.push(`  ${color}${icon}\x1B[0m ${vital}: ${formatMetric(vital, rated.value)}`);
+    }
+  }
+  if (result.summary.issues.length > 0) {
+    lines.push("");
+    lines.push("Issues:");
+    for (const issue of result.summary.issues) {
+      lines.push(`  ! ${issue}`);
+    }
+  }
+  if (result.summary.recommendations.length > 0) {
+    lines.push("");
+    lines.push("Recommendations:");
+    for (const rec of result.summary.recommendations) {
+      lines.push(`  -> ${rec}`);
+    }
+  }
+  return lines.join("\n");
+}
+var PERFORMANCE_THRESHOLDS;
+var init_performance = __esm({
+  "src/performance.ts"() {
+    PERFORMANCE_THRESHOLDS = {
+      LCP: { good: 2500, poor: 4e3 },
+      FID: { good: 100, poor: 300 },
+      CLS: { good: 0.1, poor: 0.25 },
+      TTFB: { good: 800, poor: 1800 },
+      FCP: { good: 1800, poor: 3e3 },
+      TTI: { good: 3800, poor: 7300 }
+    };
+  }
+});
+
+// src/interactivity.ts
+var interactivity_exports = {};
+__export(interactivity_exports, {
+  formatInteractivityResult: () => formatInteractivityResult,
+  testInteractivity: () => testInteractivity
+});
+async function testInteractivity(page) {
+  const data = await page.evaluate(() => {
+    const results = {
+      buttons: [],
+      links: [],
+      forms: []
+    };
+    function hasEventHandler(el) {
+      const inlineHandlers = ["onclick", "onmousedown", "onmouseup", "ontouchstart", "ontouchend"];
+      for (const handler of inlineHandlers) {
+        if (el.getAttribute(handler)) return true;
+      }
+      const attrs = Array.from(el.attributes).map((a) => a.name);
+      const frameworkPatterns = ["@click", "v-on:click", "ng-click", "(click)"];
+      for (const pattern of frameworkPatterns) {
+        if (attrs.some((a) => a.includes(pattern) || a.startsWith(pattern))) return true;
+      }
+      if (el.getAttribute("data-action") || el.getAttribute("data-onclick")) return true;
+      const tagName = el.tagName.toLowerCase();
+      if (tagName === "a" && el.href) return true;
+      if (tagName === "button") return true;
+      if (tagName === "input" && ["submit", "button"].includes(el.type)) return true;
+      return false;
+    }
+    function getSelector(el) {
+      if (el.id) return `#${el.id}`;
+      const classes = Array.from(el.classList).slice(0, 2).join(".");
+      const tag = el.tagName.toLowerCase();
+      if (classes) return `${tag}.${classes}`;
+      return tag;
+    }
+    function isVisible(el) {
+      const style = window.getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0;
+    }
+    const buttons = Array.from(document.querySelectorAll('button, [role="button"], input[type="button"], input[type="submit"]'));
+    for (const btn of buttons) {
+      const el = btn;
+      results.buttons.push({
+        selector: getSelector(el),
+        tagName: el.tagName.toLowerCase(),
+        type: el.type || void 0,
+        text: el.textContent?.trim() || el.value || void 0,
+        hasHandler: hasEventHandler(el),
+        isDisabled: el.disabled || el.getAttribute("aria-disabled") === "true",
+        isVisible: isVisible(el),
+        a11y: {
+          role: el.getAttribute("role") || void 0,
+          ariaLabel: el.getAttribute("aria-label") || void 0,
+          tabIndex: el.tabIndex
+        },
+        buttonType: el.type || void 0,
+        formId: el.form?.id || void 0
+      });
+    }
+    const links = Array.from(document.querySelectorAll("a[href]"));
+    for (const link of links) {
+      const el = link;
+      const href = el.getAttribute("href") || "";
+      const isPlaceholder = href === "#" || href === "" || href === "javascript:void(0)";
+      results.links.push({
+        selector: getSelector(el),
+        tagName: "a",
+        text: el.textContent?.trim() || void 0,
+        hasHandler: hasEventHandler(el) || !isPlaceholder,
+        isDisabled: el.getAttribute("aria-disabled") === "true",
+        isVisible: isVisible(el),
+        a11y: {
+          role: el.getAttribute("role") || void 0,
+          ariaLabel: el.getAttribute("aria-label") || void 0,
+          tabIndex: el.tabIndex
+        },
+        href,
+        isPlaceholder,
+        opensNewTab: el.target === "_blank",
+        isExternal: el.hostname !== window.location.hostname
+      });
+    }
+    const forms = Array.from(document.querySelectorAll("form"));
+    for (const form of forms) {
+      const el = form;
+      const fields = [];
+      const inputs = Array.from(el.querySelectorAll("input, select, textarea"));
+      for (const input of inputs) {
+        const field = input;
+        if (["hidden", "submit", "button"].includes(field.type)) continue;
+        const labelEl = el.querySelector(`label[for="${field.id}"]`) || field.closest("label");
+        fields.push({
+          selector: getSelector(field),
+          name: field.name || void 0,
+          type: field.type || field.tagName.toLowerCase(),
+          label: labelEl?.textContent?.trim() || void 0,
+          required: field.required,
+          hasValidation: field.hasAttribute("pattern") || field.hasAttribute("min") || field.hasAttribute("max") || field.hasAttribute("minlength") || field.hasAttribute("maxlength")
+        });
+      }
+      const submitBtn = el.querySelector('button[type="submit"], input[type="submit"]');
+      let submitInfo;
+      if (submitBtn) {
+        const btn = submitBtn;
+        submitInfo = {
+          selector: getSelector(btn),
+          tagName: btn.tagName.toLowerCase(),
+          text: btn.textContent?.trim() || btn.value || void 0,
+          hasHandler: hasEventHandler(btn),
+          isDisabled: btn.disabled,
+          isVisible: isVisible(btn),
+          a11y: {
+            role: btn.getAttribute("role") || void 0,
+            ariaLabel: btn.getAttribute("aria-label") || void 0
+          },
+          buttonType: "submit"
+        };
+      }
+      const hasSubmitHandler = hasEventHandler(el) || el.getAttribute("action") !== null || submitBtn !== null;
+      results.forms.push({
+        selector: getSelector(el),
+        action: el.action || void 0,
+        method: el.method || void 0,
+        hasSubmitHandler,
+        fields,
+        hasValidation: fields.some((f) => f.hasValidation || f.required),
+        submitButton: submitInfo
+      });
+    }
+    return results;
+  });
+  const issues = [];
+  for (const btn of data.buttons) {
+    if (!btn.hasHandler && !btn.isDisabled) {
+      issues.push({
+        type: "NO_HANDLER",
+        element: btn.selector,
+        severity: "warning",
+        description: `Button "${btn.text || btn.selector}" has no click handler`
+      });
+    }
+    if (btn.isDisabled && btn.isVisible) ;
+    if (!btn.a11y.ariaLabel && !btn.text) {
+      issues.push({
+        type: "MISSING_LABEL",
+        element: btn.selector,
+        severity: "error",
+        description: `Button has no accessible label (no text or aria-label)`
+      });
+    }
+  }
+  for (const link of data.links) {
+    if (link.isPlaceholder && !link.hasHandler) {
+      issues.push({
+        type: "PLACEHOLDER_LINK",
+        element: link.selector,
+        severity: "error",
+        description: `Link "${link.text || link.selector}" has placeholder href without handler`
+      });
+    }
+    if (!link.a11y.ariaLabel && !link.text) {
+      issues.push({
+        type: "MISSING_LABEL",
+        element: link.selector,
+        severity: "error",
+        description: `Link has no accessible label (no text or aria-label)`
+      });
+    }
+  }
+  for (const form of data.forms) {
+    if (!form.hasSubmitHandler) {
+      issues.push({
+        type: "FORM_NO_SUBMIT",
+        element: form.selector,
+        severity: "warning",
+        description: `Form has no submit handler or action`
+      });
+    }
+    for (const field of form.fields) {
+      if (!field.label && field.type !== "hidden") {
+        issues.push({
+          type: "MISSING_LABEL",
+          element: field.selector,
+          severity: "warning",
+          description: `Form field "${field.name || field.selector}" has no label`
+        });
+      }
+    }
+  }
+  const allInteractive = [...data.buttons, ...data.links];
+  const withHandlers = allInteractive.filter((e) => e.hasHandler).length;
+  return {
+    buttons: data.buttons,
+    links: data.links,
+    forms: data.forms,
+    issues,
+    summary: {
+      totalInteractive: allInteractive.length,
+      withHandlers,
+      withoutHandlers: allInteractive.length - withHandlers,
+      issueCount: {
+        error: issues.filter((i) => i.severity === "error").length,
+        warning: issues.filter((i) => i.severity === "warning").length,
+        info: issues.filter((i) => i.severity === "info").length
+      }
+    }
+  };
+}
+function formatInteractivityResult(result) {
+  const lines = [];
+  lines.push("Interactivity Analysis");
+  lines.push("======================");
+  lines.push("");
+  lines.push(`Total interactive elements: ${result.summary.totalInteractive}`);
+  lines.push(`  With handlers: ${result.summary.withHandlers}`);
+  lines.push(`  Without handlers: ${result.summary.withoutHandlers}`);
+  lines.push("");
+  lines.push(`Buttons: ${result.buttons.length}`);
+  lines.push(`Links: ${result.links.length}`);
+  lines.push(`Forms: ${result.forms.length}`);
+  lines.push("");
+  if (result.forms.length > 0) {
+    lines.push("Forms:");
+    for (const form of result.forms) {
+      const icon = form.hasSubmitHandler ? "\u2713" : "!";
+      lines.push(`  ${icon} ${form.selector} (${form.fields.length} fields)`);
+    }
+    lines.push("");
+  }
+  if (result.issues.length > 0) {
+    lines.push("Issues:");
+    for (const issue of result.issues) {
+      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "i";
+      lines.push(`  ${icon} [${issue.type}] ${issue.description}`);
+    }
+  } else {
+    lines.push("No issues detected.");
+  }
+  return lines.join("\n");
+}
+var init_interactivity = __esm({
+  "src/interactivity.ts"() {
+  }
+});
+
+// src/api-timing.ts
+var api_timing_exports = {};
+__export(api_timing_exports, {
+  createApiTracker: () => createApiTracker,
+  formatApiTimingResult: () => formatApiTimingResult,
+  measureApiTiming: () => measureApiTiming
+});
+async function measureApiTiming(page, options = {}) {
+  const {
+    filter,
+    includeStatic = false,
+    timeout = 1e4,
+    minDuration = 0
+  } = options;
+  const requests = /* @__PURE__ */ new Map();
+  const completedRequests = [];
+  const requestHandler = (request) => {
+    const url = request.url();
+    const resourceType = request.resourceType();
+    if (!includeStatic && ["image", "font", "stylesheet", "media"].includes(resourceType)) {
+      return;
+    }
+    if (filter && !filter.test(url)) {
+      return;
+    }
+    requests.set(request, { startTime: Date.now() });
+  };
+  const responseHandler = async (response) => {
+    const request = response.request();
+    const requestData = requests.get(request);
+    if (!requestData) return;
+    const duration = Date.now() - requestData.startTime;
+    if (duration < minDuration) {
+      requests.delete(request);
+      return;
+    }
+    try {
+      const body = await response.body().catch(() => Buffer.alloc(0));
+      const size = body.length;
+      let timing = {};
+      try {
+        timing = response.request().timing();
+      } catch {
+      }
+      completedRequests.push({
+        url: request.url(),
+        method: request.method(),
+        duration,
+        status: response.status(),
+        size,
+        resourceType: request.resourceType(),
+        timing: {
+          dnsLookup: timing.domainLookupEnd !== void 0 && timing.domainLookupStart !== void 0 ? timing.domainLookupEnd - timing.domainLookupStart : void 0,
+          tcpConnect: timing.connectEnd !== void 0 && timing.connectStart !== void 0 ? timing.connectEnd - timing.connectStart : void 0,
+          requestSent: timing.requestStart !== void 0 && timing.connectEnd !== void 0 ? timing.requestStart - timing.connectEnd : void 0,
+          waiting: timing.responseStart !== void 0 && timing.requestStart !== void 0 ? timing.responseStart - timing.requestStart : void 0,
+          contentDownload: timing.responseEnd !== void 0 && timing.responseStart !== void 0 ? timing.responseEnd - timing.responseStart : void 0
+        }
+      });
+    } catch {
+    }
+    requests.delete(request);
+  };
+  const requestFailedHandler = (request) => {
+    const requestData = requests.get(request);
+    if (!requestData) return;
+    const duration = Date.now() - requestData.startTime;
+    completedRequests.push({
+      url: request.url(),
+      method: request.method(),
+      duration,
+      status: 0,
+      // 0 indicates failure
+      size: 0,
+      resourceType: request.resourceType(),
+      timing: {}
+    });
+    requests.delete(request);
+  };
+  page.on("request", requestHandler);
+  page.on("response", responseHandler);
+  page.on("requestfailed", requestFailedHandler);
+  await new Promise((resolve2) => {
+    const startWait = Date.now();
+    const check = () => {
+      if (requests.size === 0 || Date.now() - startWait > timeout) {
+        resolve2();
+        return;
+      }
+      setTimeout(check, 100);
+    };
+    setTimeout(check, 1e3);
+  });
+  page.off("request", requestHandler);
+  page.off("response", responseHandler);
+  page.off("requestfailed", requestFailedHandler);
+  const totalRequests = completedRequests.length;
+  const totalTime = completedRequests.reduce((sum, r) => sum + r.duration, 0);
+  const totalSize = completedRequests.reduce((sum, r) => sum + r.size, 0);
+  const failedRequests = completedRequests.filter((r) => r.status === 0 || r.status >= 400).length;
+  let slowestRequest = null;
+  let fastestRequest = null;
+  if (completedRequests.length > 0) {
+    const sorted = [...completedRequests].sort((a, b) => b.duration - a.duration);
+    slowestRequest = { url: sorted[0].url, duration: sorted[0].duration };
+    fastestRequest = { url: sorted[sorted.length - 1].url, duration: sorted[sorted.length - 1].duration };
+  }
+  const byStatus = {};
+  for (const req of completedRequests) {
+    byStatus[req.status] = (byStatus[req.status] || 0) + 1;
+  }
+  return {
+    requests: completedRequests.sort((a, b) => b.duration - a.duration),
+    summary: {
+      totalRequests,
+      totalTime,
+      totalSize,
+      averageTime: totalRequests > 0 ? Math.round(totalTime / totalRequests) : 0,
+      slowestRequest,
+      fastestRequest,
+      failedRequests,
+      byStatus
+    }
+  };
+}
+function createApiTracker(page, options = {}) {
+  const {
+    filter,
+    includeStatic = false,
+    minDuration = 0
+  } = options;
+  const requests = /* @__PURE__ */ new Map();
+  const completedRequests = [];
+  let isTracking = false;
+  const requestHandler = (request) => {
+    if (!isTracking) return;
+    const url = request.url();
+    const resourceType = request.resourceType();
+    if (!includeStatic && ["image", "font", "stylesheet", "media"].includes(resourceType)) {
+      return;
+    }
+    if (filter && !filter.test(url)) {
+      return;
+    }
+    requests.set(request, { startTime: Date.now() });
+  };
+  const responseHandler = async (response) => {
+    const request = response.request();
+    const requestData = requests.get(request);
+    if (!requestData) return;
+    const duration = Date.now() - requestData.startTime;
+    if (duration < minDuration) {
+      requests.delete(request);
+      return;
+    }
+    try {
+      const body = await response.body().catch(() => Buffer.alloc(0));
+      completedRequests.push({
+        url: request.url(),
+        method: request.method(),
+        duration,
+        status: response.status(),
+        size: body.length,
+        resourceType: request.resourceType(),
+        timing: {}
+      });
+    } catch {
+    }
+    requests.delete(request);
+  };
+  const requestFailedHandler = (request) => {
+    const requestData = requests.get(request);
+    if (!requestData) return;
+    completedRequests.push({
+      url: request.url(),
+      method: request.method(),
+      duration: Date.now() - requestData.startTime,
+      status: 0,
+      size: 0,
+      resourceType: request.resourceType(),
+      timing: {}
+    });
+    requests.delete(request);
+  };
+  return {
+    start() {
+      isTracking = true;
+      page.on("request", requestHandler);
+      page.on("response", responseHandler);
+      page.on("requestfailed", requestFailedHandler);
+    },
+    stop() {
+      isTracking = false;
+      page.off("request", requestHandler);
+      page.off("response", responseHandler);
+      page.off("requestfailed", requestFailedHandler);
+      const totalRequests = completedRequests.length;
+      const totalTime = completedRequests.reduce((sum, r) => sum + r.duration, 0);
+      const totalSize = completedRequests.reduce((sum, r) => sum + r.size, 0);
+      const failedRequests = completedRequests.filter((r) => r.status === 0 || r.status >= 400).length;
+      let slowestRequest = null;
+      let fastestRequest = null;
+      if (completedRequests.length > 0) {
+        const sorted = [...completedRequests].sort((a, b) => b.duration - a.duration);
+        slowestRequest = { url: sorted[0].url, duration: sorted[0].duration };
+        fastestRequest = { url: sorted[sorted.length - 1].url, duration: sorted[sorted.length - 1].duration };
+      }
+      const byStatus = {};
+      for (const req of completedRequests) {
+        byStatus[req.status] = (byStatus[req.status] || 0) + 1;
+      }
+      return {
+        requests: completedRequests.sort((a, b) => b.duration - a.duration),
+        summary: {
+          totalRequests,
+          totalTime,
+          totalSize,
+          averageTime: totalRequests > 0 ? Math.round(totalTime / totalRequests) : 0,
+          slowestRequest,
+          fastestRequest,
+          failedRequests,
+          byStatus
+        }
+      };
+    },
+    getRequests() {
+      return [...completedRequests];
+    }
+  };
+}
+function formatApiTimingResult(result) {
+  const lines = [];
+  lines.push("API Timing Analysis");
+  lines.push("===================");
+  lines.push("");
+  lines.push("Summary:");
+  lines.push(`  Total requests: ${result.summary.totalRequests}`);
+  lines.push(`  Total time: ${result.summary.totalTime}ms`);
+  lines.push(`  Total size: ${formatBytes(result.summary.totalSize)}`);
+  lines.push(`  Average time: ${result.summary.averageTime}ms`);
+  lines.push(`  Failed requests: ${result.summary.failedRequests}`);
+  lines.push("");
+  if (result.summary.slowestRequest) {
+    lines.push(`Slowest: ${result.summary.slowestRequest.duration}ms`);
+    lines.push(`  ${truncateUrl(result.summary.slowestRequest.url)}`);
+  }
+  if (result.summary.fastestRequest && result.requests.length > 1) {
+    lines.push(`Fastest: ${result.summary.fastestRequest.duration}ms`);
+    lines.push(`  ${truncateUrl(result.summary.fastestRequest.url)}`);
+  }
+  lines.push("");
+  if (result.requests.length > 0) {
+    lines.push("Slowest requests:");
+    const top10 = result.requests.slice(0, 10);
+    for (const req of top10) {
+      const statusIcon = req.status === 0 ? "\x1B[31m\u2717\x1B[0m" : req.status >= 400 ? "\x1B[31m!\x1B[0m" : "\x1B[32m\u2713\x1B[0m";
+      lines.push(`  ${statusIcon} ${req.duration}ms ${req.method} ${truncateUrl(req.url)}`);
+    }
+  }
+  return lines.join("\n");
+}
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+function truncateUrl(url, maxLength = 60) {
+  try {
+    const parsed = new URL(url);
+    const path2 = parsed.pathname + parsed.search;
+    if (path2.length > maxLength) {
+      return path2.substring(0, maxLength - 3) + "...";
+    }
+    return path2;
+  } catch {
+    if (url.length > maxLength) {
+      return url.substring(0, maxLength - 3) + "...";
+    }
+    return url;
+  }
+}
+var init_api_timing = __esm({
+  "src/api-timing.ts"() {
+  }
+});
 var ViewportSchema = z.object({
   name: z.string().min(1).max(50),
   width: z.number().min(320).max(3840),
@@ -82,6 +812,20 @@ var AnalysisSchema = z.object({
   recommendation: z.string().nullable()
 });
 var SessionStatusSchema = z.enum(["baseline", "compared", "pending"]);
+var BoundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number()
+});
+var LandmarkElementSchema = z.object({
+  name: z.string(),
+  // e.g., 'logo', 'header', 'nav'
+  selector: z.string(),
+  // CSS selector used to find it
+  found: z.boolean(),
+  bounds: BoundsSchema.optional()
+});
 var SessionSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -91,7 +835,11 @@ var SessionSchema = z.object({
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   comparison: ComparisonResultSchema.optional(),
-  analysis: AnalysisSchema.optional()
+  analysis: AnalysisSchema.optional(),
+  // Landmark elements detected at baseline capture
+  landmarkElements: z.array(LandmarkElementSchema).optional(),
+  // Page intent detected at baseline
+  pageIntent: z.string().optional()
 });
 var ComparisonReportSchema = z.object({
   sessionId: z.string(),
@@ -124,12 +872,6 @@ var A11yAttributesSchema = z.object({
   ariaLabel: z.string().nullable(),
   ariaDescribedBy: z.string().nullable(),
   ariaHidden: z.boolean().optional()
-});
-var BoundsSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  width: z.number(),
-  height: z.number()
 });
 var EnhancedElementSchema = z.object({
   // Identity
@@ -205,6 +947,33 @@ var RuleAuditResultSchema = z.object({
     passed: z.number()
   })
 });
+
+// src/types.ts
+var DEFAULT_DYNAMIC_SELECTORS = [
+  // Timestamps and dates
+  '[data-testid*="timestamp"]',
+  '[data-testid*="date"]',
+  '[data-testid*="time"]',
+  '[class*="timestamp"]',
+  '[class*="relative-time"]',
+  '[class*="timeago"]',
+  "time[datetime]",
+  // Loading indicators
+  '[class*="loading"]',
+  '[class*="spinner"]',
+  '[class*="skeleton"]',
+  '[class*="shimmer"]',
+  '[role="progressbar"]',
+  // Live counters
+  '[class*="live-count"]',
+  '[class*="viewer-count"]',
+  '[class*="online-count"]',
+  // Avatars with random colors
+  '[class*="avatar"][style*="background"]',
+  // Random IDs displayed
+  '[data-testid*="session-id"]',
+  '[class*="request-id"]'
+];
 function isDeployedEnvironment() {
   return !!(process.env.VERCEL || process.env.NETLIFY || process.env.CI || process.env.GITHUB_ACTIONS || process.env.GITLAB_CI || process.env.CIRCLECI || process.env.JENKINS_URL || process.env.TRAVIS || process.env.HEROKU || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AZURE_FUNCTIONS_ENVIRONMENT);
 }
@@ -257,7 +1026,451 @@ async function clearAuthState(outputDir) {
   }
 }
 
+// src/semantic/landmarks.ts
+var LANDMARK_SELECTORS = {
+  logo: 'img[src*="logo"], img[alt*="logo" i], [class*="logo"], [id*="logo"], svg[class*="logo"]',
+  header: 'header, [role="banner"], [class*="header"]:not([class*="subheader"])',
+  navigation: 'nav, [role="navigation"], [class*="nav"]:not([class*="subnav"])',
+  main: 'main, [role="main"], [class*="main-content"], #main',
+  footer: 'footer, [role="contentinfo"], [class*="footer"]',
+  sidebar: 'aside, [role="complementary"], [class*="sidebar"]',
+  search: 'input[type="search"], [role="search"], [class*="search-input"], input[name*="search"]',
+  heading: "h1",
+  userMenu: '[class*="user-menu"], [class*="avatar"], [class*="profile"], [class*="account"]',
+  loginForm: 'form:has(input[type="password"])',
+  heroSection: '[class*="hero"], [class*="banner"], [class*="jumbotron"]',
+  ctaButton: '[class*="cta"], a[class*="primary"], button[class*="primary"]'
+};
+async function detectLandmarks(page) {
+  const landmarks = [];
+  for (const [name, selector] of Object.entries(LANDMARK_SELECTORS)) {
+    try {
+      const element = await page.$(selector);
+      if (element) {
+        const box = await element.boundingBox();
+        landmarks.push({
+          name,
+          selector,
+          found: true,
+          bounds: box ? {
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            width: Math.round(box.width),
+            height: Math.round(box.height)
+          } : void 0
+        });
+      } else {
+        landmarks.push({
+          name,
+          selector,
+          found: false
+        });
+      }
+    } catch {
+      landmarks.push({
+        name,
+        selector,
+        found: false
+      });
+    }
+  }
+  return landmarks;
+}
+function getExpectedLandmarksForIntent(intent) {
+  const common = ["header", "navigation", "main", "footer", "logo"];
+  const intentSpecific = {
+    auth: ["loginForm", "logo"],
+    form: ["heading"],
+    listing: ["search", "heading"],
+    detail: ["heading"],
+    dashboard: ["sidebar", "userMenu", "heading"],
+    error: ["heading"],
+    landing: ["heroSection", "ctaButton", "heading"],
+    empty: ["heading"],
+    unknown: []
+  };
+  const expected = [.../* @__PURE__ */ new Set([...common, ...intentSpecific[intent] || []])];
+  return expected;
+}
+function compareLandmarks(baseline, current) {
+  const baselineFound = baseline.filter((l) => l.found);
+  const currentFound = current.filter((l) => l.found);
+  const baselineNames = new Set(baselineFound.map((l) => l.name));
+  const currentNames = new Set(currentFound.map((l) => l.name));
+  const missing = baselineFound.filter((l) => !currentNames.has(l.name));
+  const added = currentFound.filter((l) => !baselineNames.has(l.name));
+  const unchanged = currentFound.filter((l) => baselineNames.has(l.name));
+  return { missing, added, unchanged };
+}
+function getExpectedLandmarksFromContext(framework) {
+  if (!framework) return [];
+  const expected = [];
+  const principlesText = framework.principles.join(" ").toLowerCase();
+  if (principlesText.includes("logo") || principlesText.includes("brand")) {
+    expected.push("logo");
+  }
+  if (principlesText.includes("navigation") || principlesText.includes("nav")) {
+    expected.push("navigation");
+  }
+  if (principlesText.includes("header") || principlesText.includes("banner")) {
+    expected.push("header");
+  }
+  if (principlesText.includes("footer")) {
+    expected.push("footer");
+  }
+  if (principlesText.includes("sidebar")) {
+    expected.push("sidebar");
+  }
+  if (principlesText.includes("search")) {
+    expected.push("search");
+  }
+  if (principlesText.includes("cta") || principlesText.includes("call-to-action")) {
+    expected.push("ctaButton");
+  }
+  if (principlesText.includes("hero")) {
+    expected.push("heroSection");
+  }
+  return expected;
+}
+function formatLandmarkComparison(comparison) {
+  const lines = [];
+  if (comparison.missing.length > 0) {
+    lines.push("Missing (were in baseline):");
+    for (const el of comparison.missing) {
+      lines.push(`  ! ${el.name}`);
+    }
+  }
+  if (comparison.added.length > 0) {
+    lines.push("New (not in baseline):");
+    for (const el of comparison.added) {
+      lines.push(`  + ${el.name}`);
+    }
+  }
+  if (comparison.unchanged.length > 0) {
+    lines.push("Unchanged:");
+    for (const el of comparison.unchanged) {
+      lines.push(`  \u2713 ${el.name}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// src/semantic/page-intent.ts
+async function classifyPageIntent(page) {
+  const signals = [];
+  const scores = {
+    auth: 0,
+    form: 0,
+    listing: 0,
+    detail: 0,
+    dashboard: 0,
+    error: 0,
+    landing: 0,
+    empty: 0
+  };
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const body = doc.body;
+    const text = body?.innerText?.toLowerCase() || "";
+    const count = (selector) => doc.querySelectorAll(selector).length;
+    const exists = (selector) => count(selector) > 0;
+    const textContains = (terms) => terms.some((t) => text.includes(t));
+    return {
+      // Auth signals
+      hasPasswordField: exists('input[type="password"]'),
+      hasEmailField: exists('input[type="email"], input[name*="email"], input[name*="username"]'),
+      hasLoginText: textContains(["sign in", "log in", "login", "sign up", "register", "forgot password", "reset password"]),
+      hasRememberMe: exists('input[type="checkbox"][name*="remember"], label:has-text("remember")'),
+      hasOAuthButtons: exists('[class*="google"], [class*="facebook"], [class*="github"], [class*="oauth"], [class*="social"]'),
+      // Form signals
+      formCount: count("form"),
+      inputCount: count('input:not([type="hidden"]):not([type="search"])'),
+      textareaCount: count("textarea"),
+      selectCount: count("select"),
+      hasSubmitButton: exists('button[type="submit"], input[type="submit"]'),
+      hasFormLabels: count("label") > 2,
+      // Listing signals
+      listItemCount: count('li, [class*="item"], [class*="card"], [class*="row"]'),
+      hasGrid: exists('[class*="grid"], [class*="list"], [class*="feed"]'),
+      hasTable: exists("table tbody tr"),
+      hasPagination: exists('[class*="pagination"], [class*="pager"], nav[aria-label*="page"]'),
+      hasFilters: exists('[class*="filter"], [class*="sort"], [class*="facet"]'),
+      repeatingSimilarElements: (() => {
+        const cards = doc.querySelectorAll('[class*="card"], [class*="item"]');
+        if (cards.length < 3) return false;
+        const classes = Array.from(cards).map((c) => c.className);
+        const unique = new Set(classes);
+        return unique.size <= 3;
+      })(),
+      // Detail signals
+      hasMainArticle: exists('article, main > [class*="content"], [class*="detail"]'),
+      hasLongContent: text.length > 2e3,
+      hasSingleHeading: count("h1") === 1,
+      hasMetadata: exists('[class*="meta"], [class*="author"], [class*="date"], time'),
+      hasComments: exists('[class*="comment"], [id*="comment"]'),
+      hasSocialShare: exists('[class*="share"], [class*="social"]'),
+      // Dashboard signals
+      hasCharts: exists('canvas, svg[class*="chart"], [class*="chart"], [class*="graph"]'),
+      hasStats: exists('[class*="stat"], [class*="metric"], [class*="kpi"]'),
+      hasSidebar: exists('aside, [class*="sidebar"], nav[class*="side"]'),
+      hasWidgets: exists('[class*="widget"], [class*="panel"], [class*="tile"]'),
+      hasUserMenu: exists('[class*="user"], [class*="avatar"], [class*="profile"]'),
+      hasNavTabs: exists('[role="tablist"], [class*="tabs"]'),
+      // Error signals
+      hasErrorCode: textContains(["404", "500", "403", "401", "not found", "error", "denied", "forbidden"]),
+      hasErrorClass: exists('[class*="error"], [class*="404"], [class*="500"]'),
+      isMinimalContent: text.length < 200,
+      hasBackLink: textContains(["go back", "go home", "return"]),
+      // Landing signals
+      hasHero: exists('[class*="hero"], [class*="banner"], [class*="jumbotron"]'),
+      hasCTA: exists('[class*="cta"], [class*="call-to-action"], a[class*="primary"]'),
+      hasTestimonials: exists('[class*="testimonial"], [class*="review"], [class*="quote"]'),
+      hasPricing: exists('[class*="pricing"], [class*="plan"]'),
+      hasFeatures: exists('[class*="feature"], [class*="benefit"]'),
+      // Empty signals
+      hasEmptyState: exists('[class*="empty"], [class*="no-data"], [class*="no-results"]'),
+      hasEmptyText: textContains(["no results", "nothing here", "no items", "empty"]),
+      // General metrics
+      totalElements: count("*"),
+      interactiveElements: count("a, button, input, select, textarea")
+    };
+  });
+  if (checks.hasPasswordField) {
+    scores.auth += 40;
+    signals.push("password field present");
+  }
+  if (checks.hasEmailField && checks.hasPasswordField) {
+    scores.auth += 20;
+    signals.push("email + password combination");
+  }
+  if (checks.hasLoginText) {
+    scores.auth += 15;
+    signals.push("login-related text");
+  }
+  if (checks.hasRememberMe) {
+    scores.auth += 10;
+    signals.push("remember me checkbox");
+  }
+  if (checks.hasOAuthButtons) {
+    scores.auth += 10;
+    signals.push("OAuth buttons");
+  }
+  if (checks.formCount > 0 && !checks.hasPasswordField) {
+    scores.form += 20;
+    signals.push("form without password");
+  }
+  if (checks.inputCount > 3 && !checks.hasPasswordField) {
+    scores.form += 15;
+    signals.push("multiple input fields");
+  }
+  if (checks.textareaCount > 0) {
+    scores.form += 15;
+    signals.push("textarea present");
+  }
+  if (checks.hasFormLabels && checks.inputCount > 2) {
+    scores.form += 10;
+    signals.push("labeled form fields");
+  }
+  if (checks.listItemCount > 5) {
+    scores.listing += 25;
+    signals.push(`${checks.listItemCount} list items`);
+  }
+  if (checks.hasGrid) {
+    scores.listing += 15;
+    signals.push("grid/list layout");
+  }
+  if (checks.hasTable) {
+    scores.listing += 20;
+    signals.push("data table");
+  }
+  if (checks.hasPagination) {
+    scores.listing += 20;
+    signals.push("pagination");
+  }
+  if (checks.hasFilters) {
+    scores.listing += 15;
+    signals.push("filters/sorting");
+  }
+  if (checks.repeatingSimilarElements) {
+    scores.listing += 15;
+    signals.push("repeating card elements");
+  }
+  if (checks.hasMainArticle) {
+    scores.detail += 25;
+    signals.push("main article element");
+  }
+  if (checks.hasLongContent) {
+    scores.detail += 20;
+    signals.push("long content");
+  }
+  if (checks.hasSingleHeading && checks.hasMetadata) {
+    scores.detail += 20;
+    signals.push("single heading with metadata");
+  }
+  if (checks.hasComments) {
+    scores.detail += 15;
+    signals.push("comments section");
+  }
+  if (checks.hasSocialShare) {
+    scores.detail += 10;
+    signals.push("social share buttons");
+  }
+  if (checks.hasCharts) {
+    scores.dashboard += 30;
+    signals.push("charts/graphs");
+  }
+  if (checks.hasStats) {
+    scores.dashboard += 25;
+    signals.push("stats/metrics");
+  }
+  if (checks.hasSidebar && checks.hasWidgets) {
+    scores.dashboard += 20;
+    signals.push("sidebar with widgets");
+  }
+  if (checks.hasNavTabs) {
+    scores.dashboard += 10;
+    signals.push("navigation tabs");
+  }
+  if (checks.hasUserMenu) {
+    scores.dashboard += 10;
+    signals.push("user menu");
+  }
+  if (checks.hasErrorCode && checks.isMinimalContent) {
+    scores.error += 50;
+    signals.push("error code with minimal content");
+  }
+  if (checks.hasErrorClass) {
+    scores.error += 30;
+    signals.push("error CSS class");
+  }
+  if (checks.hasBackLink && checks.isMinimalContent) {
+    scores.error += 20;
+    signals.push("back link on minimal page");
+  }
+  if (checks.hasHero) {
+    scores.landing += 25;
+    signals.push("hero section");
+  }
+  if (checks.hasCTA) {
+    scores.landing += 20;
+    signals.push("call-to-action");
+  }
+  if (checks.hasTestimonials) {
+    scores.landing += 15;
+    signals.push("testimonials");
+  }
+  if (checks.hasPricing) {
+    scores.landing += 20;
+    signals.push("pricing section");
+  }
+  if (checks.hasFeatures) {
+    scores.landing += 15;
+    signals.push("features section");
+  }
+  if (checks.hasEmptyState) {
+    scores.empty += 40;
+    signals.push("empty state element");
+  }
+  if (checks.hasEmptyText && checks.listItemCount === 0) {
+    scores.empty += 30;
+    signals.push("empty text with no items");
+  }
+  const entries = Object.entries(scores);
+  entries.sort((a, b) => b[1] - a[1]);
+  const [topIntent, topScore] = entries[0];
+  const [secondIntent, secondScore] = entries[1];
+  const maxPossible = 100;
+  const confidence = Math.min(topScore / maxPossible, 1);
+  const hasSecondary = secondScore > 30 && secondScore > topScore * 0.5;
+  return {
+    intent: topScore > 20 ? topIntent : "unknown",
+    confidence,
+    signals: signals.slice(0, 5),
+    // Top 5 signals
+    secondaryIntent: hasSecondary ? secondIntent : void 0
+  };
+}
+function getIntentDescription(intent) {
+  const descriptions = {
+    auth: "Authentication page (login, register, password reset)",
+    form: "Form page (data entry, settings, contact)",
+    listing: "Listing page (search results, product grid, table)",
+    detail: "Detail page (article, product, profile)",
+    dashboard: "Dashboard (admin panel, analytics, user home)",
+    error: "Error page (404, 500, access denied)",
+    landing: "Landing page (marketing, homepage)",
+    empty: "Empty state (no content)",
+    unknown: "Unknown page type"
+  };
+  return descriptions[intent];
+}
+
 // src/capture.ts
+async function applyMasking(page, mask) {
+  const hideAnimations = mask?.hideAnimations !== false;
+  const selectorsToHide = [];
+  if (mask?.selectors) {
+    selectorsToHide.push(...mask.selectors);
+  }
+  if (mask?.hideDynamicContent) {
+    selectorsToHide.push(...DEFAULT_DYNAMIC_SELECTORS);
+  }
+  const cssRules = [];
+  if (hideAnimations) {
+    cssRules.push(`
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+        scroll-behavior: auto !important;
+      }
+      @keyframes none { }
+    `);
+  }
+  if (selectorsToHide.length > 0) {
+    const selectorList = selectorsToHide.join(",\n");
+    cssRules.push(`
+      ${selectorList} {
+        visibility: hidden !important;
+        opacity: 0 !important;
+      }
+    `);
+  }
+  if (cssRules.length > 0) {
+    await page.addStyleTag({
+      content: cssRules.join("\n")
+    });
+  }
+  if (mask?.textPatterns && mask.textPatterns.length > 0) {
+    const placeholder = mask.placeholder || "\u2588\u2588\u2588";
+    const patterns = mask.textPatterns.map(
+      (p) => typeof p === "string" ? p : p.source
+    );
+    await page.evaluate(({ patterns: patterns2, placeholder: placeholder2 }) => {
+      const walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        null
+      );
+      const textNodes = [];
+      let node;
+      while (node = walker.nextNode()) {
+        textNodes.push(node);
+      }
+      for (const textNode of textNodes) {
+        let text = textNode.textContent || "";
+        for (const pattern of patterns2) {
+          const regex = new RegExp(pattern, "gi");
+          text = text.replace(regex, placeholder2);
+        }
+        if (text !== textNode.textContent) {
+          textNode.textContent = text;
+        }
+      }
+    }, { patterns, placeholder });
+  }
+}
 var browser = null;
 async function getBrowser() {
   if (!browser) {
@@ -315,16 +1528,7 @@ async function captureScreenshot(options) {
       await page.waitForSelector(waitFor, { timeout });
     }
     await page.waitForTimeout(500);
-    await page.addStyleTag({
-      content: `
-        *, *::before, *::after {
-          animation-duration: 0s !important;
-          animation-delay: 0s !important;
-          transition-duration: 0s !important;
-          transition-delay: 0s !important;
-        }
-      `
-    });
+    await applyMasking(page, options.mask);
     if (selector) {
       const element = await page.waitForSelector(selector, { timeout: 5e3 });
       if (!element) {
@@ -342,6 +1546,74 @@ async function captureScreenshot(options) {
       });
     }
     return outputPath;
+  } finally {
+    await context.close();
+  }
+}
+async function captureWithLandmarks(options) {
+  const {
+    url,
+    outputPath,
+    viewport = VIEWPORTS.desktop,
+    fullPage = true,
+    waitForNetworkIdle = true,
+    timeout = 3e4,
+    outputDir,
+    selector,
+    waitFor
+  } = options;
+  await mkdir(dirname(outputPath), { recursive: true });
+  let storageState;
+  if (outputDir && !isDeployedEnvironment()) {
+    const authState = await loadAuthState(outputDir);
+    if (authState) {
+      storageState = authState;
+      console.log("\u{1F510} Using saved authentication state");
+    }
+  }
+  const browserInstance = await getBrowser();
+  const context = await browserInstance.newContext({
+    viewport: {
+      width: viewport.width,
+      height: viewport.height
+    },
+    reducedMotion: "reduce",
+    ...storageState ? { storageState } : {}
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto(url, {
+      waitUntil: waitForNetworkIdle ? "networkidle" : "load",
+      timeout
+    });
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout });
+    }
+    await page.waitForTimeout(500);
+    const intentResult = await classifyPageIntent(page);
+    const landmarkElements = await detectLandmarks(page);
+    await applyMasking(page, options.mask);
+    if (selector) {
+      const element = await page.waitForSelector(selector, { timeout: 5e3 });
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      await element.screenshot({
+        path: outputPath,
+        type: "png"
+      });
+    } else {
+      await page.screenshot({
+        path: outputPath,
+        fullPage,
+        type: "png"
+      });
+    }
+    return {
+      outputPath,
+      landmarkElements,
+      pageIntent: intentResult.intent
+    };
   } finally {
     await context.close();
   }
@@ -445,16 +1717,7 @@ async function captureWithDiagnostics(options) {
       };
     }
     await page.waitForTimeout(500);
-    await page.addStyleTag({
-      content: `
-        *, *::before, *::after {
-          animation-duration: 0s !important;
-          animation-delay: 0s !important;
-          transition-duration: 0s !important;
-          transition-delay: 0s !important;
-        }
-      `
-    });
+    await applyMasking(page, options.mask);
     const renderStart = Date.now();
     if (selector) {
       const element = await page.waitForSelector(selector, { timeout: 5e3 });
@@ -1011,6 +2274,981 @@ function formatSessionSummary(session) {
     diffInfo = session.comparison.match ? " (no diff)" : ` (${session.comparison.diffPercent}% diff)`;
   }
   return `${session.id}  ${status}  ${viewport}  ${date}  ${session.name}${diffInfo}`;
+}
+
+// src/semantic/state-detector.ts
+async function detectAuthState(page) {
+  const signals = [];
+  let authenticated = null;
+  let confidence = 0;
+  let username;
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const text = doc.body?.innerText?.toLowerCase() || "";
+    const logoutButton = doc.querySelector(
+      'button:has-text("logout"), button:has-text("sign out"), a:has-text("logout"), a:has-text("sign out"), [class*="logout"], [data-testid*="logout"]'
+    );
+    const userMenu = doc.querySelector(
+      '[class*="user-menu"], [class*="avatar"], [class*="profile-menu"], [class*="account-menu"], [data-testid*="user"]'
+    );
+    const welcomeText = text.match(/welcome,?\s+(\w+)/i);
+    const userNameEl = doc.querySelector(
+      '[class*="username"], [class*="user-name"], [class*="display-name"]'
+    );
+    const loginLink = doc.querySelector(
+      'a:has-text("login"), a:has-text("sign in"), button:has-text("login"), button:has-text("sign in"), [class*="login-link"], [href*="/login"], [href*="/signin"]'
+    );
+    const signupLink = doc.querySelector(
+      'a:has-text("sign up"), a:has-text("register"), [href*="/signup"], [href*="/register"]'
+    );
+    const authRequired = doc.querySelector(
+      '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
+    );
+    const hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
+    return {
+      hasLogoutButton: !!logoutButton,
+      hasUserMenu: !!userMenu,
+      hasWelcomeText: !!welcomeText,
+      welcomeName: welcomeText?.[1],
+      hasUserNameElement: !!userNameEl,
+      userName: userNameEl?.textContent?.trim(),
+      hasLoginLink: !!loginLink,
+      hasSignupLink: !!signupLink,
+      hasAuthRequired: !!authRequired,
+      hasAuthCookie
+    };
+  });
+  if (checks.hasLogoutButton) {
+    authenticated = true;
+    confidence += 40;
+    signals.push("logout button present");
+  }
+  if (checks.hasUserMenu) {
+    authenticated = true;
+    confidence += 30;
+    signals.push("user menu present");
+  }
+  if (checks.hasWelcomeText) {
+    authenticated = true;
+    confidence += 20;
+    signals.push("welcome text");
+    username = checks.welcomeName;
+  }
+  if (checks.hasUserNameElement) {
+    authenticated = true;
+    confidence += 15;
+    signals.push("username displayed");
+    username = username || checks.userName;
+  }
+  if (checks.hasAuthCookie) {
+    confidence += 10;
+    signals.push("auth cookie present");
+  }
+  if (checks.hasLoginLink && !checks.hasLogoutButton) {
+    authenticated = false;
+    confidence += 30;
+    signals.push("login link visible");
+  }
+  if (checks.hasSignupLink && !checks.hasUserMenu) {
+    authenticated = false;
+    confidence += 20;
+    signals.push("signup link visible");
+  }
+  if (checks.hasAuthRequired) {
+    authenticated = false;
+    confidence += 25;
+    signals.push("auth-required message");
+  }
+  confidence = Math.min(confidence / 100, 1);
+  if (confidence < 0.3) {
+    authenticated = null;
+  }
+  return {
+    authenticated,
+    confidence,
+    signals,
+    username
+  };
+}
+async function detectLoadingState(page) {
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const spinners = doc.querySelectorAll(
+      '[class*="spinner"], [class*="loading"], [class*="loader"], [role="progressbar"][aria-busy="true"], .animate-spin, [class*="spin"]'
+    );
+    const skeletons = doc.querySelectorAll(
+      '[class*="skeleton"], [class*="shimmer"], [class*="placeholder"], [class*="pulse"], [aria-busy="true"]'
+    );
+    const progress = doc.querySelectorAll(
+      'progress, [role="progressbar"], [class*="progress-bar"], [class*="loading-bar"]'
+    );
+    const lazyImages = doc.querySelectorAll(
+      'img[loading="lazy"]:not([src]), [class*="lazy"]:not([src])'
+    );
+    const bodyLoading = doc.body?.classList.contains("loading") || doc.body?.getAttribute("aria-busy") === "true";
+    return {
+      spinnerCount: spinners.length,
+      skeletonCount: skeletons.length,
+      progressCount: progress.length,
+      lazyCount: lazyImages.length,
+      bodyLoading
+    };
+  });
+  let type = "none";
+  let elements = 0;
+  let loading = false;
+  if (checks.spinnerCount > 0) {
+    type = "spinner";
+    elements = checks.spinnerCount;
+    loading = true;
+  } else if (checks.skeletonCount > 0) {
+    type = "skeleton";
+    elements = checks.skeletonCount;
+    loading = true;
+  } else if (checks.progressCount > 0) {
+    type = "progress";
+    elements = checks.progressCount;
+    loading = true;
+  } else if (checks.lazyCount > 0) {
+    type = "lazy";
+    elements = checks.lazyCount;
+    loading = true;
+  } else if (checks.bodyLoading) {
+    type = "spinner";
+    loading = true;
+  }
+  return { loading, type, elements };
+}
+async function detectErrorState(page) {
+  const errors = [];
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const text = doc.body?.innerText || "";
+    const validationErrors = doc.querySelectorAll(
+      '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
+    );
+    const apiErrors = doc.querySelectorAll(
+      '[class*="api-error"], [class*="server-error"], [class*="fetch-error"], [class*="network-error"]'
+    );
+    const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
+    const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
+    const serverText = text.match(/500|server error|something went wrong|internal error/i);
+    const toastErrors = doc.querySelectorAll(
+      '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
+    );
+    const extractText = (el) => el.textContent?.trim().slice(0, 200) || "";
+    return {
+      validationErrors: Array.from(validationErrors).map(extractText).filter(Boolean),
+      apiErrors: Array.from(apiErrors).map(extractText).filter(Boolean),
+      toastErrors: Array.from(toastErrors).map(extractText).filter(Boolean),
+      hasPermissionError: !!permissionText,
+      hasNotFoundError: !!notFoundText,
+      hasServerError: !!serverText
+    };
+  });
+  if (checks.hasPermissionError) {
+    errors.push({
+      type: "permission",
+      message: "Access denied or unauthorized"
+    });
+  }
+  if (checks.hasNotFoundError) {
+    errors.push({
+      type: "notfound",
+      message: "Page or resource not found"
+    });
+  }
+  if (checks.hasServerError) {
+    errors.push({
+      type: "server",
+      message: "Server error occurred"
+    });
+  }
+  for (const msg of checks.validationErrors) {
+    errors.push({
+      type: "validation",
+      message: msg
+    });
+  }
+  for (const msg of checks.apiErrors) {
+    errors.push({
+      type: "api",
+      message: msg
+    });
+  }
+  for (const msg of checks.toastErrors) {
+    errors.push({
+      type: "unknown",
+      message: msg
+    });
+  }
+  let severity = "none";
+  if (errors.length > 0) {
+    const hasCritical = errors.some(
+      (e) => e.type === "server" || e.type === "permission"
+    );
+    const hasError = errors.some(
+      (e) => e.type === "api" || e.type === "notfound"
+    );
+    const hasWarning = errors.some((e) => e.type === "validation");
+    if (hasCritical) severity = "critical";
+    else if (hasError) severity = "error";
+    else if (hasWarning) severity = "warning";
+  }
+  return {
+    hasErrors: errors.length > 0,
+    errors,
+    severity
+  };
+}
+async function detectPageState(page) {
+  const [auth, loading, errors] = await Promise.all([
+    detectAuthState(page),
+    detectLoadingState(page),
+    detectErrorState(page)
+  ]);
+  const ready = !loading.loading && errors.severity !== "critical" && errors.severity !== "error";
+  return {
+    auth,
+    loading,
+    errors,
+    ready
+  };
+}
+async function waitForPageReady(page, options = {}) {
+  const { timeout = 1e4, ignoreErrors = false } = options;
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeout) {
+    const state = await detectPageState(page);
+    if (!state.loading.loading) {
+      if (ignoreErrors || !state.errors.hasErrors) {
+        return state;
+      }
+    }
+    await page.waitForTimeout(200);
+  }
+  return detectPageState(page);
+}
+
+// src/semantic/output.ts
+async function getSemanticOutput(page) {
+  const url = page.url();
+  const title = await page.title();
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const [pageIntent, state] = await Promise.all([
+    classifyPageIntent(page),
+    detectPageState(page)
+  ]);
+  const availableActions = await detectAvailableActions(page, pageIntent.intent);
+  const issues = collectIssues(state, pageIntent);
+  const verdict = determineVerdict(state, issues);
+  const recovery = verdict === "FAIL" || verdict === "ERROR" ? generateRecoveryHint(state, pageIntent.intent) : void 0;
+  const summary = generateSummary(pageIntent, state, verdict, issues.length);
+  return {
+    verdict,
+    confidence: pageIntent.confidence,
+    pageIntent,
+    state,
+    availableActions,
+    issues,
+    recovery,
+    summary,
+    url,
+    title,
+    timestamp
+  };
+}
+async function detectAvailableActions(page, intent) {
+  const actions = [];
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const submitButton = doc.querySelector('button[type="submit"], input[type="submit"]');
+    const searchInput = doc.querySelector('input[type="search"], input[name*="search"], input[placeholder*="search"]');
+    const loginForm = doc.querySelector('form input[type="password"]');
+    const mainNav = doc.querySelector("nav a, header a");
+    const backButton = doc.querySelector('a:has-text("back"), button:has-text("back")');
+    const addButton = doc.querySelector('button:has-text("add"), button:has-text("create"), button:has-text("new")');
+    const editButton = doc.querySelector('button:has-text("edit"), a:has-text("edit")');
+    const deleteButton = doc.querySelector('button:has-text("delete"), button:has-text("remove")');
+    const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
+    const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
+    const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
+    return {
+      hasSubmit: !!submitButton,
+      submitSelector: submitButton ? getSelector(submitButton) : null,
+      hasSearch: !!searchInput,
+      searchSelector: searchInput ? getSelector(searchInput) : null,
+      hasLogin: !!loginForm,
+      hasNav: !!mainNav,
+      hasBack: !!backButton,
+      hasAdd: !!addButton,
+      addSelector: addButton ? getSelector(addButton) : null,
+      hasEdit: !!editButton,
+      hasDelete: !!deleteButton,
+      hasFilter: !!filterSelect,
+      hasSort: !!sortSelect,
+      hasPagination: !!pagination
+    };
+    function getSelector(el) {
+      if (el.id) return `#${el.id}`;
+      if (el.getAttribute("data-testid")) return `[data-testid="${el.getAttribute("data-testid")}"]`;
+      if (el.className) return `.${el.className.split(" ")[0]}`;
+      return el.tagName.toLowerCase();
+    }
+  });
+  if (intent === "auth" && checks.hasLogin) {
+    actions.push({
+      action: "login",
+      selector: "form",
+      description: "Submit login credentials"
+    });
+  }
+  if (checks.hasSearch) {
+    actions.push({
+      action: "search",
+      selector: checks.searchSelector || 'input[type="search"]',
+      description: "Search for content"
+    });
+  }
+  if (checks.hasSubmit && intent !== "auth") {
+    actions.push({
+      action: "submit",
+      selector: checks.submitSelector || 'button[type="submit"]',
+      description: "Submit form"
+    });
+  }
+  if (checks.hasAdd) {
+    actions.push({
+      action: "create",
+      selector: checks.addSelector || 'button:has-text("add")',
+      description: "Create new item"
+    });
+  }
+  if (intent === "listing") {
+    if (checks.hasFilter) {
+      actions.push({
+        action: "filter",
+        description: "Filter results"
+      });
+    }
+    if (checks.hasSort) {
+      actions.push({
+        action: "sort",
+        description: "Sort results"
+      });
+    }
+    if (checks.hasPagination) {
+      actions.push({
+        action: "paginate",
+        description: "Navigate to next/previous page"
+      });
+    }
+  }
+  if (checks.hasBack) {
+    actions.push({
+      action: "back",
+      description: "Go back to previous page"
+    });
+  }
+  return actions;
+}
+function collectIssues(state, intent) {
+  const issues = [];
+  for (const error of state.errors.errors) {
+    issues.push({
+      severity: error.type === "server" || error.type === "permission" ? "critical" : "major",
+      type: error.type,
+      problem: error.message,
+      fix: getErrorFix(error.type)
+    });
+  }
+  if (state.loading.loading && state.loading.elements > 3) {
+    issues.push({
+      severity: "minor",
+      type: "slow-loading",
+      problem: `Page has ${state.loading.elements} loading indicators`,
+      fix: "Wait for content to load or check network"
+    });
+  }
+  if (state.auth.authenticated === false && intent.intent === "dashboard") {
+    issues.push({
+      severity: "major",
+      type: "auth-required",
+      problem: "Dashboard requires authentication",
+      fix: "Login first before accessing this page"
+    });
+  }
+  return issues;
+}
+function getErrorFix(errorType) {
+  const fixes = {
+    validation: "Fix the highlighted form fields",
+    api: "Retry the request or check API status",
+    permission: "Login with appropriate permissions",
+    notfound: "Check the URL or navigate to a valid page",
+    server: "Wait and retry, or contact support",
+    network: "Check internet connection",
+    unknown: "Investigate the error message"
+  };
+  return fixes[errorType] || "Investigate the issue";
+}
+function determineVerdict(state, issues) {
+  const hasCritical = issues.some((i) => i.severity === "critical");
+  if (hasCritical) return "ERROR";
+  if (state.loading.loading) return "LOADING";
+  if (state.errors.hasErrors) return "FAIL";
+  const hasMajor = issues.some((i) => i.severity === "major");
+  if (hasMajor) return "ISSUES";
+  return "PASS";
+}
+function generateRecoveryHint(state, _intent) {
+  if (state.auth.authenticated === false) {
+    return {
+      suggestion: "Login to access this page",
+      alternatives: ["Use ibr.flow.login()", "Navigate to /login first"],
+      waitFor: '[class*="user"], [class*="avatar"]'
+    };
+  }
+  if (state.errors.errors.some((e) => e.type === "server")) {
+    return {
+      suggestion: "Server error - wait and retry",
+      alternatives: ["Refresh the page", "Check server status"]
+    };
+  }
+  if (state.errors.errors.some((e) => e.type === "notfound")) {
+    return {
+      suggestion: "Page not found - check URL",
+      alternatives: ["Navigate to homepage", "Use search to find content"]
+    };
+  }
+  if (state.loading.loading) {
+    return {
+      suggestion: "Wait for page to finish loading",
+      waitFor: state.loading.type === "skeleton" ? ':not([class*="skeleton"])' : ':not([class*="loading"])'
+    };
+  }
+  return {
+    suggestion: "Investigate the page state and retry"
+  };
+}
+function generateSummary(intent, state, verdict, issueCount) {
+  const parts = [];
+  parts.push(`${intent.intent} page`);
+  if (intent.confidence < 0.5) {
+    parts.push("(low confidence)");
+  }
+  if (state.auth.authenticated === true) {
+    parts.push(`authenticated${state.auth.username ? ` as ${state.auth.username}` : ""}`);
+  } else if (state.auth.authenticated === false) {
+    parts.push("not authenticated");
+  }
+  if (state.loading.loading) {
+    parts.push(`loading (${state.loading.type})`);
+  }
+  if (verdict === "PASS") {
+    parts.push("ready for interaction");
+  } else if (verdict === "ISSUES") {
+    parts.push(`${issueCount} issue${issueCount > 1 ? "s" : ""} detected`);
+  } else if (verdict === "ERROR" || verdict === "FAIL") {
+    parts.push(`${issueCount} error${issueCount > 1 ? "s" : ""}`);
+  }
+  return parts.join(", ");
+}
+function formatSemanticText(result) {
+  const lines = [];
+  lines.push(`Verdict: ${result.verdict}`);
+  lines.push(`Page: ${result.pageIntent.intent} (${Math.round(result.confidence * 100)}% confidence)`);
+  lines.push(`Summary: ${result.summary}`);
+  if (result.state.auth.authenticated !== null) {
+    lines.push(`Auth: ${result.state.auth.authenticated ? "logged in" : "logged out"}`);
+  }
+  if (result.availableActions.length > 0) {
+    lines.push(`Actions: ${result.availableActions.map((a) => a.action).join(", ")}`);
+  }
+  if (result.issues.length > 0) {
+    lines.push(`Issues: ${result.issues.map((i) => i.problem).join("; ")}`);
+  }
+  if (result.recovery) {
+    lines.push(`Recovery: ${result.recovery.suggestion}`);
+  }
+  return lines.join("\n");
+}
+function formatSemanticJson(result) {
+  return JSON.stringify({
+    verdict: result.verdict,
+    intent: result.pageIntent.intent,
+    confidence: result.confidence,
+    authenticated: result.state.auth.authenticated,
+    loading: result.state.loading.loading,
+    ready: result.state.ready,
+    actions: result.availableActions.map((a) => a.action),
+    issues: result.issues.map((i) => ({ severity: i.severity, problem: i.problem })),
+    recovery: result.recovery?.suggestion
+  }, null, 2);
+}
+
+// src/flows/types.ts
+async function findFieldByLabel(page, labels) {
+  for (const label of labels) {
+    const selectors = [
+      `input[name*="${label}" i]`,
+      `input[id*="${label}" i]`,
+      `input[placeholder*="${label}" i]`,
+      `input[aria-label*="${label}" i]`,
+      `label:has-text("${label}") + input`,
+      `label:has-text("${label}") input`
+    ];
+    for (const selector of selectors) {
+      const element = await page.$(selector);
+      if (element) return element;
+    }
+  }
+  return null;
+}
+async function findButton(page, patterns) {
+  for (const pattern of patterns) {
+    const selectors = [
+      `button:has-text("${pattern}")`,
+      `input[type="submit"][value*="${pattern}" i]`,
+      `button[type="submit"]:has-text("${pattern}")`,
+      `a:has-text("${pattern}")`,
+      `[role="button"]:has-text("${pattern}")`
+    ];
+    for (const selector of selectors) {
+      const element = await page.$(selector);
+      if (element) return element;
+    }
+  }
+  return page.$('button[type="submit"], input[type="submit"]');
+}
+async function waitForNavigation(page, timeout = 1e4) {
+  try {
+    await Promise.race([
+      page.waitForNavigation({ timeout }),
+      page.waitForLoadState("networkidle", { timeout })
+    ]);
+  } catch {
+  }
+}
+
+// src/flows/login.ts
+async function loginFlow(page, options) {
+  const startTime = Date.now();
+  const steps = [];
+  const timeout = options.timeout || 3e4;
+  try {
+    const emailField = await findFieldByLabel(page, [
+      "email",
+      "username",
+      "login",
+      "user",
+      "mail"
+    ]);
+    if (!emailField) {
+      return {
+        success: false,
+        authenticated: false,
+        steps,
+        error: "Could not find email/username field",
+        duration: Date.now() - startTime
+      };
+    }
+    await emailField.fill(options.email);
+    steps.push({ action: "fill email/username", success: true });
+    const passwordField = await page.$('input[type="password"]');
+    if (!passwordField) {
+      return {
+        success: false,
+        authenticated: false,
+        steps,
+        error: "Could not find password field",
+        duration: Date.now() - startTime
+      };
+    }
+    await passwordField.fill(options.password);
+    steps.push({ action: "fill password", success: true });
+    if (options.rememberMe) {
+      const rememberCheckbox = await page.$(
+        'input[type="checkbox"][name*="remember"], input[type="checkbox"][id*="remember"], label:has-text("remember") input[type="checkbox"]'
+      );
+      if (rememberCheckbox) {
+        await rememberCheckbox.check();
+        steps.push({ action: "check remember me", success: true });
+      }
+    }
+    const submitButton = await findButton(page, [
+      "login",
+      "sign in",
+      "log in",
+      "submit",
+      "continue"
+    ]);
+    if (!submitButton) {
+      return {
+        success: false,
+        authenticated: false,
+        steps,
+        error: "Could not find submit button",
+        duration: Date.now() - startTime
+      };
+    }
+    await submitButton.click();
+    steps.push({ action: "click submit", success: true });
+    await waitForNavigation(page, timeout);
+    steps.push({ action: "wait for response", success: true });
+    const authState = await detectAuthState(page);
+    const authenticated = authState.authenticated === true;
+    let successVerified = authenticated;
+    if (options.successIndicator && authenticated) {
+      if (options.successIndicator.startsWith(".") || options.successIndicator.startsWith("#") || options.successIndicator.startsWith("[")) {
+        const indicator = await page.$(options.successIndicator);
+        successVerified = !!indicator;
+      }
+    }
+    steps.push({
+      action: "verify authentication",
+      success: successVerified
+    });
+    return {
+      success: successVerified,
+      authenticated: successVerified,
+      username: authState.username,
+      steps,
+      duration: Date.now() - startTime
+    };
+  } catch (error) {
+    return {
+      success: false,
+      authenticated: false,
+      steps,
+      error: error instanceof Error ? error.message : "Unknown error",
+      duration: Date.now() - startTime
+    };
+  }
+}
+
+// src/flows/search.ts
+async function searchFlow(page, options) {
+  const startTime = Date.now();
+  const steps = [];
+  const timeout = options.timeout || 1e4;
+  try {
+    const searchInput = await findFieldByLabel(page, [
+      "search",
+      "query",
+      "q",
+      "find"
+    ]);
+    const searchField = searchInput || await page.$(
+      'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
+    );
+    if (!searchField) {
+      return {
+        success: false,
+        resultCount: 0,
+        hasResults: false,
+        steps,
+        error: "Could not find search input",
+        duration: Date.now() - startTime
+      };
+    }
+    await searchField.fill("");
+    await searchField.fill(options.query);
+    steps.push({ action: `type "${options.query}"`, success: true });
+    if (options.submit !== false) {
+      await searchField.press("Enter");
+      steps.push({ action: "submit search", success: true });
+      await waitForNavigation(page, timeout);
+      steps.push({ action: "wait for results", success: true });
+    } else {
+      await page.waitForTimeout(500);
+      steps.push({ action: "wait for autocomplete", success: true });
+    }
+    const resultsSelector = options.resultsSelector || '[class*="result"], [class*="item"], [class*="card"], [data-testid*="result"], li[class*="search"]';
+    const results = await page.$$(resultsSelector);
+    const resultCount = results.length;
+    const hasResults = resultCount > 0;
+    const emptyState = await page.$(
+      '[class*="no-results"], [class*="empty"], :has-text("no results"), :has-text("nothing found")'
+    );
+    steps.push({
+      action: `found ${resultCount} results`,
+      success: hasResults || !!emptyState
+    });
+    return {
+      success: true,
+      resultCount,
+      hasResults,
+      steps,
+      duration: Date.now() - startTime
+    };
+  } catch (error) {
+    return {
+      success: false,
+      resultCount: 0,
+      hasResults: false,
+      steps,
+      error: error instanceof Error ? error.message : "Unknown error",
+      duration: Date.now() - startTime
+    };
+  }
+}
+
+// src/flows/form.ts
+async function formFlow(page, options) {
+  const startTime = Date.now();
+  const steps = [];
+  const filledFields = [];
+  const failedFields = [];
+  const timeout = options.timeout || 1e4;
+  try {
+    for (const field of options.fields) {
+      const fieldType = field.type || "text";
+      let element;
+      if (fieldType === "textarea") {
+        element = await page.$(`textarea[name*="${field.name}" i], textarea[id*="${field.name}" i]`);
+      } else if (fieldType === "select") {
+        element = await page.$(`select[name*="${field.name}" i], select[id*="${field.name}" i]`);
+      } else if (fieldType === "checkbox" || fieldType === "radio") {
+        element = await page.$(
+          `input[type="${fieldType}"][name*="${field.name}" i], input[type="${fieldType}"][id*="${field.name}" i]`
+        );
+      } else {
+        element = await findFieldByLabel(page, [field.name]);
+      }
+      if (element) {
+        try {
+          if (fieldType === "select") {
+            await element.selectOption(field.value);
+          } else if (fieldType === "checkbox") {
+            if (field.value === "true" || field.value === "1") {
+              await element.check();
+            } else {
+              await element.uncheck();
+            }
+          } else if (fieldType === "radio") {
+            await element.check();
+          } else {
+            await element.fill(field.value);
+          }
+          filledFields.push(field.name);
+          steps.push({ action: `fill ${field.name}`, success: true });
+        } catch (err) {
+          failedFields.push(field.name);
+          steps.push({
+            action: `fill ${field.name}`,
+            success: false,
+            error: err instanceof Error ? err.message : "Unknown error"
+          });
+        }
+      } else {
+        failedFields.push(field.name);
+        steps.push({
+          action: `fill ${field.name}`,
+          success: false,
+          error: "Field not found"
+        });
+      }
+    }
+    const submitPatterns = options.submitButton ? [options.submitButton] : ["submit", "save", "send", "continue", "confirm"];
+    const submitButton = await findButton(page, submitPatterns);
+    if (!submitButton) {
+      return {
+        success: false,
+        filledFields,
+        failedFields,
+        steps,
+        error: "Could not find submit button",
+        duration: Date.now() - startTime
+      };
+    }
+    await submitButton.click();
+    steps.push({ action: "click submit", success: true });
+    await waitForNavigation(page, timeout);
+    steps.push({ action: "wait for response", success: true });
+    let success = true;
+    if (options.successSelector) {
+      const successElement = await page.$(options.successSelector);
+      success = !!successElement;
+      steps.push({
+        action: "verify success",
+        success
+      });
+    }
+    const errorElement = await page.$(
+      '[class*="error"]:not([class*="error-boundary"]), [role="alert"][class*="error"], .form-error, .validation-error'
+    );
+    if (errorElement) {
+      const errorText = await errorElement.textContent();
+      success = false;
+      steps.push({
+        action: "check for errors",
+        success: false,
+        error: errorText?.trim() || "Form has errors"
+      });
+    }
+    return {
+      success: success && failedFields.length === 0,
+      filledFields,
+      failedFields,
+      steps,
+      duration: Date.now() - startTime
+    };
+  } catch (error) {
+    return {
+      success: false,
+      filledFields,
+      failedFields,
+      steps,
+      error: error instanceof Error ? error.message : "Unknown error",
+      duration: Date.now() - startTime
+    };
+  }
+}
+
+// src/flows/index.ts
+var flows = {
+  login: loginFlow,
+  search: searchFlow,
+  form: formFlow
+};
+var DEFAULT_RETENTION = {
+  maxSessions: void 0,
+  maxAgeDays: void 0,
+  keepFailed: true,
+  autoClean: false
+};
+async function loadRetentionConfig(outputDir) {
+  const configPath = join(outputDir, "..", ".ibrrc.json");
+  try {
+    await access(configPath);
+    const content = await readFile(configPath, "utf-8");
+    const config = JSON.parse(content);
+    return {
+      ...DEFAULT_RETENTION,
+      ...config.retention
+    };
+  } catch {
+    return DEFAULT_RETENTION;
+  }
+}
+function isFailedSession(session) {
+  return session.analysis?.verdict === "LAYOUT_BROKEN" || session.analysis?.verdict === "UNEXPECTED_CHANGE";
+}
+async function enforceRetentionPolicy(outputDir, config) {
+  const retentionConfig = config || await loadRetentionConfig(outputDir);
+  if (!retentionConfig.maxSessions && !retentionConfig.maxAgeDays) {
+    const sessions2 = await listSessions(outputDir);
+    return {
+      deleted: [],
+      kept: sessions2.map((s) => s.id),
+      keptFailed: [],
+      totalBefore: sessions2.length,
+      totalAfter: sessions2.length
+    };
+  }
+  const sessions = await listSessions(outputDir);
+  const totalBefore = sessions.length;
+  const deleted = [];
+  const kept = [];
+  const keptFailed = [];
+  const cutoffTime = retentionConfig.maxAgeDays ? Date.now() - retentionConfig.maxAgeDays * 24 * 60 * 60 * 1e3 : 0;
+  let keptCount = 0;
+  for (const session of sessions) {
+    const sessionTime = new Date(session.createdAt).getTime();
+    const isTooOld = retentionConfig.maxAgeDays && sessionTime < cutoffTime;
+    const isOverLimit = retentionConfig.maxSessions && keptCount >= retentionConfig.maxSessions;
+    const isFailed = isFailedSession(session);
+    if (isFailed && retentionConfig.keepFailed) {
+      kept.push(session.id);
+      keptFailed.push(session.id);
+      continue;
+    }
+    if (isTooOld || isOverLimit) {
+      await deleteSession(outputDir, session.id);
+      deleted.push(session.id);
+    } else {
+      kept.push(session.id);
+      keptCount++;
+    }
+  }
+  return {
+    deleted,
+    kept,
+    keptFailed,
+    totalBefore,
+    totalAfter: kept.length
+  };
+}
+async function maybeAutoClean(outputDir) {
+  const config = await loadRetentionConfig(outputDir);
+  if (!config.autoClean) {
+    return null;
+  }
+  return enforceRetentionPolicy(outputDir, config);
+}
+async function getRetentionStatus(outputDir) {
+  const config = await loadRetentionConfig(outputDir);
+  const sessions = await listSessions(outputDir);
+  let wouldDelete = 0;
+  const cutoffTime = config.maxAgeDays ? Date.now() - config.maxAgeDays * 24 * 60 * 60 * 1e3 : 0;
+  let keptCount = 0;
+  for (const session of sessions) {
+    const sessionTime = new Date(session.createdAt).getTime();
+    const isTooOld = config.maxAgeDays && sessionTime < cutoffTime;
+    const isOverLimit = config.maxSessions && keptCount >= config.maxSessions;
+    const isFailed = isFailedSession(session);
+    if (isFailed && config.keepFailed) {
+      continue;
+    }
+    if (isTooOld || isOverLimit) {
+      wouldDelete++;
+    } else {
+      keptCount++;
+    }
+  }
+  return {
+    config,
+    currentSessions: sessions.length,
+    oldestSession: sessions.length > 0 ? new Date(sessions[sessions.length - 1].createdAt) : null,
+    newestSession: sessions.length > 0 ? new Date(sessions[0].createdAt) : null,
+    wouldDelete
+  };
+}
+function formatRetentionStatus(status) {
+  const lines = [];
+  lines.push("Session Retention Status");
+  lines.push("========================");
+  lines.push("");
+  lines.push(`Current sessions: ${status.currentSessions}`);
+  if (status.oldestSession) {
+    lines.push(`Oldest: ${status.oldestSession.toISOString()}`);
+  }
+  if (status.newestSession) {
+    lines.push(`Newest: ${status.newestSession.toISOString()}`);
+  }
+  lines.push("");
+  lines.push("Retention Policy:");
+  if (status.config.maxSessions) {
+    lines.push(`  Max sessions: ${status.config.maxSessions}`);
+  } else {
+    lines.push("  Max sessions: unlimited");
+  }
+  if (status.config.maxAgeDays) {
+    lines.push(`  Max age: ${status.config.maxAgeDays} days`);
+  } else {
+    lines.push("  Max age: unlimited");
+  }
+  lines.push(`  Keep failed: ${status.config.keepFailed ? "yes" : "no"}`);
+  lines.push(`  Auto-clean: ${status.config.autoClean ? "enabled" : "disabled"}`);
+  if (status.wouldDelete > 0) {
+    lines.push("");
+    lines.push(`\u26A0\uFE0F  ${status.wouldDelete} session(s) would be deleted if cleanup runs`);
+  } else {
+    lines.push("");
+    lines.push("\u2713 All sessions within retention policy");
+  }
+  return lines.join("\n");
 }
 async function extractMetrics(page, url) {
   const parsedUrl = new URL(url);
@@ -1871,8 +4109,467 @@ async function directoryExists(dir) {
     return false;
   }
 }
+var OPERATION_PREFIX = "op_";
+function getOperationsPath(outputDir) {
+  return join(outputDir, "operations.json");
+}
+async function readState(outputDir) {
+  const path2 = getOperationsPath(outputDir);
+  try {
+    const content = await readFile(path2, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return { pending: [], lastUpdated: (/* @__PURE__ */ new Date()).toISOString() };
+  }
+}
+async function writeState(outputDir, state) {
+  const path2 = getOperationsPath(outputDir);
+  await mkdir(dirname(path2), { recursive: true });
+  state.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
+  await writeFile(path2, JSON.stringify(state, null, 2));
+}
+async function registerOperation(outputDir, options) {
+  const state = await readState(outputDir);
+  state.pending = await cleanupStaleOperations(state.pending);
+  const operation = {
+    id: `${OPERATION_PREFIX}${nanoid(8)}`,
+    type: options.type,
+    sessionId: options.sessionId,
+    startedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    pid: process.pid,
+    command: options.command
+  };
+  state.pending.push(operation);
+  await writeState(outputDir, state);
+  return operation.id;
+}
+async function completeOperation(outputDir, operationId) {
+  const state = await readState(outputDir);
+  state.pending = state.pending.filter((op) => op.id !== operationId);
+  await writeState(outputDir, state);
+}
+async function getPendingOperations(outputDir) {
+  const state = await readState(outputDir);
+  const activeOps = await cleanupStaleOperations(state.pending);
+  if (activeOps.length !== state.pending.length) {
+    state.pending = activeOps;
+    await writeState(outputDir, state);
+  }
+  return activeOps;
+}
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function cleanupStaleOperations(operations) {
+  return operations.filter((op) => isProcessAlive(op.pid));
+}
+async function waitForCompletion(outputDir, options = {}) {
+  const timeout = options.timeout ?? 3e4;
+  const pollInterval = options.pollInterval ?? 500;
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeout) {
+    const pending = await getPendingOperations(outputDir);
+    if (pending.length === 0) {
+      return true;
+    }
+    if (options.onProgress) {
+      options.onProgress(pending.length);
+    }
+    await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
+  }
+  return false;
+}
+function formatPendingOperations(operations) {
+  if (operations.length === 0) {
+    return "No pending operations";
+  }
+  const lines = operations.map((op) => {
+    const age = Math.round((Date.now() - new Date(op.startedAt).getTime()) / 1e3);
+    return `  ${op.id.slice(0, 11)} | ${op.type.padEnd(10)} | ${op.sessionId.slice(0, 12)} | ${age}s`;
+  });
+  return [
+    "  ID          | Type       | Session      | Age",
+    "  ----------- | ---------- | ------------ | ---",
+    ...lines
+  ].join("\n");
+}
+function withOperationTracking(outputDir, options) {
+  return async (fn) => {
+    const opId = await registerOperation(outputDir, options);
+    try {
+      return await fn();
+    } finally {
+      await completeOperation(outputDir, opId);
+    }
+  };
+}
 
 // src/index.ts
+init_performance();
+init_interactivity();
+init_api_timing();
+async function testResponsive(url, options = {}) {
+  const {
+    viewports = ["desktop", "tablet", "mobile"],
+    captureScreenshots = false,
+    outputDir = "./.ibr/responsive",
+    minTouchTarget = 44,
+    minFontSize = 12,
+    timeout = 3e4
+  } = options;
+  const results = [];
+  let browser2 = null;
+  try {
+    browser2 = await chromium.launch({ headless: true });
+    for (const viewportSpec of viewports) {
+      let viewport;
+      let viewportName;
+      if (typeof viewportSpec === "string") {
+        viewport = VIEWPORTS[viewportSpec];
+        viewportName = viewportSpec;
+      } else {
+        viewport = viewportSpec;
+        viewportName = `${viewportSpec.width}x${viewportSpec.height}`;
+      }
+      const context = await browser2.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        reducedMotion: "reduce"
+      });
+      const page = await context.newPage();
+      try {
+        await page.goto(url, {
+          waitUntil: "networkidle",
+          timeout
+        });
+        await page.waitForTimeout(500);
+        const result = await analyzeViewport(page, viewport, viewportName, {
+          minTouchTarget,
+          minFontSize
+        });
+        if (captureScreenshots) {
+          const { mkdir: mkdir7 } = await import('fs/promises');
+          await mkdir7(outputDir, { recursive: true });
+          const screenshotPath = `${outputDir}/${viewportName}.png`;
+          await page.screenshot({ path: screenshotPath, fullPage: true });
+          result.screenshot = screenshotPath;
+        }
+        results.push(result);
+      } finally {
+        await context.close();
+      }
+    }
+  } finally {
+    if (browser2) {
+      await browser2.close();
+    }
+  }
+  const totalIssues = results.reduce(
+    (sum, r) => sum + r.layoutIssues.length + r.touchTargets.filter((t) => t.isTooSmall).length + r.textIssues.length,
+    0
+  );
+  const viewportsWithIssues = results.filter(
+    (r) => r.layoutIssues.length > 0 || r.touchTargets.some((t) => t.isTooSmall) || r.textIssues.length > 0
+  ).length;
+  const criticalIssues = results.reduce(
+    (sum, r) => sum + r.layoutIssues.filter((i) => i.issue === "overflow" || i.issue === "hidden").length,
+    0
+  );
+  return {
+    url,
+    results,
+    summary: {
+      totalIssues,
+      viewportsWithIssues,
+      criticalIssues
+    }
+  };
+}
+async function analyzeViewport(page, viewport, viewportName, options) {
+  const isMobile = viewport.width < 768;
+  const analysisResult = await page.evaluate(({ viewportWidth, minTouchTarget, minFontSize, isMobile: isMobile2 }) => {
+    const layoutIssues = [];
+    const touchTargets = [];
+    const textIssues = [];
+    function getSelector(el) {
+      if (el.id) return `#${el.id}`;
+      const classes = Array.from(el.classList).slice(0, 2).join(".");
+      const tag = el.tagName.toLowerCase();
+      if (classes) return `${tag}.${classes}`;
+      return tag;
+    }
+    const bodyWidth = document.body.scrollWidth;
+    if (bodyWidth > viewportWidth) {
+      layoutIssues.push({
+        element: "body",
+        issue: "overflow",
+        description: `Page has horizontal overflow (${bodyWidth}px > ${viewportWidth}px viewport)`,
+        bounds: { x: 0, y: 0, width: bodyWidth, height: document.body.scrollHeight }
+      });
+    }
+    const allElements = Array.from(document.querySelectorAll("*"));
+    for (const el of allElements) {
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || rect.width === 0 || rect.height === 0) {
+        continue;
+      }
+      if (rect.right > viewportWidth + 10) {
+        layoutIssues.push({
+          element: getSelector(el),
+          issue: "overflow",
+          description: `Element extends ${Math.round(rect.right - viewportWidth)}px beyond viewport`,
+          bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+        });
+      }
+      if (style.textOverflow === "ellipsis" && style.overflow === "hidden") {
+        const scrollWidth = el.scrollWidth;
+        const clientWidth = el.clientWidth;
+        if (scrollWidth > clientWidth) {
+          layoutIssues.push({
+            element: getSelector(el),
+            issue: "truncated",
+            description: "Text is truncated with ellipsis",
+            bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+          });
+        }
+      }
+    }
+    if (isMobile2) {
+      const interactiveElements = Array.from(document.querySelectorAll(
+        'a, button, [role="button"], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      ));
+      for (const el of interactiveElements) {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") {
+          continue;
+        }
+        const width = rect.width;
+        const height = rect.height;
+        const isTooSmall = width < minTouchTarget || height < minTouchTarget;
+        touchTargets.push({
+          element: el.textContent?.trim().slice(0, 30) || getSelector(el),
+          selector: getSelector(el),
+          size: { width: Math.round(width), height: Math.round(height) },
+          minimumSize: minTouchTarget,
+          isTooSmall
+        });
+      }
+    }
+    const textElements = Array.from(document.querySelectorAll("p, span, a, li, td, th, label, h1, h2, h3, h4, h5, h6"));
+    for (const el of textElements) {
+      const style = window.getComputedStyle(el);
+      const fontSize = parseFloat(style.fontSize);
+      if (fontSize < minFontSize && el.textContent?.trim()) {
+        textIssues.push({
+          element: getSelector(el),
+          issue: "too-small",
+          fontSize: Math.round(fontSize)
+        });
+      }
+    }
+    return { layoutIssues, touchTargets, textIssues };
+  }, {
+    viewportWidth: viewport.width,
+    minTouchTarget: options.minTouchTarget,
+    minFontSize: options.minFontSize,
+    isMobile
+  });
+  return {
+    viewport,
+    viewportName,
+    ...analysisResult
+  };
+}
+function formatResponsiveResult(result) {
+  const lines = [];
+  lines.push("Responsive Test Results");
+  lines.push("=======================");
+  lines.push("");
+  lines.push(`URL: ${result.url}`);
+  lines.push(`Viewports tested: ${result.results.length}`);
+  lines.push("");
+  const icon = result.summary.criticalIssues > 0 ? "\x1B[31m\u2717\x1B[0m" : result.summary.totalIssues > 0 ? "\x1B[33m!\x1B[0m" : "\x1B[32m\u2713\x1B[0m";
+  lines.push(`${icon} Total issues: ${result.summary.totalIssues}`);
+  lines.push(`   Critical: ${result.summary.criticalIssues}`);
+  lines.push(`   Viewports with issues: ${result.summary.viewportsWithIssues}/${result.results.length}`);
+  lines.push("");
+  for (const vr of result.results) {
+    const issueCount = vr.layoutIssues.length + vr.touchTargets.filter((t) => t.isTooSmall).length + vr.textIssues.length;
+    const vpIcon = issueCount === 0 ? "\x1B[32m\u2713\x1B[0m" : "\x1B[33m!\x1B[0m";
+    lines.push(`${vpIcon} ${vr.viewportName} (${vr.viewport.width}x${vr.viewport.height})`);
+    if (issueCount === 0) {
+      lines.push("   No issues detected");
+    } else {
+      if (vr.layoutIssues.length > 0) {
+        lines.push("   Layout issues:");
+        for (const issue of vr.layoutIssues.slice(0, 5)) {
+          lines.push(`     ! ${issue.issue}: ${issue.description}`);
+        }
+        if (vr.layoutIssues.length > 5) {
+          lines.push(`     ... and ${vr.layoutIssues.length - 5} more`);
+        }
+      }
+      const smallTargets = vr.touchTargets.filter((t) => t.isTooSmall);
+      if (smallTargets.length > 0) {
+        lines.push("   Small touch targets:");
+        for (const target of smallTargets.slice(0, 5)) {
+          lines.push(`     ! "${target.element}" is ${target.size.width}x${target.size.height}px (min: ${target.minimumSize}px)`);
+        }
+        if (smallTargets.length > 5) {
+          lines.push(`     ... and ${smallTargets.length - 5} more`);
+        }
+      }
+      if (vr.textIssues.length > 0) {
+        lines.push("   Text issues:");
+        for (const issue of vr.textIssues.slice(0, 5)) {
+          lines.push(`     ! ${issue.element}: ${issue.issue} (${issue.fontSize}px)`);
+        }
+        if (vr.textIssues.length > 5) {
+          lines.push(`     ... and ${vr.textIssues.length - 5} more`);
+        }
+      }
+    }
+    if (vr.screenshot) {
+      lines.push(`   Screenshot: ${vr.screenshot}`);
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+// src/index.ts
+async function compare(options) {
+  const {
+    url,
+    baselinePath,
+    currentPath,
+    threshold = 1,
+    outputDir = join(tmpdir(), "ibr-compare"),
+    viewport = "desktop",
+    fullPage = true,
+    waitForNetworkIdle = true,
+    timeout = 3e4
+  } = options;
+  if (!baselinePath && !url) {
+    throw new Error("Either baselinePath or url must be provided");
+  }
+  const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
+  await mkdir(outputDir, { recursive: true });
+  const timestamp = Date.now();
+  const actualBaselinePath = baselinePath || join(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || join(outputDir, `current-${timestamp}.png`);
+  const diffPath = join(outputDir, `diff-${timestamp}.png`);
+  if (url && !baselinePath) {
+    await captureScreenshot({
+      url,
+      outputPath: actualBaselinePath,
+      viewport: resolvedViewport,
+      fullPage,
+      waitForNetworkIdle,
+      timeout
+    });
+  }
+  if (url && !currentPath) {
+    await captureScreenshot({
+      url,
+      outputPath: actualCurrentPath,
+      viewport: resolvedViewport,
+      fullPage,
+      waitForNetworkIdle,
+      timeout
+    });
+  }
+  try {
+    await access(actualBaselinePath);
+  } catch {
+    throw new Error(`Baseline image not found: ${actualBaselinePath}`);
+  }
+  try {
+    await access(actualCurrentPath);
+  } catch {
+    throw new Error(`Current image not found: ${actualCurrentPath}`);
+  }
+  const comparison = await compareImages({
+    baselinePath: actualBaselinePath,
+    currentPath: actualCurrentPath,
+    diffPath,
+    threshold: threshold / 100
+    // Convert percentage to 0-1 for pixelmatch
+  });
+  const analysis = analyzeComparison(comparison, threshold);
+  await closeBrowser();
+  return {
+    match: comparison.match,
+    diffPercent: comparison.diffPercent,
+    diffPixels: comparison.diffPixels,
+    totalPixels: comparison.totalPixels,
+    verdict: analysis.verdict,
+    summary: analysis.summary,
+    changedRegions: analysis.changedRegions.map((r) => ({
+      location: r.location,
+      description: r.description,
+      severity: r.severity
+    })),
+    recommendation: analysis.recommendation,
+    diffPath: comparison.match ? void 0 : diffPath,
+    baselinePath: actualBaselinePath,
+    currentPath: actualCurrentPath
+  };
+}
+async function compareAll(options = {}) {
+  const {
+    sessionId,
+    outputDir = "./.ibr",
+    urlPattern,
+    statuses = ["baseline"],
+    limit = 50
+  } = options;
+  const results = [];
+  if (sessionId) {
+    const session = await getSession(outputDir, sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+    const paths = getSessionPaths(outputDir, session.id);
+    const result = await compare({
+      url: session.url,
+      baselinePath: paths.baseline,
+      outputDir: dirname(paths.diff),
+      viewport: session.viewport
+    });
+    results.push(result);
+  } else {
+    let sessions = await listSessions(outputDir);
+    sessions = sessions.filter((s) => statuses.includes(s.status));
+    if (urlPattern) {
+      const pattern = typeof urlPattern === "string" ? new RegExp(urlPattern) : urlPattern;
+      sessions = sessions.filter((s) => pattern.test(s.url));
+    }
+    sessions = sessions.slice(0, limit);
+    for (const session of sessions) {
+      try {
+        const paths = getSessionPaths(outputDir, session.id);
+        const result = await compare({
+          url: session.url,
+          baselinePath: paths.baseline,
+          outputDir: dirname(paths.diff),
+          viewport: session.viewport
+        });
+        results.push(result);
+      } catch (err) {
+        console.warn(`Failed to compare session ${session.id}: ${err}`);
+      }
+    }
+  }
+  await closeBrowser();
+  return results;
+}
 var InterfaceBuiltRight = class {
   config;
   constructor(options = {}) {
@@ -1892,7 +4589,7 @@ var InterfaceBuiltRight = class {
     const url = this.resolveUrl(path2);
     const session = await createSession(this.config.outputDir, url, name, viewport);
     const paths = getSessionPaths(this.config.outputDir, session.id);
-    await captureScreenshot({
+    const captureResult = await captureWithLandmarks({
       url,
       outputPath: paths.baseline,
       viewport,
@@ -1903,10 +4600,15 @@ var InterfaceBuiltRight = class {
       selector,
       waitFor
     });
+    const updatedSession = await updateSession(this.config.outputDir, session.id, {
+      landmarkElements: captureResult.landmarkElements,
+      pageIntent: captureResult.pageIntent
+    });
+    await maybeAutoClean(this.config.outputDir);
     return {
       sessionId: session.id,
       baseline: paths.baseline,
-      session
+      session: updatedSession
     };
   }
   /**
@@ -2018,6 +4720,39 @@ var InterfaceBuiltRight = class {
     });
   }
   /**
+   * Start a simplified session with semantic understanding
+   *
+   * This is the new simpler API - one line to start:
+   * ```typescript
+   * const session = await ibr.start('http://localhost:3000');
+   * const understanding = await session.understand();
+   * ```
+   */
+  async start(url, options = {}) {
+    const fullUrl = this.resolveUrl(url);
+    const viewportName = options.viewport || "desktop";
+    const viewport = VIEWPORTS[viewportName];
+    const browser2 = await chromium.launch({ headless: true });
+    const context = await browser2.newContext({
+      viewport,
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    });
+    const page = await context.newPage();
+    await page.goto(fullUrl, {
+      waitUntil: "domcontentloaded",
+      timeout: options.timeout || this.config.timeout
+    });
+    if (this.config.waitForNetworkIdle) {
+      await page.waitForLoadState("networkidle", { timeout: 1e4 }).catch(() => {
+      });
+    }
+    if (options.waitFor) {
+      await page.waitForSelector(options.waitFor, { timeout: 1e4 }).catch(() => {
+      });
+    }
+    return new IBRSession(page, browser2, context, this.config);
+  }
+  /**
    * Close the browser instance
    */
   async close() {
@@ -2045,7 +4780,153 @@ var InterfaceBuiltRight = class {
     return path2.replace(/^\/+/, "").replace(/\//g, "-").replace(/[^a-zA-Z0-9-_]/g, "") || "homepage";
   }
 };
+var IBRSession = class {
+  /** Raw Playwright page for advanced use */
+  page;
+  browser;
+  context;
+  config;
+  constructor(page, browser2, context, config) {
+    this.page = page;
+    this.browser = browser2;
+    this.context = context;
+    this.config = config;
+  }
+  /**
+   * Get semantic understanding of the current page
+   */
+  async understand() {
+    return getSemanticOutput(this.page);
+  }
+  /**
+   * Get semantic understanding as formatted text
+   */
+  async understandText() {
+    const result = await getSemanticOutput(this.page);
+    return formatSemanticText(result);
+  }
+  /**
+   * Click an element by selector
+   */
+  async click(selector) {
+    await this.page.click(selector);
+  }
+  /**
+   * Type text into an element
+   */
+  async type(selector, text) {
+    await this.page.fill(selector, text);
+  }
+  /**
+   * Navigate to a new URL
+   */
+  async goto(url) {
+    await this.page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout: this.config.timeout
+    });
+  }
+  /**
+   * Wait for a selector to appear
+   */
+  async waitFor(selector, timeout = 1e4) {
+    await this.page.waitForSelector(selector, { timeout });
+  }
+  /**
+   * Take a screenshot
+   */
+  async screenshot(path2) {
+    return this.page.screenshot({
+      path: path2,
+      fullPage: this.config.fullPage
+    });
+  }
+  /**
+   * Mock a network request (thin wrapper on page.route)
+   */
+  async mock(pattern, response) {
+    await this.page.route(pattern, async (route) => {
+      const body = typeof response.body === "object" ? JSON.stringify(response.body) : response.body || "";
+      await route.fulfill({
+        status: response.status || 200,
+        body,
+        headers: {
+          "Content-Type": typeof response.body === "object" ? "application/json" : "text/plain",
+          ...response.headers
+        }
+      });
+    });
+  }
+  /**
+   * Built-in flows for common automation patterns
+   */
+  flow = {
+    /**
+     * Login with email/password
+     * @example
+     * const result = await session.flow.login({ email: 'test@test.com', password: 'secret' });
+     */
+    login: (options) => loginFlow(this.page, { ...options, timeout: this.config.timeout }),
+    /**
+     * Search for content
+     * @example
+     * const result = await session.flow.search({ query: 'test' });
+     */
+    search: (options) => searchFlow(this.page, { ...options, timeout: this.config.timeout }),
+    /**
+     * Fill and submit a form
+     * @example
+     * const result = await session.flow.form({
+     *   fields: [{ name: 'email', value: 'test@test.com' }]
+     * });
+     */
+    form: (options) => formFlow(this.page, { ...options, timeout: this.config.timeout })
+  };
+  /**
+   * Measure Web Vitals performance metrics
+   * @example
+   * const result = await session.measurePerformance();
+   * console.log(result.ratings.LCP); // { value: 1200, rating: 'good' }
+   */
+  async measurePerformance() {
+    const { measurePerformance: mp } = await Promise.resolve().then(() => (init_performance(), performance_exports));
+    return mp(this.page);
+  }
+  /**
+   * Test interactivity of buttons, links, and forms
+   * @example
+   * const result = await session.testInteractivity();
+   * console.log(result.issues); // List of issues with buttons/links
+   */
+  async testInteractivity() {
+    const { testInteractivity: ti } = await Promise.resolve().then(() => (init_interactivity(), interactivity_exports));
+    return ti(this.page);
+  }
+  /**
+   * Start tracking API request timing
+   * Call before actions, then call stop() to get results
+   * @example
+   * const tracker = session.trackApiTiming({ filter: /\/api\// });
+   * tracker.start();
+   * await session.click('button');
+   * const result = tracker.stop();
+   */
+  trackApiTiming(options) {
+    const createTracker = async () => {
+      const { createApiTracker: createApiTracker2 } = await Promise.resolve().then(() => (init_api_timing(), api_timing_exports));
+      return createApiTracker2(this.page, options);
+    };
+    return createTracker();
+  }
+  /**
+   * Close the session and browser
+   */
+  async close() {
+    await this.context.close();
+    await this.browser.close();
+  }
+};
 
-export { A11yAttributesSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, ElementIssueSchema, EnhancedElementSchema, InteractiveStateSchema, InterfaceBuiltRight, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverApiRoutes, discoverPages, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findOrphanEndpoints, findSessions, formatConsistencyReport, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, markSessionCompared, scanDirectoryForApiCalls, updateSession };
+export { A11yAttributesSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, ElementIssueSchema, EnhancedElementSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, PERFORMANCE_THRESHOLDS, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, generateReport, generateSessionId, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

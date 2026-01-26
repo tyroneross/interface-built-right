@@ -11,6 +11,14 @@ import {
   VIEWPORTS,
   type Config,
 } from '../index.js';
+import {
+  registerOperation,
+  completeOperation,
+  getPendingOperations,
+  waitForCompletion,
+  formatPendingOperations,
+  type OperationType,
+} from '../operation-tracker.js';
 
 const program = new Command();
 
@@ -77,7 +85,7 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
 program
   .name('ibr')
   .description('Visual regression testing for Claude Code')
-  .version('0.3.0');
+  .version('0.4.0');
 
 // Global options
 program
@@ -259,16 +267,20 @@ program
     }
   });
 
-// Audit command - context-aware UI audit
+// Audit command - context-aware UI audit with visual and semantic checks
 program
   .command('audit [url]')
-  .description('Audit a page against user\'s design framework (auto-detected from CLAUDE.md)')
+  .description('Full audit: functional checks + visual comparison + semantic verification')
   .option('-r, --rules <preset>', 'Override with preset (minimal). Auto-detects from CLAUDE.md by default')
   .option('--show-framework', 'Display detected design framework')
   .option('--check-apis [dir]', 'Cross-reference UI API calls against backend routes')
+  .option('--visual', 'Include visual comparison against most recent baseline')
+  .option('--baseline <session>', 'Compare against specific baseline session')
+  .option('--semantic', 'Include semantic verification (expected elements, page intent)')
+  .option('--full', 'Run all checks: functional + visual + semantic (default)')
   .option('--json', 'Output as JSON')
   .option('--fail-on <level>', 'Exit non-zero on errors/warnings', 'error')
-  .action(async (url: string | undefined, options: { rules?: string; showFramework?: boolean; checkApis?: string | boolean; json?: boolean; failOn: string }) => {
+  .action(async (url: string | undefined, options: { rules?: string; showFramework?: boolean; checkApis?: string | boolean; visual?: boolean; baseline?: string; semantic?: boolean; full?: boolean; json?: boolean; failOn: string }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const globalOpts = program.opts();
@@ -359,6 +371,190 @@ program
       // Create result
       const result = createAuditResult(resolvedUrl, elements, violations);
 
+      // Determine which checks to run (default: all if --full or no specific flags)
+      const runVisual = options.full || options.visual || options.baseline || (!options.semantic && !options.checkApis);
+      const runSemantic = options.full || options.semantic || (!options.visual && !options.baseline && !options.checkApis);
+
+      // --- VISUAL COMPARISON ---
+      let visualResult: {
+        hasBaseline: boolean;
+        verdict?: string;
+        diffPercent?: number;
+        baselineSession?: string;
+        currentPath?: string;
+        diffPath?: string;
+      } | null = null;
+
+      if (runVisual) {
+        const { compareImages, analyzeComparison } = await import('../compare.js');
+        const { listSessions, getSessionPaths, getMostRecentSession } = await import('../session.js');
+        const { mkdir, access } = await import('fs/promises');
+        const { join } = await import('path');
+
+        // Find baseline for this URL
+        const outputDir = globalOpts.outputDir || '.ibr';
+        const sessions = await listSessions(outputDir);
+
+        // Find matching baseline (same URL path)
+        const urlPath = new URL(resolvedUrl).pathname;
+        let baselineSession = options.baseline
+          ? sessions.find(s => s.id === options.baseline)
+          : sessions
+              .filter(s => new URL(s.url).pathname === urlPath && s.status !== 'compared')
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+        if (baselineSession) {
+          const paths = getSessionPaths(outputDir, baselineSession.id);
+
+          // Capture current screenshot
+          const currentPath = paths.current;
+          await mkdir(join(outputDir, 'sessions', baselineSession.id), { recursive: true });
+          await page.screenshot({ path: currentPath, fullPage: true });
+
+          // Check if baseline exists
+          try {
+            await access(paths.baseline);
+
+            // Compare
+            const comparison = await compareImages({
+              baselinePath: paths.baseline,
+              currentPath: currentPath,
+              diffPath: paths.diff,
+              threshold: 0.01,
+            });
+
+            const analysis = analyzeComparison(comparison, 1.0);
+
+            visualResult = {
+              hasBaseline: true,
+              verdict: analysis.verdict,
+              diffPercent: comparison.diffPercent,
+              baselineSession: baselineSession.id,
+              currentPath,
+              diffPath: comparison.diffPercent > 0 ? paths.diff : undefined,
+            };
+          } catch {
+            visualResult = { hasBaseline: false };
+          }
+        } else {
+          visualResult = { hasBaseline: false };
+        }
+      }
+
+      // --- SEMANTIC VERIFICATION ---
+      let semanticResult: {
+        pageIntent: string;
+        confidence: number;
+        authenticated: boolean | null;
+        loading: boolean;
+        hasErrors: boolean;
+        ready: boolean;
+        expectedElements: Array<{ element: string; found: boolean }>;
+        issues: Array<{ type: string; problem: string }>;
+      } | null = null;
+
+      if (runSemantic) {
+        const { getSemanticOutput, detectLandmarks, compareLandmarks, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, LANDMARK_SELECTORS } = await import('../semantic/index.js');
+        const { listSessions } = await import('../session.js');
+        const { readFile } = await import('fs/promises');
+        const { join } = await import('path');
+
+        const semantic = await getSemanticOutput(page);
+
+        // --- HYBRID APPROACH: Baseline landmarks OR inferred from intent ---
+        const outputDir = globalOpts.outputDir || '.ibr';
+        const sessions = await listSessions(outputDir);
+        const urlPath = new URL(resolvedUrl).pathname;
+
+        // Find baseline session with landmark elements
+        const baselineSession = sessions
+          .filter(s => new URL(s.url).pathname === urlPath && s.landmarkElements && s.landmarkElements.length > 0)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+
+        let elementChecks: Array<{ element: string; found: boolean; source: 'baseline' | 'inferred' }> = [];
+
+        if (baselineSession && baselineSession.landmarkElements) {
+          // APPROACH 1: Compare against baseline landmarks
+          const currentLandmarks = await detectLandmarks(page);
+          const comparison = compareLandmarks(baselineSession.landmarkElements, currentLandmarks);
+
+          // Check which baseline elements are now missing
+          for (const landmark of baselineSession.landmarkElements) {
+            if (landmark.found) {
+              const stillExists = currentLandmarks.find(l => l.name === landmark.name && l.found);
+              elementChecks.push({
+                element: landmark.name.charAt(0).toUpperCase() + landmark.name.slice(1),
+                found: !!stillExists,
+                source: 'baseline',
+              });
+            }
+          }
+        } else {
+          // APPROACH 2: Infer expected elements from page intent + user context
+          const pageIntent = semantic.pageIntent.intent;
+          const intentLandmarks = getExpectedLandmarksForIntent(pageIntent as any);
+
+          // Try to load user context (CLAUDE.md design framework)
+          let contextLandmarks: string[] = [];
+          try {
+            const claudeMdPath = join(process.cwd(), 'CLAUDE.md');
+            const content = await readFile(claudeMdPath, 'utf-8');
+            // Simple parsing - look for principles or requirements
+            contextLandmarks = getExpectedLandmarksFromContext({ principles: [content] }) as any;
+          } catch {
+            // No CLAUDE.md, that's fine
+          }
+
+          // Combine intent + context landmarks (dedupe)
+          const expectedLandmarkTypes = [...new Set([...intentLandmarks, ...contextLandmarks])];
+
+          // Check each expected landmark on the current page
+          for (const landmarkType of expectedLandmarkTypes) {
+            const selector = LANDMARK_SELECTORS[landmarkType as keyof typeof LANDMARK_SELECTORS];
+            if (selector) {
+              const found = await page.$(selector);
+              elementChecks.push({
+                element: landmarkType.charAt(0).toUpperCase() + landmarkType.slice(1),
+                found: !!found,
+                source: 'inferred',
+              });
+            }
+          }
+        }
+
+        // Collect semantic issues
+        const semanticIssues: Array<{ type: string; problem: string }> = [];
+
+        // Missing expected elements
+        for (const check of elementChecks) {
+          if (!check.found) {
+            semanticIssues.push({
+              type: 'missing-element',
+              problem: `Expected ${check.element} not found (${check.source} from ${check.source === 'baseline' ? 'previous capture' : 'page intent'})`,
+            });
+          }
+        }
+
+        // Add issues from semantic analysis
+        for (const issue of semantic.issues) {
+          semanticIssues.push({
+            type: issue.type,
+            problem: issue.problem,
+          });
+        }
+
+        semanticResult = {
+          pageIntent: semantic.pageIntent.intent,
+          confidence: semantic.confidence,
+          authenticated: semantic.state.auth.authenticated,
+          loading: semantic.state.loading.loading,
+          hasErrors: semantic.state.errors.hasErrors,
+          ready: semantic.state.ready,
+          expectedElements: elementChecks.map(e => ({ element: e.element, found: e.found })),
+          issues: semanticIssues,
+        };
+      }
+
       await context.close();
       await browser.close();
 
@@ -392,10 +588,69 @@ program
       if (options.json) {
         console.log(JSON.stringify({
           ...result,
+          visual: visualResult,
+          semantic: semanticResult,
           integration: integrationResult,
         }, null, 2));
       } else {
         console.log(formatAuditResult(result));
+
+        // Print visual results
+        if (visualResult) {
+          console.log('');
+          console.log('Visual Comparison:');
+          if (visualResult.hasBaseline) {
+            const verdictColor = visualResult.verdict === 'MATCH' ? '\x1b[32m' : // green
+                                 visualResult.verdict === 'EXPECTED_CHANGE' ? '\x1b[33m' : // yellow
+                                 '\x1b[31m'; // red
+            console.log(`  Verdict: ${verdictColor}${visualResult.verdict}\x1b[0m`);
+            console.log(`  Diff: ${visualResult.diffPercent?.toFixed(2)}%`);
+            console.log(`  Baseline: ${visualResult.baselineSession}`);
+            if (visualResult.diffPath) {
+              console.log(`  Diff image: ${visualResult.diffPath}`);
+            }
+          } else {
+            console.log('  No baseline found for this URL.');
+            console.log('  Run: npx ibr start <url> --name "feature" to capture baseline first.');
+          }
+        }
+
+        // Print semantic results
+        if (semanticResult) {
+          console.log('');
+          console.log('Semantic Verification:');
+          console.log(`  Page type: ${semanticResult.pageIntent} (${Math.round(semanticResult.confidence * 100)}% confidence)`);
+          console.log(`  Ready: ${semanticResult.ready ? 'Yes' : 'No'}`);
+
+          // Expected elements
+          const missing = semanticResult.expectedElements.filter(e => !e.found);
+          const found = semanticResult.expectedElements.filter(e => e.found);
+
+          if (missing.length > 0) {
+            console.log('');
+            console.log('  Missing expected elements:');
+            for (const el of missing) {
+              console.log(`    \x1b[31m!\x1b[0m ${el.element}`);
+            }
+          }
+
+          if (found.length > 0) {
+            console.log('');
+            console.log('  Found elements:');
+            for (const el of found) {
+              console.log(`    \x1b[32m✓\x1b[0m ${el.element}`);
+            }
+          }
+
+          // Semantic issues
+          if (semanticResult.issues.length > 0) {
+            console.log('');
+            console.log('  Semantic issues:');
+            for (const issue of semanticResult.issues) {
+              console.log(`    ! ${issue.problem}`);
+            }
+          }
+        }
 
         // Print integration results if available
         if (integrationResult && integrationResult.orphanCount > 0) {
@@ -416,9 +671,27 @@ program
 
       // Exit code based on --fail-on
       const hasIntegrationErrors = integrationResult && integrationResult.orphanCount > 0;
-      if (options.failOn === 'error' && (result.summary.errors > 0 || hasIntegrationErrors)) {
+      const hasVisualRegression = visualResult?.hasBaseline &&
+        visualResult.verdict !== 'MATCH' &&
+        visualResult.verdict !== 'EXPECTED_CHANGE';
+      const hasSemanticIssues = semanticResult && semanticResult.issues.length > 0;
+      const hasMissingElements = semanticResult &&
+        semanticResult.expectedElements.some(e => !e.found);
+
+      if (options.failOn === 'error' && (
+        result.summary.errors > 0 ||
+        hasIntegrationErrors ||
+        hasVisualRegression ||
+        hasMissingElements
+      )) {
         process.exit(1);
-      } else if (options.failOn === 'warning' && (result.summary.errors > 0 || result.summary.warnings > 0 || hasIntegrationErrors)) {
+      } else if (options.failOn === 'warning' && (
+        result.summary.errors > 0 ||
+        result.summary.warnings > 0 ||
+        hasIntegrationErrors ||
+        hasVisualRegression ||
+        hasSemanticIssues
+      )) {
         process.exit(1);
       }
     } catch (error) {
@@ -905,9 +1178,15 @@ program
   .command('session:click <sessionId> <selector>')
   .description('Click an element in an active session (auto-targets visible elements)')
   .action(async (sessionId: string, selector: string) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+    const opId = await registerOperation(outputDir, {
+      type: 'click',
+      sessionId,
+      command: `session:click ${sessionId} "${selector}"`,
+    });
+
     try {
-      const globalOpts = program.opts();
-      const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
 
       await session.click(selector);
@@ -924,6 +1203,8 @@ program
       } else {
         console.log('Tip: Session is still active. Use session:html to inspect the DOM.');
       }
+    } finally {
+      await completeOperation(outputDir, opId);
     }
   });
 
@@ -935,9 +1216,15 @@ program
   .option('--submit', 'Press Enter after typing (waits for network idle)')
   .option('--wait-after <ms>', 'Wait this long after typing/submitting before next command')
   .action(async (sessionId: string, selector: string, text: string, options: { delay: string; submit?: boolean; waitAfter?: string }) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+    const opId = await registerOperation(outputDir, {
+      type: 'type',
+      sessionId,
+      command: `session:type ${sessionId} "${selector}" "${text.slice(0, 20)}..."`,
+    });
+
     try {
-      const globalOpts = program.opts();
-      const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
 
       await session.type(selector, text, {
@@ -963,6 +1250,8 @@ program
       } else {
         console.log('Tip: Session is still active. Use session:html to inspect the page.');
       }
+    } finally {
+      await completeOperation(outputDir, opId);
     }
   });
 
@@ -995,9 +1284,15 @@ program
   .option('--no-full-page', 'Capture only the viewport')
   .option('--json', 'Output audit results as JSON')
   .action(async (sessionId: string, options: { name?: string; selector?: string; fullPage?: boolean; json?: boolean }) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+    const opId = await registerOperation(outputDir, {
+      type: 'screenshot',
+      sessionId,
+      command: `session:screenshot ${sessionId}${options.name ? ` --name ${options.name}` : ''}`,
+    });
+
     try {
-      const globalOpts = program.opts();
-      const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
 
       const { path, elements, audit } = await session.screenshot({
@@ -1033,6 +1328,8 @@ program
       console.error('Error:', error instanceof Error ? error.message : error);
       console.log('');
       console.log('Tip: Session is still active. Try without --selector for full page.');
+    } finally {
+      await completeOperation(outputDir, opId);
     }
   });
 
@@ -1041,9 +1338,15 @@ program
   .command('session:wait <sessionId> <selectorOrMs>')
   .description('Wait for a selector to appear or a duration (in ms)')
   .action(async (sessionId: string, selectorOrMs: string) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+    const opId = await registerOperation(outputDir, {
+      type: 'wait',
+      sessionId,
+      command: `session:wait ${sessionId} "${selectorOrMs}"`,
+    });
+
     try {
-      const globalOpts = program.opts();
-      const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
 
       const isNumber = /^\d+$/.test(selectorOrMs);
@@ -1058,6 +1361,8 @@ program
       console.error('Error:', error instanceof Error ? error.message : error);
       console.log('');
       console.log('Tip: Session is still active. Element may not exist yet or selector is wrong.');
+    } finally {
+      await completeOperation(outputDir, opId);
     }
   });
 
@@ -1067,9 +1372,15 @@ program
   .description('Navigate to a new URL in an active session')
   .option('-w, --wait-for <selector>', 'Wait for selector after navigation')
   .action(async (sessionId: string, url: string, options: { waitFor?: string }) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+    const opId = await registerOperation(outputDir, {
+      type: 'navigate',
+      sessionId,
+      command: `session:navigate ${sessionId} "${url}"`,
+    });
+
     try {
-      const globalOpts = program.opts();
-      const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
 
       await session.navigate(url, { waitFor: options.waitFor });
@@ -1078,6 +1389,8 @@ program
       console.error('Error:', error instanceof Error ? error.message : error);
       console.log('');
       console.log('Tip: Session is still active. Check URL or try without --wait-for.');
+    } finally {
+      await completeOperation(outputDir, opId);
     }
   });
 
@@ -1115,17 +1428,86 @@ program
     }
   });
 
+// Session pending command - list pending operations
+program
+  .command('session:pending')
+  .description('List pending operations (useful before session:close all)')
+  .option('--json', 'Output as JSON')
+  .action(async (options: { json?: boolean }) => {
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      const pending = await getPendingOperations(outputDir);
+
+      if (options.json) {
+        console.log(JSON.stringify(pending, null, 2));
+        return;
+      }
+
+      if (pending.length === 0) {
+        console.log('No pending operations.');
+        console.log('');
+        console.log('Safe to close browser server:');
+        console.log('  npx ibr session:close all');
+        return;
+      }
+
+      console.log(`${pending.length} pending operation(s):`);
+      console.log('');
+      console.log(formatPendingOperations(pending));
+      console.log('');
+      console.log('Wait for these to complete, or use:');
+      console.log('  npx ibr session:close all --force');
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Session close command
 program
   .command('session:close <sessionId>')
   .description('Close a session (use "all" to stop browser server)')
-  .action(async (sessionId: string) => {
+  .option('--force', 'Skip waiting for pending operations')
+  .option('--wait-timeout <ms>', 'Max wait time for pending operations (default: 30000)', '30000')
+  .action(async (sessionId: string, options: { force?: boolean; waitTimeout: string }) => {
     try {
       const { stopBrowserServer, PersistentSession, isServerRunning } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
 
       if (sessionId === 'all') {
+        // Check for pending operations before closing
+        const pending = await getPendingOperations(outputDir);
+
+        if (pending.length > 0 && !options.force) {
+          console.log(`Found ${pending.length} pending operation(s):`);
+          console.log(formatPendingOperations(pending));
+          console.log('');
+          console.log(`Waiting for completion (timeout: ${options.waitTimeout}ms)...`);
+          console.log('Use --force to skip waiting');
+          console.log('');
+
+          const completed = await waitForCompletion(outputDir, {
+            timeout: parseInt(options.waitTimeout, 10),
+            onProgress: (remaining) => {
+              process.stdout.write(`\rWaiting for ${remaining} operation(s)...`);
+            },
+          });
+
+          console.log(''); // Clear line
+
+          if (!completed) {
+            const remaining = await getPendingOperations(outputDir);
+            console.log(`Timeout reached. ${remaining.length} operation(s) still pending.`);
+            console.log('Use --force to close anyway, or wait for operations to complete.');
+            process.exit(1);
+          }
+
+          console.log('All operations completed.');
+        }
+
         const stopped = await stopBrowserServer(outputDir);
         if (stopped) {
           console.log('Browser server stopped. All sessions closed.');
@@ -1691,66 +2073,214 @@ async function resolveBaseUrl(providedUrl?: string): Promise<string> {
 // Init command
 program
   .command('init')
-  .description('Initialize .ibrrc.json configuration file')
+  .description('Initialize IBR config and optionally register Claude Code plugin')
   .option('-p, --port <port>', 'Port for baseUrl (auto-detects available port if not specified)')
   .option('-u, --url <url>', 'Full base URL (overrides port)')
-  .action(async (options: { port?: string; url?: string }) => {
+  .option('--skip-plugin', 'Skip Claude Code plugin registration prompt')
+  .action(async (options: { port?: string; url?: string; skipPlugin?: boolean }) => {
+    const { writeFile, readFile, mkdir } = await import('fs/promises');
     const configPath = join(process.cwd(), '.ibrrc.json');
+    const claudeSettingsPath = join(process.cwd(), '.claude', 'settings.json');
 
-    if (existsSync(configPath)) {
+    // --- Step 1: Create .ibrrc.json if needed ---
+    let configCreated = false;
+    if (!existsSync(configPath)) {
+      let baseUrl: string;
+
+      if (options.url) {
+        baseUrl = options.url;
+      } else if (options.port) {
+        baseUrl = `http://localhost:${options.port}`;
+      } else {
+        const preferredPort = 5000;
+        const fallbackPorts = [5050, 5555, 4200, 4321, 6789, 7777];
+
+        if (!(await isPortInUse(preferredPort))) {
+          baseUrl = `http://localhost:${preferredPort}`;
+          console.log(`Using default port ${preferredPort}`);
+        } else {
+          console.log(`Port ${preferredPort} in use, finding alternative...`);
+          const availablePort = await findAvailablePortFromList(fallbackPorts);
+
+          if (availablePort) {
+            baseUrl = `http://localhost:${availablePort}`;
+            console.log(`Auto-selected port ${availablePort}`);
+          } else {
+            baseUrl = 'http://localhost:YOUR_PORT';
+            console.log('All candidate ports in use. Please edit baseUrl in .ibrrc.json');
+          }
+        }
+      }
+
+      const config = {
+        baseUrl,
+        outputDir: './.ibr',
+        viewport: 'desktop',
+        threshold: 1.0,
+        fullPage: true,
+        retention: {
+          maxSessions: 20,
+          maxAgeDays: 7,
+          keepFailed: true,
+          autoClean: true,
+        },
+      };
+
+      await writeFile(configPath, JSON.stringify(config, null, 2));
+      configCreated = true;
+
+      console.log('');
+      console.log('Created .ibrrc.json');
+      console.log('');
+      console.log('Configuration:');
+      console.log(JSON.stringify(config, null, 2));
+    } else {
       console.log('.ibrrc.json already exists.');
-      console.log('Edit it directly or delete and run init again.');
+    }
+
+    // --- Step 2: Claude Code plugin registration ---
+    if (options.skipPlugin) {
+      if (configCreated) {
+        console.log('');
+        console.log('Edit baseUrl to match your dev server.');
+      }
       return;
     }
 
-    let baseUrl: string;
+    // Check if Claude Code is present (look for .claude directory or settings)
+    const claudeDirExists = existsSync(join(process.cwd(), '.claude'));
+    const hasClaudeSettings = existsSync(claudeSettingsPath);
 
-    if (options.url) {
-      // User specified full URL
-      baseUrl = options.url;
-    } else if (options.port) {
-      // User specified port
-      baseUrl = `http://localhost:${options.port}`;
-    } else {
-      // Try port 5000 first, then auto-detect from alternatives
-      const preferredPort = 5000;
-      const fallbackPorts = [5050, 5555, 4200, 4321, 6789, 7777];
+    // Find the IBR plugin path
+    const possiblePluginPaths = [
+      'node_modules/@tyroneross/interface-built-right/plugin',
+      'node_modules/interface-built-right/plugin',
+      './plugin', // if running from IBR repo
+    ];
 
-      if (!(await isPortInUse(preferredPort))) {
-        baseUrl = `http://localhost:${preferredPort}`;
-        console.log(`Using default port ${preferredPort}`);
-      } else {
-        console.log(`Port ${preferredPort} in use, finding alternative...`);
-        const availablePort = await findAvailablePortFromList(fallbackPorts);
-
-        if (availablePort) {
-          baseUrl = `http://localhost:${availablePort}`;
-          console.log(`Auto-selected port ${availablePort}`);
-        } else {
-          baseUrl = 'http://localhost:YOUR_PORT';
-          console.log('All candidate ports in use. Please edit baseUrl in .ibrrc.json');
-        }
+    let pluginPath: string | null = null;
+    for (const p of possiblePluginPaths) {
+      if (existsSync(join(process.cwd(), p))) {
+        pluginPath = p;
+        break;
       }
     }
 
-    const config = {
-      baseUrl,
-      outputDir: './.ibr',
-      viewport: 'desktop',
-      threshold: 1.0,
-      fullPage: true,
-    };
+    if (!pluginPath) {
+      console.log('');
+      console.log('IBR plugin path not found. Skipping Claude Code integration.');
+      if (configCreated) {
+        console.log('');
+        console.log('Edit baseUrl to match your dev server.');
+      }
+      return;
+    }
 
-    const { writeFile } = await import('fs/promises');
-    await writeFile(configPath, JSON.stringify(config, null, 2));
+    // Check if already registered
+    let settings: { plugins?: string[] } = { plugins: [] };
+    if (hasClaudeSettings) {
+      try {
+        const content = await readFile(claudeSettingsPath, 'utf-8');
+        settings = JSON.parse(content);
+        if (!settings.plugins) {
+          settings.plugins = [];
+        }
+      } catch {
+        settings = { plugins: [] };
+      }
 
+      // Check if already registered
+      const alreadyRegistered = settings.plugins.some(p =>
+        p.includes('interface-built-right/plugin') || p === pluginPath
+      );
+
+      if (alreadyRegistered) {
+        console.log('');
+        console.log('IBR plugin already registered in Claude Code.');
+        if (configCreated) {
+          console.log('');
+          console.log('Edit baseUrl to match your dev server.');
+        }
+        return;
+      }
+    }
+
+    // Show plugin benefits and prompt
     console.log('');
-    console.log('Created .ibrrc.json');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log('  CLAUDE CODE PLUGIN');
+    console.log('═══════════════════════════════════════════════════════════');
     console.log('');
-    console.log('Configuration:');
-    console.log(JSON.stringify(config, null, 2));
+    console.log('IBR includes a Claude Code plugin for AI-assisted visual testing:');
     console.log('');
-    console.log('Edit baseUrl to match your dev server.');
+    console.log('  /ibr:snapshot  - Capture baseline with one command');
+    console.log('  /ibr:compare   - Visual diff without leaving conversation');
+    console.log('  /ibr:ui        - Open comparison viewer');
+    console.log('');
+    console.log('Benefits:');
+    console.log('  • Instant visual regression checks during development');
+    console.log('  • AI understands page semantics (intent, state, landmarks)');
+    console.log('  • Automatic suggestions when UI files change');
+    console.log('');
+
+    // Simple prompt using readline
+    const readline = await import('readline');
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    const answer = await new Promise<string>((resolve) => {
+      rl.question('Register IBR plugin for Claude Code? [Y/n] ', (ans) => {
+        rl.close();
+        resolve(ans.trim().toLowerCase());
+      });
+    });
+
+    if (answer === 'n' || answer === 'no') {
+      console.log('');
+      console.log('Skipped plugin registration.');
+      console.log('');
+      console.log('To register later, add to .claude/settings.json:');
+      console.log(`  "plugins": ["${pluginPath}"]`);
+      if (configCreated) {
+        console.log('');
+        console.log('Edit baseUrl in .ibrrc.json to match your dev server.');
+      }
+      return;
+    }
+
+    // Register the plugin
+    try {
+      // Ensure .claude directory exists
+      if (!claudeDirExists) {
+        await mkdir(join(process.cwd(), '.claude'), { recursive: true });
+      }
+
+      settings.plugins = settings.plugins || [];
+      settings.plugins.push(pluginPath);
+
+      await writeFile(claudeSettingsPath, JSON.stringify(settings, null, 2));
+
+      console.log('');
+      console.log('IBR plugin registered.');
+      console.log('');
+      console.log('Restart Claude Code to activate. Then use:');
+      console.log('  /ibr:snapshot <url>  - Capture baseline');
+      console.log('  /ibr:compare         - Compare after changes');
+
+    } catch (err) {
+      console.log('');
+      console.log('Failed to register plugin:', err instanceof Error ? err.message : err);
+      console.log('');
+      console.log('To register manually, add to .claude/settings.json:');
+      console.log(`  "plugins": ["${pluginPath}"]`);
+    }
+
+    if (configCreated) {
+      console.log('');
+      console.log('Edit baseUrl in .ibrrc.json to match your dev server.');
+    }
   });
 
 program.parse();

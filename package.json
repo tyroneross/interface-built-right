@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Visual regression testing for Claude Code - capture baselines, compare changes, iterate automatically",
   "repository": {
     "type": "git",
@@ -63,10 +63,10 @@
     "commander": "^14.0.2",
     "nanoid": "^5.0.9",
     "pixelmatch": "^7.1.0",
-    "playwright": "^1.49.1",
+    "playwright": "^1.51.0",
     "pngjs": "^7.0.0",
     "sharp": "^0.34.5",
-    "zod": "^4.3.4"
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

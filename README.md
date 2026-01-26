@@ -4,6 +4,23 @@ Visual regression testing for Claude Code. Capture baselines, compare changes, i
 
 ## Quick Start
 
+### One-Line Comparison (Programmatic)
+
+```typescript
+import { compare } from '@tyroneross/interface-built-right';
+
+const result = await compare({
+  url: 'http://localhost:3000/dashboard',
+  baselinePath: './baselines/dashboard.png',
+});
+
+if (result.verdict !== 'MATCH') {
+  console.log('Visual changes detected:', result.summary);
+}
+```
+
+### CLI Workflow
+
 ```bash
 # 1. Install
 npm install github:tyroneross/interface-built-right
@@ -19,6 +36,8 @@ npx ibr check
 # 5. View visual diff in browser
 npx ibr serve
 ```
+
+> **When to use IBR vs Playwright?** See [WHEN-TO-USE.md](docs/WHEN-TO-USE.md) for guidance.
 
 ## Installation
 
@@ -135,8 +154,37 @@ Then restart Claude Code. You'll have these commands:
 
 ## Programmatic API
 
+### Standalone Comparison (Recommended)
+
 ```typescript
-import { InterfaceBuiltRight } from 'interface-built-right';
+import { compare, compareAll } from '@tyroneross/interface-built-right';
+
+// Simple one-line comparison
+const result = await compare({
+  url: 'http://localhost:3000/dashboard',
+  baselinePath: './baselines/dashboard.png',
+});
+
+console.log(result.verdict);
+// → "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN"
+
+console.log(result.diffPercent);  // e.g., 2.5
+console.log(result.summary);      // Human-readable description
+
+// Compare two existing images
+const result2 = await compare({
+  baselinePath: './baselines/old.png',
+  currentPath: './screenshots/new.png',
+});
+
+// Batch comparison of all sessions
+const results = await compareAll('./.ibr');
+```
+
+### Session-Based Workflow
+
+```typescript
+import { InterfaceBuiltRight } from '@tyroneross/interface-built-right';
 
 const ibr = new InterfaceBuiltRight({
   baseUrl: 'http://localhost:3000',
@@ -159,6 +207,22 @@ console.log(report.analysis.verdict);
 await ibr.close();
 ```
 
+### Dynamic Content Masking
+
+Hide timestamps, spinners, and other dynamic content for stable comparisons:
+
+```typescript
+const result = await compare({
+  url: 'http://localhost:3000/dashboard',
+  baselinePath: './baselines/dashboard.png',
+  mask: {
+    hideDynamicContent: true,  // Auto-hide timestamps, loaders, etc.
+    selectors: ['[data-testid="live-count"]'],  // Additional elements
+    hideAnimations: true,  // Default: true
+  },
+});
+```
+
 ## Configuration
 
 Create `.ibrrc.json` in your project root:
@@ -169,8 +233,31 @@ Create `.ibrrc.json` in your project root:
   "outputDir": "./.ibr",
   "viewport": "desktop",
   "threshold": 1.0,
-  "fullPage": true
+  "fullPage": true,
+  "retention": {
+    "maxSessions": 20,
+    "maxAgeDays": 7,
+    "keepFailed": true,
+    "autoClean": true
+  }
 }
+```
+
+### Retention Policy
+
+Automatic session cleanup prevents accumulation of old sessions:
+
+| Option | Description |
+|--------|-------------|
+| `maxSessions` | Keep only the N most recent sessions |
+| `maxAgeDays` | Delete sessions older than N days |
+| `keepFailed` | Preserve sessions with `LAYOUT_BROKEN` or `UNEXPECTED_CHANGE` verdicts |
+| `autoClean` | Run cleanup automatically when creating new sessions |
+
+```bash
+# Manual cleanup
+npx ibr clean --older-than 7d
+npx ibr clean --keep-last 20
 ```
 
 ## Comparison Report

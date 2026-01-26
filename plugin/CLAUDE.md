@@ -145,6 +145,77 @@ await ibr.close();
 | `listSessions()` | List all sessions |
 | `getStats()` | Get statistics by status/viewport/verdict |
 
+## Simpler API (IBR 2.0)
+
+For AI-native workflows, use the simpler semantic API:
+
+```typescript
+import { InterfaceBuiltRight } from 'interface-built-right';
+
+const ibr = new InterfaceBuiltRight();
+
+// One line to start a session
+const session = await ibr.start('http://localhost:3000');
+
+// Get semantic understanding of the page
+const understanding = await session.understand();
+// Returns: { verdict, pageIntent, state, availableActions, issues, recovery }
+
+// Use built-in flows
+const loginResult = await session.flow.login({
+  email: 'test@test.com',
+  password: 'secret'
+});
+
+const searchResult = await session.flow.search({
+  query: 'test query'
+});
+
+// Mock network requests
+await session.mock('/api/users', {
+  status: 200,
+  body: { users: [] }
+});
+
+// Clean up
+await session.close();
+```
+
+## Semantic Output
+
+The `session.understand()` method returns AI-friendly output:
+
+```typescript
+{
+  verdict: 'PASS' | 'ISSUES' | 'FAIL' | 'LOADING' | 'ERROR',
+  confidence: 0.85,
+  pageIntent: {
+    intent: 'auth' | 'form' | 'listing' | 'detail' | 'dashboard' | 'error',
+    signals: ['password field present', 'login-related text']
+  },
+  state: {
+    auth: { authenticated: true, username: 'john' },
+    loading: { loading: false, type: 'none' },
+    errors: { hasErrors: false, errors: [] },
+    ready: true
+  },
+  availableActions: [
+    { action: 'login', selector: 'form', description: 'Submit login credentials' }
+  ],
+  issues: [],
+  recovery: null,
+  summary: 'auth page, not authenticated, ready for interaction'
+}
+```
+
+## Built-in Flows
+
+| Flow | Usage | Returns |
+|------|-------|---------|
+| `session.flow.login({ email, password })` | Authenticate with credentials | `{ success, authenticated, steps }` |
+| `session.flow.search({ query })` | Search and verify results | `{ success, resultCount, hasResults }` |
+| `session.flow.form({ fields })` | Fill and submit form | `{ success, filledFields, failedFields }` |
+
 ## Comparison Report Structure
 
 ```typescript

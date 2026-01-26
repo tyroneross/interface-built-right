@@ -1,4 +1,383 @@
+import { Page, Browser, BrowserContext } from 'playwright';
 import { z } from 'zod';
+
+/**
+ * API request timing info
+ */
+interface ApiRequestTiming {
+    url: string;
+    method: string;
+    duration: number;
+    status: number;
+    size: number;
+    resourceType: string;
+    timing: {
+        dnsLookup?: number;
+        tcpConnect?: number;
+        tlsHandshake?: number;
+        requestSent?: number;
+        waiting?: number;
+        contentDownload?: number;
+    };
+}
+/**
+ * API timing measurement result
+ */
+interface ApiTimingResult {
+    requests: ApiRequestTiming[];
+    summary: {
+        totalRequests: number;
+        totalTime: number;
+        totalSize: number;
+        averageTime: number;
+        slowestRequest: {
+            url: string;
+            duration: number;
+        } | null;
+        fastestRequest: {
+            url: string;
+            duration: number;
+        } | null;
+        failedRequests: number;
+        byStatus: Record<number, number>;
+    };
+}
+/**
+ * Options for API timing measurement
+ */
+interface ApiTimingOptions {
+    /** Filter to only track URLs matching this pattern */
+    filter?: RegExp;
+    /** Include static resources (images, fonts, etc.) */
+    includeStatic?: boolean;
+    /** Timeout to wait for requests to complete (ms) */
+    timeout?: number;
+    /** Minimum duration to report (ms) - filters out fast requests */
+    minDuration?: number;
+}
+/**
+ * Measure API/network request timing on a page
+ *
+ * Call this before navigating to the page, then call stopMeasuring after navigation
+ */
+declare function measureApiTiming(page: Page, options?: ApiTimingOptions): Promise<ApiTimingResult>;
+/**
+ * Create an API timing tracker that records during page interactions
+ */
+declare function createApiTracker(page: Page, options?: ApiTimingOptions): {
+    start(): void;
+    stop(): ApiTimingResult;
+    getRequests(): ApiRequestTiming[];
+};
+/**
+ * Format API timing result for console output
+ */
+declare function formatApiTimingResult(result: ApiTimingResult): string;
+
+/**
+ * Interactive element info
+ */
+interface InteractiveElement {
+    selector: string;
+    tagName: string;
+    type?: string;
+    text?: string;
+    hasHandler: boolean;
+    isDisabled: boolean;
+    isVisible: boolean;
+    a11y: {
+        role?: string;
+        ariaLabel?: string;
+        tabIndex?: number;
+    };
+}
+/**
+ * Button analysis result
+ */
+interface ButtonInfo extends InteractiveElement {
+    buttonType?: 'submit' | 'button' | 'reset';
+    formId?: string;
+}
+/**
+ * Link analysis result
+ */
+interface LinkInfo extends InteractiveElement {
+    href: string;
+    isPlaceholder: boolean;
+    opensNewTab: boolean;
+    isExternal: boolean;
+}
+/**
+ * Form analysis result
+ */
+interface FormInfo {
+    selector: string;
+    action?: string;
+    method?: string;
+    hasSubmitHandler: boolean;
+    fields: FormFieldInfo[];
+    hasValidation: boolean;
+    submitButton?: ButtonInfo;
+}
+/**
+ * Form field info
+ */
+interface FormFieldInfo {
+    selector: string;
+    name?: string;
+    type: string;
+    label?: string;
+    required: boolean;
+    hasValidation: boolean;
+}
+/**
+ * Interactivity issue
+ */
+interface InteractivityIssue {
+    type: 'NO_HANDLER' | 'PLACEHOLDER_LINK' | 'MISSING_LABEL' | 'DISABLED_NO_VISUAL' | 'SMALL_TOUCH_TARGET' | 'FORM_NO_SUBMIT' | 'ORPHAN_SUBMIT' | 'NO_KEYBOARD_ACCESS';
+    element: string;
+    severity: 'error' | 'warning' | 'info';
+    description: string;
+}
+/**
+ * Full interactivity test result
+ */
+interface InteractivityResult {
+    buttons: ButtonInfo[];
+    links: LinkInfo[];
+    forms: FormInfo[];
+    issues: InteractivityIssue[];
+    summary: {
+        totalInteractive: number;
+        withHandlers: number;
+        withoutHandlers: number;
+        issueCount: {
+            error: number;
+            warning: number;
+            info: number;
+        };
+    };
+}
+/**
+ * Test interactivity of all interactive elements on a page
+ */
+declare function testInteractivity(page: Page): Promise<InteractivityResult>;
+/**
+ * Format interactivity result for console output
+ */
+declare function formatInteractivityResult(result: InteractivityResult): string;
+
+/**
+ * Web Vitals metrics
+ * @see https://web.dev/vitals/
+ */
+interface WebVitals {
+    /** Largest Contentful Paint (ms) - loading performance */
+    LCP: number | null;
+    /** First Input Delay (ms) - interactivity (requires user interaction) */
+    FID: number | null;
+    /** Cumulative Layout Shift (score) - visual stability */
+    CLS: number | null;
+    /** Time to First Byte (ms) - server response time */
+    TTFB: number | null;
+    /** First Contentful Paint (ms) - initial render */
+    FCP: number | null;
+    /** Time to Interactive (ms) - when page becomes fully interactive */
+    TTI: number | null;
+}
+/**
+ * Performance thresholds for each metric
+ * Based on Core Web Vitals guidelines
+ */
+declare const PERFORMANCE_THRESHOLDS: {
+    LCP: {
+        good: number;
+        poor: number;
+    };
+    FID: {
+        good: number;
+        poor: number;
+    };
+    CLS: {
+        good: number;
+        poor: number;
+    };
+    TTFB: {
+        good: number;
+        poor: number;
+    };
+    FCP: {
+        good: number;
+        poor: number;
+    };
+    TTI: {
+        good: number;
+        poor: number;
+    };
+};
+/**
+ * Performance rating
+ */
+type PerformanceRating = 'good' | 'needs-improvement' | 'poor';
+/**
+ * Rated metric with value and rating
+ */
+interface RatedMetric {
+    value: number | null;
+    rating: PerformanceRating | null;
+}
+/**
+ * Full performance result with ratings
+ */
+interface PerformanceResult {
+    metrics: WebVitals;
+    ratings: Record<keyof WebVitals, RatedMetric>;
+    summary: {
+        overallRating: PerformanceRating;
+        passedVitals: number;
+        totalVitals: number;
+        issues: string[];
+        recommendations: string[];
+    };
+}
+/**
+ * Measure Core Web Vitals from a page
+ *
+ * Note: FID requires actual user interaction, so it will be null
+ * for automated tests. Use TTI as an alternative measure.
+ */
+declare function measureWebVitals(page: Page): Promise<WebVitals>;
+/**
+ * Measure performance and return rated results
+ */
+declare function measurePerformance(page: Page): Promise<PerformanceResult>;
+/**
+ * Format performance result for console output
+ */
+declare function formatPerformanceResult(result: PerformanceResult): string;
+
+/**
+ * Flow Types
+ *
+ * Common types used across all built-in flows.
+ */
+
+interface FlowStep {
+    action: string;
+    success: boolean;
+    duration?: number;
+    error?: string;
+}
+interface FlowResult {
+    success: boolean;
+    steps: FlowStep[];
+    error?: string;
+    /** Time taken in ms */
+    duration: number;
+}
+interface FlowOptions {
+    /** Timeout for the entire flow in ms */
+    timeout?: number;
+    /** Whether to take screenshots at each step */
+    debug?: boolean;
+}
+/**
+ * Find a form field by common label patterns
+ */
+declare function findFieldByLabel(page: Page, labels: string[]): Promise<ReturnType<Page['$']>>;
+/**
+ * Find a button by common patterns
+ */
+declare function findButton(page: Page, patterns: string[]): Promise<ReturnType<Page['$']>>;
+/**
+ * Wait for navigation or network idle
+ */
+declare function waitForNavigation(page: Page, timeout?: number): Promise<void>;
+
+/**
+ * Form Submit Flow
+ *
+ * Handles generic form submission with field detection.
+ */
+
+interface FormField {
+    /** Field name or label to search for */
+    name: string;
+    /** Value to fill */
+    value: string;
+    /** Field type (defaults to 'text') */
+    type?: 'text' | 'select' | 'checkbox' | 'radio' | 'textarea';
+}
+interface FlowFormOptions extends FlowOptions {
+    /** Fields to fill */
+    fields: FormField[];
+    /** Button text to click (defaults to 'submit') */
+    submitButton?: string;
+    /** Selector for success message */
+    successSelector?: string;
+}
+interface FormResult extends FlowResult {
+    /** Which fields were successfully filled */
+    filledFields: string[];
+    /** Which fields failed */
+    failedFields: string[];
+}
+/**
+ * Execute form submission flow
+ */
+declare function formFlow(page: Page, options: FlowFormOptions): Promise<FormResult>;
+
+/**
+ * Search Flow
+ *
+ * Handles common search patterns with result detection.
+ */
+
+interface FlowSearchOptions extends FlowOptions {
+    /** Search query */
+    query: string;
+    /** Selector for search results container */
+    resultsSelector?: string;
+    /** Whether to submit the form or just type (for autocomplete) */
+    submit?: boolean;
+}
+interface SearchResult extends FlowResult {
+    /** Number of results found */
+    resultCount: number;
+    /** Whether results were found */
+    hasResults: boolean;
+}
+/**
+ * Execute search flow
+ */
+declare function searchFlow(page: Page, options: FlowSearchOptions): Promise<SearchResult>;
+
+/**
+ * Login Flow
+ *
+ * Handles common login patterns with semantic field detection.
+ */
+
+interface FlowLoginOptions extends FlowOptions {
+    /** Email or username */
+    email: string;
+    /** Password */
+    password: string;
+    /** What indicates successful login (intent like 'dashboard' or selector) */
+    successIndicator?: string;
+    /** Whether to check "remember me" if present */
+    rememberMe?: boolean;
+}
+interface LoginResult extends FlowResult {
+    /** Whether user is now authenticated */
+    authenticated: boolean;
+    /** Detected username after login */
+    username?: string;
+}
+/**
+ * Execute login flow
+ */
+declare function loginFlow(page: Page, options: FlowLoginOptions): Promise<LoginResult>;
 
 /**
  * Viewport configuration for screenshot capture
@@ -212,6 +591,29 @@ declare const SessionStatusSchema: z.ZodEnum<{
     pending: "pending";
 }>;
 /**
+ * Element bounds (moved up for LandmarkElementSchema dependency)
+ */
+declare const BoundsSchema: z.ZodObject<{
+    x: z.ZodNumber;
+    y: z.ZodNumber;
+    width: z.ZodNumber;
+    height: z.ZodNumber;
+}, z.core.$strip>;
+/**
+ * Landmark element detected on page
+ */
+declare const LandmarkElementSchema: z.ZodObject<{
+    name: z.ZodString;
+    selector: z.ZodString;
+    found: z.ZodBoolean;
+    bounds: z.ZodOptional<z.ZodObject<{
+        x: z.ZodNumber;
+        y: z.ZodNumber;
+        width: z.ZodNumber;
+        height: z.ZodNumber;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+/**
  * Visual session
  */
 declare const SessionSchema: z.ZodObject<{
@@ -291,6 +693,18 @@ declare const SessionSchema: z.ZodObject<{
         }, z.core.$strip>>;
         recommendation: z.ZodNullable<z.ZodString>;
     }, z.core.$strip>>;
+    landmarkElements: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        name: z.ZodString;
+        selector: z.ZodString;
+        found: z.ZodBoolean;
+        bounds: z.ZodOptional<z.ZodObject<{
+            x: z.ZodNumber;
+            y: z.ZodNumber;
+            width: z.ZodNumber;
+            height: z.ZodNumber;
+        }, z.core.$strip>>;
+    }, z.core.$strip>>>;
+    pageIntent: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 /**
  * Full comparison report
@@ -396,15 +810,6 @@ declare const A11yAttributesSchema: z.ZodObject<{
     ariaHidden: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 /**
- * Element bounds
- */
-declare const BoundsSchema: z.ZodObject<{
-    x: z.ZodNumber;
-    y: z.ZodNumber;
-    width: z.ZodNumber;
-    height: z.ZodNumber;
-}, z.core.$strip>;
-/**
  * Enhanced element with interactivity and accessibility
  */
 declare const EnhancedElementSchema: z.ZodObject<{
@@ -490,6 +895,7 @@ type ChangedRegion = z.infer<typeof ChangedRegionSchema>;
 type Verdict = z.infer<typeof VerdictSchema>;
 type Analysis = z.infer<typeof AnalysisSchema>;
 type SessionStatus = z.infer<typeof SessionStatusSchema>;
+type LandmarkElement = z.infer<typeof LandmarkElementSchema>;
 type Session = z.infer<typeof SessionSchema>;
 type ComparisonReport = z.infer<typeof ComparisonReportSchema>;
 type InteractiveState = z.infer<typeof InteractiveStateSchema>;
@@ -610,6 +1016,25 @@ interface StartSessionResult {
     session: Session;
 }
 /**
+ * Options for masking dynamic content during capture
+ */
+interface MaskOptions {
+    /** CSS selectors of elements to hide (set visibility: hidden) */
+    selectors?: string[];
+    /** Text patterns to mask (replaced with placeholder) */
+    textPatterns?: Array<string | RegExp>;
+    /** Hide common dynamic elements automatically (timestamps, spinners, etc.) */
+    hideDynamicContent?: boolean;
+    /** Disable all animations and transitions (default: true) */
+    hideAnimations?: boolean;
+    /** Replace masked text with this placeholder (default: '███') */
+    placeholder?: string;
+}
+/**
+ * Default selectors for common dynamic content
+ */
+declare const DEFAULT_DYNAMIC_SELECTORS: string[];
+/**
  * Options for capturing a screenshot
  */
 interface CaptureOptions {
@@ -623,6 +1048,8 @@ interface CaptureOptions {
     selector?: string;
     /** CSS selector to wait for before capturing screenshot */
     waitFor?: string;
+    /** Options for masking dynamic content */
+    mask?: MaskOptions;
 }
 /**
  * Options for comparing images
@@ -687,6 +1114,211 @@ interface LoginOptions {
     outputDir: string;
     timeout?: number;
 }
+
+/**
+ * Page Intent Classification
+ *
+ * Classifies pages by their semantic purpose based on DOM analysis.
+ * This helps AI agents understand what kind of page they're looking at
+ * without parsing raw accessibility trees.
+ */
+
+type PageIntent = 'auth' | 'form' | 'listing' | 'detail' | 'dashboard' | 'error' | 'landing' | 'empty' | 'unknown';
+interface PageIntentResult {
+    intent: PageIntent;
+    confidence: number;
+    signals: string[];
+    secondaryIntent?: PageIntent;
+}
+/**
+ * Classify page intent from DOM analysis
+ */
+declare function classifyPageIntent(page: Page): Promise<PageIntentResult>;
+/**
+ * Get human-readable description of page intent
+ */
+declare function getIntentDescription(intent: PageIntent): string;
+
+/**
+ * Page State Detection
+ *
+ * Detects authentication state, loading state, and errors on a page.
+ * Provides AI agents with actionable state information.
+ */
+
+interface AuthState {
+    authenticated: boolean | null;
+    confidence: number;
+    signals: string[];
+    username?: string;
+}
+interface LoadingState {
+    loading: boolean;
+    type: 'spinner' | 'skeleton' | 'progress' | 'lazy' | 'none';
+    elements: number;
+}
+interface ErrorState {
+    hasErrors: boolean;
+    errors: ErrorInfo[];
+    severity: 'none' | 'warning' | 'error' | 'critical';
+}
+interface ErrorInfo {
+    type: 'validation' | 'api' | 'permission' | 'notfound' | 'server' | 'network' | 'unknown';
+    message: string;
+    element?: string;
+}
+interface PageState {
+    auth: AuthState;
+    loading: LoadingState;
+    errors: ErrorState;
+    ready: boolean;
+}
+/**
+ * Detect authentication state from page signals
+ */
+declare function detectAuthState(page: Page): Promise<AuthState>;
+/**
+ * Detect loading state from page signals
+ */
+declare function detectLoadingState(page: Page): Promise<LoadingState>;
+/**
+ * Detect error state from page signals
+ */
+declare function detectErrorState(page: Page): Promise<ErrorState>;
+/**
+ * Detect full page state
+ */
+declare function detectPageState(page: Page): Promise<PageState>;
+/**
+ * Wait for page to be ready (not loading, no errors)
+ */
+declare function waitForPageReady(page: Page, options?: {
+    timeout?: number;
+    ignoreErrors?: boolean;
+}): Promise<PageState>;
+
+/**
+ * Semantic Output Formatter
+ *
+ * Transforms raw page data into AI-friendly semantic output.
+ * Provides verdicts, recommendations, and recovery hints.
+ */
+
+type SemanticVerdict = 'PASS' | 'ISSUES' | 'FAIL' | 'LOADING' | 'ERROR';
+interface SemanticIssue {
+    severity: 'critical' | 'major' | 'minor';
+    type: string;
+    element?: string;
+    problem: string;
+    fix: string;
+}
+interface AvailableAction {
+    action: string;
+    selector?: string;
+    description: string;
+}
+interface RecoveryHint {
+    suggestion: string;
+    alternatives?: string[];
+    waitFor?: string;
+}
+interface SemanticResult {
+    verdict: SemanticVerdict;
+    confidence: number;
+    pageIntent: PageIntentResult;
+    state: PageState;
+    availableActions: AvailableAction[];
+    issues: SemanticIssue[];
+    recovery?: RecoveryHint;
+    summary: string;
+    url: string;
+    title: string;
+    timestamp: string;
+}
+/**
+ * Get semantic understanding of a page
+ */
+declare function getSemanticOutput(page: Page): Promise<SemanticResult>;
+/**
+ * Format semantic result as concise text for AI consumption
+ */
+declare function formatSemanticText(result: SemanticResult): string;
+/**
+ * Format semantic result as JSON for structured consumption
+ */
+declare function formatSemanticJson(result: SemanticResult): string;
+
+/**
+ * Landmark Element Detection
+ *
+ * Detects common landmark elements on a page. Used for:
+ * 1. Storing detected elements in baseline
+ * 2. Comparing current elements against baseline
+ * 3. Inferring expected elements from page intent when no baseline exists
+ */
+
+/**
+ * Standard landmark selectors
+ */
+declare const LANDMARK_SELECTORS: {
+    readonly logo: "img[src*=\"logo\"], img[alt*=\"logo\" i], [class*=\"logo\"], [id*=\"logo\"], svg[class*=\"logo\"]";
+    readonly header: "header, [role=\"banner\"], [class*=\"header\"]:not([class*=\"subheader\"])";
+    readonly navigation: "nav, [role=\"navigation\"], [class*=\"nav\"]:not([class*=\"subnav\"])";
+    readonly main: "main, [role=\"main\"], [class*=\"main-content\"], #main";
+    readonly footer: "footer, [role=\"contentinfo\"], [class*=\"footer\"]";
+    readonly sidebar: "aside, [role=\"complementary\"], [class*=\"sidebar\"]";
+    readonly search: "input[type=\"search\"], [role=\"search\"], [class*=\"search-input\"], input[name*=\"search\"]";
+    readonly heading: "h1";
+    readonly userMenu: "[class*=\"user-menu\"], [class*=\"avatar\"], [class*=\"profile\"], [class*=\"account\"]";
+    readonly loginForm: "form:has(input[type=\"password\"])";
+    readonly heroSection: "[class*=\"hero\"], [class*=\"banner\"], [class*=\"jumbotron\"]";
+    readonly ctaButton: "[class*=\"cta\"], a[class*=\"primary\"], button[class*=\"primary\"]";
+};
+type LandmarkType = keyof typeof LANDMARK_SELECTORS;
+/**
+ * Detect all landmark elements on a page
+ */
+declare function detectLandmarks(page: Page): Promise<LandmarkElement[]>;
+/**
+ * Get expected landmarks based on page intent
+ * Used when no baseline exists
+ */
+declare function getExpectedLandmarksForIntent(intent: PageIntent): LandmarkType[];
+/**
+ * Compare current landmarks against baseline
+ * Returns missing and new elements
+ */
+declare function compareLandmarks(baseline: LandmarkElement[], current: LandmarkElement[]): {
+    missing: LandmarkElement[];
+    added: LandmarkElement[];
+    unchanged: LandmarkElement[];
+};
+/**
+ * Get expected landmarks based on user context (CLAUDE.md design framework)
+ */
+declare function getExpectedLandmarksFromContext(framework: {
+    principles: string[];
+} | null): LandmarkType[];
+/**
+ * Format landmark comparison for display
+ */
+declare function formatLandmarkComparison(comparison: ReturnType<typeof compareLandmarks>): string;
+
+/**
+ * IBR Built-in Flows
+ *
+ * Common automation patterns as single commands:
+ * - login: Authenticate with email/password
+ * - search: Search and verify results
+ * - form: Fill and submit forms
+ */
+
+declare const flows: {
+    readonly login: typeof loginFlow;
+    readonly search: typeof searchFlow;
+    readonly form: typeof formFlow;
+};
+type FlowName = keyof typeof flows;
 
 /**
  * Capture result with timing and diagnostic info
@@ -1057,6 +1689,342 @@ declare function findOrphanEndpoints(apiCalls: ApiCall[], apiRoutes: ApiRoute[])
     searchedLocations: string[];
 }[];
 
+/**
+ * Pending operation types
+ */
+type OperationType = 'screenshot' | 'type' | 'click' | 'navigate' | 'evaluate' | 'fill' | 'hover' | 'wait';
+/**
+ * A pending operation that's currently running
+ */
+interface PendingOperation {
+    id: string;
+    type: OperationType;
+    sessionId: string;
+    startedAt: string;
+    pid: number;
+    command?: string;
+}
+/**
+ * State file structure
+ */
+interface OperationState {
+    pending: PendingOperation[];
+    lastUpdated: string;
+}
+/**
+ * Register a new pending operation
+ * Returns the operation ID
+ */
+declare function registerOperation(outputDir: string, options: {
+    type: OperationType;
+    sessionId: string;
+    command?: string;
+}): Promise<string>;
+/**
+ * Mark an operation as complete (remove from pending)
+ */
+declare function completeOperation(outputDir: string, operationId: string): Promise<void>;
+/**
+ * Get all pending operations
+ */
+declare function getPendingOperations(outputDir: string): Promise<PendingOperation[]>;
+/**
+ * Wait for all pending operations to complete
+ * Returns true if all completed, false if timeout reached
+ */
+declare function waitForCompletion(outputDir: string, options?: {
+    timeout?: number;
+    pollInterval?: number;
+    onProgress?: (remaining: number) => void;
+}): Promise<boolean>;
+/**
+ * Format pending operations for display
+ */
+declare function formatPendingOperations(operations: PendingOperation[]): string;
+/**
+ * Higher-order function to wrap an async operation with tracking
+ */
+declare function withOperationTracking<T>(outputDir: string, options: {
+    type: OperationType;
+    sessionId: string;
+    command?: string;
+}): (fn: () => Promise<T>) => Promise<T>;
+
+/**
+ * Retention policy configuration
+ * Add to .ibrrc.json to enable auto-cleanup
+ */
+interface RetentionConfig {
+    /** Maximum number of sessions to keep (default: no limit) */
+    maxSessions?: number;
+    /** Maximum age of sessions in days (default: no limit) */
+    maxAgeDays?: number;
+    /** Keep sessions that have failed comparisons (default: true) */
+    keepFailed?: boolean;
+    /** Enable automatic cleanup on session creation (default: false) */
+    autoClean?: boolean;
+}
+/**
+ * Default retention configuration
+ */
+declare const DEFAULT_RETENTION: RetentionConfig;
+/**
+ * Result of retention policy enforcement
+ */
+interface RetentionResult {
+    /** Sessions that were deleted */
+    deleted: string[];
+    /** Sessions that were kept */
+    kept: string[];
+    /** Sessions kept because they failed (if keepFailed is true) */
+    keptFailed: string[];
+    /** Total sessions before cleanup */
+    totalBefore: number;
+    /** Total sessions after cleanup */
+    totalAfter: number;
+}
+/**
+ * Load retention config from .ibrrc.json
+ */
+declare function loadRetentionConfig(outputDir: string): Promise<RetentionConfig>;
+/**
+ * Enforce retention policy on sessions
+ *
+ * @example
+ * ```typescript
+ * // Enforce with config from .ibrrc.json
+ * const result = await enforceRetentionPolicy('./.ibr');
+ * console.log(`Deleted ${result.deleted.length} sessions`);
+ *
+ * // Enforce with explicit config
+ * const result = await enforceRetentionPolicy('./.ibr', {
+ *   maxSessions: 20,
+ *   maxAgeDays: 7,
+ *   keepFailed: true
+ * });
+ * ```
+ */
+declare function enforceRetentionPolicy(outputDir: string, config?: RetentionConfig): Promise<RetentionResult>;
+/**
+ * Run auto-cleanup if enabled in config
+ * Call this after creating new sessions
+ */
+declare function maybeAutoClean(outputDir: string): Promise<RetentionResult | null>;
+/**
+ * Get retention status summary
+ */
+declare function getRetentionStatus(outputDir: string): Promise<{
+    config: RetentionConfig;
+    currentSessions: number;
+    oldestSession: Date | null;
+    newestSession: Date | null;
+    wouldDelete: number;
+}>;
+/**
+ * Format retention status for display
+ */
+declare function formatRetentionStatus(status: Awaited<ReturnType<typeof getRetentionStatus>>): string;
+
+/**
+ * Layout issue detected during responsive testing
+ */
+interface LayoutIssue {
+    element: string;
+    issue: 'overflow' | 'hidden' | 'truncated' | 'overlap' | 'too-small' | 'off-screen';
+    description: string;
+    bounds: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+}
+/**
+ * Touch target analysis
+ */
+interface TouchTargetIssue {
+    element: string;
+    selector: string;
+    size: {
+        width: number;
+        height: number;
+    };
+    minimumSize: number;
+    isTooSmall: boolean;
+}
+/**
+ * Text readability issue
+ */
+interface TextIssue {
+    element: string;
+    issue: 'too-small' | 'low-contrast';
+    fontSize?: number;
+    contrastRatio?: number;
+}
+/**
+ * Single viewport test result
+ */
+interface ViewportResult {
+    viewport: Viewport;
+    viewportName: string;
+    layoutIssues: LayoutIssue[];
+    touchTargets: TouchTargetIssue[];
+    textIssues: TextIssue[];
+    screenshot?: string;
+}
+/**
+ * Full responsive test result
+ */
+interface ResponsiveResult {
+    url: string;
+    results: ViewportResult[];
+    summary: {
+        totalIssues: number;
+        viewportsWithIssues: number;
+        criticalIssues: number;
+    };
+}
+/**
+ * Responsive test options
+ */
+interface ResponsiveTestOptions {
+    /** Viewports to test. Defaults to desktop, tablet, mobile */
+    viewports?: Array<'desktop' | 'tablet' | 'mobile' | Viewport>;
+    /** Capture screenshots for each viewport */
+    captureScreenshots?: boolean;
+    /** Output directory for screenshots */
+    outputDir?: string;
+    /** Minimum touch target size (default: 44px per WCAG) */
+    minTouchTarget?: number;
+    /** Minimum font size (default: 12px) */
+    minFontSize?: number;
+    /** Timeout for page load */
+    timeout?: number;
+}
+/**
+ * Test responsive behavior across multiple viewports
+ */
+declare function testResponsive(url: string, options?: ResponsiveTestOptions): Promise<ResponsiveResult>;
+/**
+ * Format responsive test result for console output
+ */
+declare function formatResponsiveResult(result: ResponsiveResult): string;
+
+/**
+ * Options for standalone compare function
+ */
+interface CompareInput {
+    /** URL to capture and compare (will auto-capture current state) */
+    url?: string;
+    /** Path to baseline image (required if no url) */
+    baselinePath?: string;
+    /** Path to current image (auto-captured if url provided) */
+    currentPath?: string;
+    /** Pixel difference threshold (0-100, default 1.0) */
+    threshold?: number;
+    /** Output directory for diff and temp files */
+    outputDir?: string;
+    /** Viewport configuration */
+    viewport?: 'desktop' | 'mobile' | 'tablet' | Viewport;
+    /** Capture full page */
+    fullPage?: boolean;
+    /** Wait for network idle before capture */
+    waitForNetworkIdle?: boolean;
+    /** Capture timeout in ms */
+    timeout?: number;
+}
+/**
+ * Result from standalone compare function
+ */
+interface CompareResult {
+    /** Whether images match within threshold */
+    match: boolean;
+    /** Percentage of pixels that differ */
+    diffPercent: number;
+    /** Number of differing pixels */
+    diffPixels: number;
+    /** Total pixels compared */
+    totalPixels: number;
+    /** Analysis verdict: MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN */
+    verdict: string;
+    /** Human-readable summary */
+    summary: string;
+    /** Regions with changes */
+    changedRegions: Array<{
+        location: string;
+        description: string;
+        severity: 'expected' | 'unexpected' | 'critical';
+    }>;
+    /** Recommendation for fixing issues */
+    recommendation: string | null;
+    /** Path to diff image (if generated) */
+    diffPath?: string;
+    /** Path to baseline used */
+    baselinePath: string;
+    /** Path to current image used */
+    currentPath: string;
+}
+/**
+ * Standalone compare function - compare images without session management
+ *
+ * @example
+ * ```typescript
+ * // Compare by URL (auto-captures current state)
+ * const result = await compare({
+ *   url: 'http://localhost:3000',
+ *   baselinePath: './baseline.png'
+ * });
+ *
+ * // Compare two existing images
+ * const result = await compare({
+ *   baselinePath: './baseline.png',
+ *   currentPath: './current.png'
+ * });
+ *
+ * // Compare URL with auto threshold
+ * const result = await compare({
+ *   url: 'http://localhost:3000',
+ *   baselinePath: './baseline.png',
+ *   threshold: 0.5  // 0.5% difference allowed
+ * });
+ * ```
+ */
+declare function compare(options: CompareInput): Promise<CompareResult>;
+/**
+ * Options for batch comparison
+ */
+interface CompareAllInput {
+    /** Session ID to compare (uses most recent if not provided) */
+    sessionId?: string;
+    /** Output directory (defaults to .ibr) */
+    outputDir?: string;
+    /** Only compare sessions matching this URL pattern */
+    urlPattern?: string | RegExp;
+    /** Only compare sessions with these statuses */
+    statuses?: Array<'baseline' | 'compared' | 'pending'>;
+    /** Maximum number of sessions to compare */
+    limit?: number;
+}
+/**
+ * Batch compare all sessions or a filtered subset
+ *
+ * @example
+ * ```typescript
+ * // Compare all sessions
+ * const results = await compareAll();
+ *
+ * // Compare sessions matching URL
+ * const results = await compareAll({
+ *   urlPattern: /\/dashboard/
+ * });
+ *
+ * // Compare specific session
+ * const results = await compareAll({
+ *   sessionId: 'sess_abc123'
+ * });
+ * ```
+ */
+declare function compareAll(options?: CompareAllInput): Promise<CompareResult[]>;
 declare class InterfaceBuiltRight {
     private config;
     constructor(options?: Partial<Config>);
@@ -1118,6 +2086,20 @@ declare class InterfaceBuiltRight {
      */
     updateBaseline(sessionId?: string): Promise<Session>;
     /**
+     * Start a simplified session with semantic understanding
+     *
+     * This is the new simpler API - one line to start:
+     * ```typescript
+     * const session = await ibr.start('http://localhost:3000');
+     * const understanding = await session.understand();
+     * ```
+     */
+    start(url: string, options?: {
+        viewport?: 'desktop' | 'mobile' | 'tablet';
+        waitFor?: string;
+        timeout?: number;
+    }): Promise<IBRSession>;
+    /**
      * Close the browser instance
      */
     close(): Promise<void>;
@@ -1134,5 +2116,116 @@ declare class InterfaceBuiltRight {
      */
     private generateSessionName;
 }
+/**
+ * IBRSession - Simplified session with semantic understanding
+ *
+ * Provides a cleaner API for interacting with pages and getting
+ * AI-friendly semantic output.
+ */
+declare class IBRSession {
+    /** Raw Playwright page for advanced use */
+    readonly page: Page;
+    private browser;
+    private context;
+    private config;
+    constructor(page: Page, browser: Browser, context: BrowserContext, config: Config);
+    /**
+     * Get semantic understanding of the current page
+     */
+    understand(): Promise<SemanticResult>;
+    /**
+     * Get semantic understanding as formatted text
+     */
+    understandText(): Promise<string>;
+    /**
+     * Click an element by selector
+     */
+    click(selector: string): Promise<void>;
+    /**
+     * Type text into an element
+     */
+    type(selector: string, text: string): Promise<void>;
+    /**
+     * Navigate to a new URL
+     */
+    goto(url: string): Promise<void>;
+    /**
+     * Wait for a selector to appear
+     */
+    waitFor(selector: string, timeout?: number): Promise<void>;
+    /**
+     * Take a screenshot
+     */
+    screenshot(path?: string): Promise<Buffer>;
+    /**
+     * Mock a network request (thin wrapper on page.route)
+     */
+    mock(pattern: string | RegExp, response: {
+        status?: number;
+        body?: string | object;
+        headers?: Record<string, string>;
+    }): Promise<void>;
+    /**
+     * Built-in flows for common automation patterns
+     */
+    readonly flow: {
+        /**
+         * Login with email/password
+         * @example
+         * const result = await session.flow.login({ email: 'test@test.com', password: 'secret' });
+         */
+        login: (options: Omit<FlowLoginOptions, "timeout">) => Promise<LoginResult>;
+        /**
+         * Search for content
+         * @example
+         * const result = await session.flow.search({ query: 'test' });
+         */
+        search: (options: Omit<FlowSearchOptions, "timeout">) => Promise<SearchResult>;
+        /**
+         * Fill and submit a form
+         * @example
+         * const result = await session.flow.form({
+         *   fields: [{ name: 'email', value: 'test@test.com' }]
+         * });
+         */
+        form: (options: Omit<FlowFormOptions, "timeout">) => Promise<FormResult>;
+    };
+    /**
+     * Measure Web Vitals performance metrics
+     * @example
+     * const result = await session.measurePerformance();
+     * console.log(result.ratings.LCP); // { value: 1200, rating: 'good' }
+     */
+    measurePerformance(): Promise<PerformanceResult>;
+    /**
+     * Test interactivity of buttons, links, and forms
+     * @example
+     * const result = await session.testInteractivity();
+     * console.log(result.issues); // List of issues with buttons/links
+     */
+    testInteractivity(): Promise<InteractivityResult>;
+    /**
+     * Start tracking API request timing
+     * Call before actions, then call stop() to get results
+     * @example
+     * const tracker = session.trackApiTiming({ filter: /\/api\// });
+     * tracker.start();
+     * await session.click('button');
+     * const result = tracker.stop();
+     */
+    trackApiTiming(options?: {
+        filter?: RegExp;
+        includeStatic?: boolean;
+        minDuration?: number;
+    }): Promise<{
+        start(): void;
+        stop(): ApiTimingResult;
+        getRequests(): ApiRequestTiming[];
+    }>;
+    /**
+     * Close the session and browser
+     */
+    close(): Promise<void>;
+}
 
-export { type A11yAttributes, A11yAttributesSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRoute, type AuditResult, AuditResultSchema, type AuthOptions, type Bounds, BoundsSchema, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareOptions, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type Inconsistency, type InteractiveState, InteractiveStateSchema, InterfaceBuiltRight, type LoginOptions, type OutputFormat, type PageMetrics, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, ViewportSchema, type Violation, ViolationSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, cleanSessions, closeBrowser, compareImages, createSession, deleteSession, detectChangedRegions, discoverApiRoutes, discoverPages, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findOrphanEndpoints, findSessions, formatConsistencyReport, formatReportJson, formatReportMinimal, formatReportText, formatSessionSummary, generateReport, generateSessionId, getMostRecentSession, getNavigationLinks, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, markSessionCompared, scanDirectoryForApiCalls, updateSession };
+export { type A11yAttributes, A11yAttributesSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type ExtendedComparisonResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type RatedMetric, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type TextIssue, type TouchTargetIssue, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, generateReport, generateSessionId, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

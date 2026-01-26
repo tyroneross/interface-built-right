@@ -107,6 +107,26 @@ export const AnalysisSchema = z.object({
 export const SessionStatusSchema = z.enum(['baseline', 'compared', 'pending']);
 
 /**
+ * Element bounds (moved up for LandmarkElementSchema dependency)
+ */
+export const BoundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+
+/**
+ * Landmark element detected on page
+ */
+export const LandmarkElementSchema = z.object({
+  name: z.string(),           // e.g., 'logo', 'header', 'nav'
+  selector: z.string(),       // CSS selector used to find it
+  found: z.boolean(),
+  bounds: BoundsSchema.optional(),
+});
+
+/**
  * Visual session
  */
 export const SessionSchema = z.object({
@@ -119,6 +139,10 @@ export const SessionSchema = z.object({
   updatedAt: z.string().datetime(),
   comparison: ComparisonResultSchema.optional(),
   analysis: AnalysisSchema.optional(),
+  // Landmark elements detected at baseline capture
+  landmarkElements: z.array(LandmarkElementSchema).optional(),
+  // Page intent detected at baseline
+  pageIntent: z.string().optional(),
 });
 
 /**
@@ -163,16 +187,6 @@ export const A11yAttributesSchema = z.object({
   ariaLabel: z.string().nullable(),
   ariaDescribedBy: z.string().nullable(),
   ariaHidden: z.boolean().optional(),
-});
-
-/**
- * Element bounds
- */
-export const BoundsSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  width: z.number(),
-  height: z.number(),
 });
 
 /**
@@ -239,6 +253,7 @@ export type ChangedRegion = z.infer<typeof ChangedRegionSchema>;
 export type Verdict = z.infer<typeof VerdictSchema>;
 export type Analysis = z.infer<typeof AnalysisSchema>;
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
+export type LandmarkElement = z.infer<typeof LandmarkElementSchema>;
 export type Session = z.infer<typeof SessionSchema>;
 export type ComparisonReport = z.infer<typeof ComparisonReportSchema>;
 export type InteractiveState = z.infer<typeof InteractiveStateSchema>;

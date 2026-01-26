@@ -30,6 +30,51 @@ export interface StartSessionResult {
 }
 
 /**
+ * Options for masking dynamic content during capture
+ */
+export interface MaskOptions {
+  /** CSS selectors of elements to hide (set visibility: hidden) */
+  selectors?: string[];
+  /** Text patterns to mask (replaced with placeholder) */
+  textPatterns?: Array<string | RegExp>;
+  /** Hide common dynamic elements automatically (timestamps, spinners, etc.) */
+  hideDynamicContent?: boolean;
+  /** Disable all animations and transitions (default: true) */
+  hideAnimations?: boolean;
+  /** Replace masked text with this placeholder (default: '███') */
+  placeholder?: string;
+}
+
+/**
+ * Default selectors for common dynamic content
+ */
+export const DEFAULT_DYNAMIC_SELECTORS = [
+  // Timestamps and dates
+  '[data-testid*="timestamp"]',
+  '[data-testid*="date"]',
+  '[data-testid*="time"]',
+  '[class*="timestamp"]',
+  '[class*="relative-time"]',
+  '[class*="timeago"]',
+  'time[datetime]',
+  // Loading indicators
+  '[class*="loading"]',
+  '[class*="spinner"]',
+  '[class*="skeleton"]',
+  '[class*="shimmer"]',
+  '[role="progressbar"]',
+  // Live counters
+  '[class*="live-count"]',
+  '[class*="viewer-count"]',
+  '[class*="online-count"]',
+  // Avatars with random colors
+  '[class*="avatar"][style*="background"]',
+  // Random IDs displayed
+  '[data-testid*="session-id"]',
+  '[class*="request-id"]',
+];
+
+/**
  * Options for capturing a screenshot
  */
 export interface CaptureOptions {
@@ -43,6 +88,8 @@ export interface CaptureOptions {
   selector?: string;
   /** CSS selector to wait for before capturing screenshot */
   waitFor?: string;
+  /** Options for masking dynamic content */
+  mask?: MaskOptions;
 }
 
 /**
