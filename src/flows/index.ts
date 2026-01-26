@@ -15,6 +15,7 @@ export {
 
 export {
   searchFlow,
+  aiSearchFlow,
   type FlowSearchOptions,
   type SearchResult,
 } from './search.js';
@@ -33,16 +34,34 @@ export {
   type FlowResult,
   type FlowStep,
   type FlowOptions,
+  type AISearchOptions,
+  type AISearchResult,
+  type StepScreenshot,
+  type ExtractedResult,
+  type SearchTiming,
 } from './types.js';
+
+export {
+  generateValidationContext,
+  generateValidationPrompt,
+  generateQuickSummary,
+  analyzeForObviousIssues,
+  formatValidationResult,
+  generateDevModePrompt,
+  type ValidationContext,
+  type ValidationResult,
+  type ValidationIssue,
+} from './search-validation.js';
 
 // Flow registry for dynamic access
 import { loginFlow } from './login.js';
-import { searchFlow } from './search.js';
+import { searchFlow, aiSearchFlow } from './search.js';
 import { formFlow } from './form.js';
 
 export const flows = {
   login: loginFlow,
   search: searchFlow,
+  aiSearch: aiSearchFlow,
   form: formFlow,
 } as const;
 

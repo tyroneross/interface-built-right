@@ -293,6 +293,89 @@ declare function findButton(page: Page, patterns: string[]): Promise<ReturnType<
  * Wait for navigation or network idle
  */
 declare function waitForNavigation(page: Page, timeout?: number): Promise<void>;
+/**
+ * Screenshot captured at a specific step during search flow
+ */
+interface StepScreenshot {
+    /** Which step this screenshot was taken at */
+    step: 'before' | 'after-query' | 'loading' | 'results';
+    /** Path to the screenshot file */
+    path: string;
+    /** ISO timestamp when captured */
+    timestamp: string;
+    /** Milliseconds since flow start */
+    timing: number;
+}
+/**
+ * Extracted content from a single search result element
+ */
+interface ExtractedResult {
+    /** Zero-based index in result list */
+    index: number;
+    /** Title text if identifiable */
+    title?: string;
+    /** Snippet/description text if present */
+    snippet?: string;
+    /** Full text content of the result element */
+    fullText: string;
+    /** CSS selector to locate this element */
+    selector: string;
+    /** Whether the element is visible in viewport */
+    visible: boolean;
+}
+/**
+ * Timing breakdown for search flow phases
+ */
+interface SearchTiming {
+    /** Total flow duration in ms */
+    total: number;
+    /** Time spent typing the query */
+    typing: number;
+    /** Time waiting for results to load */
+    waiting: number;
+    /** Time for results to render after load */
+    rendering: number;
+}
+/**
+ * Extended options for AI search testing
+ */
+interface AISearchOptions extends FlowOptions {
+    /** Search query to execute */
+    query: string;
+    /** CSS selector for search results container */
+    resultsSelector?: string;
+    /** Whether to submit the form or just type (for autocomplete) */
+    submit?: boolean;
+    /** Capture screenshots at each step (default: true) */
+    captureSteps?: boolean;
+    /** Extract text content from results (default: true) */
+    extractContent?: boolean;
+    /** User's intent for validation (what they expect to find) */
+    userIntent?: string;
+    /** Session directory for storing screenshots */
+    sessionDir?: string;
+}
+/**
+ * Extended result from AI search flow with full context for validation
+ */
+interface AISearchResult extends FlowResult {
+    /** The search query that was executed */
+    query: string;
+    /** User's stated intent for validation */
+    userIntent?: string;
+    /** Number of results found */
+    resultCount: number;
+    /** Whether any results were found */
+    hasResults: boolean;
+    /** Timing breakdown for each phase */
+    timing: SearchTiming;
+    /** Screenshots captured at each step */
+    screenshots: StepScreenshot[];
+    /** Extracted content from result elements */
+    extractedResults: ExtractedResult[];
+    /** Directory where search artifacts are stored */
+    artifactDir?: string;
+}
 
 /**
  * Form Submit Flow
@@ -331,6 +414,7 @@ declare function formFlow(page: Page, options: FlowFormOptions): Promise<FormRes
  * Search Flow
  *
  * Handles common search patterns with result detection.
+ * Includes AI-powered search testing with step screenshots and content extraction.
  */
 
 interface FlowSearchOptions extends FlowOptions {
@@ -351,6 +435,16 @@ interface SearchResult extends FlowResult {
  * Execute search flow
  */
 declare function searchFlow(page: Page, options: FlowSearchOptions): Promise<SearchResult>;
+/**
+ * Execute AI-enhanced search flow with screenshots and content extraction
+ *
+ * This function extends the basic search flow with:
+ * - Step-by-step screenshots (before, after-query, results)
+ * - Detailed timing breakdown
+ * - Extraction of result content for AI validation
+ * - User intent tracking for relevance checking
+ */
+declare function aiSearchFlow(page: Page, options: AISearchOptions): Promise<AISearchResult>;
 
 /**
  * Login Flow
@@ -1305,6 +1399,100 @@ declare function getExpectedLandmarksFromContext(framework: {
 declare function formatLandmarkComparison(comparison: ReturnType<typeof compareLandmarks>): string;
 
 /**
+ * Search Validation
+ *
+ * Generates structured output for Claude Code to analyze search results.
+ * Provides context for AI-powered relevance checking.
+ */
+
+/**
+ * Context for AI validation of search results
+ */
+interface ValidationContext {
+    /** The search query executed */
+    query: string;
+    /** What the user expected to find */
+    userIntent: string;
+    /** Extracted results for analysis */
+    results: ExtractedResult[];
+    /** Paths to screenshots for visual inspection */
+    screenshotPaths: string[];
+    /** Timing metrics */
+    timing: SearchTiming;
+    /** Timestamp of the search */
+    timestamp: string;
+    /** Whether any results were found */
+    hasResults: boolean;
+    /** Total result count */
+    resultCount: number;
+}
+/**
+ * Result from AI validation
+ */
+interface ValidationResult {
+    /** Whether results are relevant to user intent */
+    relevant: boolean;
+    /** Confidence in the assessment (0-1) */
+    confidence: number;
+    /** Explanation of the assessment */
+    reasoning: string;
+    /** Suggestions for improvement or next steps */
+    suggestions?: string[];
+    /** Specific issues found */
+    issues?: ValidationIssue[];
+}
+/**
+ * Specific issue found during validation
+ */
+interface ValidationIssue {
+    /** Type of issue */
+    type: 'irrelevant' | 'partial' | 'empty' | 'error' | 'slow';
+    /** Which result index (if applicable) */
+    resultIndex?: number;
+    /** Description of the issue */
+    description: string;
+    /** Severity: low, medium, high */
+    severity: 'low' | 'medium' | 'high';
+}
+/**
+ * Generate validation context from AI search result
+ */
+declare function generateValidationContext(result: AISearchResult): ValidationContext;
+/**
+ * Generate a structured prompt for Claude Code to analyze search results
+ *
+ * This prompt provides all necessary context for AI-powered validation:
+ * - The query and user intent
+ * - Extracted result content
+ * - Screenshots for visual inspection
+ * - Timing metrics
+ */
+declare function generateValidationPrompt(context: ValidationContext): string;
+/**
+ * Generate a concise summary for quick validation
+ */
+declare function generateQuickSummary(context: ValidationContext): string;
+/**
+ * Analyze results for obvious issues (pre-AI check)
+ *
+ * Performs quick heuristic checks before involving AI:
+ * - Empty results
+ * - Very slow response
+ * - Results with no text content
+ */
+declare function analyzeForObviousIssues(context: ValidationContext): ValidationIssue[];
+/**
+ * Format validation result for display
+ */
+declare function formatValidationResult(result: ValidationResult): string;
+/**
+ * Create a dev-mode prompt for user feedback
+ *
+ * Used when results seem questionable and user input is needed.
+ */
+declare function generateDevModePrompt(context: ValidationContext, issues: ValidationIssue[]): string;
+
+/**
  * IBR Built-in Flows
  *
  * Common automation patterns as single commands:
@@ -1316,6 +1504,7 @@ declare function formatLandmarkComparison(comparison: ReturnType<typeof compareL
 declare const flows: {
     readonly login: typeof loginFlow;
     readonly search: typeof searchFlow;
+    readonly aiSearch: typeof aiSearchFlow;
     readonly form: typeof formFlow;
 };
 type FlowName = keyof typeof flows;
@@ -2228,4 +2417,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type ExtendedComparisonResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type RatedMetric, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type TextIssue, type TouchTargetIssue, VIEWPORTS, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, generateReport, generateSessionId, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type RatedMetric, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

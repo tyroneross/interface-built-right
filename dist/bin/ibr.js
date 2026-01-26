@@ -2451,6 +2451,528 @@ var init_semantic = __esm({
   }
 });
 
+// src/flows/types.ts
+async function findFieldByLabel(page, labels) {
+  for (const label of labels) {
+    const selectors = [
+      `input[name*="${label}" i]`,
+      `input[id*="${label}" i]`,
+      `input[placeholder*="${label}" i]`,
+      `input[aria-label*="${label}" i]`,
+      `label:has-text("${label}") + input`,
+      `label:has-text("${label}") input`
+    ];
+    for (const selector of selectors) {
+      const element = await page.$(selector);
+      if (element) return element;
+    }
+  }
+  return null;
+}
+async function findButton(page, patterns) {
+  for (const pattern of patterns) {
+    const selectors = [
+      `button:has-text("${pattern}")`,
+      `input[type="submit"][value*="${pattern}" i]`,
+      `button[type="submit"]:has-text("${pattern}")`,
+      `a:has-text("${pattern}")`,
+      `[role="button"]:has-text("${pattern}")`
+    ];
+    for (const selector of selectors) {
+      const element = await page.$(selector);
+      if (element) return element;
+    }
+  }
+  return page.$('button[type="submit"], input[type="submit"]');
+}
+async function waitForNavigation(page, timeout = 1e4) {
+  try {
+    await Promise.race([
+      page.waitForNavigation({ timeout }),
+      page.waitForLoadState("networkidle", { timeout })
+    ]);
+  } catch {
+  }
+}
+var init_types2 = __esm({
+  "src/flows/types.ts"() {
+    "use strict";
+  }
+});
+
+// src/flows/search.ts
+var search_exports = {};
+__export(search_exports, {
+  aiSearchFlow: () => aiSearchFlow,
+  searchFlow: () => searchFlow
+});
+async function searchFlow(page, options) {
+  const startTime = Date.now();
+  const steps = [];
+  const timeout = options.timeout || 1e4;
+  try {
+    const searchInput = await findFieldByLabel(page, [
+      "search",
+      "query",
+      "q",
+      "find"
+    ]);
+    const searchField = searchInput || await page.$(
+      'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
+    );
+    if (!searchField) {
+      return {
+        success: false,
+        resultCount: 0,
+        hasResults: false,
+        steps,
+        error: "Could not find search input",
+        duration: Date.now() - startTime
+      };
+    }
+    await searchField.fill("");
+    await searchField.fill(options.query);
+    steps.push({ action: `type "${options.query}"`, success: true });
+    if (options.submit !== false) {
+      await searchField.press("Enter");
+      steps.push({ action: "submit search", success: true });
+      await waitForNavigation(page, timeout);
+      steps.push({ action: "wait for results", success: true });
+    } else {
+      await page.waitForTimeout(500);
+      steps.push({ action: "wait for autocomplete", success: true });
+    }
+    const resultsSelector = options.resultsSelector || '[class*="result"], [class*="item"], [class*="card"], [data-testid*="result"], li[class*="search"]';
+    const results = await page.$$(resultsSelector);
+    const resultCount = results.length;
+    const hasResults = resultCount > 0;
+    const emptyState = await page.$(
+      '[class*="no-results"], [class*="empty"], :has-text("no results"), :has-text("nothing found")'
+    );
+    steps.push({
+      action: `found ${resultCount} results`,
+      success: hasResults || !!emptyState
+    });
+    return {
+      success: true,
+      resultCount,
+      hasResults,
+      steps,
+      duration: Date.now() - startTime
+    };
+  } catch (error) {
+    return {
+      success: false,
+      resultCount: 0,
+      hasResults: false,
+      steps,
+      error: error instanceof Error ? error.message : "Unknown error",
+      duration: Date.now() - startTime
+    };
+  }
+}
+async function captureStepScreenshot(page, step, artifactDir, startTime) {
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const timing = Date.now() - startTime;
+  const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
+  const filename = `${stepNum}-${step}.png`;
+  const path2 = (0, import_path6.join)(artifactDir, filename);
+  await page.addStyleTag({
+    content: `
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+      }
+    `
+  });
+  await page.screenshot({
+    path: path2,
+    fullPage: false,
+    type: "png"
+  });
+  return { step, path: path2, timestamp, timing };
+}
+async function extractResultContent(page, resultsSelector) {
+  return page.evaluate((selector) => {
+    const elements = document.querySelectorAll(selector);
+    const results = [];
+    elements.forEach((el, index) => {
+      const htmlEl = el;
+      const rect = htmlEl.getBoundingClientRect();
+      const titleEl = htmlEl.querySelector('h1, h2, h3, h4, h5, h6, strong, b, [class*="title"]');
+      const title = titleEl?.textContent?.trim();
+      const snippetEl = htmlEl.querySelector('p, [class*="snippet"], [class*="description"], [class*="summary"]');
+      const snippet = snippetEl?.textContent?.trim();
+      const fullText = htmlEl.textContent?.trim() || "";
+      let selector2 = el.tagName.toLowerCase();
+      if (el.id) {
+        selector2 = `#${el.id}`;
+      } else if (el.className && typeof el.className === "string") {
+        const classes = el.className.split(" ").filter((c) => c.trim())[0];
+        if (classes) selector2 += `.${classes}`;
+        selector2 += `:nth-of-type(${index + 1})`;
+      }
+      results.push({
+        index,
+        title: title || void 0,
+        snippet: snippet || void 0,
+        fullText: fullText.slice(0, 500),
+        // Limit length
+        selector: selector2,
+        visible: rect.top >= 0 && rect.top < window.innerHeight
+      });
+    });
+    return results;
+  }, resultsSelector);
+}
+async function aiSearchFlow(page, options) {
+  const startTime = Date.now();
+  const steps = [];
+  const screenshots = [];
+  const timeout = options.timeout || 1e4;
+  const captureSteps = options.captureSteps !== false;
+  const extractContent = options.extractContent !== false;
+  const timing = {
+    total: 0,
+    typing: 0,
+    waiting: 0,
+    rendering: 0
+  };
+  let artifactDir;
+  if (captureSteps && options.sessionDir) {
+    artifactDir = (0, import_path6.join)(options.sessionDir, `search-${Date.now()}`);
+    await (0, import_promises6.mkdir)(artifactDir, { recursive: true });
+  }
+  try {
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "before", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture before screenshot", success: true, duration: shot.timing });
+    }
+    const searchInput = await findFieldByLabel(page, ["search", "query", "q", "find"]);
+    const searchField = searchInput || await page.$(
+      'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
+    );
+    if (!searchField) {
+      return {
+        success: false,
+        query: options.query,
+        userIntent: options.userIntent,
+        resultCount: 0,
+        hasResults: false,
+        steps,
+        screenshots,
+        extractedResults: [],
+        timing: { ...timing, total: Date.now() - startTime },
+        error: "Could not find search input",
+        duration: Date.now() - startTime,
+        artifactDir
+      };
+    }
+    const typingStart = Date.now();
+    await searchField.fill("");
+    await searchField.fill(options.query);
+    timing.typing = Date.now() - typingStart;
+    steps.push({ action: `type "${options.query}"`, success: true, duration: timing.typing });
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "after-query", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture after-query screenshot", success: true });
+    }
+    const waitingStart = Date.now();
+    if (options.submit !== false) {
+      await searchField.press("Enter");
+      steps.push({ action: "submit search", success: true });
+      await waitForNavigation(page, timeout);
+      steps.push({ action: "wait for results", success: true });
+    } else {
+      await page.waitForTimeout(500);
+      steps.push({ action: "wait for autocomplete", success: true });
+    }
+    timing.waiting = Date.now() - waitingStart;
+    const renderingStart = Date.now();
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "results", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture results screenshot", success: true });
+    }
+    const resultsSelector = options.resultsSelector || '[class*="result"], [class*="item"], [class*="card"], [data-testid*="result"], li[class*="search"]';
+    const resultElements = await page.$$(resultsSelector);
+    const resultCount = resultElements.length;
+    const hasResults = resultCount > 0;
+    let extractedResults = [];
+    if (extractContent && hasResults) {
+      extractedResults = await extractResultContent(page, resultsSelector);
+      steps.push({ action: `extracted ${extractedResults.length} results`, success: true });
+    }
+    timing.rendering = Date.now() - renderingStart;
+    timing.total = Date.now() - startTime;
+    if (artifactDir) {
+      const resultsData = {
+        query: options.query,
+        userIntent: options.userIntent,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        resultCount,
+        hasResults,
+        timing,
+        extractedResults
+      };
+      await (0, import_promises6.writeFile)(
+        (0, import_path6.join)(artifactDir, "results.json"),
+        JSON.stringify(resultsData, null, 2)
+      );
+    }
+    steps.push({
+      action: `found ${resultCount} results`,
+      success: hasResults
+    });
+    return {
+      success: true,
+      query: options.query,
+      userIntent: options.userIntent,
+      resultCount,
+      hasResults,
+      steps,
+      screenshots,
+      extractedResults,
+      timing,
+      duration: timing.total,
+      artifactDir
+    };
+  } catch (error) {
+    timing.total = Date.now() - startTime;
+    return {
+      success: false,
+      query: options.query,
+      userIntent: options.userIntent,
+      resultCount: 0,
+      hasResults: false,
+      steps,
+      screenshots,
+      extractedResults: [],
+      timing,
+      error: error instanceof Error ? error.message : "Unknown error",
+      duration: timing.total,
+      artifactDir
+    };
+  }
+}
+var import_promises6, import_path6;
+var init_search = __esm({
+  "src/flows/search.ts"() {
+    "use strict";
+    import_promises6 = require("fs/promises");
+    import_path6 = require("path");
+    init_types2();
+  }
+});
+
+// src/flows/search-validation.ts
+var search_validation_exports = {};
+__export(search_validation_exports, {
+  analyzeForObviousIssues: () => analyzeForObviousIssues,
+  formatValidationResult: () => formatValidationResult,
+  generateDevModePrompt: () => generateDevModePrompt,
+  generateQuickSummary: () => generateQuickSummary,
+  generateValidationContext: () => generateValidationContext,
+  generateValidationPrompt: () => generateValidationPrompt
+});
+function generateValidationContext(result) {
+  return {
+    query: result.query,
+    userIntent: result.userIntent || `Find results related to: ${result.query}`,
+    results: result.extractedResults,
+    screenshotPaths: result.screenshots.map((s) => s.path),
+    timing: result.timing,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    hasResults: result.hasResults,
+    resultCount: result.resultCount
+  };
+}
+function generateValidationPrompt(context) {
+  const lines = [];
+  lines.push("# Search Result Validation Request");
+  lines.push("");
+  lines.push("Please analyze the following search results and determine if they are relevant to the user's intent.");
+  lines.push("");
+  lines.push("## Search Details");
+  lines.push(`- **Query:** "${context.query}"`);
+  lines.push(`- **User Intent:** ${context.userIntent}`);
+  lines.push(`- **Results Found:** ${context.resultCount}`);
+  lines.push(`- **Total Time:** ${context.timing.total}ms`);
+  lines.push("");
+  if (context.screenshotPaths.length > 0) {
+    lines.push("## Screenshots");
+    lines.push("The following screenshots capture the search interaction:");
+    for (const path2 of context.screenshotPaths) {
+      lines.push(`- ${path2}`);
+    }
+    lines.push("");
+    lines.push("*Please view these screenshots using the Read tool to see the visual state.*");
+    lines.push("");
+  }
+  if (context.results.length > 0) {
+    lines.push("## Extracted Results");
+    lines.push("");
+    for (const result of context.results.slice(0, 10)) {
+      lines.push(`### Result ${result.index + 1}`);
+      if (result.title) {
+        lines.push(`**Title:** ${result.title}`);
+      }
+      if (result.snippet) {
+        lines.push(`**Snippet:** ${result.snippet}`);
+      }
+      lines.push(`**Full Text:** ${result.fullText.slice(0, 200)}${result.fullText.length > 200 ? "..." : ""}`);
+      lines.push(`**Visible:** ${result.visible ? "Yes" : "No"}`);
+      lines.push("");
+    }
+    if (context.results.length > 10) {
+      lines.push(`*...and ${context.results.length - 10} more results*`);
+      lines.push("");
+    }
+  } else {
+    lines.push("## No Results");
+    lines.push("The search returned no results. This may indicate:");
+    lines.push("- The search query is too specific");
+    lines.push("- No matching content exists");
+    lines.push("- A bug in the search functionality");
+    lines.push("");
+  }
+  lines.push("## Validation Questions");
+  lines.push("");
+  lines.push("1. **Relevance:** Do the results match the user's intent?");
+  lines.push("2. **Quality:** Are the results useful and informative?");
+  lines.push("3. **Issues:** Are there any obvious problems (e.g., unrelated content)?");
+  lines.push("4. **Suggestions:** What could improve the search experience?");
+  lines.push("");
+  lines.push("## Expected Response");
+  lines.push("");
+  lines.push("Please respond with:");
+  lines.push("- `relevant`: true/false - whether results match user intent");
+  lines.push("- `confidence`: 0-1 - how confident you are in the assessment");
+  lines.push("- `reasoning`: brief explanation of your assessment");
+  lines.push("- `suggestions`: (optional) array of improvement suggestions");
+  lines.push("- `issues`: (optional) array of specific issues found");
+  return lines.join("\n");
+}
+function generateQuickSummary(context) {
+  const lines = [];
+  lines.push(`Search: "${context.query}"`);
+  lines.push(`Intent: ${context.userIntent}`);
+  lines.push(`Results: ${context.resultCount} found in ${context.timing.total}ms`);
+  if (context.results.length > 0) {
+    lines.push("");
+    lines.push("Top results:");
+    for (const result of context.results.slice(0, 3)) {
+      const title = result.title || result.fullText.slice(0, 50);
+      lines.push(`  ${result.index + 1}. ${title}`);
+    }
+  }
+  return lines.join("\n");
+}
+function analyzeForObviousIssues(context) {
+  const issues = [];
+  if (!context.hasResults) {
+    issues.push({
+      type: "empty",
+      description: "Search returned no results",
+      severity: "high"
+    });
+  }
+  if (context.timing.total > 5e3) {
+    issues.push({
+      type: "slow",
+      description: `Search took ${context.timing.total}ms (>5s)`,
+      severity: context.timing.total > 1e4 ? "high" : "medium"
+    });
+  }
+  for (const result of context.results) {
+    if (!result.fullText || result.fullText.trim().length < 10) {
+      issues.push({
+        type: "error",
+        resultIndex: result.index,
+        description: `Result ${result.index + 1} has no meaningful content`,
+        severity: "medium"
+      });
+    }
+  }
+  const queryTerms = context.query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+  for (const result of context.results) {
+    const textLower = result.fullText.toLowerCase();
+    const matchCount = queryTerms.filter((term) => textLower.includes(term)).length;
+    const matchRatio = matchCount / queryTerms.length;
+    if (matchRatio < 0.2 && queryTerms.length > 1) {
+      issues.push({
+        type: "irrelevant",
+        resultIndex: result.index,
+        description: `Result ${result.index + 1} may not match query (low keyword overlap)`,
+        severity: "low"
+      });
+    }
+  }
+  return issues;
+}
+function formatValidationResult(result) {
+  const lines = [];
+  const status = result.relevant ? "PASS" : "FAIL";
+  const confidence = Math.round(result.confidence * 100);
+  lines.push(`## Validation: ${status} (${confidence}% confidence)`);
+  lines.push("");
+  lines.push(`**Assessment:** ${result.reasoning}`);
+  if (result.issues && result.issues.length > 0) {
+    lines.push("");
+    lines.push("**Issues Found:**");
+    for (const issue of result.issues) {
+      const severity = issue.severity.toUpperCase();
+      lines.push(`- [${severity}] ${issue.description}`);
+    }
+  }
+  if (result.suggestions && result.suggestions.length > 0) {
+    lines.push("");
+    lines.push("**Suggestions:**");
+    for (const suggestion of result.suggestions) {
+      lines.push(`- ${suggestion}`);
+    }
+  }
+  return lines.join("\n");
+}
+function generateDevModePrompt(context, issues) {
+  const lines = [];
+  lines.push("## Search Results Review");
+  lines.push("");
+  lines.push(`Query: "${context.query}"`);
+  lines.push(`Intent: ${context.userIntent}`);
+  lines.push("");
+  if (issues.length > 0) {
+    lines.push("**Potential issues detected:**");
+    for (const issue of issues) {
+      lines.push(`- ${issue.description}`);
+    }
+    lines.push("");
+  }
+  if (context.results.length > 0) {
+    lines.push("**Sample results:**");
+    for (const result of context.results.slice(0, 3)) {
+      const title = result.title || result.fullText.slice(0, 40);
+      lines.push(`  ${result.index + 1}. ${title}`);
+    }
+    lines.push("");
+  }
+  lines.push("**What would you like to do?**");
+  lines.push("1. Accept results as expected");
+  lines.push("2. Refine the search query");
+  lines.push("3. Report as bug");
+  lines.push("4. Skip this test");
+  return lines.join("\n");
+}
+var init_search_validation = __esm({
+  "src/flows/search-validation.ts"() {
+    "use strict";
+  }
+});
+
 // src/consistency.ts
 var consistency_exports = {};
 __export(consistency_exports, {
@@ -3174,8 +3696,8 @@ async function discoverApiRoutes(projectDir) {
 }
 async function fileExists(filePath) {
   try {
-    const stat3 = await fs.stat(filePath);
-    return stat3.isFile();
+    const stat4 = await fs.stat(filePath);
+    return stat4.isFile();
   } catch {
     return false;
   }
@@ -3346,8 +3868,8 @@ function extractHttpMethods(content) {
 }
 async function directoryExists(dir) {
   try {
-    const stat3 = await fs.stat(dir);
-    return stat3.isDirectory();
+    const stat4 = await fs.stat(dir);
+    return stat4.isDirectory();
   } catch {
     return false;
   }
@@ -4269,12 +4791,12 @@ function listPresets() {
   return Array.from(presets.keys());
 }
 async function loadRulesConfig(projectDir) {
-  const configPath = (0, import_path8.join)(projectDir, ".ibr", "rules.json");
+  const configPath = (0, import_path9.join)(projectDir, ".ibr", "rules.json");
   if (!(0, import_fs2.existsSync)(configPath)) {
     return { extends: [], rules: {} };
   }
   try {
-    const content = await (0, import_promises8.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises9.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch (error) {
     console.warn(`Failed to parse rules.json: ${error}`);
@@ -4373,13 +4895,13 @@ function formatAuditResult(result) {
   lines.push(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.passed} passed`);
   return lines.join("\n");
 }
-var import_promises8, import_fs2, import_path8, presets;
+var import_promises9, import_fs2, import_path9, presets;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
-    import_promises8 = require("fs/promises");
+    import_promises9 = require("fs/promises");
     import_fs2 = require("fs");
-    import_path8 = require("path");
+    import_path9 = require("path");
     presets = /* @__PURE__ */ new Map();
     Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
     });
@@ -4410,16 +4932,16 @@ async function closeBrowser2() {
   }
 }
 async function checkLock(outputDir) {
-  const lockPath = (0, import_path9.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path10.join)(outputDir, LOCK_FILE);
   if (!(0, import_fs3.existsSync)(lockPath)) {
     return false;
   }
   try {
-    const content = await (0, import_promises9.readFile)(lockPath, "utf-8");
+    const content = await (0, import_promises10.readFile)(lockPath, "utf-8");
     const timestamp = parseInt(content, 10);
     const age = Date.now() - timestamp;
     if (age > LOCK_TIMEOUT_MS) {
-      await (0, import_promises9.unlink)(lockPath);
+      await (0, import_promises10.unlink)(lockPath);
       return false;
     }
     return true;
@@ -4428,13 +4950,13 @@ async function checkLock(outputDir) {
   }
 }
 async function createLock(outputDir) {
-  const lockPath = (0, import_path9.join)(outputDir, LOCK_FILE);
-  await (0, import_promises9.writeFile)(lockPath, Date.now().toString());
+  const lockPath = (0, import_path10.join)(outputDir, LOCK_FILE);
+  await (0, import_promises10.writeFile)(lockPath, Date.now().toString());
 }
 async function releaseLock(outputDir) {
-  const lockPath = (0, import_path9.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path10.join)(outputDir, LOCK_FILE);
   try {
-    await (0, import_promises9.unlink)(lockPath);
+    await (0, import_promises10.unlink)(lockPath);
   } catch {
   }
 }
@@ -4701,8 +5223,8 @@ async function extractFromURL(options) {
   if (await checkLock(outputDir)) {
     throw new Error("Another extraction is in progress. Please wait.");
   }
-  const sessionDir = (0, import_path9.join)(outputDir, "sessions", sessionId);
-  await (0, import_promises9.mkdir)(sessionDir, { recursive: true });
+  const sessionDir = (0, import_path10.join)(outputDir, "sessions", sessionId);
+  await (0, import_promises10.mkdir)(sessionDir, { recursive: true });
   await createLock(outputDir);
   const browserInstance = await getBrowser2();
   let timeoutHandle = null;
@@ -4744,7 +5266,7 @@ async function extractFromURL(options) {
           elements.push(...extracted);
         }
         const cssVariables = await extractCSSVariables(page);
-        const screenshotPath = (0, import_path9.join)(sessionDir, "reference.png");
+        const screenshotPath = (0, import_path10.join)(sessionDir, "reference.png");
         await page.screenshot({
           path: screenshotPath,
           fullPage: true,
@@ -4759,11 +5281,11 @@ async function extractFromURL(options) {
           cssVariables,
           screenshotPath
         };
-        await (0, import_promises9.writeFile)(
-          (0, import_path9.join)(sessionDir, "reference.json"),
+        await (0, import_promises10.writeFile)(
+          (0, import_path10.join)(sessionDir, "reference.json"),
           JSON.stringify(result2, null, 2)
         );
-        await (0, import_promises9.writeFile)((0, import_path9.join)(sessionDir, "reference.html"), html);
+        await (0, import_promises10.writeFile)((0, import_path10.join)(sessionDir, "reference.html"), html);
         return result2;
       } finally {
         await context.close();
@@ -4779,25 +5301,25 @@ async function extractFromURL(options) {
   }
 }
 function getReferenceSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path9.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path10.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path9.join)(root, "session.json"),
-    reference: (0, import_path9.join)(root, "reference.png"),
-    referenceHtml: (0, import_path9.join)(root, "reference.html"),
-    referenceData: (0, import_path9.join)(root, "reference.json"),
-    current: (0, import_path9.join)(root, "current.png"),
-    diff: (0, import_path9.join)(root, "diff.png")
+    sessionJson: (0, import_path10.join)(root, "session.json"),
+    reference: (0, import_path10.join)(root, "reference.png"),
+    referenceHtml: (0, import_path10.join)(root, "reference.html"),
+    referenceData: (0, import_path10.join)(root, "reference.json"),
+    current: (0, import_path10.join)(root, "current.png"),
+    diff: (0, import_path10.join)(root, "diff.png")
   };
 }
-var import_playwright7, import_promises9, import_fs3, import_path9, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
+var import_playwright7, import_promises10, import_fs3, import_path10, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
 var init_extract = __esm({
   "src/extract.ts"() {
     "use strict";
     import_playwright7 = require("playwright");
-    import_promises9 = require("fs/promises");
+    import_promises10 = require("fs/promises");
     import_fs3 = require("fs");
-    import_path9 = require("path");
+    import_path10 = require("path");
     init_schemas();
     LOCK_FILE = ".extracting";
     LOCK_TIMEOUT_MS = 18e4;
@@ -5044,19 +5566,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path10.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = (0, import_path11.join)(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path10.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = (0, import_path11.join)(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path10.join)((0, import_os2.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = (0, import_path11.join)((0, import_os2.homedir)(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -5082,7 +5604,7 @@ async function tryLoadFramework(filePath, type) {
   }
   source.found = true;
   try {
-    const content = await (0, import_promises10.readFile)(filePath, "utf-8");
+    const content = await (0, import_promises11.readFile)(filePath, "utf-8");
     const framework = parseDesignFramework(content, filePath);
     if (framework) {
       source.hasFramework = true;
@@ -5093,12 +5615,12 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path10.join)(projectDir, ".ibrrc.json");
+  const configPath = (0, import_path11.join)(projectDir, ".ibrrc.json");
   if (!(0, import_fs4.existsSync)(configPath)) {
     return {};
   }
   try {
-    const content = await (0, import_promises10.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises11.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -5124,13 +5646,13 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs4, import_promises10, import_path10, import_os2;
+var import_fs4, import_promises11, import_path11, import_os2;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
     import_fs4 = require("fs");
-    import_promises10 = require("fs/promises");
-    import_path10 = require("path");
+    import_promises11 = require("fs/promises");
+    import_path11 = require("path");
     import_os2 = require("os");
     init_framework_parser();
   }
@@ -5399,9 +5921,9 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path11.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path11.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path11.join)(outputDir, "sessions")
+    stateFile: (0, import_path12.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path12.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path12.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
@@ -5410,7 +5932,7 @@ async function isServerRunning(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises11.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises12.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const browser3 = await import_playwright8.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
     await browser3.close();
@@ -5423,7 +5945,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises11.unlink)(stateFile);
+    await (0, import_promises12.unlink)(stateFile);
   } catch {
   }
 }
@@ -5434,9 +5956,9 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises11.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises12.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises11.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises12.mkdir)(profileDir, { recursive: true });
   }
   const debugPort = 9222 + Math.floor(Math.random() * 1e3);
   const browserArgs = [`--remote-debugging-port=${debugPort}`];
@@ -5482,7 +6004,7 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises11.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await (0, import_promises12.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { server, wsEndpoint };
 }
 async function connectToBrowserServer(outputDir) {
@@ -5491,7 +6013,7 @@ async function connectToBrowserServer(outputDir) {
     return null;
   }
   try {
-    const content = await (0, import_promises11.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises12.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (state.cdpUrl) {
       const browser4 = await import_playwright8.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
@@ -5510,11 +6032,11 @@ async function stopBrowserServer(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises11.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises12.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const browser3 = await import_playwright8.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
     await browser3.close();
-    await (0, import_promises11.unlink)(stateFile);
+    await (0, import_promises12.unlink)(stateFile);
     return true;
   } catch {
     await cleanupServerState(outputDir);
@@ -5526,12 +6048,12 @@ async function listActiveSessions(outputDir) {
   if (!(0, import_fs5.existsSync)(sessionsDir)) {
     return [];
   }
-  const { readdir: readdir3 } = await import("fs/promises");
-  const entries = await readdir3(sessionsDir, { withFileTypes: true });
+  const { readdir: readdir4 } = await import("fs/promises");
+  const entries = await readdir4(sessionsDir, { withFileTypes: true });
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path11.join)(sessionsDir, entry.name, "live-session.json");
+      const statePath = (0, import_path12.join)(sessionsDir, entry.name, "live-session.json");
       if ((0, import_fs5.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
@@ -5539,14 +6061,14 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_playwright8, import_promises11, import_fs5, import_path11, import_nanoid3, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright8, import_promises12, import_fs5, import_path12, import_nanoid3, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     import_playwright8 = require("playwright");
-    import_promises11 = require("fs/promises");
+    import_promises12 = require("fs/promises");
     import_fs5 = require("fs");
-    import_path11 = require("path");
+    import_path12 = require("path");
     import_nanoid3 = require("nanoid");
     init_schemas();
     init_extract();
@@ -5578,9 +6100,9 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${(0, import_nanoid3.nanoid)(10)}`;
-        const sessionsDir = (0, import_path11.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path11.join)(sessionsDir, sessionId);
-        await (0, import_promises11.mkdir)(sessionDir, { recursive: true });
+        const sessionsDir = (0, import_path12.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path12.join)(sessionsDir, sessionId);
+        await (0, import_promises12.mkdir)(sessionDir, { recursive: true });
         const context = await browser3.newContext({
           viewport: {
             width: viewport.width,
@@ -5613,12 +6135,12 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises11.writeFile)(
-          (0, import_path11.join)(sessionDir, "live-session.json"),
+        await (0, import_promises12.writeFile)(
+          (0, import_path12.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path11.join)(sessionDir, "baseline.png"),
+          path: (0, import_path12.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(browser3, context, page, state, sessionDir);
@@ -5627,8 +6149,8 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path11.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path11.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path12.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path12.join)(sessionDir, "live-session.json");
         if (!(0, import_fs5.existsSync)(statePath)) {
           return null;
         }
@@ -5636,7 +6158,7 @@ var init_browser_server = __esm({
         if (!browser3) {
           return null;
         }
-        const content = await (0, import_promises11.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises12.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const contexts = browser3.contexts();
         let context;
@@ -5679,8 +6201,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises11.writeFile)(
-          (0, import_path11.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises12.writeFile)(
+          (0, import_path12.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -5719,7 +6241,7 @@ var init_browser_server = __esm({
         const timeout = options?.timeout || 5e3;
         try {
           const locator = this.page.locator(selector).filter({ visible: true }).first();
-          await locator.click({ timeout });
+          await locator.click({ timeout, force: options?.force });
           await this.recordAction({
             type: "click",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -5744,9 +6266,17 @@ var init_browser_server = __esm({
         const timeout = options?.timeout || 5e3;
         try {
           const locator = this.page.locator(selector).filter({ visible: true }).first();
-          await locator.fill("", { timeout });
+          if (!options?.append) {
+            await locator.fill("", { timeout });
+          }
           if (options?.delay && options.delay > 0) {
+            if (options?.append) {
+              await locator.focus({ timeout });
+            }
             await locator.pressSequentially(text, { delay: options.delay, timeout });
+          } else if (options?.append) {
+            await locator.focus({ timeout });
+            await locator.pressSequentially(text, { timeout });
           } else {
             await locator.fill(text, { timeout });
           }
@@ -5814,7 +6344,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path11.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path12.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -5874,8 +6404,86 @@ var init_browser_server = __esm({
       async press(key) {
         await this.page.keyboard.press(key);
       }
+      /**
+       * Scroll the page or a specific container
+       * @param direction - 'up', 'down', 'left', 'right'
+       * @param amount - pixels to scroll (default: 500)
+       * @param options - optional selector to scroll within a container
+       */
+      async scroll(direction, amount = 500, options) {
+        const scrollMap = {
+          up: { x: 0, y: -amount },
+          down: { x: 0, y: amount },
+          left: { x: -amount, y: 0 },
+          right: { x: amount, y: 0 }
+        };
+        const { x, y } = scrollMap[direction];
+        if (options?.selector) {
+          const position2 = await this.page.evaluate(({ sel, deltaX, deltaY }) => {
+            const el = document.querySelector(sel);
+            if (!el) {
+              throw new Error(`Container not found: ${sel}`);
+            }
+            el.scrollBy(deltaX, deltaY);
+            return { x: el.scrollLeft, y: el.scrollTop };
+          }, { sel: options.selector, deltaX: x, deltaY: y });
+          return position2;
+        }
+        const position = await this.page.evaluate(({ deltaX, deltaY }) => {
+          window.scrollBy(deltaX, deltaY);
+          return { x: window.scrollX, y: window.scrollY };
+        }, { deltaX: x, deltaY: y });
+        return position;
+      }
       async evaluate(script) {
         return this.page.evaluate(script);
+      }
+      /**
+       * Detect if a modal is currently open and how to dismiss it
+       */
+      async detectModal() {
+        return this.page.evaluate(() => {
+          const modalSelectors = [
+            '[role="dialog"]',
+            '[role="alertdialog"]',
+            '[aria-modal="true"]',
+            ".modal.show",
+            ".modal.open",
+            '.modal[style*="display: block"]',
+            '[data-state="open"][data-modal]',
+            ".fixed.inset-0"
+            // Tailwind modal pattern
+          ];
+          for (const sel of modalSelectors) {
+            const modal = document.querySelector(sel);
+            if (modal && getComputedStyle(modal).display !== "none") {
+              const closeSelectors = [
+                '[aria-label="Close"]',
+                '[aria-label="close"]',
+                ".close",
+                ".btn-close",
+                '[data-dismiss="modal"]',
+                'button[type="button"]:has(svg)'
+                // Icon-only close button
+              ];
+              let closeButtonSelector;
+              for (const closeSel of closeSelectors) {
+                const closeBtn = modal.querySelector(closeSel);
+                if (closeBtn) {
+                  closeButtonSelector = `${sel} ${closeSel}`;
+                  break;
+                }
+              }
+              return {
+                hasModal: true,
+                selector: sel,
+                dismissMethod: closeButtonSelector ? "close-button" : "escape",
+                closeButtonSelector
+              };
+            }
+          }
+          return { hasModal: false };
+        });
       }
       async content() {
         return this.page.content();
@@ -5929,14 +6537,14 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright9, import_promises12, import_fs6, import_path12, import_nanoid4, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright9, import_promises13, import_fs6, import_path13, import_nanoid4, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     import_playwright9 = require("playwright");
-    import_promises12 = require("fs/promises");
+    import_promises13 = require("fs/promises");
     import_fs6 = require("fs");
-    import_path12 = require("path");
+    import_path13 = require("path");
     import_nanoid4 = require("nanoid");
     init_schemas();
     LiveSession = class _LiveSession {
@@ -5950,7 +6558,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, browser3, context, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path12.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path13.join)(outputDir, "sessions", state.id);
         this.browser = browser3;
         this.context = context;
         this.page = page;
@@ -5968,8 +6576,8 @@ var init_live_session = __esm({
           timeout = 3e4
         } = options;
         const sessionId = `live_${(0, import_nanoid4.nanoid)(10)}`;
-        const sessionDir = (0, import_path12.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises12.mkdir)(sessionDir, { recursive: true });
+        const sessionDir = (0, import_path13.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises13.mkdir)(sessionDir, { recursive: true });
         const browser3 = await import_playwright9.chromium.launch({
           headless: !sandbox && !debug,
           slowMo: debug ? 100 : 0,
@@ -6004,12 +6612,12 @@ var init_live_session = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises12.writeFile)(
-          (0, import_path12.join)(sessionDir, "live-session.json"),
+        await (0, import_promises13.writeFile)(
+          (0, import_path13.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path12.join)(sessionDir, "baseline.png"),
+          path: (0, import_path13.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _LiveSession(state, outputDir, browser3, context, page);
@@ -6019,12 +6627,12 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path12.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path12.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path13.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path13.join)(sessionDir, "live-session.json");
         if (!(0, import_fs6.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises12.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises13.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const browser3 = await import_playwright9.chromium.launch({
           headless: !state.sandbox
@@ -6069,8 +6677,8 @@ var init_live_session = __esm({
        * Save session state
        */
       async saveState() {
-        await (0, import_promises12.writeFile)(
-          (0, import_path12.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises13.writeFile)(
+          (0, import_path13.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -6305,7 +6913,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path12.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path13.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -6476,11 +7084,290 @@ var init_live_session = __esm({
   }
 });
 
+// src/screenshot-manager.ts
+var screenshot_manager_exports = {};
+__export(screenshot_manager_exports, {
+  ScreenshotManager: () => ScreenshotManager,
+  formatAge: () => formatAge,
+  formatBytes: () => formatBytes2
+});
+function formatBytes2(bytes) {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+}
+function formatAge(ms) {
+  const seconds = Math.floor(ms / 1e3);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}d ago`;
+  if (hours > 0) return `${hours}h ago`;
+  if (minutes > 0) return `${minutes}m ago`;
+  return `${seconds}s ago`;
+}
+var import_promises14, import_fs7, import_path14, DEFAULT_CONFIG, ScreenshotManager;
+var init_screenshot_manager = __esm({
+  "src/screenshot-manager.ts"() {
+    "use strict";
+    import_promises14 = require("fs/promises");
+    import_fs7 = require("fs");
+    import_path14 = require("path");
+    DEFAULT_CONFIG = {
+      maxAgeDays: 7,
+      maxSizeBytes: 500 * 1024 * 1024,
+      // 500MB
+      retentionPolicy: "both"
+    };
+    ScreenshotManager = class {
+      outputDir;
+      config;
+      constructor(outputDir, config = {}) {
+        this.outputDir = outputDir;
+        this.config = { ...DEFAULT_CONFIG, ...config };
+      }
+      /**
+       * Capture a screenshot from a Playwright page
+       */
+      async capture(page, name, options = {}) {
+        const { sessionId, fullPage = false, selector } = options;
+        let outputPath;
+        if (sessionId) {
+          const sessionDir = (0, import_path14.join)(this.outputDir, "sessions", sessionId);
+          await (0, import_promises14.mkdir)(sessionDir, { recursive: true });
+          outputPath = (0, import_path14.join)(sessionDir, `${name}.png`);
+        } else {
+          await (0, import_promises14.mkdir)(this.outputDir, { recursive: true });
+          outputPath = (0, import_path14.join)(this.outputDir, `${name}.png`);
+        }
+        await page.addStyleTag({
+          content: `
+        *, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }
+      `
+        });
+        if (selector) {
+          const element = await page.$(selector);
+          if (!element) {
+            throw new Error(`Element not found: ${selector}`);
+          }
+          await element.screenshot({ path: outputPath, type: "png" });
+        } else {
+          await page.screenshot({
+            path: outputPath,
+            fullPage,
+            type: "png"
+          });
+        }
+        return outputPath;
+      }
+      /**
+       * List all screenshots for a session
+       */
+      async list(sessionId) {
+        const sessionDir = (0, import_path14.join)(this.outputDir, "sessions", sessionId);
+        if (!(0, import_fs7.existsSync)(sessionDir)) {
+          return [];
+        }
+        const screenshots = [];
+        await this.scanDirectory(sessionDir, sessionId, screenshots);
+        screenshots.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        return screenshots;
+      }
+      /**
+       * List all screenshots across all sessions
+       */
+      async listAll() {
+        const sessionsDir = (0, import_path14.join)(this.outputDir, "sessions");
+        if (!(0, import_fs7.existsSync)(sessionsDir)) {
+          return [];
+        }
+        const screenshots = [];
+        const sessions = await (0, import_promises14.readdir)(sessionsDir);
+        for (const sessionId of sessions) {
+          const sessionDir = (0, import_path14.join)(sessionsDir, sessionId);
+          const stats = await (0, import_promises14.stat)(sessionDir);
+          if (stats.isDirectory()) {
+            await this.scanDirectory(sessionDir, sessionId, screenshots);
+          }
+        }
+        screenshots.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        return screenshots;
+      }
+      /**
+       * Scan a directory for PNG files
+       */
+      async scanDirectory(dir, sessionId, results) {
+        const entries = await (0, import_promises14.readdir)(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const fullPath = (0, import_path14.join)(dir, entry.name);
+          if (entry.isDirectory()) {
+            await this.scanDirectory(fullPath, sessionId, results);
+          } else if (entry.name.endsWith(".png")) {
+            const stats = await (0, import_promises14.stat)(fullPath);
+            const now = Date.now();
+            const stepMatch = entry.name.match(/^\d+-(.+)\.png$/);
+            const step = stepMatch ? stepMatch[1] : void 0;
+            results.push({
+              path: fullPath,
+              name: entry.name,
+              size: stats.size,
+              createdAt: stats.birthtime,
+              ageMs: now - stats.birthtime.getTime(),
+              sessionId,
+              step
+            });
+          }
+        }
+      }
+      /**
+       * Get metadata for a specific screenshot
+       */
+      async getMetadata(path2) {
+        if (!(0, import_fs7.existsSync)(path2)) {
+          return null;
+        }
+        const stats = await (0, import_promises14.stat)(path2);
+        const name = (0, import_path14.basename)(path2);
+        const dir = (0, import_path14.dirname)(path2);
+        const stepMatch = name.match(/^\d+-(.+)\.png$/);
+        const step = stepMatch ? stepMatch[1] : void 0;
+        const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
+        const sessionId = sessionMatch ? sessionMatch[1] : void 0;
+        let query;
+        let userIntent;
+        const resultsPath = (0, import_path14.join)(dir, "results.json");
+        if ((0, import_fs7.existsSync)(resultsPath)) {
+          try {
+            const resultsContent = await (0, import_promises14.readFile)(resultsPath, "utf-8");
+            const results = JSON.parse(resultsContent);
+            query = results.query;
+            userIntent = results.userIntent;
+          } catch {
+          }
+        }
+        return {
+          path: path2,
+          name,
+          size: stats.size,
+          createdAt: stats.birthtime.toISOString(),
+          sessionId,
+          step,
+          query,
+          userIntent
+        };
+      }
+      /**
+       * Cleanup old screenshots based on retention policy
+       */
+      async cleanup(options = {}) {
+        const { dryRun = false } = options;
+        const report = {
+          scanned: 0,
+          deleted: 0,
+          bytesFreed: 0,
+          kept: 0,
+          errors: [],
+          dryRun
+        };
+        const screenshots = await this.listAll();
+        report.scanned = screenshots.length;
+        if (screenshots.length === 0) {
+          return report;
+        }
+        const toDelete = [];
+        const maxAgeMs = this.config.maxAgeDays * 24 * 60 * 60 * 1e3;
+        if (this.config.retentionPolicy === "age" || this.config.retentionPolicy === "both") {
+          for (const shot of screenshots) {
+            if (shot.ageMs > maxAgeMs && !toDelete.includes(shot)) {
+              toDelete.push(shot);
+            }
+          }
+        }
+        if (this.config.retentionPolicy === "size" || this.config.retentionPolicy === "both") {
+          let totalSize = screenshots.reduce((sum, s) => sum + s.size, 0);
+          const sortedByAge = [...screenshots].sort((a, b) => b.ageMs - a.ageMs);
+          for (const shot of sortedByAge) {
+            if (totalSize <= this.config.maxSizeBytes) break;
+            if (!toDelete.includes(shot)) {
+              toDelete.push(shot);
+              totalSize -= shot.size;
+            }
+          }
+        }
+        for (const shot of toDelete) {
+          try {
+            if (!dryRun) {
+              await (0, import_promises14.unlink)(shot.path);
+            }
+            report.deleted++;
+            report.bytesFreed += shot.size;
+          } catch (error) {
+            report.errors.push(`Failed to delete ${shot.path}: ${error}`);
+          }
+        }
+        report.kept = report.scanned - report.deleted;
+        return report;
+      }
+      /**
+       * Get total storage used by screenshots
+       */
+      async getStorageUsage() {
+        const screenshots = await this.listAll();
+        if (screenshots.length === 0) {
+          return { totalBytes: 0, fileCount: 0 };
+        }
+        const totalBytes = screenshots.reduce((sum, s) => sum + s.size, 0);
+        const sorted = [...screenshots].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+        return {
+          totalBytes,
+          fileCount: screenshots.length,
+          oldestFile: sorted[0].createdAt,
+          newestFile: sorted[sorted.length - 1].createdAt
+        };
+      }
+      /**
+       * Update configuration
+       */
+      updateConfig(config) {
+        this.config = { ...this.config, ...config };
+      }
+      /**
+       * Save configuration to file
+       */
+      async saveConfig() {
+        const configPath = (0, import_path14.join)(this.outputDir, "screenshot-config.json");
+        await (0, import_promises14.writeFile)(configPath, JSON.stringify(this.config, null, 2));
+      }
+      /**
+       * Load configuration from file
+       */
+      async loadConfig() {
+        const configPath = (0, import_path14.join)(this.outputDir, "screenshot-config.json");
+        if ((0, import_fs7.existsSync)(configPath)) {
+          try {
+            const content = await (0, import_promises14.readFile)(configPath, "utf-8");
+            const loaded = JSON.parse(content);
+            this.config = { ...DEFAULT_CONFIG, ...loaded };
+          } catch {
+          }
+        }
+      }
+    };
+  }
+});
+
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises13 = require("fs/promises");
-var import_path13 = require("path");
-var import_fs7 = require("fs");
+var import_promises15 = require("fs/promises");
+var import_path15 = require("path");
+var import_fs8 = require("fs");
 
 // src/index.ts
 init_schemas();
@@ -6583,51 +7470,8 @@ function formatSessionSummary(session) {
 // src/index.ts
 init_semantic();
 
-// src/flows/types.ts
-async function findFieldByLabel(page, labels) {
-  for (const label of labels) {
-    const selectors = [
-      `input[name*="${label}" i]`,
-      `input[id*="${label}" i]`,
-      `input[placeholder*="${label}" i]`,
-      `input[aria-label*="${label}" i]`,
-      `label:has-text("${label}") + input`,
-      `label:has-text("${label}") input`
-    ];
-    for (const selector of selectors) {
-      const element = await page.$(selector);
-      if (element) return element;
-    }
-  }
-  return null;
-}
-async function findButton(page, patterns) {
-  for (const pattern of patterns) {
-    const selectors = [
-      `button:has-text("${pattern}")`,
-      `input[type="submit"][value*="${pattern}" i]`,
-      `button[type="submit"]:has-text("${pattern}")`,
-      `a:has-text("${pattern}")`,
-      `[role="button"]:has-text("${pattern}")`
-    ];
-    for (const selector of selectors) {
-      const element = await page.$(selector);
-      if (element) return element;
-    }
-  }
-  return page.$('button[type="submit"], input[type="submit"]');
-}
-async function waitForNavigation(page, timeout = 1e4) {
-  try {
-    await Promise.race([
-      page.waitForNavigation({ timeout }),
-      page.waitForLoadState("networkidle", { timeout })
-    ]);
-  } catch {
-  }
-}
-
 // src/flows/login.ts
+init_types2();
 init_state_detector();
 async function loginFlow(page, options) {
   const startTime = Date.now();
@@ -6724,74 +7568,11 @@ async function loginFlow(page, options) {
   }
 }
 
-// src/flows/search.ts
-async function searchFlow(page, options) {
-  const startTime = Date.now();
-  const steps = [];
-  const timeout = options.timeout || 1e4;
-  try {
-    const searchInput = await findFieldByLabel(page, [
-      "search",
-      "query",
-      "q",
-      "find"
-    ]);
-    const searchField = searchInput || await page.$(
-      'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
-    );
-    if (!searchField) {
-      return {
-        success: false,
-        resultCount: 0,
-        hasResults: false,
-        steps,
-        error: "Could not find search input",
-        duration: Date.now() - startTime
-      };
-    }
-    await searchField.fill("");
-    await searchField.fill(options.query);
-    steps.push({ action: `type "${options.query}"`, success: true });
-    if (options.submit !== false) {
-      await searchField.press("Enter");
-      steps.push({ action: "submit search", success: true });
-      await waitForNavigation(page, timeout);
-      steps.push({ action: "wait for results", success: true });
-    } else {
-      await page.waitForTimeout(500);
-      steps.push({ action: "wait for autocomplete", success: true });
-    }
-    const resultsSelector = options.resultsSelector || '[class*="result"], [class*="item"], [class*="card"], [data-testid*="result"], li[class*="search"]';
-    const results = await page.$$(resultsSelector);
-    const resultCount = results.length;
-    const hasResults = resultCount > 0;
-    const emptyState = await page.$(
-      '[class*="no-results"], [class*="empty"], :has-text("no results"), :has-text("nothing found")'
-    );
-    steps.push({
-      action: `found ${resultCount} results`,
-      success: hasResults || !!emptyState
-    });
-    return {
-      success: true,
-      resultCount,
-      hasResults,
-      steps,
-      duration: Date.now() - startTime
-    };
-  } catch (error) {
-    return {
-      success: false,
-      resultCount: 0,
-      hasResults: false,
-      steps,
-      error: error instanceof Error ? error.message : "Unknown error",
-      duration: Date.now() - startTime
-    };
-  }
-}
+// src/flows/index.ts
+init_search();
 
 // src/flows/form.ts
+init_types2();
 async function formFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -6903,12 +7684,17 @@ async function formFlow(page, options) {
   }
 }
 
+// src/flows/index.ts
+init_types2();
+init_search_validation();
+init_search();
+
 // src/index.ts
 var import_playwright6 = require("playwright");
 
 // src/cleanup.ts
-var import_promises6 = require("fs/promises");
-var import_path6 = require("path");
+var import_promises7 = require("fs/promises");
+var import_path7 = require("path");
 init_session();
 var DEFAULT_RETENTION = {
   maxSessions: void 0,
@@ -6917,10 +7703,10 @@ var DEFAULT_RETENTION = {
   autoClean: false
 };
 async function loadRetentionConfig(outputDir) {
-  const configPath = (0, import_path6.join)(outputDir, "..", ".ibrrc.json");
+  const configPath = (0, import_path7.join)(outputDir, "..", ".ibrrc.json");
   try {
-    await (0, import_promises6.access)(configPath);
-    const content = await (0, import_promises6.readFile)(configPath, "utf-8");
+    await (0, import_promises7.access)(configPath);
+    const content = await (0, import_promises7.readFile)(configPath, "utf-8");
     const config = JSON.parse(content);
     return {
       ...DEFAULT_RETENTION,
@@ -6999,16 +7785,16 @@ init_integration();
 
 // src/operation-tracker.ts
 var import_nanoid2 = require("nanoid");
-var import_promises7 = require("fs/promises");
-var import_path7 = require("path");
+var import_promises8 = require("fs/promises");
+var import_path8 = require("path");
 var OPERATION_PREFIX = "op_";
 function getOperationsPath(outputDir) {
-  return (0, import_path7.join)(outputDir, "operations.json");
+  return (0, import_path8.join)(outputDir, "operations.json");
 }
 async function readState(outputDir) {
   const path2 = getOperationsPath(outputDir);
   try {
-    const content = await (0, import_promises7.readFile)(path2, "utf-8");
+    const content = await (0, import_promises8.readFile)(path2, "utf-8");
     return JSON.parse(content);
   } catch {
     return { pending: [], lastUpdated: (/* @__PURE__ */ new Date()).toISOString() };
@@ -7016,9 +7802,9 @@ async function readState(outputDir) {
 }
 async function writeState(outputDir, state) {
   const path2 = getOperationsPath(outputDir);
-  await (0, import_promises7.mkdir)((0, import_path7.dirname)(path2), { recursive: true });
+  await (0, import_promises8.mkdir)((0, import_path8.dirname)(path2), { recursive: true });
   state.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
-  await (0, import_promises7.writeFile)(path2, JSON.stringify(state, null, 2));
+  await (0, import_promises8.writeFile)(path2, JSON.stringify(state, null, 2));
 }
 async function registerOperation(outputDir, options) {
   const state = await readState(outputDir);
@@ -7462,10 +8248,10 @@ var IBRSession = class {
 // src/bin/ibr.ts
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path13.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs7.existsSync)(configPath)) {
+  const configPath = (0, import_path15.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs8.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises13.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises15.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -7507,7 +8293,7 @@ async function createIBR(options = {}) {
   };
   return new InterfaceBuiltRight(merged);
 }
-program.name("ibr").description("Visual regression testing for Claude Code").version("0.4.0");
+program.name("ibr").description("Visual regression testing for Claude Code").version("0.4.1");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
@@ -7702,8 +8488,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runVisual) {
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2, getMostRecentSession: getMostRecentSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { mkdir: mkdir9, access: access3 } = await import("fs/promises");
-      const { join: join13 } = await import("path");
+      const { mkdir: mkdir11, access: access3 } = await import("fs/promises");
+      const { join: join15 } = await import("path");
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -7711,7 +8497,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir9(join13(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir11(join15(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access3(paths.baseline);
@@ -7741,8 +8527,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runSemantic) {
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { readFile: readFile14 } = await import("fs/promises");
-      const { join: join13 } = await import("path");
+      const { readFile: readFile15 } = await import("fs/promises");
+      const { join: join15 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
@@ -7767,8 +8553,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join13(process.cwd(), "CLAUDE.md");
-          const content = await readFile14(claudeMdPath, "utf-8");
+          const claudeMdPath = join15(process.cwd(), "CLAUDE.md");
+          const content = await readFile15(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
         }
@@ -8062,20 +8848,20 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn } = await import("child_process");
   const { resolve: resolve2 } = await import("path");
   const packageRoot = resolve2(process.cwd());
-  let webUiDir = (0, import_path13.join)(packageRoot, "web-ui");
-  if (!(0, import_fs7.existsSync)(webUiDir)) {
+  let webUiDir = (0, import_path15.join)(packageRoot, "web-ui");
+  if (!(0, import_fs8.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path13.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path13.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path15.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path15.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs7.existsSync)(p)) {
+      if ((0, import_fs8.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs7.existsSync)(webUiDir)) {
+  if (!(0, import_fs8.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -8260,23 +9046,27 @@ async function getSession2(outputDir, sessionId) {
   }
   return session;
 }
-program.command("session:click <sessionId> <selector>").description("Click an element in an active session (auto-targets visible elements)").action(async (sessionId, selector) => {
+program.command("session:click <sessionId> <selector>").description("Click an element in an active session (auto-targets visible elements)").option("--force", "Force click, bypassing overlay interception checks").action(async (sessionId, selector, options) => {
   const globalOpts = program.opts();
   const outputDir = globalOpts.output || "./.ibr";
   const opId = await registerOperation(outputDir, {
     type: "click",
     sessionId,
-    command: `session:click ${sessionId} "${selector}"`
+    command: `session:click ${sessionId} "${selector}"${options.force ? " --force" : ""}`
   });
   try {
     const session = await getSession2(outputDir, sessionId);
-    await session.click(selector);
-    console.log(`Clicked: ${selector}`);
+    await session.click(selector, { force: options.force });
+    console.log(`Clicked: ${selector}${options.force ? " (forced)" : ""}`);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error("Error:", msg);
     console.log("");
-    if (msg.includes("not visible") || msg.includes("Timeout")) {
+    if (msg.includes("intercept") || msg.includes("pointer-events")) {
+      console.log("Tip: Element is blocked by an overlay (modal, backdrop, etc.)");
+      console.log("     Use --force to click through, or dismiss the overlay first");
+      console.log("     npx ibr session:click " + sessionId + ' "' + selector + '" --force');
+    } else if (msg.includes("not visible") || msg.includes("Timeout")) {
       console.log("Tip: IBR auto-filters to visible elements. Element may be:");
       console.log("     - Hidden by CSS (display:none, visibility:hidden)");
       console.log("     - Off-screen or zero-sized");
@@ -8288,7 +9078,7 @@ program.command("session:click <sessionId> <selector>").description("Click an el
     await completeOperation(outputDir, opId);
   }
 });
-program.command("session:type <sessionId> <selector> <text>").description("Type text into an element in an active session").option("--delay <ms>", "Delay between keystrokes", "0").option("--submit", "Press Enter after typing (waits for network idle)").option("--wait-after <ms>", "Wait this long after typing/submitting before next command").action(async (sessionId, selector, text, options) => {
+program.command("session:type <sessionId> <selector> <text>").description("Type text into an element in an active session").option("--delay <ms>", "Delay between keystrokes", "0").option("--submit", "Press Enter after typing (waits for network idle)").option("--wait-after <ms>", "Wait this long after typing/submitting before next command").option("--append", "Append to existing content without clearing").action(async (sessionId, selector, text, options) => {
   const globalOpts = program.opts();
   const outputDir = globalOpts.output || "./.ibr";
   const opId = await registerOperation(outputDir, {
@@ -8301,9 +9091,10 @@ program.command("session:type <sessionId> <selector> <text>").description("Type 
     await session.type(selector, text, {
       delay: parseInt(options.delay, 10),
       submit: options.submit,
-      waitAfter: options.waitAfter ? parseInt(options.waitAfter, 10) : void 0
+      waitAfter: options.waitAfter ? parseInt(options.waitAfter, 10) : void 0,
+      append: options.append
     });
-    const action = options.submit ? "Typed and submitted" : "Typed";
+    const action = options.append ? "Appended" : options.submit ? "Typed and submitted" : "Typed";
     console.log(`${action}: "${text.length > 20 ? text.slice(0, 20) + "..." : text}" into: ${selector}`);
     if (options.submit) {
       console.log("Waited for network idle after submit");
@@ -8337,7 +9128,36 @@ program.command("session:press <sessionId> <key>").description("Press a keyboard
     console.log("Tip: Valid keys include: Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, Space");
   }
 });
-program.command("session:screenshot <sessionId>").description("Take a screenshot and audit interactive elements").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").option("--json", "Output audit results as JSON").action(async (sessionId, options) => {
+program.command("session:scroll <sessionId> <direction> [amount]").description("Scroll the page or a container (direction: up, down, left, right)").option("-s, --selector <css>", "Scroll within a specific container (modal, sidebar, etc.)").action(async (sessionId, direction, amount, options) => {
+  const validDirections = ["up", "down", "left", "right"];
+  if (!validDirections.includes(direction)) {
+    console.error(`Error: Invalid direction "${direction}"`);
+    console.log(`Valid directions: ${validDirections.join(", ")}`);
+    process.exit(1);
+  }
+  try {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
+    const pixels = amount ? parseInt(amount, 10) : 500;
+    const position = await session.scroll(direction, pixels, { selector: options?.selector });
+    if (options?.selector) {
+      console.log(`Scrolled ${direction} ${pixels}px in: ${options.selector}`);
+    } else {
+      console.log(`Scrolled ${direction} ${pixels}px`);
+    }
+    console.log(`Position: x=${position.x}, y=${position.y}`);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error:", msg);
+    if (options?.selector) {
+      console.log("");
+      console.log("Tip: The container may not exist or may not be scrollable.");
+      console.log("     Check: overflow-y: auto/scroll, or that content exceeds container bounds.");
+    }
+  }
+});
+program.command("session:screenshot <sessionId>").description("Take a screenshot and audit interactive elements").option("-n, --name <name>", "Screenshot name").option("-s, --selector <css>", "CSS selector to capture specific element").option("--no-full-page", "Capture only the viewport").option("--viewport-only", "Capture only viewport (alias for --no-full-page)").option("--json", "Output audit results as JSON").action(async (sessionId, options) => {
   const globalOpts = program.opts();
   const outputDir = globalOpts.output || "./.ibr";
   const opId = await registerOperation(outputDir, {
@@ -8347,10 +9167,11 @@ program.command("session:screenshot <sessionId>").description("Take a screenshot
   });
   try {
     const session = await getSession2(outputDir, sessionId);
+    const fullPage = options.viewportOnly ? false : options.fullPage;
     const { path: path2, elements, audit } = await session.screenshot({
       name: options.name,
       selector: options.selector,
-      fullPage: options.fullPage
+      fullPage
     });
     if (options.json) {
       console.log(JSON.stringify({ path: path2, elements, audit }, null, 2));
@@ -8586,6 +9407,34 @@ program.command("session:text <sessionId> <selector>").description("Get text con
     process.exit(1);
   }
 });
+program.command("session:eval <sessionId> <script>").description("Execute JavaScript in the browser context").option("--json", "Output result as JSON").action(async (sessionId, script, options) => {
+  try {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
+    const result = await session.evaluate(script);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (result === void 0) {
+      console.log("[undefined]");
+    } else if (result === null) {
+      console.log("[null]");
+    } else if (typeof result === "object") {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(result);
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Error:", msg);
+    console.log("");
+    console.log("Tip: Script must be valid JavaScript. Examples:");
+    console.log('  npx ibr session:eval <id> "document.title"');
+    console.log(`  npx ibr session:eval <id> "document.querySelectorAll('.item').length"`);
+    console.log('  npx ibr session:eval <id> "window.scrollY"');
+    process.exit(1);
+  }
+});
 program.command("session:actions <sessionId>").description("Show action history for a session").action(async (sessionId) => {
   try {
     const { liveSessionManager: liveSessionManager2 } = await Promise.resolve().then(() => (init_live_session(), live_session_exports));
@@ -8608,6 +9457,239 @@ program.command("session:actions <sessionId>").description("Show action history 
       if (!action.success && action.error) {
         console.log(`      Error: ${action.error}`);
       }
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("session:modal <sessionId>").description("Detect and optionally dismiss active modals").option("--dismiss", "Attempt to dismiss the modal").action(async (sessionId, options) => {
+  try {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const session = await getSession2(outputDir, sessionId);
+    const modal = await session.detectModal();
+    if (!modal.hasModal) {
+      console.log("No modal detected");
+      return;
+    }
+    console.log(`Modal detected: ${modal.selector}`);
+    console.log(`Dismiss method: ${modal.dismissMethod}`);
+    if (modal.closeButtonSelector) {
+      console.log(`Close button: ${modal.closeButtonSelector}`);
+    }
+    if (options.dismiss) {
+      console.log("");
+      console.log("Attempting to dismiss...");
+      if (modal.dismissMethod === "close-button" && modal.closeButtonSelector) {
+        await session.click(modal.closeButtonSelector, { force: true });
+      } else {
+        await session.press("Escape");
+      }
+      await session.waitFor(300);
+      const stillOpen = await session.detectModal();
+      if (stillOpen.hasModal) {
+        console.log("Warning: Modal may still be open. Try:");
+        console.log(`  npx ibr session:press ${sessionId} Escape`);
+        console.log(`  npx ibr session:click ${sessionId} ".backdrop" --force`);
+      } else {
+        console.log("Modal dismissed successfully");
+      }
+    } else {
+      console.log("");
+      console.log("To dismiss, run:");
+      console.log(`  npx ibr session:modal ${sessionId} --dismiss`);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("screenshots:list [sessionId]").description("List screenshots for a session or all sessions").option("--json", "Output as JSON").action(async (sessionId, options) => {
+  try {
+    const { ScreenshotManager: ScreenshotManager2, formatBytes: formatBytes3, formatAge: formatAge2 } = await Promise.resolve().then(() => (init_screenshot_manager(), screenshot_manager_exports));
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const manager = new ScreenshotManager2(outputDir);
+    const screenshots = sessionId ? await manager.list(sessionId) : await manager.listAll();
+    if (screenshots.length === 0) {
+      console.log("No screenshots found.");
+      return;
+    }
+    if (options.json) {
+      console.log(JSON.stringify(screenshots, null, 2));
+      return;
+    }
+    console.log(`Found ${screenshots.length} screenshot(s):`);
+    console.log("");
+    console.log("PATH                                           SIZE       AGE");
+    console.log("-".repeat(70));
+    for (const shot of screenshots) {
+      const shortPath = shot.path.length > 45 ? "..." + shot.path.slice(-42) : shot.path.padEnd(45);
+      console.log(`${shortPath} ${formatBytes3(shot.size).padStart(10)} ${formatAge2(shot.ageMs).padStart(10)}`);
+    }
+    const usage = await manager.getStorageUsage();
+    console.log("");
+    console.log(`Total: ${formatBytes3(usage.totalBytes)} across ${usage.fileCount} files`);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("screenshots:cleanup").description("Clean up old screenshots based on retention policy").option("--max-age <days>", "Delete screenshots older than N days", "7").option("--max-size <mb>", "Max total storage in MB", "500").option("--dry-run", "Show what would be deleted without deleting").action(async (options) => {
+  try {
+    const { ScreenshotManager: ScreenshotManager2, formatBytes: formatBytes3 } = await Promise.resolve().then(() => (init_screenshot_manager(), screenshot_manager_exports));
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const manager = new ScreenshotManager2(outputDir, {
+      maxAgeDays: parseInt(options.maxAge, 10),
+      maxSizeBytes: parseInt(options.maxSize, 10) * 1024 * 1024,
+      retentionPolicy: "both"
+    });
+    console.log(`Cleanup policy: max ${options.maxAge} days, max ${options.maxSize}MB`);
+    console.log("");
+    const report = await manager.cleanup({ dryRun: options.dryRun });
+    if (options.dryRun) {
+      console.log("DRY RUN - no files deleted");
+      console.log("");
+    }
+    console.log(`Scanned: ${report.scanned} files`);
+    console.log(`${options.dryRun ? "Would delete" : "Deleted"}: ${report.deleted} files`);
+    console.log(`Space ${options.dryRun ? "to be freed" : "freed"}: ${formatBytes3(report.bytesFreed)}`);
+    console.log(`Kept: ${report.kept} files`);
+    if (report.errors.length > 0) {
+      console.log("");
+      console.log("Errors:");
+      for (const err of report.errors) {
+        console.log(`  ${err}`);
+      }
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("screenshots:view <path>").description("View a screenshot with metadata").action(async (path2) => {
+  try {
+    const { ScreenshotManager: ScreenshotManager2, formatBytes: formatBytes3 } = await Promise.resolve().then(() => (init_screenshot_manager(), screenshot_manager_exports));
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const manager = new ScreenshotManager2(outputDir);
+    const metadata = await manager.getMetadata(path2);
+    if (!metadata) {
+      console.error(`Screenshot not found: ${path2}`);
+      process.exit(1);
+    }
+    console.log("Screenshot Metadata:");
+    console.log(`  Path: ${metadata.path}`);
+    console.log(`  Size: ${formatBytes3(metadata.size)}`);
+    console.log(`  Created: ${metadata.createdAt}`);
+    if (metadata.sessionId) console.log(`  Session: ${metadata.sessionId}`);
+    if (metadata.step) console.log(`  Step: ${metadata.step}`);
+    if (metadata.query) console.log(`  Query: ${metadata.query}`);
+    if (metadata.userIntent) console.log(`  Intent: ${metadata.userIntent}`);
+    console.log("");
+    const { exec } = await import("child_process");
+    const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
+    exec(`${cmd} "${path2}"`, (err) => {
+      if (err) {
+        console.log("Could not open image viewer. File path above.");
+      }
+    });
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("search-test <url>").description("Run AI search test with screenshots and validation context").option("-q, --query <query>", "Search query to test", "test").option("-i, --intent <intent>", "User intent for validation").option("--results-selector <css>", "CSS selector for results").option("--no-screenshots", "Skip capturing screenshots").option("--json", "Output as JSON").action(async (url, options) => {
+  try {
+    const { chromium: chromium10 } = await import("playwright");
+    const { aiSearchFlow: aiSearchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
+    const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    const { mkdir: mkdir11 } = await import("fs/promises");
+    console.log(`Testing search on ${url}...`);
+    console.log(`Query: "${options.query}"`);
+    if (options.intent) console.log(`Intent: ${options.intent}`);
+    console.log("");
+    const browser3 = await chromium10.launch({ headless: true });
+    const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+    const context = await browser3.newContext({
+      viewport: { width: viewport.width, height: viewport.height },
+      reducedMotion: "reduce"
+    });
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
+    const sessionDir = (0, import_path15.join)(outputDir, "sessions", `search-${Date.now()}`);
+    await mkdir11(sessionDir, { recursive: true });
+    const result = await aiSearchFlow2(page, {
+      query: options.query,
+      userIntent: options.intent || `Find results related to: ${options.query}`,
+      resultsSelector: options.resultsSelector,
+      captureSteps: options.screenshots !== false,
+      extractContent: true,
+      sessionDir
+    });
+    await context.close();
+    await browser3.close();
+    const validationContext = generateValidationContext2(result);
+    const obvIssues = analyzeForObviousIssues2(validationContext);
+    if (options.json) {
+      console.log(JSON.stringify({
+        result,
+        validationContext,
+        obviousIssues: obvIssues
+      }, null, 2));
+      return;
+    }
+    console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+    console.log("  SEARCH TEST RESULTS");
+    console.log("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+    console.log("");
+    console.log(`Status: ${result.success ? "SUCCESS" : "FAILED"}`);
+    console.log(`Results found: ${result.resultCount}`);
+    console.log("");
+    console.log("Timing:");
+    console.log(`  Typing: ${result.timing.typing}ms`);
+    console.log(`  Waiting: ${result.timing.waiting}ms`);
+    console.log(`  Rendering: ${result.timing.rendering}ms`);
+    console.log(`  Total: ${result.timing.total}ms`);
+    if (result.screenshots.length > 0) {
+      console.log("");
+      console.log("Screenshots:");
+      for (const shot of result.screenshots) {
+        console.log(`  ${shot.step}: ${shot.path}`);
+      }
+    }
+    if (result.extractedResults.length > 0) {
+      console.log("");
+      console.log(`Extracted Results (${result.extractedResults.length}):`);
+      for (const r of result.extractedResults.slice(0, 5)) {
+        const title = r.title || r.fullText.slice(0, 50);
+        console.log(`  ${r.index + 1}. ${title}`);
+      }
+      if (result.extractedResults.length > 5) {
+        console.log(`  ... and ${result.extractedResults.length - 5} more`);
+      }
+    }
+    if (obvIssues.length > 0) {
+      console.log("");
+      console.log("Potential Issues:");
+      for (const issue of obvIssues) {
+        const severity = issue.severity.toUpperCase();
+        console.log(`  [${severity}] ${issue.description}`);
+      }
+    }
+    console.log("");
+    console.log("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    console.log("VALIDATION CONTEXT FOR CLAUDE CODE:");
+    console.log("\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    console.log("");
+    console.log(generateValidationPrompt2(validationContext));
+    if (result.artifactDir) {
+      console.log("");
+      console.log(`Artifacts saved to: ${result.artifactDir}`);
     }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
@@ -8804,13 +9886,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join13 } = await import("path");
+    const { join: join15 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join13(outputDir, "diagnose", "test.png"),
+      outputPath: join15(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -8927,11 +10009,11 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile8, readFile: readFile14, mkdir: mkdir9 } = await import("fs/promises");
-  const configPath = (0, import_path13.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path13.join)(process.cwd(), ".claude", "settings.json");
+  const { writeFile: writeFile10, readFile: readFile15, mkdir: mkdir11 } = await import("fs/promises");
+  const configPath = (0, import_path15.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path15.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs7.existsSync)(configPath)) {
+  if (!(0, import_fs8.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -8968,7 +10050,7 @@ program.command("init").description("Initialize IBR config and optionally regist
         autoClean: true
       }
     };
-    await writeFile8(configPath, JSON.stringify(config, null, 2));
+    await writeFile10(configPath, JSON.stringify(config, null, 2));
     configCreated = true;
     console.log("");
     console.log("Created .ibrrc.json");
@@ -8985,8 +10067,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs7.existsSync)((0, import_path13.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs7.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs8.existsSync)((0, import_path15.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs8.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -8995,7 +10077,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs7.existsSync)((0, import_path13.join)(process.cwd(), p))) {
+    if ((0, import_fs8.existsSync)((0, import_path15.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -9012,7 +10094,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   let settings = { plugins: [] };
   if (hasClaudeSettings) {
     try {
-      const content = await readFile14(claudeSettingsPath, "utf-8");
+      const content = await readFile15(claudeSettingsPath, "utf-8");
       settings = JSON.parse(content);
       if (!settings.plugins) {
         settings.plugins = [];
@@ -9074,11 +10156,11 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir9((0, import_path13.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir11((0, import_path15.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
-    await writeFile8(claudeSettingsPath, JSON.stringify(settings, null, 2));
+    await writeFile10(claudeSettingsPath, JSON.stringify(settings, null, 2));
     console.log("");
     console.log("IBR plugin registered.");
     console.log("");

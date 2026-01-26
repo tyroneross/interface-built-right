@@ -2926,8 +2926,6 @@ async function loginFlow(page, options) {
     };
   }
 }
-
-// src/flows/search.ts
 async function searchFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -2990,6 +2988,194 @@ async function searchFlow(page, options) {
       steps,
       error: error instanceof Error ? error.message : "Unknown error",
       duration: Date.now() - startTime
+    };
+  }
+}
+async function captureStepScreenshot(page, step, artifactDir, startTime) {
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const timing = Date.now() - startTime;
+  const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
+  const filename = `${stepNum}-${step}.png`;
+  const path2 = join(artifactDir, filename);
+  await page.addStyleTag({
+    content: `
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+      }
+    `
+  });
+  await page.screenshot({
+    path: path2,
+    fullPage: false,
+    type: "png"
+  });
+  return { step, path: path2, timestamp, timing };
+}
+async function extractResultContent(page, resultsSelector) {
+  return page.evaluate((selector) => {
+    const elements = document.querySelectorAll(selector);
+    const results = [];
+    elements.forEach((el, index) => {
+      const htmlEl = el;
+      const rect = htmlEl.getBoundingClientRect();
+      const titleEl = htmlEl.querySelector('h1, h2, h3, h4, h5, h6, strong, b, [class*="title"]');
+      const title = titleEl?.textContent?.trim();
+      const snippetEl = htmlEl.querySelector('p, [class*="snippet"], [class*="description"], [class*="summary"]');
+      const snippet = snippetEl?.textContent?.trim();
+      const fullText = htmlEl.textContent?.trim() || "";
+      let selector2 = el.tagName.toLowerCase();
+      if (el.id) {
+        selector2 = `#${el.id}`;
+      } else if (el.className && typeof el.className === "string") {
+        const classes = el.className.split(" ").filter((c) => c.trim())[0];
+        if (classes) selector2 += `.${classes}`;
+        selector2 += `:nth-of-type(${index + 1})`;
+      }
+      results.push({
+        index,
+        title: title || void 0,
+        snippet: snippet || void 0,
+        fullText: fullText.slice(0, 500),
+        // Limit length
+        selector: selector2,
+        visible: rect.top >= 0 && rect.top < window.innerHeight
+      });
+    });
+    return results;
+  }, resultsSelector);
+}
+async function aiSearchFlow(page, options) {
+  const startTime = Date.now();
+  const steps = [];
+  const screenshots = [];
+  const timeout = options.timeout || 1e4;
+  const captureSteps = options.captureSteps !== false;
+  const extractContent = options.extractContent !== false;
+  const timing = {
+    total: 0,
+    typing: 0,
+    waiting: 0,
+    rendering: 0
+  };
+  let artifactDir;
+  if (captureSteps && options.sessionDir) {
+    artifactDir = join(options.sessionDir, `search-${Date.now()}`);
+    await mkdir(artifactDir, { recursive: true });
+  }
+  try {
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "before", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture before screenshot", success: true, duration: shot.timing });
+    }
+    const searchInput = await findFieldByLabel(page, ["search", "query", "q", "find"]);
+    const searchField = searchInput || await page.$(
+      'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
+    );
+    if (!searchField) {
+      return {
+        success: false,
+        query: options.query,
+        userIntent: options.userIntent,
+        resultCount: 0,
+        hasResults: false,
+        steps,
+        screenshots,
+        extractedResults: [],
+        timing: { ...timing, total: Date.now() - startTime },
+        error: "Could not find search input",
+        duration: Date.now() - startTime,
+        artifactDir
+      };
+    }
+    const typingStart = Date.now();
+    await searchField.fill("");
+    await searchField.fill(options.query);
+    timing.typing = Date.now() - typingStart;
+    steps.push({ action: `type "${options.query}"`, success: true, duration: timing.typing });
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "after-query", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture after-query screenshot", success: true });
+    }
+    const waitingStart = Date.now();
+    if (options.submit !== false) {
+      await searchField.press("Enter");
+      steps.push({ action: "submit search", success: true });
+      await waitForNavigation(page, timeout);
+      steps.push({ action: "wait for results", success: true });
+    } else {
+      await page.waitForTimeout(500);
+      steps.push({ action: "wait for autocomplete", success: true });
+    }
+    timing.waiting = Date.now() - waitingStart;
+    const renderingStart = Date.now();
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "results", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture results screenshot", success: true });
+    }
+    const resultsSelector = options.resultsSelector || '[class*="result"], [class*="item"], [class*="card"], [data-testid*="result"], li[class*="search"]';
+    const resultElements = await page.$$(resultsSelector);
+    const resultCount = resultElements.length;
+    const hasResults = resultCount > 0;
+    let extractedResults = [];
+    if (extractContent && hasResults) {
+      extractedResults = await extractResultContent(page, resultsSelector);
+      steps.push({ action: `extracted ${extractedResults.length} results`, success: true });
+    }
+    timing.rendering = Date.now() - renderingStart;
+    timing.total = Date.now() - startTime;
+    if (artifactDir) {
+      const resultsData = {
+        query: options.query,
+        userIntent: options.userIntent,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        resultCount,
+        hasResults,
+        timing,
+        extractedResults
+      };
+      await writeFile(
+        join(artifactDir, "results.json"),
+        JSON.stringify(resultsData, null, 2)
+      );
+    }
+    steps.push({
+      action: `found ${resultCount} results`,
+      success: hasResults
+    });
+    return {
+      success: true,
+      query: options.query,
+      userIntent: options.userIntent,
+      resultCount,
+      hasResults,
+      steps,
+      screenshots,
+      extractedResults,
+      timing,
+      duration: timing.total,
+      artifactDir
+    };
+  } catch (error) {
+    timing.total = Date.now() - startTime;
+    return {
+      success: false,
+      query: options.query,
+      userIntent: options.userIntent,
+      resultCount: 0,
+      hasResults: false,
+      steps,
+      screenshots,
+      extractedResults: [],
+      timing,
+      error: error instanceof Error ? error.message : "Unknown error",
+      duration: timing.total,
+      artifactDir
     };
   }
 }
@@ -3106,10 +3292,201 @@ async function formFlow(page, options) {
   }
 }
 
+// src/flows/search-validation.ts
+function generateValidationContext(result) {
+  return {
+    query: result.query,
+    userIntent: result.userIntent || `Find results related to: ${result.query}`,
+    results: result.extractedResults,
+    screenshotPaths: result.screenshots.map((s) => s.path),
+    timing: result.timing,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    hasResults: result.hasResults,
+    resultCount: result.resultCount
+  };
+}
+function generateValidationPrompt(context) {
+  const lines = [];
+  lines.push("# Search Result Validation Request");
+  lines.push("");
+  lines.push("Please analyze the following search results and determine if they are relevant to the user's intent.");
+  lines.push("");
+  lines.push("## Search Details");
+  lines.push(`- **Query:** "${context.query}"`);
+  lines.push(`- **User Intent:** ${context.userIntent}`);
+  lines.push(`- **Results Found:** ${context.resultCount}`);
+  lines.push(`- **Total Time:** ${context.timing.total}ms`);
+  lines.push("");
+  if (context.screenshotPaths.length > 0) {
+    lines.push("## Screenshots");
+    lines.push("The following screenshots capture the search interaction:");
+    for (const path2 of context.screenshotPaths) {
+      lines.push(`- ${path2}`);
+    }
+    lines.push("");
+    lines.push("*Please view these screenshots using the Read tool to see the visual state.*");
+    lines.push("");
+  }
+  if (context.results.length > 0) {
+    lines.push("## Extracted Results");
+    lines.push("");
+    for (const result of context.results.slice(0, 10)) {
+      lines.push(`### Result ${result.index + 1}`);
+      if (result.title) {
+        lines.push(`**Title:** ${result.title}`);
+      }
+      if (result.snippet) {
+        lines.push(`**Snippet:** ${result.snippet}`);
+      }
+      lines.push(`**Full Text:** ${result.fullText.slice(0, 200)}${result.fullText.length > 200 ? "..." : ""}`);
+      lines.push(`**Visible:** ${result.visible ? "Yes" : "No"}`);
+      lines.push("");
+    }
+    if (context.results.length > 10) {
+      lines.push(`*...and ${context.results.length - 10} more results*`);
+      lines.push("");
+    }
+  } else {
+    lines.push("## No Results");
+    lines.push("The search returned no results. This may indicate:");
+    lines.push("- The search query is too specific");
+    lines.push("- No matching content exists");
+    lines.push("- A bug in the search functionality");
+    lines.push("");
+  }
+  lines.push("## Validation Questions");
+  lines.push("");
+  lines.push("1. **Relevance:** Do the results match the user's intent?");
+  lines.push("2. **Quality:** Are the results useful and informative?");
+  lines.push("3. **Issues:** Are there any obvious problems (e.g., unrelated content)?");
+  lines.push("4. **Suggestions:** What could improve the search experience?");
+  lines.push("");
+  lines.push("## Expected Response");
+  lines.push("");
+  lines.push("Please respond with:");
+  lines.push("- `relevant`: true/false - whether results match user intent");
+  lines.push("- `confidence`: 0-1 - how confident you are in the assessment");
+  lines.push("- `reasoning`: brief explanation of your assessment");
+  lines.push("- `suggestions`: (optional) array of improvement suggestions");
+  lines.push("- `issues`: (optional) array of specific issues found");
+  return lines.join("\n");
+}
+function generateQuickSummary(context) {
+  const lines = [];
+  lines.push(`Search: "${context.query}"`);
+  lines.push(`Intent: ${context.userIntent}`);
+  lines.push(`Results: ${context.resultCount} found in ${context.timing.total}ms`);
+  if (context.results.length > 0) {
+    lines.push("");
+    lines.push("Top results:");
+    for (const result of context.results.slice(0, 3)) {
+      const title = result.title || result.fullText.slice(0, 50);
+      lines.push(`  ${result.index + 1}. ${title}`);
+    }
+  }
+  return lines.join("\n");
+}
+function analyzeForObviousIssues(context) {
+  const issues = [];
+  if (!context.hasResults) {
+    issues.push({
+      type: "empty",
+      description: "Search returned no results",
+      severity: "high"
+    });
+  }
+  if (context.timing.total > 5e3) {
+    issues.push({
+      type: "slow",
+      description: `Search took ${context.timing.total}ms (>5s)`,
+      severity: context.timing.total > 1e4 ? "high" : "medium"
+    });
+  }
+  for (const result of context.results) {
+    if (!result.fullText || result.fullText.trim().length < 10) {
+      issues.push({
+        type: "error",
+        resultIndex: result.index,
+        description: `Result ${result.index + 1} has no meaningful content`,
+        severity: "medium"
+      });
+    }
+  }
+  const queryTerms = context.query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+  for (const result of context.results) {
+    const textLower = result.fullText.toLowerCase();
+    const matchCount = queryTerms.filter((term) => textLower.includes(term)).length;
+    const matchRatio = matchCount / queryTerms.length;
+    if (matchRatio < 0.2 && queryTerms.length > 1) {
+      issues.push({
+        type: "irrelevant",
+        resultIndex: result.index,
+        description: `Result ${result.index + 1} may not match query (low keyword overlap)`,
+        severity: "low"
+      });
+    }
+  }
+  return issues;
+}
+function formatValidationResult(result) {
+  const lines = [];
+  const status = result.relevant ? "PASS" : "FAIL";
+  const confidence = Math.round(result.confidence * 100);
+  lines.push(`## Validation: ${status} (${confidence}% confidence)`);
+  lines.push("");
+  lines.push(`**Assessment:** ${result.reasoning}`);
+  if (result.issues && result.issues.length > 0) {
+    lines.push("");
+    lines.push("**Issues Found:**");
+    for (const issue of result.issues) {
+      const severity = issue.severity.toUpperCase();
+      lines.push(`- [${severity}] ${issue.description}`);
+    }
+  }
+  if (result.suggestions && result.suggestions.length > 0) {
+    lines.push("");
+    lines.push("**Suggestions:**");
+    for (const suggestion of result.suggestions) {
+      lines.push(`- ${suggestion}`);
+    }
+  }
+  return lines.join("\n");
+}
+function generateDevModePrompt(context, issues) {
+  const lines = [];
+  lines.push("## Search Results Review");
+  lines.push("");
+  lines.push(`Query: "${context.query}"`);
+  lines.push(`Intent: ${context.userIntent}`);
+  lines.push("");
+  if (issues.length > 0) {
+    lines.push("**Potential issues detected:**");
+    for (const issue of issues) {
+      lines.push(`- ${issue.description}`);
+    }
+    lines.push("");
+  }
+  if (context.results.length > 0) {
+    lines.push("**Sample results:**");
+    for (const result of context.results.slice(0, 3)) {
+      const title = result.title || result.fullText.slice(0, 40);
+      lines.push(`  ${result.index + 1}. ${title}`);
+    }
+    lines.push("");
+  }
+  lines.push("**What would you like to do?**");
+  lines.push("1. Accept results as expected");
+  lines.push("2. Refine the search query");
+  lines.push("3. Report as bug");
+  lines.push("4. Skip this test");
+  return lines.join("\n");
+}
+
 // src/flows/index.ts
 var flows = {
   login: loginFlow,
   search: searchFlow,
+  aiSearch: aiSearchFlow,
   form: formFlow
 };
 var DEFAULT_RETENTION = {
@@ -4252,8 +4629,8 @@ async function testResponsive(url, options = {}) {
           minFontSize
         });
         if (captureScreenshots) {
-          const { mkdir: mkdir7 } = await import('fs/promises');
-          await mkdir7(outputDir, { recursive: true });
+          const { mkdir: mkdir8 } = await import('fs/promises');
+          await mkdir8(outputDir, { recursive: true });
           const screenshotPath = `${outputDir}/${viewportName}.png`;
           await page.screenshot({ path: screenshotPath, fullPage: true });
           result.screenshot = screenshotPath;
@@ -4927,6 +5304,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, ElementIssueSchema, EnhancedElementSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, PERFORMANCE_THRESHOLDS, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, analyzeComparison, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, generateReport, generateSessionId, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, ElementIssueSchema, EnhancedElementSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, PERFORMANCE_THRESHOLDS, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

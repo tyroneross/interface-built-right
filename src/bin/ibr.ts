@@ -85,7 +85,7 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
 program
   .name('ibr')
   .description('Visual regression testing for Claude Code')
-  .version('0.4.0');
+  .version('0.4.1');
 
 // Global options
 program
@@ -1177,25 +1177,30 @@ async function getSession(outputDir: string, sessionId: string) {
 program
   .command('session:click <sessionId> <selector>')
   .description('Click an element in an active session (auto-targets visible elements)')
-  .action(async (sessionId: string, selector: string) => {
+  .option('--force', 'Force click, bypassing overlay interception checks')
+  .action(async (sessionId: string, selector: string, options: { force?: boolean }) => {
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || './.ibr';
     const opId = await registerOperation(outputDir, {
       type: 'click',
       sessionId,
-      command: `session:click ${sessionId} "${selector}"`,
+      command: `session:click ${sessionId} "${selector}"${options.force ? ' --force' : ''}`,
     });
 
     try {
       const session = await getSession(outputDir, sessionId);
 
-      await session.click(selector);
-      console.log(`Clicked: ${selector}`);
+      await session.click(selector, { force: options.force });
+      console.log(`Clicked: ${selector}${options.force ? ' (forced)' : ''}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error('Error:', msg);
       console.log('');
-      if (msg.includes('not visible') || msg.includes('Timeout')) {
+      if (msg.includes('intercept') || msg.includes('pointer-events')) {
+        console.log('Tip: Element is blocked by an overlay (modal, backdrop, etc.)');
+        console.log('     Use --force to click through, or dismiss the overlay first');
+        console.log('     npx ibr session:click ' + sessionId + ' "' + selector + '" --force');
+      } else if (msg.includes('not visible') || msg.includes('Timeout')) {
         console.log('Tip: IBR auto-filters to visible elements. Element may be:');
         console.log('     - Hidden by CSS (display:none, visibility:hidden)');
         console.log('     - Off-screen or zero-sized');
@@ -1215,7 +1220,8 @@ program
   .option('--delay <ms>', 'Delay between keystrokes', '0')
   .option('--submit', 'Press Enter after typing (waits for network idle)')
   .option('--wait-after <ms>', 'Wait this long after typing/submitting before next command')
-  .action(async (sessionId: string, selector: string, text: string, options: { delay: string; submit?: boolean; waitAfter?: string }) => {
+  .option('--append', 'Append to existing content without clearing')
+  .action(async (sessionId: string, selector: string, text: string, options: { delay: string; submit?: boolean; waitAfter?: string; append?: boolean }) => {
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || './.ibr';
     const opId = await registerOperation(outputDir, {
@@ -1231,9 +1237,10 @@ program
         delay: parseInt(options.delay, 10),
         submit: options.submit,
         waitAfter: options.waitAfter ? parseInt(options.waitAfter, 10) : undefined,
+        append: options.append,
       });
 
-      const action = options.submit ? 'Typed and submitted' : 'Typed';
+      const action = options.append ? 'Appended' : (options.submit ? 'Typed and submitted' : 'Typed');
       console.log(`${action}: "${text.length > 20 ? text.slice(0, 20) + '...' : text}" into: ${selector}`);
       if (options.submit) {
         console.log('Waited for network idle after submit');
@@ -1275,6 +1282,44 @@ program
     }
   });
 
+// Session scroll command
+program
+  .command('session:scroll <sessionId> <direction> [amount]')
+  .description('Scroll the page or a container (direction: up, down, left, right)')
+  .option('-s, --selector <css>', 'Scroll within a specific container (modal, sidebar, etc.)')
+  .action(async (sessionId: string, direction: string, amount?: string, options?: { selector?: string }) => {
+    const validDirections = ['up', 'down', 'left', 'right'];
+    if (!validDirections.includes(direction)) {
+      console.error(`Error: Invalid direction "${direction}"`);
+      console.log(`Valid directions: ${validDirections.join(', ')}`);
+      process.exit(1);
+    }
+
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
+
+      const pixels = amount ? parseInt(amount, 10) : 500;
+      const position = await session.scroll(direction as 'up' | 'down' | 'left' | 'right', pixels, { selector: options?.selector });
+
+      if (options?.selector) {
+        console.log(`Scrolled ${direction} ${pixels}px in: ${options.selector}`);
+      } else {
+        console.log(`Scrolled ${direction} ${pixels}px`);
+      }
+      console.log(`Position: x=${position.x}, y=${position.y}`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Error:', msg);
+      if (options?.selector) {
+        console.log('');
+        console.log('Tip: The container may not exist or may not be scrollable.');
+        console.log('     Check: overflow-y: auto/scroll, or that content exceeds container bounds.');
+      }
+    }
+  });
+
 // Session screenshot command
 program
   .command('session:screenshot <sessionId>')
@@ -1282,8 +1327,9 @@ program
   .option('-n, --name <name>', 'Screenshot name')
   .option('-s, --selector <css>', 'CSS selector to capture specific element')
   .option('--no-full-page', 'Capture only the viewport')
+  .option('--viewport-only', 'Capture only viewport (alias for --no-full-page)')
   .option('--json', 'Output audit results as JSON')
-  .action(async (sessionId: string, options: { name?: string; selector?: string; fullPage?: boolean; json?: boolean }) => {
+  .action(async (sessionId: string, options: { name?: string; selector?: string; fullPage?: boolean; viewportOnly?: boolean; json?: boolean }) => {
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || './.ibr';
     const opId = await registerOperation(outputDir, {
@@ -1295,10 +1341,13 @@ program
     try {
       const session = await getSession(outputDir, sessionId);
 
+      // Handle --viewport-only as alias for --no-full-page
+      const fullPage = options.viewportOnly ? false : options.fullPage;
+
       const { path, elements, audit } = await session.screenshot({
         name: options.name,
         selector: options.selector,
-        fullPage: options.fullPage,
+        fullPage,
       });
 
       if (options.json) {
@@ -1604,6 +1653,42 @@ program
     }
   });
 
+// Session eval command - execute JavaScript in browser context
+program
+  .command('session:eval <sessionId> <script>')
+  .description('Execute JavaScript in the browser context')
+  .option('--json', 'Output result as JSON')
+  .action(async (sessionId: string, script: string, options: { json?: boolean }) => {
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
+
+      const result = await session.evaluate(script);
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else if (result === undefined) {
+        console.log('[undefined]');
+      } else if (result === null) {
+        console.log('[null]');
+      } else if (typeof result === 'object') {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(result);
+      }
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Error:', msg);
+      console.log('');
+      console.log('Tip: Script must be valid JavaScript. Examples:');
+      console.log('  npx ibr session:eval <id> "document.title"');
+      console.log('  npx ibr session:eval <id> "document.querySelectorAll(\'.item\').length"');
+      console.log('  npx ibr session:eval <id> "window.scrollY"');
+      process.exit(1);
+    }
+  });
+
 // Session actions command - show action history
 program
   .command('session:actions <sessionId>')
@@ -1635,6 +1720,335 @@ program
         if (!action.success && action.error) {
           console.log(`      Error: ${action.error}`);
         }
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Session modal command - detect and dismiss modals
+program
+  .command('session:modal <sessionId>')
+  .description('Detect and optionally dismiss active modals')
+  .option('--dismiss', 'Attempt to dismiss the modal')
+  .action(async (sessionId: string, options: { dismiss?: boolean }) => {
+    try {
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const session = await getSession(outputDir, sessionId);
+
+      const modal = await session.detectModal();
+
+      if (!modal.hasModal) {
+        console.log('No modal detected');
+        return;
+      }
+
+      console.log(`Modal detected: ${modal.selector}`);
+      console.log(`Dismiss method: ${modal.dismissMethod}`);
+      if (modal.closeButtonSelector) {
+        console.log(`Close button: ${modal.closeButtonSelector}`);
+      }
+
+      if (options.dismiss) {
+        console.log('');
+        console.log('Attempting to dismiss...');
+
+        if (modal.dismissMethod === 'close-button' && modal.closeButtonSelector) {
+          await session.click(modal.closeButtonSelector, { force: true });
+        } else {
+          await session.press('Escape');
+        }
+
+        // Verify dismissal
+        await session.waitFor(300);
+        const stillOpen = await session.detectModal();
+        if (stillOpen.hasModal) {
+          console.log('Warning: Modal may still be open. Try:');
+          console.log(`  npx ibr session:press ${sessionId} Escape`);
+          console.log(`  npx ibr session:click ${sessionId} ".backdrop" --force`);
+        } else {
+          console.log('Modal dismissed successfully');
+        }
+      } else {
+        console.log('');
+        console.log('To dismiss, run:');
+        console.log(`  npx ibr session:modal ${sessionId} --dismiss`);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================
+// SCREENSHOT MANAGEMENT COMMANDS
+// ============================================================
+
+// Screenshots list command
+program
+  .command('screenshots:list [sessionId]')
+  .description('List screenshots for a session or all sessions')
+  .option('--json', 'Output as JSON')
+  .action(async (sessionId: string | undefined, options: { json?: boolean }) => {
+    try {
+      const { ScreenshotManager, formatBytes, formatAge } = await import('../screenshot-manager.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      const manager = new ScreenshotManager(outputDir);
+
+      const screenshots = sessionId
+        ? await manager.list(sessionId)
+        : await manager.listAll();
+
+      if (screenshots.length === 0) {
+        console.log('No screenshots found.');
+        return;
+      }
+
+      if (options.json) {
+        console.log(JSON.stringify(screenshots, null, 2));
+        return;
+      }
+
+      console.log(`Found ${screenshots.length} screenshot(s):`);
+      console.log('');
+      console.log('PATH                                           SIZE       AGE');
+      console.log('-'.repeat(70));
+
+      for (const shot of screenshots) {
+        const shortPath = shot.path.length > 45 ? '...' + shot.path.slice(-42) : shot.path.padEnd(45);
+        console.log(`${shortPath} ${formatBytes(shot.size).padStart(10)} ${formatAge(shot.ageMs).padStart(10)}`);
+      }
+
+      // Show storage usage
+      const usage = await manager.getStorageUsage();
+      console.log('');
+      console.log(`Total: ${formatBytes(usage.totalBytes)} across ${usage.fileCount} files`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Screenshots cleanup command
+program
+  .command('screenshots:cleanup')
+  .description('Clean up old screenshots based on retention policy')
+  .option('--max-age <days>', 'Delete screenshots older than N days', '7')
+  .option('--max-size <mb>', 'Max total storage in MB', '500')
+  .option('--dry-run', 'Show what would be deleted without deleting')
+  .action(async (options: { maxAge: string; maxSize: string; dryRun?: boolean }) => {
+    try {
+      const { ScreenshotManager, formatBytes } = await import('../screenshot-manager.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      const manager = new ScreenshotManager(outputDir, {
+        maxAgeDays: parseInt(options.maxAge, 10),
+        maxSizeBytes: parseInt(options.maxSize, 10) * 1024 * 1024,
+        retentionPolicy: 'both',
+      });
+
+      console.log(`Cleanup policy: max ${options.maxAge} days, max ${options.maxSize}MB`);
+      console.log('');
+
+      const report = await manager.cleanup({ dryRun: options.dryRun });
+
+      if (options.dryRun) {
+        console.log('DRY RUN - no files deleted');
+        console.log('');
+      }
+
+      console.log(`Scanned: ${report.scanned} files`);
+      console.log(`${options.dryRun ? 'Would delete' : 'Deleted'}: ${report.deleted} files`);
+      console.log(`Space ${options.dryRun ? 'to be freed' : 'freed'}: ${formatBytes(report.bytesFreed)}`);
+      console.log(`Kept: ${report.kept} files`);
+
+      if (report.errors.length > 0) {
+        console.log('');
+        console.log('Errors:');
+        for (const err of report.errors) {
+          console.log(`  ${err}`);
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// Screenshots view command
+program
+  .command('screenshots:view <path>')
+  .description('View a screenshot with metadata')
+  .action(async (path: string) => {
+    try {
+      const { ScreenshotManager, formatBytes } = await import('../screenshot-manager.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      const manager = new ScreenshotManager(outputDir);
+      const metadata = await manager.getMetadata(path);
+
+      if (!metadata) {
+        console.error(`Screenshot not found: ${path}`);
+        process.exit(1);
+      }
+
+      console.log('Screenshot Metadata:');
+      console.log(`  Path: ${metadata.path}`);
+      console.log(`  Size: ${formatBytes(metadata.size)}`);
+      console.log(`  Created: ${metadata.createdAt}`);
+      if (metadata.sessionId) console.log(`  Session: ${metadata.sessionId}`);
+      if (metadata.step) console.log(`  Step: ${metadata.step}`);
+      if (metadata.query) console.log(`  Query: ${metadata.query}`);
+      if (metadata.userIntent) console.log(`  Intent: ${metadata.userIntent}`);
+      console.log('');
+
+      // Try to open in default viewer
+      const { exec } = await import('child_process');
+      const cmd = process.platform === 'darwin' ? 'open' :
+                  process.platform === 'win32' ? 'start' : 'xdg-open';
+
+      exec(`${cmd} "${path}"`, (err) => {
+        if (err) {
+          console.log('Could not open image viewer. File path above.');
+        }
+      });
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// AI Search test command
+program
+  .command('search-test <url>')
+  .description('Run AI search test with screenshots and validation context')
+  .option('-q, --query <query>', 'Search query to test', 'test')
+  .option('-i, --intent <intent>', 'User intent for validation')
+  .option('--results-selector <css>', 'CSS selector for results')
+  .option('--no-screenshots', 'Skip capturing screenshots')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, options: {
+    query: string;
+    intent?: string;
+    resultsSelector?: string;
+    screenshots?: boolean;
+    json?: boolean;
+  }) => {
+    try {
+      const { chromium } = await import('playwright');
+      const { aiSearchFlow } = await import('../flows/search.js');
+      const { generateValidationContext, generateValidationPrompt, analyzeForObviousIssues } = await import('../flows/search-validation.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const { mkdir } = await import('fs/promises');
+
+      console.log(`Testing search on ${url}...`);
+      console.log(`Query: "${options.query}"`);
+      if (options.intent) console.log(`Intent: ${options.intent}`);
+      console.log('');
+
+      // Launch browser
+      const browser = await chromium.launch({ headless: true });
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const context = await browser.newContext({
+        viewport: { width: viewport.width, height: viewport.height },
+        reducedMotion: 'reduce',
+      });
+
+      const page = await context.newPage();
+      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+
+      // Create session directory for artifacts
+      const sessionDir = join(outputDir, 'sessions', `search-${Date.now()}`);
+      await mkdir(sessionDir, { recursive: true });
+
+      // Run AI search flow
+      const result = await aiSearchFlow(page, {
+        query: options.query,
+        userIntent: options.intent || `Find results related to: ${options.query}`,
+        resultsSelector: options.resultsSelector,
+        captureSteps: options.screenshots !== false,
+        extractContent: true,
+        sessionDir,
+      });
+
+      await context.close();
+      await browser.close();
+
+      // Generate validation context
+      const validationContext = generateValidationContext(result);
+      const obvIssues = analyzeForObviousIssues(validationContext);
+
+      if (options.json) {
+        console.log(JSON.stringify({
+          result,
+          validationContext,
+          obviousIssues: obvIssues,
+        }, null, 2));
+        return;
+      }
+
+      // Display results
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('  SEARCH TEST RESULTS');
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log('');
+      console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+      console.log(`Results found: ${result.resultCount}`);
+      console.log('');
+      console.log('Timing:');
+      console.log(`  Typing: ${result.timing.typing}ms`);
+      console.log(`  Waiting: ${result.timing.waiting}ms`);
+      console.log(`  Rendering: ${result.timing.rendering}ms`);
+      console.log(`  Total: ${result.timing.total}ms`);
+
+      if (result.screenshots.length > 0) {
+        console.log('');
+        console.log('Screenshots:');
+        for (const shot of result.screenshots) {
+          console.log(`  ${shot.step}: ${shot.path}`);
+        }
+      }
+
+      if (result.extractedResults.length > 0) {
+        console.log('');
+        console.log(`Extracted Results (${result.extractedResults.length}):`);
+        for (const r of result.extractedResults.slice(0, 5)) {
+          const title = r.title || r.fullText.slice(0, 50);
+          console.log(`  ${r.index + 1}. ${title}`);
+        }
+        if (result.extractedResults.length > 5) {
+          console.log(`  ... and ${result.extractedResults.length - 5} more`);
+        }
+      }
+
+      if (obvIssues.length > 0) {
+        console.log('');
+        console.log('Potential Issues:');
+        for (const issue of obvIssues) {
+          const severity = issue.severity.toUpperCase();
+          console.log(`  [${severity}] ${issue.description}`);
+        }
+      }
+
+      // Output validation prompt for Claude Code
+      console.log('');
+      console.log('───────────────────────────────────────────────────────────');
+      console.log('VALIDATION CONTEXT FOR CLAUDE CODE:');
+      console.log('───────────────────────────────────────────────────────────');
+      console.log('');
+      console.log(generateValidationPrompt(validationContext));
+
+      if (result.artifactDir) {
+        console.log('');
+        console.log(`Artifacts saved to: ${result.artifactDir}`);
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);

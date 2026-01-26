@@ -303,22 +303,57 @@ npx ibr session:screenshot live_XYZ123 --name "search-results"
 
 ### Session Commands Reference
 
-| Command | Purpose |
-|---------|---------|
-| `session:start <url>` | Start browser server + first session |
-| `session:type <id> <selector> <text>` | Type text into element |
-| `session:click <id> <selector>` | Click an element |
-| `session:wait <id> <selector|ms>` | Wait for selector or duration |
-| `session:screenshot <id>` | Capture screenshot |
-| `session:navigate <id> <url>` | Go to a new URL |
-| `session:list` | Show active sessions |
-| `session:close all` | Stop browser server |
+| Command | Purpose | Example |
+|---------|---------|---------|
+| `session:start <url>` | Start browser server + session | `npx ibr session:start http://localhost:3000` |
+| `session:click <id> <selector>` | Click an element | `npx ibr session:click live_XYZ "button.submit"` |
+| `session:type <id> <selector> <text>` | Type text into element | `npx ibr session:type live_XYZ "input" "hello"` |
+| `session:press <id> <key>` | Press keyboard key | `npx ibr session:press live_XYZ Enter` |
+| `session:scroll <id> <direction> [px]` | Scroll page or container | `npx ibr session:scroll live_XYZ down 500` |
+| `session:screenshot <id>` | Capture screenshot + element audit | `npx ibr session:screenshot live_XYZ` |
+| `session:wait <id> <selector\|ms>` | Wait for selector or duration | `npx ibr session:wait live_XYZ ".results"` |
+| `session:navigate <id> <url>` | Navigate to a new URL | `npx ibr session:navigate live_XYZ /page2` |
+| `session:html <id>` | Get page HTML | `npx ibr session:html live_XYZ --selector ".content"` |
+| `session:text <id> <selector>` | Extract text content | `npx ibr session:text live_XYZ ".message"` |
+| `session:eval <id> <script>` | Execute JavaScript | `npx ibr session:eval live_XYZ "document.title"` |
+| `session:modal <id>` | Detect/dismiss modals | `npx ibr session:modal live_XYZ --dismiss` |
+| `session:actions <id>` | Show action history | `npx ibr session:actions live_XYZ` |
+| `session:list` | List active sessions | `npx ibr session:list` |
+| `session:close <id\|all>` | Close session(s) or stop server | `npx ibr session:close all` |
 
-### Options
+**Keyboard keys for `session:press`:** Enter, Tab, Escape, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, Space, PageUp, PageDown
+
+### Command Options
+
+| Option | Command | Purpose |
+|--------|---------|---------|
+| `--force` | click | Click through overlays/modals |
+| `--append` | type | Append text without clearing field |
+| `--selector <css>` | scroll | Scroll inside specific container |
+| `--viewport-only` | screenshot | Capture viewport only (not full page) |
+| `--dismiss` | modal | Dismiss detected modal |
+| `--json` | eval, screenshot | Output as JSON |
+
+### Options Examples
 
 ```bash
-# Wait for specific content before capture
-npx ibr session:start http://localhost:3000 --wait-for ".main-content"
+# Click through modal overlay
+npx ibr session:click live_XYZ "input[type='search']" --force
+
+# Append to existing input (don't clear)
+npx ibr session:type live_XYZ "input" " additional text" --append
+
+# Scroll inside a modal
+npx ibr session:scroll live_XYZ down 500 --selector ".modal-body"
+
+# Capture viewport only (not full scrollable page)
+npx ibr session:screenshot live_XYZ --viewport-only
+
+# Execute JavaScript
+npx ibr session:eval live_XYZ "document.querySelector('.modal').scrollTop = 500"
+
+# Detect and dismiss modal
+npx ibr session:modal live_XYZ --dismiss
 
 # Type and submit (press Enter after typing)
 npx ibr session:type live_XYZ "input" "query" --submit

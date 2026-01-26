@@ -96,3 +96,95 @@ export async function waitForNavigation(
     // Timeout is acceptable - page might not navigate
   }
 }
+
+// =============================================================================
+// AI Search Testing Types
+// =============================================================================
+
+/**
+ * Screenshot captured at a specific step during search flow
+ */
+export interface StepScreenshot {
+  /** Which step this screenshot was taken at */
+  step: 'before' | 'after-query' | 'loading' | 'results';
+  /** Path to the screenshot file */
+  path: string;
+  /** ISO timestamp when captured */
+  timestamp: string;
+  /** Milliseconds since flow start */
+  timing: number;
+}
+
+/**
+ * Extracted content from a single search result element
+ */
+export interface ExtractedResult {
+  /** Zero-based index in result list */
+  index: number;
+  /** Title text if identifiable */
+  title?: string;
+  /** Snippet/description text if present */
+  snippet?: string;
+  /** Full text content of the result element */
+  fullText: string;
+  /** CSS selector to locate this element */
+  selector: string;
+  /** Whether the element is visible in viewport */
+  visible: boolean;
+}
+
+/**
+ * Timing breakdown for search flow phases
+ */
+export interface SearchTiming {
+  /** Total flow duration in ms */
+  total: number;
+  /** Time spent typing the query */
+  typing: number;
+  /** Time waiting for results to load */
+  waiting: number;
+  /** Time for results to render after load */
+  rendering: number;
+}
+
+/**
+ * Extended options for AI search testing
+ */
+export interface AISearchOptions extends FlowOptions {
+  /** Search query to execute */
+  query: string;
+  /** CSS selector for search results container */
+  resultsSelector?: string;
+  /** Whether to submit the form or just type (for autocomplete) */
+  submit?: boolean;
+  /** Capture screenshots at each step (default: true) */
+  captureSteps?: boolean;
+  /** Extract text content from results (default: true) */
+  extractContent?: boolean;
+  /** User's intent for validation (what they expect to find) */
+  userIntent?: string;
+  /** Session directory for storing screenshots */
+  sessionDir?: string;
+}
+
+/**
+ * Extended result from AI search flow with full context for validation
+ */
+export interface AISearchResult extends FlowResult {
+  /** The search query that was executed */
+  query: string;
+  /** User's stated intent for validation */
+  userIntent?: string;
+  /** Number of results found */
+  resultCount: number;
+  /** Whether any results were found */
+  hasResults: boolean;
+  /** Timing breakdown for each phase */
+  timing: SearchTiming;
+  /** Screenshots captured at each step */
+  screenshots: StepScreenshot[];
+  /** Extracted content from result elements */
+  extractedResults: ExtractedResult[];
+  /** Directory where search artifacts are stored */
+  artifactDir?: string;
+}

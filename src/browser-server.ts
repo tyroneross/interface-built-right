@@ -483,7 +483,7 @@ export class PersistentSession {
     }
   }
 
-  async click(selector: string, options?: { timeout?: number }): Promise<void> {
+  async click(selector: string, options?: { timeout?: number; force?: boolean }): Promise<void> {
     const start = Date.now();
     const timeout = options?.timeout || 5000;
 
@@ -491,7 +491,7 @@ export class PersistentSession {
       // Use locator API with visible filter - targets only visible elements
       // This is BETTER than waitForSelector which waits for first match to become visible
       const locator = this.page.locator(selector).filter({ visible: true }).first();
-      await locator.click({ timeout });
+      await locator.click({ timeout, force: options?.force });
       await this.recordAction({
         type: 'click',
         timestamp: new Date().toISOString(),
@@ -512,7 +512,7 @@ export class PersistentSession {
     }
   }
 
-  async type(selector: string, text: string, options?: { delay?: number; timeout?: number; submit?: boolean; waitAfter?: number }): Promise<void> {
+  async type(selector: string, text: string, options?: { delay?: number; timeout?: number; submit?: boolean; waitAfter?: number; append?: boolean }): Promise<void> {
     const start = Date.now();
     const timeout = options?.timeout || 5000;
 
@@ -520,14 +520,23 @@ export class PersistentSession {
       // Use locator API with visible filter - auto-targets visible input
       const locator = this.page.locator(selector).filter({ visible: true }).first();
 
-      // Clear existing content and fill with new text
-      await locator.fill('', { timeout });
+      // Clear existing content unless appending
+      if (!options?.append) {
+        await locator.fill('', { timeout });
+      }
 
       if (options?.delay && options.delay > 0) {
         // Type character by character with delay
+        if (options?.append) {
+          await locator.focus({ timeout });
+        }
         await locator.pressSequentially(text, { delay: options.delay, timeout });
+      } else if (options?.append) {
+        // Append mode: focus and type without clearing
+        await locator.focus({ timeout });
+        await locator.pressSequentially(text, { timeout });
       } else {
-        // Fast fill
+        // Fast fill (default)
         await locator.fill(text, { timeout });
       }
 
@@ -675,8 +684,107 @@ export class PersistentSession {
     await this.page.keyboard.press(key);
   }
 
+  /**
+   * Scroll the page or a specific container
+   * @param direction - 'up', 'down', 'left', 'right'
+   * @param amount - pixels to scroll (default: 500)
+   * @param options - optional selector to scroll within a container
+   */
+  async scroll(
+    direction: 'up' | 'down' | 'left' | 'right',
+    amount: number = 500,
+    options?: { selector?: string }
+  ): Promise<{ x: number; y: number }> {
+    const scrollMap = {
+      up: { x: 0, y: -amount },
+      down: { x: 0, y: amount },
+      left: { x: -amount, y: 0 },
+      right: { x: amount, y: 0 },
+    };
+    const { x, y } = scrollMap[direction];
+
+    if (options?.selector) {
+      // Scroll within a specific container (modal, sidebar, etc.)
+      const position = await this.page.evaluate(({ sel, deltaX, deltaY }) => {
+        const el = document.querySelector(sel);
+        if (!el) {
+          throw new Error(`Container not found: ${sel}`);
+        }
+        el.scrollBy(deltaX, deltaY);
+        return { x: el.scrollLeft, y: el.scrollTop };
+      }, { sel: options.selector, deltaX: x, deltaY: y });
+
+      return position;
+    }
+
+    // Default: scroll window
+    const position = await this.page.evaluate(({ deltaX, deltaY }) => {
+      window.scrollBy(deltaX, deltaY);
+      return { x: window.scrollX, y: window.scrollY };
+    }, { deltaX: x, deltaY: y });
+
+    return position;
+  }
+
   async evaluate<T>(script: string | (() => T)): Promise<T> {
     return this.page.evaluate(script) as Promise<T>;
+  }
+
+  /**
+   * Detect if a modal is currently open and how to dismiss it
+   */
+  async detectModal(): Promise<{
+    hasModal: boolean;
+    selector?: string;
+    dismissMethod?: 'escape' | 'close-button' | 'backdrop';
+    closeButtonSelector?: string;
+  }> {
+    return this.page.evaluate(() => {
+      // Common modal selectors (Bootstrap, Radix, Headless UI, custom)
+      const modalSelectors = [
+        '[role="dialog"]',
+        '[role="alertdialog"]',
+        '[aria-modal="true"]',
+        '.modal.show',
+        '.modal.open',
+        '.modal[style*="display: block"]',
+        '[data-state="open"][data-modal]',
+        '.fixed.inset-0', // Tailwind modal pattern
+      ];
+
+      for (const sel of modalSelectors) {
+        const modal = document.querySelector(sel);
+        if (modal && getComputedStyle(modal).display !== 'none') {
+          // Check for close button
+          const closeSelectors = [
+            '[aria-label="Close"]',
+            '[aria-label="close"]',
+            '.close',
+            '.btn-close',
+            '[data-dismiss="modal"]',
+            'button[type="button"]:has(svg)', // Icon-only close button
+          ];
+
+          let closeButtonSelector: string | undefined;
+          for (const closeSel of closeSelectors) {
+            const closeBtn = modal.querySelector(closeSel);
+            if (closeBtn) {
+              closeButtonSelector = `${sel} ${closeSel}`;
+              break;
+            }
+          }
+
+          return {
+            hasModal: true,
+            selector: sel,
+            dismissMethod: closeButtonSelector ? 'close-button' : 'escape',
+            closeButtonSelector,
+          };
+        }
+      }
+
+      return { hasModal: false };
+    });
   }
 
   async content(): Promise<string> {
