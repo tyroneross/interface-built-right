@@ -2,7 +2,7 @@ import { chromium, type Browser, type BrowserContext, type Page } from 'playwrig
 import { writeFile, readFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'crypto';
 import { VIEWPORTS, type Viewport } from './schemas.js';
 
 /**
@@ -101,8 +101,8 @@ export class LiveSession {
       timeout = 30000,
     } = options;
 
-    // Generate session ID
-    const sessionId = `live_${nanoid(10)}`;
+    // Generate session ID using built-in crypto (no nanoid dependency)
+    const sessionId = `live_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
     const sessionDir = join(outputDir, 'sessions', sessionId);
     await mkdir(sessionDir, { recursive: true });
 

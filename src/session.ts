@@ -1,4 +1,4 @@
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'crypto';
 import { mkdir, readFile, writeFile, readdir, rm } from 'fs/promises';
 import { join } from 'path';
 import { SessionSchema, SessionQuerySchema, type Session, type SessionQuery, type Viewport, type ComparisonResult, type Analysis } from './schemas.js';
@@ -11,7 +11,9 @@ const SESSION_PREFIX = 'sess_';
  * Generate a unique session ID
  */
 export function generateSessionId(): string {
-  return `${SESSION_PREFIX}${nanoid(10)}`;
+  // Use crypto.randomUUID() to avoid nanoid dependency
+  // Take first 10 chars of UUID (without dashes) for compact ID
+  return `${SESSION_PREFIX}${randomUUID().replace(/-/g, '').slice(0, 10)}`;
 }
 
 /**

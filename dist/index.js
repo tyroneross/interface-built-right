@@ -8,7 +8,6 @@ var os = require('os');
 var crypto = require('crypto');
 var pixelmatch = require('pixelmatch');
 var pngjs = require('pngjs');
-var nanoid = require('nanoid');
 var url = require('url');
 
 function _interopDefault (e) { return e && e.__esModule ? e : { default: e }; }
@@ -727,7 +726,7 @@ function getVerdictDescription(verdict) {
 }
 var SESSION_PREFIX = "sess_";
 function generateSessionId() {
-  return `${SESSION_PREFIX}${nanoid.nanoid(10)}`;
+  return `${SESSION_PREFIX}${crypto.randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
   const root = path.join(outputDir, "sessions", sessionId);

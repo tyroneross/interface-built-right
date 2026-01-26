@@ -2,7 +2,7 @@ import { chromium, type BrowserServer, type Browser, type BrowserContext, type P
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { nanoid } from 'nanoid';
+import { randomUUID } from 'crypto';
 import { VIEWPORTS, type Viewport, type EnhancedElement, type AuditResult } from './schemas.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
 
@@ -17,6 +17,7 @@ interface BrowserServerState {
   headless: boolean;
   isolatedProfile: string;
   lowMemory?: boolean;  // Whether low-memory mode is enabled
+  ultraLowMemory?: boolean; // Whether ultra-low-memory mode is enabled (for Replit/Lovable)
 }
 
 /**
@@ -65,7 +66,8 @@ export interface BrowserServerOptions {
   headless?: boolean;  // Default: true
   debug?: boolean;     // Visible + slowMo + devtools
   isolated?: boolean;  // Use isolated profile (default: true)
-  lowMemory?: boolean; // Reduce memory usage for lower-powered machines
+  lowMemory?: boolean; // Reduce memory usage for lower-powered machines (4GB RAM)
+  ultraLowMemory?: boolean; // Extreme memory reduction for cloud environments (1GB RAM - Replit/Lovable)
 }
 
 const SERVER_STATE_FILE = 'browser-server.json';
@@ -150,7 +152,7 @@ export async function startBrowserServer(
 
   // Low memory mode args - reduces Chromium memory footprint
   // Useful for lower-powered machines (4GB RAM, older CPUs)
-  if (options.lowMemory) {
+  if (options.lowMemory || options.ultraLowMemory) {
     browserArgs.push(
       '--disable-gpu',                    // Disable GPU acceleration
       '--disable-dev-shm-usage',          // Use /tmp instead of /dev/shm
@@ -166,6 +168,36 @@ export async function startBrowserServer(
       '--disable-ipc-flooding-protection',
       '--memory-pressure-off',            // Don't respond to memory pressure
       '--js-flags=--max-old-space-size=256', // Limit V8 heap to 256MB
+    );
+  }
+
+  // Ultra-low memory mode - extreme optimization for cloud environments
+  // Designed for Replit free tier (1GB RAM), Lovable, and similar constrained environments
+  if (options.ultraLowMemory) {
+    browserArgs.push(
+      // Additional memory savings beyond low-memory mode
+      '--single-process',                 // Run browser in single process (saves ~100MB)
+      '--no-zygote',                      // Disable zygote process (saves memory)
+      '--disable-software-rasterizer',    // Disable software rendering
+      '--disable-accelerated-2d-canvas',  // Disable canvas acceleration
+      '--disable-accelerated-video-decode', // Disable video decode acceleration
+      '--disable-gpu-compositing',        // Disable GPU compositing
+      '--disable-gl-drawing-for-tests',   // Disable GL drawing
+      '--disable-canvas-aa',              // Disable canvas anti-aliasing
+      '--disable-2d-canvas-clip-aa',      // Disable 2D canvas clip anti-aliasing
+      '--disable-notifications',          // Disable notifications
+      '--disable-component-update',       // Disable component updates
+      '--disable-domain-reliability',     // Disable domain reliability monitoring
+      '--disable-print-preview',          // Disable print preview
+      '--disable-speech-api',             // Disable speech API
+      '--disable-webgl',                  // Disable WebGL (saves significant memory)
+      '--disable-webgl2',                 // Disable WebGL2
+      '--mute-audio',                     // Disable audio (saves memory)
+      '--no-sandbox',                     // Disable sandbox (required in some cloud envs)
+      '--disable-setuid-sandbox',         // Disable setuid sandbox
+      '--js-flags=--max-old-space-size=128', // Further limit V8 heap to 128MB
+      '--renderer-process-limit=1',       // Limit to single renderer process
+      '--disable-site-isolation-trials',  // Disable site isolation
     );
   }
 
@@ -189,6 +221,7 @@ export async function startBrowserServer(
     headless,
     isolatedProfile: isolated ? profileDir : '',
     lowMemory: options.lowMemory,
+    ultraLowMemory: options.ultraLowMemory,
   };
 
   await writeFile(stateFile, JSON.stringify(state, null, 2));
@@ -305,8 +338,8 @@ export class PersistentSession {
       );
     }
 
-    // Generate session ID
-    const sessionId = `live_${nanoid(10)}`;
+    // Generate session ID using built-in crypto (no nanoid dependency)
+    const sessionId = `live_${randomUUID().replace(/-/g, '').slice(0, 10)}`;
     const sessionsDir = join(outputDir, 'sessions');
     const sessionDir = join(sessionsDir, sessionId);
     await mkdir(sessionDir, { recursive: true });

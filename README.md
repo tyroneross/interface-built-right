@@ -223,6 +223,49 @@ npx ibr login http://localhost:3000/login
 npx ibr list
 ```
 
+## Cloud & Memory-Constrained Environments
+
+IBR can run in memory-constrained environments like Replit, Lovable, or other cloud platforms.
+
+### Replit / Lovable Mode (1GB RAM)
+
+For environments with 1GB RAM or less:
+
+```bash
+# Use --replit flag for ultra-low memory mode
+npx ibr session:start http://localhost:3000 --replit
+```
+
+This enables aggressive memory optimizations:
+- Single-process browser mode (saves ~100MB)
+- Disabled WebGL, GPU compositing, hardware acceleration
+- Limited V8 heap to 128MB
+- Disabled non-essential browser features
+
+### Low Memory Mode (4GB RAM)
+
+For machines with 4GB RAM:
+
+```bash
+npx ibr session:start http://localhost:3000 --low-memory
+```
+
+### Dependency Footprint
+
+The core library has minimal dependencies:
+- **playwright** (~200MB with browsers) - Required for screenshots
+- **commander** - CLI parsing
+- **pixelmatch** + **pngjs** - Visual comparison
+- **zod** - Config validation
+
+**Note:** `sharp` (30MB native bindings) is NOT required for the core library - only used by the optional web UI.
+
+### Tips for Cloud Environments
+
+1. **Replit**: Use `--replit` flag. Free tier (1GB) will be tight but workable.
+2. **Lovable**: Best used as CI tool or external service rather than embedded.
+3. **Vercel/Netlify**: Use in CI workflows, not serverless functions.
+
 ## Requirements
 
 - Node.js 18+

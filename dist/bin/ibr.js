@@ -2603,7 +2603,7 @@ async function startBrowserServer(outputDir, options = {}) {
   }
   const debugPort = 9222 + Math.floor(Math.random() * 1e3);
   const browserArgs = [`--remote-debugging-port=${debugPort}`];
-  if (options.lowMemory) {
+  if (options.lowMemory || options.ultraLowMemory) {
     browserArgs.push(
       "--disable-gpu",
       // Disable GPU acceleration
@@ -2630,6 +2630,55 @@ async function startBrowserServer(outputDir, options = {}) {
       // Limit V8 heap to 256MB
     );
   }
+  if (options.ultraLowMemory) {
+    browserArgs.push(
+      // Additional memory savings beyond low-memory mode
+      "--single-process",
+      // Run browser in single process (saves ~100MB)
+      "--no-zygote",
+      // Disable zygote process (saves memory)
+      "--disable-software-rasterizer",
+      // Disable software rendering
+      "--disable-accelerated-2d-canvas",
+      // Disable canvas acceleration
+      "--disable-accelerated-video-decode",
+      // Disable video decode acceleration
+      "--disable-gpu-compositing",
+      // Disable GPU compositing
+      "--disable-gl-drawing-for-tests",
+      // Disable GL drawing
+      "--disable-canvas-aa",
+      // Disable canvas anti-aliasing
+      "--disable-2d-canvas-clip-aa",
+      // Disable 2D canvas clip anti-aliasing
+      "--disable-notifications",
+      // Disable notifications
+      "--disable-component-update",
+      // Disable component updates
+      "--disable-domain-reliability",
+      // Disable domain reliability monitoring
+      "--disable-print-preview",
+      // Disable print preview
+      "--disable-speech-api",
+      // Disable speech API
+      "--disable-webgl",
+      // Disable WebGL (saves significant memory)
+      "--disable-webgl2",
+      // Disable WebGL2
+      "--mute-audio",
+      // Disable audio (saves memory)
+      "--no-sandbox",
+      // Disable sandbox (required in some cloud envs)
+      "--disable-setuid-sandbox",
+      // Disable setuid sandbox
+      "--js-flags=--max-old-space-size=128",
+      // Further limit V8 heap to 128MB
+      "--renderer-process-limit=1",
+      // Limit to single renderer process
+      "--disable-site-isolation-trials"
+      // Disable site isolation
+    );
+  }
   const server = await import_playwright6.chromium.launchServer({
     headless,
     args: browserArgs
@@ -2643,7 +2692,8 @@ async function startBrowserServer(outputDir, options = {}) {
     startedAt: (/* @__PURE__ */ new Date()).toISOString(),
     headless,
     isolatedProfile: isolated ? profileDir : "",
-    lowMemory: options.lowMemory
+    lowMemory: options.lowMemory,
+    ultraLowMemory: options.ultraLowMemory
   };
   await (0, import_promises8.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { server, wsEndpoint };
@@ -2702,7 +2752,7 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_playwright6, import_promises8, import_fs4, import_path8, import_nanoid2, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright6, import_promises8, import_fs4, import_path8, import_crypto3, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
@@ -2710,7 +2760,7 @@ var init_browser_server = __esm({
     import_promises8 = require("fs/promises");
     import_fs4 = require("fs");
     import_path8 = require("path");
-    import_nanoid2 = require("nanoid");
+    import_crypto3 = require("crypto");
     init_schemas();
     init_extract();
     SERVER_STATE_FILE = "browser-server.json";
@@ -2740,7 +2790,7 @@ var init_browser_server = __esm({
             "No browser server running.\nStart one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
           );
         }
-        const sessionId = `live_${(0, import_nanoid2.nanoid)(10)}`;
+        const sessionId = `live_${(0, import_crypto3.randomUUID)().replace(/-/g, "").slice(0, 10)}`;
         const sessionsDir = (0, import_path8.join)(outputDir, "sessions");
         const sessionDir = (0, import_path8.join)(sessionsDir, sessionId);
         await (0, import_promises8.mkdir)(sessionDir, { recursive: true });
@@ -3092,7 +3142,7 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright7, import_promises9, import_fs5, import_path9, import_nanoid3, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright7, import_promises9, import_fs5, import_path9, import_crypto4, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
@@ -3100,7 +3150,7 @@ var init_live_session = __esm({
     import_promises9 = require("fs/promises");
     import_fs5 = require("fs");
     import_path9 = require("path");
-    import_nanoid3 = require("nanoid");
+    import_crypto4 = require("crypto");
     init_schemas();
     LiveSession = class _LiveSession {
       browser = null;
@@ -3130,7 +3180,7 @@ var init_live_session = __esm({
           debug = false,
           timeout = 3e4
         } = options;
-        const sessionId = `live_${(0, import_nanoid3.nanoid)(10)}`;
+        const sessionId = `live_${(0, import_crypto4.randomUUID)().replace(/-/g, "").slice(0, 10)}`;
         const sessionDir = (0, import_path9.join)(outputDir, "sessions", sessionId);
         await (0, import_promises9.mkdir)(sessionDir, { recursive: true });
         const browser3 = await import_playwright7.chromium.launch({
@@ -3825,14 +3875,14 @@ function analyzeComparison(result, thresholdPercent = 1) {
 }
 
 // src/session.ts
-var import_nanoid = require("nanoid");
+var import_crypto2 = require("crypto");
 var import_promises5 = require("fs/promises");
 var import_path5 = require("path");
 init_schemas();
 init_git_context();
 var SESSION_PREFIX = "sess_";
 function generateSessionId() {
-  return `${SESSION_PREFIX}${(0, import_nanoid.nanoid)(10)}`;
+  return `${SESSION_PREFIX}${(0, import_crypto2.randomUUID)().replace(/-/g, "").slice(0, 10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
   const root = (0, import_path5.join)(outputDir, "sessions", sessionId);
@@ -4828,7 +4878,7 @@ program.command("logout").description("Clear saved authentication state").action
     process.exit(1);
   }
 });
-program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").action(async (url, options) => {
+program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--replit", "Ultra-low memory mode for Replit/Lovable/cloud environments (1GB RAM)").action(async (url, options) => {
   try {
     const {
       startBrowserServer: startBrowserServer2,
@@ -4841,14 +4891,15 @@ program.command("session:start [url]").description("Start an interactive browser
     const headless = !options.sandbox && !options.debug;
     const serverRunning = await isServerRunning2(outputDir);
     if (!serverRunning) {
-      const modeLabel = options.lowMemory ? " (low-memory mode)" : "";
+      const modeLabel = options.replit ? " (ultra-low-memory/replit mode)" : options.lowMemory ? " (low-memory mode)" : "";
       console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
       const { server } = await startBrowserServer2(outputDir, {
         headless,
         debug: options.debug,
         isolated: true,
         // Prevents conflicts with Playwright MCP
-        lowMemory: options.lowMemory
+        lowMemory: options.lowMemory,
+        ultraLowMemory: options.replit
       });
       const session = await PersistentSession2.create(outputDir, {
         url: resolvedUrl,

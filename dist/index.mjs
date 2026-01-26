@@ -5,10 +5,9 @@ import { mkdir, readFile, writeFile, readdir, rm, stat, unlink } from 'fs/promis
 import * as path from 'path';
 import { dirname, join } from 'path';
 import { userInfo } from 'os';
-import { randomBytes } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
-import { nanoid } from 'nanoid';
 import { URL as URL$1 } from 'url';
 
 // src/schemas.ts
@@ -703,7 +702,7 @@ function getVerdictDescription(verdict) {
 }
 var SESSION_PREFIX = "sess_";
 function generateSessionId() {
-  return `${SESSION_PREFIX}${nanoid(10)}`;
+  return `${SESSION_PREFIX}${randomUUID().replace(/-/g, "").slice(0, 10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
   const root = join(outputDir, "sessions", sessionId);
