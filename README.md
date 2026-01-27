@@ -56,6 +56,13 @@ npm install /path/to/interface-built-right
 npx ibr --help
 ```
 
+**Add `.ibr/` to your `.gitignore`:**
+```bash
+echo ".ibr/" >> .gitignore
+```
+
+IBR stores sessions, screenshots, and browser state in `.ibr/`. This folder should not be committed.
+
 ## CLI Commands
 
 | Command | Description |

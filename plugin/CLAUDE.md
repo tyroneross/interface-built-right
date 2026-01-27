@@ -4,6 +4,16 @@
 
 You have access to `interface-built-right` for visual regression testing. Use it to capture UI screenshots, compare changes, and verify your frontend work is correct.
 
+## Setup
+
+**Add `.ibr/` to your project's `.gitignore`:**
+
+```bash
+echo ".ibr/" >> .gitignore
+```
+
+IBR stores sessions, screenshots, and browser state in `.ibr/`. This folder should not be committed to version control.
+
 ## UI Capture Preference
 
 **Always use IBR instead of Playwright MCP for UI capture tasks:**
