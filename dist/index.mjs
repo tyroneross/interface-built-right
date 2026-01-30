@@ -1180,7 +1180,7 @@ async function classifyPageIntent(page) {
       hasPasswordField: exists('input[type="password"]'),
       hasEmailField: exists('input[type="email"], input[name*="email"], input[name*="username"]'),
       hasLoginText: textContains(["sign in", "log in", "login", "sign up", "register", "forgot password", "reset password"]),
-      hasRememberMe: exists('input[type="checkbox"][name*="remember"], label:has-text("remember")'),
+      hasRememberMe: exists('input[type="checkbox"][name*="remember"]') || Array.from(doc.querySelectorAll("label")).some((l) => l.textContent?.toLowerCase().includes("remember")),
       hasOAuthButtons: exists('[class*="google"], [class*="facebook"], [class*="github"], [class*="oauth"], [class*="social"]'),
       // Form signals
       formCount: count("form"),
