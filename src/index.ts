@@ -923,3 +923,24 @@ export type {
   TextIssue,
   ResponsiveTestOptions,
 } from './responsive.js';
+
+// Memory system exports
+export {
+  initMemory,
+  loadSummary,
+  saveSummary,
+  addPreference,
+  getPreference,
+  removePreference,
+  listPreferences,
+  learnFromSession,
+  listLearned,
+  promoteToPreference,
+  rebuildSummary,
+  archiveSummary,
+  queryMemory,
+  preferencesToRules,
+  createMemoryPreset,
+  formatMemorySummary,
+  formatPreference,
+} from './memory.js';

@@ -234,5 +234,22 @@ export function formatAuditResult(result: RuleAuditResult): string {
   return lines.join('\n');
 }
 
+/**
+ * Load and register memory preferences as a rule preset
+ */
+export async function loadMemoryPreset(outputDir: string): Promise<void> {
+  try {
+    const { loadSummary, createMemoryPreset } = await import('../memory.js');
+    const summary = await loadSummary(outputDir);
+
+    if (summary.activePreferences.length > 0) {
+      const preset = createMemoryPreset(summary.activePreferences);
+      registerPreset(preset);
+    }
+  } catch {
+    // Memory not available - not an error
+  }
+}
+
 // Auto-register presets on import
 import('./presets/minimal.js').then(m => m.register()).catch(() => {});

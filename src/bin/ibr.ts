@@ -2697,4 +2697,136 @@ program
     }
   });
 
+// ============================================================================
+// MEMORY COMMANDS
+// ============================================================================
+
+const memoryCmd = program
+  .command('memory')
+  .description('Manage UI/UX preferences and memory');
+
+memoryCmd
+  .command('add <description>')
+  .description('Add a UI/UX preference')
+  .option('--category <category>', 'Category: color, layout, typography, navigation, component, spacing, interaction, content', 'component')
+  .option('--component <type>', 'Component type (e.g., button, nav, card)')
+  .option('--property <property>', 'CSS property or semantic key', 'background-color')
+  .option('--operator <op>', 'Comparison: equals, contains, matches, gte, lte', 'equals')
+  .option('--value <value>', 'Expected value')
+  .option('--route <route>', 'Scope to route pattern')
+  .action(async (description: string, opts: any) => {
+    const { addPreference, formatPreference } = await import('../memory.js');
+    if (!opts.value) {
+      console.error('Error: --value is required');
+      process.exit(1);
+    }
+    const pref = await addPreference(program.opts().output || './.ibr', {
+      description,
+      category: opts.category,
+      componentType: opts.component,
+      property: opts.property,
+      operator: opts.operator,
+      value: opts.value,
+      route: opts.route,
+    });
+    console.log('Preference added:');
+    console.log(formatPreference(pref));
+  });
+
+memoryCmd
+  .command('list')
+  .description('List all preferences')
+  .option('--category <category>', 'Filter by category')
+  .option('--route <route>', 'Filter by route')
+  .action(async (opts: any) => {
+    const { listPreferences } = await import('../memory.js');
+    const prefs = await listPreferences(program.opts().output || './.ibr', {
+      category: opts.category,
+      route: opts.route,
+    });
+    if (prefs.length === 0) {
+      console.log('No preferences stored.');
+      return;
+    }
+    for (const pref of prefs) {
+      const scope = pref.route ? ` (${pref.route})` : ' (global)';
+      const conf = pref.confidence < 1.0 ? ` [${Math.round(pref.confidence * 100)}%]` : '';
+      console.log(`  ${pref.id}: ${pref.description}${scope}${conf}`);
+    }
+  });
+
+memoryCmd
+  .command('remove <id>')
+  .description('Remove a preference')
+  .action(async (id: string) => {
+    const { removePreference } = await import('../memory.js');
+    const removed = await removePreference(program.opts().output || './.ibr', id);
+    console.log(removed ? `Removed: ${id}` : `Not found: ${id}`);
+  });
+
+memoryCmd
+  .command('show <id>')
+  .description('Show full preference detail')
+  .action(async (id: string) => {
+    const { getPreference, formatPreference } = await import('../memory.js');
+    const pref = await getPreference(program.opts().output || './.ibr', id);
+    if (!pref) {
+      console.log(`Not found: ${id}`);
+      return;
+    }
+    console.log(formatPreference(pref));
+  });
+
+memoryCmd
+  .command('summary')
+  .description('Show memory summary and stats')
+  .action(async () => {
+    const { loadSummary, formatMemorySummary } = await import('../memory.js');
+    const summary = await loadSummary(program.opts().output || './.ibr');
+    console.log(formatMemorySummary(summary));
+  });
+
+memoryCmd
+  .command('rebuild')
+  .description('Force rebuild summary from preference files')
+  .action(async () => {
+    const { rebuildSummary, formatMemorySummary } = await import('../memory.js');
+    const summary = await rebuildSummary(program.opts().output || './.ibr');
+    console.log('Summary rebuilt:');
+    console.log(formatMemorySummary(summary));
+  });
+
+memoryCmd
+  .command('learned')
+  .description('Show learned expectations pending promotion')
+  .action(async () => {
+    const { listLearned } = await import('../memory.js');
+    const items = await listLearned(program.opts().output || './.ibr');
+    if (items.length === 0) {
+      console.log('No learned expectations yet.');
+      console.log('Approve sessions with ibr check to start learning.');
+      return;
+    }
+    for (const item of items) {
+      console.log(`  ${item.id} (from ${item.sessionId}):`);
+      for (const obs of item.observations) {
+        console.log(`    ${obs.category}: ${obs.description}`);
+      }
+    }
+  });
+
+memoryCmd
+  .command('promote <learnedId>')
+  .description('Promote learned expectation to preference')
+  .action(async (learnedId: string) => {
+    const { promoteToPreference, formatPreference } = await import('../memory.js');
+    const pref = await promoteToPreference(program.opts().output || './.ibr', learnedId);
+    if (!pref) {
+      console.log(`Not found or empty: ${learnedId}`);
+      return;
+    }
+    console.log('Promoted to preference:');
+    console.log(formatPreference(pref));
+  });
+
 program.parse();

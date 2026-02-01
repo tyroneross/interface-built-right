@@ -1088,6 +1088,210 @@ type RuleSetting = z.infer<typeof RuleSettingSchema>;
 type RulesConfig = z.infer<typeof RulesConfigSchema>;
 type Violation = z.infer<typeof ViolationSchema>;
 type RuleAuditResult = z.infer<typeof RuleAuditResultSchema>;
+/**
+ * Source of a UI/UX preference
+ */
+declare const MemorySourceSchema: z.ZodEnum<{
+    user: "user";
+    learned: "learned";
+    framework: "framework";
+}>;
+/**
+ * Preference categories
+ */
+declare const PreferenceCategorySchema: z.ZodEnum<{
+    color: "color";
+    layout: "layout";
+    typography: "typography";
+    navigation: "navigation";
+    component: "component";
+    spacing: "spacing";
+    interaction: "interaction";
+    content: "content";
+}>;
+/**
+ * Expectation operator for comparing values
+ */
+declare const ExpectationOperatorSchema: z.ZodEnum<{
+    equals: "equals";
+    contains: "contains";
+    matches: "matches";
+    gte: "gte";
+    lte: "lte";
+}>;
+/**
+ * A single UI/UX expectation
+ */
+declare const ExpectationSchema: z.ZodObject<{
+    property: z.ZodString;
+    operator: z.ZodEnum<{
+        equals: "equals";
+        contains: "contains";
+        matches: "matches";
+        gte: "gte";
+        lte: "lte";
+    }>;
+    value: z.ZodString;
+}, z.core.$strip>;
+/**
+ * Full preference with history
+ */
+declare const PreferenceSchema: z.ZodObject<{
+    id: z.ZodString;
+    description: z.ZodString;
+    category: z.ZodEnum<{
+        color: "color";
+        layout: "layout";
+        typography: "typography";
+        navigation: "navigation";
+        component: "component";
+        spacing: "spacing";
+        interaction: "interaction";
+        content: "content";
+    }>;
+    source: z.ZodEnum<{
+        user: "user";
+        learned: "learned";
+        framework: "framework";
+    }>;
+    route: z.ZodOptional<z.ZodString>;
+    componentType: z.ZodOptional<z.ZodString>;
+    expectation: z.ZodObject<{
+        property: z.ZodString;
+        operator: z.ZodEnum<{
+            equals: "equals";
+            contains: "contains";
+            matches: "matches";
+            gte: "gte";
+            lte: "lte";
+        }>;
+        value: z.ZodString;
+    }, z.core.$strip>;
+    confidence: z.ZodDefault<z.ZodNumber>;
+    createdAt: z.ZodString;
+    updatedAt: z.ZodString;
+    sessionIds: z.ZodOptional<z.ZodArray<z.ZodString>>;
+}, z.core.$strip>;
+/**
+ * Observation extracted from a session
+ */
+declare const ObservationSchema: z.ZodObject<{
+    description: z.ZodString;
+    category: z.ZodEnum<{
+        color: "color";
+        layout: "layout";
+        typography: "typography";
+        navigation: "navigation";
+        component: "component";
+        spacing: "spacing";
+        interaction: "interaction";
+        content: "content";
+    }>;
+    property: z.ZodString;
+    value: z.ZodString;
+}, z.core.$strip>;
+/**
+ * Learned expectation from an approved session
+ */
+declare const LearnedExpectationSchema: z.ZodObject<{
+    id: z.ZodString;
+    sessionId: z.ZodString;
+    route: z.ZodString;
+    observations: z.ZodArray<z.ZodObject<{
+        description: z.ZodString;
+        category: z.ZodEnum<{
+            color: "color";
+            layout: "layout";
+            typography: "typography";
+            navigation: "navigation";
+            component: "component";
+            spacing: "spacing";
+            interaction: "interaction";
+            content: "content";
+        }>;
+        property: z.ZodString;
+        value: z.ZodString;
+    }, z.core.$strip>>;
+    approved: z.ZodBoolean;
+    createdAt: z.ZodString;
+}, z.core.$strip>;
+/**
+ * Compact preference pointer for summary
+ */
+declare const ActivePreferenceSchema: z.ZodObject<{
+    id: z.ZodString;
+    description: z.ZodString;
+    category: z.ZodEnum<{
+        color: "color";
+        layout: "layout";
+        typography: "typography";
+        navigation: "navigation";
+        component: "component";
+        spacing: "spacing";
+        interaction: "interaction";
+        content: "content";
+    }>;
+    route: z.ZodOptional<z.ZodString>;
+    componentType: z.ZodOptional<z.ZodString>;
+    property: z.ZodString;
+    operator: z.ZodEnum<{
+        equals: "equals";
+        contains: "contains";
+        matches: "matches";
+        gte: "gte";
+        lte: "lte";
+    }>;
+    value: z.ZodString;
+    confidence: z.ZodNumber;
+}, z.core.$strip>;
+/**
+ * Memory summary - always-loaded compact file
+ */
+declare const MemorySummarySchema: z.ZodObject<{
+    version: z.ZodLiteral<1>;
+    updatedAt: z.ZodString;
+    stats: z.ZodObject<{
+        totalPreferences: z.ZodNumber;
+        totalLearned: z.ZodNumber;
+        byCategory: z.ZodRecord<z.ZodString, z.ZodNumber>;
+        bySource: z.ZodRecord<z.ZodString, z.ZodNumber>;
+    }, z.core.$strip>;
+    activePreferences: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        description: z.ZodString;
+        category: z.ZodEnum<{
+            color: "color";
+            layout: "layout";
+            typography: "typography";
+            navigation: "navigation";
+            component: "component";
+            spacing: "spacing";
+            interaction: "interaction";
+            content: "content";
+        }>;
+        route: z.ZodOptional<z.ZodString>;
+        componentType: z.ZodOptional<z.ZodString>;
+        property: z.ZodString;
+        operator: z.ZodEnum<{
+            equals: "equals";
+            contains: "contains";
+            matches: "matches";
+            gte: "gte";
+            lte: "lte";
+        }>;
+        value: z.ZodString;
+        confidence: z.ZodNumber;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
+type MemorySource = z.infer<typeof MemorySourceSchema>;
+type PreferenceCategory = z.infer<typeof PreferenceCategorySchema>;
+type ExpectationOperator = z.infer<typeof ExpectationOperatorSchema>;
+type Expectation = z.infer<typeof ExpectationSchema>;
+type Preference = z.infer<typeof PreferenceSchema>;
+type Observation = z.infer<typeof ObservationSchema>;
+type LearnedExpectation = z.infer<typeof LearnedExpectationSchema>;
+type ActivePreference = z.infer<typeof ActivePreferenceSchema>;
+type MemorySummary = z.infer<typeof MemorySummarySchema>;
 
 /**
  * Options for starting a visual session
@@ -2100,6 +2304,134 @@ declare function testResponsive(url: string, options?: ResponsiveTestOptions): P
 declare function formatResponsiveResult(result: ResponsiveResult): string;
 
 /**
+ * Rule context passed to each rule check
+ */
+interface RuleContext {
+    isMobile: boolean;
+    viewportWidth: number;
+    viewportHeight: number;
+    url: string;
+    allElements: EnhancedElement[];
+}
+/**
+ * Rule definition
+ */
+interface Rule {
+    id: string;
+    name: string;
+    description: string;
+    defaultSeverity: 'warn' | 'error';
+    check: (element: EnhancedElement, context: RuleContext, options?: Record<string, unknown>) => Violation | null;
+}
+/**
+ * Rule preset - collection of rules with default settings
+ */
+interface RulePreset {
+    name: string;
+    description: string;
+    rules: Rule[];
+    defaults: Record<string, RuleSetting>;
+}
+
+/**
+ * Memory System - Persistent UI/UX preferences with eviction and summarization
+ *
+ * Follows the "Deep Agents" context management pattern:
+ * - summary.json: Always-loaded compact file (< 2KB)
+ * - preferences/: Full preference detail files
+ * - learned/: Expectations extracted from approved sessions
+ * - archive/: Previous summary snapshots (eviction)
+ */
+
+/**
+ * Ensure memory directory structure exists
+ */
+declare function initMemory(outputDir: string): Promise<void>;
+/**
+ * Load the compact summary - the "working memory"
+ */
+declare function loadSummary(outputDir: string): Promise<MemorySummary>;
+/**
+ * Save the compact summary
+ */
+declare function saveSummary(outputDir: string, summary: MemorySummary): Promise<void>;
+/**
+ * Add a new UI/UX preference
+ */
+declare function addPreference(outputDir: string, input: {
+    description: string;
+    category: PreferenceCategory;
+    source?: MemorySource;
+    route?: string;
+    componentType?: string;
+    property: string;
+    operator?: ExpectationOperator;
+    value: string;
+    confidence?: number;
+    sessionIds?: string[];
+}): Promise<Preference>;
+/**
+ * Get full preference detail by ID
+ */
+declare function getPreference(outputDir: string, prefId: string): Promise<Preference | null>;
+/**
+ * Remove a preference
+ */
+declare function removePreference(outputDir: string, prefId: string): Promise<boolean>;
+/**
+ * List preferences with optional filter
+ */
+declare function listPreferences(outputDir: string, filter?: {
+    category?: PreferenceCategory;
+    route?: string;
+    componentType?: string;
+}): Promise<Preference[]>;
+/**
+ * Extract and store expectations from an approved session
+ */
+declare function learnFromSession(outputDir: string, session: Session, observations: Observation[]): Promise<LearnedExpectation>;
+/**
+ * List learned expectations
+ */
+declare function listLearned(outputDir: string): Promise<LearnedExpectation[]>;
+/**
+ * Promote a learned expectation to a full preference
+ */
+declare function promoteToPreference(outputDir: string, learnedId: string): Promise<Preference | null>;
+/**
+ * Rebuild summary from all preference files (summarization pattern)
+ */
+declare function rebuildSummary(outputDir: string): Promise<MemorySummary>;
+/**
+ * Archive current summary before rebuilding (eviction pattern)
+ */
+declare function archiveSummary(outputDir: string): Promise<void>;
+/**
+ * Query memory for preferences matching criteria
+ */
+declare function queryMemory(outputDir: string, query: {
+    route?: string;
+    category?: string;
+    componentType?: string;
+}): Promise<ActivePreference[]>;
+/**
+ * Convert memory preferences into Rule objects for the rules engine
+ */
+declare function preferencesToRules(preferences: ActivePreference[]): Rule[];
+/**
+ * Create a RulePreset from memory preferences
+ */
+declare function createMemoryPreset(preferences: ActivePreference[]): RulePreset;
+/**
+ * Format memory summary for CLI output
+ */
+declare function formatMemorySummary(summary: MemorySummary): string;
+/**
+ * Format a single preference for display
+ */
+declare function formatPreference(pref: Preference): string;
+
+/**
  * Options for standalone compare function
  */
 interface CompareInput {
@@ -2417,4 +2749,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type RatedMetric, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type RatedMetric, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, learnFromSession, listLearned, listPreferences, listSessions, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryMemory, rebuildSummary, registerOperation, removePreference, saveSummary, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

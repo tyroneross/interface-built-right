@@ -318,3 +318,120 @@ export type RuleSetting = z.infer<typeof RuleSettingSchema>;
 export type RulesConfig = z.infer<typeof RulesConfigSchema>;
 export type Violation = z.infer<typeof ViolationSchema>;
 export type RuleAuditResult = z.infer<typeof RuleAuditResultSchema>;
+
+// ============================================================================
+// MEMORY SYSTEM SCHEMAS
+// ============================================================================
+
+/**
+ * Source of a UI/UX preference
+ */
+export const MemorySourceSchema = z.enum(['user', 'learned', 'framework']);
+
+/**
+ * Preference categories
+ */
+export const PreferenceCategorySchema = z.enum([
+  'color',
+  'layout',
+  'typography',
+  'navigation',
+  'component',
+  'spacing',
+  'interaction',
+  'content',
+]);
+
+/**
+ * Expectation operator for comparing values
+ */
+export const ExpectationOperatorSchema = z.enum(['equals', 'contains', 'matches', 'gte', 'lte']);
+
+/**
+ * A single UI/UX expectation
+ */
+export const ExpectationSchema = z.object({
+  property: z.string(),
+  operator: ExpectationOperatorSchema,
+  value: z.string(),
+});
+
+/**
+ * Full preference with history
+ */
+export const PreferenceSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  category: PreferenceCategorySchema,
+  source: MemorySourceSchema,
+  route: z.string().optional(),
+  componentType: z.string().optional(),
+  expectation: ExpectationSchema,
+  confidence: z.number().min(0).max(1).default(1.0),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  sessionIds: z.array(z.string()).optional(),
+});
+
+/**
+ * Observation extracted from a session
+ */
+export const ObservationSchema = z.object({
+  description: z.string(),
+  category: PreferenceCategorySchema,
+  property: z.string(),
+  value: z.string(),
+});
+
+/**
+ * Learned expectation from an approved session
+ */
+export const LearnedExpectationSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  route: z.string(),
+  observations: z.array(ObservationSchema),
+  approved: z.boolean(),
+  createdAt: z.string().datetime(),
+});
+
+/**
+ * Compact preference pointer for summary
+ */
+export const ActivePreferenceSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  category: PreferenceCategorySchema,
+  route: z.string().optional(),
+  componentType: z.string().optional(),
+  property: z.string(),
+  operator: ExpectationOperatorSchema,
+  value: z.string(),
+  confidence: z.number(),
+});
+
+/**
+ * Memory summary - always-loaded compact file
+ */
+export const MemorySummarySchema = z.object({
+  version: z.literal(1),
+  updatedAt: z.string().datetime(),
+  stats: z.object({
+    totalPreferences: z.number(),
+    totalLearned: z.number(),
+    byCategory: z.record(z.string(), z.number()),
+    bySource: z.record(z.string(), z.number()),
+  }),
+  activePreferences: z.array(ActivePreferenceSchema),
+});
+
+// Memory type exports
+export type MemorySource = z.infer<typeof MemorySourceSchema>;
+export type PreferenceCategory = z.infer<typeof PreferenceCategorySchema>;
+export type ExpectationOperator = z.infer<typeof ExpectationOperatorSchema>;
+export type Expectation = z.infer<typeof ExpectationSchema>;
+export type Preference = z.infer<typeof PreferenceSchema>;
+export type Observation = z.infer<typeof ObservationSchema>;
+export type LearnedExpectation = z.infer<typeof LearnedExpectationSchema>;
+export type ActivePreference = z.infer<typeof ActivePreferenceSchema>;
+export type MemorySummary = z.infer<typeof MemorySummarySchema>;

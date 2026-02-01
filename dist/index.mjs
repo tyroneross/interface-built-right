@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { chromium } from 'playwright';
 import * as fs from 'fs/promises';
-import { mkdir, readFile, writeFile, readdir, rm, access, stat, unlink } from 'fs/promises';
+import { mkdir, readFile, writeFile, readdir, rm, access, unlink, copyFile, stat } from 'fs/promises';
 import * as path from 'path';
 import { dirname, join } from 'path';
 import { tmpdir, userInfo } from 'os';
@@ -10,6 +10,7 @@ import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { nanoid } from 'nanoid';
 import { URL as URL$1 } from 'url';
+import { existsSync } from 'fs';
 
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -946,6 +947,72 @@ var RuleAuditResultSchema = z.object({
     warnings: z.number(),
     passed: z.number()
   })
+});
+var MemorySourceSchema = z.enum(["user", "learned", "framework"]);
+var PreferenceCategorySchema = z.enum([
+  "color",
+  "layout",
+  "typography",
+  "navigation",
+  "component",
+  "spacing",
+  "interaction",
+  "content"
+]);
+var ExpectationOperatorSchema = z.enum(["equals", "contains", "matches", "gte", "lte"]);
+var ExpectationSchema = z.object({
+  property: z.string(),
+  operator: ExpectationOperatorSchema,
+  value: z.string()
+});
+var PreferenceSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  category: PreferenceCategorySchema,
+  source: MemorySourceSchema,
+  route: z.string().optional(),
+  componentType: z.string().optional(),
+  expectation: ExpectationSchema,
+  confidence: z.number().min(0).max(1).default(1),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  sessionIds: z.array(z.string()).optional()
+});
+var ObservationSchema = z.object({
+  description: z.string(),
+  category: PreferenceCategorySchema,
+  property: z.string(),
+  value: z.string()
+});
+var LearnedExpectationSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  route: z.string(),
+  observations: z.array(ObservationSchema),
+  approved: z.boolean(),
+  createdAt: z.string().datetime()
+});
+var ActivePreferenceSchema = z.object({
+  id: z.string(),
+  description: z.string(),
+  category: PreferenceCategorySchema,
+  route: z.string().optional(),
+  componentType: z.string().optional(),
+  property: z.string(),
+  operator: ExpectationOperatorSchema,
+  value: z.string(),
+  confidence: z.number()
+});
+var MemorySummarySchema = z.object({
+  version: z.literal(1),
+  updatedAt: z.string().datetime(),
+  stats: z.object({
+    totalPreferences: z.number(),
+    totalLearned: z.number(),
+    byCategory: z.record(z.string(), z.number()),
+    bySource: z.record(z.string(), z.number())
+  }),
+  activePreferences: z.array(ActivePreferenceSchema)
 });
 
 // src/types.ts
@@ -4629,8 +4696,8 @@ async function testResponsive(url, options = {}) {
           minFontSize
         });
         if (captureScreenshots) {
-          const { mkdir: mkdir8 } = await import('fs/promises');
-          await mkdir8(outputDir, { recursive: true });
+          const { mkdir: mkdir9 } = await import('fs/promises');
+          await mkdir9(outputDir, { recursive: true });
           const screenshotPath = `${outputDir}/${viewportName}.png`;
           await page.screenshot({ path: screenshotPath, fullPage: true });
           result.screenshot = screenshotPath;
@@ -4817,6 +4884,320 @@ function formatResponsiveResult(result) {
     }
     lines.push("");
   }
+  return lines.join("\n");
+}
+var MEMORY_DIR = "memory";
+var SUMMARY_FILE = "summary.json";
+var PREFERENCES_DIR = "preferences";
+var LEARNED_DIR = "learned";
+var ARCHIVE_DIR = "archive";
+var PREF_PREFIX = "pref_";
+var LEARN_PREFIX = "learn_";
+var MAX_ACTIVE_PREFERENCES = 50;
+async function initMemory(outputDir) {
+  const memoryDir = join(outputDir, MEMORY_DIR);
+  await mkdir(join(memoryDir, PREFERENCES_DIR), { recursive: true });
+  await mkdir(join(memoryDir, LEARNED_DIR), { recursive: true });
+  await mkdir(join(memoryDir, ARCHIVE_DIR), { recursive: true });
+}
+function getMemoryPath(outputDir, ...segments) {
+  return join(outputDir, MEMORY_DIR, ...segments);
+}
+async function loadSummary(outputDir) {
+  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
+  if (!existsSync(summaryPath)) {
+    return createEmptySummary();
+  }
+  try {
+    const content = await readFile(summaryPath, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return createEmptySummary();
+  }
+}
+async function saveSummary(outputDir, summary) {
+  await initMemory(outputDir);
+  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
+  await writeFile(summaryPath, JSON.stringify(summary, null, 2));
+}
+function createEmptySummary() {
+  return {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    stats: {
+      totalPreferences: 0,
+      totalLearned: 0,
+      byCategory: {},
+      bySource: {}
+    },
+    activePreferences: []
+  };
+}
+async function addPreference(outputDir, input) {
+  await initMemory(outputDir);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const pref = {
+    id: `${PREF_PREFIX}${nanoid(8)}`,
+    description: input.description,
+    category: input.category,
+    source: input.source ?? "user",
+    route: input.route,
+    componentType: input.componentType,
+    expectation: {
+      property: input.property,
+      operator: input.operator ?? "equals",
+      value: input.value
+    },
+    confidence: input.confidence ?? 1,
+    createdAt: now,
+    updatedAt: now,
+    sessionIds: input.sessionIds
+  };
+  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${pref.id}.json`);
+  await writeFile(prefPath, JSON.stringify(pref, null, 2));
+  await rebuildSummary(outputDir);
+  return pref;
+}
+async function getPreference(outputDir, prefId) {
+  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
+  if (!existsSync(prefPath)) return null;
+  try {
+    const content = await readFile(prefPath, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+async function removePreference(outputDir, prefId) {
+  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
+  if (!existsSync(prefPath)) return false;
+  await unlink(prefPath);
+  await rebuildSummary(outputDir);
+  return true;
+}
+async function listPreferences(outputDir, filter) {
+  const prefsDir = getMemoryPath(outputDir, PREFERENCES_DIR);
+  if (!existsSync(prefsDir)) return [];
+  const files = await readdir(prefsDir);
+  const prefs = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = await readFile(join(prefsDir, file), "utf-8");
+      const pref = JSON.parse(content);
+      if (filter?.category && pref.category !== filter.category) continue;
+      if (filter?.route && pref.route !== filter.route) continue;
+      if (filter?.componentType && pref.componentType !== filter.componentType) continue;
+      prefs.push(pref);
+    } catch {
+    }
+  }
+  return prefs.sort((a, b) => b.confidence - a.confidence);
+}
+async function learnFromSession(outputDir, session, observations) {
+  await initMemory(outputDir);
+  const route = new URL(session.url).pathname;
+  const learned = {
+    id: `${LEARN_PREFIX}${nanoid(8)}`,
+    sessionId: session.id,
+    route,
+    observations,
+    approved: true,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const learnPath = getMemoryPath(outputDir, LEARNED_DIR, `${learned.id}.json`);
+  await writeFile(learnPath, JSON.stringify(learned, null, 2));
+  return learned;
+}
+async function listLearned(outputDir) {
+  const learnedDir = getMemoryPath(outputDir, LEARNED_DIR);
+  if (!existsSync(learnedDir)) return [];
+  const files = await readdir(learnedDir);
+  const items = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = await readFile(join(learnedDir, file), "utf-8");
+      items.push(JSON.parse(content));
+    } catch {
+    }
+  }
+  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+async function promoteToPreference(outputDir, learnedId) {
+  const learnedPath = getMemoryPath(outputDir, LEARNED_DIR, `${learnedId}.json`);
+  if (!existsSync(learnedPath)) return null;
+  const content = await readFile(learnedPath, "utf-8");
+  const learned = JSON.parse(content);
+  if (learned.observations.length === 0) return null;
+  const obs = learned.observations[0];
+  const pref = await addPreference(outputDir, {
+    description: obs.description,
+    category: obs.category,
+    source: "learned",
+    route: learned.route,
+    property: obs.property,
+    value: obs.value,
+    confidence: 0.8,
+    sessionIds: [learned.sessionId]
+  });
+  return pref;
+}
+async function rebuildSummary(outputDir) {
+  await archiveSummary(outputDir);
+  const prefs = await listPreferences(outputDir);
+  const learned = await listLearned(outputDir);
+  const byCategory = {};
+  const bySource = {};
+  for (const pref of prefs) {
+    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
+    bySource[pref.source] = (bySource[pref.source] || 0) + 1;
+  }
+  const activePrefs = prefs.slice(0, MAX_ACTIVE_PREFERENCES).map((pref) => ({
+    id: pref.id,
+    description: pref.description,
+    category: pref.category,
+    route: pref.route,
+    componentType: pref.componentType,
+    property: pref.expectation.property,
+    operator: pref.expectation.operator,
+    value: pref.expectation.value,
+    confidence: pref.confidence
+  }));
+  const summary = {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    stats: {
+      totalPreferences: prefs.length,
+      totalLearned: learned.length,
+      byCategory,
+      bySource
+    },
+    activePreferences: activePrefs
+  };
+  await saveSummary(outputDir, summary);
+  return summary;
+}
+async function archiveSummary(outputDir) {
+  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
+  if (!existsSync(summaryPath)) return;
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+  const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp}.json`);
+  try {
+    await copyFile(summaryPath, archivePath);
+  } catch {
+  }
+}
+async function queryMemory(outputDir, query) {
+  const summary = await loadSummary(outputDir);
+  return summary.activePreferences.filter((pref) => {
+    if (query.route && pref.route && !query.route.includes(pref.route)) return false;
+    if (query.category && pref.category !== query.category) return false;
+    if (query.componentType && pref.componentType !== query.componentType) return false;
+    return true;
+  });
+}
+function evaluateOperator(operator, actual, expected) {
+  switch (operator) {
+    case "equals":
+      return actual.toLowerCase() === expected.toLowerCase();
+    case "contains":
+      return actual.toLowerCase().includes(expected.toLowerCase());
+    case "matches":
+      try {
+        return new RegExp(expected, "i").test(actual);
+      } catch {
+        return false;
+      }
+    case "gte":
+      return parseFloat(actual) >= parseFloat(expected);
+    case "lte":
+      return parseFloat(actual) <= parseFloat(expected);
+    default:
+      return false;
+  }
+}
+function preferencesToRules(preferences) {
+  return preferences.map((pref) => ({
+    id: `memory-${pref.id}`,
+    name: `Memory: ${pref.description}`,
+    description: `User preference: ${pref.description}`,
+    defaultSeverity: pref.confidence >= 0.8 ? "error" : "warn",
+    check: (element, context) => {
+      if (pref.route && !context.url.includes(pref.route)) return null;
+      if (pref.componentType) {
+        const matchesTag = element.tagName.toLowerCase() === pref.componentType.toLowerCase();
+        const matchesRole = element.a11y?.role?.toLowerCase() === pref.componentType.toLowerCase();
+        if (!matchesTag && !matchesRole) return null;
+      }
+      const styles = element.computedStyles;
+      if (!styles) return null;
+      const actual = styles[pref.property];
+      if (!actual) return null;
+      if (evaluateOperator(pref.operator, actual, pref.value)) return null;
+      return {
+        ruleId: `memory-${pref.id}`,
+        ruleName: `Memory: ${pref.description}`,
+        severity: pref.confidence >= 0.8 ? "error" : "warn",
+        message: `Expected ${pref.property} to ${pref.operator} "${pref.value}", got "${actual}". (${pref.description})`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: `Update ${pref.property} to ${pref.value}`
+      };
+    }
+  }));
+}
+function createMemoryPreset(preferences) {
+  const rules = preferencesToRules(preferences);
+  const defaults = {};
+  for (const rule of rules) {
+    defaults[rule.id] = rule.defaultSeverity;
+  }
+  return {
+    name: "memory",
+    description: "UI/UX preferences from IBR memory",
+    rules,
+    defaults
+  };
+}
+function formatMemorySummary(summary) {
+  const lines = [];
+  lines.push("IBR Memory");
+  lines.push(`Updated: ${summary.updatedAt}`);
+  lines.push("");
+  lines.push(`Preferences: ${summary.stats.totalPreferences}`);
+  lines.push(`Learned: ${summary.stats.totalLearned}`);
+  if (Object.keys(summary.stats.byCategory).length > 0) {
+    lines.push("");
+    lines.push("By category:");
+    for (const [cat, count] of Object.entries(summary.stats.byCategory)) {
+      lines.push(`  ${cat}: ${count}`);
+    }
+  }
+  if (summary.activePreferences.length > 0) {
+    lines.push("");
+    lines.push("Active preferences:");
+    for (const pref of summary.activePreferences) {
+      const scope = pref.route ? ` (${pref.route})` : " (global)";
+      const conf = pref.confidence < 1 ? ` [${Math.round(pref.confidence * 100)}%]` : "";
+      lines.push(`  ${pref.id}: ${pref.description}${scope}${conf}`);
+    }
+  }
+  return lines.join("\n");
+}
+function formatPreference(pref) {
+  const lines = [];
+  lines.push(`ID: ${pref.id}`);
+  lines.push(`Description: ${pref.description}`);
+  lines.push(`Category: ${pref.category}`);
+  lines.push(`Source: ${pref.source}`);
+  lines.push(`Confidence: ${Math.round(pref.confidence * 100)}%`);
+  lines.push(`Expectation: ${pref.expectation.property} ${pref.expectation.operator} "${pref.expectation.value}"`);
+  if (pref.route) lines.push(`Route: ${pref.route}`);
+  if (pref.componentType) lines.push(`Component: ${pref.componentType}`);
+  if (pref.sessionIds?.length) lines.push(`Sessions: ${pref.sessionIds.join(", ")}`);
+  lines.push(`Created: ${pref.createdAt}`);
+  lines.push(`Updated: ${pref.updatedAt}`);
   return lines.join("\n");
 }
 
@@ -5304,6 +5685,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, ElementIssueSchema, EnhancedElementSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, PERFORMANCE_THRESHOLDS, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatPendingOperations, formatPerformanceResult, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, listSessions, loadRetentionConfig, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, registerOperation, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, learnFromSession, listLearned, listPreferences, listSessions, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryMemory, rebuildSummary, registerOperation, removePreference, saveSummary, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

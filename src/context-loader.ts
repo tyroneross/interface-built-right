@@ -15,12 +15,14 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { homedir } from 'os';
 import { parseDesignFramework, type DesignFramework } from './framework-parser.js';
+import type { MemorySummary } from './schemas.js';
 
 export interface UserContext {
   projectDir: string;
   framework?: DesignFramework;
   sources: ContextSource[];
   config: IBRConfig;
+  memory?: MemorySummary;
 }
 
 export interface ContextSource {
@@ -72,11 +74,25 @@ export async function discoverUserContext(projectDir: string): Promise<UserConte
   // Load IBR config
   const config = await loadIBRConfig(projectDir);
 
+  // Load memory if available
+  let memory: MemorySummary | undefined;
+  const outputDir = config.outputDir || './.ibr';
+  const memoryPath = join(outputDir, 'memory', 'summary.json');
+  if (existsSync(memoryPath)) {
+    try {
+      const memContent = await readFile(memoryPath, 'utf-8');
+      memory = JSON.parse(memContent) as MemorySummary;
+    } catch {
+      // Memory unavailable - not an error
+    }
+  }
+
   return {
     projectDir,
     framework,
     sources,
     config,
+    memory,
   };
 }
 
@@ -148,6 +164,11 @@ export function formatContextSummary(context: UserContext): string {
     lines.push('');
     lines.push('To enable design validation, add your framework to CLAUDE.md.');
     lines.push('IBR will parse principles and generate validation rules automatically.');
+  }
+
+  if (context.memory && context.memory.stats.totalPreferences > 0) {
+    lines.push('');
+    lines.push(`Memory: ${context.memory.stats.totalPreferences} preferences, ${context.memory.stats.totalLearned} learned`);
   }
 
   lines.push('');
