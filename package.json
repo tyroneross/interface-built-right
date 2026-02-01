@@ -1,7 +1,7 @@
 {
   "name": "@tyroneross/interface-built-right",
   "version": "0.4.5",
-  "description": "Visual regression testing for Claude Code - capture baselines, compare changes, iterate automatically",
+  "description": "Visual eyes for Claude Code. Screenshot your UI, make changes, see exactly what moved — two commands, zero config.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tyroneross/interface-built-right.git"
