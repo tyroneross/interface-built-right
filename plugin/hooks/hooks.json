@@ -5,7 +5,7 @@
         "matcher": "Bash",
         "hooks": [{
           "type": "prompt",
-          "prompt": "A Bash command is about to run. Check $ARGUMENTS for dangerous patterns:\n- rm -rf / or ~ or .\n- sudo rm\n- curl|wget piped to sh/bash\n- git push --force\n- git reset --hard\n- DROP DATABASE/TABLE\n- chmod -R 777\n- Production deploys (vercel --prod, railway deploy, npm publish, fly deploy)\n\nIf dangerous: {\"ok\": false, \"reason\": \"Blocked: <pattern>. Requires manual approval.\"}\nIf production deploy: {\"ok\": true, \"reason\": \"Production deployment detected. Confirm with user before proceeding.\"}\nOtherwise: {\"ok\": true}"
+          "prompt": "A Bash command is about to run. Check $ARGUMENTS for dangerous patterns:\n- rm -rf / or ~ or .\n- sudo rm\n- curl|wget piped to sh/bash\n- git push --force\n- git reset --hard\n- DROP DATABASE/TABLE\n- chmod -R 777\n- Production deploys (vercel --prod, railway deploy, npm publish, fly deploy, heroku push, aws deploy, gcloud deploy)\n\nIf dangerous: {\"ok\": false, \"reason\": \"Blocked: <pattern>. Requires manual approval.\"}\nIf production deploy: {\"ok\": true, \"reason\": \"Production deployment detected. Confirm with user before proceeding.\"}\nOtherwise: {\"ok\": true}"
         }]
       },
       {
