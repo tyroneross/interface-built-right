@@ -32,9 +32,9 @@ It works from the terminal, from Claude Code slash commands, or from code. Two c
 <td width="33%"><strong>3. Compare</strong><br><code>npx ibr check</code></td>
 </tr>
 <tr>
-<td><img src="docs/images/demo-baseline.png" alt="Baseline screenshot"></td>
-<td><img src="docs/images/demo-current.png" alt="After changes"></td>
-<td><img src="docs/images/demo-diff.png" alt="Visual diff"></td>
+<td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-baseline.png" alt="Baseline screenshot"></td>
+<td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-current.png" alt="After changes"></td>
+<td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-diff.png" alt="Visual diff"></td>
 </tr>
 </table>
 
@@ -43,7 +43,7 @@ It works from the terminal, from Claude Code slash commands, or from code. Two c
 <details>
 <summary>See terminal output</summary>
 <br>
-<img src="docs/images/demo-terminal.png" alt="IBR terminal output" width="700">
+<img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-terminal.png" alt="IBR terminal output" width="700">
 </details>
 
 ## Quick Start
