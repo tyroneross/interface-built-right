@@ -5,14 +5,14 @@
         "matcher": "mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_snapshot",
         "hooks": [{
           "type": "prompt",
-          "prompt": "The user has IBR (Interface Built Right) installed for visual regression testing. When Playwright screenshot/snapshot tools are called, remind that IBR is preferred for capture tasks:\n\n- Screenshot: npx ibr start <url> --name \"description\"\n- Session screenshot: npx ibr session:screenshot <id>\n\nIBR provides session tracking, comparison verdicts, and design framework validation.\n\nCheck if IBR-only mode is enabled by looking for .claude/ibr.local.md with \"mode: only\". If only mode is enabled, respond with: {\"decision\": \"block\", \"reason\": \"IBR-only mode enabled. Use: npx ibr start <url> instead. Playwright interaction tools (click, type, navigate) remain available. To disable: /prefer-ibr\"}. Otherwise, respond with: {\"decision\": \"allow\", \"message\": \"IBR is available for capture tasks. Consider using: npx ibr start <url> for session tracking and comparison features.\"}"
+          "prompt": "The user has IBR (Interface Built Right) installed for visual regression testing. A Playwright screenshot/snapshot tool is being called.\n\nIBR is preferred for capture tasks because it provides session tracking, comparison verdicts, and design framework validation:\n- npx ibr start <url> --name \"description\"\n- npx ibr session:screenshot <id>\n\nRespond with JSON: {\"ok\": true, \"reason\": \"Consider using IBR instead: npx ibr start <url> for session tracking and visual comparison.\"}"
         }]
       },
       {
         "matcher": "Edit|Write",
         "hooks": [{
           "type": "prompt",
-          "prompt": "Check if the file being edited is a UI file. UI files include: .tsx, .jsx, .vue, .svelte, .css, .scss, .sass extensions, or files in components/, pages/, app/ directories.\n\nIf it IS a UI file, respond with: {\"decision\": \"allow\", \"message\": \"UI file detected. After completing changes, run: npx ibr audit <url> to verify interactive elements and check for NO_HANDLER, PLACEHOLDER_LINK errors.\"}.\n\nIf it is NOT a UI file, respond with: {\"decision\": \"allow\"}"
+          "prompt": "Check if the file in $ARGUMENTS is a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss, or in components/, pages/, app/ directories). If it IS a UI file, respond: {\"ok\": true, \"reason\": \"UI file detected. After changes, run: npx ibr start <url> to verify.\"}. If NOT a UI file, respond: {\"ok\": true}"
         }]
       }
     ],
@@ -20,7 +20,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "Before allowing task completion, check if UI work was done in this session. Look for indicators:\n- File patterns: .tsx, .jsx, .vue, .svelte, components/, pages/\n- Keywords: button, form, component, layout, UI, interface, modal, dialog, click, interactive, navigation\n\nIf UI work was detected, check if IBR verification was run by looking for these patterns in conversation:\n- 'npx ibr' commands\n- 'Element Audit' output\n- 'session:screenshot' commands\n- 'NO_HANDLER' or 'PLACEHOLDER_LINK' mentions\n\nIf UI work was done but IBR verification NOT found, respond with: {\"decision\": \"block\", \"reason\": \"UI work detected but IBR verification not found. Before completing, run: npx ibr audit <url> to check for NO_HANDLER errors (buttons without click handlers) and PLACEHOLDER_LINK errors (links with href='#'). After verification, you may complete the task.\"}.\n\nIf no UI work detected OR IBR was already run, respond with: {\"decision\": \"allow\"}"
+          "prompt": "Check if UI work was done in this session based on $ARGUMENTS. Look for .tsx/.jsx/.vue/.svelte file edits or UI-related keywords (button, form, component, layout, modal). If UI work was done, check if IBR was run (look for 'npx ibr', 'Element Audit', 'session:screenshot'). If UI work done but IBR NOT run, respond: {\"ok\": false, \"reason\": \"UI work detected but IBR verification not found. Run: npx ibr start <url> to verify before completing.\"}. Otherwise respond: {\"ok\": true}"
         }]
       }
     ],
@@ -28,7 +28,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "IBR (Interface Built Right) plugin is active. For UI capture tasks, prefer IBR over Playwright MCP:\n\n- Screenshot: npx ibr start <url>\n- Comparison: npx ibr check\n- Interactive testing: npx ibr session:start <url>\n\nIBR and Playwright can coexist without conflicts. IBR uses an isolated browser profile.\n\nRespond with: {\"decision\": \"continue\", \"message\": \"IBR plugin ready. Use IBR for visual regression testing and UI verification.\"}"
+          "prompt": "IBR (Interface Built Right) plugin is active. For UI capture, prefer IBR over Playwright MCP. Respond: {\"ok\": true, \"reason\": \"IBR ready. Use npx ibr start <url> for visual regression testing.\"}"
         }]
       }
     ]
