@@ -27,18 +27,16 @@ It works from the terminal, from Claude Code slash commands, or from code. Two c
 
 <table>
 <tr>
-<td width="33%"><strong>1. Baseline</strong><br><code>npx ibr start &lt;url&gt;</code></td>
-<td width="33%"><strong>2. Make changes</strong><br>Edit your components</td>
-<td width="33%"><strong>3. Compare</strong><br><code>npx ibr check</code></td>
+<td width="50%"><strong>Before</strong> — <code>npx ibr start &lt;url&gt;</code></td>
+<td width="50%"><strong>After</strong> — <code>npx ibr check</code></td>
 </tr>
 <tr>
 <td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-baseline.png" alt="Baseline screenshot"></td>
 <td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-current.png" alt="After changes"></td>
-<td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-diff.png" alt="Visual diff"></td>
 </tr>
 </table>
 
-<p align="center"><em>Header changed to dark, button turned purple — IBR highlights every pixel that moved.</em></p>
+<p align="center"><em>Header changed to dark, button turned purple — IBR detects the 9.3% diff and returns <code>EXPECTED_CHANGE</code>.</em></p>
 
 <details>
 <summary>See terminal output</summary>
