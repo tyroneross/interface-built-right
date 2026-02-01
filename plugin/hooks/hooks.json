@@ -2,17 +2,33 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "prompt",
+          "prompt": "A Bash command is about to run. Check $ARGUMENTS for dangerous patterns:\n- rm -rf / or ~ or .\n- sudo rm\n- curl|wget piped to sh/bash\n- git push --force\n- git reset --hard\n- DROP DATABASE/TABLE\n- chmod -R 777\n- Production deploys (vercel --prod, railway deploy, npm publish, fly deploy)\n\nIf dangerous: {\"ok\": false, \"reason\": \"Blocked: <pattern>. Requires manual approval.\"}\nIf production deploy: {\"ok\": true, \"reason\": \"Production deployment detected. Confirm with user before proceeding.\"}\nOtherwise: {\"ok\": true}"
+        }]
+      },
+      {
         "matcher": "mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_snapshot",
         "hooks": [{
           "type": "prompt",
-          "prompt": "The user has IBR (Interface Built Right) installed for visual regression testing. A Playwright screenshot/snapshot tool is being called.\n\nIBR is preferred for capture tasks because it provides session tracking, comparison verdicts, and design framework validation:\n- npx ibr start <url> --name \"description\"\n- npx ibr session:screenshot <id>\n\nRespond with JSON: {\"ok\": true, \"reason\": \"Consider using IBR instead: npx ibr start <url> for session tracking and visual comparison.\"}"
+          "prompt": "IBR is installed. A Playwright screenshot/snapshot is being called. IBR provides session tracking and comparison. Respond: {\"ok\": true, \"reason\": \"Consider using IBR: npx ibr start <url> for session tracking.\"}"
         }]
       },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [{
+          "type": "prompt",
+          "prompt": "Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss, or in components/, pages/, app/ directories), respond: {\"ok\": true, \"reason\": \"UI file detected. After changes, run: npx ibr start <url> to verify.\"}. If it targets a sensitive path (/etc/, /usr/, ~/.ssh/, ~/.aws/, ~/.gnupg/, ~/.npmrc, ~/.netrc, ~/.gitconfig), respond: {\"ok\": false, \"reason\": \"Write to sensitive system path blocked.\"}. Otherwise: {\"ok\": true}"
+        }]
+      }
+    ],
+    "PostToolUse": [
       {
         "matcher": "Edit|Write",
         "hooks": [{
           "type": "prompt",
-          "prompt": "Check if the file in $ARGUMENTS is a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss, or in components/, pages/, app/ directories). If it IS a UI file, respond: {\"ok\": true, \"reason\": \"UI file detected. After changes, run: npx ibr start <url> to verify.\"}. If NOT a UI file, respond: {\"ok\": true}"
+          "prompt": "A file was just edited. Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss), respond: {\"ok\": true, \"reason\": \"UI file modified. Remember to verify with: npx ibr check\"}. Otherwise: {\"ok\": true}"
         }]
       }
     ],
@@ -20,7 +36,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "Check if UI work was done in this session based on $ARGUMENTS. Look for .tsx/.jsx/.vue/.svelte file edits or UI-related keywords (button, form, component, layout, modal). If UI work was done, check if IBR was run (look for 'npx ibr', 'Element Audit', 'session:screenshot'). If UI work done but IBR NOT run, respond: {\"ok\": false, \"reason\": \"UI work detected but IBR verification not found. Run: npx ibr start <url> to verify before completing.\"}. Otherwise respond: {\"ok\": true}"
+          "prompt": "Session ending. Check $ARGUMENTS for evidence of UI work (.tsx/.jsx/.vue/.svelte edits, UI keywords). If UI work was done, check if IBR was used (look for 'npx ibr', 'Element Audit', 'session:screenshot'). If UI work done but IBR NOT used: {\"ok\": true, \"reason\": \"UI changes detected but IBR verification not run. Consider: npx ibr start <url>\"}. Otherwise: {\"ok\": true}"
         }]
       }
     ],
@@ -28,7 +44,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "IBR (Interface Built Right) plugin is active. For UI capture, prefer IBR over Playwright MCP. Respond: {\"ok\": true, \"reason\": \"IBR ready. Use npx ibr start <url> for visual regression testing.\"}"
+          "prompt": "IBR (Interface Built Right) is active. Respond: {\"ok\": true, \"reason\": \"IBR ready. Use npx ibr start <url> for visual regression testing.\"}"
         }]
       }
     ]
