@@ -1,128 +1,127 @@
 ---
-description: Complete UI/UX workflow audit - verify interactions are wired, APIs exist, and UI matches specs
+name: ibr:ui-audit
+description: Run a comprehensive end-to-end UI audit on an app's workflows
+arguments:
+  - name: url
+    description: Base URL of the app (or leave blank for localhost detection)
+    required: false
 ---
 
 # /ibr:ui-audit
 
-Full product-quality audit of an app's user workflows. Verifies UI interactions are complete, wired correctly (UI -> state -> API -> persistence -> UI feedback), and flags orphaned/misleading UI elements.
+Full end-to-end audit of an app's user workflows. Verifies every UI interaction works (buttons, features, search, prompts, settings), using IBR scans for runtime evidence and code analysis for wiring traces.
 
 ## Instructions
 
-You are a **Product-quality auditor + full-stack workflow tracer**.
+You are a **full-stack UI auditor + workflow reliability engineer**.
 
 ### GOAL
 
-Audit the app's top user workflows end-to-end, using the README/docs as the source of truth. Verify UI interactions are complete, wired correctly (UI -> state -> API -> persistence -> UI feedback), and flag orphaned/misleading UI elements. If the app has few pages, audit all. If it has many, start with the first 5 pages and ask how many to include next.
+Audit the app's top user workflows end-to-end. Use the README/docs as the source of truth for intended behavior. Verify every UI interaction is wired correctly (UI → state → API → persistence → UI feedback). Produce a **light audit** (executive summary) and **detailed audit** (engineering-ready inventory).
 
-### SCOPE
+### TOOLS
 
-- Use README/docs to infer intended workflows and pages.
-- Validate the actual implementation in code (routes/components + API handlers + persistence).
-- Prioritize user-critical workflows over edge cases.
+- `npx ibr scan <url> --json` — Full UI scan: elements + interactivity + semantic + console
+- `npx ibr start <url>` / `npx ibr check` — Visual baselines and regression
+- `npx ibr session:start <url>` + `session:click/type/wait/screenshot` — Interactive testing
+- Code search — Route discovery, API mapping, handler tracing
 
-### PROCESS (STRICT)
+### PROCESS (STRICT ORDER)
 
-#### 1) Discover Intended Workflows + Pages (Docs-first)
+#### Phase 0 — Setup & Sanity
 
-Parse README (and /docs if present) to extract:
-- "happy path" workflows (verbs like create, upload, generate, save, export, search, settings, etc.)
-- referenced pages/routes/screens
+1. Confirm app runs locally (detect baseUrl)
+2. Confirm IBR: `npx ibr --help`
+3. If auth needed: `npx ibr login <loginUrl>`
 
-Build a "Workflow -> Pages" map.
+#### Phase 1 — Discover Workflows + Pages
 
-#### 2) Enumerate Actual Pages/Routes (Code-first)
+**Docs-first:** Parse README for workflows and referenced pages.
+**Code-first:** Enumerate routes from the routing framework.
 
-Detect routing framework and list routes/screens from code.
+- If pages <= 5: audit all
+- If > 5: audit top 5 (README-ranked), then ask user how many more
 
-Create a final "Pages List" sorted by likely importance:
-- pages mentioned in README/docs first
-- then remaining core pages (dashboard, list/detail, settings, onboarding)
+#### Phase 2 — Visual Baselines
 
-#### 3) Decide Audit Set
+For each page: `npx ibr start <url> --name <route-slug>`
 
-- If total pages/routes <= 5: audit all.
-- If > 5:
-  - audit the top 5 pages first (based on README + core flows)
-  - then STOP and ask the user: "I found N pages. How many should I audit next (e.g., 10 / all / only core flows)?"
-  - Do not proceed beyond 5 without the user's number.
+#### Phase 3 — IBR Scan (Element Detection)
 
-#### 4) For Each Page in the Audit Set, perform:
+For each page: `npx ibr scan <url> --json`
 
-**A) Selectable UI Inventory**
+This returns:
+- All interactive elements with bounds, handlers, computed styles
+- Button/link/form handler detection (orphan detection)
+- Page intent classification and auth/loading/error states
+- Console errors captured during page load
 
-Enumerate all interactive elements:
-- buttons, links, tabs, dropdowns, toggles, inputs, cards/rows that look clickable, menus, pagination
+Supplement with code-derived analysis (component grep for onClick/onSubmit/onChange).
 
-For each element: intended action (verb + object) + expected outcome.
+#### Phase 4 — Interaction Audit
 
-**B) Wiring & Flow Trace**
+For each interactive element, verify with observable evidence using IBR interactive sessions:
 
-Trace from UI handler -> state update -> API call(s) -> persistence -> UI confirmation.
+```bash
+npx ibr session:start <url> --name "audit-<route>"
+npx ibr session:click <id> "<selector>"
+npx ibr session:type <id> "<selector>" "test"
+npx ibr session:wait <id> "<result-selector>"
+npx ibr session:screenshot <id>
+```
 
-If AI/LLM involved, include the trigger and expected outputs.
+Assert at least ONE outcome per element:
+- **NAV**: URL change
+- **STATE**: DOM/aria state change
+- **NETWORK**: API call fired
+- **PERSISTENCE**: Survives reload
 
-**C) Orphan / Gap Detection**
+Explicitly audit: search, prompts/LLM, responses, settings, connections.
 
-Flag:
-- UI that looks clickable but has no handler
-- handler exists but no visible UI feedback
-- UI exists but no API/persistence when expected
-- API exists but no reachable UI path
-- missing empty/loading/error states that block usability
+#### Phase 5 — Visual Regression
 
-### OUTPUT (REQUIRED)
+Run `npx ibr check` after all interaction tests. Handle verdicts appropriately.
 
-#### A) Top Workflows (from README/docs)
+#### Phase 6 — Diagnose + Fix
 
-| Workflow | Pages Involved | Expected Outcomes |
-|----------|----------------|-------------------|
+Classify: ORPHANED UI, ORPHANED BACKEND, BROKEN FLOW, WEAK UX.
+Implement smallest fixes. Re-scan affected pages.
 
-#### B) Pages Audited (max 5 unless total <= 5)
+### OUTPUT (REQUIRED — BOTH)
 
-List pages with URLs/routes.
+#### Light Audit
 
-#### C) Per-Page Audit Table
+- Top workflows from README
+- Pages audited
+- P0 broken flows, orphaned UI count, biggest UX friction, IBR verdicts
+- 5 next steps
 
-| Element | Interaction | Expected | Actual | API/LLM | Status | Notes |
-|---------|-------------|----------|--------|---------|--------|-------|
+#### Detailed Audit
 
-Status values: PASS / FAIL / UNCERTAIN
-
-#### D) Orphaned/Gaps Summary (prioritized P0/P1/P2)
-
-| Priority | Issue | Location | Fix |
-|----------|-------|----------|-----|
+A) Workflow → Page map
+B) Per-page element inventory with IBR scan status
+C) UI → API → Persistence wiring trace
+D) Orphans & gaps (P0/P1/P2) with file paths + smallest fix
+E) IBR scan report (verdict, elements, issues, console errors per route)
+F) Commands to reproduce
 
 ### RULES
 
-- Evidence required: cite file paths/symbols for key findings.
-- Do not invent intent - if unclear, mark UNCERTAIN and specify what's needed to decide.
-- Keep fixes minimal and workflow-focused.
+- Evidence required: cite file paths and IBR scan data for findings
+- Do not invent intent. If ambiguous, mark UNCERTAIN
+- Keep fixes minimal and workflow-focused
+- Prefer data-testid + role selectors. Add data-testid where missing
 
 ### ACCEPTANCE CRITERIA
 
-- Top workflows from README are mapped to real pages/components
-- First audit set (<=5 pages) has full interaction inventory + wiring trace
-- Orphans and gaps are clearly identified with minimal fixes
-- If >5 pages, you ask the user how many to audit next before continuing
-
-## CLI Integration
-
-For pages that are running, you can use IBR's audit command to scan for issues:
-
-```bash
-# Basic audit with minimal rules
-npx ibr audit <url> --rules minimal
-
-# Audit with API cross-reference (finds orphan endpoints)
-npx ibr audit <url> --rules minimal --check-apis .
-
-# Output as JSON for programmatic use
-npx ibr audit <url> --rules minimal --json
-```
+- Every audited page has: IBR scan, element inventory, functional evidence
+- No clickable-looking element unclassified
+- Search/prompt/response/settings flows tested if present
+- If > 5 pages, ask user how many to continue with after first 5
 
 ## START NOW
 
-1. Parse README for workflows and referenced pages.
-2. Enumerate routes from code (detect routing framework).
-3. Determine whether total pages <= 5; if not, select top 5 and begin the audit.
+1. Detect routing framework and list routes.
+2. Parse README for workflows and referenced pages.
+3. Decide audit set (<= 5 unless total <= 5).
+4. Run `npx ibr scan` on the first page to validate the pipeline.
