@@ -968,3 +968,7 @@ export {
 } from './context/compact.js';
 
 export * from './context/types.js';
+
+// Comprehensive scan exports
+export { scan, formatScanResult } from './scan.js';
+export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';

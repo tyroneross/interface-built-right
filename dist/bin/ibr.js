@@ -5021,317 +5021,6 @@ var init_memory = __esm({
   }
 });
 
-// src/rules/presets/minimal.ts
-var minimal_exports = {};
-__export(minimal_exports, {
-  register: () => register,
-  rules: () => rules
-});
-function register() {
-  registerPreset(minimalPreset);
-}
-var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
-var init_minimal = __esm({
-  "src/rules/presets/minimal.ts"() {
-    "use strict";
-    init_engine();
-    noHandlerRule = {
-      id: "no-handler",
-      name: "No Click Handler",
-      description: "Interactive elements like buttons must have click handlers",
-      defaultSeverity: "error",
-      check: (element, _context) => {
-        const isButton = element.tagName === "button" || element.a11y.role === "button";
-        const isDisabled = element.interactive.isDisabled;
-        const hasHandler = element.interactive.hasOnClick;
-        if (isButton && !isDisabled && !hasHandler) {
-          return {
-            ruleId: "no-handler",
-            ruleName: "No Click Handler",
-            severity: "error",
-            message: `Button "${element.text || element.selector}" has no click handler`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add an onClick handler or make the button disabled"
-          };
-        }
-        return null;
-      }
-    };
-    placeholderLinkRule = {
-      id: "placeholder-link",
-      name: "Placeholder Link",
-      description: "Links must have valid hrefs or click handlers",
-      defaultSeverity: "error",
-      check: (element, _context) => {
-        const isLink = element.tagName === "a";
-        const hasValidHref = element.interactive.hasHref;
-        const hasHandler = element.interactive.hasOnClick;
-        if (isLink && !hasValidHref && !hasHandler) {
-          return {
-            ruleId: "placeholder-link",
-            ruleName: "Placeholder Link",
-            severity: "error",
-            message: `Link "${element.text || element.selector}" has placeholder href and no handler`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add a valid href or onClick handler"
-          };
-        }
-        return null;
-      }
-    };
-    touchTargetRule = {
-      id: "touch-target-small",
-      name: "Touch Target Too Small",
-      description: "Interactive elements must meet minimum touch target size",
-      defaultSeverity: "warn",
-      check: (element, context, options) => {
-        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
-        if (!isInteractive) return null;
-        const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
-        const { width, height } = element.bounds;
-        if (width < minSize || height < minSize) {
-          return {
-            ruleId: "touch-target-small",
-            ruleName: "Touch Target Too Small",
-            severity: "warn",
-            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${minSize}x${minSize}px`
-          };
-        }
-        return null;
-      }
-    };
-    missingAriaLabelRule = {
-      id: "missing-aria-label",
-      name: "Missing Accessible Label",
-      description: "Interactive elements without text need aria-label",
-      defaultSeverity: "warn",
-      check: (element, _context) => {
-        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
-        if (!isInteractive) return null;
-        const hasText = element.text && element.text.trim().length > 0;
-        const hasAriaLabel = element.a11y.ariaLabel && element.a11y.ariaLabel.trim().length > 0;
-        if (!hasText && !hasAriaLabel) {
-          return {
-            ruleId: "missing-aria-label",
-            ruleName: "Missing Accessible Label",
-            severity: "warn",
-            message: `"${element.selector}" is interactive but has no text or aria-label`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add visible text or aria-label attribute"
-          };
-        }
-        return null;
-      }
-    };
-    disabledNoVisualRule = {
-      id: "disabled-no-visual",
-      name: "Disabled Without Visual",
-      description: "Disabled elements should have visual indication",
-      defaultSeverity: "warn",
-      check: (element, _context) => {
-        if (!element.interactive.isDisabled) return null;
-        const cursor = element.interactive.cursor;
-        const hasDisabledCursor = cursor === "not-allowed" || cursor === "default";
-        const bgColor = element.computedStyles?.backgroundColor;
-        const hasGrayedBg = bgColor?.includes("gray") || bgColor?.includes("rgb(200") || bgColor?.includes("rgb(220");
-        if (!hasDisabledCursor && !hasGrayedBg) {
-          return {
-            ruleId: "disabled-no-visual",
-            ruleName: "Disabled Without Visual",
-            severity: "warn",
-            message: `"${element.text || element.selector}" is disabled but has no visual indication`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add cursor: not-allowed and/or gray background to disabled state"
-          };
-        }
-        return null;
-      }
-    };
-    minimalPreset = {
-      name: "minimal",
-      description: "Basic interactivity and accessibility checks",
-      rules: [
-        noHandlerRule,
-        placeholderLinkRule,
-        touchTargetRule,
-        missingAriaLabelRule,
-        disabledNoVisualRule
-      ],
-      defaults: {
-        "no-handler": "error",
-        "placeholder-link": "error",
-        "touch-target-small": "warn",
-        "missing-aria-label": "warn",
-        "disabled-no-visual": "warn"
-      }
-    };
-    rules = {
-      noHandlerRule,
-      placeholderLinkRule,
-      touchTargetRule,
-      missingAriaLabelRule,
-      disabledNoVisualRule
-    };
-  }
-});
-
-// src/rules/engine.ts
-var engine_exports = {};
-__export(engine_exports, {
-  createAuditResult: () => createAuditResult,
-  formatAuditResult: () => formatAuditResult,
-  getPreset: () => getPreset,
-  listPresets: () => listPresets,
-  loadMemoryPreset: () => loadMemoryPreset,
-  loadRulesConfig: () => loadRulesConfig,
-  registerPreset: () => registerPreset,
-  runRules: () => runRules
-});
-function registerPreset(preset) {
-  presets.set(preset.name, preset);
-}
-function getPreset(name) {
-  return presets.get(name);
-}
-function listPresets() {
-  return Array.from(presets.keys());
-}
-async function loadRulesConfig(projectDir) {
-  const configPath = (0, import_path10.join)(projectDir, ".ibr", "rules.json");
-  if (!(0, import_fs3.existsSync)(configPath)) {
-    return { extends: [], rules: {} };
-  }
-  try {
-    const content = await (0, import_promises10.readFile)(configPath, "utf-8");
-    return JSON.parse(content);
-  } catch (error) {
-    console.warn(`Failed to parse rules.json: ${error}`);
-    return { extends: [], rules: {} };
-  }
-}
-function mergeRuleSettings(presetNames, userRules = {}) {
-  const allRules = [];
-  const settings = /* @__PURE__ */ new Map();
-  const seenRuleIds = /* @__PURE__ */ new Set();
-  for (const presetName of presetNames) {
-    const preset = presets.get(presetName);
-    if (!preset) {
-      console.warn(`Unknown preset: ${presetName}`);
-      continue;
-    }
-    for (const rule of preset.rules) {
-      if (!seenRuleIds.has(rule.id)) {
-        allRules.push(rule);
-        seenRuleIds.add(rule.id);
-        const defaultSetting = preset.defaults[rule.id] ?? rule.defaultSeverity;
-        if (typeof defaultSetting === "string") {
-          settings.set(rule.id, { severity: defaultSetting });
-        } else {
-          settings.set(rule.id, { severity: defaultSetting[0], options: defaultSetting[1] });
-        }
-      }
-    }
-  }
-  for (const [ruleId, setting] of Object.entries(userRules)) {
-    if (typeof setting === "string") {
-      settings.set(ruleId, { severity: setting });
-    } else {
-      settings.set(ruleId, { severity: setting[0], options: setting[1] });
-    }
-  }
-  return { rules: allRules, settings };
-}
-function runRules(elements, context, config) {
-  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
-  const violations = [];
-  for (const element of elements) {
-    for (const rule of rules2) {
-      const setting = settings.get(rule.id);
-      if (!setting || setting.severity === "off") {
-        continue;
-      }
-      const violation = rule.check(element, context, setting.options);
-      if (violation) {
-        violations.push({
-          ...violation,
-          severity: setting.severity
-        });
-      }
-    }
-  }
-  return violations;
-}
-function createAuditResult(url, elements, violations) {
-  const errors = violations.filter((v) => v.severity === "error").length;
-  const warnings = violations.filter((v) => v.severity === "warn").length;
-  return {
-    url,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    elementsScanned: elements.length,
-    violations,
-    summary: {
-      errors,
-      warnings,
-      passed: elements.length - errors - warnings
-    }
-  };
-}
-function formatAuditResult(result) {
-  const lines = [];
-  lines.push(`IBR Audit: ${result.url}`);
-  lines.push(`Scanned: ${result.elementsScanned} elements`);
-  lines.push("");
-  if (result.violations.length === 0) {
-    lines.push("No violations found.");
-  } else {
-    lines.push(`Found ${result.summary.errors} errors, ${result.summary.warnings} warnings:`);
-    lines.push("");
-    for (const v of result.violations) {
-      const icon = v.severity === "error" ? "\u2717" : "!";
-      lines.push(`  ${icon} [${v.ruleId}] ${v.message}`);
-      if (v.element) {
-        lines.push(`    Element: ${v.element.slice(0, 60)}${v.element.length > 60 ? "..." : ""}`);
-      }
-      if (v.fix) {
-        lines.push(`    Fix: ${v.fix}`);
-      }
-    }
-  }
-  lines.push("");
-  lines.push(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.passed} passed`);
-  return lines.join("\n");
-}
-async function loadMemoryPreset(outputDir) {
-  try {
-    const { loadSummary: loadSummary2, createMemoryPreset: createMemoryPreset2 } = await Promise.resolve().then(() => (init_memory(), memory_exports));
-    const summary = await loadSummary2(outputDir);
-    if (summary.activePreferences.length > 0) {
-      const preset = createMemoryPreset2(summary.activePreferences);
-      registerPreset(preset);
-    }
-  } catch {
-  }
-}
-var import_promises10, import_fs3, import_path10, presets;
-var init_engine = __esm({
-  "src/rules/engine.ts"() {
-    "use strict";
-    import_promises10 = require("fs/promises");
-    import_fs3 = require("fs");
-    import_path10 = require("path");
-    presets = /* @__PURE__ */ new Map();
-    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
-    });
-  }
-});
-
 // src/extract.ts
 var extract_exports = {};
 __export(extract_exports, {
@@ -5343,7 +5032,7 @@ __export(extract_exports, {
 });
 async function getBrowser2() {
   if (!browser2) {
-    browser2 = await import_playwright7.chromium.launch({
+    browser2 = await import_playwright6.chromium.launch({
       headless: true
     });
   }
@@ -5356,16 +5045,16 @@ async function closeBrowser2() {
   }
 }
 async function checkLock(outputDir) {
-  const lockPath = (0, import_path11.join)(outputDir, LOCK_FILE);
-  if (!(0, import_fs4.existsSync)(lockPath)) {
+  const lockPath = (0, import_path10.join)(outputDir, LOCK_FILE);
+  if (!(0, import_fs3.existsSync)(lockPath)) {
     return false;
   }
   try {
-    const content = await (0, import_promises11.readFile)(lockPath, "utf-8");
+    const content = await (0, import_promises10.readFile)(lockPath, "utf-8");
     const timestamp = parseInt(content, 10);
     const age = Date.now() - timestamp;
     if (age > LOCK_TIMEOUT_MS) {
-      await (0, import_promises11.unlink)(lockPath);
+      await (0, import_promises10.unlink)(lockPath);
       return false;
     }
     return true;
@@ -5374,13 +5063,13 @@ async function checkLock(outputDir) {
   }
 }
 async function createLock(outputDir) {
-  const lockPath = (0, import_path11.join)(outputDir, LOCK_FILE);
-  await (0, import_promises11.writeFile)(lockPath, Date.now().toString());
+  const lockPath = (0, import_path10.join)(outputDir, LOCK_FILE);
+  await (0, import_promises10.writeFile)(lockPath, Date.now().toString());
 }
 async function releaseLock(outputDir) {
-  const lockPath = (0, import_path11.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path10.join)(outputDir, LOCK_FILE);
   try {
-    await (0, import_promises11.unlink)(lockPath);
+    await (0, import_promises10.unlink)(lockPath);
   } catch {
   }
 }
@@ -5647,8 +5336,8 @@ async function extractFromURL(options) {
   if (await checkLock(outputDir)) {
     throw new Error("Another extraction is in progress. Please wait.");
   }
-  const sessionDir = (0, import_path11.join)(outputDir, "sessions", sessionId);
-  await (0, import_promises11.mkdir)(sessionDir, { recursive: true });
+  const sessionDir = (0, import_path10.join)(outputDir, "sessions", sessionId);
+  await (0, import_promises10.mkdir)(sessionDir, { recursive: true });
   await createLock(outputDir);
   const browserInstance = await getBrowser2();
   let timeoutHandle = null;
@@ -5690,7 +5379,7 @@ async function extractFromURL(options) {
           elements.push(...extracted);
         }
         const cssVariables = await extractCSSVariables(page);
-        const screenshotPath = (0, import_path11.join)(sessionDir, "reference.png");
+        const screenshotPath = (0, import_path10.join)(sessionDir, "reference.png");
         await page.screenshot({
           path: screenshotPath,
           fullPage: true,
@@ -5705,11 +5394,11 @@ async function extractFromURL(options) {
           cssVariables,
           screenshotPath
         };
-        await (0, import_promises11.writeFile)(
-          (0, import_path11.join)(sessionDir, "reference.json"),
+        await (0, import_promises10.writeFile)(
+          (0, import_path10.join)(sessionDir, "reference.json"),
           JSON.stringify(result2, null, 2)
         );
-        await (0, import_promises11.writeFile)((0, import_path11.join)(sessionDir, "reference.html"), html);
+        await (0, import_promises10.writeFile)((0, import_path10.join)(sessionDir, "reference.html"), html);
         return result2;
       } finally {
         await context.close();
@@ -5725,25 +5414,25 @@ async function extractFromURL(options) {
   }
 }
 function getReferenceSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path11.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path10.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path11.join)(root, "session.json"),
-    reference: (0, import_path11.join)(root, "reference.png"),
-    referenceHtml: (0, import_path11.join)(root, "reference.html"),
-    referenceData: (0, import_path11.join)(root, "reference.json"),
-    current: (0, import_path11.join)(root, "current.png"),
-    diff: (0, import_path11.join)(root, "diff.png")
+    sessionJson: (0, import_path10.join)(root, "session.json"),
+    reference: (0, import_path10.join)(root, "reference.png"),
+    referenceHtml: (0, import_path10.join)(root, "reference.html"),
+    referenceData: (0, import_path10.join)(root, "reference.json"),
+    current: (0, import_path10.join)(root, "current.png"),
+    diff: (0, import_path10.join)(root, "diff.png")
   };
 }
-var import_playwright7, import_promises11, import_fs4, import_path11, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
+var import_playwright6, import_promises10, import_fs3, import_path10, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
 var init_extract = __esm({
   "src/extract.ts"() {
     "use strict";
-    import_playwright7 = require("playwright");
-    import_promises11 = require("fs/promises");
-    import_fs4 = require("fs");
-    import_path11 = require("path");
+    import_playwright6 = require("playwright");
+    import_promises10 = require("fs/promises");
+    import_fs3 = require("fs");
+    import_path10 = require("path");
     init_schemas();
     LOCK_FILE = ".extracting";
     LOCK_TIMEOUT_MS = 18e4;
@@ -5807,6 +5496,586 @@ var init_extract = __esm({
       "[onclick]",
       '[tabindex]:not([tabindex="-1"])'
     ];
+  }
+});
+
+// src/scan.ts
+var scan_exports = {};
+__export(scan_exports, {
+  formatScanResult: () => formatScanResult,
+  scan: () => scan
+});
+async function scan(url, options = {}) {
+  const {
+    viewport: viewportOpt = "desktop",
+    timeout = 3e4,
+    waitFor,
+    screenshot
+  } = options;
+  const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
+  const browser3 = await import_playwright7.chromium.launch({ headless: true });
+  const context = await browser3.newContext({
+    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  });
+  const page = await context.newPage();
+  const consoleErrors = [];
+  const consoleWarnings = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") {
+      consoleErrors.push(msg.text());
+    } else if (msg.type() === "warning") {
+      consoleWarnings.push(msg.text());
+    }
+  });
+  try {
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout
+    });
+    await page.waitForLoadState("networkidle", { timeout: 1e4 }).catch(() => {
+    });
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
+      });
+    }
+    const [elements, interactivity, semantic] = await Promise.all([
+      extractAndAudit(page, resolvedViewport),
+      testInteractivity(page),
+      getSemanticOutput(page)
+    ]);
+    if (screenshot) {
+      await page.screenshot({
+        path: screenshot.path,
+        fullPage: screenshot.fullPage ?? true
+      });
+    }
+    let route;
+    try {
+      route = new URL(url).pathname;
+    } catch {
+      route = url;
+    }
+    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors);
+    const verdict = determineVerdict2(issues);
+    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
+    return {
+      url,
+      route,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      viewport: resolvedViewport,
+      elements,
+      interactivity,
+      semantic,
+      console: {
+        errors: consoleErrors,
+        warnings: consoleWarnings
+      },
+      verdict,
+      issues,
+      summary
+    };
+  } finally {
+    await context.close();
+    await browser3.close();
+  }
+}
+async function extractAndAudit(page, viewport) {
+  const isMobile = viewport.width < 768;
+  const elements = await extractInteractiveElements(page);
+  const audit = analyzeElements(elements, isMobile);
+  return { all: elements, audit };
+}
+function aggregateIssues(audit, interactivity, semantic, consoleErrors) {
+  const issues = [];
+  for (const issue of audit.issues) {
+    issues.push({
+      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity",
+      severity: issue.severity,
+      element: issue.type === "TOUCH_TARGET_SMALL" ? void 0 : void 0,
+      description: issue.message
+    });
+  }
+  const auditMessages = new Set(audit.issues.map((i) => i.message));
+  for (const issue of interactivity.issues) {
+    if (auditMessages.has(issue.description)) continue;
+    issues.push({
+      category: issue.type === "MISSING_LABEL" ? "accessibility" : "interactivity",
+      severity: issue.severity,
+      element: issue.element,
+      description: issue.description,
+      fix: getFixSuggestion(issue.type)
+    });
+  }
+  for (const issue of semantic.issues) {
+    issues.push({
+      category: "semantic",
+      severity: issue.severity,
+      description: issue.problem
+    });
+  }
+  for (const error of consoleErrors) {
+    if (error.includes("favicon") || error.includes("manifest")) continue;
+    issues.push({
+      category: "console",
+      severity: "error",
+      description: `Console error: ${error.slice(0, 200)}`
+    });
+  }
+  return issues;
+}
+function determineVerdict2(issues) {
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount >= 3) return "FAIL";
+  if (errorCount > 0 || warningCount >= 5) return "ISSUES";
+  return "PASS";
+}
+function generateSummary2(elements, interactivity, semantic, issues, consoleErrors) {
+  const parts = [];
+  parts.push(`${semantic.pageIntent.intent} page`);
+  parts.push(`${elements.audit.totalElements} elements (${elements.audit.interactiveCount} interactive)`);
+  const { buttons, links, forms } = interactivity;
+  const interactiveParts = [];
+  if (buttons.length > 0) interactiveParts.push(`${buttons.length} buttons`);
+  if (links.length > 0) interactiveParts.push(`${links.length} links`);
+  if (forms.length > 0) interactiveParts.push(`${forms.length} forms`);
+  if (interactiveParts.length > 0) {
+    parts.push(interactiveParts.join(", "));
+  }
+  if (interactivity.summary.withoutHandlers > 0) {
+    parts.push(`${interactivity.summary.withoutHandlers} elements without handlers`);
+  }
+  if (semantic.state.auth.authenticated) {
+    parts.push("authenticated");
+  }
+  if (semantic.state.loading.loading) {
+    parts.push(`loading (${semantic.state.loading.type})`);
+  }
+  if (semantic.state.errors.hasErrors) {
+    parts.push(`${semantic.state.errors.errors.length} page errors`);
+  }
+  if (consoleErrors.length > 0) {
+    parts.push(`${consoleErrors.length} console errors`);
+  }
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount > 0 || warningCount > 0) {
+    const issueParts = [];
+    if (errorCount > 0) issueParts.push(`${errorCount} errors`);
+    if (warningCount > 0) issueParts.push(`${warningCount} warnings`);
+    parts.push(issueParts.join(", "));
+  }
+  return parts.join(", ");
+}
+function getFixSuggestion(type) {
+  switch (type) {
+    case "NO_HANDLER":
+      return "Add an onClick handler or remove the interactive appearance";
+    case "PLACEHOLDER_LINK":
+      return "Add a real href or an onClick handler";
+    case "MISSING_LABEL":
+      return "Add aria-label or visible text content";
+    case "FORM_NO_SUBMIT":
+      return "Add a submit handler or action attribute to the form";
+    case "ORPHAN_SUBMIT":
+      return "Ensure the submit button is inside a form";
+    case "SMALL_TOUCH_TARGET":
+      return "Increase element size to at least 44x44px for touch targets";
+    default:
+      return void 0;
+  }
+}
+function formatScanResult(result) {
+  const lines = [];
+  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("  IBR UI SCAN");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("");
+  lines.push(`  URL:      ${result.url}`);
+  lines.push(`  Route:    ${result.route}`);
+  lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
+  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
+  lines.push("");
+  lines.push(`  ${result.summary}`);
+  lines.push("");
+  lines.push("  PAGE UNDERSTANDING");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${(result.semantic.confidence * 100).toFixed(0)}% confidence)`);
+  lines.push(`  Auth:     ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`);
+  lines.push(`  Loading:  ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`);
+  lines.push(`  Errors:   ${result.semantic.state.errors.hasErrors ? result.semantic.state.errors.errors.join(", ") : "None"}`);
+  lines.push("");
+  lines.push("  ELEMENTS");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
+  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
+  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
+  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
+  lines.push("");
+  const { buttons, links, forms } = result.interactivity;
+  lines.push("  INTERACTIVITY");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`);
+  if (forms.length > 0) {
+    for (const form of forms) {
+      const icon = form.hasSubmitHandler ? "\u2713" : "\u2717";
+      lines.push(`    ${icon} Form ${form.selector}: ${form.fields.length} fields${form.hasValidation ? ", validated" : ""}`);
+    }
+  }
+  lines.push("");
+  if (result.console.errors.length > 0 || result.console.warnings.length > 0) {
+    lines.push("  CONSOLE");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    if (result.console.errors.length > 0) {
+      lines.push(`  Errors: ${result.console.errors.length}`);
+      for (const err of result.console.errors.slice(0, 3)) {
+        lines.push(`    \u2717 ${err.slice(0, 100)}`);
+      }
+    }
+    if (result.console.warnings.length > 0) {
+      lines.push(`  Warnings: ${result.console.warnings.length}`);
+    }
+    lines.push("");
+  }
+  if (result.issues.length > 0) {
+    lines.push("  ISSUES");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
+    for (const issue of result.issues) {
+      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
+      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`    \u2192 ${issue.fix}`);
+      }
+    }
+  } else {
+    lines.push("  No issues detected.");
+  }
+  lines.push("");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines.join("\n");
+}
+var import_playwright7;
+var init_scan = __esm({
+  "src/scan.ts"() {
+    "use strict";
+    import_playwright7 = require("playwright");
+    init_schemas();
+    init_extract();
+    init_interactivity();
+    init_semantic();
+  }
+});
+
+// src/rules/presets/minimal.ts
+var minimal_exports = {};
+__export(minimal_exports, {
+  register: () => register,
+  rules: () => rules
+});
+function register() {
+  registerPreset(minimalPreset);
+}
+var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
+var init_minimal = __esm({
+  "src/rules/presets/minimal.ts"() {
+    "use strict";
+    init_engine();
+    noHandlerRule = {
+      id: "no-handler",
+      name: "No Click Handler",
+      description: "Interactive elements like buttons must have click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isButton = element.tagName === "button" || element.a11y.role === "button";
+        const isDisabled = element.interactive.isDisabled;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isButton && !isDisabled && !hasHandler) {
+          return {
+            ruleId: "no-handler",
+            ruleName: "No Click Handler",
+            severity: "error",
+            message: `Button "${element.text || element.selector}" has no click handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add an onClick handler or make the button disabled"
+          };
+        }
+        return null;
+      }
+    };
+    placeholderLinkRule = {
+      id: "placeholder-link",
+      name: "Placeholder Link",
+      description: "Links must have valid hrefs or click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isLink = element.tagName === "a";
+        const hasValidHref = element.interactive.hasHref;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isLink && !hasValidHref && !hasHandler) {
+          return {
+            ruleId: "placeholder-link",
+            ruleName: "Placeholder Link",
+            severity: "error",
+            message: `Link "${element.text || element.selector}" has placeholder href and no handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add a valid href or onClick handler"
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetRule = {
+      id: "touch-target-small",
+      name: "Touch Target Too Small",
+      description: "Interactive elements must meet minimum touch target size",
+      defaultSeverity: "warn",
+      check: (element, context, options) => {
+        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive) return null;
+        const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+        const { width, height } = element.bounds;
+        if (width < minSize || height < minSize) {
+          return {
+            ruleId: "touch-target-small",
+            ruleName: "Touch Target Too Small",
+            severity: "warn",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${minSize}x${minSize}px`
+          };
+        }
+        return null;
+      }
+    };
+    missingAriaLabelRule = {
+      id: "missing-aria-label",
+      name: "Missing Accessible Label",
+      description: "Interactive elements without text need aria-label",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        const hasAriaLabel = element.a11y.ariaLabel && element.a11y.ariaLabel.trim().length > 0;
+        if (!hasText && !hasAriaLabel) {
+          return {
+            ruleId: "missing-aria-label",
+            ruleName: "Missing Accessible Label",
+            severity: "warn",
+            message: `"${element.selector}" is interactive but has no text or aria-label`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add visible text or aria-label attribute"
+          };
+        }
+        return null;
+      }
+    };
+    disabledNoVisualRule = {
+      id: "disabled-no-visual",
+      name: "Disabled Without Visual",
+      description: "Disabled elements should have visual indication",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        if (!element.interactive.isDisabled) return null;
+        const cursor = element.interactive.cursor;
+        const hasDisabledCursor = cursor === "not-allowed" || cursor === "default";
+        const bgColor = element.computedStyles?.backgroundColor;
+        const hasGrayedBg = bgColor?.includes("gray") || bgColor?.includes("rgb(200") || bgColor?.includes("rgb(220");
+        if (!hasDisabledCursor && !hasGrayedBg) {
+          return {
+            ruleId: "disabled-no-visual",
+            ruleName: "Disabled Without Visual",
+            severity: "warn",
+            message: `"${element.text || element.selector}" is disabled but has no visual indication`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add cursor: not-allowed and/or gray background to disabled state"
+          };
+        }
+        return null;
+      }
+    };
+    minimalPreset = {
+      name: "minimal",
+      description: "Basic interactivity and accessibility checks",
+      rules: [
+        noHandlerRule,
+        placeholderLinkRule,
+        touchTargetRule,
+        missingAriaLabelRule,
+        disabledNoVisualRule
+      ],
+      defaults: {
+        "no-handler": "error",
+        "placeholder-link": "error",
+        "touch-target-small": "warn",
+        "missing-aria-label": "warn",
+        "disabled-no-visual": "warn"
+      }
+    };
+    rules = {
+      noHandlerRule,
+      placeholderLinkRule,
+      touchTargetRule,
+      missingAriaLabelRule,
+      disabledNoVisualRule
+    };
+  }
+});
+
+// src/rules/engine.ts
+var engine_exports = {};
+__export(engine_exports, {
+  createAuditResult: () => createAuditResult,
+  formatAuditResult: () => formatAuditResult,
+  getPreset: () => getPreset,
+  listPresets: () => listPresets,
+  loadMemoryPreset: () => loadMemoryPreset,
+  loadRulesConfig: () => loadRulesConfig,
+  registerPreset: () => registerPreset,
+  runRules: () => runRules
+});
+function registerPreset(preset) {
+  presets.set(preset.name, preset);
+}
+function getPreset(name) {
+  return presets.get(name);
+}
+function listPresets() {
+  return Array.from(presets.keys());
+}
+async function loadRulesConfig(projectDir) {
+  const configPath = (0, import_path11.join)(projectDir, ".ibr", "rules.json");
+  if (!(0, import_fs4.existsSync)(configPath)) {
+    return { extends: [], rules: {} };
+  }
+  try {
+    const content = await (0, import_promises11.readFile)(configPath, "utf-8");
+    return JSON.parse(content);
+  } catch (error) {
+    console.warn(`Failed to parse rules.json: ${error}`);
+    return { extends: [], rules: {} };
+  }
+}
+function mergeRuleSettings(presetNames, userRules = {}) {
+  const allRules = [];
+  const settings = /* @__PURE__ */ new Map();
+  const seenRuleIds = /* @__PURE__ */ new Set();
+  for (const presetName of presetNames) {
+    const preset = presets.get(presetName);
+    if (!preset) {
+      console.warn(`Unknown preset: ${presetName}`);
+      continue;
+    }
+    for (const rule of preset.rules) {
+      if (!seenRuleIds.has(rule.id)) {
+        allRules.push(rule);
+        seenRuleIds.add(rule.id);
+        const defaultSetting = preset.defaults[rule.id] ?? rule.defaultSeverity;
+        if (typeof defaultSetting === "string") {
+          settings.set(rule.id, { severity: defaultSetting });
+        } else {
+          settings.set(rule.id, { severity: defaultSetting[0], options: defaultSetting[1] });
+        }
+      }
+    }
+  }
+  for (const [ruleId, setting] of Object.entries(userRules)) {
+    if (typeof setting === "string") {
+      settings.set(ruleId, { severity: setting });
+    } else {
+      settings.set(ruleId, { severity: setting[0], options: setting[1] });
+    }
+  }
+  return { rules: allRules, settings };
+}
+function runRules(elements, context, config) {
+  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
+  const violations = [];
+  for (const element of elements) {
+    for (const rule of rules2) {
+      const setting = settings.get(rule.id);
+      if (!setting || setting.severity === "off") {
+        continue;
+      }
+      const violation = rule.check(element, context, setting.options);
+      if (violation) {
+        violations.push({
+          ...violation,
+          severity: setting.severity
+        });
+      }
+    }
+  }
+  return violations;
+}
+function createAuditResult(url, elements, violations) {
+  const errors = violations.filter((v) => v.severity === "error").length;
+  const warnings = violations.filter((v) => v.severity === "warn").length;
+  return {
+    url,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    elementsScanned: elements.length,
+    violations,
+    summary: {
+      errors,
+      warnings,
+      passed: elements.length - errors - warnings
+    }
+  };
+}
+function formatAuditResult(result) {
+  const lines = [];
+  lines.push(`IBR Audit: ${result.url}`);
+  lines.push(`Scanned: ${result.elementsScanned} elements`);
+  lines.push("");
+  if (result.violations.length === 0) {
+    lines.push("No violations found.");
+  } else {
+    lines.push(`Found ${result.summary.errors} errors, ${result.summary.warnings} warnings:`);
+    lines.push("");
+    for (const v of result.violations) {
+      const icon = v.severity === "error" ? "\u2717" : "!";
+      lines.push(`  ${icon} [${v.ruleId}] ${v.message}`);
+      if (v.element) {
+        lines.push(`    Element: ${v.element.slice(0, 60)}${v.element.length > 60 ? "..." : ""}`);
+      }
+      if (v.fix) {
+        lines.push(`    Fix: ${v.fix}`);
+      }
+    }
+  }
+  lines.push("");
+  lines.push(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.passed} passed`);
+  return lines.join("\n");
+}
+async function loadMemoryPreset(outputDir) {
+  try {
+    const { loadSummary: loadSummary2, createMemoryPreset: createMemoryPreset2 } = await Promise.resolve().then(() => (init_memory(), memory_exports));
+    const summary = await loadSummary2(outputDir);
+    if (summary.activePreferences.length > 0) {
+      const preset = createMemoryPreset2(summary.activePreferences);
+      registerPreset(preset);
+    }
+  } catch {
+  }
+}
+var import_promises11, import_fs4, import_path11, presets;
+var init_engine = __esm({
+  "src/rules/engine.ts"() {
+    "use strict";
+    import_promises11 = require("fs/promises");
+    import_fs4 = require("fs");
+    import_path11 = require("path");
+    presets = /* @__PURE__ */ new Map();
+    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
+    });
   }
 });
 
@@ -6373,7 +6642,7 @@ async function isServerRunning(outputDir) {
   try {
     const content = await (0, import_promises13.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
-    const browser3 = await import_playwright8.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
+    const browser3 = await import_playwright9.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
     await browser3.close();
     return true;
   } catch {
@@ -6428,7 +6697,7 @@ async function startBrowserServer(outputDir, options = {}) {
       // Limit V8 heap to 256MB
     );
   }
-  const server = await import_playwright8.chromium.launchServer({
+  const server = await import_playwright9.chromium.launchServer({
     headless,
     args: browserArgs
   });
@@ -6455,10 +6724,10 @@ async function connectToBrowserServer(outputDir) {
     const content = await (0, import_promises13.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (state.cdpUrl) {
-      const browser4 = await import_playwright8.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
+      const browser4 = await import_playwright9.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
       return browser4;
     }
-    const browser3 = await import_playwright8.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
+    const browser3 = await import_playwright9.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
     return browser3;
   } catch (error) {
     await cleanupServerState(outputDir);
@@ -6473,7 +6742,7 @@ async function stopBrowserServer(outputDir) {
   try {
     const content = await (0, import_promises13.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
-    const browser3 = await import_playwright8.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
+    const browser3 = await import_playwright9.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
     await browser3.close();
     await (0, import_promises13.unlink)(stateFile);
     return true;
@@ -6500,11 +6769,11 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_playwright8, import_promises13, import_fs6, import_path13, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright9, import_promises13, import_fs6, import_path13, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
-    import_playwright8 = require("playwright");
+    import_playwright9 = require("playwright");
     import_promises13 = require("fs/promises");
     import_fs6 = require("fs");
     import_path13 = require("path");
@@ -6976,11 +7245,11 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright9, import_promises14, import_fs7, import_path14, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright10, import_promises14, import_fs7, import_path14, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
-    import_playwright9 = require("playwright");
+    import_playwright10 = require("playwright");
     import_promises14 = require("fs/promises");
     import_fs7 = require("fs");
     import_path14 = require("path");
@@ -7017,7 +7286,7 @@ var init_live_session = __esm({
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
         const sessionDir = (0, import_path14.join)(outputDir, "sessions", sessionId);
         await (0, import_promises14.mkdir)(sessionDir, { recursive: true });
-        const browser3 = await import_playwright9.chromium.launch({
+        const browser3 = await import_playwright10.chromium.launch({
           headless: !sandbox && !debug,
           slowMo: debug ? 100 : 0,
           devtools: debug
@@ -7073,7 +7342,7 @@ var init_live_session = __esm({
         }
         const content = await (0, import_promises14.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
-        const browser3 = await import_playwright9.chromium.launch({
+        const browser3 = await import_playwright10.chromium.launch({
           headless: !state.sandbox
         });
         const context = await browser3.newContext({
@@ -8129,7 +8398,7 @@ init_search_validation();
 init_search();
 
 // src/index.ts
-var import_playwright6 = require("playwright");
+var import_playwright8 = require("playwright");
 
 // src/cleanup.ts
 var import_promises7 = require("fs/promises");
@@ -8398,6 +8667,7 @@ var CompactionResultSchema = import_zod2.z.object({
 var import_nanoid5 = require("nanoid");
 
 // src/index.ts
+init_scan();
 var InterfaceBuiltRight = class {
   config;
   constructor(options = {}) {
@@ -8560,7 +8830,7 @@ var InterfaceBuiltRight = class {
     const fullUrl = this.resolveUrl(url);
     const viewportName = options.viewport || "desktop";
     const viewport = VIEWPORTS[viewportName];
-    const browser3 = await import_playwright6.chromium.launch({ headless: true });
+    const browser3 = await import_playwright8.chromium.launch({ headless: true });
     const context = await browser3.newContext({
       viewport,
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
@@ -8938,7 +9208,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const { register: register2 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
     const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
-    const { chromium: chromium10 } = await import("playwright");
+    const { chromium: chromium11 } = await import("playwright");
     const { discoverUserContext: discoverUserContext2, formatContextSummary: formatContextSummary2 } = await Promise.resolve().then(() => (init_context_loader(), context_loader_exports));
     const { generateRulesFromFramework: generateRulesFromFramework2, createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
     register2();
@@ -8973,7 +9243,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     console.log("");
     console.log(`Auditing ${resolvedUrl}...`);
     console.log("");
-    const browser3 = await chromium10.launch({ headless: true });
+    const browser3 = await chromium11.launch({ headless: true });
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const context = await browser3.newContext({
       viewport: { width: viewport.width, height: viewport.height },
@@ -9213,6 +9483,30 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     }
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").action(async (url, options) => {
+  try {
+    const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
+    const resolvedUrl = await resolveBaseUrl(url);
+    console.log(`Scanning ${resolvedUrl}...`);
+    const result = await scan2(resolvedUrl, {
+      viewport: options.viewport,
+      waitFor: options.waitFor,
+      timeout: parseInt(options.timeout, 10),
+      screenshot: options.screenshot ? { path: options.screenshot } : void 0
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(formatScanResult2(result));
+    }
+    if (result.verdict === "FAIL") {
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error("Scan error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
 });
@@ -10113,7 +10407,7 @@ program.command("screenshots:view <path>").description("View a screenshot with m
 });
 program.command("search-test <url>").description("Run AI search test with screenshots and validation context").option("-q, --query <query>", "Search query to test", "test").option("-i, --intent <intent>", "User intent for validation").option("--results-selector <css>", "CSS selector for results").option("--no-screenshots", "Skip capturing screenshots").option("--json", "Output as JSON").action(async (url, options) => {
   try {
-    const { chromium: chromium10 } = await import("playwright");
+    const { chromium: chromium11 } = await import("playwright");
     const { aiSearchFlow: aiSearchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
     const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
     const globalOpts = program.opts();
@@ -10123,7 +10417,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     console.log(`Query: "${options.query}"`);
     if (options.intent) console.log(`Intent: ${options.intent}`);
     console.log("");
-    const browser3 = await chromium10.launch({ headless: true });
+    const browser3 = await chromium11.launch({ headless: true });
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const context = await browser3.newContext({
       viewport: { width: viewport.width, height: viewport.height },

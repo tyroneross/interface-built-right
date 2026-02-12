@@ -5552,6 +5552,449 @@ async function isCompactContextOversize(outputDir) {
   const content = await fs.readFile(compactPath, "utf-8");
   return Buffer.byteLength(content, "utf-8") > 4096;
 }
+var INTERACTIVE_SELECTORS = [
+  "button",
+  "a[href]",
+  "a:not([href])",
+  // Links without href (potential issues)
+  'input[type="submit"]',
+  'input[type="button"]',
+  'input[type="text"]',
+  'input[type="email"]',
+  'input[type="password"]',
+  "select",
+  "textarea",
+  '[role="button"]',
+  '[role="link"]',
+  "[onclick]",
+  '[tabindex]:not([tabindex="-1"])'
+];
+async function extractInteractiveElements(page) {
+  return page.evaluate((selectors) => {
+    const seen = /* @__PURE__ */ new Set();
+    const elements = [];
+    const generateSelector = (el) => {
+      if (el.id) return `#${el.id}`;
+      const path2 = [];
+      let current = el;
+      while (current && current !== document.body) {
+        let selector = current.tagName.toLowerCase();
+        if (current.id) {
+          selector = `#${current.id}`;
+          path2.unshift(selector);
+          break;
+        } else if (current.className && typeof current.className === "string") {
+          const classes = current.className.split(" ").filter((c) => c.trim() && !c.includes(":"));
+          if (classes.length > 0) {
+            selector += `.${classes[0]}`;
+          }
+        }
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            (c) => c.tagName === current.tagName
+          );
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+        }
+        path2.unshift(selector);
+        current = current.parentElement;
+      }
+      return path2.join(" > ").slice(0, 200);
+    };
+    const detectHandlers = (el) => {
+      const keys = Object.keys(el);
+      const reactPropsKey = keys.find((k) => k.startsWith("__reactProps$"));
+      let hasReactHandler = false;
+      if (reactPropsKey) {
+        const props = el[reactPropsKey];
+        hasReactHandler = !!(props?.onClick || props?.onSubmit || props?.onMouseDown);
+      }
+      const fiberKey = keys.find((k) => k.startsWith("__reactFiber$"));
+      if (!hasReactHandler && fiberKey) {
+        const fiber = el[fiberKey];
+        hasReactHandler = !!(fiber?.pendingProps?.onClick || fiber?.memoizedProps?.onClick);
+      }
+      const hasVueHandler = !!(el.__vue__?.$listeners?.click || el.__vnode?.props?.onClick);
+      const hasAngularHandler = !!el.__ngContext__ || el.hasAttribute("ng-click");
+      const hasVanillaHandler = typeof el.onclick === "function" || el.hasAttribute("onclick");
+      return {
+        hasReactHandler,
+        hasVueHandler,
+        hasAngularHandler,
+        hasVanillaHandler,
+        hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler
+      };
+    };
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          seen.add(el);
+          const htmlEl = el;
+          const rect = htmlEl.getBoundingClientRect();
+          const computed = window.getComputedStyle(htmlEl);
+          const handlers = detectHandlers(htmlEl);
+          const href = htmlEl.getAttribute("href");
+          const hasValidHref = href !== null && href !== "#" && href !== "" && !href.startsWith("javascript:");
+          elements.push({
+            selector: generateSelector(htmlEl),
+            tagName: htmlEl.tagName.toLowerCase(),
+            id: htmlEl.id || void 0,
+            className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
+            text: (htmlEl.textContent || "").trim().slice(0, 100) || void 0,
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            },
+            computedStyles: {
+              cursor: computed.cursor,
+              color: computed.color,
+              backgroundColor: computed.backgroundColor
+            },
+            interactive: {
+              hasOnClick: handlers.hasAnyHandler,
+              hasHref: hasValidHref,
+              isDisabled: htmlEl.hasAttribute("disabled") || htmlEl.getAttribute("aria-disabled") === "true" || computed.pointerEvents === "none",
+              tabIndex: parseInt(htmlEl.getAttribute("tabindex") || "0", 10),
+              cursor: computed.cursor,
+              hasReactHandler: handlers.hasReactHandler || void 0,
+              hasVueHandler: handlers.hasVueHandler || void 0,
+              hasAngularHandler: handlers.hasAngularHandler || void 0
+            },
+            a11y: {
+              role: htmlEl.getAttribute("role"),
+              ariaLabel: htmlEl.getAttribute("aria-label"),
+              ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
+              ariaHidden: htmlEl.getAttribute("aria-hidden") === "true" || void 0
+            },
+            sourceHint: {
+              dataTestId: htmlEl.getAttribute("data-testid")
+            }
+          });
+        });
+      } catch {
+      }
+    }
+    return elements;
+  }, INTERACTIVE_SELECTORS);
+}
+function analyzeElements(elements, isMobile = false) {
+  const issues = [];
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  const interactiveElements = elements.filter((el) => {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a";
+    const isInput = ["input", "select", "textarea"].includes(el.tagName);
+    const looksClickable = el.interactive.cursor === "pointer";
+    return isButton || isLink || isInput || looksClickable;
+  });
+  for (const el of interactiveElements) {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a";
+    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref;
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+    }
+    if (isButton && !el.interactive.hasOnClick && !el.interactive.isDisabled) {
+      issues.push({
+        type: "NO_HANDLER",
+        severity: "error",
+        message: `Button "${el.text || el.selector}" has no click handler`
+      });
+    }
+    if (isLink && !el.interactive.hasHref && !el.interactive.hasOnClick) {
+      issues.push({
+        type: "PLACEHOLDER_LINK",
+        severity: "error",
+        message: `Link "${el.text || el.selector}" has placeholder href and no handler`
+      });
+    }
+    const minSize = isMobile ? 44 : 24;
+    if (el.bounds.width < minSize || el.bounds.height < minSize) {
+      issues.push({
+        type: "TOUCH_TARGET_SMALL",
+        severity: isMobile ? "error" : "warning",
+        message: `"${el.text || el.selector}" touch target is ${el.bounds.width}x${el.bounds.height}px (min: ${minSize}px)`
+      });
+    }
+    if (hasHandler && !el.text && !el.a11y.ariaLabel) {
+      issues.push({
+        type: "MISSING_ARIA_LABEL",
+        severity: "warning",
+        message: `"${el.selector}" is interactive but has no text or aria-label`
+      });
+    }
+  }
+  return {
+    totalElements: elements.length,
+    interactiveCount: interactiveElements.length,
+    withHandlers,
+    withoutHandlers,
+    issues
+  };
+}
+
+// src/scan.ts
+init_interactivity();
+async function scan(url, options = {}) {
+  const {
+    viewport: viewportOpt = "desktop",
+    timeout = 3e4,
+    waitFor,
+    screenshot
+  } = options;
+  const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
+  const browser2 = await playwright.chromium.launch({ headless: true });
+  const context = await browser2.newContext({
+    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  });
+  const page = await context.newPage();
+  const consoleErrors = [];
+  const consoleWarnings = [];
+  page.on("console", (msg) => {
+    if (msg.type() === "error") {
+      consoleErrors.push(msg.text());
+    } else if (msg.type() === "warning") {
+      consoleWarnings.push(msg.text());
+    }
+  });
+  try {
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout
+    });
+    await page.waitForLoadState("networkidle", { timeout: 1e4 }).catch(() => {
+    });
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
+      });
+    }
+    const [elements, interactivity, semantic] = await Promise.all([
+      extractAndAudit(page, resolvedViewport),
+      testInteractivity(page),
+      getSemanticOutput(page)
+    ]);
+    if (screenshot) {
+      await page.screenshot({
+        path: screenshot.path,
+        fullPage: screenshot.fullPage ?? true
+      });
+    }
+    let route;
+    try {
+      route = new URL(url).pathname;
+    } catch {
+      route = url;
+    }
+    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors);
+    const verdict = determineVerdict2(issues);
+    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
+    return {
+      url,
+      route,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      viewport: resolvedViewport,
+      elements,
+      interactivity,
+      semantic,
+      console: {
+        errors: consoleErrors,
+        warnings: consoleWarnings
+      },
+      verdict,
+      issues,
+      summary
+    };
+  } finally {
+    await context.close();
+    await browser2.close();
+  }
+}
+async function extractAndAudit(page, viewport) {
+  const isMobile = viewport.width < 768;
+  const elements = await extractInteractiveElements(page);
+  const audit = analyzeElements(elements, isMobile);
+  return { all: elements, audit };
+}
+function aggregateIssues(audit, interactivity, semantic, consoleErrors) {
+  const issues = [];
+  for (const issue of audit.issues) {
+    issues.push({
+      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity",
+      severity: issue.severity,
+      element: issue.type === "TOUCH_TARGET_SMALL" ? void 0 : void 0,
+      description: issue.message
+    });
+  }
+  const auditMessages = new Set(audit.issues.map((i) => i.message));
+  for (const issue of interactivity.issues) {
+    if (auditMessages.has(issue.description)) continue;
+    issues.push({
+      category: issue.type === "MISSING_LABEL" ? "accessibility" : "interactivity",
+      severity: issue.severity,
+      element: issue.element,
+      description: issue.description,
+      fix: getFixSuggestion(issue.type)
+    });
+  }
+  for (const issue of semantic.issues) {
+    issues.push({
+      category: "semantic",
+      severity: issue.severity,
+      description: issue.problem
+    });
+  }
+  for (const error of consoleErrors) {
+    if (error.includes("favicon") || error.includes("manifest")) continue;
+    issues.push({
+      category: "console",
+      severity: "error",
+      description: `Console error: ${error.slice(0, 200)}`
+    });
+  }
+  return issues;
+}
+function determineVerdict2(issues) {
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount >= 3) return "FAIL";
+  if (errorCount > 0 || warningCount >= 5) return "ISSUES";
+  return "PASS";
+}
+function generateSummary2(elements, interactivity, semantic, issues, consoleErrors) {
+  const parts = [];
+  parts.push(`${semantic.pageIntent.intent} page`);
+  parts.push(`${elements.audit.totalElements} elements (${elements.audit.interactiveCount} interactive)`);
+  const { buttons, links, forms } = interactivity;
+  const interactiveParts = [];
+  if (buttons.length > 0) interactiveParts.push(`${buttons.length} buttons`);
+  if (links.length > 0) interactiveParts.push(`${links.length} links`);
+  if (forms.length > 0) interactiveParts.push(`${forms.length} forms`);
+  if (interactiveParts.length > 0) {
+    parts.push(interactiveParts.join(", "));
+  }
+  if (interactivity.summary.withoutHandlers > 0) {
+    parts.push(`${interactivity.summary.withoutHandlers} elements without handlers`);
+  }
+  if (semantic.state.auth.authenticated) {
+    parts.push("authenticated");
+  }
+  if (semantic.state.loading.loading) {
+    parts.push(`loading (${semantic.state.loading.type})`);
+  }
+  if (semantic.state.errors.hasErrors) {
+    parts.push(`${semantic.state.errors.errors.length} page errors`);
+  }
+  if (consoleErrors.length > 0) {
+    parts.push(`${consoleErrors.length} console errors`);
+  }
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount > 0 || warningCount > 0) {
+    const issueParts = [];
+    if (errorCount > 0) issueParts.push(`${errorCount} errors`);
+    if (warningCount > 0) issueParts.push(`${warningCount} warnings`);
+    parts.push(issueParts.join(", "));
+  }
+  return parts.join(", ");
+}
+function getFixSuggestion(type) {
+  switch (type) {
+    case "NO_HANDLER":
+      return "Add an onClick handler or remove the interactive appearance";
+    case "PLACEHOLDER_LINK":
+      return "Add a real href or an onClick handler";
+    case "MISSING_LABEL":
+      return "Add aria-label or visible text content";
+    case "FORM_NO_SUBMIT":
+      return "Add a submit handler or action attribute to the form";
+    case "ORPHAN_SUBMIT":
+      return "Ensure the submit button is inside a form";
+    case "SMALL_TOUCH_TARGET":
+      return "Increase element size to at least 44x44px for touch targets";
+    default:
+      return void 0;
+  }
+}
+function formatScanResult(result) {
+  const lines = [];
+  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("  IBR UI SCAN");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("");
+  lines.push(`  URL:      ${result.url}`);
+  lines.push(`  Route:    ${result.route}`);
+  lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
+  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
+  lines.push("");
+  lines.push(`  ${result.summary}`);
+  lines.push("");
+  lines.push("  PAGE UNDERSTANDING");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${(result.semantic.confidence * 100).toFixed(0)}% confidence)`);
+  lines.push(`  Auth:     ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`);
+  lines.push(`  Loading:  ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`);
+  lines.push(`  Errors:   ${result.semantic.state.errors.hasErrors ? result.semantic.state.errors.errors.join(", ") : "None"}`);
+  lines.push("");
+  lines.push("  ELEMENTS");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
+  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
+  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
+  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
+  lines.push("");
+  const { buttons, links, forms } = result.interactivity;
+  lines.push("  INTERACTIVITY");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`);
+  if (forms.length > 0) {
+    for (const form of forms) {
+      const icon = form.hasSubmitHandler ? "\u2713" : "\u2717";
+      lines.push(`    ${icon} Form ${form.selector}: ${form.fields.length} fields${form.hasValidation ? ", validated" : ""}`);
+    }
+  }
+  lines.push("");
+  if (result.console.errors.length > 0 || result.console.warnings.length > 0) {
+    lines.push("  CONSOLE");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    if (result.console.errors.length > 0) {
+      lines.push(`  Errors: ${result.console.errors.length}`);
+      for (const err of result.console.errors.slice(0, 3)) {
+        lines.push(`    \u2717 ${err.slice(0, 100)}`);
+      }
+    }
+    if (result.console.warnings.length > 0) {
+      lines.push(`  Warnings: ${result.console.warnings.length}`);
+    }
+    lines.push("");
+  }
+  if (result.issues.length > 0) {
+    lines.push("  ISSUES");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
+    for (const issue of result.issues) {
+      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
+      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`    \u2192 ${issue.fix}`);
+      }
+    }
+  } else {
+    lines.push("  No issues detected.");
+  }
+  lines.push("");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines.join("\n");
+}
 
 // src/index.ts
 async function compare(options) {
@@ -6136,6 +6579,7 @@ exports.formatReportMinimal = formatReportMinimal;
 exports.formatReportText = formatReportText;
 exports.formatResponsiveResult = formatResponsiveResult;
 exports.formatRetentionStatus = formatRetentionStatus;
+exports.formatScanResult = formatScanResult;
 exports.formatSemanticJson = formatSemanticJson;
 exports.formatSemanticText = formatSemanticText;
 exports.formatSessionSummary = formatSessionSummary;
@@ -6194,6 +6638,7 @@ exports.registerOperation = registerOperation;
 exports.removePreference = removePreference;
 exports.saveCompactContext = saveCompactContext;
 exports.saveSummary = saveSummary;
+exports.scan = scan;
 exports.scanDirectoryForApiCalls = scanDirectoryForApiCalls;
 exports.searchFlow = searchFlow;
 exports.setActiveRoute = setActiveRoute;

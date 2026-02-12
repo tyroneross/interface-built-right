@@ -700,6 +700,45 @@ program
     }
   });
 
+// Scan command - comprehensive end-to-end UI scan
+program
+  .command('scan <url>')
+  .description('Full UI scan: elements + interactivity + semantic + console errors')
+  .option('-v, --viewport <preset>', 'Viewport preset (desktop, mobile, tablet)', 'desktop')
+  .option('--wait-for <selector>', 'Wait for selector before scanning')
+  .option('--screenshot <path>', 'Save screenshot to path')
+  .option('--json', 'Output as JSON')
+  .option('--timeout <ms>', 'Page load timeout in ms', '30000')
+  .action(async (url: string, options: { viewport: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string }) => {
+    try {
+      const { scan, formatScanResult } = await import('../scan.js');
+      const resolvedUrl = await resolveBaseUrl(url);
+
+      console.log(`Scanning ${resolvedUrl}...`);
+
+      const result = await scan(resolvedUrl, {
+        viewport: options.viewport as 'desktop' | 'mobile' | 'tablet',
+        waitFor: options.waitFor,
+        timeout: parseInt(options.timeout, 10),
+        screenshot: options.screenshot ? { path: options.screenshot } : undefined,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatScanResult(result));
+      }
+
+      // Exit with error code if scan failed
+      if (result.verdict === 'FAIL') {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Scan error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Status command - show pending baselines
 program
   .command('status')

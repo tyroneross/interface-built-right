@@ -2660,6 +2660,77 @@ declare function addKnownIssue(outputDir: string, issue: string): Promise<Compac
 declare function isCompactContextOversize(outputDir: string): Promise<boolean>;
 
 /**
+ * Comprehensive UI scan result combining all IBR analysis capabilities
+ */
+interface ScanResult {
+    url: string;
+    route: string;
+    timestamp: string;
+    viewport: Viewport;
+    /** Element extraction: all interactive elements with computed styles */
+    elements: {
+        all: EnhancedElement[];
+        audit: AuditResult;
+    };
+    /** Interactivity analysis: buttons, links, forms with handler detection */
+    interactivity: InteractivityResult;
+    /** Semantic understanding: page intent, auth/loading/error states */
+    semantic: SemanticResult;
+    /** Console output captured during page load */
+    console: {
+        errors: string[];
+        warnings: string[];
+    };
+    /** Overall scan verdict */
+    verdict: 'PASS' | 'ISSUES' | 'FAIL';
+    issues: ScanIssue[];
+    summary: string;
+}
+/**
+ * Individual issue found during scan
+ */
+interface ScanIssue {
+    category: 'interactivity' | 'accessibility' | 'semantic' | 'console' | 'structure';
+    severity: 'error' | 'warning' | 'info';
+    element?: string;
+    description: string;
+    fix?: string;
+}
+/**
+ * Options for running a scan
+ */
+interface ScanOptions {
+    /** Viewport to use (default: desktop) */
+    viewport?: keyof typeof VIEWPORTS | Viewport;
+    /** Timeout for page load in ms (default: 30000) */
+    timeout?: number;
+    /** Wait for this selector before scanning */
+    waitFor?: string;
+    /** IBR output directory for auth state */
+    outputDir?: string;
+    /** Whether to capture a screenshot */
+    screenshot?: {
+        path: string;
+        fullPage?: boolean;
+    };
+}
+/**
+ * Run a comprehensive UI scan on a URL.
+ *
+ * Combines all IBR analysis capabilities into a single scan:
+ * 1. Element extraction (computed styles, bounds, handlers)
+ * 2. Interactivity testing (buttons, links, forms)
+ * 3. Semantic analysis (page intent, auth/loading/error states)
+ * 4. Console error capture
+ * 5. Issue aggregation with verdict
+ */
+declare function scan(url: string, options?: ScanOptions): Promise<ScanResult>;
+/**
+ * Format scan result for console output
+ */
+declare function formatScanResult(result: ScanResult): string;
+
+/**
  * Options for standalone compare function
  */
 interface CompareInput {
@@ -2977,4 +3048,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, learnFromSession, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scanDirectoryForApiCalls, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, learnFromSession, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
