@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "description": "Visual eyes for Claude Code. Screenshot your UI, make changes, see exactly what moved — two commands, zero config.",
   "repository": {
     "type": "git",
