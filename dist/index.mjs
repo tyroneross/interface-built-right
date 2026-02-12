@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { chromium } from 'playwright';
 import * as fs from 'fs/promises';
-import { mkdir, readFile, writeFile, readdir, rm, access, unlink, copyFile, stat } from 'fs/promises';
+import { mkdir, readFile, writeFile, readdir, rm, access, unlink, copyFile, appendFile, stat } from 'fs/promises';
 import * as path from 'path';
 import { dirname, join } from 'path';
 import { tmpdir, userInfo } from 'os';
@@ -4375,8 +4375,8 @@ async function discoverApiRoutes(projectDir) {
 }
 async function fileExists(filePath) {
   try {
-    const stat3 = await fs.stat(filePath);
-    return stat3.isFile();
+    const stat4 = await fs.stat(filePath);
+    return stat4.isFile();
   } catch {
     return false;
   }
@@ -4547,8 +4547,8 @@ function extractHttpMethods(content) {
 }
 async function directoryExists(dir) {
   try {
-    const stat3 = await fs.stat(dir);
-    return stat3.isDirectory();
+    const stat4 = await fs.stat(dir);
+    return stat4.isDirectory();
   } catch {
     return false;
   }
@@ -4696,8 +4696,8 @@ async function testResponsive(url, options = {}) {
           minFontSize
         });
         if (captureScreenshots) {
-          const { mkdir: mkdir9 } = await import('fs/promises');
-          await mkdir9(outputDir, { recursive: true });
+          const { mkdir: mkdir11 } = await import('fs/promises');
+          await mkdir11(outputDir, { recursive: true });
           const screenshotPath = `${outputDir}/${viewportName}.png`;
           await page.screenshot({ path: screenshotPath, fullPage: true });
           result.screenshot = screenshotPath;
@@ -5200,6 +5200,334 @@ function formatPreference(pref) {
   lines.push(`Updated: ${pref.updatedAt}`);
   return lines.join("\n");
 }
+var DecisionTypeSchema = z.enum([
+  "css_change",
+  "layout_change",
+  "color_change",
+  "spacing_change",
+  "component_add",
+  "component_remove",
+  "component_modify",
+  "content_change"
+]);
+var DecisionStateSchema = z.object({
+  css: z.record(z.string(), z.string()).optional(),
+  html_snippet: z.string().optional(),
+  screenshot_ref: z.string().optional()
+});
+var DecisionEntrySchema = z.object({
+  id: z.string(),
+  timestamp: z.string().datetime(),
+  route: z.string(),
+  component: z.string().optional(),
+  type: DecisionTypeSchema,
+  description: z.string(),
+  rationale: z.string().optional(),
+  before: DecisionStateSchema.optional(),
+  after: DecisionStateSchema.optional(),
+  files_changed: z.array(z.string()),
+  session_id: z.string().optional()
+});
+var DecisionSummarySchema = z.object({
+  route: z.string(),
+  component: z.string().optional(),
+  latest_change: z.string(),
+  decision_count: z.number(),
+  full_log_ref: z.string()
+});
+var CurrentUIStateSchema = z.object({
+  last_snapshot_ref: z.string().optional(),
+  pending_verifications: z.number(),
+  known_issues: z.array(z.string())
+});
+var CompactContextSchema = z.object({
+  version: z.literal(1),
+  session_id: z.string(),
+  updated_at: z.string().datetime(),
+  active_route: z.string().optional(),
+  decisions_summary: z.array(DecisionSummarySchema),
+  current_ui_state: CurrentUIStateSchema,
+  preferences_active: z.number()
+});
+var CompactionRequestSchema = z.object({
+  reason: z.enum(["session_ending", "context_limit", "manual"]),
+  preserve_decisions: z.array(z.string()).optional()
+});
+var CompactionResultSchema = z.object({
+  compact_context: CompactContextSchema,
+  archived_to: z.string(),
+  decisions_compacted: z.number(),
+  decisions_preserved: z.number()
+});
+
+// src/decision-tracker.ts
+var CONTEXT_DIR = "context";
+var DECISIONS_DIR = "decisions";
+function getDecisionsDir(outputDir) {
+  return join(outputDir, CONTEXT_DIR, DECISIONS_DIR);
+}
+function routeToFilename(route) {
+  return route.replace(/^\/+/, "").replace(/\//g, "_").replace(/[^a-zA-Z0-9_-]/g, "") || "_root";
+}
+function getRouteLogPath(outputDir, route) {
+  const filename = `${routeToFilename(route)}.jsonl`;
+  return join(getDecisionsDir(outputDir), filename);
+}
+async function ensureContextDirs(outputDir) {
+  await mkdir(getDecisionsDir(outputDir), { recursive: true });
+}
+async function recordDecision(outputDir, options) {
+  await ensureContextDirs(outputDir);
+  const entry = {
+    id: `dec_${nanoid(10)}`,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    route: options.route,
+    component: options.component,
+    type: options.type,
+    description: options.description,
+    rationale: options.rationale,
+    before: options.before,
+    after: options.after,
+    files_changed: options.files_changed,
+    session_id: options.session_id
+  };
+  DecisionEntrySchema.parse(entry);
+  const logPath = getRouteLogPath(outputDir, options.route);
+  await appendFile(logPath, JSON.stringify(entry) + "\n");
+  return entry;
+}
+async function getDecisionsByRoute(outputDir, route) {
+  const logPath = getRouteLogPath(outputDir, route);
+  if (!existsSync(logPath)) {
+    return [];
+  }
+  const content = await readFile(logPath, "utf-8");
+  const lines = content.trim().split("\n").filter(Boolean);
+  return lines.map((line) => DecisionEntrySchema.parse(JSON.parse(line)));
+}
+async function queryDecisions(outputDir, options = {}) {
+  const { route, component, type, since, limit = 50 } = options;
+  let decisions = [];
+  if (route) {
+    decisions = await getDecisionsByRoute(outputDir, route);
+  } else {
+    const decisionsDir = getDecisionsDir(outputDir);
+    if (!existsSync(decisionsDir)) {
+      return [];
+    }
+    const files = await readdir(decisionsDir);
+    for (const file of files) {
+      if (!file.endsWith(".jsonl")) continue;
+      const filePath = join(decisionsDir, file);
+      const content = await readFile(filePath, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      for (const line of lines) {
+        decisions.push(DecisionEntrySchema.parse(JSON.parse(line)));
+      }
+    }
+  }
+  if (component) {
+    decisions = decisions.filter((d) => d.component === component);
+  }
+  if (type) {
+    decisions = decisions.filter((d) => d.type === type);
+  }
+  if (since) {
+    const sinceTime = new Date(since).getTime();
+    decisions = decisions.filter((d) => new Date(d.timestamp).getTime() >= sinceTime);
+  }
+  decisions.sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+  return decisions.slice(0, limit);
+}
+async function getDecision(outputDir, decisionId) {
+  const decisionsDir = getDecisionsDir(outputDir);
+  if (!existsSync(decisionsDir)) {
+    return null;
+  }
+  const files = await readdir(decisionsDir);
+  for (const file of files) {
+    if (!file.endsWith(".jsonl")) continue;
+    const filePath = join(decisionsDir, file);
+    const content = await readFile(filePath, "utf-8");
+    const lines = content.trim().split("\n").filter(Boolean);
+    for (const line of lines) {
+      const entry = DecisionEntrySchema.parse(JSON.parse(line));
+      if (entry.id === decisionId) {
+        return entry;
+      }
+    }
+  }
+  return null;
+}
+async function getTrackedRoutes(outputDir) {
+  const decisionsDir = getDecisionsDir(outputDir);
+  if (!existsSync(decisionsDir)) {
+    return [];
+  }
+  const files = await readdir(decisionsDir);
+  return files.filter((f) => f.endsWith(".jsonl")).map((f) => f.replace(".jsonl", "").replace(/_/g, "/").replace(/^\/?/, "/"));
+}
+async function getDecisionStats(outputDir) {
+  const all = await queryDecisions(outputDir, { limit: 1e4 });
+  const byRoute = {};
+  const byType = {};
+  for (const d of all) {
+    byRoute[d.route] = (byRoute[d.route] || 0) + 1;
+    byType[d.type] = (byType[d.type] || 0) + 1;
+  }
+  return { total: all.length, byRoute, byType };
+}
+async function getDecisionsSize(outputDir) {
+  const decisionsDir = getDecisionsDir(outputDir);
+  if (!existsSync(decisionsDir)) {
+    return 0;
+  }
+  const files = await readdir(decisionsDir);
+  let total = 0;
+  for (const file of files) {
+    if (!file.endsWith(".jsonl")) continue;
+    const s = await stat(join(decisionsDir, file));
+    total += s.size;
+  }
+  return total;
+}
+var CONTEXT_DIR2 = "context";
+var COMPACT_FILE = "compact.json";
+var ARCHIVE_DIR2 = "archive";
+function getCompactPath(outputDir) {
+  return join(outputDir, CONTEXT_DIR2, COMPACT_FILE);
+}
+function getArchiveDir(outputDir) {
+  return join(outputDir, CONTEXT_DIR2, ARCHIVE_DIR2);
+}
+async function loadCompactContext(outputDir, sessionId) {
+  const compactPath = getCompactPath(outputDir);
+  if (existsSync(compactPath)) {
+    const content = await readFile(compactPath, "utf-8");
+    return CompactContextSchema.parse(JSON.parse(content));
+  }
+  return {
+    version: 1,
+    session_id: sessionId || `ctx_${nanoid(8)}`,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    active_route: void 0,
+    decisions_summary: [],
+    current_ui_state: {
+      last_snapshot_ref: void 0,
+      pending_verifications: 0,
+      known_issues: []
+    },
+    preferences_active: 0
+  };
+}
+async function saveCompactContext(outputDir, context) {
+  const contextDir = join(outputDir, CONTEXT_DIR2);
+  await mkdir(contextDir, { recursive: true });
+  const compactPath = getCompactPath(outputDir);
+  await writeFile(compactPath, JSON.stringify(context, null, 2));
+}
+async function updateCompactContext(outputDir, sessionId) {
+  const current = await loadCompactContext(outputDir, sessionId);
+  const routes = await getTrackedRoutes(outputDir);
+  const summaries = [];
+  for (const route of routes) {
+    const decisions = await queryDecisions(outputDir, { route, limit: 100 });
+    if (decisions.length === 0) continue;
+    const byComponent = /* @__PURE__ */ new Map();
+    for (const d of decisions) {
+      const key = d.component || "_page";
+      if (!byComponent.has(key)) {
+        byComponent.set(key, []);
+      }
+      byComponent.get(key).push(d);
+    }
+    for (const [component, componentDecisions] of byComponent) {
+      const latest = componentDecisions[0];
+      const routeFilename = route.replace(/^\/+/, "").replace(/\//g, "_").replace(/[^a-zA-Z0-9_-]/g, "") || "_root";
+      summaries.push({
+        route,
+        component: component === "_page" ? void 0 : component,
+        latest_change: latest.description,
+        decision_count: componentDecisions.length,
+        full_log_ref: `.ibr/context/decisions/${routeFilename}.jsonl`
+      });
+    }
+  }
+  const updated = {
+    ...current,
+    session_id: sessionId || current.session_id,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    decisions_summary: summaries
+  };
+  await saveCompactContext(outputDir, updated);
+  return updated;
+}
+async function compactContext(outputDir, request) {
+  const current = await loadCompactContext(outputDir);
+  const archiveDir = getArchiveDir(outputDir);
+  await mkdir(archiveDir, { recursive: true });
+  const archiveFilename = `compact_${Date.now()}.json`;
+  const archivePath = join(archiveDir, archiveFilename);
+  await writeFile(archivePath, JSON.stringify(current, null, 2));
+  const decisionsCompacted = current.decisions_summary.reduce(
+    (sum, s) => sum + s.decision_count,
+    0
+  );
+  const hasPreserves = (request.preserve_decisions || []).length > 0;
+  const preserved = hasPreserves ? current.decisions_summary : [];
+  const newContext = {
+    version: 1,
+    session_id: current.session_id,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+    active_route: current.active_route,
+    decisions_summary: preserved,
+    current_ui_state: {
+      last_snapshot_ref: current.current_ui_state.last_snapshot_ref,
+      pending_verifications: 0,
+      known_issues: []
+    },
+    preferences_active: current.preferences_active
+  };
+  await saveCompactContext(outputDir, newContext);
+  return {
+    compact_context: newContext,
+    archived_to: archivePath,
+    decisions_compacted: decisionsCompacted,
+    decisions_preserved: preserved.length
+  };
+}
+async function setActiveRoute(outputDir, route) {
+  const current = await loadCompactContext(outputDir);
+  const updated = {
+    ...current,
+    active_route: route,
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  await saveCompactContext(outputDir, updated);
+  return updated;
+}
+async function addKnownIssue(outputDir, issue) {
+  const current = await loadCompactContext(outputDir);
+  const issues = [...current.current_ui_state.known_issues, issue];
+  const updated = {
+    ...current,
+    current_ui_state: {
+      ...current.current_ui_state,
+      known_issues: issues
+    },
+    updated_at: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  await saveCompactContext(outputDir, updated);
+  return updated;
+}
+async function isCompactContextOversize(outputDir) {
+  const compactPath = getCompactPath(outputDir);
+  if (!existsSync(compactPath)) return false;
+  const content = await readFile(compactPath, "utf-8");
+  return Buffer.byteLength(content, "utf-8") > 4096;
+}
 
 // src/index.ts
 async function compare(options) {
@@ -5685,6 +6013,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, learnFromSession, listLearned, listPreferences, listSessions, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryMemory, rebuildSummary, registerOperation, removePreference, saveSummary, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, learnFromSession, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scanDirectoryForApiCalls, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

@@ -2432,6 +2432,234 @@ declare function formatMemorySummary(summary: MemorySummary): string;
 declare function formatPreference(pref: Preference): string;
 
 /**
+ * Types of UI decisions that can be tracked
+ */
+declare const DecisionTypeSchema: z.ZodEnum<{
+    css_change: "css_change";
+    layout_change: "layout_change";
+    color_change: "color_change";
+    spacing_change: "spacing_change";
+    component_add: "component_add";
+    component_remove: "component_remove";
+    component_modify: "component_modify";
+    content_change: "content_change";
+}>;
+/**
+ * Before/after state snapshot for a decision
+ */
+declare const DecisionStateSchema: z.ZodObject<{
+    css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    html_snippet: z.ZodOptional<z.ZodString>;
+    screenshot_ref: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+/**
+ * A single UI decision entry stored in JSONL logs
+ */
+declare const DecisionEntrySchema: z.ZodObject<{
+    id: z.ZodString;
+    timestamp: z.ZodString;
+    route: z.ZodString;
+    component: z.ZodOptional<z.ZodString>;
+    type: z.ZodEnum<{
+        css_change: "css_change";
+        layout_change: "layout_change";
+        color_change: "color_change";
+        spacing_change: "spacing_change";
+        component_add: "component_add";
+        component_remove: "component_remove";
+        component_modify: "component_modify";
+        content_change: "content_change";
+    }>;
+    description: z.ZodString;
+    rationale: z.ZodOptional<z.ZodString>;
+    before: z.ZodOptional<z.ZodObject<{
+        css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        html_snippet: z.ZodOptional<z.ZodString>;
+        screenshot_ref: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+    after: z.ZodOptional<z.ZodObject<{
+        css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        html_snippet: z.ZodOptional<z.ZodString>;
+        screenshot_ref: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+    files_changed: z.ZodArray<z.ZodString>;
+    session_id: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+/**
+ * Route-level decision summary for compact context
+ */
+declare const DecisionSummarySchema: z.ZodObject<{
+    route: z.ZodString;
+    component: z.ZodOptional<z.ZodString>;
+    latest_change: z.ZodString;
+    decision_count: z.ZodNumber;
+    full_log_ref: z.ZodString;
+}, z.core.$strip>;
+/**
+ * Current UI state tracking in compact context
+ */
+declare const CurrentUIStateSchema: z.ZodObject<{
+    last_snapshot_ref: z.ZodOptional<z.ZodString>;
+    pending_verifications: z.ZodNumber;
+    known_issues: z.ZodArray<z.ZodString>;
+}, z.core.$strip>;
+/**
+ * Compact context — always-loaded LLM-friendly summary (<4KB target)
+ */
+declare const CompactContextSchema: z.ZodObject<{
+    version: z.ZodLiteral<1>;
+    session_id: z.ZodString;
+    updated_at: z.ZodString;
+    active_route: z.ZodOptional<z.ZodString>;
+    decisions_summary: z.ZodArray<z.ZodObject<{
+        route: z.ZodString;
+        component: z.ZodOptional<z.ZodString>;
+        latest_change: z.ZodString;
+        decision_count: z.ZodNumber;
+        full_log_ref: z.ZodString;
+    }, z.core.$strip>>;
+    current_ui_state: z.ZodObject<{
+        last_snapshot_ref: z.ZodOptional<z.ZodString>;
+        pending_verifications: z.ZodNumber;
+        known_issues: z.ZodArray<z.ZodString>;
+    }, z.core.$strip>;
+    preferences_active: z.ZodNumber;
+}, z.core.$strip>;
+/**
+ * Request to compact current context
+ */
+declare const CompactionRequestSchema: z.ZodObject<{
+    reason: z.ZodEnum<{
+        session_ending: "session_ending";
+        context_limit: "context_limit";
+        manual: "manual";
+    }>;
+    preserve_decisions: z.ZodOptional<z.ZodArray<z.ZodString>>;
+}, z.core.$strip>;
+/**
+ * Result of context compaction
+ */
+declare const CompactionResultSchema: z.ZodObject<{
+    compact_context: z.ZodObject<{
+        version: z.ZodLiteral<1>;
+        session_id: z.ZodString;
+        updated_at: z.ZodString;
+        active_route: z.ZodOptional<z.ZodString>;
+        decisions_summary: z.ZodArray<z.ZodObject<{
+            route: z.ZodString;
+            component: z.ZodOptional<z.ZodString>;
+            latest_change: z.ZodString;
+            decision_count: z.ZodNumber;
+            full_log_ref: z.ZodString;
+        }, z.core.$strip>>;
+        current_ui_state: z.ZodObject<{
+            last_snapshot_ref: z.ZodOptional<z.ZodString>;
+            pending_verifications: z.ZodNumber;
+            known_issues: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>;
+        preferences_active: z.ZodNumber;
+    }, z.core.$strip>;
+    archived_to: z.ZodString;
+    decisions_compacted: z.ZodNumber;
+    decisions_preserved: z.ZodNumber;
+}, z.core.$strip>;
+type DecisionType = z.infer<typeof DecisionTypeSchema>;
+type DecisionState = z.infer<typeof DecisionStateSchema>;
+type DecisionEntry = z.infer<typeof DecisionEntrySchema>;
+type DecisionSummary = z.infer<typeof DecisionSummarySchema>;
+type CurrentUIState = z.infer<typeof CurrentUIStateSchema>;
+type CompactContext = z.infer<typeof CompactContextSchema>;
+type CompactionRequest = z.infer<typeof CompactionRequestSchema>;
+type CompactionResult = z.infer<typeof CompactionResultSchema>;
+
+/**
+ * Options for recording a UI decision
+ */
+interface RecordDecisionOptions {
+    route: string;
+    type: DecisionType;
+    description: string;
+    component?: string;
+    rationale?: string;
+    before?: DecisionState;
+    after?: DecisionState;
+    files_changed: string[];
+    session_id?: string;
+}
+/**
+ * Options for querying decisions
+ */
+interface QueryDecisionsOptions {
+    route?: string;
+    component?: string;
+    type?: DecisionType;
+    since?: string;
+    limit?: number;
+}
+/**
+ * Record a UI decision to the JSONL log for its route
+ */
+declare function recordDecision(outputDir: string, options: RecordDecisionOptions): Promise<DecisionEntry>;
+/**
+ * Read all decisions from a route's JSONL log
+ */
+declare function getDecisionsByRoute(outputDir: string, route: string): Promise<DecisionEntry[]>;
+/**
+ * Query decisions across all routes with filtering
+ */
+declare function queryDecisions(outputDir: string, options?: QueryDecisionsOptions): Promise<DecisionEntry[]>;
+/**
+ * Get a single decision by ID (searches all route logs)
+ */
+declare function getDecision(outputDir: string, decisionId: string): Promise<DecisionEntry | null>;
+/**
+ * Get list of routes that have decision logs
+ */
+declare function getTrackedRoutes(outputDir: string): Promise<string[]>;
+/**
+ * Get decision counts by route
+ */
+declare function getDecisionStats(outputDir: string): Promise<{
+    total: number;
+    byRoute: Record<string, number>;
+    byType: Record<string, number>;
+}>;
+/**
+ * Get the size of the decisions directory in bytes
+ */
+declare function getDecisionsSize(outputDir: string): Promise<number>;
+
+/**
+ * Load the current compact context, or create a default one
+ */
+declare function loadCompactContext(outputDir: string, sessionId?: string): Promise<CompactContext>;
+/**
+ * Save compact context to disk
+ */
+declare function saveCompactContext(outputDir: string, context: CompactContext): Promise<void>;
+/**
+ * Update compact context with latest decisions from logs
+ * Rebuilds the decisions_summary from the JSONL decision logs
+ */
+declare function updateCompactContext(outputDir: string, sessionId?: string): Promise<CompactContext>;
+/**
+ * Compact and archive current context
+ */
+declare function compactContext(outputDir: string, request: CompactionRequest): Promise<CompactionResult>;
+/**
+ * Set the active route being worked on
+ */
+declare function setActiveRoute(outputDir: string, route: string): Promise<CompactContext>;
+/**
+ * Add a known issue to the UI state
+ */
+declare function addKnownIssue(outputDir: string, issue: string): Promise<CompactContext>;
+/**
+ * Check if compact context exceeds the 4KB target
+ */
+declare function isCompactContextOversize(outputDir: string): Promise<boolean>;
+
+/**
  * Options for standalone compare function
  */
 interface CompareInput {
@@ -2749,4 +2977,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type RatedMetric, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, learnFromSession, listLearned, listPreferences, listSessions, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryMemory, rebuildSummary, registerOperation, removePreference, saveSummary, scanDirectoryForApiCalls, searchFlow, testInteractivity, testResponsive, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, learnFromSession, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scanDirectoryForApiCalls, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

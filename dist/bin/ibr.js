@@ -6500,7 +6500,7 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_playwright8, import_promises13, import_fs6, import_path13, import_nanoid4, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright8, import_promises13, import_fs6, import_path13, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
@@ -6508,7 +6508,7 @@ var init_browser_server = __esm({
     import_promises13 = require("fs/promises");
     import_fs6 = require("fs");
     import_path13 = require("path");
-    import_nanoid4 = require("nanoid");
+    import_nanoid6 = require("nanoid");
     init_schemas();
     init_extract();
     SERVER_STATE_FILE = "browser-server.json";
@@ -6538,7 +6538,7 @@ var init_browser_server = __esm({
             "No browser server running.\nStart one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
           );
         }
-        const sessionId = `live_${(0, import_nanoid4.nanoid)(10)}`;
+        const sessionId = `live_${(0, import_nanoid6.nanoid)(10)}`;
         const sessionsDir = (0, import_path13.join)(outputDir, "sessions");
         const sessionDir = (0, import_path13.join)(sessionsDir, sessionId);
         await (0, import_promises13.mkdir)(sessionDir, { recursive: true });
@@ -6976,7 +6976,7 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright9, import_promises14, import_fs7, import_path14, import_nanoid5, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright9, import_promises14, import_fs7, import_path14, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
@@ -6984,7 +6984,7 @@ var init_live_session = __esm({
     import_promises14 = require("fs/promises");
     import_fs7 = require("fs");
     import_path14 = require("path");
-    import_nanoid5 = require("nanoid");
+    import_nanoid7 = require("nanoid");
     init_schemas();
     LiveSession = class _LiveSession {
       browser = null;
@@ -7014,7 +7014,7 @@ var init_live_session = __esm({
           debug = false,
           timeout = 3e4
         } = options;
-        const sessionId = `live_${(0, import_nanoid5.nanoid)(10)}`;
+        const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
         const sessionDir = (0, import_path14.join)(outputDir, "sessions", sessionId);
         await (0, import_promises14.mkdir)(sessionDir, { recursive: true });
         const browser3 = await import_playwright9.chromium.launch({
@@ -8328,6 +8328,76 @@ init_schemas();
 
 // src/index.ts
 init_memory();
+
+// src/decision-tracker.ts
+var import_nanoid4 = require("nanoid");
+
+// src/context/types.ts
+var import_zod2 = require("zod");
+var DecisionTypeSchema = import_zod2.z.enum([
+  "css_change",
+  "layout_change",
+  "color_change",
+  "spacing_change",
+  "component_add",
+  "component_remove",
+  "component_modify",
+  "content_change"
+]);
+var DecisionStateSchema = import_zod2.z.object({
+  css: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+  html_snippet: import_zod2.z.string().optional(),
+  screenshot_ref: import_zod2.z.string().optional()
+});
+var DecisionEntrySchema = import_zod2.z.object({
+  id: import_zod2.z.string(),
+  timestamp: import_zod2.z.string().datetime(),
+  route: import_zod2.z.string(),
+  component: import_zod2.z.string().optional(),
+  type: DecisionTypeSchema,
+  description: import_zod2.z.string(),
+  rationale: import_zod2.z.string().optional(),
+  before: DecisionStateSchema.optional(),
+  after: DecisionStateSchema.optional(),
+  files_changed: import_zod2.z.array(import_zod2.z.string()),
+  session_id: import_zod2.z.string().optional()
+});
+var DecisionSummarySchema = import_zod2.z.object({
+  route: import_zod2.z.string(),
+  component: import_zod2.z.string().optional(),
+  latest_change: import_zod2.z.string(),
+  decision_count: import_zod2.z.number(),
+  full_log_ref: import_zod2.z.string()
+});
+var CurrentUIStateSchema = import_zod2.z.object({
+  last_snapshot_ref: import_zod2.z.string().optional(),
+  pending_verifications: import_zod2.z.number(),
+  known_issues: import_zod2.z.array(import_zod2.z.string())
+});
+var CompactContextSchema = import_zod2.z.object({
+  version: import_zod2.z.literal(1),
+  session_id: import_zod2.z.string(),
+  updated_at: import_zod2.z.string().datetime(),
+  active_route: import_zod2.z.string().optional(),
+  decisions_summary: import_zod2.z.array(DecisionSummarySchema),
+  current_ui_state: CurrentUIStateSchema,
+  preferences_active: import_zod2.z.number()
+});
+var CompactionRequestSchema = import_zod2.z.object({
+  reason: import_zod2.z.enum(["session_ending", "context_limit", "manual"]),
+  preserve_decisions: import_zod2.z.array(import_zod2.z.string()).optional()
+});
+var CompactionResultSchema = import_zod2.z.object({
+  compact_context: CompactContextSchema,
+  archived_to: import_zod2.z.string(),
+  decisions_compacted: import_zod2.z.number(),
+  decisions_preserved: import_zod2.z.number()
+});
+
+// src/context/compact.ts
+var import_nanoid5 = require("nanoid");
+
+// src/index.ts
 var InterfaceBuiltRight = class {
   config;
   constructor(options = {}) {

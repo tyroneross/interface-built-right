@@ -944,3 +944,27 @@ export {
   formatMemorySummary,
   formatPreference,
 } from './memory.js';
+
+// Decision context system exports
+export {
+  recordDecision,
+  getDecisionsByRoute,
+  queryDecisions,
+  getDecision,
+  getTrackedRoutes,
+  getDecisionStats,
+  getDecisionsSize,
+} from './decision-tracker.js';
+export type { RecordDecisionOptions, QueryDecisionsOptions } from './decision-tracker.js';
+
+export {
+  loadCompactContext,
+  saveCompactContext,
+  updateCompactContext,
+  compactContext,
+  setActiveRoute,
+  addKnownIssue,
+  isCompactContextOversize,
+} from './context/compact.js';
+
+export * from './context/types.js';

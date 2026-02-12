@@ -10,6 +10,11 @@ interface ActionButtonsProps {
   isLoading?: boolean;
 }
 
+type ActionStatus = {
+  type: 'success' | 'error';
+  message: string;
+} | null;
+
 export default function ActionButtons({
   sessionId,
   onCheck,
@@ -18,6 +23,7 @@ export default function ActionButtons({
   isLoading = false,
 }: ActionButtonsProps) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [status, setStatus] = useState<ActionStatus>(null);
 
   const handleCheck = async () => {
     if (onCheck) {
@@ -26,15 +32,22 @@ export default function ActionButtons({
     }
 
     setActionLoading('check');
+    setStatus(null);
     try {
       const res = await fetch(`/api/sessions/${sessionId}/check`, {
         method: 'POST',
       });
+      const data = await res.json();
+
       if (res.ok) {
-        window.location.reload();
+        setStatus({ type: 'success', message: data.message || 'Comparison complete.' });
+        // Reload after a brief delay so user sees feedback
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        setStatus({ type: 'error', message: data.error || 'Check failed.' });
       }
     } catch (error) {
-      console.error('Check failed:', error);
+      setStatus({ type: 'error', message: 'Network error. Could not reach server.' });
     } finally {
       setActionLoading(null);
     }
@@ -47,15 +60,21 @@ export default function ActionButtons({
     }
 
     setActionLoading('accept');
+    setStatus(null);
     try {
       const res = await fetch(`/api/sessions/${sessionId}/accept`, {
         method: 'POST',
       });
+      const data = await res.json();
+
       if (res.ok) {
-        window.location.reload();
+        setStatus({ type: 'success', message: data.message || 'Baseline updated.' });
+        setTimeout(() => window.location.reload(), 1200);
+      } else {
+        setStatus({ type: 'error', message: data.error || 'Accept failed.' });
       }
     } catch (error) {
-      console.error('Accept failed:', error);
+      setStatus({ type: 'error', message: 'Network error. Could not reach server.' });
     } finally {
       setActionLoading(null);
     }
@@ -72,15 +91,21 @@ export default function ActionButtons({
     }
 
     setActionLoading('delete');
+    setStatus(null);
     try {
       const res = await fetch(`/api/sessions/${sessionId}`, {
         method: 'DELETE',
       });
+      const data = await res.json();
+
       if (res.ok) {
-        window.location.href = '/';
+        setStatus({ type: 'success', message: 'Session deleted.' });
+        setTimeout(() => { window.location.href = '/'; }, 800);
+      } else {
+        setStatus({ type: 'error', message: data.error || 'Delete failed.' });
       }
     } catch (error) {
-      console.error('Delete failed:', error);
+      setStatus({ type: 'error', message: 'Network error. Could not reach server.' });
     } finally {
       setActionLoading(null);
     }
@@ -90,6 +115,19 @@ export default function ActionButtons({
 
   return (
     <div className="flex flex-col gap-2">
+      {/* Status feedback */}
+      {status && (
+        <div
+          className={`px-3 py-2 rounded-lg text-[13px] ${
+            status.type === 'success'
+              ? 'text-green-700 bg-green-50'
+              : 'text-red-700 bg-red-50'
+          }`}
+        >
+          {status.message}
+        </div>
+      )}
+
       {/* Compare Again button */}
       <button
         onClick={handleCheck}

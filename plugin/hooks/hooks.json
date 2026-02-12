@@ -12,14 +12,14 @@
         "matcher": "mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_snapshot",
         "hooks": [{
           "type": "prompt",
-          "prompt": "IBR is installed. A Playwright screenshot/snapshot is being called. IBR provides session tracking and comparison. Respond: {\"ok\": true, \"reason\": \"Consider using IBR: npx ibr start <url> for session tracking.\"}"
+          "prompt": "IBR (Interface Built Right) is installed — it's a UI decision context system, not just a comparison tool. A Playwright screenshot/snapshot is being called. IBR tracks UI decisions, provides context for all visual work, and does visual regression testing. Respond: {\"ok\": true, \"reason\": \"Consider using IBR: npx ibr start <url> for session tracking and UI decision context.\"}"
         }]
       },
       {
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "prompt",
-          "prompt": "Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss, or in components/, pages/, app/ directories), respond: {\"ok\": true, \"reason\": \"UI file detected. After changes, run: npx ibr start <url> to verify.\"}. If it targets a sensitive path (/etc/, /usr/, ~/.ssh/, ~/.aws/, ~/.gnupg/, ~/.npmrc, ~/.netrc, ~/.gitconfig), respond: {\"ok\": false, \"reason\": \"Write to sensitive system path blocked.\"}. Otherwise: {\"ok\": true}"
+          "prompt": "Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss, or in components/, pages/, app/ directories), respond: {\"ok\": true, \"reason\": \"UI file detected. IBR tracks UI decisions — after changes, run: npx ibr check to verify and record this change in the decision context.\"}. If it targets a sensitive path (/etc/, /usr/, ~/.ssh/, ~/.aws/, ~/.gnupg/, ~/.npmrc, ~/.netrc, ~/.gitconfig), respond: {\"ok\": false, \"reason\": \"Write to sensitive system path blocked.\"}. Otherwise: {\"ok\": true}"
         }]
       }
     ],
@@ -28,7 +28,7 @@
         "matcher": "Edit|Write",
         "hooks": [{
           "type": "prompt",
-          "prompt": "A file was just edited. Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss), respond: {\"ok\": true, \"reason\": \"UI file modified. Remember to verify with: npx ibr check\"}. Otherwise: {\"ok\": true}"
+          "prompt": "A file was just edited. Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss), respond: {\"ok\": true, \"reason\": \"UI file modified. IBR is tracking this as a UI decision. Verify with: npx ibr check\"}. Otherwise: {\"ok\": true}"
         }]
       }
     ],
@@ -36,7 +36,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "Session ending. Check $ARGUMENTS for evidence of UI work (.tsx/.jsx/.vue/.svelte edits, UI keywords). If UI work was done, check if IBR was used (look for 'npx ibr', 'Element Audit', 'session:screenshot'). If UI work done but IBR NOT used: {\"ok\": true, \"reason\": \"UI changes detected but IBR verification not run. Consider: npx ibr start <url>\"}. Otherwise: {\"ok\": true}"
+          "prompt": "Session ending. Check $ARGUMENTS for evidence of UI work (.tsx/.jsx/.vue/.svelte edits, UI keywords). If UI work was done, check if IBR was used (look for 'npx ibr', 'Element Audit', 'session:screenshot', 'decision-tracker'). If UI work done but IBR NOT used: {\"ok\": true, \"reason\": \"UI changes detected but IBR context not captured. Consider: npx ibr check to record these decisions.\"}. Otherwise: {\"ok\": true}"
         }]
       }
     ],
@@ -44,7 +44,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "IBR (Interface Built Right) is active. Respond: {\"ok\": true, \"reason\": \"IBR ready. Use npx ibr start <url> for visual regression testing.\"}"
+          "prompt": "IBR (Interface Built Right) is active — your UI decision context system. IBR tracks all UI decisions, provides visual regression testing, and maintains context across sessions. Respond: {\"ok\": true, \"reason\": \"IBR ready. It tracks UI decisions, not just comparisons. Use npx ibr start <url> for sessions, npx ibr check for verification.\"}"
         }]
       }
     ]
