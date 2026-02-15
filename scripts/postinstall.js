@@ -30,7 +30,7 @@ if (process.env.CI || process.env.CONTINUOUS_INTEGRATION) {
 console.log('');
 console.log(`${BOLD}${CYAN}    ╦╔╗ ╦═╗${RESET}`);
 console.log(`${BOLD}${CYAN}    ║╠╩╗╠╦╝${RESET}  ${BOLD}Interface Built Right${RESET}`);
-console.log(`${BOLD}${CYAN}    ╩╚═╝╩╚═${RESET}  ${DIM}Visual regression testing for Claude Code${RESET}`);
+console.log(`${BOLD}${CYAN}    ╩╚═╝╩╚═${RESET}  ${DIM}Design validation for Claude Code${RESET}`);
 console.log('');
 console.log(`${BOLD}${CYAN}╭─────────────────────────────────────────────────────────────╮${RESET}`);
 console.log(`${BOLD}${CYAN}│${RESET}  ${GREEN}Installed successfully!${RESET}                                    ${BOLD}${CYAN}│${RESET}`);
@@ -77,7 +77,7 @@ try {
 
   if (needsAdd) {
     const separator = gitignoreContent && !gitignoreContent.endsWith('\n') ? '\n' : '';
-    const block = `${separator}\n# IBR - Visual regression testing sessions\n.ibr/\n`;
+    const block = `${separator}\n# IBR - Design validation sessions\n.ibr/\n`;
     fs.appendFileSync(gitignorePath, block);
     console.log('');
     console.log(`${GREEN}+${RESET} Added ${CYAN}.ibr/${RESET} to .gitignore ${DIM}(sessions stay local)${RESET}`);

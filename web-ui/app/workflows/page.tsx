@@ -108,7 +108,38 @@ export default function WorkflowsPage() {
         <h3 className="text-sm font-medium uppercase tracking-wide text-gray-500 mb-4">
           Quick Actions
         </h3>
-        <div className="flex gap-4">
+        <div className="flex gap-4 flex-wrap">
+          <button
+            onClick={() => {
+              const url = prompt('Enter URL to scan (e.g., http://localhost:3000)');
+              if (url) {
+                fetch('/api/workflows/scan', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ url }),
+                }).then(() => fetchWorkflows());
+              }
+            }}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Full Interface Scan
+          </button>
+          <button
+            onClick={() => {
+              const url = prompt('Enter URL to baseline (e.g., http://localhost:3000)');
+              if (url) {
+                const name = prompt('Session name (e.g., homepage)') || undefined;
+                fetch('/api/workflows/baseline', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ url, name }),
+                }).then(() => fetchWorkflows());
+              }
+            }}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Build Baseline
+          </button>
           <button
             onClick={() => window.location.href = '/'}
             className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"

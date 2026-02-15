@@ -27,7 +27,7 @@ Allow the tool but remind about IBR. Provides visible suggestion without blockin
 ```json
 {
   "decision": "continue",
-  "reason": "IBR Reminder: For screenshot/capture tasks, consider using IBR instead:\n• npx ibr session:start <url> --name \"description\"\n• npx ibr session:screenshot <id>\n\nIBR provides session tracking, comparison verdicts, and design framework validation.\n\nTo enforce IBR-only: run /only-use-ibr"
+  "reason": "IBR Tip: For precise property verification, also run an IBR scan alongside this screenshot:\n• npx ibr scan <url> --json (exact CSS values, handler detection, a11y)\n\nScreenshots show visual coherence; scans verify exact properties. Together = most complete validation.\n\nTo enforce IBR-only capture: run /only-use-ibr"
 }
 ```
 
@@ -38,7 +38,7 @@ Block the capture tool and provide IBR alternatives.
 ```json
 {
   "decision": "block",
-  "reason": "IBR-only mode is enabled for capture tasks.\n\nUse IBR instead:\n• Screenshot: npx ibr start <url> --name \"description\"\n• HTML extraction: IBR web UI → Upload Reference → From URL\n• Or use /ibr:screenshot command\n\nPlaywright interaction tools (click, type, navigate for flows) remain available.\n\nTo disable: /prefer-ibr"
+  "reason": "IBR-only mode is enabled for capture and validation tasks.\n\nUse IBR instead:\n• Design validation: npx ibr scan <url> --json\n• Screenshot: npx ibr start <url> --name \"description\"\n• HTML extraction: IBR web UI → Upload Reference → From URL\n• Or use /ibr:screenshot command\n\nPlaywright interaction tools (click, type, navigate for flows) remain available.\n\nTo disable: /prefer-ibr"
 }
 ```
 

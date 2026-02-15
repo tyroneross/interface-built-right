@@ -1,14 +1,16 @@
 ---
-description: Capture a screenshot using IBR instead of Playwright MCP. Use for UI capture, reference images, and visual testing.
+description: Capture a screenshot using IBR instead of Playwright MCP. Use for UI capture, reference images, and design validation.
 ---
 
 # /ibr:screenshot
 
 Capture a screenshot of a URL using IBR's managed session system.
 
-## Usage
+## When to Use
 
-When user wants to capture a screenshot of a URL:
+For capturing a visual reference. For **validating** UI implementation, prefer `npx ibr scan <url> --json` instead — it returns structured data (computed CSS, handlers, a11y) that is more precise than pixels.
+
+## Usage
 
 ```bash
 npx ibr start <url> --name "<descriptive-name>"
@@ -41,6 +43,7 @@ Screenshots are stored in `.ibr/sessions/<session-id>/`:
 | Automatic storage organization | Manual file handling |
 | Built-in comparison (`ibr check`) | No comparison |
 | Session history and timeline | No history |
+| Structured scan data (`ibr scan`) | Pixel-only snapshots |
 | Integration with `/ibr:replicate` | Standalone |
 
 ## For Reference Images (Design Replication)
@@ -56,6 +59,7 @@ This provides richer data for replication than a simple screenshot.
 
 ## After Capturing
 
-- View in IBR UI: `npx ibr ui`
+- **Validate implementation**: `npx ibr scan <url> --json` (preferred for AI agents)
+- View in IBR UI: `npx ibr serve`
 - List sessions: `npx ibr list`
 - Compare after changes: `npx ibr check`

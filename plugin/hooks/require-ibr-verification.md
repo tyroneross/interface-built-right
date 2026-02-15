@@ -2,9 +2,9 @@
 event: Stop
 ---
 
-# IBR Verification Required Before Completion
+# IBR Design Validation Required Before Completion
 
-This hook checks if UI work was done and requires IBR verification before task completion.
+This hook checks if UI work was done and requires IBR design validation before task completion.
 
 ## Analyze Conversation Context
 
@@ -55,7 +55,7 @@ Block completion and require verification.
 ```json
 {
   "decision": "block",
-  "reason": "UI work detected but IBR verification not found.\n\nBefore completing this task, run:\n\n```bash\nnpx ibr audit <url>\n```\n\nOr for interactive pages:\n```bash\nnpx ibr session:screenshot <session_id>\n```\n\nCheck for:\n- NO_HANDLER errors (buttons without click handlers)\n- PLACEHOLDER_LINK errors (links with href=\"#\")\n- TOUCH_TARGET_SMALL warnings\n\nAfter verification, you may complete the task."
+  "reason": "UI work detected but IBR design validation not found.\n\nBefore completing this task, validate your implementation matches the user's intent:\n\n```bash\nnpx ibr scan <url> --json\n```\n\nOr for interactive pages:\n```bash\nnpx ibr session:start <url> --name \"validation\"\nnpx ibr session:screenshot <session_id>\n```\n\nCheck scan output for:\n- computedStyles match user's description (colors, fonts, layout)\n- NO_HANDLER errors (buttons without click handlers)\n- PLACEHOLDER_LINK errors (links with href=\"#\")\n- TOUCH_TARGET_SMALL warnings\n- Console errors\n\nAfter validation, you may complete the task."
 }
 ```
 
@@ -72,8 +72,8 @@ Allow completion.
 | Scenario | Behavior |
 |----------|----------|
 | Backend-only work | Allow completion |
-| UI work + IBR verified | Allow completion |
-| UI work + IBR NOT run | Block, require verification |
+| UI work + IBR validated | Allow completion |
+| UI work + IBR NOT run | Block, require design validation |
 
 ## Customization
 

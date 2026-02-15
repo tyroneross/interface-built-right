@@ -5,6 +5,15 @@ import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { VIEWPORTS, type Viewport, type EnhancedElement, type AuditResult } from './schemas.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
+import {
+  type ScanResult,
+  extractAndAudit,
+  aggregateIssues,
+  determineVerdict,
+  generateSummary,
+} from './scan.js';
+import { testInteractivity } from './interactivity.js';
+import { getSemanticOutput } from './semantic/index.js';
 
 /**
  * Browser server state persisted to disk
@@ -33,18 +42,34 @@ interface SessionState {
   // Element audit data (captured on each screenshot)
   elements?: EnhancedElement[];
   audit?: AuditResult;
+  // Combined captures (screenshot + scan) at each step
+  captures?: StepCapture[];
+  autoCapture?: boolean;
+}
+
+/**
+ * Combined screenshot + scan captured at a single point in time
+ */
+export interface StepCapture {
+  step: number;
+  action: string;
+  screenshot: string;
+  scan: ScanResult;
+  keep: boolean;
+  timestamp: string;
 }
 
 /**
  * Action record for session history
  */
 export interface ActionRecord {
-  type: 'navigate' | 'click' | 'type' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait';
+  type: 'navigate' | 'click' | 'type' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait' | 'capture' | 'scan';
   timestamp: string;
   params: Record<string, unknown>;
   success: boolean;
   error?: string;
   duration?: number;
+  captureIndex?: number;
 }
 
 /**
@@ -822,10 +847,235 @@ export class PersistentSession {
     return texts;
   }
 
+  // ============================================================================
+  // SCAN + CAPTURE
+  // ============================================================================
+
+  private consoleErrors: string[] = [];
+  private consoleWarnings: string[] = [];
+  private stepCounter = 0;
+  private consoleListenerAttached = false;
+
+  /**
+   * Ensure console listener is attached (lazy — attaches on first scan/capture)
+   */
+  private attachConsoleListener(): void {
+    if (this.consoleListenerAttached) return;
+    this.page.on('console', msg => {
+      if (msg.type() === 'error') this.consoleErrors.push(msg.text());
+      else if (msg.type() === 'warning') this.consoleWarnings.push(msg.text());
+    });
+    this.consoleListenerAttached = true;
+  }
+
+  /**
+   * Run a full IBR scan against the current page state.
+   * No new browser — uses the session's live page directly.
+   */
+  async scanPage(): Promise<ScanResult> {
+    this.attachConsoleListener();
+    const start = Date.now();
+    const errorsSnapshot = [...this.consoleErrors];
+    const warningsSnapshot = [...this.consoleWarnings];
+
+    try {
+      const [elements, interactivity, semantic] = await Promise.all([
+        extractAndAudit(this.page, this.state.viewport),
+        testInteractivity(this.page),
+        getSemanticOutput(this.page),
+      ]);
+
+      const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+      const verdict = determineVerdict(issues);
+      const summary = generateSummary(elements, interactivity, semantic, issues, errorsSnapshot);
+
+      let route: string;
+      try {
+        route = new URL(this.url).pathname;
+      } catch {
+        route = this.url;
+      }
+
+      const result: ScanResult = {
+        url: this.url,
+        route,
+        timestamp: new Date().toISOString(),
+        viewport: this.state.viewport,
+        elements,
+        interactivity,
+        semantic,
+        console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+        verdict,
+        issues,
+        summary,
+      };
+
+      await this.recordAction({
+        type: 'scan',
+        timestamp: new Date().toISOString(),
+        params: { url: this.url },
+        success: true,
+        duration: Date.now() - start,
+      });
+
+      return result;
+    } catch (error) {
+      await this.recordAction({
+        type: 'scan',
+        timestamp: new Date().toISOString(),
+        params: { url: this.url },
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - start,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Combined capture: screenshot + scan in parallel.
+   * @param options.keep - If true, screenshot retained after session close. Default: false.
+   * @param options.label - Human-readable label for this step.
+   * @param options.fullPage - Full page screenshot. Default: true.
+   */
+  async capture(options?: {
+    keep?: boolean;
+    label?: string;
+    fullPage?: boolean;
+  }): Promise<StepCapture> {
+    this.attachConsoleListener();
+    const start = Date.now();
+    const keep = options?.keep ?? false;
+    const label = options?.label || '';
+
+    this.stepCounter++;
+    const stepNum = this.stepCounter;
+    const stepLabel = label || `step-${String(stepNum).padStart(3, '0')}`;
+    const screenshotFile = `${stepLabel}.png`;
+    const screenshotPath = join(this.sessionDir, screenshotFile);
+
+    try {
+      // Disable animations
+      await this.page.addStyleTag({
+        content: `*, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }`,
+      });
+
+      // Run screenshot + scan in parallel
+      const errorsSnapshot = [...this.consoleErrors];
+      const warningsSnapshot = [...this.consoleWarnings];
+
+      const [, elements, interactivity, semantic] = await Promise.all([
+        this.page.screenshot({
+          path: screenshotPath,
+          fullPage: options?.fullPage ?? true,
+          type: 'png',
+        }),
+        extractAndAudit(this.page, this.state.viewport),
+        testInteractivity(this.page),
+        getSemanticOutput(this.page),
+      ]);
+
+      const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+      const verdict = determineVerdict(issues);
+      const summary = generateSummary(elements, interactivity, semantic, issues, errorsSnapshot);
+
+      let route: string;
+      try {
+        route = new URL(this.url).pathname;
+      } catch {
+        route = this.url;
+      }
+
+      const scanResult: ScanResult = {
+        url: this.url,
+        route,
+        timestamp: new Date().toISOString(),
+        viewport: this.state.viewport,
+        elements,
+        interactivity,
+        semantic,
+        console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+        verdict,
+        issues,
+        summary,
+      };
+
+      const stepCapture: StepCapture = {
+        step: stepNum,
+        action: label || this.lastActionLabel(),
+        screenshot: screenshotFile,
+        scan: scanResult,
+        keep,
+        timestamp: new Date().toISOString(),
+      };
+
+      if (!this.state.captures) this.state.captures = [];
+      this.state.captures.push(stepCapture);
+
+      await this.recordAction({
+        type: 'capture',
+        timestamp: new Date().toISOString(),
+        params: { step: stepNum, label: stepLabel, keep, screenshot: screenshotFile },
+        success: true,
+        duration: Date.now() - start,
+        captureIndex: this.state.captures.length - 1,
+      });
+
+      await this.saveState();
+      return stepCapture;
+    } catch (error) {
+      await this.recordAction({
+        type: 'capture',
+        timestamp: new Date().toISOString(),
+        params: { step: stepNum, label: stepLabel, keep },
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - start,
+      });
+      throw error;
+    }
+  }
+
+  private lastActionLabel(): string {
+    const last = this.state.actions[this.state.actions.length - 1];
+    if (!last) return 'unknown';
+    const params = last.params;
+    if (last.type === 'click') return `click-${String(params.selector || '').slice(0, 30)}`;
+    if (last.type === 'type') return `type-${String(params.selector || '').slice(0, 30)}`;
+    if (last.type === 'navigate') return 'navigate';
+    if (last.type === 'wait') return `wait-${String(params.target || '').slice(0, 30)}`;
+    return last.type;
+  }
+
   /**
    * Close just this session (not the browser server)
    */
   async close(): Promise<void> {
+    // Archive ephemeral screenshots
+    if (this.state.captures && this.state.captures.length > 0) {
+      const ephemeral = this.state.captures.filter(c => !c.keep);
+      if (ephemeral.length > 0) {
+        const archiveDir = join(this.sessionDir, 'archive');
+        await mkdir(archiveDir, { recursive: true });
+        const { rename } = await import('fs/promises');
+        for (const cap of ephemeral) {
+          const src = join(this.sessionDir, cap.screenshot);
+          const dest = join(archiveDir, cap.screenshot);
+          try {
+            if (existsSync(src)) {
+              await rename(src, dest);
+              cap.screenshot = `archive/${cap.screenshot}`;
+            }
+          } catch { /* non-fatal */ }
+        }
+        await this.saveState();
+      }
+    }
     await this.context.close();
   }
 

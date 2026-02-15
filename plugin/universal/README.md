@@ -1,6 +1,6 @@
 # IBR Universal Plugin Scaffold
 
-Define tools once, generate integrations for multiple AI IDEs.
+Define design validation tools once, generate integrations for multiple AI IDEs.
 
 ## Structure
 
@@ -33,7 +33,7 @@ tools:
   - id: ibr_start                    # Unique identifier
     name: Capture Baseline           # Human-readable name
     description: Capture baseline... # Description for AI
-    category: visual-regression      # Grouping
+    category: design-validation      # Grouping
     params:                          # Input parameters
       - name: url
         type: string
@@ -98,12 +98,13 @@ Markdown context for Aider's `--read` flag.
 
 Generated file: `IBR-CONVENTIONS.md`
 ```markdown
-# IBR Visual Regression Testing
+# IBR Design Validation
 
-When working on UI changes, use IBR:
+When working on UI changes, use IBR to validate implementation matches intent:
 
-1. Before changes: `npx ibr start <url>`
-2. After changes: `npx ibr check`
+1. After building: `npx ibr scan <url> --json` (verify against user description)
+2. Before changes: `npx ibr start <url>` (baseline for regression)
+3. After changes: `npx ibr check` (regression verification)
 ...
 ```
 

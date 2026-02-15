@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Interface Built Right - Visual Comparison',
-  description: 'Visual regression testing comparison viewer',
+  title: 'Interface Built Right - Design Validation',
+  description: 'Design validation dashboard — verify UI matches intent',
 };
 
 export default function RootLayout({

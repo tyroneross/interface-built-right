@@ -52,12 +52,20 @@ export async function detectAuthState(page: Page): Promise<AuthState> {
     const doc = document;
     const text = doc.body?.innerText?.toLowerCase() || '';
 
+    // Helper: find element by tag where text content matches (case-insensitive)
+    function findByText(tags: string[], patterns: string[]): Element | null {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || '';
+          if (patterns.some(p => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
+
     // Authenticated signals
-    const logoutButton = doc.querySelector(
-      'button:has-text("logout"), button:has-text("sign out"), ' +
-      'a:has-text("logout"), a:has-text("sign out"), ' +
-      '[class*="logout"], [data-testid*="logout"]'
-    );
+    const logoutButton = findByText(['button', 'a'], ['logout', 'sign out']) ||
+      doc.querySelector('[class*="logout"], [data-testid*="logout"]');
     const userMenu = doc.querySelector(
       '[class*="user-menu"], [class*="avatar"], [class*="profile-menu"], ' +
       '[class*="account-menu"], [data-testid*="user"]'
@@ -68,15 +76,10 @@ export async function detectAuthState(page: Page): Promise<AuthState> {
     );
 
     // Not authenticated signals
-    const loginLink = doc.querySelector(
-      'a:has-text("login"), a:has-text("sign in"), ' +
-      'button:has-text("login"), button:has-text("sign in"), ' +
-      '[class*="login-link"], [href*="/login"], [href*="/signin"]'
-    );
-    const signupLink = doc.querySelector(
-      'a:has-text("sign up"), a:has-text("register"), ' +
-      '[href*="/signup"], [href*="/register"]'
-    );
+    const loginLink = findByText(['a', 'button'], ['login', 'sign in']) ||
+      doc.querySelector('[class*="login-link"], [href*="/login"], [href*="/signin"]');
+    const signupLink = findByText(['a'], ['sign up', 'register']) ||
+      doc.querySelector('[href*="/signup"], [href*="/register"]');
 
     // Check for auth-gated content
     const authRequired = doc.querySelector(

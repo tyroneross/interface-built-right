@@ -101,6 +101,24 @@ class ApiClient {
     const data = await this.handleResponse<GetFeedbackResponse>(response);
     return data.feedback;
   }
+
+  async runScan(url: string, viewport?: string): Promise<ScanResponse> {
+    const response = await fetch(`${this.baseUrl}/workflows/scan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, viewport }),
+    });
+    return this.handleResponse<ScanResponse>(response);
+  }
+
+  async buildBaseline(url: string, name?: string, viewport?: string): Promise<BaselineResponse> {
+    const response = await fetch(`${this.baseUrl}/workflows/baseline`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url, name, viewport }),
+    });
+    return this.handleResponse<BaselineResponse>(response);
+  }
 }
 
 // Export singleton instance
@@ -119,3 +137,7 @@ export const batchCheck = (sessionIds: string[]) =>
 export const submitFeedback = (request: FeedbackRequest) =>
   apiClient.submitFeedback(request);
 export const getFeedback = () => apiClient.getFeedback();
+export const runScan = (url: string, viewport?: string) =>
+  apiClient.runScan(url, viewport);
+export const buildBaseline = (url: string, name?: string, viewport?: string) =>
+  apiClient.buildBaseline(url, name, viewport);

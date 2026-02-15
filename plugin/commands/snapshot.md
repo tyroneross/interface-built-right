@@ -1,10 +1,10 @@
 ---
-description: Capture a baseline screenshot of a URL before making UI changes
+description: Capture a baseline of a URL before making UI changes (for regression verification)
 ---
 
 # /ibr:snapshot
 
-Capture a baseline screenshot before making UI changes.
+Capture a baseline before making UI changes so you can verify nothing broke afterward.
 
 ## Instructions
 
@@ -30,13 +30,20 @@ npx ibr start "<url>" --selector ".header"
 1. Launches headless browser (Playwright)
 2. Navigates to the URL
 3. Waits for network idle
-4. Captures full-page screenshot (or element if --selector used)
+4. Captures baseline screenshot and page state
 5. Saves as baseline for comparison
 6. Returns session ID (e.g., sess_abc123)
 
 ## Timing
 
-Run this BEFORE making any UI changes. The baseline captures the current state so you can compare against it after your changes.
+Run this BEFORE making UI changes. The baseline captures the current state so you can compare against it after your changes.
+
+## When to Use This vs Scan
+
+| Goal | Command |
+|------|---------|
+| **Validate implementation matches user description** | `npx ibr scan <url> --json` (primary workflow) |
+| **Check nothing broke after changes** | `npx ibr start` → changes → `npx ibr check` (this command) |
 
 ## Next Steps
 

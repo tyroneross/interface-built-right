@@ -78,7 +78,7 @@ Assert at least ONE outcome per element:
 
 Explicitly audit: search, prompts/LLM, responses, settings, connections.
 
-#### Phase 5 — Visual Regression
+#### Phase 5 — Regression Check
 
 Run `npx ibr check` after all interaction tests. Handle verdicts appropriately.
 

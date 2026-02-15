@@ -177,9 +177,10 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
 }
 
 /**
- * Extract elements and run audit
+ * Extract elements and run audit.
+ * Exported for use by LiveSession.scanPage() — runs against any Playwright page.
  */
-async function extractAndAudit(
+export async function extractAndAudit(
   page: Page,
   viewport: Viewport
 ): Promise<{ all: EnhancedElement[]; audit: AuditResult }> {
@@ -190,9 +191,10 @@ async function extractAndAudit(
 }
 
 /**
- * Aggregate issues from all analysis sources into a unified list
+ * Aggregate issues from all analysis sources into a unified list.
+ * Exported for use by LiveSession.scanPage().
  */
-function aggregateIssues(
+export function aggregateIssues(
   audit: AuditResult,
   interactivity: InteractivityResult,
   semantic: SemanticResult,
@@ -247,9 +249,10 @@ function aggregateIssues(
 }
 
 /**
- * Determine overall verdict from issues
+ * Determine overall verdict from issues.
+ * Exported for use by LiveSession.scanPage().
  */
-function determineVerdict(issues: ScanIssue[]): 'PASS' | 'ISSUES' | 'FAIL' {
+export function determineVerdict(issues: ScanIssue[]): 'PASS' | 'ISSUES' | 'FAIL' {
   const errorCount = issues.filter(i => i.severity === 'error').length;
   const warningCount = issues.filter(i => i.severity === 'warning').length;
 
@@ -259,9 +262,10 @@ function determineVerdict(issues: ScanIssue[]): 'PASS' | 'ISSUES' | 'FAIL' {
 }
 
 /**
- * Generate human-readable summary
+ * Generate human-readable summary.
+ * Exported for use by LiveSession.scanPage().
  */
-function generateSummary(
+export function generateSummary(
   elements: { all: EnhancedElement[]; audit: AuditResult },
   interactivity: InteractivityResult,
   semantic: SemanticResult,

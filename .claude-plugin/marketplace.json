@@ -1,0 +1,41 @@
+{
+  "name": "interface-built-right",
+  "owner": {
+    "name": "Tyrone Ross",
+    "url": "https://github.com/tyroneross"
+  },
+  "metadata": {
+    "description": "Design validation for Claude Code — verify UI matches user intent with structured CSS, layout, handler, and accessibility data",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "ibr",
+      "source": "./plugin",
+      "description": "Design validation for Claude Code. Verify your UI matches what was described — exact CSS, handler wiring, accessibility, page structure.",
+      "version": "0.4.9",
+      "author": {
+        "name": "Tyrone Ross"
+      },
+      "homepage": "https://github.com/tyroneross/interface-built-right#readme",
+      "repository": "https://github.com/tyroneross/interface-built-right",
+      "license": "MIT",
+      "keywords": [
+        "design-validation",
+        "ui-testing",
+        "css-audit",
+        "accessibility",
+        "playwright",
+        "claude-code",
+        "component-testing",
+        "visual-regression"
+      ],
+      "category": "testing",
+      "tags": [
+        "design-validation",
+        "ui-testing",
+        "css-audit"
+      ]
+    }
+  ]
+}

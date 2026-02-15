@@ -1,5 +1,5 @@
 ---
-description: Launch the IBR visual comparison web UI dashboard to view screenshots and diffs
+description: Launch the IBR design validation dashboard to view scan results, comparisons, and element data
 ---
 
 # /ibr:ui

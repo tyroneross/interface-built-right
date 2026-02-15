@@ -1973,9 +1973,16 @@ async function detectAuthState(page) {
   const checks = await page.evaluate(() => {
     const doc = document;
     const text = doc.body?.innerText?.toLowerCase() || "";
-    const logoutButton = doc.querySelector(
-      'button:has-text("logout"), button:has-text("sign out"), a:has-text("logout"), a:has-text("sign out"), [class*="logout"], [data-testid*="logout"]'
-    );
+    function findByText(tags, patterns) {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || "";
+          if (patterns.some((p) => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
+    const logoutButton = findByText(["button", "a"], ["logout", "sign out"]) || doc.querySelector('[class*="logout"], [data-testid*="logout"]');
     const userMenu = doc.querySelector(
       '[class*="user-menu"], [class*="avatar"], [class*="profile-menu"], [class*="account-menu"], [data-testid*="user"]'
     );
@@ -1983,12 +1990,8 @@ async function detectAuthState(page) {
     const userNameEl = doc.querySelector(
       '[class*="username"], [class*="user-name"], [class*="display-name"]'
     );
-    const loginLink = doc.querySelector(
-      'a:has-text("login"), a:has-text("sign in"), button:has-text("login"), button:has-text("sign in"), [class*="login-link"], [href*="/login"], [href*="/signin"]'
-    );
-    const signupLink = doc.querySelector(
-      'a:has-text("sign up"), a:has-text("register"), [href*="/signup"], [href*="/register"]'
-    );
+    const loginLink = findByText(["a", "button"], ["login", "sign in"]) || doc.querySelector('[class*="login-link"], [href*="/login"], [href*="/signin"]');
+    const signupLink = findByText(["a"], ["sign up", "register"]) || doc.querySelector('[href*="/signup"], [href*="/register"]');
     const authRequired = doc.querySelector(
       '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
     );
@@ -2255,14 +2258,23 @@ async function detectAvailableActions(page, intent) {
   const actions = [];
   const checks = await page.evaluate(() => {
     const doc = document;
+    function findByText(tags, patterns) {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || "";
+          if (patterns.some((p) => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
     const submitButton = doc.querySelector('button[type="submit"], input[type="submit"]');
     const searchInput = doc.querySelector('input[type="search"], input[name*="search"], input[placeholder*="search"]');
     const loginForm = doc.querySelector('form input[type="password"]');
     const mainNav = doc.querySelector("nav a, header a");
-    const backButton = doc.querySelector('a:has-text("back"), button:has-text("back")');
-    const addButton = doc.querySelector('button:has-text("add"), button:has-text("create"), button:has-text("new")');
-    const editButton = doc.querySelector('button:has-text("edit"), a:has-text("edit")');
-    const deleteButton = doc.querySelector('button:has-text("delete"), button:has-text("remove")');
+    const backButton = findByText(["a", "button"], ["back"]);
+    const addButton = findByText(["button"], ["add", "create", "new"]);
+    const editButton = findByText(["button", "a"], ["edit"]);
+    const deleteButton = findByText(["button"], ["delete", "remove"]);
     const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
     const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
     const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
@@ -2313,7 +2325,7 @@ async function detectAvailableActions(page, intent) {
   if (checks.hasAdd) {
     actions.push({
       action: "create",
-      selector: checks.addSelector || 'button:has-text("add")',
+      selector: checks.addSelector || "button",
       description: "Create new item"
     });
   }
@@ -5502,7 +5514,11 @@ var init_extract = __esm({
 // src/scan.ts
 var scan_exports = {};
 __export(scan_exports, {
+  aggregateIssues: () => aggregateIssues,
+  determineVerdict: () => determineVerdict2,
+  extractAndAudit: () => extractAndAudit,
   formatScanResult: () => formatScanResult,
+  generateSummary: () => generateSummary2,
   scan: () => scan
 });
 async function scan(url, options = {}) {
@@ -6780,6 +6796,9 @@ var init_browser_server = __esm({
     import_nanoid6 = require("nanoid");
     init_schemas();
     init_extract();
+    init_scan();
+    init_interactivity();
+    init_semantic();
     SERVER_STATE_FILE = "browser-server.json";
     ISOLATED_PROFILE_DIR = "browser-profile";
     PersistentSession = class _PersistentSession {
@@ -7223,10 +7242,206 @@ var init_browser_server = __esm({
         }
         return texts;
       }
+      // ============================================================================
+      // SCAN + CAPTURE
+      // ============================================================================
+      consoleErrors = [];
+      consoleWarnings = [];
+      stepCounter = 0;
+      consoleListenerAttached = false;
+      /**
+       * Ensure console listener is attached (lazy — attaches on first scan/capture)
+       */
+      attachConsoleListener() {
+        if (this.consoleListenerAttached) return;
+        this.page.on("console", (msg) => {
+          if (msg.type() === "error") this.consoleErrors.push(msg.text());
+          else if (msg.type() === "warning") this.consoleWarnings.push(msg.text());
+        });
+        this.consoleListenerAttached = true;
+      }
+      /**
+       * Run a full IBR scan against the current page state.
+       * No new browser — uses the session's live page directly.
+       */
+      async scanPage() {
+        this.attachConsoleListener();
+        const start = Date.now();
+        const errorsSnapshot = [...this.consoleErrors];
+        const warningsSnapshot = [...this.consoleWarnings];
+        try {
+          const [elements, interactivity, semantic] = await Promise.all([
+            extractAndAudit(this.page, this.state.viewport),
+            testInteractivity(this.page),
+            getSemanticOutput(this.page)
+          ]);
+          const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+          const verdict = determineVerdict2(issues);
+          const summary = generateSummary2(elements, interactivity, semantic, issues, errorsSnapshot);
+          let route;
+          try {
+            route = new URL(this.url).pathname;
+          } catch {
+            route = this.url;
+          }
+          const result = {
+            url: this.url,
+            route,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            viewport: this.state.viewport,
+            elements,
+            interactivity,
+            semantic,
+            console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+            verdict,
+            issues,
+            summary
+          };
+          await this.recordAction({
+            type: "scan",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { url: this.url },
+            success: true,
+            duration: Date.now() - start
+          });
+          return result;
+        } catch (error) {
+          await this.recordAction({
+            type: "scan",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { url: this.url },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      /**
+       * Combined capture: screenshot + scan in parallel.
+       * @param options.keep - If true, screenshot retained after session close. Default: false.
+       * @param options.label - Human-readable label for this step.
+       * @param options.fullPage - Full page screenshot. Default: true.
+       */
+      async capture(options) {
+        this.attachConsoleListener();
+        const start = Date.now();
+        const keep = options?.keep ?? false;
+        const label = options?.label || "";
+        this.stepCounter++;
+        const stepNum = this.stepCounter;
+        const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
+        const screenshotFile = `${stepLabel}.png`;
+        const screenshotPath = (0, import_path13.join)(this.sessionDir, screenshotFile);
+        try {
+          await this.page.addStyleTag({
+            content: `*, *::before, *::after {
+          animation-duration: 0s !important;
+          animation-delay: 0s !important;
+          transition-duration: 0s !important;
+          transition-delay: 0s !important;
+        }`
+          });
+          const errorsSnapshot = [...this.consoleErrors];
+          const warningsSnapshot = [...this.consoleWarnings];
+          const [, elements, interactivity, semantic] = await Promise.all([
+            this.page.screenshot({
+              path: screenshotPath,
+              fullPage: options?.fullPage ?? true,
+              type: "png"
+            }),
+            extractAndAudit(this.page, this.state.viewport),
+            testInteractivity(this.page),
+            getSemanticOutput(this.page)
+          ]);
+          const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+          const verdict = determineVerdict2(issues);
+          const summary = generateSummary2(elements, interactivity, semantic, issues, errorsSnapshot);
+          let route;
+          try {
+            route = new URL(this.url).pathname;
+          } catch {
+            route = this.url;
+          }
+          const scanResult = {
+            url: this.url,
+            route,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            viewport: this.state.viewport,
+            elements,
+            interactivity,
+            semantic,
+            console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+            verdict,
+            issues,
+            summary
+          };
+          const stepCapture = {
+            step: stepNum,
+            action: label || this.lastActionLabel(),
+            screenshot: screenshotFile,
+            scan: scanResult,
+            keep,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          if (!this.state.captures) this.state.captures = [];
+          this.state.captures.push(stepCapture);
+          await this.recordAction({
+            type: "capture",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { step: stepNum, label: stepLabel, keep, screenshot: screenshotFile },
+            success: true,
+            duration: Date.now() - start,
+            captureIndex: this.state.captures.length - 1
+          });
+          await this.saveState();
+          return stepCapture;
+        } catch (error) {
+          await this.recordAction({
+            type: "capture",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { step: stepNum, label: stepLabel, keep },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      lastActionLabel() {
+        const last = this.state.actions[this.state.actions.length - 1];
+        if (!last) return "unknown";
+        const params = last.params;
+        if (last.type === "click") return `click-${String(params.selector || "").slice(0, 30)}`;
+        if (last.type === "type") return `type-${String(params.selector || "").slice(0, 30)}`;
+        if (last.type === "navigate") return "navigate";
+        if (last.type === "wait") return `wait-${String(params.target || "").slice(0, 30)}`;
+        return last.type;
+      }
       /**
        * Close just this session (not the browser server)
        */
       async close() {
+        if (this.state.captures && this.state.captures.length > 0) {
+          const ephemeral = this.state.captures.filter((c) => !c.keep);
+          if (ephemeral.length > 0) {
+            const archiveDir = (0, import_path13.join)(this.sessionDir, "archive");
+            await (0, import_promises13.mkdir)(archiveDir, { recursive: true });
+            const { rename: rename2 } = await import("fs/promises");
+            for (const cap of ephemeral) {
+              const src = (0, import_path13.join)(this.sessionDir, cap.screenshot);
+              const dest = (0, import_path13.join)(archiveDir, cap.screenshot);
+              try {
+                if ((0, import_fs6.existsSync)(src)) {
+                  await rename2(src, dest);
+                  cap.screenshot = `archive/${cap.screenshot}`;
+                }
+              } catch {
+              }
+            }
+            await this.saveState();
+          }
+        }
         await this.context.close();
       }
       /**
@@ -7255,14 +7470,19 @@ var init_live_session = __esm({
     import_path14 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
+    init_scan();
+    init_interactivity();
+    init_semantic();
     LiveSession = class _LiveSession {
       browser = null;
       context = null;
       page = null;
       state;
-      // Output directory kept for potential future directory operations
       outputDir;
       sessionDir;
+      stepCounter = 0;
+      consoleErrors = [];
+      consoleWarnings = [];
       constructor(state, outputDir, browser3, context, page) {
         this.state = state;
         this.outputDir = outputDir;
@@ -7270,6 +7490,13 @@ var init_live_session = __esm({
         this.browser = browser3;
         this.context = context;
         this.page = page;
+        page.on("console", (msg) => {
+          if (msg.type() === "error") {
+            this.consoleErrors.push(msg.text());
+          } else if (msg.type() === "warning") {
+            this.consoleWarnings.push(msg.text());
+          }
+        });
       }
       /**
        * Create a new live session
@@ -7281,7 +7508,8 @@ var init_live_session = __esm({
           viewport = VIEWPORTS.desktop,
           sandbox = false,
           debug = false,
-          timeout = 3e4
+          timeout = 3e4,
+          autoCapture = false
         } = options;
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
         const sessionDir = (0, import_path14.join)(outputDir, "sessions", sessionId);
@@ -7311,6 +7539,7 @@ var init_live_session = __esm({
           name: name || new URL(url).pathname,
           viewport,
           sandbox: sandbox || debug,
+          autoCapture,
           createdAt: (/* @__PURE__ */ new Date()).toISOString(),
           actions: [{
             type: "navigate",
@@ -7318,7 +7547,8 @@ var init_live_session = __esm({
             params: { url },
             success: true,
             duration: navDuration
-          }]
+          }],
+          captures: []
         };
         await (0, import_promises14.writeFile)(
           (0, import_path14.join)(sessionDir, "live-session.json"),
@@ -7328,7 +7558,11 @@ var init_live_session = __esm({
           path: (0, import_path14.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
-        return new _LiveSession(state, outputDir, browser3, context, page);
+        const session = new _LiveSession(state, outputDir, browser3, context, page);
+        if (autoCapture) {
+          await session.capture({ keep: true, label: "initial" });
+        }
+        return session;
       }
       /**
        * Resume an existing live session (if browser still running)
@@ -7354,51 +7588,224 @@ var init_live_session = __esm({
         });
         const page = await context.newPage();
         await page.goto(state.url, { waitUntil: "networkidle" });
-        return new _LiveSession(state, outputDir, browser3, context, page);
+        const session = new _LiveSession(state, outputDir, browser3, context, page);
+        session.stepCounter = state.captures.length;
+        return session;
       }
-      /**
-       * Get session ID
-       */
+      // ============================================================================
+      // PROPERTIES
+      // ============================================================================
       get id() {
         return this.state.id;
       }
-      /**
-       * Get current URL
-       */
       get url() {
         return this.page?.url() || this.state.url;
       }
-      /**
-       * Get action history
-       */
       get actions() {
         return [...this.state.actions];
       }
-      /**
-       * Record an action
-       */
-      async recordAction(action) {
-        this.state.actions.push(action);
-        await this.saveState();
+      get captures() {
+        return [...this.state.captures];
       }
-      /**
-       * Save session state
-       */
-      async saveState() {
-        await (0, import_promises14.writeFile)(
-          (0, import_path14.join)(this.sessionDir, "live-session.json"),
-          JSON.stringify(this.state, null, 2)
-        );
+      get isActive() {
+        return this.browser !== null && this.page !== null;
       }
+      // ============================================================================
+      // SCAN + CAPTURE (NEW)
+      // ============================================================================
       /**
-       * Ensure page is available
+       * Run a full IBR scan against the current page state.
+       * No new browser — uses the session's live page directly.
        */
-      ensurePage() {
-        if (!this.page) {
-          throw new Error("Session is closed. Create a new session.");
+      async scanPage() {
+        const page = this.ensurePage();
+        const start = Date.now();
+        const errorsSnapshot = [...this.consoleErrors];
+        const warningsSnapshot = [...this.consoleWarnings];
+        try {
+          const [elements, interactivity, semantic] = await Promise.all([
+            extractAndAudit(page, this.state.viewport),
+            testInteractivity(page),
+            getSemanticOutput(page)
+          ]);
+          const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+          const verdict = determineVerdict2(issues);
+          const summary = generateSummary2(elements, interactivity, semantic, issues, errorsSnapshot);
+          let route;
+          try {
+            route = new URL(this.url).pathname;
+          } catch {
+            route = this.url;
+          }
+          const result = {
+            url: this.url,
+            route,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            viewport: this.state.viewport,
+            elements,
+            interactivity,
+            semantic,
+            console: {
+              errors: errorsSnapshot,
+              warnings: warningsSnapshot
+            },
+            verdict,
+            issues,
+            summary
+          };
+          await this.recordAction({
+            type: "scan",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { url: this.url },
+            success: true,
+            duration: Date.now() - start
+          });
+          return result;
+        } catch (error) {
+          await this.recordAction({
+            type: "scan",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { url: this.url },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
         }
-        return this.page;
       }
+      /**
+       * Combined capture: screenshot + scan in parallel.
+       * Returns a StepCapture with both visual and structured data.
+       *
+       * @param options.keep - If true, screenshot is retained after session close.
+       *                       If false (default), moved to archive/ on close.
+       * @param options.label - Human-readable label for this step (e.g. "after-search")
+       * @param options.fullPage - Capture full page screenshot (default: true)
+       */
+      async capture(options) {
+        const page = this.ensurePage();
+        const start = Date.now();
+        const keep = options?.keep ?? false;
+        const label = options?.label || "";
+        this.stepCounter++;
+        const stepNum = this.stepCounter;
+        const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
+        const screenshotFile = `${stepLabel}.png`;
+        const screenshotPath = (0, import_path14.join)(this.sessionDir, screenshotFile);
+        try {
+          await page.addStyleTag({
+            content: `
+          *, *::before, *::after {
+            animation-duration: 0s !important;
+            animation-delay: 0s !important;
+            transition-duration: 0s !important;
+            transition-delay: 0s !important;
+          }
+        `
+          });
+          const [, scanResult] = await Promise.all([
+            page.screenshot({
+              path: screenshotPath,
+              fullPage: options?.fullPage ?? true,
+              type: "png"
+            }),
+            this.runScanAnalysis()
+          ]);
+          const stepCapture = {
+            step: stepNum,
+            action: label || this.lastActionLabel(),
+            screenshot: screenshotFile,
+            scan: scanResult,
+            keep,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          };
+          this.state.captures.push(stepCapture);
+          await this.recordAction({
+            type: "capture",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { step: stepNum, label: stepLabel, keep, screenshot: screenshotFile },
+            success: true,
+            duration: Date.now() - start,
+            captureIndex: this.state.captures.length - 1
+          });
+          await this.saveState();
+          return stepCapture;
+        } catch (error) {
+          await this.recordAction({
+            type: "capture",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { step: stepNum, label: stepLabel, keep },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
+        }
+      }
+      /**
+       * Internal scan analysis without recording a separate action.
+       * Used by capture() to run scan in parallel with screenshot.
+       */
+      async runScanAnalysis() {
+        const page = this.ensurePage();
+        const errorsSnapshot = [...this.consoleErrors];
+        const warningsSnapshot = [...this.consoleWarnings];
+        const [elements, interactivity, semantic] = await Promise.all([
+          extractAndAudit(page, this.state.viewport),
+          testInteractivity(page),
+          getSemanticOutput(page)
+        ]);
+        const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+        const verdict = determineVerdict2(issues);
+        const summary = generateSummary2(elements, interactivity, semantic, issues, errorsSnapshot);
+        let route;
+        try {
+          route = new URL(this.url).pathname;
+        } catch {
+          route = this.url;
+        }
+        return {
+          url: this.url,
+          route,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+          viewport: this.state.viewport,
+          elements,
+          interactivity,
+          semantic,
+          console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+          verdict,
+          issues,
+          summary
+        };
+      }
+      /**
+       * Get the label of the last recorded action (for auto-capture naming)
+       */
+      lastActionLabel() {
+        const last = this.state.actions[this.state.actions.length - 1];
+        if (!last) return "unknown";
+        const params = last.params;
+        if (last.type === "click") return `click-${String(params.selector || "").slice(0, 30)}`;
+        if (last.type === "type") return `type-${String(params.selector || "").slice(0, 30)}`;
+        if (last.type === "navigate") return `navigate`;
+        if (last.type === "wait") return `wait-${String(params.target || "").slice(0, 30)}`;
+        return last.type;
+      }
+      /**
+       * Auto-capture after a successful action (when autoCapture is enabled)
+       */
+      async autoCapAfterAction() {
+        if (!this.state.autoCapture) return;
+        try {
+          await this.page?.waitForLoadState("networkidle", { timeout: 3e3 }).catch(() => {
+          });
+          await this.capture({ keep: false });
+        } catch {
+        }
+      }
+      // ============================================================================
+      // INTERACTION METHODS (with auto-capture support)
+      // ============================================================================
       /**
        * Navigate to a new URL
        */
@@ -7418,6 +7825,7 @@ var init_live_session = __esm({
             success: true,
             duration: Date.now() - start
           });
+          await this.autoCapAfterAction();
         } catch (error) {
           await this.recordAction({
             type: "navigate",
@@ -7445,6 +7853,7 @@ var init_live_session = __esm({
             success: true,
             duration: Date.now() - start
           });
+          await this.autoCapAfterAction();
         } catch (error) {
           await this.recordAction({
             type: "click",
@@ -7473,6 +7882,7 @@ var init_live_session = __esm({
             success: true,
             duration: Date.now() - start
           });
+          await this.autoCapAfterAction();
         } catch (error) {
           await this.recordAction({
             type: "type",
@@ -7527,6 +7937,7 @@ var init_live_session = __esm({
           const failed = results.filter((r) => !r.success);
           throw new Error(`Failed to fill fields: ${failed.map((f) => f.selector).join(", ")}`);
         }
+        await this.autoCapAfterAction();
       }
       /**
        * Hover over an element
@@ -7543,6 +7954,7 @@ var init_live_session = __esm({
             success: true,
             duration: Date.now() - start
           });
+          await this.autoCapAfterAction();
         } catch (error) {
           await this.recordAction({
             type: "hover",
@@ -7602,6 +8014,7 @@ var init_live_session = __esm({
             success: true,
             duration: Date.now() - start
           });
+          await this.autoCapAfterAction();
         } catch (error) {
           await this.recordAction({
             type: "wait",
@@ -7615,7 +8028,7 @@ var init_live_session = __esm({
         }
       }
       /**
-       * Take a screenshot
+       * Take a screenshot (standalone, without scan)
        */
       async screenshot(options) {
         const page = this.ensurePage();
@@ -7666,60 +8079,61 @@ var init_live_session = __esm({
           throw error;
         }
       }
-      /**
-       * Get page content (HTML)
-       */
+      // ============================================================================
+      // PAGE INSPECTION
+      // ============================================================================
       async content() {
         const page = this.ensurePage();
         return page.content();
       }
-      /**
-       * Get page title
-       */
       async title() {
         const page = this.ensurePage();
         return page.title();
       }
-      /**
-       * Check if an element exists
-       */
       async exists(selector) {
         const page = this.ensurePage();
         const element = await page.$(selector);
         return element !== null;
       }
-      /**
-       * Get text content of an element
-       */
       async textContent(selector) {
         const page = this.ensurePage();
         return page.textContent(selector);
       }
-      /**
-       * Get attribute of an element
-       */
       async getAttribute(selector, attribute) {
         const page = this.ensurePage();
         return page.getAttribute(selector, attribute);
       }
-      /**
-       * Press a keyboard key
-       */
       async press(key) {
         const page = this.ensurePage();
         await page.keyboard.press(key);
       }
-      /**
-       * Select option(s) from a dropdown
-       */
       async select(selector, values) {
         const page = this.ensurePage();
         await page.selectOption(selector, values);
       }
       /**
-       * Close the session and browser
+       * Get underlying Playwright page (for advanced use)
+       */
+      getPage() {
+        return this.ensurePage();
+      }
+      // ============================================================================
+      // SESSION LIFECYCLE
+      // ============================================================================
+      /**
+       * Close the session and browser.
+       * Ephemeral screenshots (keep: false) are moved to archive/ folder.
+       * Kept screenshots (keep: true) and baseline.png stay in session dir.
+       * Scan data in live-session.json is always preserved.
        */
       async close() {
+        if (this.page && this.state.autoCapture && this.state.captures.length > 0) {
+          try {
+            await this.capture({ keep: true, label: "final" });
+          } catch {
+          }
+        }
+        await this.archiveEphemeralScreenshots();
         if (this.context) {
           await this.context.close();
           this.context = null;
@@ -7732,37 +8146,56 @@ var init_live_session = __esm({
         await this.saveState();
       }
       /**
-       * Check if session is still active
+       * Move ephemeral screenshots to archive/ subfolder.
+       * User can delete archive/ whenever they want.
        */
-      get isActive() {
-        return this.browser !== null && this.page !== null;
+      async archiveEphemeralScreenshots() {
+        const ephemeral = this.state.captures.filter((c) => !c.keep);
+        if (ephemeral.length === 0) return;
+        const archiveDir = (0, import_path14.join)(this.sessionDir, "archive");
+        await (0, import_promises14.mkdir)(archiveDir, { recursive: true });
+        for (const cap of ephemeral) {
+          const src = (0, import_path14.join)(this.sessionDir, cap.screenshot);
+          const dest = (0, import_path14.join)(archiveDir, cap.screenshot);
+          try {
+            if ((0, import_fs7.existsSync)(src)) {
+              await (0, import_promises14.rename)(src, dest);
+              cap.screenshot = `archive/${cap.screenshot}`;
+            }
+          } catch {
+          }
+        }
       }
-      /**
-       * Get underlying Playwright page (for advanced use)
-       */
-      getPage() {
-        return this.ensurePage();
+      // ============================================================================
+      // INTERNAL
+      // ============================================================================
+      async recordAction(action) {
+        this.state.actions.push(action);
+        await this.saveState();
+      }
+      async saveState() {
+        await (0, import_promises14.writeFile)(
+          (0, import_path14.join)(this.sessionDir, "live-session.json"),
+          JSON.stringify(this.state, null, 2)
+        );
+      }
+      ensurePage() {
+        if (!this.page) {
+          throw new Error("Session is closed. Create a new session.");
+        }
+        return this.page;
       }
     };
     LiveSessionManager = class {
       sessions = /* @__PURE__ */ new Map();
-      /**
-       * Create a new live session
-       */
       async create(outputDir, options) {
         const session = await LiveSession.create(outputDir, options);
         this.sessions.set(session.id, session);
         return session;
       }
-      /**
-       * Get an active session by ID
-       */
       get(sessionId) {
         return this.sessions.get(sessionId);
       }
-      /**
-       * Close a session
-       */
       async close(sessionId) {
         const session = this.sessions.get(sessionId);
         if (session) {
@@ -7772,18 +8205,12 @@ var init_live_session = __esm({
         }
         return false;
       }
-      /**
-       * Close all sessions
-       */
       async closeAll() {
         for (const session of this.sessions.values()) {
           await session.close();
         }
         this.sessions.clear();
       }
-      /**
-       * List active session IDs
-       */
       list() {
         return Array.from(this.sessions.keys());
       }
@@ -9073,7 +9500,7 @@ async function createIBR(options = {}) {
   };
   return new InterfaceBuiltRight(merged);
 }
-program.name("ibr").description("Visual regression testing for Claude Code").version("0.4.1");
+program.name("ibr").description("Design validation for Claude Code").version("0.4.1");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
@@ -9754,7 +10181,7 @@ program.command("logout").description("Clear saved authentication state").action
     process.exit(1);
   }
 });
-program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").action(async (url, options) => {
+program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--auto-capture", "Auto-capture screenshot + scan after every interaction").action(async (url, options) => {
   try {
     const {
       startBrowserServer: startBrowserServer2,
@@ -9790,8 +10217,14 @@ program.command("session:start [url]").description("Start an interactive browser
       console.log(`  npx ibr session:click ${session.id} "<selector>"`);
       console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
       console.log(`  npx ibr session:screenshot ${session.id}`);
+      console.log(`  npx ibr session:scan ${session.id}          # structured scan data`);
+      console.log(`  npx ibr session:capture ${session.id}        # screenshot + scan together`);
       console.log(`  npx ibr session:wait ${session.id} "<selector>"`);
       console.log("");
+      if (options.autoCapture) {
+        console.log("Auto-capture: ON (screenshot + scan after every interaction)");
+        console.log("");
+      }
       console.log("To close: npx ibr session:close all");
       console.log("");
       console.log("Browser server running. Press Ctrl+C to stop.");
@@ -10005,6 +10438,59 @@ program.command("session:screenshot <sessionId>").description("Take a screenshot
     console.log("Tip: Session is still active. Try without --selector for full page.");
   } finally {
     await completeOperation(outputDir, opId);
+  }
+});
+program.command("session:scan <sessionId>").description("Run full IBR scan against the live session page (no new browser)").option("--json", "Output as JSON").action(async (sessionId, options) => {
+  const globalOpts = program.opts();
+  const outputDir = globalOpts.output || "./.ibr";
+  try {
+    const session = await getSession2(outputDir, sessionId);
+    const result = await session.scanPage();
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      const { formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
+      console.log(formatScanResult2(result));
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+  }
+});
+program.command("session:capture <sessionId>").description("Combined screenshot + scan capture (visual + structured data together)").option("-l, --label <label>", "Label for this capture step").option("-k, --keep", "Keep screenshot after session close (default: archive)").option("--json", "Output as JSON").action(async (sessionId, options) => {
+  const globalOpts = program.opts();
+  const outputDir = globalOpts.output || "./.ibr";
+  try {
+    const session = await getSession2(outputDir, sessionId);
+    const result = await session.capture({
+      label: options.label,
+      keep: options.keep || false
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Capture #${result.step}: ${result.action}`);
+      console.log(`  Screenshot: ${result.screenshot}${result.keep ? " (kept)" : " (ephemeral)"}`);
+      console.log(`  Verdict:    ${result.scan.verdict}`);
+      console.log(`  Elements:   ${result.scan.elements.audit.totalElements} (${result.scan.elements.audit.interactiveCount} interactive)`);
+      console.log(`  Handlers:   ${result.scan.elements.audit.withHandlers}/${result.scan.elements.audit.interactiveCount} wired`);
+      console.log(`  Page:       ${result.scan.semantic.pageIntent.intent} (${(result.scan.semantic.confidence * 100).toFixed(0)}%)`);
+      if (result.scan.console.errors.length > 0) {
+        console.log(`  Console:    ${result.scan.console.errors.length} errors`);
+      }
+      if (result.scan.issues.length > 0) {
+        console.log("");
+        console.log("  Issues:");
+        for (const issue of result.scan.issues.slice(0, 5)) {
+          const icon = issue.severity === "error" ? "  \u2717" : issue.severity === "warning" ? "  !" : "  i";
+          console.log(`  ${icon} [${issue.category}] ${issue.description}`);
+        }
+        if (result.scan.issues.length > 5) {
+          console.log(`    ... and ${result.scan.issues.length - 5} more`);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
   }
 });
 program.command("session:wait <sessionId> <selectorOrMs>").description("Wait for a selector to appear or a duration (in ms)").action(async (sessionId, selectorOrMs) => {
@@ -10500,7 +10986,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     process.exit(1);
   }
 });
-program.command("scan [url]").description("Discover pages (auto-detects dev server if no URL)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").option("-f, --format <format>", "Output format: json, text", "text").action(async (url, options) => {
+program.command("discover [url]").description("Discover pages (auto-detects dev server if no URL)").option("-n, --max-pages <count>", "Maximum pages to discover", "5").option("-p, --prefix <path>", "Only scan pages under this path prefix").option("--nav-only", "Only scan navigation links (faster)").option("-f, --format <format>", "Output format: json, text", "text").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { discoverPages: discoverPages2, getNavigationLinks: getNavigationLinks2 } = await Promise.resolve().then(() => (init_crawl(), crawl_exports));
@@ -10931,7 +11417,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   console.log("  /ibr:ui        - Open comparison viewer");
   console.log("");
   console.log("Benefits:");
-  console.log("  \u2022 Instant visual regression checks during development");
+  console.log("  \u2022 Validate UI matches user intent with structured data");
   console.log("  \u2022 AI understands page semantics (intent, state, landmarks)");
   console.log("  \u2022 Automatic suggestions when UI files change");
   console.log("");

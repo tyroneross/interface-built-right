@@ -81,7 +81,7 @@ function generateCodyCommands(tools: Tool[]) {
 // Pseudo-code for Aider conventions generation
 function generateAiderConventions(tools: Tool[]) {
   return `
-# IBR Visual Regression Testing
+# IBR Design Validation
 
 ${tools.map(t => `
 ## ${t.name}

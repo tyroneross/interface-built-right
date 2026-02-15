@@ -9,20 +9,20 @@
 
 meta:
   name: ibr
-  version: "0.3.0"
-  description: Visual regression testing and UI audit tool
+  version: "0.4.9"
+  description: Design validation for AI coding agents — verify UI matches intent
   repository: https://github.com/tyroneross/interface-built-right
 
 # Tool definitions
 tools:
   # ============================================
-  # Core Visual Regression Tools
+  # Core Design Validation Tools
   # ============================================
 
   - id: ibr_start
     name: Capture Baseline
-    description: Capture a baseline screenshot before making UI changes
-    category: visual-regression
+    description: Capture a baseline before making UI changes (for regression verification)
+    category: design-validation
     params:
       - name: url
         type: string
@@ -47,8 +47,8 @@ tools:
 
   - id: ibr_check
     name: Compare Changes
-    description: Compare current page state against baseline screenshot
-    category: visual-regression
+    description: Compare current page state against baseline (regression check)
+    category: design-validation
     params:
       - name: sessionId
         type: string
@@ -64,8 +64,8 @@ tools:
 
   - id: ibr_update
     name: Update Baseline
-    description: Accept current screenshot as new baseline
-    category: visual-regression
+    description: Accept current state as new baseline
+    category: design-validation
     params:
       - name: sessionId
         type: string
@@ -112,7 +112,7 @@ tools:
 
   - id: ibr_list
     name: List Sessions
-    description: List all visual regression sessions
+    description: List all design validation sessions
     category: management
     params: []
     cli: "npx ibr list"

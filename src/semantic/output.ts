@@ -117,6 +117,17 @@ async function detectAvailableActions(
   const checks = await page.evaluate(() => {
     const doc = document;
 
+    // Helper: find element by tag where text content matches (case-insensitive)
+    function findByText(tags: string[], patterns: string[]): Element | null {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || '';
+          if (patterns.some(p => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
+
     // Form actions
     const submitButton = doc.querySelector('button[type="submit"], input[type="submit"]');
     const searchInput = doc.querySelector('input[type="search"], input[name*="search"], input[placeholder*="search"]');
@@ -124,12 +135,12 @@ async function detectAvailableActions(
 
     // Navigation actions
     const mainNav = doc.querySelector('nav a, header a');
-    const backButton = doc.querySelector('a:has-text("back"), button:has-text("back")');
+    const backButton = findByText(['a', 'button'], ['back']);
 
     // Content actions
-    const addButton = doc.querySelector('button:has-text("add"), button:has-text("create"), button:has-text("new")');
-    const editButton = doc.querySelector('button:has-text("edit"), a:has-text("edit")');
-    const deleteButton = doc.querySelector('button:has-text("delete"), button:has-text("remove")');
+    const addButton = findByText(['button'], ['add', 'create', 'new']);
+    const editButton = findByText(['button', 'a'], ['edit']);
+    const deleteButton = findByText(['button'], ['delete', 'remove']);
 
     // List actions
     const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
@@ -189,7 +200,7 @@ async function detectAvailableActions(
   if (checks.hasAdd) {
     actions.push({
       action: 'create',
-      selector: checks.addSelector || 'button:has-text("add")',
+      selector: checks.addSelector || 'button',
       description: 'Create new item',
     });
   }

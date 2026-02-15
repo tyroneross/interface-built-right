@@ -20,6 +20,7 @@ import { NewSessionModal, UploadReferenceModal } from '@/components/sessions';
 import { useSessions, useSessionActions } from '@/lib/hooks';
 import type { Session, FilterType } from '@/lib/types';
 import { formatDate, formatDiffPercent } from '@/lib/utils';
+import { runScan, buildBaseline } from '@/lib/api';
 
 export default function DashboardPage() {
   // Data fetching
@@ -35,6 +36,8 @@ export default function DashboardPage() {
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
+  const [scanning, setScanning] = useState(false);
+  const [buildingBaseline, setBuildingBaseline] = useState(false);
 
   // Auto-select first session when loaded
   useEffect(() => {
@@ -235,6 +238,36 @@ export default function DashboardPage() {
     [refetch]
   );
 
+  const handleFullScan = useCallback(async () => {
+    const url = prompt('Enter URL to scan (e.g., http://localhost:3000)');
+    if (!url) return;
+    try {
+      setScanning(true);
+      const result = await runScan(url);
+      await refetch();
+      alert(`Scan complete: ${result.result?.verdict || 'Done'}`);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Scan failed');
+    } finally {
+      setScanning(false);
+    }
+  }, [refetch]);
+
+  const handleBuildBaseline = useCallback(async () => {
+    const url = prompt('Enter URL to baseline (e.g., http://localhost:3000)');
+    if (!url) return;
+    const name = prompt('Session name (e.g., homepage, dashboard)') || undefined;
+    try {
+      setBuildingBaseline(true);
+      await buildBaseline(url, name);
+      await refetch();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Baseline capture failed');
+    } finally {
+      setBuildingBaseline(false);
+    }
+  }, [refetch]);
+
   // Error state
   if (error) {
     return (
@@ -264,6 +297,10 @@ export default function DashboardPage() {
         onToggleLibrary={() => setIsLibraryOpen(!isLibraryOpen)}
         onNewSession={() => setIsNewSessionOpen(true)}
         onUploadReference={() => setIsUploadOpen(true)}
+        onFullScan={handleFullScan}
+        onBuildBaseline={handleBuildBaseline}
+        scanning={scanning}
+        buildingBaseline={buildingBaseline}
       />
 
       {/* Main content */}

@@ -129,6 +129,29 @@ export interface GetFeedbackResponse {
   }[];
 }
 
+export interface ScanResponse {
+  success: boolean;
+  url: string;
+  result: {
+    verdict?: 'PASS' | 'ISSUES' | 'FAIL';
+    elements?: { all: unknown[]; audit: { totalElements: number; interactiveCount: number; withHandlers: number; withoutHandlers: number } };
+    interactivity?: { buttons: unknown[]; links: unknown[]; forms: unknown[] };
+    semantic?: { pageIntent: { intent: string }; state: Record<string, unknown> };
+    console?: { errors: unknown[]; warnings: unknown[] };
+    issues?: { severity: string; description: string; category: string }[];
+    raw?: string;
+    stderr?: string;
+  };
+}
+
+export interface BaselineResponse {
+  success: boolean;
+  url: string;
+  name: string;
+  baseline: string;
+  elements: ScanResponse['result'] | null;
+}
+
 export interface ApiError {
   error: string;
   details?: string;

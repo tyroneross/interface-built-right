@@ -137,7 +137,7 @@ npx ibr session:screenshot <id> --name "after-<action>"
 - Network calls (url/method/status)
 - Persisted results
 
-### Phase 5 — Visual Regression Check
+### Phase 5 — Regression Check
 
 After functional audit (and after any fixes):
 
@@ -178,7 +178,7 @@ After each fix:
   - P0 broken flows
   - Orphaned UI elements count
   - Biggest UX friction points
-  - Visual regression summary (IBR verdicts)
+  - Regression summary (IBR verdicts)
 - Minimal next steps (5 bullets max)
 
 ### 2) Detailed Audit (Engineering-Ready)

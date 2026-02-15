@@ -1,5 +1,5 @@
 ---
-description: Compare current page state against baseline screenshot and show visual diff
+description: Compare current page state against baseline and show what changed (regression check)
 ---
 
 # /ibr:compare

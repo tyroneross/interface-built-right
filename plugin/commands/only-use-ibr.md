@@ -1,5 +1,5 @@
 ---
-description: Enforce IBR-only for capture tasks. Blocks Playwright screenshot/snapshot tools. Playwright interaction tools remain available.
+description: Enforce IBR-only for capture and validation tasks. Blocks Playwright screenshot/snapshot tools. Playwright interaction tools remain available.
 ---
 
 # /only-use-ibr
@@ -90,10 +90,11 @@ Report: "Switched to **prefer** mode. Playwright capture tools are now available
 
 ## Why This Exists
 
-Enforces consistent use of IBR for capture, ensuring:
-- All screenshots go to `.ibr/sessions/`
-- Metadata is captured with every screenshot
-- Comparison workflow is available
+Enforces consistent use of IBR for capture and validation, ensuring:
+- All UI validation uses structured scan data (`npx ibr scan`)
+- Screenshots go to managed `.ibr/sessions/`
+- Metadata is captured with every session
+- Comparison and design validation workflows are available
 - Reference images are properly managed
 
 While still allowing Playwright for tasks IBR cannot perform (clicking, typing, forms, etc.).

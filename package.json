@@ -1,7 +1,7 @@
 {
   "name": "@tyroneross/interface-built-right",
   "version": "0.4.9",
-  "description": "Visual eyes for Claude Code. Screenshot your UI, make changes, see exactly what moved — two commands, zero config.",
+  "description": "Design validation for Claude Code. Verify your UI matches what was described — exact CSS, handler wiring, accessibility, page structure. Structured data, not screenshots.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tyroneross/interface-built-right.git"
@@ -48,14 +48,14 @@
     "logout": "node dist/bin/ibr.js logout"
   },
   "keywords": [
-    "visual-regression",
-    "screenshot",
-    "testing",
+    "design-validation",
+    "ui-testing",
+    "css-audit",
     "playwright",
     "claude-code",
-    "ui-testing",
-    "diff",
-    "baseline"
+    "accessibility",
+    "visual-regression",
+    "component-testing"
   ],
   "author": "",
   "license": "MIT",

@@ -2376,9 +2376,16 @@ async function detectAuthState(page) {
   const checks = await page.evaluate(() => {
     const doc = document;
     const text = doc.body?.innerText?.toLowerCase() || "";
-    const logoutButton = doc.querySelector(
-      'button:has-text("logout"), button:has-text("sign out"), a:has-text("logout"), a:has-text("sign out"), [class*="logout"], [data-testid*="logout"]'
-    );
+    function findByText(tags, patterns) {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || "";
+          if (patterns.some((p) => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
+    const logoutButton = findByText(["button", "a"], ["logout", "sign out"]) || doc.querySelector('[class*="logout"], [data-testid*="logout"]');
     const userMenu = doc.querySelector(
       '[class*="user-menu"], [class*="avatar"], [class*="profile-menu"], [class*="account-menu"], [data-testid*="user"]'
     );
@@ -2386,12 +2393,8 @@ async function detectAuthState(page) {
     const userNameEl = doc.querySelector(
       '[class*="username"], [class*="user-name"], [class*="display-name"]'
     );
-    const loginLink = doc.querySelector(
-      'a:has-text("login"), a:has-text("sign in"), button:has-text("login"), button:has-text("sign in"), [class*="login-link"], [href*="/login"], [href*="/signin"]'
-    );
-    const signupLink = doc.querySelector(
-      'a:has-text("sign up"), a:has-text("register"), [href*="/signup"], [href*="/register"]'
-    );
+    const loginLink = findByText(["a", "button"], ["login", "sign in"]) || doc.querySelector('[class*="login-link"], [href*="/login"], [href*="/signin"]');
+    const signupLink = findByText(["a"], ["sign up", "register"]) || doc.querySelector('[href*="/signup"], [href*="/register"]');
     const authRequired = doc.querySelector(
       '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
     );
@@ -2653,14 +2656,23 @@ async function detectAvailableActions(page, intent) {
   const actions = [];
   const checks = await page.evaluate(() => {
     const doc = document;
+    function findByText(tags, patterns) {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || "";
+          if (patterns.some((p) => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
     const submitButton = doc.querySelector('button[type="submit"], input[type="submit"]');
     const searchInput = doc.querySelector('input[type="search"], input[name*="search"], input[placeholder*="search"]');
     const loginForm = doc.querySelector('form input[type="password"]');
     const mainNav = doc.querySelector("nav a, header a");
-    const backButton = doc.querySelector('a:has-text("back"), button:has-text("back")');
-    const addButton = doc.querySelector('button:has-text("add"), button:has-text("create"), button:has-text("new")');
-    const editButton = doc.querySelector('button:has-text("edit"), a:has-text("edit")');
-    const deleteButton = doc.querySelector('button:has-text("delete"), button:has-text("remove")');
+    const backButton = findByText(["a", "button"], ["back"]);
+    const addButton = findByText(["button"], ["add", "create", "new"]);
+    const editButton = findByText(["button", "a"], ["edit"]);
+    const deleteButton = findByText(["button"], ["delete", "remove"]);
     const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
     const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
     const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
@@ -2711,7 +2723,7 @@ async function detectAvailableActions(page, intent) {
   if (checks.hasAdd) {
     actions.push({
       action: "create",
-      selector: checks.addSelector || 'button:has-text("add")',
+      selector: checks.addSelector || "button",
       description: "Create new item"
     });
   }

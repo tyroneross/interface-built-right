@@ -43,7 +43,7 @@ Allow but remind about IBR verification.
 ```json
 {
   "decision": "allow",
-  "message": "UI file detected. After completing changes:\n\n1. Run: npx ibr audit <url>\n2. Check for NO_HANDLER, PLACEHOLDER_LINK errors\n3. Verify interactive elements work\n\nDo not mark task complete without IBR verification."
+  "message": "UI file detected. After completing changes, validate with IBR:\n\n1. Run: npx ibr scan <url> --json\n2. Verify implementation matches user's description (check computedStyles, handlers, a11y)\n3. Fix mismatches and re-scan until validated\n\nDo not mark task complete without IBR validation."
 }
 ```
 

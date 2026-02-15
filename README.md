@@ -7,8 +7,8 @@
 <h1 align="center">Interface Built Right</h1>
 
 <p align="center">
-  Visual eyes for Claude Code.<br>
-  Catch what changed, keep what works.
+  Design validation for AI coding agents.<br>
+  Verify UI matches what was described — with data, not pixels.
 </p>
 
 <p align="center">
@@ -19,24 +19,41 @@
 
 ---
 
-IBR is a Claude Code plugin that screenshots your UI before and after changes, diffs them pixel-by-pixel, and tells you exactly what moved. No more "does this look right?" — you get a verdict: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, or `LAYOUT_BROKEN`.
+IBR is a Claude Code plugin that validates your UI implementation against what the user described. IBR scans the live page and returns structured data — computed CSS, element bounds, handler wiring, accessibility attributes, page classification — so you know *exactly* whether the build matches the intent. Screenshots show you what the page looks like; IBR tells you what the page *is*. Best results come from using both.
 
-It works from the terminal, from Claude Code slash commands, or from code. Two commands to learn. Zero config required.
+It works from the terminal, from Claude Code slash commands, or from code. Zero config required.
+
+## The Problem
+
+User says "make the buttons blue with 16px Inter font." You build it. But did it work?
+
+- **Screenshots** — you're guessing hex codes from pixels
+- **Manual inspection** — slow, error-prone, not automatable
+- **IBR scan** — returns `backgroundColor: "rgb(59, 130, 246)"`, `fontSize: "16px"`, `fontFamily: "Inter"`. Done.
 
 ## How It Works
 
-<table>
-<tr>
-<td width="50%"><strong>Before</strong> — <code>npx ibr start &lt;url&gt;</code></td>
-<td width="50%"><strong>After</strong> — <code>npx ibr check</code></td>
-</tr>
-<tr>
-<td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-baseline.png" alt="Baseline screenshot"></td>
-<td><img src="https://raw.githubusercontent.com/tyroneross/interface-built-right/main/docs/images/demo-current.png" alt="After changes"></td>
-</tr>
-</table>
+```bash
+# User describes what they want → you build it → validate with IBR
+npx ibr scan http://localhost:3000/page --json
+```
 
-<p align="center"><em>Header changed to dark, button turned purple — IBR detects the 9.3% diff and returns <code>EXPECTED_CHANGE</code>.</em></p>
+IBR returns structured data per element:
+- **computedStyles** — backgroundColor, fontSize, fontFamily, padding, grid, flexbox, etc.
+- **bounds** — exact x, y, width, height
+- **interactive** — hasOnClick, hasHref, hasReactHandler, isDisabled
+- **a11y** — role, ariaLabel, ariaDescribedBy
+- **page-level** — pageIntent, auth state, loading state, console errors
+
+**For regression**, capture before and compare after:
+
+```bash
+npx ibr start http://localhost:3000    # baseline before changes
+# ... edit your code ...
+npx ibr check                          # see what changed
+```
+
+Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
 
 <details>
 <summary>See terminal output</summary>
@@ -52,17 +69,23 @@ npm install @tyroneross/interface-built-right
 
 That's it. `.ibr/` is auto-added to your `.gitignore` on install.
 
-### Two commands:
+### Validate UI (primary workflow):
 
 ```bash
-npx ibr start http://localhost:3000    # screenshot your app
-# ... edit your code ...
-npx ibr check                          # see what changed
+npx ibr scan http://localhost:3000 --json    # get structured data
+```
+
+### Regression check:
+
+```bash
+npx ibr start http://localhost:3000    # capture baseline
+# ... make changes ...
+npx ibr check                          # compare
 ```
 
 ## Setup as Claude Code Plugin
 
-IBR works standalone, but it's built for Claude Code. As a plugin, it automatically nudges Claude to verify UI changes and suggests IBR over manual screenshots.
+IBR works standalone, but it's built for Claude Code. As a plugin, it automatically validates UI changes against what the user described and guides you to combine scan data with visual checks for complete coverage.
 
 **1. Add to your project's `.claude/settings.json`:**
 
@@ -78,25 +101,85 @@ IBR works standalone, but it's built for Claude Code. As a plugin, it automatica
 |---------|-------------|
 | `/ibr:snapshot` | Capture baseline before making changes |
 | `/ibr:compare` | Compare current state against baseline |
+| `/ibr:full-interface-scan` | Scan all pages, test every component |
+| `/ibr:build-baseline` | Create baselines with element catalog |
 | `/ibr:ui` | Open the web dashboard at localhost:4200 |
 
 **3. Use in conversation:**
 
-> "Redesign the header" → Claude captures baseline → makes changes → runs `ibr check` → iterates if `LAYOUT_BROKEN`
+> "Make the header dark with a purple CTA" → Claude builds it → runs `npx ibr scan` → checks `backgroundColor` on header and button → confirms match or iterates
 
-The plugin hooks handle the rest — reminding Claude to capture baselines before UI work and verify after.
+The plugin hooks handle the rest — nudging Claude to validate after UI work and suggesting scan data alongside visual checks for thorough coverage.
 
 ## What IBR Does For You (Plugin Hooks)
 
-When installed as a Claude Code plugin, IBR silently provides:
+When installed as a Claude Code plugin, IBR provides:
 
-- **Bash safety** — blocks destructive commands (`rm -rf /`, `git push --force`, `DROP TABLE`, etc.)
+- **Design validation reminders** — after UI file edits, nudges to run `npx ibr scan` to verify against user intent
+- **Scan + screenshot guidance** — when Playwright screenshot is used, suggests also running IBR scan for precise property data alongside the visual check
+- **Session end check** — reminds if UI work was done but not validated
+- **Bash safety** — blocks destructive commands (`rm -rf /`, `git push --force`, etc.)
 - **Sensitive path protection** — prevents writes to `~/.ssh`, `~/.aws`, `/etc/`
-- **UI change detection** — detects when `.tsx`, `.jsx`, `.vue`, `.svelte`, `.css` files are edited
-- **Verification reminders** — nudges to run `npx ibr check` after UI changes
-- **Session end check** — reminds if UI work was done but IBR wasn't run
 
 All hooks use prompt-based evaluation (not shell scripts), so they never crash or show error messages.
+
+## What IBR Scan Returns
+
+### Element Data (per interactive element)
+```
+selector:        Unique CSS path
+tagName:         button, a, input, etc.
+text:            Visible text content
+bounds:          { x, y, width, height } — exact position and size
+computedStyles:  backgroundColor, color, fontSize, fontFamily, fontWeight,
+                 padding, margin, borderRadius, display, gap, flexDirection,
+                 alignItems, justifyContent, gridTemplateColumns, etc.
+interactive:     { hasOnClick, hasHref, hasReactHandler, isDisabled, cursor }
+a11y:            { role, ariaLabel, ariaDescribedBy, ariaHidden }
+```
+
+### Page-Level Data
+```
+pageIntent:      auth | form | listing | detail | dashboard | error | landing
+state.auth:      { authenticated, username, confidence }
+state.loading:   { loading, type: spinner|skeleton|progress }
+state.errors:    { hasErrors, errors[], severity }
+console:         { errors[], warnings[] }
+verdict:         PASS | ISSUES | FAIL
+```
+
+## Scan Data vs Screenshots
+
+Each approach catches things the other misses. The best validation uses both.
+
+### Where IBR scan wins
+
+| Question | Screenshot | IBR Scan |
+|----------|-----------|----------|
+| Is this exactly #3b82f6? | Guess from pixels | `backgroundColor: "rgb(59, 130, 246)"` |
+| Is the font 16px Inter? | "Looks about right" | `fontSize: "16px"`, `fontFamily: "Inter"` |
+| Is the button wired up? | Can't tell | `hasOnClick: true`, `hasReactHandler: true` |
+| Are ARIA labels present? | Can't see | `ariaLabel: "Submit form"`, `role: "button"` |
+| Any console errors? | Can't see | `console.errors: []` |
+
+### Where screenshots win
+
+| Question | IBR Scan | Screenshot |
+|----------|---------|-----------|
+| Does the page *look* right? | Can't judge | Visual coherence at a glance |
+| Any rendering glitches? | Computed styles can be correct but render wrong | Sees clipping, overlap, z-index issues |
+| Canvas/SVG/WebGL content? | Not in the DOM | Sees everything rendered |
+| Font rendering quality? | Reports font-family, not rendering | Sees anti-aliasing, kerning |
+| Unexpected visual artifacts? | Only checks what you ask | Catches things you didn't think to check |
+
+### Best practice: combine both
+
+```bash
+npx ibr scan http://localhost:3000 --json    # precise property verification
+# + screenshot for visual confirmation when needed
+```
+
+For AI agents, scan data is best for precise verification (exact values, handler detection, a11y). Screenshots are best for holistic visual checks. Together they give more confidence than either alone.
 
 ## CLI Reference
 
@@ -104,7 +187,8 @@ All hooks use prompt-based evaluation (not shell scripts), so they never crash o
 
 | Command | Description |
 |---------|-------------|
-| `npx ibr start <url>` | Capture baseline screenshot |
+| `npx ibr scan <url> --json` | Validate UI — returns structured data |
+| `npx ibr start <url>` | Capture baseline for regression |
 | `npx ibr check` | Compare current state against baseline |
 | `npx ibr serve` | Open web UI at localhost:4200 |
 | `npx ibr list` | List all sessions |
@@ -113,7 +197,7 @@ All hooks use prompt-based evaluation (not shell scripts), so they never crash o
 
 ### Interactive Sessions
 
-For pages that need clicks, typing, or navigation before capturing:
+For pages that need clicks, typing, or navigation before validating:
 
 ```bash
 # Start a persistent browser session
@@ -145,25 +229,28 @@ npx ibr session:screenshot <id>
 
 </details>
 
-### Memory (UI Preferences)
+### Memory (Design Specs)
 
-Store UI expectations that IBR enforces during scans:
+Store design preferences that IBR enforces during every scan:
 
 ```bash
 # Remember that buttons should be blue
 npx ibr memory add "Primary buttons are blue" --category color --property background-color --value "#3b82f6"
 
-# List stored preferences
+# Store font preference
+npx ibr memory add "Body font is Inter 16px" --property font-family --value "Inter"
+
+# List stored specs
 npx ibr memory list
 
-# IBR checks these during every scan
+# IBR checks these during every scan automatically
 ```
 
 ### Authenticated Pages
 
 ```bash
 npx ibr login http://localhost:3000/login   # opens browser, log in manually
-npx ibr start http://localhost:3000/dashboard  # captures with your auth
+npx ibr scan http://localhost:3000/dashboard --json  # validates with your auth
 npx ibr logout                                 # clear saved auth
 ```
 

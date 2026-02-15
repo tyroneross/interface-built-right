@@ -84,7 +84,7 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
 
 program
   .name('ibr')
-  .description('Visual regression testing for Claude Code')
+  .description('Design validation for Claude Code')
   .version('0.4.1');
 
 // Global options
@@ -1098,7 +1098,8 @@ program
   .option('--sandbox', 'Show visible browser window (default: headless)')
   .option('--debug', 'Visible browser + slow motion + devtools')
   .option('--low-memory', 'Reduce memory usage for lower-powered machines (4GB RAM)')
-  .action(async (url: string | undefined, options: { name?: string; waitFor?: string; sandbox?: boolean; debug?: boolean; lowMemory?: boolean }) => {
+  .option('--auto-capture', 'Auto-capture screenshot + scan after every interaction')
+  .action(async (url: string | undefined, options: { name?: string; waitFor?: string; sandbox?: boolean; debug?: boolean; lowMemory?: boolean; autoCapture?: boolean }) => {
     try {
       const {
         startBrowserServer,
@@ -1141,8 +1142,14 @@ program
         console.log(`  npx ibr session:click ${session.id} "<selector>"`);
         console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
         console.log(`  npx ibr session:screenshot ${session.id}`);
+        console.log(`  npx ibr session:scan ${session.id}          # structured scan data`);
+        console.log(`  npx ibr session:capture ${session.id}        # screenshot + scan together`);
         console.log(`  npx ibr session:wait ${session.id} "<selector>"`);
         console.log('');
+        if (options.autoCapture) {
+          console.log('Auto-capture: ON (screenshot + scan after every interaction)');
+          console.log('');
+        }
         console.log('To close: npx ibr session:close all');
         console.log('');
         console.log('Browser server running. Press Ctrl+C to stop.');
@@ -1418,6 +1425,79 @@ program
       console.log('Tip: Session is still active. Try without --selector for full page.');
     } finally {
       await completeOperation(outputDir, opId);
+    }
+  });
+
+// Session scan command — run IBR scan against live session page
+program
+  .command('session:scan <sessionId>')
+  .description('Run full IBR scan against the live session page (no new browser)')
+  .option('--json', 'Output as JSON')
+  .action(async (sessionId: string, options: { json?: boolean }) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+
+    try {
+      const session = await getSession(outputDir, sessionId);
+      const result = await session.scanPage();
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        const { formatScanResult } = await import('../scan.js');
+        console.log(formatScanResult(result));
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+    }
+  });
+
+// Session capture command — combined screenshot + scan in one step
+program
+  .command('session:capture <sessionId>')
+  .description('Combined screenshot + scan capture (visual + structured data together)')
+  .option('-l, --label <label>', 'Label for this capture step')
+  .option('-k, --keep', 'Keep screenshot after session close (default: archive)')
+  .option('--json', 'Output as JSON')
+  .action(async (sessionId: string, options: { label?: string; keep?: boolean; json?: boolean }) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+
+    try {
+      const session = await getSession(outputDir, sessionId);
+      const result = await session.capture({
+        label: options.label,
+        keep: options.keep || false,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Capture #${result.step}: ${result.action}`);
+        console.log(`  Screenshot: ${result.screenshot}${result.keep ? ' (kept)' : ' (ephemeral)'}`);
+        console.log(`  Verdict:    ${result.scan.verdict}`);
+        console.log(`  Elements:   ${result.scan.elements.audit.totalElements} (${result.scan.elements.audit.interactiveCount} interactive)`);
+        console.log(`  Handlers:   ${result.scan.elements.audit.withHandlers}/${result.scan.elements.audit.interactiveCount} wired`);
+        console.log(`  Page:       ${result.scan.semantic.pageIntent.intent} (${(result.scan.semantic.confidence * 100).toFixed(0)}%)`);
+
+        if (result.scan.console.errors.length > 0) {
+          console.log(`  Console:    ${result.scan.console.errors.length} errors`);
+        }
+
+        if (result.scan.issues.length > 0) {
+          console.log('');
+          console.log('  Issues:');
+          for (const issue of result.scan.issues.slice(0, 5)) {
+            const icon = issue.severity === 'error' ? '  ✗' : issue.severity === 'warning' ? '  !' : '  i';
+            console.log(`  ${icon} [${issue.category}] ${issue.description}`);
+          }
+          if (result.scan.issues.length > 5) {
+            console.log(`    ... and ${result.scan.issues.length - 5} more`);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
     }
   });
 
@@ -2095,9 +2175,9 @@ program
     }
   });
 
-// Scan command - discover and test multiple pages
+// Discover command - discover and test multiple pages
 program
-  .command('scan [url]')
+  .command('discover [url]')
   .description('Discover pages (auto-detects dev server if no URL)')
   .option('-n, --max-pages <count>', 'Maximum pages to discover', '5')
   .option('-p, --prefix <path>', 'Only scan pages under this path prefix')
@@ -2671,7 +2751,7 @@ program
     console.log('  /ibr:ui        - Open comparison viewer');
     console.log('');
     console.log('Benefits:');
-    console.log('  • Instant visual regression checks during development');
+    console.log('  • Validate UI matches user intent with structured data');
     console.log('  • AI understands page semantics (intent, state, landmarks)');
     console.log('  • Automatic suggestions when UI files change');
     console.log('');

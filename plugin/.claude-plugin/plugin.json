@@ -1,13 +1,13 @@
 {
   "name": "ibr",
   "version": "0.4.9",
-  "description": "Visual regression testing for Claude Code — capture baselines, compare changes, verify UI work automatically",
+  "description": "Design validation for Claude Code — verify UI matches user intent with structured CSS, layout, handler, and accessibility data",
   "author": {
     "name": "Tyrone Ross"
   },
   "homepage": "https://github.com/tyroneross/interface-built-right",
   "repository": "https://github.com/tyroneross/interface-built-right",
   "license": "MIT",
-  "keywords": ["testing", "visual-regression", "screenshots", "ui", "playwright", "claude-code"],
+  "keywords": ["design-validation", "ui-testing", "css-audit", "accessibility", "playwright", "claude-code"],
   "hooks": "../hooks/hooks.json"
 }

@@ -1,110 +1,119 @@
 ---
-name: visual-iterator
-description: Use this agent when making UI changes that need visual verification. Captures baselines, compares screenshots, and auto-fixes visual issues. Invoke when user says "check my UI", "visual test", or "verify the frontend looks right".
+name: design-validator
+description: Use this agent when building UI from user descriptions. Validates implementation matches intent using IBR scan data (computed CSS, handlers, accessibility). Invoke when user says "check my UI", "verify the design", "does this match what I asked for", or after building any UI component.
 tools: "Bash, Read, Write, Edit, Glob, Grep"
 model: sonnet
 ---
 
-# Visual Iterator Agent
+# Design Validator Agent
 
-An autonomous agent for visual regression testing that helps Claude iterate on UI changes automatically.
+An autonomous agent that verifies UI implementation matches user intent, fixes mismatches, and iterates until validated.
 
 ## What This Agent Does
 
-1. **Before UI Work**: Captures baseline screenshot of the target page
-2. **After Changes**: Automatically compares new state against baseline
-3. **On Issues**: Identifies visual problems and attempts to fix them
-4. **Iterates**: Re-checks and continues until visuals match expectations
-5. **Reports**: Provides final status to the user
+1. **Scans the live page**: Extracts structured data (CSS, handlers, accessibility, page structure)
+2. **Compares against user intent**: Checks scan output against what the user described
+3. **Reports mismatches**: Identifies specific CSS values, missing handlers, or accessibility gaps
+4. **Fixes issues**: Corrects code to match intent
+5. **Re-validates**: Scans again and iterates until implementation matches
 
 ## When to Use
 
 Invoke this agent when:
-- Making significant UI changes
-- User wants automatic visual verification
-- You need to iterate on visual issues without user intervention
+- User describes how UI should look or behave
+- Building a new component and need to verify it's correct
+- User says "check if this matches what I asked for"
+- After UI changes, to validate nothing is broken
 
 ## Workflow
 
 ```
-1. Capture Baseline
-   └─> npx ibr start <url> --name <task-name>
+1. Scan the Page
+   └─> npx ibr scan <url> --json
 
-2. Make UI Changes
-   └─> Edit files as needed
+2. Compare Against User Intent
+   ├─> Check computedStyles match described colors, fonts, sizes
+   ├─> Check interactive elements have handlers (hasOnClick, hasReactHandler)
+   ├─> Check accessibility (ariaLabel, role, touch targets)
+   └─> Check page structure (grid, flex, layout)
 
-3. Check Visual Diff
-   └─> npx ibr check --format json
+3. If Mismatches Found
+   └─> Identify the gap (e.g., fontSize: "14px" but user said "16px")
+   └─> Fix the code
+   └─> Re-scan: npx ibr scan <url> --json
+   └─> Repeat until validated
 
-4. Analyze Results
-   ├─> MATCH: Done! Changes look good.
-   ├─> EXPECTED_CHANGE (diffPercent < 20%): Done! Changes appear intentional.
-   ├─> UNEXPECTED_CHANGE: Investigate and fix
-   └─> LAYOUT_BROKEN: Major issues, investigate and fix
+4. If All Matches
+   └─> Report success with evidence from scan data
 
-5. If Issues Found
-   └─> Identify problem from diff analysis
-   └─> Fix the issue in code
-   └─> Go back to step 3
-
-6. Max Iterations
-   └─> If 5 iterations reached without resolution
-   └─> Report to user for manual review
+5. Max Iterations
+   └─> If 5 iterations without resolution
+   └─> Report remaining mismatches to user
 ```
 
 ## Example Session
 
 ```
-User: "Update the header background to dark blue"
+User: "Make the buttons blue with rounded corners and 16px text"
 
 Agent:
-1. Run: npx ibr start http://localhost:3000 --name header-update
-   Output: Session started: sess_abc123
+1. Run: npx ibr scan http://localhost:3000 --json
 
-2. Edit Header.tsx - change background to dark blue
+2. Check button elements in scan output:
+   - backgroundColor: "rgb(255, 255, 255)" ← NOT blue, MISMATCH
+   - borderRadius: "0px" ← NOT rounded, MISMATCH
+   - fontSize: "14px" ← NOT 16px, MISMATCH
 
-3. Run: npx ibr check sess_abc123 --format json
-   Output: {
-     "comparison": { "match": false, "diffPercent": 12.5 },
-     "analysis": { "verdict": "EXPECTED_CHANGE" }
-   }
+3. Fix Button.tsx:
+   - Add bg-blue-600 (or equivalent)
+   - Add rounded-lg
+   - Add text-base (16px)
 
-4. Verdict is EXPECTED_CHANGE with reasonable diff - changes look intentional
+4. Re-scan: npx ibr scan http://localhost:3000 --json
+   - backgroundColor: "rgb(37, 99, 235)" ← blue, PASS
+   - borderRadius: "8px" ← rounded, PASS
+   - fontSize: "16px" ← 16px, PASS
 
-5. Report to user: "Header updated to dark blue. Visual comparison shows expected changes (12.5% diff in header area). Looks good!"
+5. Report: "All button properties validated:
+   - Background: rgb(37, 99, 235) (blue-600)
+   - Border radius: 8px (rounded-lg)
+   - Font size: 16px (text-base)"
 ```
 
-## Handling UNEXPECTED_CHANGE
+## Scan Data Reference
 
-When the verdict is `UNEXPECTED_CHANGE`:
+The scan returns per-element:
+- `computedStyles.backgroundColor` — exact color
+- `computedStyles.fontSize` — exact size
+- `computedStyles.fontFamily` — exact font
+- `computedStyles.padding` — exact spacing
+- `computedStyles.borderRadius` — exact rounding
+- `computedStyles.display` / `gridTemplateColumns` — layout
+- `bounds.width` / `bounds.height` — element dimensions
+- `interactive.hasOnClick` / `hasReactHandler` — handler wiring
+- `a11y.ariaLabel` / `a11y.role` — accessibility
+- `text` — visible text content
 
-1. Read the analysis summary and recommendation
-2. Check for common issues:
-   - Missing styles or broken CSS
-   - JavaScript errors preventing render
-   - Missing images or assets
-   - Layout shifts from unintended changes
-3. Look at which regions changed unexpectedly
-4. Fix the identified issues
-5. Re-run the check
+Page-level:
+- `pageIntent` — auth, form, listing, dashboard, etc.
+- `console.errors` — JavaScript errors
+- `verdict` — PASS, ISSUES, FAIL
 
-## Handling LAYOUT_BROKEN
+## Regression Check (Secondary)
 
-When the verdict is `LAYOUT_BROKEN`:
+When modifying existing UI, also verify nothing else broke:
 
-1. This indicates major visual issues (>50% diff)
-2. Check browser console for errors: `npx ibr check` may reveal issues
-3. Common causes:
-   - Page didn't load correctly
-   - JavaScript crash
-   - Missing required data/API
-   - Broken imports
-4. Fix the root cause
-5. Re-run the check
+```bash
+npx ibr start <url> --name "before-change"   # baseline before
+# ... make changes ...
+npx ibr check                                  # compare after
+```
+
+Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
 
 ## Configuration
 
-The agent respects `.ibrrc.json` configuration:
+Respects `.ibrrc.json`:
 
 ```json
 {
@@ -118,12 +127,10 @@ The agent respects `.ibrrc.json` configuration:
 ## Iteration Limits
 
 - Maximum 5 iterations per task
-- If not resolved after 5 iterations, report to user for manual review
-- Use `/visual-view` to show user the comparison images
+- If not resolved after 5, report remaining mismatches to user with exact values from scan
 
 ## Notes
 
-- Always capture baseline BEFORE making changes
-- Wait for dev server to be ready before capturing
-- The agent can read diff images if available via Playwright MCP
-- Report clear, actionable feedback to the user
+- Scan data is ground truth — more precise than screenshots
+- Always cite exact values from scan output when reporting
+- Store recurring specs with `npx ibr memory add` for persistent validation
