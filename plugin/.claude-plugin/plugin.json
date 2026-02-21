@@ -9,5 +9,6 @@
   "repository": "https://github.com/tyroneross/interface-built-right",
   "license": "MIT",
   "keywords": ["testing", "visual-regression", "screenshots", "ui", "playwright", "claude-code"],
-  "hooks": "../hooks/hooks.json"
+  "hooks": "../hooks/hooks.json",
+  "skills": "../../skills"
 }
