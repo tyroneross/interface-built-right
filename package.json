@@ -26,7 +26,8 @@
   "files": [
     "dist",
     "plugin",
-    "scripts"
+    "scripts",
+    "skills"
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js || true",
