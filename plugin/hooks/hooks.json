@@ -9,26 +9,19 @@
         }]
       },
       {
-        "matcher": "mcp__plugin_playwright_playwright__browser_take_screenshot|mcp__plugin_playwright_playwright__browser_snapshot",
-        "hooks": [{
-          "type": "prompt",
-          "prompt": "IBR (Interface Built Right) is installed — a design validation tool that provides structured UI data (computed CSS, element bounds, handler wiring, accessibility). A Playwright screenshot/snapshot is being called. Screenshots are useful for visual coherence, rendering bugs, and canvas/SVG content. For precise property verification (exact CSS values, handler detection, a11y), also run an IBR scan. The best validation combines both. Respond: {\"ok\": true, \"reason\": \"Tip: Also run npx ibr scan <url> --json for exact CSS values, handler detection, and a11y data. Scan + screenshot together gives the most complete validation.\"}"
-        }]
-      },
-      {
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "prompt",
-          "prompt": "Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss, or in components/, pages/, app/ directories), respond: {\"ok\": true, \"reason\": \"UI file detected. After changes, validate with IBR: npx ibr scan <url> --json to verify implementation matches user intent.\"}. If it targets a sensitive path (/etc/, /usr/, ~/.ssh/, ~/.aws/, ~/.gnupg/, ~/.npmrc, ~/.netrc, ~/.gitconfig), respond: {\"ok\": false, \"reason\": \"Write to sensitive system path blocked.\"}. Otherwise: {\"ok\": true}"
+          "prompt": "Before making UI changes, consider capturing an IBR baseline with the `snapshot` MCP tool if you haven't already this session. This lets you compare before/after with the `compare` tool. If it targets a sensitive path (/etc/, /usr/, ~/.ssh/, ~/.aws/, ~/.gnupg/, ~/.npmrc, ~/.netrc, ~/.gitconfig), respond: {\"ok\": false, \"reason\": \"Write to sensitive system path blocked.\"}. Otherwise: {\"ok\": true}"
         }]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Write|Edit",
         "hooks": [{
           "type": "prompt",
-          "prompt": "A file was just edited. Check $ARGUMENTS for the file path. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss), respond: {\"ok\": true, \"reason\": \"UI file modified. Validate with: npx ibr scan <url> --json to verify changes match user intent.\"}. Otherwise: {\"ok\": true}"
+          "prompt": "You just edited a file. If it's a UI file (.tsx, .jsx, .vue, .svelte, .css, .scss, .html), consider using the IBR `scan` MCP tool to verify it renders correctly. If multiple UI files were edited and you captured an IBR baseline, run IBR `compare` to check for visual regressions."
         }]
       }
     ],
@@ -36,7 +29,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "Session ending. Check $ARGUMENTS for evidence of UI work (.tsx/.jsx/.vue/.svelte edits, UI keywords). If UI work was done, check if IBR was used (look for 'npx ibr', 'ibr scan', 'Element Audit', 'session:screenshot'). If UI work done but IBR NOT used: {\"ok\": true, \"reason\": \"UI changes detected but not validated. Consider: npx ibr scan <url> --json to verify implementation.\"}. Otherwise: {\"ok\": true}"
+          "prompt": "Session ending. If UI work was done (.tsx/.jsx/.vue/.svelte edits) but IBR was not used for validation, suggest: \"UI changes detected but not validated. Consider using the IBR `scan` MCP tool to verify implementation.\" Otherwise: {\"ok\": true}"
         }]
       }
     ],
@@ -44,7 +37,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "IBR (Interface Built Right) is active — your design validation tool. IBR verifies UI implementation matches user intent by extracting structured data (computed CSS, handler wiring, accessibility, page structure). Use npx ibr scan <url> --json after building UI to validate, npx ibr memory to store design specs. Respond: {\"ok\": true, \"reason\": \"IBR ready. Primary: npx ibr scan <url> --json to validate UI. Memory: npx ibr memory add to store design specs.\"}"
+          "prompt": "IBR (Interface Built Right) is active — your design validation tool with MCP tools. Available tools: `scan` (validate UI against intent), `snapshot` (capture baseline), `compare` (check for regressions), `list_sessions` (view baselines). Use scan after building UI to validate implementation matches user intent."
         }]
       }
     ]

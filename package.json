@@ -26,6 +26,7 @@
   "files": [
     "dist",
     "plugin",
+    ".mcp.json",
     "scripts"
   ],
   "scripts": {
@@ -45,7 +46,8 @@
     "diff": "node dist/bin/ibr.js check",
     "sessions": "node dist/bin/ibr.js list",
     "login": "node dist/bin/ibr.js login",
-    "logout": "node dist/bin/ibr.js logout"
+    "logout": "node dist/bin/ibr.js logout",
+    "mcp": "node dist/mcp/server.js"
   },
   "keywords": [
     "design-validation",

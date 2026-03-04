@@ -24,4 +24,13 @@ export default defineConfig([
     },
     external: ['playwright'],
   },
+  // MCP server build (CJS for node invocation via MCP client)
+  {
+    entry: ['src/mcp/server.ts'],
+    format: ['cjs'],
+    outDir: 'dist/mcp',
+    clean: false,
+    sourcemap: true,
+    external: ['playwright'],
+  },
 ]);

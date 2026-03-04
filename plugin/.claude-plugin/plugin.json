@@ -9,5 +9,6 @@
   "repository": "https://github.com/tyroneross/interface-built-right",
   "license": "MIT",
   "keywords": ["design-validation", "ui-testing", "css-audit", "accessibility", "playwright", "claude-code"],
-  "hooks": "../hooks/hooks.json"
+  "hooks": "../hooks/hooks.json",
+  "mcpServers": "../../.mcp.json"
 }
