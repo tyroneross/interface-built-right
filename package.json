@@ -27,7 +27,8 @@
     "dist",
     "plugin",
     ".mcp.json",
-    "scripts"
+    "scripts",
+    "skills"
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js || true",

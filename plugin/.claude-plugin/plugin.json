@@ -10,5 +10,6 @@
   "license": "MIT",
   "keywords": ["design-validation", "ui-testing", "css-audit", "accessibility", "playwright", "claude-code"],
   "hooks": "../hooks/hooks.json",
-  "mcpServers": "../../.mcp.json"
+  "mcpServers": "../../.mcp.json",
+  "skills": "../../skills"
 }
