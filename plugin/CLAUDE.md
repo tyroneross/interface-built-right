@@ -223,6 +223,60 @@ Available: `desktop`, `laptop`, `tablet`, `mobile`, `iphone-14`, `iphone-14-pro-
 npx ibr scan http://localhost:3000 --viewport mobile --json
 ```
 
+## Native iOS/watchOS Validation
+
+IBR can validate native iOS and watchOS simulator output using the same pipeline as web validation. Use native tools when working on Swift/SwiftUI projects.
+
+### When to Use Native Tools
+
+| Situation | Tool |
+|-----------|------|
+| Edited `.swift` files | `native_scan` — validates simulator UI |
+| Before changing native UI | `native_snapshot` — capture baseline |
+| After changing native UI | `native_compare` — check for regressions |
+| Need to find a simulator | `native_devices` — list available devices |
+
+### Native MCP Tools
+
+| Tool | Purpose |
+|------|---------|
+| `native_scan` | Extract accessibility elements, check touch targets (44pt min), validate watchOS constraints, audit labels |
+| `native_snapshot` | Capture baseline screenshot from running simulator |
+| `native_compare` | Compare current simulator state against baseline — returns same verdicts as web compare |
+| `native_devices` | List available iOS/watchOS simulators with boot status |
+
+### What Native Scan Checks
+
+- **Touch targets**: All interactive elements must be >= 44x44pt (always enforced, not just mobile)
+- **Accessibility labels**: Interactive elements need labels for VoiceOver
+- **watchOS density**: Max 7 interactive elements per screen (cognitive load on small displays)
+- **watchOS overflow**: No elements extending beyond viewport width
+- **Element tree**: Full accessibility tree mapped to IBR's standard element format
+
+### Native Workflow
+
+```bash
+# 1. List available simulators
+npx ibr native:devices
+
+# 2. Scan a running simulator
+npx ibr native:scan "Apple Watch"         # by name fragment
+npx ibr native:scan                        # uses first booted device
+
+# 3. Baseline + compare for regression testing
+npx ibr native:start "iPhone 16 Pro" --name "timer-screen"
+# ... make Swift changes, rebuild ...
+npx ibr native:check
+```
+
+### Web vs Native Decision
+
+| File type | Use |
+|-----------|-----|
+| `.tsx`, `.jsx`, `.vue`, `.svelte`, `.html`, `.css` | Web tools (`scan`, `snapshot`, `compare`) |
+| `.swift` | Native tools (`native_scan`, `native_snapshot`, `native_compare`) |
+| Backend-only (`.ts`, `.py`, `.go`) | Skip IBR |
+
 ## Best Practices
 
 1. **Scan after building** — validate implementation matches user intent
@@ -232,3 +286,4 @@ npx ibr scan http://localhost:3000 --viewport mobile --json
 5. **Baseline for regression** — capture before modifying existing UI
 6. **Name sessions meaningfully** — `--name "header-redesign"` not `--name "test"`
 7. **Combine tools** — IBR scan + screenshot together gives more confidence than either alone
+8. **Use native tools for Swift** — when editing `.swift` files, use `native_scan` to validate the simulator output

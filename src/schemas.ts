@@ -6,8 +6,8 @@ import { z } from 'zod';
  */
 export const ViewportSchema = z.object({
   name: z.string().min(1).max(50),
-  width: z.number().min(320).max(3840),
-  height: z.number().min(480).max(2160),
+  width: z.number().min(100).max(3840),
+  height: z.number().min(100).max(2160),
 });
 
 /**
@@ -24,6 +24,14 @@ export const VIEWPORTS = {
   'mobile-lg': { name: 'mobile-lg', width: 414, height: 896 },
   'iphone-14': { name: 'iphone-14', width: 390, height: 844 },
   'iphone-14-pro-max': { name: 'iphone-14-pro-max', width: 430, height: 932 },
+  // Native simulator viewports
+  'iphone-16': { name: 'iphone-16', width: 393, height: 852 },
+  'iphone-16-plus': { name: 'iphone-16-plus', width: 430, height: 932 },
+  'iphone-16-pro': { name: 'iphone-16-pro', width: 402, height: 874 },
+  'iphone-16-pro-max': { name: 'iphone-16-pro-max', width: 440, height: 956 },
+  'watch-series-10-42mm': { name: 'watch-series-10-42mm', width: 176, height: 215 },
+  'watch-series-10-46mm': { name: 'watch-series-10-46mm', width: 198, height: 242 },
+  'watch-ultra-2-49mm': { name: 'watch-ultra-2-49mm', width: 205, height: 251 },
 } as const;
 
 /**
@@ -132,9 +140,10 @@ export const LandmarkElementSchema = z.object({
 export const SessionSchema = z.object({
   id: z.string(),
   name: z.string(),
-  url: z.string().url(),
+  url: z.string().min(1),
   viewport: ViewportSchema,
   status: SessionStatusSchema,
+  platform: z.enum(['web', 'ios', 'watchos']).optional(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
   comparison: ComparisonResultSchema.optional(),

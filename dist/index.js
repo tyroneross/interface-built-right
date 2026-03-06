@@ -11,6 +11,8 @@ var pngjs = require('pngjs');
 var nanoid = require('nanoid');
 var url = require('url');
 var fs$1 = require('fs');
+var child_process = require('child_process');
+var util = require('util');
 
 function _interopDefault (e) { return e && e.__esModule ? e : { default: e }; }
 
@@ -769,8 +771,8 @@ var init_api_timing = __esm({
 });
 var ViewportSchema = zod.z.object({
   name: zod.z.string().min(1).max(50),
-  width: zod.z.number().min(320).max(3840),
-  height: zod.z.number().min(480).max(2160)
+  width: zod.z.number().min(100).max(3840),
+  height: zod.z.number().min(100).max(2160)
 });
 var VIEWPORTS = {
   desktop: { name: "desktop", width: 1920, height: 1080 },
@@ -782,7 +784,15 @@ var VIEWPORTS = {
   mobile: { name: "mobile", width: 375, height: 667 },
   "mobile-lg": { name: "mobile-lg", width: 414, height: 896 },
   "iphone-14": { name: "iphone-14", width: 390, height: 844 },
-  "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 }
+  "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 },
+  // Native simulator viewports
+  "iphone-16": { name: "iphone-16", width: 393, height: 852 },
+  "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
+  "iphone-16-pro": { name: "iphone-16-pro", width: 402, height: 874 },
+  "iphone-16-pro-max": { name: "iphone-16-pro-max", width: 440, height: 956 },
+  "watch-series-10-42mm": { name: "watch-series-10-42mm", width: 176, height: 215 },
+  "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
+  "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
 };
 var ConfigSchema = zod.z.object({
   baseUrl: zod.z.string().url("Must be a valid URL"),
@@ -854,9 +864,10 @@ var LandmarkElementSchema = zod.z.object({
 var SessionSchema = zod.z.object({
   id: zod.z.string(),
   name: zod.z.string(),
-  url: zod.z.string().url(),
+  url: zod.z.string().min(1),
   viewport: ViewportSchema,
   status: SessionStatusSchema,
+  platform: zod.z.enum(["web", "ios", "watchos"]).optional(),
   createdAt: zod.z.string().datetime(),
   updatedAt: zod.z.string().datetime(),
   comparison: ComparisonResultSchema.optional(),
@@ -2069,7 +2080,7 @@ function getSessionPaths(outputDir, sessionId) {
     diff: path.join(root, "diff.png")
   };
 }
-async function createSession(outputDir, url, name, viewport) {
+async function createSession(outputDir, url, name, viewport, platform) {
   const sessionId = generateSessionId();
   const paths = getSessionPaths(outputDir, sessionId);
   const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -2079,6 +2090,7 @@ async function createSession(outputDir, url, name, viewport) {
     url,
     viewport,
     status: "baseline",
+    ...platform ? { platform } : {},
     createdAt: now,
     updatedAt: now
   };
@@ -4732,8 +4744,8 @@ async function testResponsive(url, options = {}) {
           minFontSize
         });
         if (captureScreenshots) {
-          const { mkdir: mkdir11 } = await import('fs/promises');
-          await mkdir11(outputDir, { recursive: true });
+          const { mkdir: mkdir14 } = await import('fs/promises');
+          await mkdir14(outputDir, { recursive: true });
           const screenshotPath = `${outputDir}/${viewportName}.png`;
           await page.screenshot({ path: screenshotPath, fullPage: true });
           result.screenshot = screenshotPath;
@@ -6008,6 +6020,1034 @@ function formatScanResult(result) {
   return lines.join("\n");
 }
 
+// src/native/viewports.ts
+var NATIVE_VIEWPORTS = {
+  // iPhone 16 series
+  "iphone-16": { name: "iphone-16", width: 393, height: 852 },
+  "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
+  "iphone-16-pro": { name: "iphone-16-pro", width: 402, height: 874 },
+  "iphone-16-pro-max": { name: "iphone-16-pro-max", width: 440, height: 956 },
+  // Apple Watch Series 10
+  "watch-series-10-42mm": { name: "watch-series-10-42mm", width: 176, height: 215 },
+  "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
+  // Apple Watch Ultra 2
+  "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
+};
+var DEVICE_NAME_PATTERNS = [
+  [/iPhone 16 Pro Max/i, "iphone-16-pro-max"],
+  [/iPhone 16 Pro/i, "iphone-16-pro"],
+  [/iPhone 16 Plus/i, "iphone-16-plus"],
+  [/iPhone 16/i, "iphone-16"],
+  [/Apple Watch.*Ultra.*49/i, "watch-ultra-2-49mm"],
+  [/Apple Watch.*46/i, "watch-series-10-46mm"],
+  [/Apple Watch.*42/i, "watch-series-10-42mm"],
+  // Fallbacks for generic watch/phone
+  [/Apple Watch Ultra/i, "watch-ultra-2-49mm"],
+  [/Apple Watch/i, "watch-series-10-42mm"],
+  [/iPhone/i, "iphone-16-pro"]
+];
+function getDeviceViewport(device) {
+  for (const [pattern, key] of DEVICE_NAME_PATTERNS) {
+    if (pattern.test(device.name)) {
+      return NATIVE_VIEWPORTS[key];
+    }
+  }
+  if (device.platform === "watchos") {
+    return NATIVE_VIEWPORTS["watch-series-10-42mm"];
+  }
+  return NATIVE_VIEWPORTS["iphone-16-pro"];
+}
+var execFileAsync = util.promisify(child_process.execFile);
+function parseRuntime(runtime) {
+  if (/watchOS/i.test(runtime)) return "watchos";
+  return "ios";
+}
+async function listDevices() {
+  const { stdout } = await execFileAsync("xcrun", ["simctl", "list", "devices", "--json"]);
+  const data = JSON.parse(stdout);
+  const devices = [];
+  for (const [runtime, deviceList] of Object.entries(data.devices)) {
+    if (!Array.isArray(deviceList)) continue;
+    for (const dev of deviceList) {
+      devices.push({
+        udid: dev.udid,
+        name: dev.name,
+        state: dev.state,
+        runtime,
+        platform: parseRuntime(runtime),
+        isAvailable: dev.isAvailable
+      });
+    }
+  }
+  return devices;
+}
+async function findDevice(nameOrUdid) {
+  const devices = await listDevices();
+  const search = nameOrUdid.toLowerCase();
+  const byUdid = devices.find((d) => d.udid.toLowerCase() === search);
+  if (byUdid) return byUdid;
+  const matches = devices.filter((d) => d.name.toLowerCase().includes(search) && d.isAvailable).sort((a, b) => {
+    if (a.state === "Booted" && b.state !== "Booted") return -1;
+    if (b.state === "Booted" && a.state !== "Booted") return 1;
+    return 0;
+  });
+  return matches[0] || null;
+}
+async function getBootedDevices() {
+  const devices = await listDevices();
+  return devices.filter((d) => d.state === "Booted");
+}
+async function bootDevice(udid) {
+  const devices = await listDevices();
+  const device = devices.find((d) => d.udid === udid);
+  if (!device) {
+    throw new Error(`Device not found: ${udid}`);
+  }
+  if (device.state === "Booted") {
+    return;
+  }
+  await execFileAsync("xcrun", ["simctl", "boot", udid]);
+  await new Promise((resolve2) => setTimeout(resolve2, 2e3));
+}
+function formatDevice(device) {
+  const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
+  const stateIcon = device.state === "Booted" ? "\x1B[32m\u25CF\x1B[0m" : "\x1B[90m\u25CB\x1B[0m";
+  return `${stateIcon} ${device.name} (${runtimeVersion}) [${device.udid.slice(0, 8)}...]`;
+}
+var execFileAsync2 = util.promisify(child_process.execFile);
+async function captureNativeScreenshot(options) {
+  const { device, outputPath, mask } = options;
+  const start = Date.now();
+  try {
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
+    const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
+    if (effectiveMask) {
+      args.push(`--mask=${effectiveMask}`);
+    }
+    args.push(outputPath);
+    await execFileAsync2("xcrun", args, { timeout: 15e3 });
+    const viewport = getDeviceViewport(device);
+    return {
+      success: true,
+      outputPath,
+      device,
+      viewport,
+      timing: Date.now() - start
+    };
+  } catch (err) {
+    return {
+      success: false,
+      device,
+      viewport: getDeviceViewport(device),
+      timing: Date.now() - start,
+      error: err instanceof Error ? err.message : "Screenshot capture failed"
+    };
+  }
+}
+var execFileAsync3 = util.promisify(child_process.execFile);
+var EXTRACTOR_DIR = path.join(process.cwd(), ".ibr", "bin");
+var EXTRACTOR_PATH = path.join(EXTRACTOR_DIR, "ibr-ax-extract");
+var SWIFT_SOURCE_DIR = path.join(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+async function ensureExtractor() {
+  if (fs$1.existsSync(EXTRACTOR_PATH)) {
+    return EXTRACTOR_PATH;
+  }
+  await fs.mkdir(EXTRACTOR_DIR, { recursive: true });
+  try {
+    await execFileAsync3("swift", ["build", "-c", "release"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+      // 2 minutes for first compile
+    });
+    const buildPath = path.join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    if (!fs$1.existsSync(buildPath)) {
+      throw new Error("Swift build succeeded but binary not found at expected path");
+    }
+    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
+    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
+    return EXTRACTOR_PATH;
+  } catch (err) {
+    throw new Error(
+      `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
+    );
+  }
+}
+function isExtractorAvailable() {
+  if (fs$1.existsSync(EXTRACTOR_PATH)) return true;
+  return fs$1.existsSync(path.join(SWIFT_SOURCE_DIR, "Package.swift"));
+}
+async function extractNativeElements(device) {
+  const extractorPath = await ensureExtractor();
+  try {
+    const { stdout } = await execFileAsync3(extractorPath, [
+      "--device-name",
+      device.name
+    ], {
+      timeout: 3e4
+    });
+    const elements = JSON.parse(stdout);
+    return elements;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    if (message.includes("permission") || message.includes("accessibility")) {
+      throw new Error(
+        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
+      );
+    }
+    throw new Error(`Element extraction failed: ${message}`);
+  }
+}
+function mapToEnhancedElements(nativeElements) {
+  const enhanced = [];
+  function flatten(elements, depth = 0) {
+    for (const el of elements) {
+      const tagName = mapRoleToTag(el.role);
+      const isInteractive = isInteractiveRole(el.role) && el.isEnabled;
+      enhanced.push({
+        selector: el.identifier || `[role="${el.role}"][label="${el.label}"]`,
+        tagName,
+        text: el.label || void 0,
+        bounds: {
+          x: el.frame.x,
+          y: el.frame.y,
+          width: el.frame.width,
+          height: el.frame.height
+        },
+        interactive: {
+          hasOnClick: isInteractive,
+          hasHref: false,
+          isDisabled: !el.isEnabled,
+          tabIndex: isInteractive ? 0 : -1,
+          cursor: isInteractive ? "pointer" : "default"
+        },
+        a11y: {
+          role: mapRoleToAriaRole(el.role),
+          ariaLabel: el.label || null,
+          ariaDescribedBy: null
+        }
+      });
+      if (el.children.length > 0) {
+        flatten(el.children, depth + 1);
+      }
+    }
+  }
+  flatten(nativeElements);
+  return enhanced;
+}
+function mapRoleToTag(role) {
+  const roleMap = {
+    "AXButton": "button",
+    "AXLink": "a",
+    "AXTextField": "input",
+    "AXTextArea": "textarea",
+    "AXStaticText": "span",
+    "AXImage": "img",
+    "AXGroup": "div",
+    "AXList": "ul",
+    "AXCell": "li",
+    "AXTable": "table",
+    "AXScrollArea": "div",
+    "AXToolbar": "nav",
+    "AXMenuBar": "nav",
+    "AXMenu": "menu",
+    "AXMenuItem": "li",
+    "AXCheckBox": "input",
+    "AXRadioButton": "input",
+    "AXSlider": "input",
+    "AXSwitch": "input",
+    "AXPopUpButton": "select",
+    "AXComboBox": "select",
+    "AXTabGroup": "div",
+    "AXTab": "button",
+    "AXNavigationBar": "nav",
+    "AXHeader": "header"
+  };
+  return roleMap[role] || "div";
+}
+function mapRoleToAriaRole(role) {
+  const roleMap = {
+    "AXButton": "button",
+    "AXLink": "link",
+    "AXTextField": "textbox",
+    "AXTextArea": "textbox",
+    "AXStaticText": "text",
+    "AXImage": "img",
+    "AXGroup": "group",
+    "AXList": "list",
+    "AXCell": "listitem",
+    "AXTable": "table",
+    "AXCheckBox": "checkbox",
+    "AXRadioButton": "radio",
+    "AXSlider": "slider",
+    "AXSwitch": "switch",
+    "AXTab": "tab",
+    "AXTabGroup": "tablist",
+    "AXNavigationBar": "navigation",
+    "AXToolbar": "toolbar",
+    "AXMenuItem": "menuitem",
+    "AXMenu": "menu"
+  };
+  return roleMap[role] || null;
+}
+function isInteractiveRole(role) {
+  const interactiveRoles = /* @__PURE__ */ new Set([
+    "AXButton",
+    "AXLink",
+    "AXTextField",
+    "AXTextArea",
+    "AXCheckBox",
+    "AXRadioButton",
+    "AXSlider",
+    "AXSwitch",
+    "AXPopUpButton",
+    "AXComboBox",
+    "AXMenuItem",
+    "AXTab"
+  ]);
+  return interactiveRoles.has(role);
+}
+
+// src/native/rules.ts
+function auditNativeElements(elements, platform, viewport) {
+  const issues = [];
+  const interactive = elements.filter(
+    (e) => e.interactive.hasOnClick && !e.interactive.isDisabled
+  );
+  if (platform === "watchos" && interactive.length > 7) {
+    issues.push({
+      type: "TOUCH_TARGET_SMALL",
+      // Reuse closest existing type
+      severity: "warning",
+      message: `watchOS screen has ${interactive.length} interactive elements (recommended max: 7). Reduce choices to avoid cognitive overload on small displays.`
+    });
+  }
+  for (const el of interactive) {
+    const minDimension = Math.min(el.bounds.width, el.bounds.height);
+    if (minDimension < 44) {
+      issues.push({
+        type: "TOUCH_TARGET_SMALL",
+        severity: "error",
+        message: `Touch target too small: "${el.text || el.selector}" is ${el.bounds.width}x${el.bounds.height}pt (minimum: 44x44pt)`
+      });
+    }
+  }
+  if (platform === "watchos") {
+    for (const el of elements) {
+      const rightEdge = el.bounds.x + el.bounds.width;
+      if (rightEdge > viewport.width) {
+        issues.push({
+          type: "TOUCH_TARGET_SMALL",
+          // Closest existing type
+          severity: "warning",
+          message: `Element "${el.text || el.selector}" overflows watchOS viewport (right edge: ${rightEdge}pt, viewport width: ${viewport.width}pt)`
+        });
+      }
+    }
+  }
+  for (const el of interactive) {
+    if (!el.text && !el.a11y.ariaLabel) {
+      issues.push({
+        type: "MISSING_ARIA_LABEL",
+        severity: "error",
+        message: `Interactive element "${el.selector}" has no accessibility label`
+      });
+    }
+  }
+  return issues;
+}
+var execFileAsync4 = util.promisify(child_process.execFile);
+var execAsync = util.promisify(child_process.exec);
+async function findProcess(appNameOrBundleId) {
+  try {
+    const { stdout } = await execAsync(
+      `lsappinfo info -only pid "${appNameOrBundleId}" 2>/dev/null || true`
+    );
+    const pidMatch = stdout.match(/"pid"\s*=\s*(\d+)/);
+    if (pidMatch) {
+      return parseInt(pidMatch[1], 10);
+    }
+  } catch {
+  }
+  try {
+    const { stdout } = await execAsync(
+      `pgrep -f "${appNameOrBundleId}" 2>/dev/null | head -1`
+    );
+    const pid = parseInt(stdout.trim(), 10);
+    if (!isNaN(pid) && pid > 0) {
+      return pid;
+    }
+  } catch {
+  }
+  throw new Error(
+    `No running process found for "${appNameOrBundleId}". Ensure the app is running and try again.`
+  );
+}
+async function extractMacOSElements(options) {
+  const extractorPath = await ensureExtractor();
+  const args = [];
+  if (options.pid) {
+    args.push("--pid", String(options.pid));
+  } else if (options.app) {
+    args.push("--app", options.app);
+  } else {
+    throw new Error("Either pid or app must be provided");
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
+      timeout: 3e4
+    });
+    if (stderr && stderr.includes("Error:")) {
+      throw new Error(stderr.trim());
+    }
+    const lines = stdout.split("\n");
+    const headerLine = lines[0];
+    const jsonStr = lines.slice(1).join("\n");
+    let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
+    if (headerLine.startsWith("WINDOW:")) {
+      const parts = headerLine.slice(7).split(":");
+      const windowId = parseInt(parts[0], 10);
+      const dims = (parts[1] || "800x600").split("x");
+      const title = parts.slice(2).join(":");
+      window2 = {
+        windowId,
+        width: parseInt(dims[0], 10) || 800,
+        height: parseInt(dims[1], 10) || 600,
+        title
+      };
+    }
+    const elements = JSON.parse(jsonStr);
+    return { elements, window: window2 };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    if (message.includes("Accessibility permission")) {
+      throw new Error(
+        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
+      );
+    }
+    if (message.includes("No running app")) {
+      throw err;
+    }
+    throw new Error(`macOS element extraction failed: ${message}`);
+  }
+}
+function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
+  const enhanced = [];
+  function flatten(elements, path2, depth) {
+    const roleCounts = {};
+    for (const el of elements) {
+      const roleCount = roleCounts[el.role] || 0;
+      roleCounts[el.role] = roleCount + 1;
+      const currentPath = path2 ? `${path2} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
+      const tagName = mapRoleToTag2(el.role);
+      const isInteractive = isInteractiveRole2(el.role) && el.enabled;
+      const hasPress = el.actions.includes("AXPress");
+      const text = el.title || el.description || el.value || void 0;
+      const bounds = {
+        x: el.position?.x ?? 0,
+        y: el.position?.y ?? 0,
+        width: el.size?.width ?? 0,
+        height: el.size?.height ?? 0
+      };
+      if (bounds.width > 0 || bounds.height > 0 || text || isInteractive || depth <= 1) {
+        enhanced.push({
+          selector: el.identifier || currentPath,
+          tagName,
+          id: el.identifier || void 0,
+          text: text ? text.slice(0, 100) : void 0,
+          bounds,
+          interactive: {
+            hasOnClick: hasPress || isInteractive,
+            hasHref: el.role === "AXLink",
+            isDisabled: !el.enabled,
+            tabIndex: el.focused || isInteractive ? 0 : -1,
+            cursor: isInteractive ? "pointer" : "default"
+          },
+          a11y: {
+            role: mapRoleToAriaRole2(el.role),
+            ariaLabel: el.title || el.description || null,
+            ariaDescribedBy: null
+          },
+          sourceHint: el.identifier ? { dataTestId: el.identifier } : void 0
+        });
+      }
+      if (el.children.length > 0) {
+        flatten(el.children, currentPath, depth + 1);
+      }
+    }
+  }
+  flatten(nativeElements, parentPath, 0);
+  return enhanced;
+}
+async function captureMacOSScreenshot(windowId, outputPath) {
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+  await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
+    timeout: 1e4
+  });
+}
+function mapRoleToTag2(role) {
+  const roleMap = {
+    "AXButton": "button",
+    "AXLink": "a",
+    "AXTextField": "input",
+    "AXTextArea": "textarea",
+    "AXSecureTextField": "input",
+    "AXStaticText": "span",
+    "AXImage": "img",
+    "AXGroup": "div",
+    "AXSplitGroup": "div",
+    "AXList": "ul",
+    "AXCell": "li",
+    "AXTable": "table",
+    "AXScrollArea": "div",
+    "AXToolbar": "nav",
+    "AXMenuBar": "nav",
+    "AXMenu": "nav",
+    "AXMenuItem": "li",
+    "AXCheckBox": "input",
+    "AXRadioButton": "input",
+    "AXSlider": "input",
+    "AXSwitch": "input",
+    "AXPopUpButton": "select",
+    "AXComboBox": "select",
+    "AXTabGroup": "div",
+    "AXTab": "button",
+    "AXNavigationBar": "nav",
+    "AXHeader": "header",
+    "AXWindow": "main"
+  };
+  return roleMap[role] || role.replace(/^AX/, "").toLowerCase();
+}
+function mapRoleToAriaRole2(role) {
+  const roleMap = {
+    "AXButton": "button",
+    "AXLink": "link",
+    "AXTextField": "textbox",
+    "AXTextArea": "textbox",
+    "AXSecureTextField": "textbox",
+    "AXStaticText": "text",
+    "AXImage": "img",
+    "AXGroup": "group",
+    "AXList": "list",
+    "AXCell": "listitem",
+    "AXTable": "table",
+    "AXCheckBox": "checkbox",
+    "AXRadioButton": "radio",
+    "AXSlider": "slider",
+    "AXSwitch": "switch",
+    "AXTab": "tab",
+    "AXTabGroup": "tablist",
+    "AXNavigationBar": "navigation",
+    "AXToolbar": "toolbar",
+    "AXMenuItem": "menuitem",
+    "AXMenu": "menu",
+    "AXScrollArea": "scrollbar",
+    "AXWindow": "main"
+  };
+  return roleMap[role] || null;
+}
+function isInteractiveRole2(role) {
+  const interactiveRoles = /* @__PURE__ */ new Set([
+    "AXButton",
+    "AXLink",
+    "AXTextField",
+    "AXTextArea",
+    "AXSecureTextField",
+    "AXCheckBox",
+    "AXRadioButton",
+    "AXSlider",
+    "AXSwitch",
+    "AXPopUpButton",
+    "AXComboBox",
+    "AXMenuItem",
+    "AXTab"
+  ]);
+  return interactiveRoles.has(role);
+}
+
+// src/native/interactivity.ts
+function buildNativeInteractivity(elements) {
+  const buttons = [];
+  const links = [];
+  const forms = [];
+  const issues = [];
+  for (const el of elements) {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a" || el.a11y.role === "link";
+    if (isButton) {
+      const btn = {
+        selector: el.selector,
+        tagName: el.tagName,
+        text: el.text,
+        hasHandler: el.interactive.hasOnClick,
+        isDisabled: el.interactive.isDisabled,
+        isVisible: el.bounds.width > 0 && el.bounds.height > 0,
+        a11y: {
+          role: el.a11y.role || void 0,
+          ariaLabel: el.a11y.ariaLabel || void 0,
+          tabIndex: el.interactive.tabIndex
+        },
+        buttonType: "button"
+      };
+      buttons.push(btn);
+      if (!btn.hasHandler && !btn.isDisabled) {
+        issues.push({
+          type: "NO_HANDLER",
+          element: el.selector,
+          severity: "warning",
+          description: `Button "${el.text || el.selector}" has no press action`
+        });
+      }
+      if (!el.text && !el.a11y.ariaLabel) {
+        issues.push({
+          type: "MISSING_LABEL",
+          element: el.selector,
+          severity: "error",
+          description: `Button has no accessible label (no text or accessibility label)`
+        });
+      }
+    }
+    if (isLink) {
+      const link = {
+        selector: el.selector,
+        tagName: el.tagName,
+        text: el.text,
+        hasHandler: el.interactive.hasOnClick || el.interactive.hasHref,
+        isDisabled: el.interactive.isDisabled,
+        isVisible: el.bounds.width > 0 && el.bounds.height > 0,
+        a11y: {
+          role: el.a11y.role || void 0,
+          ariaLabel: el.a11y.ariaLabel || void 0,
+          tabIndex: el.interactive.tabIndex
+        },
+        href: "",
+        // Native links don't have traditional hrefs
+        isPlaceholder: false,
+        opensNewTab: false,
+        isExternal: false
+      };
+      links.push(link);
+      if (!el.text && !el.a11y.ariaLabel) {
+        issues.push({
+          type: "MISSING_LABEL",
+          element: el.selector,
+          severity: "error",
+          description: `Link has no accessible label (no text or accessibility label)`
+        });
+      }
+    }
+  }
+  const inputs = elements.filter(
+    (e) => ["input", "textarea", "select"].includes(e.tagName) || e.a11y.role === "textbox"
+  );
+  if (inputs.length > 0) {
+    const submitButton = buttons.find(
+      (b) => b.text?.toLowerCase().includes("submit") || b.text?.toLowerCase().includes("save") || b.text?.toLowerCase().includes("login") || b.text?.toLowerCase().includes("sign") || b.text?.toLowerCase().includes("unlock") || b.text?.toLowerCase().includes("confirm")
+    );
+    if (inputs.length >= 1) {
+      forms.push({
+        selector: "native-form",
+        hasSubmitHandler: !!submitButton,
+        fields: inputs.map((inp) => ({
+          selector: inp.selector,
+          name: inp.id || void 0,
+          type: inp.a11y.role === "textbox" ? "text" : inp.tagName,
+          label: inp.a11y.ariaLabel || inp.text || void 0,
+          required: false,
+          hasValidation: false
+        })),
+        hasValidation: false,
+        submitButton
+      });
+    }
+  }
+  const allInteractive = [...buttons, ...links];
+  const withHandlers = allInteractive.filter((e) => e.hasHandler).length;
+  return {
+    buttons,
+    links,
+    forms,
+    issues,
+    summary: {
+      totalInteractive: allInteractive.length,
+      withHandlers,
+      withoutHandlers: allInteractive.length - withHandlers,
+      issueCount: {
+        error: issues.filter((i) => i.severity === "error").length,
+        warning: issues.filter((i) => i.severity === "warning").length,
+        info: issues.filter((i) => i.severity === "info").length
+      }
+    }
+  };
+}
+
+// src/native/semantic.ts
+function buildNativeSemantic(elements, window2) {
+  const intent = classifyNativeIntent(elements, window2.title);
+  const issues = [];
+  const hasPasswordField = elements.some(
+    (e) => e.a11y.role === "textbox" && (e.text?.toLowerCase().includes("password") || e.a11y.ariaLabel?.toLowerCase().includes("password") || e.selector.toLowerCase().includes("secure"))
+  );
+  const hasLockIcon = elements.some(
+    (e) => e.text?.toLowerCase().includes("lock") || e.a11y.ariaLabel?.toLowerCase().includes("lock")
+  );
+  const hasUnlockButton = elements.some(
+    (e) => (e.tagName === "button" || e.a11y.role === "button") && (e.text?.toLowerCase().includes("unlock") || e.text?.toLowerCase().includes("sign in") || e.text?.toLowerCase().includes("log in"))
+  );
+  const isAuthScreen = hasPasswordField || hasLockIcon && hasUnlockButton;
+  const errorElements = elements.filter(
+    (e) => e.text?.toLowerCase().includes("error") || e.text?.toLowerCase().includes("failed") || e.a11y.ariaLabel?.toLowerCase().includes("error")
+  );
+  const hasErrors = errorElements.length > 0;
+  if (hasErrors) {
+    for (const el of errorElements.slice(0, 3)) {
+      issues.push({
+        severity: "major",
+        type: "error-indicator",
+        problem: `Error detected: "${el.text || el.a11y.ariaLabel}"`,
+        fix: "Investigate the error state in the native app"
+      });
+    }
+  }
+  const verdict = hasErrors ? "FAIL" : "PASS";
+  const availableActions = elements.filter((e) => e.interactive.hasOnClick && !e.interactive.isDisabled && e.text).slice(0, 10).map((e) => ({
+    action: e.text.toLowerCase().replace(/\s+/g, "-"),
+    selector: e.selector,
+    description: e.text
+  }));
+  const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
+  const authSignals = [];
+  if (hasPasswordField) authSignals.push("password-field");
+  if (hasLockIcon) authSignals.push("lock-icon");
+  if (hasUnlockButton) authSignals.push("unlock-button");
+  const summaryParts = [
+    `${intent.intent} window`,
+    `${elements.length} elements (${interactive} interactive)`,
+    isAuthScreen ? "auth required" : "ready"
+  ];
+  return {
+    verdict,
+    confidence: intent.confidence,
+    pageIntent: intent,
+    state: {
+      auth: {
+        authenticated: isAuthScreen ? false : null,
+        confidence: isAuthScreen ? 0.8 : 0.3,
+        signals: authSignals
+      },
+      loading: {
+        loading: false,
+        type: "none",
+        elements: 0
+      },
+      errors: {
+        hasErrors,
+        errors: errorElements.map((e) => ({
+          type: "unknown",
+          message: e.text || "Error"
+        })),
+        severity: hasErrors ? "error" : "none"
+      },
+      ready: !hasErrors
+    },
+    availableActions,
+    issues,
+    summary: summaryParts.join(", "),
+    url: `macos://${window2.title}`,
+    title: window2.title,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function classifyNativeIntent(elements, windowTitle) {
+  const titleLower = windowTitle.toLowerCase();
+  const hasPasswordInput = elements.some(
+    (e) => e.selector.toLowerCase().includes("secure") || e.text?.toLowerCase().includes("password")
+  );
+  const hasLoginButton = elements.some(
+    (e) => e.tagName === "button" && (e.text?.toLowerCase().includes("login") || e.text?.toLowerCase().includes("sign in") || e.text?.toLowerCase().includes("unlock"))
+  );
+  if (hasPasswordInput || hasLoginButton) {
+    return { intent: "auth", confidence: 0.9, signals: ["password-field", "login-button"] };
+  }
+  if (titleLower.includes("settings") || titleLower.includes("preferences")) {
+    return { intent: "form", confidence: 0.85, signals: ["title-settings"] };
+  }
+  const listElements = elements.filter(
+    (e) => e.a11y.role === "list" || e.a11y.role === "listitem" || e.tagName === "ul" || e.tagName === "li"
+  );
+  if (listElements.length > 3) {
+    return { intent: "listing", confidence: 0.75, signals: ["list-elements"] };
+  }
+  const inputElements = elements.filter(
+    (e) => e.tagName === "input" || e.tagName === "textarea" || e.a11y.role === "textbox"
+  );
+  if (inputElements.length >= 2) {
+    return { intent: "form", confidence: 0.7, signals: ["multiple-inputs"] };
+  }
+  const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
+  if (interactive > 5) {
+    return { intent: "dashboard", confidence: 0.6, signals: ["many-interactive"] };
+  }
+  return { intent: "detail", confidence: 0.5, signals: ["default"] };
+}
+
+// src/native/scan.ts
+async function scanNative(options = {}) {
+  const { device: deviceQuery, screenshot = true, outputDir = ".ibr" } = options;
+  let device;
+  if (deviceQuery) {
+    device = await findDevice(deviceQuery);
+    if (!device) {
+      throw new Error(
+        `No simulator found matching "${deviceQuery}". Run \`xcrun simctl list devices available\` to see available simulators.`
+      );
+    }
+  } else {
+    const booted = await getBootedDevices();
+    if (booted.length === 0) {
+      throw new Error(
+        "No booted simulators found. Boot one with: xcrun simctl boot <device-name>"
+      );
+    }
+    device = booted[0];
+  }
+  if (device.state !== "Booted") {
+    await bootDevice(device.udid);
+    const refreshed = await findDevice(device.udid);
+    if (refreshed) device = refreshed;
+  }
+  const viewport = getDeviceViewport(device);
+  const url = `simulator://${device.name}/${options.bundleId || "current"}`;
+  let screenshotPath;
+  if (screenshot) {
+    const timestamp = Date.now();
+    const ssPath = path.join(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const captureResult = await captureNativeScreenshot({
+      device,
+      outputPath: ssPath
+    });
+    if (captureResult.success) {
+      screenshotPath = captureResult.outputPath;
+    }
+  }
+  let elements = [];
+  let audit = {
+    totalElements: 0,
+    interactiveCount: 0,
+    withHandlers: 0,
+    withoutHandlers: 0,
+    issues: []
+  };
+  let extractionSucceeded = false;
+  if (isExtractorAvailable()) {
+    try {
+      const nativeElements = await extractNativeElements(device);
+      elements = mapToEnhancedElements(nativeElements);
+      audit = analyzeElements(elements, true);
+      extractionSucceeded = true;
+    } catch {
+    }
+  }
+  const nativeIssues = extractionSucceeded ? auditNativeElements(elements, device.platform, viewport) : [];
+  const issues = [];
+  for (const issue of audit.issues) {
+    issues.push({
+      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity",
+      severity: issue.severity,
+      description: issue.message
+    });
+  }
+  for (const issue of nativeIssues) {
+    issues.push({
+      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
+      severity: issue.severity,
+      description: issue.message
+    });
+  }
+  const verdict = determineVerdict2(issues);
+  const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
+  return {
+    url,
+    route: `/${device.name}`,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    viewport,
+    platform: device.platform,
+    device: {
+      name: device.name,
+      udid: device.udid,
+      runtime: device.runtime
+    },
+    elements: { all: elements, audit },
+    nativeIssues,
+    screenshotPath,
+    verdict,
+    issues,
+    summary
+  };
+}
+function generateNativeSummary(device, elements, issues, extractionSucceeded) {
+  const parts = [];
+  parts.push(`${device.platform} simulator (${device.name})`);
+  if (extractionSucceeded) {
+    const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
+    parts.push(`${elements.length} elements (${interactive} interactive)`);
+  } else {
+    parts.push("screenshot-only mode (element extraction unavailable)");
+  }
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount > 0 || warningCount > 0) {
+    const issueParts = [];
+    if (errorCount > 0) issueParts.push(`${errorCount} errors`);
+    if (warningCount > 0) issueParts.push(`${warningCount} warnings`);
+    parts.push(issueParts.join(", "));
+  }
+  return parts.join(", ");
+}
+async function scanMacOS(options) {
+  if (process.platform !== "darwin") {
+    throw new Error("macOS native scanning is only available on macOS");
+  }
+  const { app, bundleId, pid: directPid, screenshot } = options;
+  if (!app && !bundleId && !directPid) {
+    throw new Error("Provide --app, --bundle-id, or --pid to identify the target app");
+  }
+  let pid;
+  if (directPid) {
+    pid = directPid;
+  } else {
+    pid = await findProcess(app || bundleId);
+  }
+  const { elements: nativeElements, window: window2 } = await extractMacOSElements({
+    pid,
+    app: app || bundleId
+  });
+  const elements = mapMacOSToEnhancedElements(nativeElements);
+  const audit = analyzeElements(elements, false);
+  const interactivity = buildNativeInteractivity(elements);
+  const semantic = buildNativeSemantic(elements, window2);
+  if (screenshot && window2.windowId > 0) {
+    await captureMacOSScreenshot(window2.windowId, screenshot.path);
+  }
+  const url = `macos://${app || bundleId || `pid-${pid}`}/${window2.title}`;
+  const route = `/${window2.title}`;
+  const issues = aggregateIssues(audit, interactivity, semantic, []);
+  const verdict = determineVerdict2(issues);
+  const summary = generateSummary2(
+    { audit },
+    interactivity,
+    semantic,
+    issues,
+    []
+  );
+  const viewport = {
+    name: "native",
+    width: window2.width,
+    height: window2.height
+  };
+  return {
+    url,
+    route,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    viewport,
+    elements: { all: elements, audit },
+    interactivity,
+    semantic,
+    console: { errors: [], warnings: [] },
+    verdict,
+    issues,
+    summary
+  };
+}
+function formatMacOSScanResult(result) {
+  const lines = [];
+  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("  IBR NATIVE macOS SCAN");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("");
+  lines.push(`  App:      ${result.url}`);
+  lines.push(`  Window:   ${result.route.slice(1)}`);
+  lines.push(`  Viewport: ${result.viewport.width}x${result.viewport.height}`);
+  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
+  lines.push("");
+  lines.push(`  ${result.summary}`);
+  lines.push("");
+  lines.push("  PAGE UNDERSTANDING");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`);
+  lines.push(`  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`);
+  lines.push("");
+  lines.push("  ELEMENTS");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
+  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
+  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
+  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
+  lines.push("");
+  const { buttons, links, forms } = result.interactivity;
+  lines.push("  INTERACTIVITY");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`);
+  lines.push("");
+  if (result.issues.length > 0) {
+    lines.push("  ISSUES");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
+    for (const issue of result.issues) {
+      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
+      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`    \u2192 ${issue.fix}`);
+      }
+    }
+  } else {
+    lines.push("  No issues detected.");
+  }
+  lines.push("");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines.join("\n");
+}
+function formatNativeScanResult(result) {
+  const lines = [];
+  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("  IBR NATIVE SCAN");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push("");
+  lines.push(`  Device:   ${result.device.name}`);
+  lines.push(`  Platform: ${result.platform}`);
+  lines.push(`  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`);
+  lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
+  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
+  lines.push("");
+  lines.push(`  ${result.summary}`);
+  lines.push("");
+  lines.push("  ELEMENTS");
+  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
+  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
+  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
+  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
+  lines.push("");
+  if (result.screenshotPath) {
+    lines.push(`  Screenshot: ${result.screenshotPath}`);
+    lines.push("");
+  }
+  if (result.issues.length > 0) {
+    lines.push("  ISSUES");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
+    for (const issue of result.issues) {
+      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
+      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+    }
+  } else {
+    lines.push("  No issues detected.");
+  }
+  lines.push("");
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines.join("\n");
+}
+
 // src/index.ts
 async function compare(options) {
   const {
@@ -6523,6 +7563,7 @@ exports.LandmarkElementSchema = LandmarkElementSchema;
 exports.LearnedExpectationSchema = LearnedExpectationSchema;
 exports.MemorySourceSchema = MemorySourceSchema;
 exports.MemorySummarySchema = MemorySummarySchema;
+exports.NATIVE_VIEWPORTS = NATIVE_VIEWPORTS;
 exports.ObservationSchema = ObservationSchema;
 exports.PreferenceCategorySchema = PreferenceCategorySchema;
 exports.PreferenceSchema = PreferenceSchema;
@@ -6543,6 +7584,12 @@ exports.aiSearchFlow = aiSearchFlow;
 exports.analyzeComparison = analyzeComparison;
 exports.analyzeForObviousIssues = analyzeForObviousIssues;
 exports.archiveSummary = archiveSummary;
+exports.auditNativeElements = auditNativeElements;
+exports.bootDevice = bootDevice;
+exports.buildNativeInteractivity = buildNativeInteractivity;
+exports.buildNativeSemantic = buildNativeSemantic;
+exports.captureMacOSScreenshot = captureMacOSScreenshot;
+exports.captureNativeScreenshot = captureNativeScreenshot;
 exports.captureScreenshot = captureScreenshot;
 exports.captureWithDiagnostics = captureWithDiagnostics;
 exports.checkConsistency = checkConsistency;
@@ -6568,21 +7615,29 @@ exports.detectPageState = detectPageState;
 exports.discoverApiRoutes = discoverApiRoutes;
 exports.discoverPages = discoverPages;
 exports.enforceRetentionPolicy = enforceRetentionPolicy;
+exports.ensureExtractor = ensureExtractor;
 exports.extractApiCalls = extractApiCalls;
+exports.extractMacOSElements = extractMacOSElements;
+exports.extractNativeElements = extractNativeElements;
 exports.filePathToRoute = filePathToRoute;
 exports.filterByEndpoint = filterByEndpoint;
 exports.filterByMethod = filterByMethod;
 exports.findButton = findButton;
+exports.findDevice = findDevice;
 exports.findFieldByLabel = findFieldByLabel;
 exports.findOrphanEndpoints = findOrphanEndpoints;
+exports.findProcess = findProcess;
 exports.findSessions = findSessions;
 exports.flows = flows;
 exports.formFlow = formFlow;
 exports.formatApiTimingResult = formatApiTimingResult;
 exports.formatConsistencyReport = formatConsistencyReport;
+exports.formatDevice = formatDevice;
 exports.formatInteractivityResult = formatInteractivityResult;
 exports.formatLandmarkComparison = formatLandmarkComparison;
+exports.formatMacOSScanResult = formatMacOSScanResult;
 exports.formatMemorySummary = formatMemorySummary;
+exports.formatNativeScanResult = formatNativeScanResult;
 exports.formatPendingOperations = formatPendingOperations;
 exports.formatPerformanceResult = formatPerformanceResult;
 exports.formatPreference = formatPreference;
@@ -6602,10 +7657,12 @@ exports.generateReport = generateReport;
 exports.generateSessionId = generateSessionId;
 exports.generateValidationContext = generateValidationContext;
 exports.generateValidationPrompt = generateValidationPrompt;
+exports.getBootedDevices = getBootedDevices;
 exports.getDecision = getDecision;
 exports.getDecisionStats = getDecisionStats;
 exports.getDecisionsByRoute = getDecisionsByRoute;
 exports.getDecisionsSize = getDecisionsSize;
+exports.getDeviceViewport = getDeviceViewport;
 exports.getExpectedLandmarksForIntent = getExpectedLandmarksForIntent;
 exports.getExpectedLandmarksFromContext = getExpectedLandmarksFromContext;
 exports.getIntentDescription = getIntentDescription;
@@ -6627,7 +7684,9 @@ exports.groupByEndpoint = groupByEndpoint;
 exports.groupByFile = groupByFile;
 exports.initMemory = initMemory;
 exports.isCompactContextOversize = isCompactContextOversize;
+exports.isExtractorAvailable = isExtractorAvailable;
 exports.learnFromSession = learnFromSession;
+exports.listDevices = listDevices;
 exports.listLearned = listLearned;
 exports.listPreferences = listPreferences;
 exports.listSessions = listSessions;
@@ -6635,6 +7694,8 @@ exports.loadCompactContext = loadCompactContext;
 exports.loadRetentionConfig = loadRetentionConfig;
 exports.loadSummary = loadSummary;
 exports.loginFlow = loginFlow;
+exports.mapMacOSToEnhancedElements = mapMacOSToEnhancedElements;
+exports.mapToEnhancedElements = mapToEnhancedElements;
 exports.markSessionCompared = markSessionCompared;
 exports.maybeAutoClean = maybeAutoClean;
 exports.measureApiTiming = measureApiTiming;
@@ -6652,6 +7713,8 @@ exports.saveCompactContext = saveCompactContext;
 exports.saveSummary = saveSummary;
 exports.scan = scan;
 exports.scanDirectoryForApiCalls = scanDirectoryForApiCalls;
+exports.scanMacOS = scanMacOS;
+exports.scanNative = scanNative;
 exports.searchFlow = searchFlow;
 exports.setActiveRoute = setActiveRoute;
 exports.testInteractivity = testInteractivity;

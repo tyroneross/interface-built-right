@@ -17,8 +17,8 @@ describe('ViewportSchema', () => {
     expect(result.name).toBe('desktop');
   });
 
-  it('rejects width below 320', () => {
-    expect(() => ViewportSchema.parse({ name: 'tiny', width: 100, height: 480 })).toThrow();
+  it('rejects width below 100', () => {
+    expect(() => ViewportSchema.parse({ name: 'tiny', width: 50, height: 480 })).toThrow();
   });
 
   it('rejects width above 3840', () => {
@@ -162,11 +162,11 @@ describe('SessionSchema', () => {
     expect(result.analysis?.verdict).toBe('MATCH');
   });
 
-  it('rejects invalid URL', () => {
+  it('rejects empty URL', () => {
     expect(() => SessionSchema.parse({
       id: 'sess_abc123',
       name: 'Homepage',
-      url: 'not-a-url',
+      url: '',
       viewport: VIEWPORTS.desktop,
       status: 'baseline',
       createdAt: new Date().toISOString(),

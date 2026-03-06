@@ -536,6 +536,41 @@ declare const VIEWPORTS: {
         readonly width: 430;
         readonly height: 932;
     };
+    readonly 'iphone-16': {
+        readonly name: "iphone-16";
+        readonly width: 393;
+        readonly height: 852;
+    };
+    readonly 'iphone-16-plus': {
+        readonly name: "iphone-16-plus";
+        readonly width: 430;
+        readonly height: 932;
+    };
+    readonly 'iphone-16-pro': {
+        readonly name: "iphone-16-pro";
+        readonly width: 402;
+        readonly height: 874;
+    };
+    readonly 'iphone-16-pro-max': {
+        readonly name: "iphone-16-pro-max";
+        readonly width: 440;
+        readonly height: 956;
+    };
+    readonly 'watch-series-10-42mm': {
+        readonly name: "watch-series-10-42mm";
+        readonly width: 176;
+        readonly height: 215;
+    };
+    readonly 'watch-series-10-46mm': {
+        readonly name: "watch-series-10-46mm";
+        readonly width: 198;
+        readonly height: 242;
+    };
+    readonly 'watch-ultra-2-49mm': {
+        readonly name: "watch-ultra-2-49mm";
+        readonly width: 205;
+        readonly height: 251;
+    };
 };
 /**
  * Main configuration for InterfaceBuiltRight
@@ -724,6 +759,11 @@ declare const SessionSchema: z.ZodObject<{
         compared: "compared";
         pending: "pending";
     }>;
+    platform: z.ZodOptional<z.ZodEnum<{
+        web: "web";
+        ios: "ios";
+        watchos: "watchos";
+    }>>;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
     comparison: z.ZodOptional<z.ZodObject<{
@@ -1926,7 +1966,7 @@ declare function getSessionPaths(outputDir: string, sessionId: string): SessionP
 /**
  * Create a new session
  */
-declare function createSession(outputDir: string, url: string, name: string, viewport: Viewport): Promise<Session>;
+declare function createSession(outputDir: string, url: string, name: string, viewport: Viewport, platform?: 'web' | 'ios' | 'watchos'): Promise<Session>;
 /**
  * Get a session by ID
  */
@@ -2731,6 +2771,330 @@ declare function scan(url: string, options?: ScanOptions): Promise<ScanResult>;
 declare function formatScanResult(result: ScanResult): string;
 
 /**
+ * Simulator device from `xcrun simctl list devices --json`
+ */
+interface SimulatorDevice {
+    udid: string;
+    name: string;
+    state: 'Booted' | 'Shutdown' | 'Creating' | 'Shutting Down';
+    runtime: string;
+    platform: 'ios' | 'watchos';
+    isAvailable: boolean;
+}
+/**
+ * Options for capturing a native screenshot
+ */
+interface NativeCaptureOptions {
+    device: SimulatorDevice;
+    outputPath: string;
+    /** Mask type for non-rectangular displays (watchOS) */
+    mask?: 'black' | 'alpha' | 'ignored';
+}
+/**
+ * Result from capturing a native screenshot
+ */
+interface NativeCaptureResult {
+    success: boolean;
+    outputPath?: string;
+    device: SimulatorDevice;
+    viewport: Viewport;
+    timing: number;
+    error?: string;
+}
+/**
+ * Options for scanning a native simulator
+ */
+interface NativeScanOptions {
+    /** Device name fragment, UDID, or undefined for first booted */
+    device?: string;
+    /** App bundle ID (for future use) */
+    bundleId?: string;
+    /** Whether to capture a screenshot */
+    screenshot?: boolean;
+    /** Output directory */
+    outputDir?: string;
+}
+/**
+ * Result from scanning a native simulator
+ */
+interface NativeScanResult {
+    url: string;
+    route: string;
+    timestamp: string;
+    viewport: Viewport;
+    platform: 'ios' | 'watchos';
+    device: {
+        name: string;
+        udid: string;
+        runtime: string;
+    };
+    /** Extracted elements mapped to EnhancedElement format */
+    elements: {
+        all: EnhancedElement[];
+        audit: AuditResult;
+    };
+    /** Native-specific audit issues */
+    nativeIssues: ElementIssue[];
+    /** Screenshot path if captured */
+    screenshotPath?: string;
+    /** Overall scan verdict */
+    verdict: 'PASS' | 'ISSUES' | 'FAIL';
+    issues: ScanIssue[];
+    summary: string;
+}
+/**
+ * Native accessibility element from the Swift AXUIElement extractor
+ */
+interface NativeElement {
+    /** Accessibility identifier (maps to selector) */
+    identifier: string;
+    /** Accessibility label */
+    label: string;
+    /** Role (e.g., AXButton, AXStaticText, AXImage) */
+    role: string;
+    /** Accessibility traits */
+    traits: string[];
+    /** Frame in points: { x, y, width, height } */
+    frame: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    /** Whether the element is enabled */
+    isEnabled: boolean;
+    /** Current value (for inputs, sliders, etc.) */
+    value: string | null;
+    /** Child elements */
+    children: NativeElement[];
+}
+/**
+ * AX element from the Swift extractor in macOS app mode (full format)
+ */
+interface MacOSAXElement {
+    role: string;
+    subrole: string | null;
+    title: string | null;
+    description: string | null;
+    identifier: string | null;
+    value: string | null;
+    enabled: boolean;
+    focused: boolean;
+    actions: string[];
+    position: {
+        x: number;
+        y: number;
+    } | null;
+    size: {
+        width: number;
+        height: number;
+    } | null;
+    children: MacOSAXElement[];
+}
+/**
+ * Window info parsed from the WINDOW: header line
+ */
+interface MacOSWindowInfo {
+    windowId: number;
+    width: number;
+    height: number;
+    title: string;
+}
+/**
+ * Options for scanning a running macOS native app
+ */
+interface MacOSScanOptions {
+    /** App name to find (e.g., "Secrets Vault") */
+    app?: string;
+    /** Bundle identifier (e.g., "com.secretsvault.app") */
+    bundleId?: string;
+    /** Direct process ID */
+    pid?: number;
+    /** Capture screenshot */
+    screenshot?: {
+        path: string;
+    };
+}
+/**
+ * Result from scanning a macOS native app
+ * Same shape as web ScanResult for interoperability
+ */
+interface MacOSScanResult {
+    url: string;
+    route: string;
+    timestamp: string;
+    viewport: Viewport;
+    /** Extracted elements mapped to EnhancedElement format */
+    elements: {
+        all: EnhancedElement[];
+        audit: AuditResult;
+    };
+    /** Interactivity analysis built from AX data */
+    interactivity: InteractivityResult;
+    /** Semantic understanding from element composition */
+    semantic: SemanticResult;
+    /** No console for native apps */
+    console: {
+        errors: string[];
+        warnings: string[];
+    };
+    /** Overall scan verdict */
+    verdict: 'PASS' | 'ISSUES' | 'FAIL';
+    issues: ScanIssue[];
+    summary: string;
+}
+
+/**
+ * Native device viewport dimensions in points
+ * These match the logical (non-Retina) dimensions used by simulators
+ */
+declare const NATIVE_VIEWPORTS: Record<string, Viewport>;
+/**
+ * Get the viewport dimensions for a simulator device
+ * Falls back to reasonable defaults based on platform
+ */
+declare function getDeviceViewport(device: SimulatorDevice): Viewport;
+
+/**
+ * List all available simulator devices
+ */
+declare function listDevices(): Promise<SimulatorDevice[]>;
+/**
+ * Find a device by name fragment or exact UDID
+ * Prioritizes booted devices, then available ones
+ */
+declare function findDevice(nameOrUdid: string): Promise<SimulatorDevice | null>;
+/**
+ * Get all currently booted simulator devices
+ */
+declare function getBootedDevices(): Promise<SimulatorDevice[]>;
+/**
+ * Boot a simulator device if not already running
+ */
+declare function bootDevice(udid: string): Promise<void>;
+/**
+ * Format device info for display
+ */
+declare function formatDevice(device: SimulatorDevice): string;
+
+/**
+ * Capture a screenshot from a running simulator
+ *
+ * Uses `xcrun simctl io <udid> screenshot` to capture the current screen.
+ * For watchOS devices, applies --mask=black by default to handle round displays.
+ */
+declare function captureNativeScreenshot(options: NativeCaptureOptions): Promise<NativeCaptureResult>;
+
+/**
+ * Ensure the Swift AXUIElement extractor is compiled
+ * Compiles on first use, then caches at .ibr/bin/ibr-ax-extract
+ */
+declare function ensureExtractor(): Promise<string>;
+/**
+ * Check if the Swift extractor is available (compiled or can be compiled)
+ */
+declare function isExtractorAvailable(): boolean;
+/**
+ * Extract native accessibility elements from a running simulator
+ *
+ * Uses the compiled Swift CLI to walk the Simulator.app's accessibility tree
+ * via AXUIElementCreateApplication.
+ */
+declare function extractNativeElements(device: SimulatorDevice): Promise<NativeElement[]>;
+/**
+ * Map native accessibility elements to IBR's EnhancedElement format
+ *
+ * This allows reuse of existing analyzeElements() from src/extract.ts.
+ */
+declare function mapToEnhancedElements(nativeElements: NativeElement[]): EnhancedElement[];
+
+/**
+ * Run native-specific audit rules on extracted elements
+ *
+ * These rules supplement the standard web audit with platform-specific checks:
+ * - watchOS: max 7 interactive elements per screen
+ * - watchOS: no horizontal overflow beyond viewport width
+ * - iOS/watchOS: 44pt minimum touch targets (always enforced, not just mobile)
+ */
+declare function auditNativeElements(elements: EnhancedElement[], platform: 'ios' | 'watchos', viewport: Viewport): ElementIssue[];
+
+/**
+ * Run a comprehensive native simulator scan
+ *
+ * Orchestrates: device resolution → boot → screenshot → element extraction → audit → verdict
+ *
+ * Falls back to screenshot-only mode if the Swift AXUIElement extractor is unavailable.
+ */
+declare function scanNative(options?: NativeScanOptions): Promise<NativeScanResult>;
+/**
+ * Run a comprehensive scan of a running macOS native app
+ *
+ * Uses the Accessibility API (AXUIElement) to extract the full view hierarchy,
+ * then runs the same analysis pipeline as web scans.
+ *
+ * Produces a MacOSScanResult with the same shape as web ScanResult.
+ */
+declare function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanResult>;
+/**
+ * Format macOS scan result for console output
+ */
+declare function formatMacOSScanResult(result: MacOSScanResult): string;
+/**
+ * Format native scan result for console output
+ */
+declare function formatNativeScanResult(result: NativeScanResult): string;
+
+/**
+ * Find the PID of a running macOS app by name or bundle ID
+ *
+ * Strategy:
+ * 1. Try lsappinfo for exact bundle ID match
+ * 2. Fall back to pgrep for process name match
+ */
+declare function findProcess(appNameOrBundleId: string): Promise<number>;
+/**
+ * Extract native AX elements from a running macOS app via the Swift CLI
+ *
+ * Returns the parsed elements and window metadata.
+ */
+declare function extractMacOSElements(options: {
+    pid?: number;
+    app?: string;
+}): Promise<{
+    elements: MacOSAXElement[];
+    window: MacOSWindowInfo;
+}>;
+/**
+ * Map macOS AX elements to IBR's EnhancedElement format
+ *
+ * Flattens the tree depth-first and generates unique selectors
+ * from the tree path (e.g., "AXWindow > AXGroup[0] > AXButton[1]").
+ */
+declare function mapMacOSToEnhancedElements(nativeElements: MacOSAXElement[], parentPath?: string): EnhancedElement[];
+/**
+ * Capture a screenshot of a macOS window by its CGWindowID
+ *
+ * Uses the built-in `screencapture -l <windowID>` command.
+ */
+declare function captureMacOSScreenshot(windowId: number, outputPath: string): Promise<void>;
+
+/**
+ * Build an InteractivityResult from extracted native EnhancedElements
+ *
+ * Since we extract handler/action info from AX attributes (hasOnClick from AXPress),
+ * we can build the same interactivity analysis without Playwright.
+ */
+declare function buildNativeInteractivity(elements: EnhancedElement[]): InteractivityResult;
+
+/**
+ * Build a minimal SemanticResult from native app element composition
+ *
+ * Since we can't run Playwright page.evaluate(), we derive semantic
+ * understanding from the extracted elements and window metadata.
+ */
+declare function buildNativeSemantic(elements: EnhancedElement[], window: MacOSWindowInfo): SemanticResult;
+
+/**
  * Options for standalone compare function
  */
 interface CompareInput {
@@ -3048,4 +3412,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, extractApiCalls, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findFieldByLabel, findOrphanEndpoints, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatInteractivityResult, formatLandmarkComparison, formatMemorySummary, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, learnFromSession, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loginFlow, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

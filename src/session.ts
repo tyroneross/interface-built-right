@@ -82,7 +82,8 @@ export async function createSession(
   outputDir: string,
   url: string,
   name: string,
-  viewport: Viewport
+  viewport: Viewport,
+  platform?: 'web' | 'ios' | 'watchos'
 ): Promise<Session> {
   const sessionId = generateSessionId();
   const paths = getSessionPaths(outputDir, sessionId);
@@ -94,6 +95,7 @@ export async function createSession(
     url,
     viewport,
     status: 'baseline',
+    ...(platform ? { platform } : {}),
     createdAt: now,
     updatedAt: now,
   };

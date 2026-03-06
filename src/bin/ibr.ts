@@ -2948,4 +2948,270 @@ memoryCmd
     console.log(formatPreference(pref));
   });
 
+// ============================================================================
+// NATIVE SIMULATOR COMMANDS
+// ============================================================================
+
+program
+  .command('native:devices')
+  .description('List available iOS/watchOS simulator devices')
+  .option('-p, --platform <platform>', 'Filter by platform: ios, watchos')
+  .action(async (options: { platform?: string }) => {
+    try {
+      const { listDevices, formatDevice } = await import('../native/index.js');
+
+      let devices = await listDevices();
+      devices = devices.filter(d => d.isAvailable);
+
+      if (options.platform) {
+        devices = devices.filter(d => d.platform === options.platform);
+      }
+
+      if (devices.length === 0) {
+        console.log('No available simulators found.');
+        return;
+      }
+
+      const ios = devices.filter(d => d.platform === 'ios');
+      const watchos = devices.filter(d => d.platform === 'watchos');
+
+      if (ios.length > 0) {
+        console.log(`iOS (${ios.length}):`);
+        for (const d of ios) {
+          console.log(`  ${formatDevice(d)}`);
+        }
+      }
+
+      if (watchos.length > 0) {
+        if (ios.length > 0) console.log('');
+        console.log(`watchOS (${watchos.length}):`);
+        for (const d of watchos) {
+          console.log(`  ${formatDevice(d)}`);
+        }
+      }
+
+      const booted = devices.filter(d => d.state === 'Booted');
+      console.log('');
+      console.log(`Total: ${devices.length} available, ${booted.length} booted`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('native:scan [device]')
+  .description('Scan a running simulator for accessibility and design issues')
+  .option('--no-screenshot', 'Skip screenshot capture')
+  .option('--json', 'Output as JSON')
+  .action(async (device: string | undefined, options: { screenshot?: boolean; json?: boolean }) => {
+    try {
+      const { scanNative, formatNativeScanResult } = await import('../native/index.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      const result = await scanNative({
+        device,
+        screenshot: options.screenshot !== false,
+        outputDir,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatNativeScanResult(result));
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('native:start [device]')
+  .description('Capture a native simulator baseline screenshot')
+  .option('-n, --name <name>', 'Baseline session name')
+  .action(async (device: string | undefined, options: { name?: string }) => {
+    try {
+      const { findDevice, getBootedDevices, captureNativeScreenshot, getDeviceViewport } = await import('../native/index.js');
+      const { createSession, getSessionPaths } = await import('../session.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      let resolved;
+      if (device) {
+        resolved = await findDevice(device);
+        if (!resolved) {
+          console.error(`No simulator found matching "${device}".`);
+          process.exit(1);
+        }
+      } else {
+        const booted = await getBootedDevices();
+        if (booted.length === 0) {
+          console.error('No booted simulators. Boot one first.');
+          process.exit(1);
+        }
+        resolved = booted[0];
+      }
+
+      const viewport = getDeviceViewport(resolved);
+      const name = options.name || `native-${resolved.name.replace(/\s+/g, '-').toLowerCase()}`;
+
+      const session = await createSession(
+        outputDir,
+        `simulator://${resolved.name}`,
+        name,
+        viewport,
+        resolved.platform
+      );
+
+      const paths = getSessionPaths(outputDir, session.id);
+      const captureResult = await captureNativeScreenshot({
+        device: resolved,
+        outputPath: paths.baseline,
+      });
+
+      if (!captureResult.success) {
+        console.error(`Screenshot failed: ${captureResult.error}`);
+        process.exit(1);
+      }
+
+      console.log(`Baseline captured: ${session.id}`);
+      console.log(`Device: ${resolved.name} (${resolved.platform})`);
+      console.log(`Screenshot: ${paths.baseline}`);
+      console.log('');
+      console.log('After changes, run:');
+      console.log(`  npx ibr native:check ${session.id}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('native:check [sessionId]')
+  .description('Compare current simulator state against native baseline')
+  .option('-d, --device <device>', 'Device name or UDID')
+  .action(async (sessionId: string | undefined, options: { device?: string }) => {
+    try {
+      const { findDevice, getBootedDevices, captureNativeScreenshot } = await import('../native/index.js');
+      const { listSessions, getSession: getSessionById, getSessionPaths } = await import('../session.js');
+      const { compare: compareFn } = await import('../index.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      // Find session
+      let session;
+      if (sessionId) {
+        session = await getSessionById(outputDir, sessionId);
+        if (!session) {
+          console.error(`Session not found: ${sessionId}`);
+          process.exit(1);
+        }
+      } else {
+        const sessions = await listSessions(outputDir);
+        session = sessions.find(s => s.platform === 'ios' || s.platform === 'watchos');
+        if (!session) {
+          console.error('No native sessions found. Run native:start first.');
+          process.exit(1);
+        }
+      }
+
+      // Find device
+      let resolved;
+      if (options.device) {
+        resolved = await findDevice(options.device);
+      } else {
+        const booted = await getBootedDevices();
+        resolved = booted[0];
+      }
+
+      if (!resolved) {
+        console.error('No booted simulator found.');
+        process.exit(1);
+      }
+
+      const paths = getSessionPaths(outputDir, session!.id);
+
+      // Capture current
+      const captureResult = await captureNativeScreenshot({
+        device: resolved,
+        outputPath: paths.current,
+      });
+
+      if (!captureResult.success) {
+        console.error(`Screenshot failed: ${captureResult.error}`);
+        process.exit(1);
+      }
+
+      // Compare
+      const result = await compareFn({
+        baselinePath: paths.baseline,
+        currentPath: paths.current,
+      });
+
+      const verdictIcon = result.verdict === 'MATCH' ? '✓' :
+                          result.verdict === 'EXPECTED_CHANGE' ? '~' : '✗';
+
+      console.log(`${verdictIcon} ${result.verdict}`);
+      console.log(`Diff: ${result.diffPercent.toFixed(2)}% (${result.diffPixels} pixels)`);
+      console.log(result.summary);
+
+      if (result.recommendation) {
+        console.log('');
+        console.log(`Recommendation: ${result.recommendation}`);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// macOS native app scanning
+program
+  .command('scan:macos')
+  .description('Scan a running macOS native app via Accessibility API')
+  .option('--app <name>', 'App name (e.g., "Secrets Vault")')
+  .option('--bundle-id <id>', 'Bundle identifier (e.g., "com.secretsvault.app")')
+  .option('--pid <pid>', 'Process ID')
+  .option('--screenshot <path>', 'Save screenshot to path')
+  .option('--json', 'Output as JSON')
+  .action(async (options: { app?: string; bundleId?: string; pid?: string; screenshot?: string; json?: boolean }) => {
+    try {
+      if (process.platform !== 'darwin') {
+        console.error('Error: scan:macos is only available on macOS');
+        process.exit(1);
+      }
+
+      if (!options.app && !options.bundleId && !options.pid) {
+        console.error('Error: Provide --app, --bundle-id, or --pid to identify the target app');
+        process.exit(1);
+      }
+
+      const { scanMacOS, formatMacOSScanResult } = await import('../native/index.js');
+
+      console.log(`Scanning macOS app${options.app ? ` "${options.app}"` : ''}...`);
+
+      const result = await scanMacOS({
+        app: options.app,
+        bundleId: options.bundleId,
+        pid: options.pid ? parseInt(options.pid, 10) : undefined,
+        screenshot: options.screenshot ? { path: options.screenshot } : undefined,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatMacOSScanResult(result));
+      }
+
+      if (result.verdict === 'FAIL') {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 program.parse();

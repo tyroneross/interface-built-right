@@ -35,6 +35,9 @@ web-ui/node_modules/
 playwright-report/
 test-results/
 
+# Swift build artifacts
+src/native/swift/**/.build/
+
 # Claude Code
 .claude/
 .claude-code-debugger/

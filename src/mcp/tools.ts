@@ -16,8 +16,19 @@ import {
   listSessions,
   getMostRecentSession,
   getSessionStats,
+  createSession,
+  getSessionPaths,
 } from "../session.js";
 import type { ScanOptions } from "../scan.js";
+import {
+  scanNative,
+  scanMacOS,
+  listDevices,
+  findDevice,
+  captureNativeScreenshot,
+  getDeviceViewport,
+  formatDevice,
+} from "../native/index.js";
 
 // --- Response helpers ---
 
@@ -130,6 +141,144 @@ export const TOOLS = [
       openWorldHint: false,
     },
   },
+  // --- Native iOS/watchOS tools ---
+  {
+    name: "native_scan",
+    description:
+      "Scan a running iOS or watchOS simulator — extracts accessibility elements, validates touch targets, checks watchOS constraints, and audits accessibility labels. Use after building or modifying Swift UI to validate implementation.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        device: {
+          type: "string",
+          description:
+            "Device name fragment or UDID (e.g. 'Apple Watch', 'iPhone 16'). Uses first booted device if omitted.",
+        },
+        screenshot: {
+          type: "boolean",
+          description: "Capture a screenshot (default: true)",
+        },
+      },
+    },
+    annotations: {
+      title: "Native Simulator Scan",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "native_snapshot",
+    description:
+      "Capture a baseline screenshot from a running iOS or watchOS simulator for regression testing. Use before making native UI changes.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        device: {
+          type: "string",
+          description:
+            "Device name fragment or UDID. Uses first booted device if omitted.",
+        },
+        name: {
+          type: "string",
+          description: "Name for the baseline session (e.g. 'watch-timer-screen')",
+        },
+      },
+    },
+    annotations: {
+      title: "Native Baseline Capture",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "native_compare",
+    description:
+      "Compare current simulator state against a native baseline. Returns a verdict (MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN). Use after making native UI changes to check for visual regressions.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        session_id: {
+          type: "string",
+          description:
+            "Session ID to compare against (default: most recent native session)",
+        },
+        device: {
+          type: "string",
+          description:
+            "Device name fragment or UDID. Uses first booted device if omitted.",
+        },
+      },
+    },
+    annotations: {
+      title: "Native Compare Against Baseline",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  // --- macOS native app scanning ---
+  {
+    name: "scan_macos",
+    description:
+      "Scan a running macOS native app via the Accessibility API — extracts all UI elements, validates touch targets, checks accessibility labels, classifies page intent, and produces a verdict. Use after building or modifying a native macOS app (SwiftUI/AppKit) to validate the UI.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        app: {
+          type: "string",
+          description:
+            "App name to scan (e.g. 'Secrets Vault', 'Calculator'). Case-insensitive substring match.",
+        },
+        bundle_id: {
+          type: "string",
+          description:
+            "Bundle identifier (e.g. 'com.secretsvault.app'). Alternative to app name.",
+        },
+        pid: {
+          type: "number",
+          description: "Direct process ID. Alternative to app/bundle_id.",
+        },
+        screenshot: {
+          type: "string",
+          description: "Path to save a screenshot of the app window (optional).",
+        },
+      },
+    },
+    annotations: {
+      title: "macOS Native App Scan",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "native_devices",
+    description:
+      "List available iOS and watchOS simulator devices with their boot status, runtime versions, and UDIDs.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        platform: {
+          type: "string",
+          enum: ["ios", "watchos"],
+          description: "Filter by platform (optional)",
+        },
+      },
+    },
+    annotations: {
+      title: "List Simulator Devices",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 // --- Tool handlers ---
@@ -150,6 +299,16 @@ export async function handleToolCall(
         return await handleCompare(args);
       case "list_sessions":
         return await handleListSessions();
+      case "scan_macos":
+        return await handleScanMacOS(args);
+      case "native_scan":
+        return await handleNativeScan(args);
+      case "native_snapshot":
+        return await handleNativeSnapshot(args);
+      case "native_compare":
+        return await handleNativeCompare(args);
+      case "native_devices":
+        return await handleNativeDevices(args);
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }
@@ -350,6 +509,302 @@ async function handleListSessions(): Promise<{
       .map(([k, v]) => `${k}: ${v}`)
       .join(", ")}`
   );
+
+  return textResponse(lines.join("\n"));
+}
+
+// --- macOS native app handler ---
+
+async function handleScanMacOS(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  if (process.platform !== "darwin") {
+    return errorResponse("scan_macos is only available on macOS.");
+  }
+
+  const app = args.app as string | undefined;
+  const bundleId = args.bundle_id as string | undefined;
+  const pid = args.pid as number | undefined;
+  const screenshot = args.screenshot as string | undefined;
+
+  if (!app && !bundleId && !pid) {
+    return errorResponse("Provide 'app', 'bundle_id', or 'pid' to identify the target app.");
+  }
+
+  const result = await scanMacOS({
+    app,
+    bundleId,
+    pid,
+    screenshot: screenshot ? { path: screenshot } : undefined,
+  });
+
+  const lines = [
+    `macOS App Scan: ${result.url}`,
+    `Window: ${result.route.slice(1)}`,
+    `Viewport: ${result.viewport.width}x${result.viewport.height}`,
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`,
+    "",
+    `Page intent: ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
+    `Auth: ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`,
+  ];
+
+  // Elements
+  lines.push("");
+  lines.push(`Elements: ${result.elements.audit.totalElements} total, ${result.elements.audit.interactiveCount} interactive`);
+  lines.push(`With handlers: ${result.elements.audit.withHandlers}, Without: ${result.elements.audit.withoutHandlers}`);
+
+  // Interactivity
+  const { buttons, links, forms } = result.interactivity;
+  lines.push(`Buttons: ${buttons.length}, Links: ${links.length}, Forms: ${forms.length}`);
+
+  // Issues
+  if (result.issues.length > 0) {
+    lines.push("");
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`  Fix: ${issue.fix}`);
+      }
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+
+  // Audit issues
+  if (result.elements.audit.issues.length > 0) {
+    lines.push("");
+    lines.push(`Audit issues (${result.elements.audit.issues.length}):`);
+    for (const a of result.elements.audit.issues.slice(0, 5)) {
+      lines.push(`- ${a.message}`);
+    }
+  }
+
+  return textResponse(lines.join("\n"));
+}
+
+// --- Native tool handlers ---
+
+async function handleNativeScan(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  const device = args.device as string | undefined;
+  const screenshot = args.screenshot !== false;
+
+  const result = await scanNative({
+    device,
+    screenshot,
+    outputDir: DEFAULT_OUTPUT_DIR,
+  });
+
+  const lines = [
+    `Native Scan: ${result.device.name}`,
+    `Platform: ${result.platform}`,
+    `Runtime: ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`,
+    `Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`,
+  ];
+
+  lines.push("");
+  lines.push(`Elements: ${result.elements.audit.totalElements} total, ${result.elements.audit.interactiveCount} interactive`);
+  lines.push(`With handlers: ${result.elements.audit.withHandlers}, Without: ${result.elements.audit.withoutHandlers}`);
+
+  if (result.issues.length > 0) {
+    lines.push("");
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+
+  if (result.screenshotPath) {
+    lines.push("");
+    lines.push(`Screenshot: ${result.screenshotPath}`);
+  }
+
+  return textResponse(lines.join("\n"));
+}
+
+async function handleNativeSnapshot(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  const deviceQuery = args.device as string | undefined;
+  const name = (args.name as string) || `native-baseline-${Date.now()}`;
+
+  let device;
+  if (deviceQuery) {
+    device = await findDevice(deviceQuery);
+    if (!device) {
+      return errorResponse(`No simulator found matching "${deviceQuery}".`);
+    }
+  } else {
+    const { getBootedDevices } = await import("../native/simulator.js");
+    const booted = await getBootedDevices();
+    if (booted.length === 0) {
+      return errorResponse("No booted simulators found. Boot one first.");
+    }
+    device = booted[0];
+  }
+
+  const viewport = getDeviceViewport(device);
+
+  const session = await createSession(
+    DEFAULT_OUTPUT_DIR,
+    `simulator://${device.name}`,
+    name,
+    viewport,
+    device.platform
+  );
+
+  const paths = getSessionPaths(DEFAULT_OUTPUT_DIR, session.id);
+
+  const captureResult = await captureNativeScreenshot({
+    device,
+    outputPath: paths.baseline,
+  });
+
+  if (!captureResult.success) {
+    return errorResponse(`Screenshot capture failed: ${captureResult.error}`);
+  }
+
+  return textResponse(
+    [
+      `Native baseline captured: ${session.id}`,
+      `Name: ${session.name}`,
+      `Device: ${device.name} (${device.platform})`,
+      `Viewport: ${viewport.name} (${viewport.width}x${viewport.height})`,
+      `Status: ${session.status}`,
+      "",
+      "Run 'native_compare' after making changes to check for visual regressions.",
+    ].join("\n")
+  );
+}
+
+async function handleNativeCompare(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+  const sessionId = args.session_id as string | undefined;
+  const deviceQuery = args.device as string | undefined;
+
+  let session;
+  if (sessionId) {
+    const { getSession } = await import("../session.js");
+    session = await getSession(DEFAULT_OUTPUT_DIR, sessionId);
+    if (!session) {
+      return errorResponse(`Session "${sessionId}" not found.`);
+    }
+  } else {
+    const sessions = await listSessions(DEFAULT_OUTPUT_DIR);
+    session = sessions.find(s => s.platform === "ios" || s.platform === "watchos");
+    if (!session) {
+      return errorResponse(
+        "No native sessions found. Capture a baseline first with 'native_snapshot'."
+      );
+    }
+  }
+
+  let device;
+  if (deviceQuery) {
+    device = await findDevice(deviceQuery);
+  } else {
+    const { getBootedDevices } = await import("../native/simulator.js");
+    const booted = await getBootedDevices();
+    device = booted[0];
+  }
+
+  if (!device) {
+    return errorResponse("No booted simulator found for comparison.");
+  }
+
+  const paths = getSessionPaths(DEFAULT_OUTPUT_DIR, session.id);
+
+  const captureResult = await captureNativeScreenshot({
+    device,
+    outputPath: paths.current,
+  });
+
+  if (!captureResult.success) {
+    return errorResponse(`Screenshot capture failed: ${captureResult.error}`);
+  }
+
+  const result = await compare({
+    baselinePath: paths.baseline,
+    currentPath: paths.current,
+  });
+
+  const lines = [
+    `Native Comparison: ${session.name} (${session.id})`,
+    `Device: ${device.name}`,
+    `Verdict: ${result.verdict}`,
+    `Diff: ${result.diffPercent.toFixed(2)}% (${result.diffPixels} pixels)`,
+    `${result.summary}`,
+  ];
+
+  if (result.changedRegions.length > 0) {
+    lines.push("");
+    lines.push(`Changed regions (${result.changedRegions.length}):`);
+    for (const r of result.changedRegions.slice(0, 5)) {
+      lines.push(`- ${r.location}: ${r.description} [${r.severity}]`);
+    }
+  }
+
+  if (result.recommendation) {
+    lines.push("");
+    lines.push(`Recommendation: ${result.recommendation}`);
+  }
+
+  return textResponse(lines.join("\n"));
+}
+
+async function handleNativeDevices(
+  args: Record<string, unknown>
+): Promise<{ content: Array<{ type: string; text: string }> }> {
+  const platformFilter = args.platform as string | undefined;
+
+  let devices = await listDevices();
+  devices = devices.filter(d => d.isAvailable);
+
+  if (platformFilter) {
+    devices = devices.filter(d => d.platform === platformFilter);
+  }
+
+  if (devices.length === 0) {
+    return textResponse(
+      platformFilter
+        ? `No available ${platformFilter} simulators found.`
+        : "No available simulators found. Install simulators via Xcode."
+    );
+  }
+
+  const ios = devices.filter(d => d.platform === "ios");
+  const watchos = devices.filter(d => d.platform === "watchos");
+
+  const lines: string[] = [];
+
+  if (ios.length > 0 && (!platformFilter || platformFilter === "ios")) {
+    lines.push(`iOS Simulators (${ios.length}):`);
+    for (const d of ios) {
+      lines.push(`  ${formatDevice(d)}`);
+    }
+  }
+
+  if (watchos.length > 0 && (!platformFilter || platformFilter === "watchos")) {
+    if (lines.length > 0) lines.push("");
+    lines.push(`watchOS Simulators (${watchos.length}):`);
+    for (const d of watchos) {
+      lines.push(`  ${formatDevice(d)}`);
+    }
+  }
+
+  const booted = devices.filter(d => d.state === "Booted");
+  lines.push("");
+  lines.push(`Total: ${devices.length} available, ${booted.length} booted`);
 
   return textResponse(lines.join("\n"));
 }

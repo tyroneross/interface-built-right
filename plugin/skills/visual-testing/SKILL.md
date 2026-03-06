@@ -68,6 +68,31 @@ npx ibr session:screenshot <id>
 | List sessions | `npx ibr list` |
 | Web dashboard | `npx ibr serve` |
 
+## Native iOS/watchOS Validation
+
+For Swift/SwiftUI projects, use native IBR tools to validate simulator output:
+
+```bash
+# List available simulators
+npx ibr native:devices
+
+# Scan running simulator
+npx ibr native:scan "Apple Watch"
+
+# Baseline + compare
+npx ibr native:start "iPhone 16" --name "timer-screen"
+# ... make changes ...
+npx ibr native:check
+```
+
+Native scan checks:
+- Touch targets (44pt minimum, always enforced)
+- Accessibility labels on interactive elements
+- watchOS: max 7 interactive elements per screen
+- watchOS: no horizontal overflow beyond viewport
+
+MCP tools: `native_scan`, `native_snapshot`, `native_compare`, `native_devices`
+
 ## When to Use
 
 - Building UI from user descriptions
@@ -75,6 +100,7 @@ npx ibr session:screenshot <id>
 - Checking interactive elements are wired up
 - Validating accessibility requirements
 - Regression checking after modifying existing UI
+- **Native iOS/watchOS**: validating simulator output after `.swift` changes
 
 ## When NOT to Use
 
