@@ -1,7 +1,7 @@
 {
   "name": "ibr",
   "version": "0.4.9",
-  "description": "Design validation for Claude Code — verify UI matches user intent with structured CSS, layout, handler, and accessibility data",
+  "description": "UI validation — verify implementations match intent with live page scanning, visual regression, and native simulator checks",
   "author": {
     "name": "Tyrone Ross"
   },
