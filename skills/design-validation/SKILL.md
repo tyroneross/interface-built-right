@@ -1,13 +1,13 @@
 ---
-name: design-validation
-description: This skill activates when the user builds UI, edits .tsx/.jsx/.vue/.svelte/.css files, asks to "check my UI", "audit accessibility", "validate design", "verify implementation", "scan for UI issues", "compare against baseline", "visual regression", "check handlers", "find broken buttons", "review UX", or when any frontend work is in progress. Covers scanning, baseline capture, comparison, native validation, and design spec storage via IBR MCP tools.
+name: design-implementation
+description: This skill activates when the user builds UI, edits .tsx/.jsx/.vue/.svelte/.css files, asks to "check my UI", "audit accessibility", "see what is rendered", "read the page", "compare changes", "check handlers", "find broken buttons", "review UX", or when any frontend work is in progress. Covers scanning, reference capture, comparison, native validation, and design spec storage via IBR MCP tools.
 version: 0.5.0
 user-invocable: false
 ---
 
-# Design Validation with IBR
+# Design Implementation with IBR
 
-Validate that UI implementation matches user intent using structured data — computed CSS, handler wiring, accessibility, and page structure. This skill covers scanning, visual regression, native validation, and design spec auditing.
+Build UI with precision using structured data from live pages — computed CSS, handler wiring, accessibility, and page structure. This skill covers scanning, change tracking, native validation, and design spec auditing.
 
 ## When to Activate
 
@@ -42,9 +42,9 @@ After scanning, cross-reference results with what the user described:
 
 Fix mismatches and re-scan until implementation matches intent.
 
-## Visual Regression Workflow
+## Change Tracking Workflow
 
-Capture baseline BEFORE changes, compare AFTER.
+Capture a reference point BEFORE changes, compare AFTER to understand what changed.
 
 ### 1. Capture baseline
 
@@ -58,7 +58,7 @@ Edit components, styling, layout as needed.
 
 ### 3. Compare against baseline
 
-Use the `ibr compare` MCP tool to detect regressions.
+Use the `ibr compare` MCP tool to understand what changed.
 
 **Returns verdicts:**
 
@@ -132,6 +132,6 @@ Use the `ibr scan_macos` MCP tool to scan running macOS apps via accessibility t
 | Exact CSS values, handler wiring, a11y audit, console errors | `ibr scan` |
 | Visual coherence, rendering bugs, canvas/SVG | Screenshot |
 | Multi-step flows, file uploads, dialogs | Playwright or `/ibr:interactive-testing` |
-| Regression baselines | `ibr snapshot` + `ibr compare` |
+| Track visual changes | `ibr snapshot` + `ibr compare` |
 
-*ibr — design validation*
+*ibr — design implementation*

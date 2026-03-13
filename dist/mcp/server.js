@@ -1504,8 +1504,333 @@ var init_simulator = __esm({
   }
 });
 
+// src/static/parser.ts
+function parseStaticHTML(html) {
+  const elements = [];
+  const cleanHtml = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
+  const tagPattern = /<(\w+)([^>]*)>/g;
+  const matches = cleanHtml.matchAll(tagPattern);
+  for (const match of matches) {
+    const tagName = match[1].toLowerCase();
+    const attributesStr = match[2];
+    if (["script", "style", "meta", "link", "head"].includes(tagName)) {
+      continue;
+    }
+    const attrs = parseAttributes(attributesStr);
+    const textMatch = cleanHtml.slice(match.index + match[0].length).match(/^([^<]+)/);
+    const text = textMatch ? textMatch[1].trim() : void 0;
+    const id = attrs.id;
+    const className = attrs.class;
+    const selector = buildSelector(tagName, id, className);
+    const inlineStyles = attrs.style ? parseInlineStyle(attrs.style) : {};
+    const interactive = determineInteractivity(tagName, attrs);
+    const a11y = extractA11y(attrs);
+    const bounds = extractBoundsFromStyles(inlineStyles);
+    elements.push({
+      selector,
+      tagName,
+      id,
+      className,
+      text,
+      bounds,
+      computedStyles: inlineStyles,
+      interactive,
+      a11y,
+      sourceHint: { dataTestId: attrs["data-testid"] || null }
+    });
+  }
+  return elements;
+}
+function parseCSS(css) {
+  const rules = [];
+  const cleanCss = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutAtRules = cleanCss.replace(/@(?:media|keyframes)[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "");
+  const rulePattern = /([^{]+)\{([^}]+)\}/g;
+  const matches = withoutAtRules.matchAll(rulePattern);
+  for (const match of matches) {
+    const selectorsStr = match[1].trim();
+    const propertiesStr = match[2].trim();
+    const selectors = selectorsStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    const properties = parseProperties(propertiesStr);
+    for (const selector of selectors) {
+      rules.push({ selector, properties });
+    }
+  }
+  return rules;
+}
+function applyStyles(elements, rules) {
+  return elements.map((element) => {
+    const matchedStyles = { ...element.computedStyles };
+    for (const rule of rules) {
+      if (selectorMatches(rule.selector, element)) {
+        Object.assign(matchedStyles, rule.properties);
+      }
+    }
+    const bounds = { ...element.bounds };
+    if (matchedStyles.width) bounds.width = parseSizeValue(matchedStyles.width);
+    if (matchedStyles.height) bounds.height = parseSizeValue(matchedStyles.height);
+    if (matchedStyles["min-width"] && bounds.width === 0) {
+      bounds.width = parseSizeValue(matchedStyles["min-width"]);
+    }
+    if (matchedStyles["min-height"] && bounds.height === 0) {
+      bounds.height = parseSizeValue(matchedStyles["min-height"]);
+    }
+    return {
+      ...element,
+      computedStyles: matchedStyles,
+      bounds
+    };
+  });
+}
+function parseAttributes(attrStr) {
+  const attrs = {};
+  const attrPattern = /(\w+(?:-\w+)*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+  const matches = attrStr.matchAll(attrPattern);
+  for (const match of matches) {
+    const key = match[1];
+    const value = match[2] || match[3] || match[4] || "";
+    if (key) attrs[key] = value;
+  }
+  return attrs;
+}
+function parseInlineStyle(styleStr) {
+  const styles = {};
+  const declarations = styleStr.split(";").map((d) => d.trim()).filter((d) => d);
+  for (const decl of declarations) {
+    const colonIndex = decl.indexOf(":");
+    if (colonIndex === -1) continue;
+    const property = decl.slice(0, colonIndex).trim();
+    const value = decl.slice(colonIndex + 1).trim();
+    if (property) styles[property] = value;
+  }
+  return styles;
+}
+function parseProperties(propertiesStr) {
+  return parseInlineStyle(propertiesStr);
+}
+function buildSelector(tagName, id, className) {
+  let selector = tagName;
+  if (id) selector += `#${id}`;
+  if (className) {
+    const firstClass = className.split(/\s+/)[0];
+    selector += `.${firstClass}`;
+  }
+  return selector;
+}
+function determineInteractivity(tagName, attrs) {
+  const hasHref = "href" in attrs;
+  const hasOnClick = "onclick" in attrs;
+  const isDisabled = "disabled" in attrs;
+  const interactiveTags = ["button", "a", "input", "select", "textarea"];
+  const isInteractiveTag = interactiveTags.includes(tagName);
+  let handlerType = null;
+  if (hasOnClick) handlerType = "onclick";
+  else if (hasHref) handlerType = "href";
+  else if (attrs.type === "submit") handlerType = "submit";
+  const hasHandler = hasOnClick || hasHref || (tagName === "button" || attrs.type === "submit");
+  return {
+    hasOnClick: hasOnClick || tagName === "button",
+    hasHref,
+    isDisabled,
+    hasHandler,
+    handlerType
+  };
+}
+function extractA11y(attrs) {
+  return {
+    role: attrs.role || null,
+    ariaLabel: attrs["aria-label"] || null,
+    ariaHidden: attrs["aria-hidden"] === "true",
+    tabIndex: attrs.tabindex ? parseInt(attrs.tabindex, 10) : null
+  };
+}
+function extractBoundsFromStyles(styles) {
+  return {
+    x: 0,
+    y: 0,
+    width: parseSizeValue(styles.width) || 0,
+    height: parseSizeValue(styles.height) || 0
+  };
+}
+function parseSizeValue(value) {
+  if (!value) return 0;
+  const pxMatch = value.match(/^([\d.]+)px$/);
+  if (pxMatch) return parseFloat(pxMatch[1]);
+  if (value.endsWith("%")) return 0;
+  const numberMatch = value.match(/^([\d.]+)$/);
+  if (numberMatch) return parseFloat(numberMatch[1]);
+  return 0;
+}
+function selectorMatches(cssSelector, element) {
+  const trimmed = cssSelector.trim();
+  if (/^\w+$/.test(trimmed)) {
+    return element.tagName === trimmed;
+  }
+  if (/^#[\w-]+$/.test(trimmed)) {
+    const id = trimmed.slice(1);
+    return element.id === id;
+  }
+  if (/^\.[\w-]+$/.test(trimmed)) {
+    const className = trimmed.slice(1);
+    return element.className?.split(/\s+/).includes(className) || false;
+  }
+  const tagClassMatch = trimmed.match(/^(\w+)\.([\w-]+)$/);
+  if (tagClassMatch) {
+    const [, tag, className] = tagClassMatch;
+    return element.tagName === tag && element.className?.split(/\s+/).includes(className) || false;
+  }
+  const tagIdMatch = trimmed.match(/^(\w+)#([\w-]+)$/);
+  if (tagIdMatch) {
+    const [, tag, id] = tagIdMatch;
+    return element.tagName === tag && element.id === id;
+  }
+  return false;
+}
+var init_parser = __esm({
+  "src/static/parser.ts"() {
+    "use strict";
+  }
+});
+
+// src/static/scan.ts
+var scan_exports = {};
+__export(scan_exports, {
+  scanStatic: () => scanStatic
+});
+function scanStatic(options) {
+  const { htmlPath, cssPath } = options;
+  if (!(0, import_fs4.existsSync)(htmlPath)) {
+    throw new Error(`HTML file not found: ${htmlPath}`);
+  }
+  if (cssPath && !(0, import_fs4.existsSync)(cssPath)) {
+    throw new Error(`CSS file not found: ${cssPath}`);
+  }
+  const html = (0, import_fs4.readFileSync)(htmlPath, "utf-8");
+  let elements = parseStaticHTML(html);
+  if (cssPath) {
+    const css = (0, import_fs4.readFileSync)(cssPath, "utf-8");
+    const rules = parseCSS(css);
+    elements = applyStyles(elements, rules);
+  }
+  const issues = runAudits(elements);
+  const totalElements = elements.length;
+  const interactiveCount = elements.filter((e) => e.interactive.hasOnClick || e.interactive.hasHref).length;
+  const withHandlers = elements.filter((e) => e.interactive.hasHandler).length;
+  const withoutHandlers = interactiveCount - withHandlers;
+  const auditIssues = issues.map((i) => ({
+    type: i.category.toUpperCase().replace(/\s+/g, "_"),
+    severity: i.severity,
+    message: i.description
+  }));
+  const errors = issues.filter((i) => i.severity === "error");
+  const warnings = issues.filter((i) => i.severity === "warning");
+  const verdict = errors.length > 0 ? "FAIL" : warnings.length > 0 ? "ISSUES" : "PASS";
+  const summary = generateSummary3(totalElements, interactiveCount, errors.length, warnings.length);
+  return {
+    htmlPath,
+    cssPath,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    elements: {
+      all: elements,
+      audit: {
+        totalElements,
+        interactiveCount,
+        withHandlers,
+        withoutHandlers,
+        issues: auditIssues
+      }
+    },
+    verdict,
+    issues,
+    summary
+  };
+}
+function runAudits(elements) {
+  const issues = [];
+  for (const element of elements) {
+    if (element.interactive.hasOnClick || element.interactive.hasHref) {
+      const { width, height } = element.bounds;
+      if (width > 0 && height > 0 && (width < 44 || height < 44)) {
+        issues.push({
+          category: "Touch Target",
+          severity: "warning",
+          description: `${element.selector} is ${width}x${height}px (min 44x44px for mobile)`,
+          fix: `Set min-width: 44px; min-height: 44px;`
+        });
+      }
+    }
+    if ((element.interactive.hasOnClick || element.interactive.hasHref) && !element.a11y.ariaLabel && !element.text) {
+      issues.push({
+        category: "Accessibility",
+        severity: "error",
+        description: `${element.selector} has no accessible label (no aria-label or text content)`,
+        fix: `Add aria-label="..." or text content`
+      });
+    }
+    if (element.interactive.hasHref && element.tagName === "a") {
+      const href = element.computedStyles.href;
+      if (href === "#" && !element.interactive.hasOnClick) {
+        issues.push({
+          category: "Interactivity",
+          severity: "warning",
+          description: `${element.selector} has href="#" without handler (placeholder link)`,
+          fix: `Add onClick handler or use a real href`
+        });
+      }
+    }
+    if (element.interactive.isDisabled) {
+      const opacity = element.computedStyles.opacity;
+      const cursor = element.computedStyles.cursor;
+      if (opacity !== "0.5" && cursor !== "not-allowed") {
+        issues.push({
+          category: "Visual Feedback",
+          severity: "info",
+          description: `${element.selector} is disabled but has no visual indication`,
+          fix: `Set opacity: 0.5; cursor: not-allowed;`
+        });
+      }
+    }
+    if (element.a11y.ariaHidden && (element.interactive.hasOnClick || element.interactive.hasHref)) {
+      issues.push({
+        category: "Accessibility",
+        severity: "error",
+        description: `${element.selector} is interactive but aria-hidden="true"`,
+        fix: `Remove aria-hidden or remove interactivity`
+      });
+    }
+  }
+  return issues;
+}
+function generateSummary3(totalElements, interactiveCount, errors, warnings) {
+  const parts = [];
+  parts.push(`Scanned ${totalElements} elements`);
+  parts.push(`${interactiveCount} interactive`);
+  if (errors > 0) {
+    parts.push(`${errors} error${errors === 1 ? "" : "s"}`);
+  }
+  if (warnings > 0) {
+    parts.push(`${warnings} warning${warnings === 1 ? "" : "s"}`);
+  }
+  if (errors === 0 && warnings === 0) {
+    parts.push("no issues found");
+  }
+  return parts.join(", ") + ".";
+}
+var import_fs4;
+var init_scan = __esm({
+  "src/static/scan.ts"() {
+    "use strict";
+    import_fs4 = require("fs");
+    init_parser();
+  }
+});
+
 // src/mcp/server.ts
 var import_readline = require("readline");
+
+// src/mcp/tools.ts
+var import_fs5 = require("fs");
+var import_path13 = require("path");
 
 // src/scan.ts
 var import_playwright2 = require("playwright");
@@ -2858,7 +3183,8 @@ async function captureScreenshot(options) {
     timeout = 3e4,
     outputDir,
     selector,
-    waitFor
+    waitFor,
+    delay
   } = options;
   await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
   let storageState;
@@ -2889,7 +3215,7 @@ async function captureScreenshot(options) {
     if (waitFor) {
       await page.waitForSelector(waitFor, { timeout });
     }
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(delay ?? 500);
     await applyMasking(page, options.mask);
     if (selector) {
       const element = await page.waitForSelector(selector, { timeout: 5e3 });
@@ -3683,6 +4009,135 @@ var CompactionResultSchema = import_zod2.z.object({
 // src/context/compact.ts
 var import_nanoid5 = require("nanoid");
 
+// src/tokens.ts
+var import_fs = require("fs");
+function loadTokenSpec(specPath) {
+  if (!(0, import_fs.existsSync)(specPath)) {
+    throw new Error(`Token spec not found: ${specPath}`);
+  }
+  let spec;
+  try {
+    const content = (0, import_fs.readFileSync)(specPath, "utf-8");
+    spec = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
+  }
+  const { tokens } = spec;
+  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
+  if (!hasAnyTokens) {
+    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
+  }
+  return spec;
+}
+function normalizeColor(color) {
+  if (!color) return "";
+  if (color.startsWith("#")) {
+    return color.toLowerCase();
+  }
+  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  return color.toLowerCase();
+}
+function parsePx(value) {
+  if (!value) return null;
+  const match = value.match(/^([\d.]+)px$/);
+  return match ? parseFloat(match[1]) : null;
+}
+function validateAgainstTokens(elements, spec) {
+  const violations = [];
+  for (const element of elements) {
+    const selector = element.selector || element.tagName || "unknown";
+    const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
+    if (spec.tokens.touchTargets && isInteractive) {
+      const minSize = spec.tokens.touchTargets.min;
+      const actualSize = Math.min(element.bounds.width, element.bounds.height);
+      if (actualSize < minSize) {
+        violations.push({
+          element: selector,
+          property: "touch-target",
+          expected: minSize,
+          actual: actualSize,
+          severity: "error",
+          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
+        });
+      }
+    }
+    if (spec.tokens.fontSizes && element.computedStyles) {
+      const fontSize = parsePx(element.computedStyles["font-size"]);
+      if (fontSize !== null) {
+        const tokenValues = Object.values(spec.tokens.fontSizes);
+        const isTokenValue = tokenValues.includes(fontSize);
+        if (!isTokenValue) {
+          violations.push({
+            element: selector,
+            property: "font-size",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: fontSize,
+            severity: "warning",
+            message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+    if (spec.tokens.colors && element.computedStyles) {
+      const tokenColors = new Set(
+        Object.values(spec.tokens.colors).map(normalizeColor)
+      );
+      const textColor = element.computedStyles["color"];
+      if (textColor) {
+        const normalized = normalizeColor(textColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: textColor,
+            severity: "warning",
+            message: `Non-token text color: ${textColor} (${selector})`
+          });
+        }
+      }
+      const bgColor = element.computedStyles["background-color"];
+      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
+        const normalized = normalizeColor(bgColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: bgColor,
+            severity: "warning",
+            message: `Non-token background color: ${bgColor} (${selector})`
+          });
+        }
+      }
+    }
+    if (spec.tokens.cornerRadius && element.computedStyles) {
+      const borderRadius = parsePx(element.computedStyles["border-radius"]);
+      if (borderRadius !== null && borderRadius > 0) {
+        const tokenValues = Object.values(spec.tokens.cornerRadius);
+        const isTokenValue = tokenValues.includes(borderRadius);
+        if (!isTokenValue) {
+          violations.push({
+            element: selector,
+            property: "corner-radius",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: borderRadius,
+            severity: "warning",
+            message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+  }
+  return violations;
+}
+
 // src/native/viewports.ts
 var NATIVE_VIEWPORTS = {
   // iPhone 16 series
@@ -3764,15 +4219,98 @@ async function captureNativeScreenshot(options) {
 // src/native/extract.ts
 var import_child_process4 = require("child_process");
 var import_util3 = require("util");
-var import_fs = require("fs");
+var import_fs2 = require("fs");
 var import_promises8 = require("fs/promises");
 var import_path8 = require("path");
+
+// src/native/role-map.ts
+var TAG_MAP = {
+  "AXButton": "button",
+  "AXLink": "a",
+  "AXTextField": "input",
+  "AXTextArea": "textarea",
+  "AXSecureTextField": "input",
+  "AXStaticText": "span",
+  "AXImage": "img",
+  "AXGroup": "div",
+  "AXSplitGroup": "div",
+  "AXList": "ul",
+  "AXCell": "li",
+  "AXTable": "table",
+  "AXScrollArea": "div",
+  "AXToolbar": "nav",
+  "AXMenuBar": "nav",
+  "AXMenu": "nav",
+  "AXMenuItem": "li",
+  "AXCheckBox": "input",
+  "AXRadioButton": "input",
+  "AXSlider": "input",
+  "AXSwitch": "input",
+  "AXPopUpButton": "select",
+  "AXComboBox": "select",
+  "AXTabGroup": "div",
+  "AXTab": "button",
+  "AXNavigationBar": "nav",
+  "AXHeader": "header",
+  "AXWindow": "main"
+};
+var ARIA_MAP = {
+  "AXButton": "button",
+  "AXLink": "link",
+  "AXTextField": "textbox",
+  "AXTextArea": "textbox",
+  "AXSecureTextField": "textbox",
+  "AXStaticText": "text",
+  "AXImage": "img",
+  "AXGroup": "group",
+  "AXList": "list",
+  "AXCell": "listitem",
+  "AXTable": "table",
+  "AXCheckBox": "checkbox",
+  "AXRadioButton": "radio",
+  "AXSlider": "slider",
+  "AXSwitch": "switch",
+  "AXTab": "tab",
+  "AXTabGroup": "tablist",
+  "AXNavigationBar": "navigation",
+  "AXToolbar": "toolbar",
+  "AXMenuItem": "menuitem",
+  "AXMenu": "menu",
+  "AXScrollArea": "scrollbar",
+  "AXWindow": "main"
+};
+var INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+  "AXButton",
+  "AXLink",
+  "AXTextField",
+  "AXTextArea",
+  "AXSecureTextField",
+  "AXCheckBox",
+  "AXRadioButton",
+  "AXSlider",
+  "AXSwitch",
+  "AXPopUpButton",
+  "AXComboBox",
+  "AXMenuItem",
+  "AXTab"
+]);
+function mapRoleToTag(role) {
+  return TAG_MAP[role] || role.replace(/^AX/, "").toLowerCase();
+}
+function mapRoleToAriaRole(role) {
+  return ARIA_MAP[role] || null;
+}
+function isInteractiveRole(role) {
+  return INTERACTIVE_ROLES.has(role);
+}
+
+// src/native/extract.ts
 var execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
 var EXTRACTOR_DIR = (0, import_path8.join)(process.cwd(), ".ibr", "bin");
 var EXTRACTOR_PATH = (0, import_path8.join)(EXTRACTOR_DIR, "ibr-ax-extract");
 var SWIFT_SOURCE_DIR = (0, import_path8.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
 async function ensureExtractor() {
-  if ((0, import_fs.existsSync)(EXTRACTOR_PATH)) {
+  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
   await (0, import_promises8.mkdir)(EXTRACTOR_DIR, { recursive: true });
@@ -3783,7 +4321,7 @@ async function ensureExtractor() {
       // 2 minutes for first compile
     });
     const buildPath = (0, import_path8.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs.existsSync)(buildPath)) {
+    if (!(0, import_fs2.existsSync)(buildPath)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
     await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
@@ -3796,8 +4334,8 @@ async function ensureExtractor() {
   }
 }
 function isExtractorAvailable() {
-  if ((0, import_fs.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs.existsSync)((0, import_path8.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs2.existsSync)((0, import_path8.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -3856,78 +4394,6 @@ function mapToEnhancedElements(nativeElements) {
   }
   flatten(nativeElements);
   return enhanced;
-}
-function mapRoleToTag(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "a",
-    "AXTextField": "input",
-    "AXTextArea": "textarea",
-    "AXStaticText": "span",
-    "AXImage": "img",
-    "AXGroup": "div",
-    "AXList": "ul",
-    "AXCell": "li",
-    "AXTable": "table",
-    "AXScrollArea": "div",
-    "AXToolbar": "nav",
-    "AXMenuBar": "nav",
-    "AXMenu": "menu",
-    "AXMenuItem": "li",
-    "AXCheckBox": "input",
-    "AXRadioButton": "input",
-    "AXSlider": "input",
-    "AXSwitch": "input",
-    "AXPopUpButton": "select",
-    "AXComboBox": "select",
-    "AXTabGroup": "div",
-    "AXTab": "button",
-    "AXNavigationBar": "nav",
-    "AXHeader": "header"
-  };
-  return roleMap[role] || "div";
-}
-function mapRoleToAriaRole(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "link",
-    "AXTextField": "textbox",
-    "AXTextArea": "textbox",
-    "AXStaticText": "text",
-    "AXImage": "img",
-    "AXGroup": "group",
-    "AXList": "list",
-    "AXCell": "listitem",
-    "AXTable": "table",
-    "AXCheckBox": "checkbox",
-    "AXRadioButton": "radio",
-    "AXSlider": "slider",
-    "AXSwitch": "switch",
-    "AXTab": "tab",
-    "AXTabGroup": "tablist",
-    "AXNavigationBar": "navigation",
-    "AXToolbar": "toolbar",
-    "AXMenuItem": "menuitem",
-    "AXMenu": "menu"
-  };
-  return roleMap[role] || null;
-}
-function isInteractiveRole(role) {
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "AXButton",
-    "AXLink",
-    "AXTextField",
-    "AXTextArea",
-    "AXCheckBox",
-    "AXRadioButton",
-    "AXSlider",
-    "AXSwitch",
-    "AXPopUpButton",
-    "AXComboBox",
-    "AXMenuItem",
-    "AXTab"
-  ]);
-  return interactiveRoles.has(role);
 }
 
 // src/native/rules.ts
@@ -4071,8 +4537,8 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
       const roleCount = roleCounts[el.role] || 0;
       roleCounts[el.role] = roleCount + 1;
       const currentPath = path ? `${path} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
-      const tagName = mapRoleToTag2(el.role);
-      const isInteractive = isInteractiveRole2(el.role) && el.enabled;
+      const tagName = mapRoleToTag(el.role);
+      const isInteractive = isInteractiveRole(el.role) && el.enabled;
       const hasPress = el.actions.includes("AXPress");
       const text = el.title || el.description || el.value || void 0;
       const bounds = {
@@ -4096,7 +4562,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
             cursor: isInteractive ? "pointer" : "default"
           },
           a11y: {
-            role: mapRoleToAriaRole2(el.role),
+            role: mapRoleToAriaRole(el.role),
             ariaLabel: el.title || el.description || null,
             ariaDescribedBy: null
           },
@@ -4116,85 +4582,6 @@ async function captureMacOSScreenshot(windowId, outputPath) {
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
-}
-function mapRoleToTag2(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "a",
-    "AXTextField": "input",
-    "AXTextArea": "textarea",
-    "AXSecureTextField": "input",
-    "AXStaticText": "span",
-    "AXImage": "img",
-    "AXGroup": "div",
-    "AXSplitGroup": "div",
-    "AXList": "ul",
-    "AXCell": "li",
-    "AXTable": "table",
-    "AXScrollArea": "div",
-    "AXToolbar": "nav",
-    "AXMenuBar": "nav",
-    "AXMenu": "nav",
-    "AXMenuItem": "li",
-    "AXCheckBox": "input",
-    "AXRadioButton": "input",
-    "AXSlider": "input",
-    "AXSwitch": "input",
-    "AXPopUpButton": "select",
-    "AXComboBox": "select",
-    "AXTabGroup": "div",
-    "AXTab": "button",
-    "AXNavigationBar": "nav",
-    "AXHeader": "header",
-    "AXWindow": "main"
-  };
-  return roleMap[role] || role.replace(/^AX/, "").toLowerCase();
-}
-function mapRoleToAriaRole2(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "link",
-    "AXTextField": "textbox",
-    "AXTextArea": "textbox",
-    "AXSecureTextField": "textbox",
-    "AXStaticText": "text",
-    "AXImage": "img",
-    "AXGroup": "group",
-    "AXList": "list",
-    "AXCell": "listitem",
-    "AXTable": "table",
-    "AXCheckBox": "checkbox",
-    "AXRadioButton": "radio",
-    "AXSlider": "slider",
-    "AXSwitch": "switch",
-    "AXTab": "tab",
-    "AXTabGroup": "tablist",
-    "AXNavigationBar": "navigation",
-    "AXToolbar": "toolbar",
-    "AXMenuItem": "menuitem",
-    "AXMenu": "menu",
-    "AXScrollArea": "scrollbar",
-    "AXWindow": "main"
-  };
-  return roleMap[role] || null;
-}
-function isInteractiveRole2(role) {
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "AXButton",
-    "AXLink",
-    "AXTextField",
-    "AXTextArea",
-    "AXSecureTextField",
-    "AXCheckBox",
-    "AXRadioButton",
-    "AXSlider",
-    "AXSwitch",
-    "AXPopUpButton",
-    "AXComboBox",
-    "AXMenuItem",
-    "AXTab"
-  ]);
-  return interactiveRoles.has(role);
 }
 
 // src/native/interactivity.ts
@@ -5030,11 +5417,330 @@ var IBRSession = class {
 
 // src/mcp/tools.ts
 init_session();
+init_schemas();
+
+// src/native/bridge.ts
+var import_fs3 = require("fs");
+var import_path12 = require("path");
+function findSwiftFiles(dir, rootDir) {
+  const SKIP_DIRS = /* @__PURE__ */ new Set([
+    "node_modules",
+    ".build",
+    "DerivedData",
+    "Pods",
+    ".git",
+    "build",
+    "Build",
+    ".swiftpm"
+  ]);
+  const results = [];
+  function walk(currentDir) {
+    let entries;
+    try {
+      entries = (0, import_fs3.readdirSync)(currentDir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (SKIP_DIRS.has(entry)) continue;
+      const fullPath = (0, import_path12.join)(currentDir, entry);
+      let stat2;
+      try {
+        stat2 = (0, import_fs3.statSync)(fullPath);
+      } catch {
+        continue;
+      }
+      if (stat2.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.endsWith(".swift")) {
+        results.push((0, import_path12.relative)(rootDir, fullPath));
+      }
+    }
+  }
+  walk(dir);
+  return results;
+}
+function scanSwiftSources(projectRoot, swiftFiles) {
+  const matches = [];
+  const IDENTIFIER_RE = /\.accessibilityIdentifier\(\s*"([^"]+)"\s*\)/g;
+  const LABEL_RE = /\.accessibilityLabel\(\s*"([^"]+)"\s*\)/g;
+  const BUTTON_TEXT_RE = /Button\(\s*"([^"]+)"/g;
+  const LABEL_TEXT_RE = /Label\(\s*"([^"]+)"/g;
+  const TEXT_RE = /Text\(\s*"([^"]+)"/g;
+  const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
+  for (const filePath of swiftFiles) {
+    const fullPath = (0, import_path12.join)(projectRoot, filePath);
+    let content;
+    try {
+      content = (0, import_fs3.readFileSync)(fullPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const lines = content.split("\n");
+    let currentViewName = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineNum = i + 1;
+      const viewMatch = VIEW_STRUCT_RE.exec(line);
+      if (viewMatch) {
+        currentViewName = viewMatch[1];
+        VIEW_STRUCT_RE.lastIndex = 0;
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "view-name",
+          value: currentViewName,
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      IDENTIFIER_RE.lastIndex = 0;
+      LABEL_RE.lastIndex = 0;
+      BUTTON_TEXT_RE.lastIndex = 0;
+      LABEL_TEXT_RE.lastIndex = 0;
+      TEXT_RE.lastIndex = 0;
+      let m;
+      while ((m = IDENTIFIER_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "identifier",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = LABEL_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "label",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = BUTTON_TEXT_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "text",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = LABEL_TEXT_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "text",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = TEXT_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "text",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+    }
+  }
+  return matches;
+}
+var NAVGATOR_PATHS = [
+  (0, import_path12.join)(".navgator", "architecture"),
+  (0, import_path12.join)(".claude", "architecture")
+  // legacy — NavGator < 0.3
+];
+function loadNavGatorFileMap(projectRoot) {
+  for (const navPath of NAVGATOR_PATHS) {
+    const fileMapPath = (0, import_path12.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs3.existsSync)(fileMapPath)) continue;
+    try {
+      const content = (0, import_fs3.readFileSync)(fileMapPath, "utf-8");
+      const parsed = JSON.parse(content);
+      return parsed.files || null;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+var CONFIDENCE = {
+  "identifier": 1,
+  "label": 0.8,
+  "text": 0.6,
+  "view-name": 0.5
+};
+function correlateToSource(elements, projectRoot) {
+  const navFileMap = loadNavGatorFileMap(projectRoot);
+  const navgatorAvailable = navFileMap !== null;
+  let swiftFiles;
+  if (navFileMap) {
+    swiftFiles = Object.keys(navFileMap).filter((f) => f.endsWith(".swift"));
+    const globbed = findSwiftFiles(projectRoot, projectRoot);
+    const fileSet = new Set(swiftFiles);
+    for (const f of globbed) {
+      if (!fileSet.has(f)) swiftFiles.push(f);
+    }
+  } else {
+    swiftFiles = findSwiftFiles(projectRoot, projectRoot);
+  }
+  const sourceMatches = scanSwiftSources(projectRoot, swiftFiles);
+  const byIdentifier = /* @__PURE__ */ new Map();
+  const byLabel = /* @__PURE__ */ new Map();
+  const byText = /* @__PURE__ */ new Map();
+  const byViewName = /* @__PURE__ */ new Map();
+  for (const match of sourceMatches) {
+    const key = match.value.toLowerCase();
+    switch (match.type) {
+      case "identifier": {
+        if (!byIdentifier.has(key)) byIdentifier.set(key, []);
+        byIdentifier.get(key).push(match);
+        break;
+      }
+      case "label": {
+        if (!byLabel.has(key)) byLabel.set(key, []);
+        byLabel.get(key).push(match);
+        break;
+      }
+      case "text": {
+        if (!byText.has(key)) byText.set(key, []);
+        byText.get(key).push(match);
+        break;
+      }
+      case "view-name": {
+        if (!byViewName.has(key)) byViewName.set(key, []);
+        byViewName.get(key).push(match);
+        break;
+      }
+    }
+  }
+  const correlations = [];
+  const unmatchedElements = [];
+  const matchedIds = /* @__PURE__ */ new Set();
+  for (const el of elements) {
+    const elId = el.selector || el.id || "";
+    const elLabel = el.a11y?.ariaLabel || "";
+    const elText = el.text || "";
+    const elRole = el.a11y?.role || "";
+    if (matchedIds.has(elId) && elId) continue;
+    let bestMatch = null;
+    const testId = el.sourceHint?.dataTestId;
+    if (testId) {
+      const idMatches = byIdentifier.get(testId.toLowerCase());
+      if (idMatches && idMatches.length > 0) {
+        bestMatch = { source: idMatches[0], type: "identifier" };
+      }
+    }
+    if (!bestMatch && el.id) {
+      const idMatches = byIdentifier.get(el.id.toLowerCase());
+      if (idMatches && idMatches.length > 0) {
+        bestMatch = { source: idMatches[0], type: "identifier" };
+      }
+    }
+    if (!bestMatch && elLabel) {
+      const labelMatches = byLabel.get(elLabel.toLowerCase());
+      if (labelMatches && labelMatches.length > 0) {
+        bestMatch = { source: labelMatches[0], type: "label" };
+      }
+    }
+    if (!bestMatch && elText && elText.length >= 2 && elText.length <= 100) {
+      const textMatches = byText.get(elText.toLowerCase());
+      if (textMatches && textMatches.length > 0) {
+        bestMatch = { source: textMatches[0], type: "text" };
+      }
+    }
+    if (!bestMatch && elId) {
+      const elIdLower = elId.toLowerCase();
+      for (const [viewKey, viewMatches] of byViewName) {
+        if (elIdLower.includes(viewKey) && viewMatches.length > 0) {
+          bestMatch = { source: viewMatches[0], type: "view-name" };
+          break;
+        }
+      }
+    }
+    if (bestMatch) {
+      if (elId) matchedIds.add(elId);
+      correlations.push({
+        elementSelector: elId || elLabel || elText || "(unknown)",
+        elementLabel: elLabel || elText || elRole || elId || "",
+        sourceFile: bestMatch.source.file,
+        sourceLine: bestMatch.source.line,
+        viewName: bestMatch.source.viewName,
+        matchedSnippet: bestMatch.source.snippet,
+        matchType: bestMatch.type,
+        confidence: CONFIDENCE[bestMatch.type]
+      });
+    } else {
+      const desc = elLabel || elText || elId;
+      if (desc && desc.length > 1) {
+        unmatchedElements.push(desc);
+      }
+    }
+  }
+  correlations.sort((a, b) => b.confidence - a.confidence || a.sourceFile.localeCompare(b.sourceFile));
+  return {
+    projectRoot,
+    navgatorAvailable,
+    swiftFilesScanned: swiftFiles.length,
+    correlations,
+    unmatchedElements
+  };
+}
+function formatBridgeResult(result) {
+  const lines = [];
+  lines.push(`Source Bridge: ${result.projectRoot}`);
+  lines.push(`NavGator data: ${result.navgatorAvailable ? "available" : "not found (used file glob)"}`);
+  lines.push(`Swift files scanned: ${result.swiftFilesScanned}`);
+  lines.push(`Correlations: ${result.correlations.length}`);
+  lines.push(`Unmatched elements: ${result.unmatchedElements.length}`);
+  if (result.correlations.length > 0) {
+    lines.push("");
+    lines.push("Matched elements:");
+    for (const c of result.correlations) {
+      const conf = `${Math.round(c.confidence * 100)}%`;
+      const view = c.viewName ? ` (in ${c.viewName})` : "";
+      lines.push(`- ${c.elementSelector}`);
+      lines.push(`  \u2192 ${c.sourceFile}:${c.sourceLine}${view} [${c.matchType}, ${conf}]`);
+      lines.push(`  snippet: ${c.matchedSnippet.slice(0, 120)}`);
+    }
+  }
+  if (result.unmatchedElements.length > 0) {
+    lines.push("");
+    const maxUnmatched = Math.min(result.unmatchedElements.length, 15);
+    lines.push(`Unmatched (${result.unmatchedElements.length}):`);
+    for (let i = 0; i < maxUnmatched; i++) {
+      lines.push(`- ${result.unmatchedElements[i]}`);
+    }
+    if (result.unmatchedElements.length > 15) {
+      lines.push(`  ... and ${result.unmatchedElements.length - 15} more`);
+    }
+  }
+  return lines.join("\n");
+}
+
+// src/mcp/tools.ts
 function textResponse(text) {
   return { content: [{ type: "text", text }] };
 }
 function errorResponse(text) {
   return { content: [{ type: "text", text }], isError: true };
+}
+function imageResponse(base64, metadata) {
+  return {
+    content: [
+      { type: "image", data: base64, mimeType: "image/png" },
+      { type: "text", text: metadata }
+    ]
+  };
 }
 var TOOLS = [
   {
@@ -5122,6 +5828,78 @@ var TOOLS = [
     annotations: {
       title: "List Sessions",
       readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  // --- Screenshot & reference tools ---
+  {
+    name: "screenshot",
+    description: "Navigate to any URL and capture a screenshot that Claude can see. Returns the image as a base64 content block. Use for viewing external design sites (Mobbin, Dribbble, etc.), capturing UI state visually, or saving design references. For structured data (CSS, handlers, a11y), use 'scan' instead.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to capture (localhost or external)"
+        },
+        viewport: {
+          type: "string",
+          enum: ["desktop", "mobile", "tablet"],
+          description: "Viewport preset (default: desktop)"
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector to capture a specific element instead of full page"
+        },
+        full_page: {
+          type: "boolean",
+          description: "Capture full scrollable page (default: false \u2014 viewport only)"
+        },
+        wait_for: {
+          type: "string",
+          description: "CSS selector to wait for before capturing"
+        },
+        delay: {
+          type: "number",
+          description: "Extra ms to wait after page load (default: 2000 for external sites, 500 for localhost)"
+        },
+        save_as: {
+          type: "string",
+          description: "Save to reference library as this name (e.g. 'mobbin-login'). Stored in .ibr/references/"
+        }
+      },
+      required: ["url"]
+    },
+    annotations: {
+      title: "Screenshot",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "references",
+    description: "Manage the design reference library. List saved references, show a specific reference image (returned as base64 so Claude can see it), or delete a reference.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "show", "delete"],
+          description: "Action to perform (default: list)"
+        },
+        name: {
+          type: "string",
+          description: "Reference name \u2014 required for show and delete"
+        }
+      }
+    },
+    annotations: {
+      title: "Design References",
+      readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false
@@ -5253,6 +6031,88 @@ var TOOLS = [
       idempotentHint: true,
       openWorldHint: false
     }
+  },
+  {
+    name: "validate_tokens",
+    description: "Validate UI elements against a design token specification. Checks touch targets, font sizes, colors, spacing, and corner radius against the token values defined in .ibr/tokens.json or a custom spec file.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to scan and validate (web URL or simulator URL)"
+        },
+        device: {
+          type: "string",
+          description: "Simulator device to scan (alternative to url, for native apps)"
+        },
+        spec_path: {
+          type: "string",
+          description: "Path to token spec JSON file (default: .ibr/tokens.json)"
+        }
+      }
+    },
+    annotations: {
+      title: "Validate Design Tokens",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "scan_static",
+    description: "Scan HTML and CSS files without launching a browser. Useful for email templates, SSR output, or design system components. Checks structure, accessibility attributes, touch targets, and content \u2014 without handler detection or computed cascade styles.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        html_path: {
+          type: "string",
+          description: "Path to the HTML file to scan"
+        },
+        css_path: {
+          type: "string",
+          description: "Optional path to CSS file to apply"
+        }
+      },
+      required: ["html_path"]
+    },
+    annotations: {
+      title: "Static HTML/CSS Scan",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  {
+    name: "bridge_to_source",
+    description: "Correlate runtime UI elements from a native simulator scan to their Swift source code locations. Matches AX identifiers, labels, and button text to .accessibilityIdentifier(), .accessibilityLabel(), Button(), and View struct declarations. Uses NavGator architecture data if available, falls back to direct file scanning.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        device: {
+          type: "string",
+          description: "Simulator device to scan (name fragment or UDID). Uses first booted device if omitted."
+        },
+        project_root: {
+          type: "string",
+          description: "Absolute path to the Swift project root. Required \u2014 bridge needs source files to correlate against."
+        },
+        app: {
+          type: "string",
+          description: "macOS app name to scan instead of simulator (e.g. 'FlowDoro'). Alternative to device."
+        }
+      },
+      required: ["project_root"]
+    },
+    annotations: {
+      title: "Bridge AX Elements to Source",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
   }
 ];
 var DEFAULT_OUTPUT_DIR = ".ibr";
@@ -5267,6 +6127,10 @@ async function handleToolCall(name, args) {
         return await handleCompare(args);
       case "list_sessions":
         return await handleListSessions();
+      case "screenshot":
+        return await handleScreenshot(args);
+      case "references":
+        return await handleReferences(args);
       case "scan_macos":
         return await handleScanMacOS(args);
       case "native_scan":
@@ -5277,6 +6141,12 @@ async function handleToolCall(name, args) {
         return await handleNativeCompare(args);
       case "native_devices":
         return await handleNativeDevices(args);
+      case "validate_tokens":
+        return await handleValidateTokens(args);
+      case "scan_static":
+        return await handleScanStatic(args);
+      case "bridge_to_source":
+        return await handleBridgeToSource(args);
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }
@@ -5429,6 +6299,146 @@ async function handleListSessions() {
     `Total: ${stats.total} | By status: ${Object.entries(stats.byStatus).map(([k, v]) => `${k}: ${v}`).join(", ")}`
   );
   return textResponse(lines.join("\n"));
+}
+var REFERENCES_DIR = (0, import_path13.join)(DEFAULT_OUTPUT_DIR, "references");
+var REFERENCES_INDEX = (0, import_path13.join)(REFERENCES_DIR, "index.json");
+function readReferencesIndex() {
+  if (!(0, import_fs5.existsSync)(REFERENCES_INDEX)) {
+    return { references: [] };
+  }
+  return JSON.parse((0, import_fs5.readFileSync)(REFERENCES_INDEX, "utf-8"));
+}
+function writeReferencesIndex(index) {
+  (0, import_fs5.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs5.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+}
+async function handleScreenshot(args) {
+  const url = args.url;
+  if (!url) {
+    return errorResponse("The 'url' parameter is required.");
+  }
+  const viewportName = args.viewport || "desktop";
+  const viewport = VIEWPORTS[viewportName] || VIEWPORTS.desktop;
+  const selector = args.selector;
+  const fullPage = args.full_page ?? false;
+  const waitFor = args.wait_for;
+  const saveAs = args.save_as;
+  const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
+  const delay = args.delay ?? (isExternal ? 2e3 : 500);
+  const timestamp = Date.now();
+  const screenshotsDir = (0, import_path13.join)(DEFAULT_OUTPUT_DIR, "screenshots");
+  (0, import_fs5.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path13.join)(screenshotsDir, `capture-${timestamp}.png`);
+  await captureScreenshot({
+    url,
+    outputPath: tempPath,
+    viewport,
+    fullPage,
+    waitForNetworkIdle: true,
+    timeout: isExternal ? 6e4 : 3e4,
+    selector,
+    waitFor,
+    delay
+  });
+  const imageBuffer = (0, import_fs5.readFileSync)(tempPath);
+  const base64 = imageBuffer.toString("base64");
+  const fileSize = imageBuffer.length;
+  let savedPath = "not saved";
+  if (saveAs) {
+    (0, import_fs5.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path13.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs5.writeFileSync)(refPath, imageBuffer);
+    savedPath = refPath;
+    const index = readReferencesIndex();
+    index.references = index.references.filter((r) => r.name !== saveAs);
+    index.references.push({
+      name: saveAs,
+      url,
+      viewport: { name: viewport.name, width: viewport.width, height: viewport.height },
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      path: `${saveAs}.png`,
+      fileSize
+    });
+    writeReferencesIndex(index);
+  }
+  const metadata = [
+    `Screenshot: ${url}`,
+    `Viewport: ${viewport.name} (${viewport.width}x${viewport.height})`,
+    `Full page: ${fullPage}`,
+    `Size: ${(fileSize / 1024).toFixed(1)} KB`,
+    saveAs ? `Saved as: ${saveAs} (${savedPath})` : "Not saved to references"
+  ].join("\n");
+  return imageResponse(base64, metadata);
+}
+async function handleReferences(args) {
+  const action = args.action || "list";
+  const name = args.name;
+  switch (action) {
+    case "list": {
+      const index = readReferencesIndex();
+      if (index.references.length === 0) {
+        return textResponse(
+          "No design references saved. Use the 'screenshot' tool with save_as to save references."
+        );
+      }
+      const lines = [`Design References (${index.references.length}):`];
+      for (const ref of index.references) {
+        const date = ref.capturedAt.replace("T", " ").slice(0, 19);
+        const size = (ref.fileSize / 1024).toFixed(1);
+        lines.push(
+          `- ${ref.name} | ${ref.url} | ${ref.viewport.name} (${ref.viewport.width}x${ref.viewport.height}) | ${date} | ${size} KB`
+        );
+      }
+      return textResponse(lines.join("\n"));
+    }
+    case "show": {
+      if (!name) {
+        return errorResponse("The 'name' parameter is required for action 'show'.");
+      }
+      const index = readReferencesIndex();
+      const ref = index.references.find((r) => r.name === name);
+      if (!ref) {
+        return errorResponse(
+          `Reference "${name}" not found. Use action 'list' to see available references.`
+        );
+      }
+      const refPath = (0, import_path13.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs5.existsSync)(refPath)) {
+        return errorResponse(`Reference file missing: ${refPath}`);
+      }
+      const imageBuffer = (0, import_fs5.readFileSync)(refPath);
+      const base64 = imageBuffer.toString("base64");
+      const metadata = [
+        `Reference: ${ref.name}`,
+        `URL: ${ref.url}`,
+        `Viewport: ${ref.viewport.name} (${ref.viewport.width}x${ref.viewport.height})`,
+        `Captured: ${ref.capturedAt.replace("T", " ").slice(0, 19)}`,
+        `Size: ${(ref.fileSize / 1024).toFixed(1)} KB`
+      ].join("\n");
+      return imageResponse(base64, metadata);
+    }
+    case "delete": {
+      if (!name) {
+        return errorResponse("The 'name' parameter is required for action 'delete'.");
+      }
+      const index = readReferencesIndex();
+      const ref = index.references.find((r) => r.name === name);
+      if (!ref) {
+        return errorResponse(
+          `Reference "${name}" not found. Use action 'list' to see available references.`
+        );
+      }
+      const refPath = (0, import_path13.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs5.existsSync)(refPath)) {
+        (0, import_fs5.unlinkSync)(refPath);
+      }
+      index.references = index.references.filter((r) => r.name !== name);
+      writeReferencesIndex(index);
+      return textResponse(`Deleted reference: ${name}`);
+    }
+    default:
+      return errorResponse(`Unknown action: ${action}. Use 'list', 'show', or 'delete'.`);
+  }
 }
 async function handleScanMacOS(args) {
   if (process.platform !== "darwin") {
@@ -5657,6 +6667,162 @@ async function handleNativeDevices(args) {
   const booted = devices.filter((d) => d.state === "Booted");
   lines.push("");
   lines.push(`Total: ${devices.length} available, ${booted.length} booted`);
+  return textResponse(lines.join("\n"));
+}
+async function handleValidateTokens(args) {
+  const url = args.url;
+  const device = args.device;
+  const specPath = args.spec_path || ".ibr/tokens.json";
+  if (!url && !device) {
+    return errorResponse("Provide either 'url' or 'device' parameter.");
+  }
+  let spec;
+  try {
+    spec = loadTokenSpec(specPath);
+  } catch (err) {
+    return errorResponse(
+      err instanceof Error ? err.message : `Failed to load token spec from ${specPath}`
+    );
+  }
+  let elements;
+  let source;
+  if (url) {
+    try {
+      const result = await scan(url, { viewport: "desktop" });
+      elements = result.elements.all;
+      source = `${url} (web)`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan URL: ${url}`
+      );
+    }
+  } else if (device) {
+    try {
+      const result = await scanNative({
+        device,
+        screenshot: false,
+        outputDir: DEFAULT_OUTPUT_DIR
+      });
+      elements = result.elements.all;
+      source = `${device} (native)`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan device: ${device}`
+      );
+    }
+  } else {
+    return errorResponse("No valid source provided.");
+  }
+  const violations = validateAgainstTokens(elements, spec);
+  const lines = [
+    `Token Validation: ${spec.name}`,
+    `Source: ${source}`,
+    `Elements checked: ${elements.length}`,
+    `Violations found: ${violations.length}`
+  ];
+  if (violations.length === 0) {
+    lines.push("");
+    lines.push("All elements comply with design tokens.");
+    return textResponse(lines.join("\n"));
+  }
+  const errors = violations.filter((v) => v.severity === "error");
+  const warnings = violations.filter((v) => v.severity === "warning");
+  if (errors.length > 0) {
+    lines.push("");
+    lines.push(`Errors (${errors.length}):`);
+    for (const v of errors.slice(0, 10)) {
+      lines.push(`- ${v.message}`);
+    }
+    if (errors.length > 10) {
+      lines.push(`  ... and ${errors.length - 10} more`);
+    }
+  }
+  if (warnings.length > 0) {
+    lines.push("");
+    lines.push(`Warnings (${warnings.length}):`);
+    for (const v of warnings.slice(0, 10)) {
+      lines.push(`- ${v.message}`);
+    }
+    if (warnings.length > 10) {
+      lines.push(`  ... and ${warnings.length - 10} more`);
+    }
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleScanStatic(args) {
+  const htmlPath = args.html_path;
+  if (!htmlPath) {
+    return errorResponse("The 'html_path' parameter is required.");
+  }
+  const cssPath = args.css_path;
+  const { scanStatic: scanStatic2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
+  const result = scanStatic2({ htmlPath, cssPath });
+  const lines = [
+    `Static Scan: ${result.htmlPath}`,
+    result.cssPath ? `CSS: ${result.cssPath}` : "CSS: none",
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`,
+    "",
+    `Elements: ${result.elements.audit.totalElements} total, ${result.elements.audit.interactiveCount} interactive`,
+    `With handlers: ${result.elements.audit.withHandlers}, Without: ${result.elements.audit.withoutHandlers}`
+  ];
+  if (result.issues.length > 0) {
+    lines.push("");
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`  Fix: ${issue.fix}`);
+      }
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleBridgeToSource(args) {
+  const projectRoot = args.project_root;
+  if (!projectRoot) {
+    return errorResponse("The 'project_root' parameter is required.");
+  }
+  if (!(0, import_fs5.existsSync)(projectRoot)) {
+    return errorResponse(`Project root not found: ${projectRoot}`);
+  }
+  const deviceQuery = args.device;
+  const appName = args.app;
+  let elements;
+  let scanSource;
+  if (appName) {
+    try {
+      const result2 = await scanMacOS({ app: appName });
+      elements = result2.elements.all;
+      scanSource = `macOS app: ${appName}`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan macOS app: ${appName}`
+      );
+    }
+  } else {
+    try {
+      const result2 = await scanNative({
+        device: deviceQuery,
+        screenshot: false,
+        outputDir: DEFAULT_OUTPUT_DIR
+      });
+      elements = result2.elements.all;
+      scanSource = `simulator: ${result2.device.name}`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan simulator${deviceQuery ? `: ${deviceQuery}` : ""}`
+      );
+    }
+  }
+  const result = correlateToSource(elements, projectRoot);
+  const lines = [
+    `Source Bridge: ${scanSource}`,
+    formatBridgeResult(result)
+  ];
   return textResponse(lines.join("\n"));
 }
 

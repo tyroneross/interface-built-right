@@ -10,7 +10,7 @@ import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { nanoid } from 'nanoid';
 import { URL as URL$1 } from 'url';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { execFile, exec } from 'child_process';
 import { promisify } from 'util';
 
@@ -1574,7 +1574,8 @@ async function captureScreenshot(options) {
     timeout = 3e4,
     outputDir,
     selector,
-    waitFor
+    waitFor,
+    delay
   } = options;
   await mkdir(dirname(outputPath), { recursive: true });
   let storageState;
@@ -1605,7 +1606,7 @@ async function captureScreenshot(options) {
     if (waitFor) {
       await page.waitForSelector(waitFor, { timeout });
     }
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(delay ?? 500);
     await applyMasking(page, options.mask);
     if (selector) {
       const element = await page.waitForSelector(selector, { timeout: 5e3 });
@@ -5927,7 +5928,7 @@ function getFixSuggestion(type) {
 }
 function formatScanResult(result) {
   const lines = [];
-  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  const verdictIcon2 = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   lines.push("  IBR UI SCAN");
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
@@ -5935,7 +5936,7 @@ function formatScanResult(result) {
   lines.push(`  URL:      ${result.url}`);
   lines.push(`  Route:    ${result.route}`);
   lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
+  lines.push(`  Verdict:  ${verdictIcon2} ${result.verdict}`);
   lines.push("");
   lines.push(`  ${result.summary}`);
   lines.push("");
@@ -5994,6 +5995,132 @@ function formatScanResult(result) {
   lines.push("");
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
+}
+function loadTokenSpec(specPath) {
+  if (!existsSync(specPath)) {
+    throw new Error(`Token spec not found: ${specPath}`);
+  }
+  let spec;
+  try {
+    const content = readFileSync(specPath, "utf-8");
+    spec = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
+  }
+  const { tokens } = spec;
+  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
+  if (!hasAnyTokens) {
+    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
+  }
+  return spec;
+}
+function normalizeColor(color) {
+  if (!color) return "";
+  if (color.startsWith("#")) {
+    return color.toLowerCase();
+  }
+  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  return color.toLowerCase();
+}
+function parsePx(value) {
+  if (!value) return null;
+  const match = value.match(/^([\d.]+)px$/);
+  return match ? parseFloat(match[1]) : null;
+}
+function validateAgainstTokens(elements, spec) {
+  const violations = [];
+  for (const element of elements) {
+    const selector = element.selector || element.tagName || "unknown";
+    const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
+    if (spec.tokens.touchTargets && isInteractive) {
+      const minSize = spec.tokens.touchTargets.min;
+      const actualSize = Math.min(element.bounds.width, element.bounds.height);
+      if (actualSize < minSize) {
+        violations.push({
+          element: selector,
+          property: "touch-target",
+          expected: minSize,
+          actual: actualSize,
+          severity: "error",
+          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
+        });
+      }
+    }
+    if (spec.tokens.fontSizes && element.computedStyles) {
+      const fontSize = parsePx(element.computedStyles["font-size"]);
+      if (fontSize !== null) {
+        const tokenValues = Object.values(spec.tokens.fontSizes);
+        const isTokenValue = tokenValues.includes(fontSize);
+        if (!isTokenValue) {
+          violations.push({
+            element: selector,
+            property: "font-size",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: fontSize,
+            severity: "warning",
+            message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+    if (spec.tokens.colors && element.computedStyles) {
+      const tokenColors = new Set(
+        Object.values(spec.tokens.colors).map(normalizeColor)
+      );
+      const textColor = element.computedStyles["color"];
+      if (textColor) {
+        const normalized = normalizeColor(textColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: textColor,
+            severity: "warning",
+            message: `Non-token text color: ${textColor} (${selector})`
+          });
+        }
+      }
+      const bgColor = element.computedStyles["background-color"];
+      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
+        const normalized = normalizeColor(bgColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: bgColor,
+            severity: "warning",
+            message: `Non-token background color: ${bgColor} (${selector})`
+          });
+        }
+      }
+    }
+    if (spec.tokens.cornerRadius && element.computedStyles) {
+      const borderRadius = parsePx(element.computedStyles["border-radius"]);
+      if (borderRadius !== null && borderRadius > 0) {
+        const tokenValues = Object.values(spec.tokens.cornerRadius);
+        const isTokenValue = tokenValues.includes(borderRadius);
+        if (!isTokenValue) {
+          violations.push({
+            element: selector,
+            property: "corner-radius",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: borderRadius,
+            severity: "warning",
+            message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+  }
+  return violations;
 }
 
 // src/native/viewports.ts
@@ -6121,6 +6248,89 @@ async function captureNativeScreenshot(options) {
     };
   }
 }
+
+// src/native/role-map.ts
+var TAG_MAP = {
+  "AXButton": "button",
+  "AXLink": "a",
+  "AXTextField": "input",
+  "AXTextArea": "textarea",
+  "AXSecureTextField": "input",
+  "AXStaticText": "span",
+  "AXImage": "img",
+  "AXGroup": "div",
+  "AXSplitGroup": "div",
+  "AXList": "ul",
+  "AXCell": "li",
+  "AXTable": "table",
+  "AXScrollArea": "div",
+  "AXToolbar": "nav",
+  "AXMenuBar": "nav",
+  "AXMenu": "nav",
+  "AXMenuItem": "li",
+  "AXCheckBox": "input",
+  "AXRadioButton": "input",
+  "AXSlider": "input",
+  "AXSwitch": "input",
+  "AXPopUpButton": "select",
+  "AXComboBox": "select",
+  "AXTabGroup": "div",
+  "AXTab": "button",
+  "AXNavigationBar": "nav",
+  "AXHeader": "header",
+  "AXWindow": "main"
+};
+var ARIA_MAP = {
+  "AXButton": "button",
+  "AXLink": "link",
+  "AXTextField": "textbox",
+  "AXTextArea": "textbox",
+  "AXSecureTextField": "textbox",
+  "AXStaticText": "text",
+  "AXImage": "img",
+  "AXGroup": "group",
+  "AXList": "list",
+  "AXCell": "listitem",
+  "AXTable": "table",
+  "AXCheckBox": "checkbox",
+  "AXRadioButton": "radio",
+  "AXSlider": "slider",
+  "AXSwitch": "switch",
+  "AXTab": "tab",
+  "AXTabGroup": "tablist",
+  "AXNavigationBar": "navigation",
+  "AXToolbar": "toolbar",
+  "AXMenuItem": "menuitem",
+  "AXMenu": "menu",
+  "AXScrollArea": "scrollbar",
+  "AXWindow": "main"
+};
+var INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+  "AXButton",
+  "AXLink",
+  "AXTextField",
+  "AXTextArea",
+  "AXSecureTextField",
+  "AXCheckBox",
+  "AXRadioButton",
+  "AXSlider",
+  "AXSwitch",
+  "AXPopUpButton",
+  "AXComboBox",
+  "AXMenuItem",
+  "AXTab"
+]);
+function mapRoleToTag(role) {
+  return TAG_MAP[role] || role.replace(/^AX/, "").toLowerCase();
+}
+function mapRoleToAriaRole(role) {
+  return ARIA_MAP[role] || null;
+}
+function isInteractiveRole(role) {
+  return INTERACTIVE_ROLES.has(role);
+}
+
+// src/native/extract.ts
 var execFileAsync3 = promisify(execFile);
 var EXTRACTOR_DIR = join(process.cwd(), ".ibr", "bin");
 var EXTRACTOR_PATH = join(EXTRACTOR_DIR, "ibr-ax-extract");
@@ -6210,78 +6420,6 @@ function mapToEnhancedElements(nativeElements) {
   }
   flatten(nativeElements);
   return enhanced;
-}
-function mapRoleToTag(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "a",
-    "AXTextField": "input",
-    "AXTextArea": "textarea",
-    "AXStaticText": "span",
-    "AXImage": "img",
-    "AXGroup": "div",
-    "AXList": "ul",
-    "AXCell": "li",
-    "AXTable": "table",
-    "AXScrollArea": "div",
-    "AXToolbar": "nav",
-    "AXMenuBar": "nav",
-    "AXMenu": "menu",
-    "AXMenuItem": "li",
-    "AXCheckBox": "input",
-    "AXRadioButton": "input",
-    "AXSlider": "input",
-    "AXSwitch": "input",
-    "AXPopUpButton": "select",
-    "AXComboBox": "select",
-    "AXTabGroup": "div",
-    "AXTab": "button",
-    "AXNavigationBar": "nav",
-    "AXHeader": "header"
-  };
-  return roleMap[role] || "div";
-}
-function mapRoleToAriaRole(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "link",
-    "AXTextField": "textbox",
-    "AXTextArea": "textbox",
-    "AXStaticText": "text",
-    "AXImage": "img",
-    "AXGroup": "group",
-    "AXList": "list",
-    "AXCell": "listitem",
-    "AXTable": "table",
-    "AXCheckBox": "checkbox",
-    "AXRadioButton": "radio",
-    "AXSlider": "slider",
-    "AXSwitch": "switch",
-    "AXTab": "tab",
-    "AXTabGroup": "tablist",
-    "AXNavigationBar": "navigation",
-    "AXToolbar": "toolbar",
-    "AXMenuItem": "menuitem",
-    "AXMenu": "menu"
-  };
-  return roleMap[role] || null;
-}
-function isInteractiveRole(role) {
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "AXButton",
-    "AXLink",
-    "AXTextField",
-    "AXTextArea",
-    "AXCheckBox",
-    "AXRadioButton",
-    "AXSlider",
-    "AXSwitch",
-    "AXPopUpButton",
-    "AXComboBox",
-    "AXMenuItem",
-    "AXTab"
-  ]);
-  return interactiveRoles.has(role);
 }
 
 // src/native/rules.ts
@@ -6415,8 +6553,8 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
       const roleCount = roleCounts[el.role] || 0;
       roleCounts[el.role] = roleCount + 1;
       const currentPath = path2 ? `${path2} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
-      const tagName = mapRoleToTag2(el.role);
-      const isInteractive = isInteractiveRole2(el.role) && el.enabled;
+      const tagName = mapRoleToTag(el.role);
+      const isInteractive = isInteractiveRole(el.role) && el.enabled;
       const hasPress = el.actions.includes("AXPress");
       const text = el.title || el.description || el.value || void 0;
       const bounds = {
@@ -6440,7 +6578,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
             cursor: isInteractive ? "pointer" : "default"
           },
           a11y: {
-            role: mapRoleToAriaRole2(el.role),
+            role: mapRoleToAriaRole(el.role),
             ariaLabel: el.title || el.description || null,
             ariaDescribedBy: null
           },
@@ -6460,85 +6598,6 @@ async function captureMacOSScreenshot(windowId, outputPath) {
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
-}
-function mapRoleToTag2(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "a",
-    "AXTextField": "input",
-    "AXTextArea": "textarea",
-    "AXSecureTextField": "input",
-    "AXStaticText": "span",
-    "AXImage": "img",
-    "AXGroup": "div",
-    "AXSplitGroup": "div",
-    "AXList": "ul",
-    "AXCell": "li",
-    "AXTable": "table",
-    "AXScrollArea": "div",
-    "AXToolbar": "nav",
-    "AXMenuBar": "nav",
-    "AXMenu": "nav",
-    "AXMenuItem": "li",
-    "AXCheckBox": "input",
-    "AXRadioButton": "input",
-    "AXSlider": "input",
-    "AXSwitch": "input",
-    "AXPopUpButton": "select",
-    "AXComboBox": "select",
-    "AXTabGroup": "div",
-    "AXTab": "button",
-    "AXNavigationBar": "nav",
-    "AXHeader": "header",
-    "AXWindow": "main"
-  };
-  return roleMap[role] || role.replace(/^AX/, "").toLowerCase();
-}
-function mapRoleToAriaRole2(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "link",
-    "AXTextField": "textbox",
-    "AXTextArea": "textbox",
-    "AXSecureTextField": "textbox",
-    "AXStaticText": "text",
-    "AXImage": "img",
-    "AXGroup": "group",
-    "AXList": "list",
-    "AXCell": "listitem",
-    "AXTable": "table",
-    "AXCheckBox": "checkbox",
-    "AXRadioButton": "radio",
-    "AXSlider": "slider",
-    "AXSwitch": "switch",
-    "AXTab": "tab",
-    "AXTabGroup": "tablist",
-    "AXNavigationBar": "navigation",
-    "AXToolbar": "toolbar",
-    "AXMenuItem": "menuitem",
-    "AXMenu": "menu",
-    "AXScrollArea": "scrollbar",
-    "AXWindow": "main"
-  };
-  return roleMap[role] || null;
-}
-function isInteractiveRole2(role) {
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "AXButton",
-    "AXLink",
-    "AXTextField",
-    "AXTextArea",
-    "AXSecureTextField",
-    "AXCheckBox",
-    "AXRadioButton",
-    "AXSlider",
-    "AXSwitch",
-    "AXPopUpButton",
-    "AXComboBox",
-    "AXMenuItem",
-    "AXTab"
-  ]);
-  return interactiveRoles.has(role);
 }
 
 // src/native/interactivity.ts
@@ -6935,92 +6994,78 @@ async function scanMacOS(options) {
     summary
   };
 }
-function formatMacOSScanResult(result) {
-  const lines = [];
-  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("  IBR NATIVE macOS SCAN");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("");
-  lines.push(`  App:      ${result.url}`);
-  lines.push(`  Window:   ${result.route.slice(1)}`);
-  lines.push(`  Viewport: ${result.viewport.width}x${result.viewport.height}`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
-  lines.push("");
-  lines.push(`  ${result.summary}`);
-  lines.push("");
-  lines.push("  PAGE UNDERSTANDING");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`);
-  lines.push(`  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`);
-  lines.push("");
-  lines.push("  ELEMENTS");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
-  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
-  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
-  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
-  lines.push("");
-  const { buttons, links, forms } = result.interactivity;
-  lines.push("  INTERACTIVITY");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`);
-  lines.push("");
-  if (result.issues.length > 0) {
-    lines.push("  ISSUES");
-    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
-    for (const issue of result.issues) {
-      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
-      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
-      if (issue.fix) {
-        lines.push(`    \u2192 ${issue.fix}`);
-      }
-    }
-  } else {
-    lines.push("  No issues detected.");
+function verdictIcon(verdict) {
+  return verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+}
+function formatElementsSection(audit) {
+  return [
+    "  ELEMENTS",
+    "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    `  Total:              ${audit.totalElements}`,
+    `  Interactive:        ${audit.interactiveCount}`,
+    `  With handlers:      ${audit.withHandlers}`,
+    `  Without handlers:   ${audit.withoutHandlers}`,
+    ""
+  ];
+}
+function formatIssuesSection(issues) {
+  if (issues.length === 0) return ["  No issues detected."];
+  const lines = ["  ISSUES", "  \u2500\u2500\u2500\u2500\u2500\u2500"];
+  for (const issue of issues) {
+    const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
+    lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+    if (issue.fix) lines.push(`    \u2192 ${issue.fix}`);
   }
-  lines.push("");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines;
+}
+function formatMacOSScanResult(result) {
+  const lines = [
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "  IBR NATIVE macOS SCAN",
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "",
+    `  App:      ${result.url}`,
+    `  Window:   ${result.route.slice(1)}`,
+    `  Viewport: ${result.viewport.width}x${result.viewport.height}`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    "",
+    `  ${result.summary}`,
+    "",
+    "  PAGE UNDERSTANDING",
+    "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    `  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
+    `  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`,
+    "",
+    ...formatElementsSection(result.elements.audit)
+  ];
+  const { buttons, links, forms } = result.interactivity;
+  lines.push("  INTERACTIVITY", "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`, "");
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
 function formatNativeScanResult(result) {
-  const lines = [];
-  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("  IBR NATIVE SCAN");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("");
-  lines.push(`  Device:   ${result.device.name}`);
-  lines.push(`  Platform: ${result.platform}`);
-  lines.push(`  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`);
-  lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
-  lines.push("");
-  lines.push(`  ${result.summary}`);
-  lines.push("");
-  lines.push("  ELEMENTS");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
-  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
-  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
-  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
-  lines.push("");
+  const lines = [
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "  IBR NATIVE SCAN",
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "",
+    `  Device:   ${result.device.name}`,
+    `  Platform: ${result.platform}`,
+    `  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`,
+    `  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    "",
+    `  ${result.summary}`,
+    "",
+    ...formatElementsSection(result.elements.audit)
+  ];
   if (result.screenshotPath) {
-    lines.push(`  Screenshot: ${result.screenshotPath}`);
-    lines.push("");
+    lines.push(`  Screenshot: ${result.screenshotPath}`, "");
   }
-  if (result.issues.length > 0) {
-    lines.push("  ISSUES");
-    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
-    for (const issue of result.issues) {
-      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
-      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
-    }
-  } else {
-    lines.push("  No issues detected.");
-  }
-  lines.push("");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
 
@@ -7508,6 +7553,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

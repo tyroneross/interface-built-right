@@ -1,20 +1,21 @@
-# IBR — Design Validation for Claude Code
+# IBR — Design Implementation Partner
 
-IBR extracts structured data (computed CSS, bounds, handlers, a11y, page structure) from live pages and native simulators. Scan output is ground truth for property values. Screenshots complement scans for visual coherence, rendering bugs, and canvas/SVG content.
+IBR reads live UI and returns structured data — computed CSS, bounds, handler wiring, accessibility, page structure. Scan output is ground truth for what is actually rendered. Use this data to inform implementation decisions during the build and confirm results after. Screenshots complement scans for visual coherence, rendering bugs, and canvas/SVG content.
 
 **Setup:** Add `.ibr/` to `.gitignore`
 
 ## When to Use
 
-- **After building UI** — scan to verify implementation matches user intent
-- **Before modifying UI** — capture baseline with `start`, then `check` after changes
+- **While building UI** — scan to see what is actually rendered and adjust in real time
+- **After building UI** — scan to confirm implementation matches user intent
+- **Tracking changes** — capture a reference point with `start`, then `check` after changes
 - **Skip for** — backend-only changes, config, docs, type-only changes
 
 ## Core Workflow
 
 ```bash
-npx ibr scan <url> --json                    # validate — primary command
-npx ibr start <url> --name "feature-name"    # baseline before changes
+npx ibr scan <url> --json                    # read live UI data
+npx ibr start <url> --name "feature-name"    # reference point before changes
 npx ibr check                                # compare after changes
 npx ibr memory add "<spec>" --property X --value Y  # store persistent design spec
 ```
@@ -34,7 +35,7 @@ Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
 | Exact CSS values, handler wiring, a11y audit, console errors | `ibr scan` |
 | Visual coherence, rendering bugs, canvas/SVG | Screenshot |
 | Multi-step flows, file uploads, dialogs | Playwright |
-| Regression baselines | `ibr start` + `ibr check` |
+| Track visual changes | `ibr start` + `ibr check` |
 
 Use scan first for property verification, add screenshot when visual confirmation needed.
 
@@ -42,19 +43,19 @@ Use scan first for property verification, add screenshot when visual confirmatio
 
 | Command | Purpose |
 |---------|---------|
-| `/ibr:snapshot` | Capture baseline before UI changes |
-| `/ibr:compare` | Compare current state against baseline |
-| `/ibr:full-interface-scan` | Scan all pages, test every component |
-| `/ibr:build-baseline` | Create baselines for all pages |
+| `/ibr:snapshot` | Capture reference point before UI changes |
+| `/ibr:compare` | Compare current state against reference point |
+| `/ibr:full-interface-scan` | Scan all pages, inspect every component |
+| `/ibr:build-baseline` | Create reference points for all pages |
 | `/ibr:ui` | Open web dashboard at localhost:4200 |
 | `/ibr:ui-audit` | Full end-to-end workflow audit |
 
 ## CLI Reference
 
 ```bash
-npx ibr scan <url> --json           # validate UI
-npx ibr start <url> --name "name"   # capture baseline
-npx ibr check                       # compare against baseline
+npx ibr scan <url> --json           # read live UI data
+npx ibr start <url> --name "name"   # capture reference point
+npx ibr check                       # compare against reference point
 npx ibr memory add "<spec>"         # store design spec
 npx ibr memory list                 # show stored specs
 npx ibr list                        # list sessions
@@ -85,15 +86,15 @@ Use native tools when working on `.swift` files. Web tools for `.tsx/.jsx/.vue/.
 | Tool | Purpose |
 |------|---------|
 | `native_scan` | Extract a11y elements, check touch targets (44pt), watchOS constraints |
-| `native_snapshot` | Capture baseline from running simulator |
-| `native_compare` | Compare simulator state against baseline |
+| `native_snapshot` | Capture reference point from running simulator |
+| `native_compare` | Compare simulator state against reference point |
 | `native_devices` | List available simulators with boot status |
 | `scan_macos` | Scan a running macOS app via accessibility tree |
 
 ```bash
 npx ibr native:devices                                    # list simulators
 npx ibr native:scan "Apple Watch"                         # scan by name
-npx ibr native:start "iPhone 16 Pro" --name "screen"      # baseline
+npx ibr native:start "iPhone 16 Pro" --name "screen"      # reference point
 npx ibr native:check                                      # compare
 npx ibr scan:macos --app "Terminal"                        # macOS app
 ```

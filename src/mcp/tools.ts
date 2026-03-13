@@ -69,7 +69,7 @@ export const TOOLS = [
   {
     name: "scan",
     description:
-      "Comprehensive UI scan — extracts all interactive elements with computed CSS, handler wiring, accessibility data, page intent classification, and console errors. Use after building or modifying UI to validate implementation matches user intent.",
+      "Reads the live page and returns structured data — all interactive elements with computed CSS, handler wiring, accessibility data, page intent classification, and console errors. Use during or after building UI to see what is actually rendered.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -97,7 +97,7 @@ export const TOOLS = [
   {
     name: "snapshot",
     description:
-      "Capture a visual baseline screenshot for regression testing. Use before making UI changes so you can compare afterwards with the 'compare' tool.",
+      "Capture a visual reference point of the current page state. Use before making UI changes so you can compare afterwards with the 'compare' tool.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -129,7 +129,7 @@ export const TOOLS = [
   {
     name: "compare",
     description:
-      "Compare current UI state against a baseline. Returns a verdict (MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN) with changed regions and recommendations. Use after making UI changes to check for visual regressions.",
+      "Compare current UI state against a reference point. Returns a verdict (MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN) with changed regions and recommendations. Use after making UI changes to understand what shifted.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -151,7 +151,7 @@ export const TOOLS = [
   {
     name: "list_sessions",
     description:
-      "List all IBR sessions with timestamps, URLs, viewports, and comparison status. Shows baseline sessions available for regression comparison.",
+      "List all IBR sessions with timestamps, URLs, viewports, and comparison status. Shows captured reference points available for change tracking.",
     inputSchema: {
       type: "object" as const,
       properties: {},
@@ -242,7 +242,7 @@ export const TOOLS = [
   {
     name: "native_scan",
     description:
-      "Scan a running iOS or watchOS simulator — extracts accessibility elements, validates touch targets, checks watchOS constraints, and audits accessibility labels. Use after building or modifying Swift UI to validate implementation.",
+      "Scan a running iOS or watchOS simulator — extracts accessibility elements, validates touch targets, checks watchOS constraints, and audits accessibility labels. Use during or after building SwiftUI to see what the simulator renders.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -268,7 +268,7 @@ export const TOOLS = [
   {
     name: "native_snapshot",
     description:
-      "Capture a baseline screenshot from a running iOS or watchOS simulator for regression testing. Use before making native UI changes.",
+      "Capture a visual reference point from a running iOS or watchOS simulator. Use before making native UI changes so you can track what changed.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -294,7 +294,7 @@ export const TOOLS = [
   {
     name: "native_compare",
     description:
-      "Compare current simulator state against a native baseline. Returns a verdict (MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN). Use after making native UI changes to check for visual regressions.",
+      "Compare current simulator state against a native reference point. Returns a verdict (MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN). Use after making native UI changes to understand what shifted.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -322,7 +322,7 @@ export const TOOLS = [
   {
     name: "scan_macos",
     description:
-      "Scan a running macOS native app via the Accessibility API — extracts all UI elements, validates touch targets, checks accessibility labels, classifies page intent, and produces a verdict. Use after building or modifying a native macOS app (SwiftUI/AppKit) to validate the UI.",
+      "Scan a running macOS native app via the Accessibility API — extracts all UI elements, validates touch targets, checks accessibility labels, classifies page intent, and produces a verdict. Use during or after building a native macOS app (SwiftUI/AppKit) to see what the UI actually renders.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -611,7 +611,7 @@ async function handleSnapshot(
       `Viewport: ${result.session.viewport.name} (${result.session.viewport.width}x${result.session.viewport.height})`,
       `Status: ${result.session.status}`,
       "",
-      "Run the 'compare' tool after making changes to check for visual regressions.",
+      "Run the 'compare' tool after making changes to see what shifted.",
     ].join("\n")
   );
 }
@@ -1070,7 +1070,7 @@ async function handleNativeSnapshot(
       `Viewport: ${viewport.name} (${viewport.width}x${viewport.height})`,
       `Status: ${session.status}`,
       "",
-      "Run 'native_compare' after making changes to check for visual regressions.",
+      "Run 'native_compare' after making changes to see what shifted.",
     ].join("\n")
   );
 }

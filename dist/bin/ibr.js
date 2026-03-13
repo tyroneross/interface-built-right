@@ -1065,7 +1065,8 @@ async function captureScreenshot(options) {
     timeout = 3e4,
     outputDir,
     selector,
-    waitFor
+    waitFor,
+    delay
   } = options;
   await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
   let storageState;
@@ -1096,7 +1097,7 @@ async function captureScreenshot(options) {
     if (waitFor) {
       await page.waitForSelector(waitFor, { timeout });
     }
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(delay ?? 500);
     await applyMasking(page, options.mask);
     if (selector) {
       const element = await page.waitForSelector(selector, { timeout: 5e3 });
@@ -6914,7 +6915,7 @@ function getFixSuggestion(type) {
 }
 function formatScanResult(result) {
   const lines = [];
-  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  const verdictIcon2 = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   lines.push("  IBR UI SCAN");
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
@@ -6922,7 +6923,7 @@ function formatScanResult(result) {
   lines.push(`  URL:      ${result.url}`);
   lines.push(`  Route:    ${result.route}`);
   lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
+  lines.push(`  Verdict:  ${verdictIcon2} ${result.verdict}`);
   lines.push("");
   lines.push(`  ${result.summary}`);
   lines.push("");
@@ -6991,6 +6992,141 @@ var init_scan = __esm({
     init_extract();
     init_interactivity();
     init_semantic();
+  }
+});
+
+// src/tokens.ts
+function loadTokenSpec(specPath) {
+  if (!(0, import_fs6.existsSync)(specPath)) {
+    throw new Error(`Token spec not found: ${specPath}`);
+  }
+  let spec;
+  try {
+    const content = (0, import_fs6.readFileSync)(specPath, "utf-8");
+    spec = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
+  }
+  const { tokens } = spec;
+  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
+  if (!hasAnyTokens) {
+    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
+  }
+  return spec;
+}
+function normalizeColor(color) {
+  if (!color) return "";
+  if (color.startsWith("#")) {
+    return color.toLowerCase();
+  }
+  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  return color.toLowerCase();
+}
+function parsePx(value) {
+  if (!value) return null;
+  const match = value.match(/^([\d.]+)px$/);
+  return match ? parseFloat(match[1]) : null;
+}
+function validateAgainstTokens(elements, spec) {
+  const violations = [];
+  for (const element of elements) {
+    const selector = element.selector || element.tagName || "unknown";
+    const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
+    if (spec.tokens.touchTargets && isInteractive) {
+      const minSize = spec.tokens.touchTargets.min;
+      const actualSize = Math.min(element.bounds.width, element.bounds.height);
+      if (actualSize < minSize) {
+        violations.push({
+          element: selector,
+          property: "touch-target",
+          expected: minSize,
+          actual: actualSize,
+          severity: "error",
+          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
+        });
+      }
+    }
+    if (spec.tokens.fontSizes && element.computedStyles) {
+      const fontSize = parsePx(element.computedStyles["font-size"]);
+      if (fontSize !== null) {
+        const tokenValues = Object.values(spec.tokens.fontSizes);
+        const isTokenValue = tokenValues.includes(fontSize);
+        if (!isTokenValue) {
+          violations.push({
+            element: selector,
+            property: "font-size",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: fontSize,
+            severity: "warning",
+            message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+    if (spec.tokens.colors && element.computedStyles) {
+      const tokenColors = new Set(
+        Object.values(spec.tokens.colors).map(normalizeColor)
+      );
+      const textColor = element.computedStyles["color"];
+      if (textColor) {
+        const normalized = normalizeColor(textColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: textColor,
+            severity: "warning",
+            message: `Non-token text color: ${textColor} (${selector})`
+          });
+        }
+      }
+      const bgColor = element.computedStyles["background-color"];
+      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
+        const normalized = normalizeColor(bgColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: bgColor,
+            severity: "warning",
+            message: `Non-token background color: ${bgColor} (${selector})`
+          });
+        }
+      }
+    }
+    if (spec.tokens.cornerRadius && element.computedStyles) {
+      const borderRadius = parsePx(element.computedStyles["border-radius"]);
+      if (borderRadius !== null && borderRadius > 0) {
+        const tokenValues = Object.values(spec.tokens.cornerRadius);
+        const isTokenValue = tokenValues.includes(borderRadius);
+        if (!isTokenValue) {
+          violations.push({
+            element: selector,
+            property: "corner-radius",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: borderRadius,
+            severity: "warning",
+            message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+  }
+  return violations;
+}
+var import_fs6;
+var init_tokens = __esm({
+  "src/tokens.ts"() {
+    "use strict";
+    import_fs6 = require("fs");
   }
 });
 
@@ -7149,9 +7285,96 @@ var init_capture2 = __esm({
   }
 });
 
+// src/native/role-map.ts
+function mapRoleToTag(role) {
+  return TAG_MAP[role] || role.replace(/^AX/, "").toLowerCase();
+}
+function mapRoleToAriaRole(role) {
+  return ARIA_MAP[role] || null;
+}
+function isInteractiveRole(role) {
+  return INTERACTIVE_ROLES.has(role);
+}
+var TAG_MAP, ARIA_MAP, INTERACTIVE_ROLES;
+var init_role_map = __esm({
+  "src/native/role-map.ts"() {
+    "use strict";
+    TAG_MAP = {
+      "AXButton": "button",
+      "AXLink": "a",
+      "AXTextField": "input",
+      "AXTextArea": "textarea",
+      "AXSecureTextField": "input",
+      "AXStaticText": "span",
+      "AXImage": "img",
+      "AXGroup": "div",
+      "AXSplitGroup": "div",
+      "AXList": "ul",
+      "AXCell": "li",
+      "AXTable": "table",
+      "AXScrollArea": "div",
+      "AXToolbar": "nav",
+      "AXMenuBar": "nav",
+      "AXMenu": "nav",
+      "AXMenuItem": "li",
+      "AXCheckBox": "input",
+      "AXRadioButton": "input",
+      "AXSlider": "input",
+      "AXSwitch": "input",
+      "AXPopUpButton": "select",
+      "AXComboBox": "select",
+      "AXTabGroup": "div",
+      "AXTab": "button",
+      "AXNavigationBar": "nav",
+      "AXHeader": "header",
+      "AXWindow": "main"
+    };
+    ARIA_MAP = {
+      "AXButton": "button",
+      "AXLink": "link",
+      "AXTextField": "textbox",
+      "AXTextArea": "textbox",
+      "AXSecureTextField": "textbox",
+      "AXStaticText": "text",
+      "AXImage": "img",
+      "AXGroup": "group",
+      "AXList": "list",
+      "AXCell": "listitem",
+      "AXTable": "table",
+      "AXCheckBox": "checkbox",
+      "AXRadioButton": "radio",
+      "AXSlider": "slider",
+      "AXSwitch": "switch",
+      "AXTab": "tab",
+      "AXTabGroup": "tablist",
+      "AXNavigationBar": "navigation",
+      "AXToolbar": "toolbar",
+      "AXMenuItem": "menuitem",
+      "AXMenu": "menu",
+      "AXScrollArea": "scrollbar",
+      "AXWindow": "main"
+    };
+    INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+      "AXButton",
+      "AXLink",
+      "AXTextField",
+      "AXTextArea",
+      "AXSecureTextField",
+      "AXCheckBox",
+      "AXRadioButton",
+      "AXSlider",
+      "AXSwitch",
+      "AXPopUpButton",
+      "AXComboBox",
+      "AXMenuItem",
+      "AXTab"
+    ]);
+  }
+});
+
 // src/native/extract.ts
 async function ensureExtractor() {
-  if ((0, import_fs6.existsSync)(EXTRACTOR_PATH)) {
+  if ((0, import_fs7.existsSync)(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
   await (0, import_promises14.mkdir)(EXTRACTOR_DIR, { recursive: true });
@@ -7162,7 +7385,7 @@ async function ensureExtractor() {
       // 2 minutes for first compile
     });
     const buildPath = (0, import_path14.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs6.existsSync)(buildPath)) {
+    if (!(0, import_fs7.existsSync)(buildPath)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
     await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
@@ -7175,8 +7398,8 @@ async function ensureExtractor() {
   }
 }
 function isExtractorAvailable() {
-  if ((0, import_fs6.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs6.existsSync)((0, import_path14.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  if ((0, import_fs7.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs7.existsSync)((0, import_path14.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -7236,87 +7459,16 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-function mapRoleToTag(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "a",
-    "AXTextField": "input",
-    "AXTextArea": "textarea",
-    "AXStaticText": "span",
-    "AXImage": "img",
-    "AXGroup": "div",
-    "AXList": "ul",
-    "AXCell": "li",
-    "AXTable": "table",
-    "AXScrollArea": "div",
-    "AXToolbar": "nav",
-    "AXMenuBar": "nav",
-    "AXMenu": "menu",
-    "AXMenuItem": "li",
-    "AXCheckBox": "input",
-    "AXRadioButton": "input",
-    "AXSlider": "input",
-    "AXSwitch": "input",
-    "AXPopUpButton": "select",
-    "AXComboBox": "select",
-    "AXTabGroup": "div",
-    "AXTab": "button",
-    "AXNavigationBar": "nav",
-    "AXHeader": "header"
-  };
-  return roleMap[role] || "div";
-}
-function mapRoleToAriaRole(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "link",
-    "AXTextField": "textbox",
-    "AXTextArea": "textbox",
-    "AXStaticText": "text",
-    "AXImage": "img",
-    "AXGroup": "group",
-    "AXList": "list",
-    "AXCell": "listitem",
-    "AXTable": "table",
-    "AXCheckBox": "checkbox",
-    "AXRadioButton": "radio",
-    "AXSlider": "slider",
-    "AXSwitch": "switch",
-    "AXTab": "tab",
-    "AXTabGroup": "tablist",
-    "AXNavigationBar": "navigation",
-    "AXToolbar": "toolbar",
-    "AXMenuItem": "menuitem",
-    "AXMenu": "menu"
-  };
-  return roleMap[role] || null;
-}
-function isInteractiveRole(role) {
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "AXButton",
-    "AXLink",
-    "AXTextField",
-    "AXTextArea",
-    "AXCheckBox",
-    "AXRadioButton",
-    "AXSlider",
-    "AXSwitch",
-    "AXPopUpButton",
-    "AXComboBox",
-    "AXMenuItem",
-    "AXTab"
-  ]);
-  return interactiveRoles.has(role);
-}
-var import_child_process4, import_util3, import_fs6, import_promises14, import_path14, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var import_child_process4, import_util3, import_fs7, import_promises14, import_path14, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
 var init_extract2 = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util3 = require("util");
-    import_fs6 = require("fs");
+    import_fs7 = require("fs");
     import_promises14 = require("fs/promises");
     import_path14 = require("path");
+    init_role_map();
     execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
     EXTRACTOR_DIR = (0, import_path14.join)(process.cwd(), ".ibr", "bin");
     EXTRACTOR_PATH = (0, import_path14.join)(EXTRACTOR_DIR, "ibr-ax-extract");
@@ -7460,8 +7612,8 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
       const roleCount = roleCounts[el.role] || 0;
       roleCounts[el.role] = roleCount + 1;
       const currentPath = path2 ? `${path2} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
-      const tagName = mapRoleToTag2(el.role);
-      const isInteractive = isInteractiveRole2(el.role) && el.enabled;
+      const tagName = mapRoleToTag(el.role);
+      const isInteractive = isInteractiveRole(el.role) && el.enabled;
       const hasPress = el.actions.includes("AXPress");
       const text = el.title || el.description || el.value || void 0;
       const bounds = {
@@ -7485,7 +7637,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
             cursor: isInteractive ? "pointer" : "default"
           },
           a11y: {
-            role: mapRoleToAriaRole2(el.role),
+            role: mapRoleToAriaRole(el.role),
             ariaLabel: el.title || el.description || null,
             ariaDescribedBy: null
           },
@@ -7506,85 +7658,6 @@ async function captureMacOSScreenshot(windowId, outputPath) {
     timeout: 1e4
   });
 }
-function mapRoleToTag2(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "a",
-    "AXTextField": "input",
-    "AXTextArea": "textarea",
-    "AXSecureTextField": "input",
-    "AXStaticText": "span",
-    "AXImage": "img",
-    "AXGroup": "div",
-    "AXSplitGroup": "div",
-    "AXList": "ul",
-    "AXCell": "li",
-    "AXTable": "table",
-    "AXScrollArea": "div",
-    "AXToolbar": "nav",
-    "AXMenuBar": "nav",
-    "AXMenu": "nav",
-    "AXMenuItem": "li",
-    "AXCheckBox": "input",
-    "AXRadioButton": "input",
-    "AXSlider": "input",
-    "AXSwitch": "input",
-    "AXPopUpButton": "select",
-    "AXComboBox": "select",
-    "AXTabGroup": "div",
-    "AXTab": "button",
-    "AXNavigationBar": "nav",
-    "AXHeader": "header",
-    "AXWindow": "main"
-  };
-  return roleMap[role] || role.replace(/^AX/, "").toLowerCase();
-}
-function mapRoleToAriaRole2(role) {
-  const roleMap = {
-    "AXButton": "button",
-    "AXLink": "link",
-    "AXTextField": "textbox",
-    "AXTextArea": "textbox",
-    "AXSecureTextField": "textbox",
-    "AXStaticText": "text",
-    "AXImage": "img",
-    "AXGroup": "group",
-    "AXList": "list",
-    "AXCell": "listitem",
-    "AXTable": "table",
-    "AXCheckBox": "checkbox",
-    "AXRadioButton": "radio",
-    "AXSlider": "slider",
-    "AXSwitch": "switch",
-    "AXTab": "tab",
-    "AXTabGroup": "tablist",
-    "AXNavigationBar": "navigation",
-    "AXToolbar": "toolbar",
-    "AXMenuItem": "menuitem",
-    "AXMenu": "menu",
-    "AXScrollArea": "scrollbar",
-    "AXWindow": "main"
-  };
-  return roleMap[role] || null;
-}
-function isInteractiveRole2(role) {
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "AXButton",
-    "AXLink",
-    "AXTextField",
-    "AXTextArea",
-    "AXSecureTextField",
-    "AXCheckBox",
-    "AXRadioButton",
-    "AXSlider",
-    "AXSwitch",
-    "AXPopUpButton",
-    "AXComboBox",
-    "AXMenuItem",
-    "AXTab"
-  ]);
-  return interactiveRoles.has(role);
-}
 var import_child_process5, import_util4, import_promises15, import_path15, execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
@@ -7594,6 +7667,7 @@ var init_macos = __esm({
     import_promises15 = require("fs/promises");
     import_path15 = require("path");
     init_extract2();
+    init_role_map();
     execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
     execAsync = (0, import_util4.promisify)(import_child_process5.exec);
   }
@@ -8003,92 +8077,78 @@ async function scanMacOS(options) {
     summary
   };
 }
-function formatMacOSScanResult(result) {
-  const lines = [];
-  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("  IBR NATIVE macOS SCAN");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("");
-  lines.push(`  App:      ${result.url}`);
-  lines.push(`  Window:   ${result.route.slice(1)}`);
-  lines.push(`  Viewport: ${result.viewport.width}x${result.viewport.height}`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
-  lines.push("");
-  lines.push(`  ${result.summary}`);
-  lines.push("");
-  lines.push("  PAGE UNDERSTANDING");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`);
-  lines.push(`  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`);
-  lines.push("");
-  lines.push("  ELEMENTS");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
-  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
-  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
-  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
-  lines.push("");
-  const { buttons, links, forms } = result.interactivity;
-  lines.push("  INTERACTIVITY");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`);
-  lines.push("");
-  if (result.issues.length > 0) {
-    lines.push("  ISSUES");
-    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
-    for (const issue of result.issues) {
-      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
-      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
-      if (issue.fix) {
-        lines.push(`    \u2192 ${issue.fix}`);
-      }
-    }
-  } else {
-    lines.push("  No issues detected.");
+function verdictIcon(verdict) {
+  return verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+}
+function formatElementsSection(audit) {
+  return [
+    "  ELEMENTS",
+    "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    `  Total:              ${audit.totalElements}`,
+    `  Interactive:        ${audit.interactiveCount}`,
+    `  With handlers:      ${audit.withHandlers}`,
+    `  Without handlers:   ${audit.withoutHandlers}`,
+    ""
+  ];
+}
+function formatIssuesSection(issues) {
+  if (issues.length === 0) return ["  No issues detected."];
+  const lines = ["  ISSUES", "  \u2500\u2500\u2500\u2500\u2500\u2500"];
+  for (const issue of issues) {
+    const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
+    lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+    if (issue.fix) lines.push(`    \u2192 ${issue.fix}`);
   }
-  lines.push("");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines;
+}
+function formatMacOSScanResult(result) {
+  const lines = [
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "  IBR NATIVE macOS SCAN",
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "",
+    `  App:      ${result.url}`,
+    `  Window:   ${result.route.slice(1)}`,
+    `  Viewport: ${result.viewport.width}x${result.viewport.height}`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    "",
+    `  ${result.summary}`,
+    "",
+    "  PAGE UNDERSTANDING",
+    "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    `  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
+    `  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`,
+    "",
+    ...formatElementsSection(result.elements.audit)
+  ];
+  const { buttons, links, forms } = result.interactivity;
+  lines.push("  INTERACTIVITY", "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`, "");
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
 function formatNativeScanResult(result) {
-  const lines = [];
-  const verdictIcon = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("  IBR NATIVE SCAN");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
-  lines.push("");
-  lines.push(`  Device:   ${result.device.name}`);
-  lines.push(`  Platform: ${result.platform}`);
-  lines.push(`  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`);
-  lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
-  lines.push("");
-  lines.push(`  ${result.summary}`);
-  lines.push("");
-  lines.push("  ELEMENTS");
-  lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
-  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
-  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
-  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
-  lines.push("");
+  const lines = [
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "  IBR NATIVE SCAN",
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "",
+    `  Device:   ${result.device.name}`,
+    `  Platform: ${result.platform}`,
+    `  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`,
+    `  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    "",
+    `  ${result.summary}`,
+    "",
+    ...formatElementsSection(result.elements.audit)
+  ];
   if (result.screenshotPath) {
-    lines.push(`  Screenshot: ${result.screenshotPath}`);
-    lines.push("");
+    lines.push(`  Screenshot: ${result.screenshotPath}`, "");
   }
-  if (result.issues.length > 0) {
-    lines.push("  ISSUES");
-    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
-    for (const issue of result.issues) {
-      const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
-      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
-    }
-  } else {
-    lines.push("  No issues detected.");
-  }
-  lines.push("");
-  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
 var import_path16;
@@ -8316,6 +8376,7 @@ __export(index_exports, {
   loadCompactContext: () => loadCompactContext,
   loadRetentionConfig: () => loadRetentionConfig,
   loadSummary: () => loadSummary,
+  loadTokenSpec: () => loadTokenSpec,
   loginFlow: () => loginFlow,
   mapMacOSToEnhancedElements: () => mapMacOSToEnhancedElements,
   mapToEnhancedElements: () => mapToEnhancedElements,
@@ -8324,6 +8385,7 @@ __export(index_exports, {
   measureApiTiming: () => measureApiTiming,
   measurePerformance: () => measurePerformance,
   measureWebVitals: () => measureWebVitals,
+  normalizeColor: () => normalizeColor,
   preferencesToRules: () => preferencesToRules,
   promoteToPreference: () => promoteToPreference,
   queryDecisions: () => queryDecisions,
@@ -8344,6 +8406,7 @@ __export(index_exports, {
   testResponsive: () => testResponsive,
   updateCompactContext: () => updateCompactContext,
   updateSession: () => updateSession,
+  validateAgainstTokens: () => validateAgainstTokens,
   waitForCompletion: () => waitForCompletion,
   waitForNavigation: () => waitForNavigation,
   waitForPageReady: () => waitForPageReady,
@@ -8514,6 +8577,7 @@ var init_index = __esm({
     init_compact();
     init_types3();
     init_scan();
+    init_tokens();
     init_native();
     InterfaceBuiltRight = class {
       config;
@@ -9058,7 +9122,7 @@ function listPresets() {
 }
 async function loadRulesConfig(projectDir) {
   const configPath = (0, import_path18.join)(projectDir, ".ibr", "rules.json");
-  if (!(0, import_fs7.existsSync)(configPath)) {
+  if (!(0, import_fs8.existsSync)(configPath)) {
     return { extends: [], rules: {} };
   }
   try {
@@ -9172,12 +9236,12 @@ async function loadMemoryPreset(outputDir) {
   } catch {
   }
 }
-var import_promises17, import_fs7, import_path18, presets;
+var import_promises17, import_fs8, import_path18, presets;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
     import_promises17 = require("fs/promises");
-    import_fs7 = require("fs");
+    import_fs8 = require("fs");
     import_path18 = require("path");
     presets = /* @__PURE__ */ new Map();
     Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
@@ -9387,7 +9451,7 @@ async function discoverUserContext(projectDir) {
   let memory;
   const outputDir = config.outputDir || "./.ibr";
   const memoryPath = (0, import_path19.join)(outputDir, "memory", "summary.json");
-  if ((0, import_fs8.existsSync)(memoryPath)) {
+  if ((0, import_fs9.existsSync)(memoryPath)) {
     try {
       const memContent = await (0, import_promises18.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
@@ -9409,7 +9473,7 @@ async function tryLoadFramework(filePath, type) {
     found: false,
     hasFramework: false
   };
-  if (!(0, import_fs8.existsSync)(filePath)) {
+  if (!(0, import_fs9.existsSync)(filePath)) {
     return { source };
   }
   source.found = true;
@@ -9426,7 +9490,7 @@ async function tryLoadFramework(filePath, type) {
 }
 async function loadIBRConfig(projectDir) {
   const configPath = (0, import_path19.join)(projectDir, ".ibrrc.json");
-  if (!(0, import_fs8.existsSync)(configPath)) {
+  if (!(0, import_fs9.existsSync)(configPath)) {
     return {};
   }
   try {
@@ -9460,11 +9524,11 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs8, import_promises18, import_path19, import_os3;
+var import_fs9, import_promises18, import_path19, import_os3;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
-    import_fs8 = require("fs");
+    import_fs9 = require("fs");
     import_promises18 = require("fs/promises");
     import_path19 = require("path");
     import_os3 = require("os");
@@ -9742,7 +9806,7 @@ function getPaths(outputDir) {
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs9.existsSync)(stateFile)) {
+  if (!(0, import_fs10.existsSync)(stateFile)) {
     return false;
   }
   try {
@@ -9823,7 +9887,7 @@ async function startBrowserServer(outputDir, options = {}) {
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs9.existsSync)(stateFile)) {
+  if (!(0, import_fs10.existsSync)(stateFile)) {
     return null;
   }
   try {
@@ -9842,7 +9906,7 @@ async function connectToBrowserServer(outputDir) {
 }
 async function stopBrowserServer(outputDir) {
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs9.existsSync)(stateFile)) {
+  if (!(0, import_fs10.existsSync)(stateFile)) {
     return false;
   }
   try {
@@ -9859,7 +9923,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs9.existsSync)(sessionsDir)) {
+  if (!(0, import_fs10.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir6 } = await import("fs/promises");
@@ -9868,20 +9932,20 @@ async function listActiveSessions(outputDir) {
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
       const statePath = (0, import_path20.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs9.existsSync)(statePath)) {
+      if ((0, import_fs10.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_playwright9, import_promises19, import_fs9, import_path20, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_playwright9, import_promises19, import_fs10, import_path20, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     import_playwright9 = require("playwright");
     import_promises19 = require("fs/promises");
-    import_fs9 = require("fs");
+    import_fs10 = require("fs");
     import_path20 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
@@ -9968,7 +10032,7 @@ var init_browser_server = __esm({
       static async get(outputDir, sessionId) {
         const sessionDir = (0, import_path20.join)(outputDir, "sessions", sessionId);
         const statePath = (0, import_path20.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs9.existsSync)(statePath)) {
+        if (!(0, import_fs10.existsSync)(statePath)) {
           return null;
         }
         const browser3 = await connectToBrowserServer(outputDir);
@@ -10522,7 +10586,7 @@ var init_browser_server = __esm({
               const src = (0, import_path20.join)(this.sessionDir, cap.screenshot);
               const dest = (0, import_path20.join)(archiveDir, cap.screenshot);
               try {
-                if ((0, import_fs9.existsSync)(src)) {
+                if ((0, import_fs10.existsSync)(src)) {
                   await rename2(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
@@ -10550,13 +10614,13 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright10, import_promises20, import_fs10, import_path21, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_playwright10, import_promises20, import_fs11, import_path21, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     import_playwright10 = require("playwright");
     import_promises20 = require("fs/promises");
-    import_fs10 = require("fs");
+    import_fs11 = require("fs");
     import_path21 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
@@ -10661,7 +10725,7 @@ var init_live_session = __esm({
       static async resume(outputDir, sessionId) {
         const sessionDir = (0, import_path21.join)(outputDir, "sessions", sessionId);
         const statePath = (0, import_path21.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs10.existsSync)(statePath)) {
+        if (!(0, import_fs11.existsSync)(statePath)) {
           return null;
         }
         const content = await (0, import_promises20.readFile)(statePath, "utf-8");
@@ -11248,7 +11312,7 @@ var init_live_session = __esm({
           const src = (0, import_path21.join)(this.sessionDir, cap.screenshot);
           const dest = (0, import_path21.join)(archiveDir, cap.screenshot);
           try {
-            if ((0, import_fs10.existsSync)(src)) {
+            if ((0, import_fs11.existsSync)(src)) {
               await (0, import_promises20.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
@@ -11333,12 +11397,12 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises21, import_fs11, import_path22, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises21, import_fs12, import_path22, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
     import_promises21 = require("fs/promises");
-    import_fs11 = require("fs");
+    import_fs12 = require("fs");
     import_path22 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
@@ -11397,7 +11461,7 @@ var init_screenshot_manager = __esm({
        */
       async list(sessionId) {
         const sessionDir = (0, import_path22.join)(this.outputDir, "sessions", sessionId);
-        if (!(0, import_fs11.existsSync)(sessionDir)) {
+        if (!(0, import_fs12.existsSync)(sessionDir)) {
           return [];
         }
         const screenshots = [];
@@ -11410,7 +11474,7 @@ var init_screenshot_manager = __esm({
        */
       async listAll() {
         const sessionsDir = (0, import_path22.join)(this.outputDir, "sessions");
-        if (!(0, import_fs11.existsSync)(sessionsDir)) {
+        if (!(0, import_fs12.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
@@ -11455,7 +11519,7 @@ var init_screenshot_manager = __esm({
        * Get metadata for a specific screenshot
        */
       async getMetadata(path2) {
-        if (!(0, import_fs11.existsSync)(path2)) {
+        if (!(0, import_fs12.existsSync)(path2)) {
           return null;
         }
         const stats = await (0, import_promises21.stat)(path2);
@@ -11468,7 +11532,7 @@ var init_screenshot_manager = __esm({
         let query;
         let userIntent;
         const resultsPath = (0, import_path22.join)(dir, "results.json");
-        if ((0, import_fs11.existsSync)(resultsPath)) {
+        if ((0, import_fs12.existsSync)(resultsPath)) {
           try {
             const resultsContent = await (0, import_promises21.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
@@ -11575,7 +11639,7 @@ var init_screenshot_manager = __esm({
        */
       async loadConfig() {
         const configPath = (0, import_path22.join)(this.outputDir, "screenshot-config.json");
-        if ((0, import_fs11.existsSync)(configPath)) {
+        if ((0, import_fs12.existsSync)(configPath)) {
           try {
             const content = await (0, import_promises21.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
@@ -11592,13 +11656,13 @@ var init_screenshot_manager = __esm({
 var import_commander = require("commander");
 var import_promises22 = require("fs/promises");
 var import_path23 = require("path");
-var import_fs12 = require("fs");
+var import_fs13 = require("fs");
 init_index();
 init_operation_tracker();
 var program = new import_commander.Command();
 async function loadConfig() {
   const configPath = (0, import_path23.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs12.existsSync)(configPath)) {
+  if ((0, import_fs13.existsSync)(configPath)) {
     try {
       const content = await (0, import_promises22.readFile)(configPath, "utf-8");
       return JSON.parse(content);
@@ -12222,19 +12286,19 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { resolve: resolve2 } = await import("path");
   const packageRoot = resolve2(process.cwd());
   let webUiDir = (0, import_path23.join)(packageRoot, "web-ui");
-  if (!(0, import_fs12.existsSync)(webUiDir)) {
+  if (!(0, import_fs13.existsSync)(webUiDir)) {
     const possiblePaths = [
       (0, import_path23.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
       (0, import_path23.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs12.existsSync)(p)) {
+      if ((0, import_fs13.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs12.existsSync)(webUiDir)) {
+  if (!(0, import_fs13.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -13445,7 +13509,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   const configPath = (0, import_path23.join)(process.cwd(), ".ibrrc.json");
   const claudeSettingsPath = (0, import_path23.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs12.existsSync)(configPath)) {
+  if (!(0, import_fs13.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -13499,8 +13563,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs12.existsSync)((0, import_path23.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs12.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs13.existsSync)((0, import_path23.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs13.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -13509,7 +13573,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs12.existsSync)((0, import_path23.join)(process.cwd(), p))) {
+    if ((0, import_fs13.existsSync)((0, import_path23.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -13847,8 +13911,8 @@ program.command("native:check [sessionId]").description("Compare current simulat
       baselinePath: paths.baseline,
       currentPath: paths.current
     });
-    const verdictIcon = result.verdict === "MATCH" ? "\u2713" : result.verdict === "EXPECTED_CHANGE" ? "~" : "\u2717";
-    console.log(`${verdictIcon} ${result.verdict}`);
+    const verdictIcon2 = result.verdict === "MATCH" ? "\u2713" : result.verdict === "EXPECTED_CHANGE" ? "~" : "\u2717";
+    console.log(`${verdictIcon2} ${result.verdict}`);
     console.log(`Diff: ${result.diffPercent.toFixed(2)}% (${result.diffPixels} pixels)`);
     console.log(result.summary);
     if (result.recommendation) {
@@ -13871,7 +13935,9 @@ program.command("scan:macos").description("Scan a running macOS native app via A
       process.exit(1);
     }
     const { scanMacOS: scanMacOS2, formatMacOSScanResult: formatMacOSScanResult2 } = await Promise.resolve().then(() => (init_native(), native_exports));
-    console.log(`Scanning macOS app${options.app ? ` "${options.app}"` : ""}...`);
+    if (!options.json) {
+      console.log(`Scanning macOS app${options.app ? ` "${options.app}"` : ""}...`);
+    }
     const result = await scanMacOS2({
       app: options.app,
       bundleId: options.bundleId,
