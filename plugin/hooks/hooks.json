@@ -21,7 +21,7 @@
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "prompt",
-          "prompt": "Check $ARGUMENTS file path extension. If web UI file (.tsx/.jsx/.vue/.svelte/.css/.scss/.html): suggest IBR `scan` to verify. If native UI file (.swift): suggest `native_scan`. Otherwise: do nothing. Keep suggestion to one sentence."
+          "prompt": "Check $ARGUMENTS file path extension. If web UI file (.tsx/.jsx/.vue/.svelte/.css/.scss/.html): note that IBR scan can return live CSS, handler, and a11y data for this file's output. If native UI file (.swift): note native_scan is available. Otherwise: do nothing. One sentence, informational not prescriptive."
         }]
       }
     ],
@@ -35,7 +35,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "If UI files (.tsx/.jsx/.vue/.svelte/.swift) were edited this session but IBR scan/native_scan was not used, suggest validation in one sentence. Otherwise say nothing."
+          "prompt": "If UI files (.tsx/.jsx/.vue/.svelte/.swift) were edited this session but IBR scan/native_scan was not used, mention scan data is available to confirm the implementation. One sentence. Do not block."
         }]
       }
     ],
@@ -43,7 +43,7 @@
       {
         "hooks": [{
           "type": "prompt",
-          "prompt": "IBR active. Web: `scan`, `snapshot`, `compare`. Native: `native_scan`, `native_snapshot`, `native_compare`, `native_devices`. macOS: `scan_macos`. Use web tools for .tsx/.jsx/.vue/.html, native for .swift."
+          "prompt": "IBR is your design implementation partner — reads live UI and returns structured data (computed CSS, handlers, accessibility, page structure). Primary: `scan` (reads any URL). Also: `snapshot`/`compare` (track changes), `screenshot`/`references` (design references), `validate_tokens` (design spec checks). Native: `native_scan`, `scan_macos`. Web tools for .tsx/.jsx/.vue/.html, native for .swift."
         }]
       }
     ]
