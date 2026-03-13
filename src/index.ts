@@ -973,5 +973,9 @@ export * from './context/types.js';
 export { scan, formatScanResult } from './scan.js';
 export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
 
+// Design token validation exports
+export { loadTokenSpec, validateAgainstTokens, normalizeColor } from './tokens.js';
+export type { DesignTokenSpec, TokenViolation } from './tokens.js';
+
 // Native iOS/watchOS simulator support
 export * from './native/index.js';

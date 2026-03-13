@@ -88,6 +88,8 @@ export interface CaptureOptions {
   selector?: string;
   /** CSS selector to wait for before capturing screenshot */
   waitFor?: string;
+  /** Extra ms to wait after page load and before screenshot (for JS-heavy pages) */
+  delay?: number;
   /** Options for masking dynamic content */
   mask?: MaskOptions;
 }

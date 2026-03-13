@@ -269,70 +269,67 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
   };
 }
 
+// --- Shared formatter helpers ---
+
+function verdictIcon(verdict: string): string {
+  return verdict === 'PASS' ? '\x1b[32m✓\x1b[0m' :
+         verdict === 'ISSUES' ? '\x1b[33m!\x1b[0m' :
+         '\x1b[31m✗\x1b[0m';
+}
+
+function formatElementsSection(audit: AuditResult): string[] {
+  return [
+    '  ELEMENTS',
+    '  ────────',
+    `  Total:              ${audit.totalElements}`,
+    `  Interactive:        ${audit.interactiveCount}`,
+    `  With handlers:      ${audit.withHandlers}`,
+    `  Without handlers:   ${audit.withoutHandlers}`,
+    '',
+  ];
+}
+
+function formatIssuesSection(issues: ScanIssue[]): string[] {
+  if (issues.length === 0) return ['  No issues detected.'];
+  const lines = ['  ISSUES', '  ──────'];
+  for (const issue of issues) {
+    const icon = issue.severity === 'error' ? '\x1b[31m✗\x1b[0m' :
+                 issue.severity === 'warning' ? '\x1b[33m!\x1b[0m' : 'ℹ';
+    lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+    if (issue.fix) lines.push(`    → ${issue.fix}`);
+  }
+  return lines;
+}
+
 /**
  * Format macOS scan result for console output
  */
 export function formatMacOSScanResult(result: MacOSScanResult): string {
-  const lines: string[] = [];
+  const lines: string[] = [
+    '═══════════════════════════════════════════════════════',
+    '  IBR NATIVE macOS SCAN',
+    '═══════════════════════════════════════════════════════',
+    '',
+    `  App:      ${result.url}`,
+    `  Window:   ${result.route.slice(1)}`,
+    `  Viewport: ${result.viewport.width}x${result.viewport.height}`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    '',
+    `  ${result.summary}`,
+    '',
+    '  PAGE UNDERSTANDING',
+    '  ─────────────────',
+    `  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
+    `  Auth:     ${result.semantic.state.auth.authenticated === false ? 'Not authenticated' : result.semantic.state.auth.authenticated ? 'Authenticated' : 'Unknown'}`,
+    '',
+    ...formatElementsSection(result.elements.audit),
+  ];
 
-  const verdictIcon = result.verdict === 'PASS' ? '\x1b[32m✓\x1b[0m' :
-                      result.verdict === 'ISSUES' ? '\x1b[33m!\x1b[0m' :
-                      '\x1b[31m✗\x1b[0m';
-
-  lines.push('═══════════════════════════════════════════════════════');
-  lines.push('  IBR NATIVE macOS SCAN');
-  lines.push('═══════════════════════════════════════════════════════');
-  lines.push('');
-  lines.push(`  App:      ${result.url}`);
-  lines.push(`  Window:   ${result.route.slice(1)}`);
-  lines.push(`  Viewport: ${result.viewport.width}x${result.viewport.height}`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
-  lines.push('');
-
-  lines.push(`  ${result.summary}`);
-  lines.push('');
-
-  // Semantic
-  lines.push('  PAGE UNDERSTANDING');
-  lines.push('  ─────────────────');
-  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`);
-  lines.push(`  Auth:     ${result.semantic.state.auth.authenticated === false ? 'Not authenticated' : result.semantic.state.auth.authenticated ? 'Authenticated' : 'Unknown'}`);
-  lines.push('');
-
-  // Elements
-  lines.push('  ELEMENTS');
-  lines.push('  ────────');
-  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
-  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
-  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
-  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
-  lines.push('');
-
-  // Interactivity breakdown
   const { buttons, links, forms } = result.interactivity;
-  lines.push('  INTERACTIVITY');
-  lines.push('  ─────────────');
-  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`);
-  lines.push('');
-
-  // Issues
-  if (result.issues.length > 0) {
-    lines.push('  ISSUES');
-    lines.push('  ──────');
-    for (const issue of result.issues) {
-      const icon = issue.severity === 'error' ? '\x1b[31m✗\x1b[0m' :
-                   issue.severity === 'warning' ? '\x1b[33m!\x1b[0m' : 'ℹ';
-      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
-      if (issue.fix) {
-        lines.push(`    → ${issue.fix}`);
-      }
-    }
-  } else {
-    lines.push('  No issues detected.');
-  }
-
-  lines.push('');
-  lines.push('═══════════════════════════════════════════════════════');
+  lines.push('  INTERACTIVITY', '  ─────────────');
+  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`, '');
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push('', '═══════════════════════════════════════════════════════');
 
   return lines.join('\n');
 }
@@ -341,56 +338,28 @@ export function formatMacOSScanResult(result: MacOSScanResult): string {
  * Format native scan result for console output
  */
 export function formatNativeScanResult(result: NativeScanResult): string {
-  const lines: string[] = [];
+  const lines: string[] = [
+    '═══════════════════════════════════════════════════════',
+    '  IBR NATIVE SCAN',
+    '═══════════════════════════════════════════════════════',
+    '',
+    `  Device:   ${result.device.name}`,
+    `  Platform: ${result.platform}`,
+    `  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, '').replace(/-/g, '.')}`,
+    `  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    '',
+    `  ${result.summary}`,
+    '',
+    ...formatElementsSection(result.elements.audit),
+  ];
 
-  const verdictIcon = result.verdict === 'PASS' ? '\x1b[32m✓\x1b[0m' :
-                      result.verdict === 'ISSUES' ? '\x1b[33m!\x1b[0m' :
-                      '\x1b[31m✗\x1b[0m';
-
-  lines.push('═══════════════════════════════════════════════════════');
-  lines.push('  IBR NATIVE SCAN');
-  lines.push('═══════════════════════════════════════════════════════');
-  lines.push('');
-  lines.push(`  Device:   ${result.device.name}`);
-  lines.push(`  Platform: ${result.platform}`);
-  lines.push(`  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, '').replace(/-/g, '.')}`);
-  lines.push(`  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`);
-  lines.push(`  Verdict:  ${verdictIcon} ${result.verdict}`);
-  lines.push('');
-
-  lines.push(`  ${result.summary}`);
-  lines.push('');
-
-  // Elements
-  lines.push('  ELEMENTS');
-  lines.push('  ────────');
-  lines.push(`  Total:              ${result.elements.audit.totalElements}`);
-  lines.push(`  Interactive:        ${result.elements.audit.interactiveCount}`);
-  lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
-  lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
-  lines.push('');
-
-  // Screenshot
   if (result.screenshotPath) {
-    lines.push(`  Screenshot: ${result.screenshotPath}`);
-    lines.push('');
+    lines.push(`  Screenshot: ${result.screenshotPath}`, '');
   }
 
-  // Issues
-  if (result.issues.length > 0) {
-    lines.push('  ISSUES');
-    lines.push('  ──────');
-    for (const issue of result.issues) {
-      const icon = issue.severity === 'error' ? '\x1b[31m✗\x1b[0m' :
-                   issue.severity === 'warning' ? '\x1b[33m!\x1b[0m' : 'ℹ';
-      lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
-    }
-  } else {
-    lines.push('  No issues detected.');
-  }
-
-  lines.push('');
-  lines.push('═══════════════════════════════════════════════════════');
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push('', '═══════════════════════════════════════════════════════');
 
   return lines.join('\n');
 }

@@ -1,65 +1,60 @@
 ---
-description: Capture a screenshot using IBR instead of Playwright MCP. Use for UI capture, reference images, and design validation.
+description: Capture a screenshot of any URL and return the image for Claude to see. Optionally save to the design reference library.
+argument-hint: <url>
 ---
 
 # /ibr:screenshot
 
-Capture a screenshot of a URL using IBR's managed session system.
-
-## When to Use
-
-For capturing a visual reference. For **validating** UI implementation, prefer `npx ibr scan <url> --json` instead — it returns structured data (computed CSS, handlers, a11y) that is more precise than pixels.
+Capture a screenshot using IBR's `screenshot` MCP tool. Returns a base64 image content block that Claude can see directly.
 
 ## Usage
 
-```bash
-npx ibr start <url> --name "<descriptive-name>"
-```
+Call the `ibr screenshot` MCP tool with the provided URL.
+
+**Default behavior:**
+- Desktop viewport (1920x1080)
+- Viewport-only capture (not full page)
+- 2000ms delay for external sites, 500ms for localhost
+
+## Parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `url` | (required) | URL to capture |
+| `viewport` | desktop | desktop, mobile, or tablet |
+| `selector` | — | CSS selector to capture specific element |
+| `full_page` | false | Capture full scrollable page |
+| `wait_for` | — | CSS selector to wait for before capture |
+| `delay` | auto | Extra ms to wait (2000 external, 500 localhost) |
+| `save_as` | — | Save to reference library with this name |
 
 ## Examples
 
-```bash
-# Capture a local dev page
-npx ibr start http://localhost:3000/dashboard --name "dashboard-capture"
-
-# Capture with specific viewport
-npx ibr start http://localhost:3000 --viewport mobile --name "mobile-home"
-
-# Capture external site for reference
-npx ibr start https://example.com --name "example-reference"
 ```
+# Capture a local dev page
+ibr screenshot with url: "http://localhost:3000/dashboard"
 
-## Output
+# Capture external design and save as reference
+ibr screenshot with url: "https://mobbin.com/screens/...", save_as: "mobbin-login"
 
-Screenshots are stored in `.ibr/sessions/<session-id>/`:
-- `baseline.png` — The captured screenshot
-- `session.json` — Metadata (URL, viewport, timestamp)
+# Mobile viewport capture
+ibr screenshot with url: "http://localhost:3000", viewport: "mobile"
 
-## Why Use This Over Playwright MCP
-
-| IBR | Playwright MCP |
-|-----|----------------|
-| Managed sessions with metadata | Raw screenshots |
-| Automatic storage organization | Manual file handling |
-| Built-in comparison (`ibr check`) | No comparison |
-| Session history and timeline | No history |
-| Structured scan data (`ibr scan`) | Pixel-only snapshots |
-| Integration with `/ibr:replicate` | Standalone |
-
-## For Reference Images (Design Replication)
-
-If capturing a reference for UI replication, prefer the IBR web UI upload:
-
-1. Open IBR dashboard: `npx ibr serve` or go to `localhost:4200`
-2. Click "Upload Reference"
-3. Use "From URL" tab for live extraction (gets HTML/CSS too)
-4. Or drag-drop an image file
-
-This provides richer data for replication than a simple screenshot.
+# Capture specific element
+ibr screenshot with url: "http://localhost:3000", selector: ".hero-section"
+```
 
 ## After Capturing
 
-- **Validate implementation**: `npx ibr scan <url> --json` (preferred for AI agents)
-- View in IBR UI: `npx ibr serve`
-- List sessions: `npx ibr list`
-- Compare after changes: `npx ibr check`
+- **Validate implementation**: Use `ibr scan` MCP tool for structured CSS/handler/a11y data
+- **Save for later**: Add `save_as` parameter to store in reference library
+- **List saved references**: Use `ibr references` MCP tool
+- **View saved reference**: Use `ibr references` with `action: "show"` and `name`
+
+## Screenshot vs Scan
+
+| Need | Tool |
+|------|------|
+| See what a page looks like (image) | `ibr screenshot` |
+| Exact CSS values, handlers, a11y audit | `ibr scan` |
+| Visual regression baseline | `ibr snapshot` |

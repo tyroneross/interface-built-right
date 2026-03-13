@@ -3190,7 +3190,9 @@ program
 
       const { scanMacOS, formatMacOSScanResult } = await import('../native/index.js');
 
-      console.log(`Scanning macOS app${options.app ? ` "${options.app}"` : ''}...`);
+      if (!options.json) {
+        console.log(`Scanning macOS app${options.app ? ` "${options.app}"` : ''}...`);
+      }
 
       const result = await scanMacOS({
         app: options.app,

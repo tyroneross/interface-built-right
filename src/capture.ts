@@ -179,6 +179,7 @@ export async function captureScreenshot(
     outputDir,
     selector,
     waitFor,
+    delay,
   } = options;
 
   // Ensure output directory exists
@@ -220,8 +221,8 @@ export async function captureScreenshot(
       await page.waitForSelector(waitFor, { timeout });
     }
 
-    // Wait for any remaining animations to settle
-    await page.waitForTimeout(500);
+    // Wait for any remaining animations to settle (or custom delay for JS-heavy pages)
+    await page.waitForTimeout(delay ?? 500);
 
     // Apply dynamic content masking (includes animation disabling)
     await applyMasking(page, options.mask);

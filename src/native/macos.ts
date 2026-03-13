@@ -5,6 +5,7 @@ import { dirname } from 'path';
 import type { MacOSAXElement, MacOSWindowInfo } from './types.js';
 import type { EnhancedElement } from '../schemas.js';
 import { ensureExtractor } from './extract.js';
+import { mapRoleToTag, mapRoleToAriaRole, isInteractiveRole } from './role-map.js';
 
 const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
@@ -201,89 +202,3 @@ export async function captureMacOSScreenshot(
   });
 }
 
-// --- Role mapping helpers ---
-
-function mapRoleToTag(role: string): string {
-  const roleMap: Record<string, string> = {
-    'AXButton': 'button',
-    'AXLink': 'a',
-    'AXTextField': 'input',
-    'AXTextArea': 'textarea',
-    'AXSecureTextField': 'input',
-    'AXStaticText': 'span',
-    'AXImage': 'img',
-    'AXGroup': 'div',
-    'AXSplitGroup': 'div',
-    'AXList': 'ul',
-    'AXCell': 'li',
-    'AXTable': 'table',
-    'AXScrollArea': 'div',
-    'AXToolbar': 'nav',
-    'AXMenuBar': 'nav',
-    'AXMenu': 'nav',
-    'AXMenuItem': 'li',
-    'AXCheckBox': 'input',
-    'AXRadioButton': 'input',
-    'AXSlider': 'input',
-    'AXSwitch': 'input',
-    'AXPopUpButton': 'select',
-    'AXComboBox': 'select',
-    'AXTabGroup': 'div',
-    'AXTab': 'button',
-    'AXNavigationBar': 'nav',
-    'AXHeader': 'header',
-    'AXWindow': 'main',
-  };
-
-  return roleMap[role] || role.replace(/^AX/, '').toLowerCase();
-}
-
-function mapRoleToAriaRole(role: string): string | null {
-  const roleMap: Record<string, string> = {
-    'AXButton': 'button',
-    'AXLink': 'link',
-    'AXTextField': 'textbox',
-    'AXTextArea': 'textbox',
-    'AXSecureTextField': 'textbox',
-    'AXStaticText': 'text',
-    'AXImage': 'img',
-    'AXGroup': 'group',
-    'AXList': 'list',
-    'AXCell': 'listitem',
-    'AXTable': 'table',
-    'AXCheckBox': 'checkbox',
-    'AXRadioButton': 'radio',
-    'AXSlider': 'slider',
-    'AXSwitch': 'switch',
-    'AXTab': 'tab',
-    'AXTabGroup': 'tablist',
-    'AXNavigationBar': 'navigation',
-    'AXToolbar': 'toolbar',
-    'AXMenuItem': 'menuitem',
-    'AXMenu': 'menu',
-    'AXScrollArea': 'scrollbar',
-    'AXWindow': 'main',
-  };
-
-  return roleMap[role] || null;
-}
-
-function isInteractiveRole(role: string): boolean {
-  const interactiveRoles = new Set([
-    'AXButton',
-    'AXLink',
-    'AXTextField',
-    'AXTextArea',
-    'AXSecureTextField',
-    'AXCheckBox',
-    'AXRadioButton',
-    'AXSlider',
-    'AXSwitch',
-    'AXPopUpButton',
-    'AXComboBox',
-    'AXMenuItem',
-    'AXTab',
-  ]);
-
-  return interactiveRoles.has(role);
-}

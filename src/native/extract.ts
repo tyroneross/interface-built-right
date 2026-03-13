@@ -6,6 +6,7 @@ import { join } from 'path';
 import type { NativeElement } from './types.js';
 import type { SimulatorDevice } from './types.js';
 import type { EnhancedElement } from '../schemas.js';
+import { mapRoleToTag, mapRoleToAriaRole, isInteractiveRole } from './role-map.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -146,89 +147,3 @@ export function mapToEnhancedElements(nativeElements: NativeElement[]): Enhanced
   return enhanced;
 }
 
-/**
- * Map AXUIElement role to an HTML-equivalent tag name
- */
-function mapRoleToTag(role: string): string {
-  const roleMap: Record<string, string> = {
-    'AXButton': 'button',
-    'AXLink': 'a',
-    'AXTextField': 'input',
-    'AXTextArea': 'textarea',
-    'AXStaticText': 'span',
-    'AXImage': 'img',
-    'AXGroup': 'div',
-    'AXList': 'ul',
-    'AXCell': 'li',
-    'AXTable': 'table',
-    'AXScrollArea': 'div',
-    'AXToolbar': 'nav',
-    'AXMenuBar': 'nav',
-    'AXMenu': 'menu',
-    'AXMenuItem': 'li',
-    'AXCheckBox': 'input',
-    'AXRadioButton': 'input',
-    'AXSlider': 'input',
-    'AXSwitch': 'input',
-    'AXPopUpButton': 'select',
-    'AXComboBox': 'select',
-    'AXTabGroup': 'div',
-    'AXTab': 'button',
-    'AXNavigationBar': 'nav',
-    'AXHeader': 'header',
-  };
-
-  return roleMap[role] || 'div';
-}
-
-/**
- * Map AXUIElement role to ARIA role
- */
-function mapRoleToAriaRole(role: string): string | null {
-  const roleMap: Record<string, string> = {
-    'AXButton': 'button',
-    'AXLink': 'link',
-    'AXTextField': 'textbox',
-    'AXTextArea': 'textbox',
-    'AXStaticText': 'text',
-    'AXImage': 'img',
-    'AXGroup': 'group',
-    'AXList': 'list',
-    'AXCell': 'listitem',
-    'AXTable': 'table',
-    'AXCheckBox': 'checkbox',
-    'AXRadioButton': 'radio',
-    'AXSlider': 'slider',
-    'AXSwitch': 'switch',
-    'AXTab': 'tab',
-    'AXTabGroup': 'tablist',
-    'AXNavigationBar': 'navigation',
-    'AXToolbar': 'toolbar',
-    'AXMenuItem': 'menuitem',
-    'AXMenu': 'menu',
-  };
-
-  return roleMap[role] || null;
-}
-
-/**
- * Check if an AX role represents an interactive element
- */
-function isInteractiveRole(role: string): boolean {
-  const interactiveRoles = new Set([
-    'AXButton',
-    'AXLink',
-    'AXTextField',
-    'AXTextArea',
-    'AXCheckBox',
-    'AXRadioButton',
-    'AXSlider',
-    'AXSwitch',
-    'AXPopUpButton',
-    'AXComboBox',
-    'AXMenuItem',
-    'AXTab',
-  ]);
-
-  return interactiveRoles.has(role);
-}

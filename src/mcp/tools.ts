@@ -5,6 +5,8 @@
  * Responses are formatted as concise text for LLM consumption.
  */
 
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
+import { join } from "path";
 import { scan, formatScanResult } from "../scan.js";
 import {
   compare,
@@ -29,15 +31,36 @@ import {
   getDeviceViewport,
   formatDevice,
 } from "../native/index.js";
+import { captureScreenshot } from "../capture.js";
+import { VIEWPORTS } from "../schemas.js";
+import { loadTokenSpec, validateAgainstTokens } from '../tokens.js';
+import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
+
+// --- Content types ---
+
+type McpContent =
+  | { type: "text"; text: string }
+  | { type: "image"; data: string; mimeType: string };
+
+type McpResponse = { content: McpContent[]; isError?: boolean };
 
 // --- Response helpers ---
 
-function textResponse(text: string) {
+function textResponse(text: string): McpResponse {
   return { content: [{ type: "text" as const, text }] };
 }
 
-function errorResponse(text: string) {
+function errorResponse(text: string): McpResponse {
   return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
+function imageResponse(base64: string, metadata: string): McpResponse {
+  return {
+    content: [
+      { type: "image" as const, data: base64, mimeType: "image/png" },
+      { type: "text" as const, text: metadata },
+    ],
+  };
 }
 
 // --- Tool definitions ---
@@ -136,6 +159,80 @@ export const TOOLS = [
     annotations: {
       title: "List Sessions",
       readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  // --- Screenshot & reference tools ---
+  {
+    name: "screenshot",
+    description:
+      "Navigate to any URL and capture a screenshot that Claude can see. Returns the image as a base64 content block. Use for viewing external design sites (Mobbin, Dribbble, etc.), capturing UI state visually, or saving design references. For structured data (CSS, handlers, a11y), use 'scan' instead.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to capture (localhost or external)",
+        },
+        viewport: {
+          type: "string",
+          enum: ["desktop", "mobile", "tablet"],
+          description: "Viewport preset (default: desktop)",
+        },
+        selector: {
+          type: "string",
+          description: "CSS selector to capture a specific element instead of full page",
+        },
+        full_page: {
+          type: "boolean",
+          description: "Capture full scrollable page (default: false — viewport only)",
+        },
+        wait_for: {
+          type: "string",
+          description: "CSS selector to wait for before capturing",
+        },
+        delay: {
+          type: "number",
+          description: "Extra ms to wait after page load (default: 2000 for external sites, 500 for localhost)",
+        },
+        save_as: {
+          type: "string",
+          description: "Save to reference library as this name (e.g. 'mobbin-login'). Stored in .ibr/references/",
+        },
+      },
+      required: ["url"],
+    },
+    annotations: {
+      title: "Screenshot",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "references",
+    description:
+      "Manage the design reference library. List saved references, show a specific reference image (returned as base64 so Claude can see it), or delete a reference.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        action: {
+          type: "string",
+          enum: ["list", "show", "delete"],
+          description: "Action to perform (default: list)",
+        },
+        name: {
+          type: "string",
+          description: "Reference name — required for show and delete",
+        },
+      },
+    },
+    annotations: {
+      title: "Design References",
+      readOnlyHint: false,
       destructiveHint: false,
       idempotentHint: true,
       openWorldHint: false,
@@ -279,6 +376,91 @@ export const TOOLS = [
       openWorldHint: false,
     },
   },
+  {
+    name: "validate_tokens",
+    description:
+      "Validate UI elements against a design token specification. Checks touch targets, font sizes, colors, spacing, and corner radius against the token values defined in .ibr/tokens.json or a custom spec file.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to scan and validate (web URL or simulator URL)",
+        },
+        device: {
+          type: "string",
+          description: "Simulator device to scan (alternative to url, for native apps)",
+        },
+        spec_path: {
+          type: "string",
+          description: "Path to token spec JSON file (default: .ibr/tokens.json)",
+        },
+      },
+    },
+    annotations: {
+      title: "Validate Design Tokens",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "scan_static",
+    description:
+      "Scan HTML and CSS files without launching a browser. Useful for email templates, SSR output, or design system components. Checks structure, accessibility attributes, touch targets, and content — without handler detection or computed cascade styles.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        html_path: {
+          type: "string",
+          description: "Path to the HTML file to scan",
+        },
+        css_path: {
+          type: "string",
+          description: "Optional path to CSS file to apply",
+        },
+      },
+      required: ["html_path"],
+    },
+    annotations: {
+      title: "Static HTML/CSS Scan",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "bridge_to_source",
+    description:
+      "Correlate runtime UI elements from a native simulator scan to their Swift source code locations. Matches AX identifiers, labels, and button text to .accessibilityIdentifier(), .accessibilityLabel(), Button(), and View struct declarations. Uses NavGator architecture data if available, falls back to direct file scanning.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        device: {
+          type: "string",
+          description: "Simulator device to scan (name fragment or UDID). Uses first booted device if omitted.",
+        },
+        project_root: {
+          type: "string",
+          description: "Absolute path to the Swift project root. Required — bridge needs source files to correlate against.",
+        },
+        app: {
+          type: "string",
+          description: "macOS app name to scan instead of simulator (e.g. 'FlowDoro'). Alternative to device.",
+        },
+      },
+      required: ["project_root"],
+    },
+    annotations: {
+      title: "Bridge AX Elements to Source",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
 ];
 
 // --- Tool handlers ---
@@ -288,7 +470,7 @@ const DEFAULT_OUTPUT_DIR = ".ibr";
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   try {
     switch (name) {
       case "scan":
@@ -299,6 +481,10 @@ export async function handleToolCall(
         return await handleCompare(args);
       case "list_sessions":
         return await handleListSessions();
+      case "screenshot":
+        return await handleScreenshot(args);
+      case "references":
+        return await handleReferences(args);
       case "scan_macos":
         return await handleScanMacOS(args);
       case "native_scan":
@@ -309,6 +495,12 @@ export async function handleToolCall(
         return await handleNativeCompare(args);
       case "native_devices":
         return await handleNativeDevices(args);
+      case "validate_tokens":
+        return await handleValidateTokens(args);
+      case "scan_static":
+        return await handleScanStatic(args);
+      case "bridge_to_source":
+        return await handleBridgeToSource(args);
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }
@@ -321,7 +513,7 @@ export async function handleToolCall(
 
 async function handleScan(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   const url = args.url as string;
   if (!url) {
     return errorResponse("The 'url' parameter is required.");
@@ -400,7 +592,7 @@ async function handleScan(
 
 async function handleSnapshot(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   const url = args.url as string;
   if (!url) {
     return errorResponse("The 'url' parameter is required.");
@@ -426,7 +618,7 @@ async function handleSnapshot(
 
 async function handleCompare(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   const ibr = new InterfaceBuiltRight({ outputDir: DEFAULT_OUTPUT_DIR });
 
   const sessionId = args.session_id as string | undefined;
@@ -472,9 +664,7 @@ async function handleCompare(
   return textResponse(lines.join("\n"));
 }
 
-async function handleListSessions(): Promise<{
-  content: Array<{ type: string; text: string }>;
-}> {
+async function handleListSessions(): Promise<McpResponse> {
   const sessions = await listSessions(DEFAULT_OUTPUT_DIR);
 
   if (sessions.length === 0) {
@@ -513,11 +703,210 @@ async function handleListSessions(): Promise<{
   return textResponse(lines.join("\n"));
 }
 
+// --- Reference storage helpers ---
+
+const REFERENCES_DIR = join(DEFAULT_OUTPUT_DIR, "references");
+const REFERENCES_INDEX = join(REFERENCES_DIR, "index.json");
+
+interface ReferenceEntry {
+  name: string;
+  url: string;
+  viewport: { name: string; width: number; height: number };
+  capturedAt: string;
+  path: string;
+  fileSize: number;
+}
+
+interface ReferencesIndex {
+  references: ReferenceEntry[];
+}
+
+function readReferencesIndex(): ReferencesIndex {
+  if (!existsSync(REFERENCES_INDEX)) {
+    return { references: [] };
+  }
+  return JSON.parse(readFileSync(REFERENCES_INDEX, "utf-8"));
+}
+
+function writeReferencesIndex(index: ReferencesIndex): void {
+  mkdirSync(REFERENCES_DIR, { recursive: true });
+  writeFileSync(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+}
+
+// --- Screenshot handler ---
+
+async function handleScreenshot(
+  args: Record<string, unknown>
+): Promise<McpResponse> {
+  const url = args.url as string;
+  if (!url) {
+    return errorResponse("The 'url' parameter is required.");
+  }
+
+  const viewportName = (args.viewport as string) || "desktop";
+  const viewport = VIEWPORTS[viewportName as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+  const selector = args.selector as string | undefined;
+  const fullPage = (args.full_page as boolean) ?? false;
+  const waitFor = args.wait_for as string | undefined;
+  const saveAs = args.save_as as string | undefined;
+
+  // External sites need more time for JS rendering
+  const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
+  const delay = (args.delay as number) ?? (isExternal ? 2000 : 500);
+
+  // Capture to temp path
+  const timestamp = Date.now();
+  const screenshotsDir = join(DEFAULT_OUTPUT_DIR, "screenshots");
+  mkdirSync(screenshotsDir, { recursive: true });
+  const tempPath = join(screenshotsDir, `capture-${timestamp}.png`);
+
+  await captureScreenshot({
+    url,
+    outputPath: tempPath,
+    viewport,
+    fullPage,
+    waitForNetworkIdle: true,
+    timeout: isExternal ? 60000 : 30000,
+    selector,
+    waitFor,
+    delay,
+  });
+
+  // Read captured PNG as base64
+  const imageBuffer = readFileSync(tempPath);
+  const base64 = imageBuffer.toString("base64");
+  const fileSize = imageBuffer.length;
+
+  // Save to reference library if requested
+  let savedPath = "not saved";
+  if (saveAs) {
+    mkdirSync(REFERENCES_DIR, { recursive: true });
+    const refPath = join(REFERENCES_DIR, `${saveAs}.png`);
+    writeFileSync(refPath, imageBuffer);
+    savedPath = refPath;
+
+    // Update index
+    const index = readReferencesIndex();
+    // Remove existing entry with same name
+    index.references = index.references.filter((r) => r.name !== saveAs);
+    index.references.push({
+      name: saveAs,
+      url,
+      viewport: { name: viewport.name, width: viewport.width, height: viewport.height },
+      capturedAt: new Date().toISOString(),
+      path: `${saveAs}.png`,
+      fileSize,
+    });
+    writeReferencesIndex(index);
+  }
+
+  const metadata = [
+    `Screenshot: ${url}`,
+    `Viewport: ${viewport.name} (${viewport.width}x${viewport.height})`,
+    `Full page: ${fullPage}`,
+    `Size: ${(fileSize / 1024).toFixed(1)} KB`,
+    saveAs ? `Saved as: ${saveAs} (${savedPath})` : "Not saved to references",
+  ].join("\n");
+
+  return imageResponse(base64, metadata);
+}
+
+// --- References handler ---
+
+async function handleReferences(
+  args: Record<string, unknown>
+): Promise<McpResponse> {
+  const action = (args.action as string) || "list";
+  const name = args.name as string | undefined;
+
+  switch (action) {
+    case "list": {
+      const index = readReferencesIndex();
+      if (index.references.length === 0) {
+        return textResponse(
+          "No design references saved. Use the 'screenshot' tool with save_as to save references."
+        );
+      }
+
+      const lines = [`Design References (${index.references.length}):`];
+      for (const ref of index.references) {
+        const date = ref.capturedAt.replace("T", " ").slice(0, 19);
+        const size = (ref.fileSize / 1024).toFixed(1);
+        lines.push(
+          `- ${ref.name} | ${ref.url} | ${ref.viewport.name} (${ref.viewport.width}x${ref.viewport.height}) | ${date} | ${size} KB`
+        );
+      }
+      return textResponse(lines.join("\n"));
+    }
+
+    case "show": {
+      if (!name) {
+        return errorResponse("The 'name' parameter is required for action 'show'.");
+      }
+
+      const index = readReferencesIndex();
+      const ref = index.references.find((r) => r.name === name);
+      if (!ref) {
+        return errorResponse(
+          `Reference "${name}" not found. Use action 'list' to see available references.`
+        );
+      }
+
+      const refPath = join(REFERENCES_DIR, ref.path);
+      if (!existsSync(refPath)) {
+        return errorResponse(`Reference file missing: ${refPath}`);
+      }
+
+      const imageBuffer = readFileSync(refPath);
+      const base64 = imageBuffer.toString("base64");
+
+      const metadata = [
+        `Reference: ${ref.name}`,
+        `URL: ${ref.url}`,
+        `Viewport: ${ref.viewport.name} (${ref.viewport.width}x${ref.viewport.height})`,
+        `Captured: ${ref.capturedAt.replace("T", " ").slice(0, 19)}`,
+        `Size: ${(ref.fileSize / 1024).toFixed(1)} KB`,
+      ].join("\n");
+
+      return imageResponse(base64, metadata);
+    }
+
+    case "delete": {
+      if (!name) {
+        return errorResponse("The 'name' parameter is required for action 'delete'.");
+      }
+
+      const index = readReferencesIndex();
+      const ref = index.references.find((r) => r.name === name);
+      if (!ref) {
+        return errorResponse(
+          `Reference "${name}" not found. Use action 'list' to see available references.`
+        );
+      }
+
+      // Delete the PNG file
+      const refPath = join(REFERENCES_DIR, ref.path);
+      if (existsSync(refPath)) {
+        unlinkSync(refPath);
+      }
+
+      // Update index
+      index.references = index.references.filter((r) => r.name !== name);
+      writeReferencesIndex(index);
+
+      return textResponse(`Deleted reference: ${name}`);
+    }
+
+    default:
+      return errorResponse(`Unknown action: ${action}. Use 'list', 'show', or 'delete'.`);
+  }
+}
+
 // --- macOS native app handler ---
 
 async function handleScanMacOS(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   if (process.platform !== "darwin") {
     return errorResponse("scan_macos is only available on macOS.");
   }
@@ -589,7 +978,7 @@ async function handleScanMacOS(
 
 async function handleNativeScan(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   const device = args.device as string | undefined;
   const screenshot = args.screenshot !== false;
 
@@ -633,7 +1022,7 @@ async function handleNativeScan(
 
 async function handleNativeSnapshot(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   const deviceQuery = args.device as string | undefined;
   const name = (args.name as string) || `native-baseline-${Date.now()}`;
 
@@ -688,7 +1077,7 @@ async function handleNativeSnapshot(
 
 async function handleNativeCompare(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+): Promise<McpResponse> {
   const sessionId = args.session_id as string | undefined;
   const deviceQuery = args.device as string | undefined;
 
@@ -807,4 +1196,207 @@ async function handleNativeDevices(
   lines.push(`Total: ${devices.length} available, ${booted.length} booted`);
 
   return textResponse(lines.join("\n"));
+}
+
+async function handleValidateTokens(
+  args: Record<string, unknown>
+): Promise<McpResponse> {
+  const url = args.url as string | undefined;
+  const device = args.device as string | undefined;
+  const specPath = (args.spec_path as string) || '.ibr/tokens.json';
+
+  // Validate input
+  if (!url && !device) {
+    return errorResponse("Provide either 'url' or 'device' parameter.");
+  }
+
+  // Load token spec
+  let spec;
+  try {
+    spec = loadTokenSpec(specPath);
+  } catch (err) {
+    return errorResponse(
+      err instanceof Error ? err.message : `Failed to load token spec from ${specPath}`
+    );
+  }
+
+  // Get elements based on source
+  let elements: any[];
+  let source: string;
+
+  if (url) {
+    // Web scan
+    try {
+      const result = await scan(url, { viewport: 'desktop' as ScanOptions["viewport"] });
+      elements = result.elements.all;
+      source = `${url} (web)`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan URL: ${url}`
+      );
+    }
+  } else if (device) {
+    // Native scan
+    try {
+      const result = await scanNative({
+        device,
+        screenshot: false,
+        outputDir: DEFAULT_OUTPUT_DIR,
+      });
+      elements = result.elements.all;
+      source = `${device} (native)`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan device: ${device}`
+      );
+    }
+  } else {
+    return errorResponse("No valid source provided.");
+  }
+
+  // Validate against tokens
+  const violations = validateAgainstTokens(elements, spec);
+
+  // Format output
+  const lines = [
+    `Token Validation: ${spec.name}`,
+    `Source: ${source}`,
+    `Elements checked: ${elements.length}`,
+    `Violations found: ${violations.length}`,
+  ];
+
+  if (violations.length === 0) {
+    lines.push("");
+    lines.push("All elements comply with design tokens.");
+    return textResponse(lines.join("\n"));
+  }
+
+  // Group by severity
+  const errors = violations.filter(v => v.severity === 'error');
+  const warnings = violations.filter(v => v.severity === 'warning');
+
+  if (errors.length > 0) {
+    lines.push("");
+    lines.push(`Errors (${errors.length}):`);
+    for (const v of errors.slice(0, 10)) {
+      lines.push(`- ${v.message}`);
+    }
+    if (errors.length > 10) {
+      lines.push(`  ... and ${errors.length - 10} more`);
+    }
+  }
+
+  if (warnings.length > 0) {
+    lines.push("");
+    lines.push(`Warnings (${warnings.length}):`);
+    for (const v of warnings.slice(0, 10)) {
+      lines.push(`- ${v.message}`);
+    }
+    if (warnings.length > 10) {
+      lines.push(`  ... and ${warnings.length - 10} more`);
+    }
+  }
+
+  return textResponse(lines.join("\n"));
+}
+
+// --- Static HTML/CSS scan handler ---
+
+async function handleScanStatic(args: Record<string, unknown>): Promise<McpResponse> {
+  const htmlPath = args.html_path as string;
+  if (!htmlPath) {
+    return errorResponse("The 'html_path' parameter is required.");
+  }
+
+  const cssPath = args.css_path as string | undefined;
+
+  // Import and run
+  const { scanStatic } = await import('../static/scan.js');
+  const result = scanStatic({ htmlPath, cssPath });
+
+  // Format output
+  const lines = [
+    `Static Scan: ${result.htmlPath}`,
+    result.cssPath ? `CSS: ${result.cssPath}` : 'CSS: none',
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`,
+    '',
+    `Elements: ${result.elements.audit.totalElements} total, ${result.elements.audit.interactiveCount} interactive`,
+    `With handlers: ${result.elements.audit.withHandlers}, Without: ${result.elements.audit.withoutHandlers}`,
+  ];
+
+  if (result.issues.length > 0) {
+    lines.push('');
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`  Fix: ${issue.fix}`);
+      }
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+
+  return textResponse(lines.join('\n'));
+}
+
+// --- Bridge to source handler ---
+
+async function handleBridgeToSource(args: Record<string, unknown>): Promise<McpResponse> {
+  const projectRoot = args.project_root as string;
+  if (!projectRoot) {
+    return errorResponse("The 'project_root' parameter is required.");
+  }
+
+  if (!existsSync(projectRoot)) {
+    return errorResponse(`Project root not found: ${projectRoot}`);
+  }
+
+  const deviceQuery = args.device as string | undefined;
+  const appName = args.app as string | undefined;
+
+  // Get elements from a scan source
+  let elements: any[];
+  let scanSource: string;
+
+  if (appName) {
+    // macOS app scan
+    try {
+      const result = await scanMacOS({ app: appName });
+      elements = result.elements.all;
+      scanSource = `macOS app: ${appName}`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan macOS app: ${appName}`
+      );
+    }
+  } else {
+    // Simulator scan
+    try {
+      const result = await scanNative({
+        device: deviceQuery,
+        screenshot: false,
+        outputDir: DEFAULT_OUTPUT_DIR,
+      });
+      elements = result.elements.all;
+      scanSource = `simulator: ${result.device.name}`;
+    } catch (err) {
+      return errorResponse(
+        err instanceof Error ? err.message : `Failed to scan simulator${deviceQuery ? `: ${deviceQuery}` : ''}`
+      );
+    }
+  }
+
+  // Run correlation
+  const result = correlateToSource(elements, projectRoot);
+
+  // Format output
+  const lines = [
+    `Source Bridge: ${scanSource}`,
+    formatBridgeResult(result),
+  ];
+
+  return textResponse(lines.join('\n'));
 }
