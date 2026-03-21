@@ -1,6 +1,6 @@
 ---
 name: design-reference
-description: This skill activates when the user shares a design URL (Mobbin, Dribbble, Figma screenshots, Behance, Awwwards, or any design site), says "screenshot this page", "capture this design", "use this as reference", "look at this UI", "show me this page", "save this design", or when visual inspection of a web page is needed for UI implementation guidance. Provides screenshot capture with image return and a persistent design reference library via IBR MCP tools.
+description: This skill should be used when the user asks to "screenshot this page", "capture this design", "use this as reference", "look at this UI", "show me this page", "save this design", shares a design URL (Mobbin, Dribbble, Figma screenshots, Behance, Awwwards, or any design site), or when visual inspection of a web page is needed to guide UI implementation.
 version: 0.1.0
 user-invocable: false
 ---

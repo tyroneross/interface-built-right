@@ -1,6 +1,6 @@
 ---
 name: interactive-testing
-description: Interactive browser testing with persistent sessions. Use when testing search forms, multi-step flows, login sequences, dynamic content, or any page requiring clicks/typing before capturing state. Keeps a browser alive across multiple commands.
+description: This skill should be used when the user asks to "test my form", "click through the flow", "test search functionality", "test the login", "interact with the page", or when multi-step browser interaction is needed before capturing state.
 version: 0.5.0
 user-invocable: true
 argument-hint: <url>

@@ -1,7 +1,7 @@
 {
   "name": "ibr",
   "version": "0.4.9",
-  "description": "UI validation — verify implementations match intent with live page scanning, visual regression, and native simulator checks",
+  "description": "UI planning and validation — takes user intent, measures live UI, and verifies implementation matches spec through scanning, comparison, accessibility auditing, and native simulator checks",
   "author": {
     "name": "Tyrone Ross"
   },

@@ -1,137 +1,182 @@
 ---
-name: design-implementation
-description: This skill activates when the user builds UI, edits .tsx/.jsx/.vue/.svelte/.css files, asks to "check my UI", "audit accessibility", "see what is rendered", "read the page", "compare changes", "check handlers", "find broken buttons", "review UX", or when any frontend work is in progress. Covers scanning, reference capture, comparison, native validation, and design spec storage via IBR MCP tools.
+name: design-validation
+description: This skill should be used when the user asks to "audit my UI", "check accessibility", "validate the build", "run a UI audit", "check for regressions", "compare before and after", "is this accessible", "find broken buttons", "check handlers", "review what changed", "run a full scan", or when a post-build verification pass is needed across the full interface.
 version: 0.5.0
 user-invocable: false
 ---
 
-# Design Implementation with IBR
+# Design Validation with IBR
 
-Build UI with precision using structured data from live pages — computed CSS, handler wiring, accessibility, and page structure. This skill covers scanning, change tracking, native validation, and design spec auditing.
+Run structured post-build audits against live pages and native simulators. Validation is distinct from implementation — it is a deliberate verification pass after work is complete, not an inline check during building. The goal is to surface issues that implementation scanning may have missed and confirm the build matches spec.
 
-## When to Activate
+## Scope of Validation
 
-- After building or modifying UI components
-- User asks to check, audit, or validate frontend work
-- Before PR review on frontend changes
-- When users report broken interactions
-- After editing .tsx, .jsx, .vue, .svelte, .css, .scss files
-- When working on Swift/SwiftUI files (native validation)
+A full validation pass covers:
 
-## Primary Workflow: Scan & Validate
+- **Interactivity** — all buttons, links, and forms have wired handlers and real targets
+- **Accessibility** — all interactive elements have labels, touch targets meet size minimums, keyboard access works
+- **Semantic state** — page intent is correct, no stuck loading or error states, available actions match expectations
+- **Console health** — no JavaScript errors or warnings during page load
+- **Structure** — no orphaned elements, disabled states are visually distinct, layout is intact
 
-Use the `ibr scan` MCP tool to validate live pages.
+Run a complete pass, not a spot check. Issue categories compound — an inaccessible button that also lacks a handler is two separate failures, not one.
+
+## Primary Tool: `ibr scan`
+
+Call `ibr scan` to read the full state of a live page.
 
 **Input:** `url` (required), `format` (optional: "json"), `viewport` (optional), `waitFor` (optional CSS selector)
 
 **Returns:**
-- Verdict: **PASS**, **ISSUES**, or **FAIL**
+- Verdict: `PASS`, `ISSUES`, or `FAIL`
 - Per-element data: selector, tagName, bounds, computedStyles, interactive status, a11y attributes
-- Interactivity audit: buttons with/without handlers, links with real/placeholder hrefs, form submit handlers
+- Interactivity audit: buttons with/without handlers, links with real vs placeholder hrefs, form submit handlers
 - Semantic state: pageIntent, auth/loading/error states, available actions
 - Console errors and warnings
 - Issue list with severity, category, description, and selector
 
-### Validation Against User Intent
+### Reading Verdicts
 
-After scanning, cross-reference results with what the user described:
-- User said "blue buttons" -> check `computedStyles.backgroundColor` on buttons
-- User said "16px font" -> check `computedStyles.fontSize`
-- User said "working search" -> check `interactive.hasOnClick: true`
-- User said "accessible" -> check `a11y.ariaLabel` present
+| Verdict | Meaning |
+|---------|---------|
+| `PASS` | No issues found — implementation is clean |
+| `ISSUES` | Issues detected — review by severity and decide whether to fix or accept |
+| `FAIL` | Critical issues — broken handlers, console errors, inaccessible elements — must fix |
 
-Fix mismatches and re-scan until implementation matches intent.
+Do not treat `ISSUES` as acceptable without reading the issue list. Severity matters: low-severity structural notes may be acceptable in context; missing handlers are not.
 
-## Change Tracking Workflow
+## Issue Categories
 
-Capture a reference point BEFORE changes, compare AFTER to understand what changed.
+| Category | Examples | Severity |
+|----------|---------|---------|
+| `interactivity` | Button without handler, form without submit action, placeholder `href="#"` | High |
+| `accessibility` | Missing aria-label, touch target below 44px/44pt, no keyboard focus indicator | High |
+| `semantic` | Page stuck in loading state, wrong pageIntent, actions missing from expected set | Medium |
+| `console` | JavaScript errors or unhandled promise rejections on page load | High |
+| `structure` | Orphaned elements, disabled without visual differentiation, invisible interactive elements | Low–Medium |
 
-### 1. Capture baseline
+Address high-severity issues before closing the audit. Document accepted medium/low items with rationale.
 
-Use the `ibr snapshot` MCP tool before making UI changes.
+## Accessibility Audit
 
-**Input:** `url` (required), `name` (required — descriptive label like "header-redesign")
+Accessibility validation is a first-class concern, not an afterthought. Check every interactive element:
 
-### 2. Make code changes
+- `a11y.ariaLabel` is present and descriptive (not generic like "button" or "click here")
+- `a11y.role` is appropriate for the element type
+- `bounds` meet minimum touch target size: 44px for web, 44pt for native iOS/watchOS
+- Focusable elements are reachable via keyboard (Tab order)
+- Error messages are associated with their inputs via `a11y.ariaDescribedBy`
+- Icons without visible text have an accessible label
 
-Edit components, styling, layout as needed.
+Report each accessibility failure with its selector, the missing attribute, and the expected value.
 
-### 3. Compare against baseline
+## Regression Checking
 
-Use the `ibr compare` MCP tool to understand what changed.
+Use `ibr compare` to verify that changes did not introduce unintended side effects.
+
+### Setup: Capture a baseline
+
+Before any change that may affect layout or visual state, call `ibr snapshot`.
+
+**Input:** `url` (required), `name` (required — use a descriptive label like "pre-nav-refactor")
+
+The snapshot records computed element state at that point in time.
+
+### After changes: Run comparison
+
+Call `ibr compare` to diff the current page against the baseline.
 
 **Returns verdicts:**
 
 | Verdict | Meaning | Action |
 |---------|---------|--------|
-| `MATCH` | No visual changes | Done |
-| `EXPECTED_CHANGE` | Changes look intentional | Review and continue |
-| `UNEXPECTED_CHANGE` | Something changed that shouldn't have | Investigate |
-| `LAYOUT_BROKEN` | Major structural issues | Fix before continuing |
+| `MATCH` | No changes detected | Confirm expected — if changes were made, baseline may be stale |
+| `EXPECTED_CHANGE` | Changes detected, appear intentional | Review diff regions and sign off |
+| `UNEXPECTED_CHANGE` | Elements moved or changed outside the intended scope | Investigate and fix |
+| `LAYOUT_BROKEN` | Major structural displacement | Treat as a blocker — do not ship |
 
-If unexpected changes found, fix and re-compare until resolved.
+Report the diff regions for any non-MATCH verdict. For `UNEXPECTED_CHANGE`, identify which edit introduced the regression and revert or fix it.
 
-### 4. List sessions
+### Managing sessions
 
-Use the `ibr list_sessions` MCP tool to browse active baseline sessions.
+Call `ibr list_sessions` to see all active baseline sessions. Use when auditing across multiple features or returning to work after a pause.
 
 ## Native iOS/watchOS/macOS Validation
 
-For Swift/SwiftUI projects, use native IBR tools to validate simulator output.
+For Swift/SwiftUI projects, validate against the running simulator rather than the browser.
 
-### Native scan
+### Scan the simulator
 
-Use the `ibr native_scan` MCP tool to extract accessibility elements and check constraints.
+Call `ibr native_scan` to extract the accessibility element tree and validate layout constraints.
 
-**Input:** `device` (optional — simulator name like "Apple Watch" or "iPhone 16 Pro")
+**Input:** `device` (optional — simulator name like "Apple Watch Series 9" or "iPhone 16 Pro")
 
-**Checks:**
-- Touch targets (44pt minimum, always enforced)
-- Accessibility labels on interactive elements
-- watchOS: max 7 interactive elements per screen
-- watchOS: no horizontal overflow beyond viewport
+**Checks performed:**
+- Touch targets: 44pt minimum on all interactive elements
+- Accessibility labels on all tappable elements
+- watchOS: no more than 7 interactive elements per screen
+- watchOS: no horizontal content overflow beyond the device viewport
+
+Report each violation with the element identifier and the measured vs expected value.
 
 ### Native regression
 
-Use the `ibr native_snapshot` MCP tool for baseline, `ibr native_compare` for comparison.
+Call `ibr native_snapshot` before simulator changes, then `ibr native_compare` after. The same verdict table applies as web comparison.
 
 ### List simulators
 
-Use the `ibr native_devices` MCP tool to see available simulators with boot status.
+Call `ibr native_devices` to see all simulators and their boot status. Confirm the target device is booted before scanning. A scan against an unbooted device will return no elements.
 
 ### macOS apps
 
-Use the `ibr scan_macos` MCP tool to scan running macOS apps via accessibility tree.
+Call `ibr scan_macos` to audit a running macOS application via its accessibility tree. Pass the app name as the target identifier.
 
-## Issue Categories
+## Audit Workflow
 
-| Category | Examples |
-|----------|---------|
-| `interactivity` | Button without handler, form without submit, placeholder link |
-| `accessibility` | Missing aria-label, small touch target, no keyboard access |
-| `semantic` | Page in error state, loading stuck, unknown intent |
-| `console` | JavaScript errors during page load |
-| `structure` | Orphan elements, disabled without visual cues |
+A complete post-build validation pass:
 
-## Decision Tree
+1. **Scan all routes** — call `ibr scan` on each page in the application, not just the primary route
+2. **Triage the issue list** — sort by severity; address all high-severity issues before moving to medium
+3. **Accessibility pass** — verify every interactive element has a label, role, and adequate touch target
+4. **Interactivity pass** — confirm every button, link, and form has a working handler and real target
+5. **Console pass** — confirm zero JavaScript errors on page load for every route
+6. **Regression check** — call `ibr compare` if baselines exist; verify no unexpected changes
 
-| User Intent | MCP Tool | Notes |
-|-------------|----------|-------|
-| "Check my UI" | `ibr scan` | Primary validation |
-| "Capture baseline" | `ibr snapshot` | Before changes |
-| "Compare changes" | `ibr compare` | After changes |
-| "List baselines" | `ibr list_sessions` | Browse sessions |
-| "Scan simulator" | `ibr native_scan` | iOS/watchOS |
-| "Scan macOS app" | `ibr scan_macos` | macOS accessibility |
-| "List simulators" | `ibr native_devices` | Available devices |
+Do not close the audit until all high-severity issues are resolved or explicitly accepted with documented rationale.
 
-## IBR vs Screenshot vs Playwright
+## Change Tracking in CI Context
+
+When auditing after a PR or deployment:
+
+1. Ensure a pre-change baseline exists (`ibr list_sessions` to confirm)
+2. Run `ibr compare` to surface any layout regressions
+3. Run `ibr scan` on all affected routes
+4. Report: verdict per route, issue count by severity, regression status (MATCH/UNEXPECTED_CHANGE)
+
+If no baseline exists, create one now and note that regression comparison is not available for this cycle.
+
+## Audit Verdict Summary Format
+
+When reporting audit results, use this structure:
+
+```
+Route: /example
+  Scan verdict: PASS | ISSUES | FAIL
+  Issues: [count] ([high] high, [med] medium, [low] low)
+  Regression: MATCH | EXPECTED_CHANGE | UNEXPECTED_CHANGE | LAYOUT_BROKEN | no baseline
+  Blockers: [list high-severity issues or "none"]
+```
+
+Provide one block per route. Summarize total blocker count at the end. A build is ready to ship when all routes return `PASS` or `ISSUES` with zero high-severity items and regression status is `MATCH` or `EXPECTED_CHANGE`.
+
+## IBR vs Screenshot vs Interactive Session
 
 | Task | Tool |
 |------|------|
-| Exact CSS values, handler wiring, a11y audit, console errors | `ibr scan` |
-| Visual coherence, rendering bugs, canvas/SVG | Screenshot |
-| Multi-step flows, file uploads, dialogs | Playwright or `/ibr:interactive-testing` |
-| Track visual changes | `ibr snapshot` + `ibr compare` |
+| Full accessibility and handler audit | `ibr scan` |
+| Visual regression and rendering defects | Screenshot |
+| Multi-step flow validation (login, checkout) | `ibr session` (interactive-testing skill) |
+| Layout change tracking | `ibr snapshot` + `ibr compare` |
+| Native touch target and a11y audit | `ibr native_scan` |
 
-*ibr — design implementation*
+*ibr — design validation*
