@@ -1,0 +1,113 @@
+/**
+ * CDP Input domain — mouse, keyboard, and scroll simulation.
+ * Forked from Spectra — extended with special key support.
+ */
+
+import type { CdpConnection } from './connection.js'
+
+export class InputDomain {
+  constructor(
+    private conn: CdpConnection,
+    private sessionId?: string,
+  ) {}
+
+  async click(x: number, y: number): Promise<void> {
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed', x, y, button: 'left', clickCount: 1,
+    }, this.sessionId)
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x, y, button: 'left', clickCount: 1,
+    }, this.sessionId)
+  }
+
+  async type(text: string): Promise<void> {
+    for (const char of text) {
+      const code = charToCode(char)
+      await this.conn.send('Input.dispatchKeyEvent', {
+        type: 'keyDown', text: char, key: char, code,
+      }, this.sessionId)
+      await this.conn.send('Input.dispatchKeyEvent', {
+        type: 'keyUp', key: char, code,
+      }, this.sessionId)
+    }
+  }
+
+  /**
+   * Press a special key (Enter, Tab, Escape, Backspace, etc.)
+   */
+  async pressKey(key: string): Promise<void> {
+    const keyDef = SPECIAL_KEYS[key]
+    if (!keyDef) {
+      // Treat as single character
+      await this.type(key)
+      return
+    }
+    await this.conn.send('Input.dispatchKeyEvent', {
+      type: 'keyDown',
+      key: keyDef.key,
+      code: keyDef.code,
+      text: keyDef.text,
+    }, this.sessionId)
+    await this.conn.send('Input.dispatchKeyEvent', {
+      type: 'keyUp',
+      key: keyDef.key,
+      code: keyDef.code,
+    }, this.sessionId)
+  }
+
+  async hover(x: number, y: number): Promise<void> {
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved', x, y,
+    }, this.sessionId)
+  }
+
+  async scroll(x: number, y: number, deltaX: number, deltaY: number): Promise<void> {
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mouseWheel', x, y, deltaX, deltaY,
+    }, this.sessionId)
+  }
+}
+
+// ─── Key mappings ──────────────────────────────────────────
+
+interface KeyDef {
+  key: string
+  code: string
+  text?: string
+}
+
+const SPECIAL_KEYS: Record<string, KeyDef> = {
+  Enter: { key: 'Enter', code: 'Enter', text: '\r' },
+  Tab: { key: 'Tab', code: 'Tab', text: '\t' },
+  Escape: { key: 'Escape', code: 'Escape' },
+  Backspace: { key: 'Backspace', code: 'Backspace' },
+  Delete: { key: 'Delete', code: 'Delete' },
+  ArrowUp: { key: 'ArrowUp', code: 'ArrowUp' },
+  ArrowDown: { key: 'ArrowDown', code: 'ArrowDown' },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft' },
+  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight' },
+  Home: { key: 'Home', code: 'Home' },
+  End: { key: 'End', code: 'End' },
+  PageUp: { key: 'PageUp', code: 'PageUp' },
+  PageDown: { key: 'PageDown', code: 'PageDown' },
+}
+
+const SPECIAL_CODES: Record<string, string> = {
+  ' ': 'Space', '0': 'Digit0', '1': 'Digit1', '2': 'Digit2', '3': 'Digit3',
+  '4': 'Digit4', '5': 'Digit5', '6': 'Digit6', '7': 'Digit7', '8': 'Digit8',
+  '9': 'Digit9', '`': 'Backquote', '-': 'Minus', '=': 'Equal', '[': 'BracketLeft',
+  ']': 'BracketRight', '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote',
+  ',': 'Comma', '.': 'Period', '/': 'Slash', '~': 'Backquote', '!': 'Digit1',
+  '@': 'Digit2', '#': 'Digit3', '$': 'Digit4', '%': 'Digit5', '^': 'Digit6',
+  '&': 'Digit7', '*': 'Digit8', '(': 'Digit9', ')': 'Digit0', '_': 'Minus',
+  '+': 'Equal', '{': 'BracketLeft', '}': 'BracketRight', '|': 'Backslash',
+  ':': 'Semicolon', '"': 'Quote', '<': 'Comma', '>': 'Period', '?': 'Slash',
+  '\t': 'Tab', '\n': 'Enter',
+}
+
+function charToCode(char: string): string {
+  if (SPECIAL_CODES[char]) return SPECIAL_CODES[char]
+  const upper = char.toUpperCase()
+  if (upper >= 'A' && upper <= 'Z') return `Key${upper}`
+  return ''
+}
