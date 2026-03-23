@@ -3,6 +3,18 @@
  * Built from scratch on Chrome DevTools Protocol. Zero Playwright dependency.
  */
 
+// ─── Engine Driver ──────────────────────────────────────────
+export { EngineDriver } from './driver.js'
+export type {
+  LaunchOptions,
+  NavigateOptions,
+  DiscoverOptions,
+  FindOptions,
+  CaptureStateOptions,
+  CapturedState,
+  WaitStrategy,
+} from './driver.js'
+
 // ─── Types ──────────────────────────────────────────────────
 export type {
   Platform,
