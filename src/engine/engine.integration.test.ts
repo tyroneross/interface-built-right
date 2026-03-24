@@ -12,7 +12,7 @@ let launched = false
 
 async function ensureLaunched(): Promise<void> {
   if (!launched) {
-    await driver.launch({ headless: true })
+    await driver.launch({ headless: true, userDataDir: '/tmp/ibr-integration-test-profile' })
     launched = true
   }
 }
