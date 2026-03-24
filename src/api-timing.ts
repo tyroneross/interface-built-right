@@ -1,4 +1,11 @@
-import type { Page, Request, Response } from 'playwright';
+import type { PageLike } from './engine/page-like.js';
+
+// Inline types for network events — replaces Playwright's Request/Response
+// These match the subset of Playwright's API that api-timing actually uses.
+// When CDP Network domain events are added to the engine, these can be replaced.
+type Page = PageLike & { on(event: string, handler: (...args: unknown[]) => void): void; off?(event: string, handler: (...args: unknown[]) => void): void };
+interface Request { url(): string; resourceType(): string; method(): string; }
+interface Response { url(): string; status(): number; request(): Request; body(): Promise<Buffer>; serverAddr(): Promise<{ ipAddress: string; port: number } | null>; }
 
 /**
  * API request timing info
