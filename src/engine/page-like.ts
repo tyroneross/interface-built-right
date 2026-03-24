@@ -10,6 +10,14 @@ export interface ElementHandleLike {
   textContent(): Promise<string | null>
   boundingBox(): Promise<{ x: number; y: number; width: number; height: number } | null>
   getAttribute?(name: string): Promise<string | null>
+  click?(options?: any): Promise<void>
+  fill?(value: string, options?: any): Promise<void>
+  check?(options?: any): Promise<void>
+  uncheck?(options?: any): Promise<void>
+  selectOption?(value: string | string[], options?: any): Promise<any>
+  press?(key: string, options?: any): Promise<void>
+  focus?(options?: any): Promise<void>
+  type?(text: string, options?: any): Promise<void>
 }
 
 export interface LocatorLike {
@@ -45,6 +53,7 @@ export interface PageLike {
   selectOption?(selector: string, value: string): Promise<any>
   locator?(selector: string): LocatorLike
   on?(event: string, handler: any): void
+  off?(event: string, handler: any): void
   url?(): string
   keyboard?: { press(key: string): Promise<void> }
   innerText?(selector: string): Promise<string>

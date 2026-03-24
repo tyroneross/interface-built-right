@@ -63,7 +63,7 @@ export interface SemanticResult {
  */
 export async function getSemanticOutput(page: Page): Promise<SemanticResult> {
   // Get page basics
-  const url = page.url();
+  const url = page.url?.() ?? '';
   const title = await page.title();
   const timestamp = new Date().toISOString();
 
