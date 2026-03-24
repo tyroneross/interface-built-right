@@ -86,3 +86,6 @@ export type { CachedResolution, CacheOptions } from './cache.js'
 // ─── LLM-Native: Adaptive Modality ─────────────────────────
 export { assessUnderstanding } from './modality.js'
 export type { UnderstandingScore, ModalityOptions } from './modality.js'
+
+// ─── Playwright Compatibility ───────────────────────────────
+export { CompatPage, CompatElementHandle, CompatLocator } from './compat.js'
