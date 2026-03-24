@@ -1,4 +1,6 @@
-import { chromium, type BrowserServer, type Browser, type BrowserContext, type Page } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -108,7 +110,7 @@ function getPaths(outputDir: string) {
 }
 
 /**
- * Check if browser server is running
+ * Check if browser server is running by fetching the CDP debug URL
  */
 export async function isServerRunning(outputDir: string): Promise<boolean> {
   const { stateFile } = getPaths(outputDir);
@@ -121,10 +123,15 @@ export async function isServerRunning(outputDir: string): Promise<boolean> {
     const content = await readFile(stateFile, 'utf-8');
     const state: BrowserServerState = JSON.parse(content);
 
-    // Try to connect to verify it's actually running
-    const browser = await chromium.connect(state.wsEndpoint, { timeout: 2000 });
-    await browser.close();
-    return true;
+    if (!state.cdpUrl) {
+      return false;
+    }
+
+    // Use fetch() to check if Chrome is alive — avoids spawning a new process
+    const res = await fetch(`${state.cdpUrl}/json/version`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
   } catch {
     // Server not running or can't connect - clean up stale file
     await cleanupServerState(outputDir);
@@ -145,13 +152,22 @@ async function cleanupServerState(outputDir: string): Promise<void> {
 }
 
 /**
+ * Resolve the browser-level WebSocket URL from the CDP debug endpoint.
+ */
+async function resolveWsEndpoint(cdpUrl: string): Promise<string> {
+  const res = await fetch(`${cdpUrl}/json/version`);
+  const data = await res.json() as { webSocketDebuggerUrl: string };
+  return data.webSocketDebuggerUrl;
+}
+
+/**
  * Start the browser server (long-running process)
  * This should be called from session:start and will keep the process alive
  */
 export async function startBrowserServer(
   outputDir: string,
   options: BrowserServerOptions = {}
-): Promise<{ server: BrowserServer; wsEndpoint: string }> {
+): Promise<{ driver: EngineDriver; wsEndpoint: string }> {
   const { stateFile, profileDir } = getPaths(outputDir);
   const headless = options.headless ?? !options.debug;
   const isolated = options.isolated ?? true;
@@ -167,16 +183,13 @@ export async function startBrowserServer(
     await mkdir(profileDir, { recursive: true });
   }
 
-  // Find an available port for CDP debugging
-  const debugPort = 9222 + Math.floor(Math.random() * 1000);
-
-  // Build browser args
-  const browserArgs: string[] = [`--remote-debugging-port=${debugPort}`];
+  // Build browser args (extra flags beyond what BrowserManager adds by default)
+  const extraArgs: string[] = [];
 
   // Low memory mode args - reduces Chromium memory footprint
   // Useful for lower-powered machines (4GB RAM, older CPUs)
   if (options.lowMemory) {
-    browserArgs.push(
+    extraArgs.push(
       '--disable-gpu',                    // Disable GPU acceleration
       '--disable-dev-shm-usage',          // Use /tmp instead of /dev/shm
       '--disable-extensions',             // No extensions
@@ -194,16 +207,19 @@ export async function startBrowserServer(
     );
   }
 
-  // Launch browser server with CDP debugging enabled
-  // This allows connectOverCDP to work and share contexts across reconnections
-  // Note: slowMo is not available on launchServer, only on launch()
-  const server = await chromium.launchServer({
+  // Launch browser via EngineDriver
+  const driver = new EngineDriver();
+  await driver.launch({
     headless,
-    args: browserArgs,
+    userDataDir: isolated ? profileDir : undefined,
   });
 
-  const wsEndpoint = server.wsEndpoint();
+  // Derive CDP URL from the port the BrowserManager chose
+  const debugPort = driver.debugPort;
   const cdpUrl = `http://127.0.0.1:${debugPort}`;
+
+  // Resolve the browser-level WS endpoint from the CDP debug URL
+  const wsEndpoint = await resolveWsEndpoint(cdpUrl);
 
   // Save server state
   const state: BrowserServerState = {
@@ -218,14 +234,14 @@ export async function startBrowserServer(
 
   await writeFile(stateFile, JSON.stringify(state, null, 2));
 
-  return { server, wsEndpoint };
+  return { driver, wsEndpoint };
 }
 
 /**
  * Connect to existing browser server
- * Uses CDP connection which shares contexts across reconnections
+ * Creates a new EngineDriver and attaches it to the running Chrome process
  */
-export async function connectToBrowserServer(outputDir: string): Promise<Browser | null> {
+export async function connectToBrowserServer(outputDir: string): Promise<EngineDriver | null> {
   const { stateFile } = getPaths(outputDir);
 
   if (!existsSync(stateFile)) {
@@ -236,17 +252,18 @@ export async function connectToBrowserServer(outputDir: string): Promise<Browser
     const content = await readFile(stateFile, 'utf-8');
     const state: BrowserServerState = JSON.parse(content);
 
-    // Use connectOverCDP to share contexts across reconnections
-    // This is critical - chromium.connect() creates isolated contexts per connection
-    // but connectOverCDP shares the same browser instance and sees all contexts
+    // Resolve the current browser-level WS endpoint (avoids stale cached URL)
+    let wsUrl: string;
     if (state.cdpUrl) {
-      const browser = await chromium.connectOverCDP(state.cdpUrl, { timeout: 5000 });
-      return browser;
+      wsUrl = await resolveWsEndpoint(state.cdpUrl);
+    } else {
+      wsUrl = state.wsEndpoint;
     }
 
-    // Fallback to standard connect (older state files without cdpUrl)
-    const browser = await chromium.connect(state.wsEndpoint, { timeout: 5000 });
-    return browser;
+    // Create a new driver and connect to the existing Chrome process
+    const driver = new EngineDriver();
+    await driver.connectExisting(wsUrl);
+    return driver;
   } catch (error) {
     // Server not running - clean up
     await cleanupServerState(outputDir);
@@ -268,9 +285,14 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
     const content = await readFile(stateFile, 'utf-8');
     const state: BrowserServerState = JSON.parse(content);
 
-    // Connect and close
-    const browser = await chromium.connect(state.wsEndpoint, { timeout: 5000 });
-    await browser.close();
+    // Connect and close the browser
+    const wsUrl = state.cdpUrl
+      ? await resolveWsEndpoint(state.cdpUrl)
+      : state.wsEndpoint;
+
+    const driver = new EngineDriver();
+    await driver.connectExisting(wsUrl);
+    await driver.close();
 
     // Clean up state file
     await unlink(stateFile);
@@ -290,22 +312,18 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
  * Persistent session that connects to browser server
  */
 export class PersistentSession {
-  // Browser reference kept for potential future cleanup operations
-  public readonly browser: Browser;
-  private context: BrowserContext;
-  private page: Page;
+  public readonly driver: EngineDriver;
+  private page: CompatPage;
   private state: SessionState;
   private sessionDir: string;
 
   private constructor(
-    browser: Browser,
-    context: BrowserContext,
-    page: Page,
+    driver: EngineDriver,
+    page: CompatPage,
     state: SessionState,
     sessionDir: string
   ) {
-    this.browser = browser;
-    this.context = context;
+    this.driver = driver;
     this.page = page;
     this.state = state;
     this.sessionDir = sessionDir;
@@ -321,8 +339,8 @@ export class PersistentSession {
     const { url, name, viewport = VIEWPORTS.desktop, waitFor, timeout = 30000 } = options;
 
     // Connect to browser server
-    const browser = await connectToBrowserServer(outputDir);
-    if (!browser) {
+    const driver = await connectToBrowserServer(outputDir);
+    if (!driver) {
       throw new Error(
         'No browser server running.\n' +
         'Start one with: npx ibr session:start <url>\n' +
@@ -336,17 +354,17 @@ export class PersistentSession {
     const sessionDir = join(sessionsDir, sessionId);
     await mkdir(sessionDir, { recursive: true });
 
-    // Create context with viewport
-    const context = await browser.newContext({
-      viewport: {
-        width: viewport.width,
-        height: viewport.height,
-      },
-      reducedMotion: 'reduce',
+    // Set viewport on the driver
+    await driver.setViewport({
+      width: viewport.width,
+      height: viewport.height,
     });
 
-    // Create page and navigate
-    const page = await context.newPage();
+    // Enable reduced motion via emulation domain
+    await driver.emulationDomain.setReducedMotion(true);
+
+    // Create CompatPage and navigate
+    const page = new CompatPage(driver);
 
     const navStart = Date.now();
     await page.goto(url, {
@@ -390,7 +408,7 @@ export class PersistentSession {
       fullPage: false,
     });
 
-    return new PersistentSession(browser, context, page, state, sessionDir);
+    return new PersistentSession(driver, page, state, sessionDir);
   }
 
   /**
@@ -405,8 +423,8 @@ export class PersistentSession {
     }
 
     // Connect to browser server
-    const browser = await connectToBrowserServer(outputDir);
-    if (!browser) {
+    const driver = await connectToBrowserServer(outputDir);
+    if (!driver) {
       return null;
     }
 
@@ -414,40 +432,19 @@ export class PersistentSession {
     const content = await readFile(statePath, 'utf-8');
     const state: SessionState = JSON.parse(content);
 
-    // Find existing page or create new one
-    const contexts = browser.contexts();
-    let context: BrowserContext;
-    let page: Page;
+    // Reconnect to the session URL — EngineDriver doesn't expose contexts,
+    // so we navigate the new driver connection to the session's last known URL.
+    const page = new CompatPage(driver);
 
-    const targetHost = new URL(state.url).host;
-
-    if (contexts.length > 0) {
-      // Try to find the page with matching URL
-      for (const ctx of contexts) {
-        const pages = ctx.pages();
-        for (const p of pages) {
-          if (p.url().includes(targetHost)) {
-            context = ctx;
-            page = p;
-            return new PersistentSession(browser, context, page, state, sessionDir);
-          }
-        }
-      }
-    }
-
-    // No matching page found - recreate
-    context = await browser.newContext({
-      viewport: {
-        width: state.viewport.width,
-        height: state.viewport.height,
-      },
-      reducedMotion: 'reduce',
+    // Set viewport to match session
+    await driver.setViewport({
+      width: state.viewport.width,
+      height: state.viewport.height,
     });
 
-    page = await context.newPage();
     await page.goto(state.url, { waitUntil: 'networkidle' });
 
-    return new PersistentSession(browser, context, page, state, sessionDir);
+    return new PersistentSession(driver, page, state, sessionDir);
   }
 
   get id(): string {
@@ -730,23 +727,25 @@ export class PersistentSession {
 
     if (options?.selector) {
       // Scroll within a specific container (modal, sidebar, etc.)
-      const position = await this.page.evaluate(({ sel, deltaX, deltaY }) => {
-        const el = document.querySelector(sel);
-        if (!el) {
-          throw new Error(`Container not found: ${sel}`);
-        }
-        el.scrollBy(deltaX, deltaY);
-        return { x: el.scrollLeft, y: el.scrollTop };
-      }, { sel: options.selector, deltaX: x, deltaY: y });
+      const position = await this.page.evaluate(
+        `(function(sel, deltaX, deltaY) {
+          var el = document.querySelector(sel);
+          if (!el) throw new Error('Container not found: ' + sel);
+          el.scrollBy(deltaX, deltaY);
+          return { x: el.scrollLeft, y: el.scrollTop };
+        })(${JSON.stringify(options.selector)}, ${x}, ${y})`
+      ) as { x: number; y: number };
 
       return position;
     }
 
     // Default: scroll window
-    const position = await this.page.evaluate(({ deltaX, deltaY }) => {
-      window.scrollBy(deltaX, deltaY);
-      return { x: window.scrollX, y: window.scrollY };
-    }, { deltaX: x, deltaY: y });
+    const position = await this.page.evaluate(
+      `(function(deltaX, deltaY) {
+        window.scrollBy(deltaX, deltaY);
+        return { x: window.scrollX, y: window.scrollY };
+      })(${x}, ${y})`
+    ) as { x: number; y: number };
 
     return position;
   }
@@ -1076,13 +1075,13 @@ export class PersistentSession {
         await this.saveState();
       }
     }
-    await this.context.close();
+    await this.driver.close();
   }
 
   /**
-   * Get raw Playwright page
+   * Get raw CompatPage (engine-backed page adapter)
    */
-  getPage(): Page {
+  getPage(): CompatPage {
     return this.page;
   }
 }
