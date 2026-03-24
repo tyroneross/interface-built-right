@@ -134,7 +134,6 @@ export class EngineDriver {
   async navigate(url: string, options: NavigateOptions = {}): Promise<void> {
     const waitFor = options.waitFor ?? 'stable'
     await this._page.navigate(url)
-    this.currentUrl = url
 
     if (waitFor === 'stable') {
       await waitForStable(
@@ -149,6 +148,9 @@ export class EngineDriver {
       )
     }
     // 'none' — return immediately
+
+    // Read actual URL after navigation (handles redirects)
+    this.currentUrl = await this.runtime.evaluate('location.href') as string ?? url
   }
 
   get url(): string {

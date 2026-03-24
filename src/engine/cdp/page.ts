@@ -105,16 +105,22 @@ export class PageDomain {
 
   /**
    * Inject CSS into the page.
-   * Uses Runtime.evaluate to add a <style> tag — works on already-loaded pages.
+   * Uses callFunctionOn with CSS passed as a proper argument (not interpolated)
+   * to avoid injection issues with special characters in CSS content.
    */
   async addStyleTag(css: string): Promise<void> {
-    const escaped = css.replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\$/g, '\\$')
-    await this.conn.send('Runtime.evaluate', {
-      expression: `(() => {
-        const style = document.createElement('style');
-        style.textContent = \`${escaped}\`;
-        document.head.appendChild(style);
-      })()`,
+    // Get a reference to document for callFunctionOn
+    const docResult = await this.conn.send<{
+      result: { objectId: string }
+    }>('Runtime.evaluate', {
+      expression: 'document',
+      returnByValue: false,
+    }, this.sessionId)
+
+    await this.conn.send('Runtime.callFunctionOn', {
+      functionDeclaration: '(cssText) => { const style = document.createElement("style"); style.textContent = cssText; document.head.appendChild(style); }',
+      objectId: docResult.result.objectId,
+      arguments: [{ value: css }],
       returnByValue: true,
     }, this.sessionId)
   }

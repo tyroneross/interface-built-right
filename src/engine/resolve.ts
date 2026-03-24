@@ -13,7 +13,7 @@ export function resolve(options: ResolveOptions): ResolveResult {
   const { intent, elements } = options
 
   if (elements.length === 0) {
-    return { element: null as unknown as Element, confidence: 0, candidates: [] }
+    return { element: null, confidence: 0, candidates: [] }
   }
 
   const intentLower = intent.toLowerCase()
@@ -121,7 +121,7 @@ function resolveAlgorithmic(options: ResolveOptions): ResolveResult {
   const { intent, elements } = options
 
   if (elements.length === 0) {
-    return { element: null as unknown as Element, confidence: 0, candidates: [] }
+    return { element: null, confidence: 0, candidates: [] }
   }
 
   const intentLower = intent.toLowerCase()

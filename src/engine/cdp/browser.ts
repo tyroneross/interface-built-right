@@ -10,9 +10,17 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 export const CHROME_PATHS = [
+  // macOS
   '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
   '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
   '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  // Linux
+  '/usr/bin/google-chrome',
+  '/usr/bin/google-chrome-stable',
+  '/usr/bin/chromium-browser',
+  '/usr/bin/chromium',
+  // Windows (WSL)
+  '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
 ]
 
 export function findChrome(): string | null {
@@ -26,6 +34,7 @@ export interface BrowserOptions {
   headless?: boolean    // default: true
   port?: number         // default: random ephemeral port
   userDataDir?: string  // default: ~/.ibr/chromium-profile/
+  chromePath?: string   // override Chrome executable path
 }
 
 function randomPort(): number {
@@ -41,10 +50,10 @@ export class BrowserManager {
     this._port = options.port ?? randomPort()
     const userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
 
-    const chromePath = findChrome()
+    const chromePath = options.chromePath ?? findChrome()
     if (!chromePath) {
       throw new Error(
-        'Chrome not found. Install Google Chrome or set a custom path.\n'
+        'Chrome not found. Install Google Chrome or pass chromePath option.\n'
         + `Checked: ${CHROME_PATHS.join(', ')}`
       )
     }
@@ -90,10 +99,26 @@ export class BrowserManager {
   }
 
   async close(): Promise<void> {
-    if (this.process) {
-      this.process.kill()
-      this.process = null
-    }
+    if (!this.process) return
+
+    const proc = this.process
+    this.process = null
+
+    // Wait for process to exit, with SIGKILL escalation
+    await new Promise<void>((resolve) => {
+      const killTimer = setTimeout(() => {
+        // Escalate to SIGKILL after 3 seconds
+        try { proc.kill('SIGKILL') } catch { /* already dead */ }
+        resolve()
+      }, 3000)
+
+      proc.once('close', () => {
+        clearTimeout(killTimer)
+        resolve()
+      })
+
+      proc.kill('SIGTERM')
+    })
   }
 
   get running(): boolean {

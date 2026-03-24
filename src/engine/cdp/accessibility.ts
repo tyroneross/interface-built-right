@@ -23,6 +23,11 @@ export class AccessibilityDomain {
   private nodeMap = new Map<string, number>() // elementId → backendDOMNodeId
   private loadCompleteHandlers = new Set<() => void>()
   private nodesUpdatedHandlers = new Set<(nodes: CdpAXNode[]) => void>()
+  private enabled = false
+
+  // Stored references for cleanup
+  private loadCompleteListener: (() => void) | null = null
+  private nodesUpdatedListener: ((params: unknown) => void) | null = null
 
   constructor(
     private conn: CdpConnection,
@@ -30,16 +35,36 @@ export class AccessibilityDomain {
   ) {}
 
   async enable(): Promise<void> {
+    if (this.enabled) return
+    this.enabled = true
+
     await this.conn.send('Accessibility.enable', {}, this.sessionId)
 
-    // Subscribe to AX tree events
-    this.conn.on('Accessibility.loadComplete', () => {
+    // Store listener references so they can be removed in disable()
+    this.loadCompleteListener = () => {
       for (const handler of this.loadCompleteHandlers) handler()
-    })
-    this.conn.on('Accessibility.nodesUpdated', (params: unknown) => {
+    }
+    this.nodesUpdatedListener = (params: unknown) => {
       const { nodes } = params as { nodes: CdpAXNode[] }
       for (const handler of this.nodesUpdatedHandlers) handler(nodes)
-    })
+    }
+
+    this.conn.on('Accessibility.loadComplete', this.loadCompleteListener)
+    this.conn.on('Accessibility.nodesUpdated', this.nodesUpdatedListener)
+  }
+
+  async disable(): Promise<void> {
+    if (!this.enabled) return
+    this.enabled = false
+
+    if (this.loadCompleteListener) {
+      this.conn.off('Accessibility.loadComplete', this.loadCompleteListener)
+      this.loadCompleteListener = null
+    }
+    if (this.nodesUpdatedListener) {
+      this.conn.off('Accessibility.nodesUpdated', this.nodesUpdatedListener)
+      this.nodesUpdatedListener = null
+    }
   }
 
   async getSnapshot(): Promise<Element[]> {
@@ -54,7 +79,7 @@ export class AccessibilityDomain {
   /**
    * queryAXTree — CDP-native search by accessible name and/or role.
    * Faster than getFullAXTree + filter for targeted element finding.
-   * Computes name and role for all nodes in subtree, including ignored ones.
+   * Note: does NOT clear/repopulate nodeMap — merges into existing map.
    */
   async queryAXTree(options: {
     accessibleName?: string
@@ -64,14 +89,30 @@ export class AccessibilityDomain {
     const params: Record<string, unknown> = {}
     if (options.accessibleName) params.accessibleName = options.accessibleName
     if (options.role) params.role = options.role
-    if (options.backendNodeId) params.backendNodeId = options.backendNodeId
 
-    const result = await this.conn.send<{ nodes: CdpAXNode[] }>(
-      'Accessibility.queryAXTree',
-      params,
-      this.sessionId,
-    )
-    return this.convertToElements(result.nodes)
+    // queryAXTree requires an anchor node. Use provided backendNodeId,
+    // or fall back to the document root.
+    if (options.backendNodeId) {
+      params.backendNodeId = options.backendNodeId
+    } else {
+      // Get document root nodeId as anchor
+      const doc = await this.conn.send<{ root: { nodeId: number } }>(
+        'DOM.getDocument', {}, this.sessionId,
+      )
+      params.nodeId = doc.root.nodeId
+    }
+
+    try {
+      const result = await this.conn.send<{ nodes: CdpAXNode[] }>(
+        'Accessibility.queryAXTree',
+        params,
+        this.sessionId,
+      )
+      return this.convertToElements(result.nodes, false)
+    } catch {
+      // queryAXTree may fail on some pages — fall back to empty
+      return []
+    }
   }
 
   getBackendNodeId(elementId: string): number | undefined {
@@ -96,11 +137,19 @@ export class AccessibilityDomain {
     this.nodesUpdatedHandlers.delete(handler)
   }
 
-  private convertToElements(nodes: CdpAXNode[]): Element[] {
+  /**
+   * Convert CDP AX nodes to Elements.
+   * @param clearMap If true (default), clears nodeMap first. Set false for queryAXTree
+   *   to merge results into existing map without invalidating prior IDs.
+   */
+  private convertToElements(nodes: CdpAXNode[], clearMap = true): Element[] {
     const elements: Element[] = []
-    this.nodeMap.clear()
-    let idCounter = 0
 
+    if (clearMap) {
+      this.nodeMap.clear()
+    }
+
+    // Use backendDOMNodeId-based IDs for stability across snapshots
     for (const node of nodes) {
       if (SKIP_ROLES.has(node.role.value)) continue
 
@@ -110,8 +159,11 @@ export class AccessibilityDomain {
       // Skip unlabeled containers
       if (role === 'group' && !label) continue
 
+      // Use backendDOMNodeId for stable IDs when available
+      const id = node.backendDOMNodeId ? `e${node.backendDOMNodeId}` : `ex${Math.random().toString(36).slice(2, 8)}`
+
       const el: Element = {
-        id: `e${++idCounter}`,
+        id,
         role,
         label,
         value: node.value?.value ?? null,

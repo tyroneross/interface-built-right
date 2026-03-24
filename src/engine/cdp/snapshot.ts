@@ -119,18 +119,25 @@ export class SnapshotDomain {
 
   /**
    * Helper: extract computed style values for a layout node.
-   * Each style entry is an array of string indices, in the same order
-   * as the computedStyles parameter passed to captureSnapshot.
+   *
+   * CDP format: `styles[nodeIndex]` is an array of string indices.
+   * Each index maps to the value of the corresponding property in the
+   * `computedStyles` parameter you passed to `captureSnapshot`.
+   * The property names are known — they're the strings you requested.
+   *
+   * @param strings The strings array from CaptureSnapshotResult
+   * @param styleIndices The style indices for one layout node (from LayoutTreeSnapshot.styles[n])
+   * @param requestedProperties The computedStyles array you passed to captureSnapshot
    */
   resolveStyles(
     strings: string[],
     styleIndices: number[],
+    requestedProperties: string[],
   ): Record<string, string> {
     const result: Record<string, string> = {}
-    // styleIndices alternates: [nameIndex, valueIndex, nameIndex, valueIndex, ...]
-    for (let i = 0; i < styleIndices.length; i += 2) {
-      const name = strings[styleIndices[i]]
-      const value = strings[styleIndices[i + 1]]
+    for (let i = 0; i < styleIndices.length && i < requestedProperties.length; i++) {
+      const name = requestedProperties[i]
+      const value = strings[styleIndices[i]]
       if (name) result[name] = value ?? ''
     }
     return result

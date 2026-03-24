@@ -58,7 +58,7 @@ export interface ResolveOptions {
 }
 
 export interface ResolveResult {
-  element: Element
+  element: Element | null
   confidence: number
   candidates?: Element[]
   visionFallback?: boolean

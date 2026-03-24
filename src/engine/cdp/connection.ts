@@ -25,13 +25,28 @@ export class CdpConnection {
 
   async connect(wsUrl: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      this.ws = new WebSocket(wsUrl)
-      this.ws.addEventListener('open', () => resolve())
-      this.ws.addEventListener('error', () =>
+      const ws = new WebSocket(wsUrl)
+      let settled = false
+
+      const onOpen = () => {
+        if (settled) return
+        settled = true
+        this.ws = ws
+        // Register persistent handlers after successful connect
+        ws.addEventListener('message', (event) => this.handleMessage(event))
+        ws.addEventListener('close', () => this.handleClose())
+        ws.addEventListener('error', () => this.handleClose())
+        resolve()
+      }
+
+      const onError = () => {
+        if (settled) return
+        settled = true
         reject(new Error(`WebSocket connection failed: ${wsUrl}`))
-      )
-      this.ws.addEventListener('message', (event) => this.handleMessage(event))
-      this.ws.addEventListener('close', () => this.handleClose())
+      }
+
+      ws.addEventListener('open', onOpen)
+      ws.addEventListener('error', onError)
     })
   }
 
@@ -79,19 +94,27 @@ export class CdpConnection {
   }
 
   private handleMessage(event: MessageEvent): void {
-    const data = JSON.parse(String(event.data))
+    let data: Record<string, unknown>
+    try {
+      data = JSON.parse(String(event.data))
+    } catch {
+      // Malformed frame — skip instead of crashing
+      return
+    }
 
-    if ('id' in data && this.pending.has(data.id)) {
-      const { resolve, reject, timer } = this.pending.get(data.id)!
+    if ('id' in data && this.pending.has(data.id as number)) {
+      const id = data.id as number
+      const { resolve, reject, timer } = this.pending.get(id)!
       clearTimeout(timer)
-      this.pending.delete(data.id)
+      this.pending.delete(id)
       if (data.error) {
-        reject(new Error(`CDP error ${data.error.code}: ${data.error.message}`))
+        const err = data.error as { code: number; message: string }
+        reject(new Error(`CDP error ${err.code}: ${err.message}`))
       } else {
         resolve(data.result)
       }
     } else if ('method' in data) {
-      const handlers = this.eventHandlers.get(data.method)
+      const handlers = this.eventHandlers.get(data.method as string)
       if (handlers) {
         for (const handler of handlers) handler(data.params)
       }

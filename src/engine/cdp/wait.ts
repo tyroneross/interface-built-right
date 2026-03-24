@@ -100,14 +100,15 @@ export async function waitForStable(
   const stableTime = options?.stableTime ?? 300
   const deadline = Date.now() + timeout
 
-  // Take initial snapshot
+  // Register event listener BEFORE first snapshot to avoid missing events
+  let changed = false
+  const handler = () => { changed = true }
+  conn.on(eventName, handler)
+
+  // Take initial snapshot (events during this await are captured by handler)
   let elements = await getSnapshot()
   let lastFingerprint = buildFingerprint(elements)
   let stableSince = Date.now()
-  let changed = false
-
-  const handler = () => { changed = true }
-  conn.on(eventName, handler)
 
   try {
     while (Date.now() < deadline) {
