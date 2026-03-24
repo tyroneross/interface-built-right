@@ -20,7 +20,9 @@ import { generateReport } from './report.js';
 import type { StartSessionOptions, StartSessionResult, CleanOptions } from './types.js';
 import { getSemanticOutput, formatSemanticText, type SemanticResult } from './semantic/index.js';
 import { loginFlow, searchFlow, formFlow, type FlowLoginOptions, type FlowSearchOptions, type FlowFormOptions } from './flows/index.js';
-import { chromium, type Page, type Browser, type BrowserContext } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { mkdir, access } from 'fs/promises';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
@@ -543,13 +545,10 @@ export class InterfaceBuiltRight {
     const viewportName = options.viewport || 'desktop';
     const viewport = VIEWPORTS[viewportName];
 
-    // Launch browser
-    const browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
-      viewport,
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-    });
-    const page = await context.newPage();
+    // Launch browser via engine
+    const driver = new EngineDriver();
+    await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    const page = new CompatPage(driver);
 
     // Navigate
     await page.goto(fullUrl, {
@@ -567,7 +566,7 @@ export class InterfaceBuiltRight {
       await page.waitForSelector(options.waitFor, { timeout: 10000 }).catch(() => {});
     }
 
-    return new IBRSession(page, browser, context, this.config);
+    return new IBRSession(page, driver, this.config);
   }
 
   /**
@@ -614,17 +613,15 @@ export class InterfaceBuiltRight {
  * AI-friendly semantic output.
  */
 export class IBRSession {
-  /** Raw Playwright page for advanced use */
-  readonly page: Page;
+  /** Page interface for browser interaction */
+  readonly page: CompatPage;
 
-  private browser: Browser;
-  private context: BrowserContext;
+  private driver: EngineDriver;
   private config: Config;
 
-  constructor(page: Page, browser: Browser, context: BrowserContext, config: Config) {
+  constructor(page: CompatPage, driver: EngineDriver, config: Config) {
     this.page = page;
-    this.browser = browser;
-    this.context = context;
+    this.driver = driver;
     this.config = config;
   }
 
@@ -685,29 +682,19 @@ export class IBRSession {
   }
 
   /**
-   * Mock a network request (thin wrapper on page.route)
+   * Mock a network request.
+   * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
+   * This is a placeholder that throws until CDP Fetch is added to the engine.
    */
-  async mock(pattern: string | RegExp, response: {
+  async mock(_pattern: string | RegExp, _response: {
     status?: number;
     body?: string | object;
     headers?: Record<string, string>;
   }): Promise<void> {
-    await this.page.route(pattern, async (route) => {
-      const body = typeof response.body === 'object'
-        ? JSON.stringify(response.body)
-        : response.body || '';
-
-      await route.fulfill({
-        status: response.status || 200,
-        body,
-        headers: {
-          'Content-Type': typeof response.body === 'object'
-            ? 'application/json'
-            : 'text/plain',
-          ...response.headers,
-        },
-      });
-    });
+    throw new Error(
+      'Network mocking not yet supported by CDP engine. ' +
+      'This requires the CDP Fetch domain which is planned for a future update.'
+    );
   }
 
   /**
@@ -786,8 +773,7 @@ export class IBRSession {
    * Close the session and browser
    */
   async close(): Promise<void> {
-    await this.context.close();
-    await this.browser.close();
+    await this.driver.close();
   }
 }
 

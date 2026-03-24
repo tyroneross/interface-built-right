@@ -559,6 +559,39 @@ export class EngineDriver {
   get networkDomain(): NetworkDomain { return this.network }
   get consoleDomain(): ConsoleDomain { return this.console }
   get connection(): CdpConnection { return this.conn }
+
+  /** The CDP debug port Chrome is listening on. Only valid after launch(). */
+  get debugPort(): number { return this.browser.port }
+
+  /**
+   * Connect to an already-running Chrome instance instead of launching a new one.
+   * Used by browser-server reconnection to attach to a persistent Chrome process.
+   */
+  async connectExisting(wsUrl: string): Promise<void> {
+    await this.conn.connect(wsUrl)
+    this.target = new TargetDomain(this.conn)
+    this.launched = true
+
+    // Create a new page in the existing browser
+    this.targetId = await this.target.createPage('about:blank')
+    this.sessionId = await this.target.attach(this.targetId)
+
+    // Initialize domains with session
+    this._page = new PageDomain(this.conn, this.sessionId)
+    this.ax = new AccessibilityDomain(this.conn, this.sessionId)
+    this.dom = new DomDomain(this.conn, this.sessionId)
+    this.input = new InputDomain(this.conn, this.sessionId)
+    this.runtime = new RuntimeDomain(this.conn, this.sessionId)
+    this.css = new CssDomain(this.conn, this.sessionId)
+    this.snapshot = new SnapshotDomain(this.conn, this.sessionId)
+    this.emulation = new EmulationDomain(this.conn, this.sessionId)
+    this.network = new NetworkDomain(this.conn, this.sessionId)
+    this.console = new ConsoleDomain(this.conn, this.sessionId)
+
+    await this._page.enableLifecycleEvents()
+    await this.ax.enable()
+    await this.console.enable()
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────

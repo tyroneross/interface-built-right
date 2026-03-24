@@ -1,4 +1,6 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { writeFile, readFile, mkdir, rename } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -100,9 +102,8 @@ export interface LiveScreenshotOptions {
  * Supports combined screenshot + scan capture at each step.
  */
 export class LiveSession {
-  private browser: Browser | null = null;
-  private context: BrowserContext | null = null;
-  private page: Page | null = null;
+  private driver: EngineDriver | null = null;
+  private page: CompatPage | null = null;
   private state: LiveSessionState;
   public readonly outputDir: string;
   private sessionDir: string;
@@ -113,15 +114,13 @@ export class LiveSession {
   private constructor(
     state: LiveSessionState,
     outputDir: string,
-    browser: Browser,
-    context: BrowserContext,
-    page: Page
+    driver: EngineDriver,
+    page: CompatPage
   ) {
     this.state = state;
     this.outputDir = outputDir;
     this.sessionDir = join(outputDir, 'sessions', state.id);
-    this.browser = browser;
-    this.context = context;
+    this.driver = driver;
     this.page = page;
 
     // Listen for console messages throughout session lifetime
@@ -154,23 +153,19 @@ export class LiveSession {
     await mkdir(sessionDir, { recursive: true });
 
     // Launch browser with appropriate mode
-    const browser = await chromium.launch({
+    const driver = new EngineDriver();
+    await driver.launch({
       headless: !sandbox && !debug,
       slowMo: debug ? 100 : 0,
       devtools: debug,
-    });
-
-    // Create context with viewport
-    const context = await browser.newContext({
       viewport: {
         width: viewport.width,
         height: viewport.height,
       },
-      reducedMotion: 'reduce',
     });
 
-    // Create page and navigate
-    const page = await context.newPage();
+    // Create page
+    const page = new CompatPage(driver);
 
     const navStart = Date.now();
     await page.goto(url, {
@@ -210,7 +205,7 @@ export class LiveSession {
       fullPage: false,
     });
 
-    const session = new LiveSession(state, outputDir, browser, context, page);
+    const session = new LiveSession(state, outputDir, driver, page);
 
     // If auto-capture is on, do initial combined capture
     if (autoCapture) {
@@ -237,22 +232,19 @@ export class LiveSession {
     const state = JSON.parse(content) as LiveSessionState;
 
     // Relaunch browser and navigate to last URL
-    const browser = await chromium.launch({
+    const driver = new EngineDriver();
+    await driver.launch({
       headless: !state.sandbox,
-    });
-
-    const context = await browser.newContext({
       viewport: {
         width: state.viewport.width,
         height: state.viewport.height,
       },
-      reducedMotion: 'reduce',
     });
 
-    const page = await context.newPage();
+    const page = new CompatPage(driver);
     await page.goto(state.url, { waitUntil: 'networkidle' });
 
-    const session = new LiveSession(state, outputDir, browser, context, page);
+    const session = new LiveSession(state, outputDir, driver, page);
     session.stepCounter = state.captures.length;
 
     return session;
@@ -279,7 +271,7 @@ export class LiveSession {
   }
 
   get isActive(): boolean {
-    return this.browser !== null && this.page !== null;
+    return this.driver !== null && this.page !== null;
   }
 
   // ============================================================================
@@ -850,9 +842,9 @@ export class LiveSession {
   }
 
   /**
-   * Get underlying Playwright page (for advanced use)
+   * Get underlying CompatPage (for advanced use)
    */
-  getPage(): Page {
+  getPage(): CompatPage {
     return this.ensurePage();
   }
 
@@ -879,13 +871,9 @@ export class LiveSession {
     // Archive ephemeral screenshots
     await this.archiveEphemeralScreenshots();
 
-    if (this.context) {
-      await this.context.close();
-      this.context = null;
-    }
-    if (this.browser) {
-      await this.browser.close();
-      this.browser = null;
+    if (this.driver) {
+      await this.driver.close();
+      this.driver = null;
     }
     this.page = null;
 
@@ -935,7 +923,7 @@ export class LiveSession {
     );
   }
 
-  private ensurePage(): Page {
+  private ensurePage(): CompatPage {
     if (!this.page) {
       throw new Error('Session is closed. Create a new session.');
     }
