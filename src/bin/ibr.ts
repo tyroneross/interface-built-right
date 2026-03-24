@@ -1119,7 +1119,7 @@ program
         const modeLabel = options.lowMemory ? ' (low-memory mode)' : '';
         console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
 
-        const { server } = await startBrowserServer(outputDir, {
+        const { driver } = await startBrowserServer(outputDir, {
           headless,
           debug: options.debug,
           isolated: true,  // Prevents conflicts with Playwright MCP
@@ -1158,7 +1158,7 @@ program
         await new Promise<void>((resolve) => {
           const cleanup = async () => {
             console.log('\nShutting down browser server...');
-            server.close();
+            await driver.close();
             resolve();
           };
           process.on('SIGINT', cleanup);
