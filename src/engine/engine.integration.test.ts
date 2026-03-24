@@ -181,8 +181,80 @@ describe('EngineDriver integration', () => {
   })
 
   it('reads actual URL after redirect', async () => {
-    // data URLs don't redirect, but verify currentUrl is set
     await driver.navigate('data:text/html,<p>URL test</p>', { waitFor: 'load' })
     expect(driver.url).toContain('data:')
+  })
+
+  // ─── LLM-Native: Observe ────────────────────────────────
+
+  it('observes available actions', async () => {
+    await driver.navigate('data:text/html,<button>Save</button><a href="#">Help</a><input type="text" aria-label="Search">', { waitFor: 'load' })
+    const actions = await driver.observe()
+    expect(actions.length).toBeGreaterThan(0)
+    expect(actions.every(a => a.actions.length > 0)).toBe(true)
+    expect(actions.every(a => a.serialized.length > 0)).toBe(true)
+  })
+
+  it('observes with intent filter', async () => {
+    const actions = await driver.observe({ intent: 'save' })
+    const saveAction = actions.find(a => a.label.toLowerCase().includes('save'))
+    expect(saveAction).toBeDefined()
+  })
+
+  // ─── LLM-Native: Extract ───────────────────────────────
+
+  it('extracts structured data from AX tree', async () => {
+    await driver.navigate('data:text/html,<h1>Welcome</h1><input type="text" aria-label="Name" value="Alice"><button>Go</button>', { waitFor: 'load' })
+    const result = await driver.extract({
+      heading: { role: 'heading', extract: 'text' },
+      nameValue: { role: 'textfield', label: 'name', extract: 'value' },
+      hasButton: { role: 'button', extract: 'exists' },
+    })
+    expect(result.heading).toBe('Welcome')
+    expect(result.nameValue).toBe('Alice')
+    expect(result.hasButton).toBe(true)
+  })
+
+  it('extracts page metadata', async () => {
+    const meta = await driver.extractMeta()
+    expect(meta.headings).toContain('Welcome')
+    expect(meta.buttons.length).toBeGreaterThan(0)
+  })
+
+  // ─── LLM-Native: Adaptive Modality ─────────────────────
+
+  it('assesses understanding of well-structured page', async () => {
+    await driver.navigate('data:text/html,<h1>Login</h1><label>Email<input type="email"></label><label>Password<input type="password"></label><button>Sign In</button>', { waitFor: 'load' })
+    const score = await driver.assessUnderstanding()
+    expect(score.score).toBeGreaterThan(0)
+    expect(typeof score.needsScreenshot).toBe('boolean')
+    expect(score.reasoning.length).toBeGreaterThan(0)
+  })
+
+  // ─── LLM-Native: Cache ─────────────────────────────────
+
+  it('caches resolutions for repeated finds', async () => {
+    await driver.navigate('data:text/html,<button>OK</button><button>Cancel</button>', { waitFor: 'load' })
+
+    // First find — populates cache
+    const first = await driver.find('OK', { role: 'button' })
+    expect(first).not.toBeNull()
+
+    // Second find — should hit cache
+    const second = await driver.find('OK', { role: 'button' })
+    expect(second).not.toBeNull()
+    expect(second?.id).toBe(first?.id)
+
+    // Verify cache has entries
+    expect(driver.cacheStats.entries).toBeGreaterThan(0)
+  })
+
+  it('clears cache on navigation', async () => {
+    await driver.navigate('data:text/html,<button>Test</button>', { waitFor: 'load' })
+    await driver.find('Test')
+    expect(driver.cacheStats.entries).toBeGreaterThan(0)
+
+    await driver.navigate('data:text/html,<button>Other</button>', { waitFor: 'load' })
+    expect(driver.cacheStats.entries).toBe(0)
   })
 })

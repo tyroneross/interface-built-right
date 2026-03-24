@@ -19,6 +19,10 @@ import { ConsoleDomain, type ConsoleMessage } from './cdp/console.js'
 import { waitForStableTree, waitForStable } from './cdp/wait.js'
 import type { Element, Snapshot } from './types.js'
 import { serializeSnapshot } from './serialize.js'
+import { observe, type ActionDescriptor, type ObserveOptions } from './observe.js'
+import { extractFromAXTree, extractList, extractPageMeta, type ExtractSchema, type ExtractResult } from './extract.js'
+import { ResolutionCache, type CacheOptions } from './cache.js'
+import { assessUnderstanding, type UnderstandingScore, type ModalityOptions } from './modality.js'
 
 export interface LaunchOptions extends BrowserOptions {
   viewport?: ViewportConfig
@@ -63,6 +67,7 @@ export interface CapturedState {
 export class EngineDriver {
   private browser = new BrowserManager()
   private conn = new CdpConnection()
+  // Resolution cache initialized in constructor or with defaults
   private target!: TargetDomain
   private _page!: PageDomain
   private ax!: AccessibilityDomain
@@ -79,6 +84,7 @@ export class EngineDriver {
   private sessionId: string | null = null
   private currentUrl = ''
   private launched = false
+  private resolutionCache = new ResolutionCache()
 
   // ─── Lifecycle ──────────────────────────────────────────
 
@@ -151,6 +157,9 @@ export class EngineDriver {
 
     // Read actual URL after navigation (handles redirects)
     this.currentUrl = await this.runtime.evaluate('location.href') as string ?? url
+
+    // Clear resolution cache on navigation (element IDs change)
+    this.resolutionCache.clear()
   }
 
   get url(): string {
@@ -199,16 +208,34 @@ export class EngineDriver {
   }
 
   /**
-   * 3-tier element resolution: queryAXTree → fuzzy → vision fallback.
+   * 3-tier element resolution with auto-caching:
+   * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
    */
   async find(name: string, options: FindOptions = {}): Promise<Element | null> {
+    const cacheKey = options.role ? `${name}:${options.role}` : name
+
+    // Tier 0: Check resolution cache
+    const cached = this.resolutionCache.get(cacheKey)
+    if (cached) {
+      // Verify the cached element still exists
+      const elements = await this.ax.getSnapshot()
+      const match = elements.find((e) => e.id === cached.elementId)
+      if (match) return match
+      // Element gone — invalidate and re-resolve
+      this.resolutionCache.invalidate(cacheKey)
+    }
+
     // Tier 1: CDP-native queryAXTree (exact/prefix match)
     const queryResult = await this.ax.queryAXTree({
       accessibleName: name,
       role: options.role,
     })
     if (queryResult.length > 0) {
-      return queryResult[0]
+      const el = queryResult[0]
+      this.resolutionCache.set(cacheKey, el.id, {
+        role: el.role, label: el.label, confidence: 1.0,
+      })
+      return el
     }
 
     // Tier 2: Fuzzy matching on full AX tree (Jaro-Winkler)
@@ -220,7 +247,10 @@ export class EngineDriver {
       mode: 'algorithmic',
     })
 
-    if (result.confidence >= 0.5) {
+    if (result.confidence >= 0.5 && result.element) {
+      this.resolutionCache.set(cacheKey, result.element.id, {
+        role: result.element.role, label: result.element.label, confidence: result.confidence,
+      })
       return result.element
     }
 
@@ -451,6 +481,70 @@ export class EngineDriver {
       '(sel, attr) => { const el = document.querySelector(sel); return el ? el.getAttribute(attr) : null; }',
       [selector, attribute],
     ) as Promise<string | null>
+  }
+
+  // ─── LLM-Native: Observe ─────────────────────────────────
+
+  /**
+   * Preview what actions are possible without executing.
+   * Returns serializable descriptors for act().
+   */
+  async observe(options?: ObserveOptions): Promise<ActionDescriptor[]> {
+    const elements = await this.ax.getSnapshot()
+    return observe(elements, options)
+  }
+
+  // ─── LLM-Native: Extract ───────────────────────────────
+
+  /**
+   * Extract structured data from AX tree using a schema.
+   */
+  async extract(schema: ExtractSchema): Promise<ExtractResult> {
+    const elements = await this.ax.getSnapshot()
+    return extractFromAXTree(elements, schema)
+  }
+
+  /**
+   * Extract a list of repeated elements.
+   */
+  async extractItems(options: {
+    role?: string
+    labelPattern?: RegExp
+    maxItems?: number
+  }): Promise<Array<{ label: string; value: string | null; id: string }>> {
+    const elements = await this.ax.getSnapshot()
+    return extractList(elements, options)
+  }
+
+  /**
+   * Extract page-level metadata (headings, links, inputs, buttons).
+   */
+  async extractMeta(): Promise<ReturnType<typeof extractPageMeta>> {
+    const elements = await this.ax.getSnapshot()
+    return extractPageMeta(elements)
+  }
+
+  // ─── LLM-Native: Adaptive Modality ─────────────────────
+
+  /**
+   * Assess how well the AX tree captures the page.
+   * Returns a score and whether a screenshot is recommended.
+   */
+  async assessUnderstanding(options?: ModalityOptions): Promise<UnderstandingScore> {
+    const elements = await this.ax.getSnapshot()
+    return assessUnderstanding(elements, options)
+  }
+
+  // ─── LLM-Native: Cache ─────────────────────────────────
+
+  /** Get resolution cache statistics. */
+  get cacheStats(): ReturnType<ResolutionCache['stats']> {
+    return this.resolutionCache.stats()
+  }
+
+  /** Configure the resolution cache. */
+  configureCache(options: CacheOptions): void {
+    this.resolutionCache = new ResolutionCache(options)
   }
 
   // ─── Direct domain access (for advanced use) ───────────

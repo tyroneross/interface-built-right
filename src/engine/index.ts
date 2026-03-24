@@ -71,3 +71,18 @@ export { normalizeRole } from './normalize.js'
 export { serializeSnapshot, serializeElement } from './serialize.js'
 export { resolve, jaroWinkler, parseSpatialHints } from './resolve.js'
 export type { SpatialHints } from './resolve.js'
+
+// ─── LLM-Native: Observe/Act/Extract ────────────────────────
+export { observe } from './observe.js'
+export type { ActionDescriptor, ObserveOptions } from './observe.js'
+
+export { extractFromAXTree, extractList, extractPageMeta } from './extract.js'
+export type { ExtractSchema, ExtractField, ExtractResult } from './extract.js'
+
+// ─── LLM-Native: Resolution Cache ──────────────────────────
+export { ResolutionCache } from './cache.js'
+export type { CachedResolution, CacheOptions } from './cache.js'
+
+// ─── LLM-Native: Adaptive Modality ─────────────────────────
+export { assessUnderstanding } from './modality.js'
+export type { UnderstandingScore, ModalityOptions } from './modality.js'

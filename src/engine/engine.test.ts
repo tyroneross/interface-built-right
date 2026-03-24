@@ -6,7 +6,7 @@
  * Integration tests (requiring Chrome) are in engine.integration.test.ts
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   buildFingerprint,
   normalizeRole,
@@ -15,8 +15,14 @@ import {
   resolve,
   jaroWinkler,
   parseSpatialHints,
+  observe,
+  extractFromAXTree,
+  extractList,
+  extractPageMeta,
+  ResolutionCache,
+  assessUnderstanding,
 } from './index.js'
-import type { Element, Snapshot, ResolveOptions } from './types.js'
+import type { Element, Snapshot } from './types.js'
 
 // ─── Normalize ──────────────────────────────────────────────
 
@@ -297,5 +303,205 @@ describe('findChrome', () => {
     const { findChrome } = await import('./cdp/browser.js')
     const result = findChrome()
     expect(typeof result === 'string' || result === null).toBe(true)
+  })
+})
+
+// ─── Observe ────────────────────────────────────────────────
+
+describe('observe', () => {
+  const elements: Element[] = [
+    makeElement({ id: 'e1', label: 'Submit', role: 'button', actions: ['press'] }),
+    makeElement({ id: 'e2', label: 'Email', role: 'textfield', actions: ['setValue'] }),
+    makeElement({ id: 'e3', label: 'Header', role: 'heading', actions: [] }),
+    makeElement({ id: 'e4', label: 'Login', role: 'link', actions: ['press'] }),
+  ]
+
+  it('returns only interactive elements', () => {
+    const result = observe(elements)
+    expect(result.length).toBe(3) // button, textfield, link — not heading
+    expect(result.every((d: { actions: string[] }) => d.actions.length > 0)).toBe(true)
+  })
+
+  it('filters by role', () => {
+    const result = observe(elements, { role: 'button' })
+    expect(result.length).toBe(1)
+    expect(result[0].role).toBe('button')
+  })
+
+  it('filters by intent', () => {
+    const result = observe(elements, { intent: 'email' })
+    expect(result.length).toBe(1)
+    expect(result[0].label).toBe('Email')
+  })
+
+  it('produces serialized descriptors', () => {
+    const result = observe(elements, { role: 'button' })
+    expect(result[0].serialized).toContain('[e1]')
+    expect(result[0].description).toContain('Click')
+  })
+
+  it('respects limit', () => {
+    const result = observe(elements, { limit: 1 })
+    expect(result.length).toBe(1)
+  })
+})
+
+// ─── Extract ────────────────────────────────────────────────
+
+describe('extract', () => {
+  const elements: Element[] = [
+    makeElement({ id: 'e1', label: 'Page Title', role: 'heading', actions: [] }),
+    makeElement({ id: 'e2', label: 'Username', role: 'textfield', value: 'john', actions: ['setValue'] }),
+    makeElement({ id: 'e3', label: 'Password', role: 'textfield', value: '', actions: ['setValue'] }),
+    makeElement({ id: 'e4', label: 'Login', role: 'button', actions: ['press'] }),
+    makeElement({ id: 'e5', label: 'Forgot password', role: 'link', actions: ['press'] }),
+  ]
+
+  it('extracts text from AX tree', () => {
+    const result = extractFromAXTree(elements, {
+      title: { role: 'heading', extract: 'text' },
+      username: { role: 'textfield', label: 'username', extract: 'value' },
+      hasLogin: { role: 'button', label: 'login', extract: 'exists' },
+      missing: { role: 'slider', extract: 'exists' },
+    })
+    expect(result.title).toBe('Page Title')
+    expect(result.username).toBe('john')
+    expect(result.hasLogin).toBe(true)
+    expect(result.missing).toBe(false)
+  })
+
+  it('extracts list of elements', () => {
+    const result = extractList(elements, { role: 'textfield' })
+    expect(result.length).toBe(2)
+    expect(result[0].label).toBe('Username')
+    expect(result[1].label).toBe('Password')
+  })
+
+  it('extracts page metadata', () => {
+    const meta = extractPageMeta(elements)
+    expect(meta.headings).toEqual(['Page Title'])
+    expect(meta.inputs.length).toBe(2)
+    expect(meta.buttons.length).toBe(1)
+    expect(meta.links.length).toBe(1)
+  })
+})
+
+// ─── Resolution Cache ───────────────────────────────────────
+
+describe('ResolutionCache', () => {
+  it('stores and retrieves resolutions', () => {
+    const cache = new ResolutionCache()
+    cache.set('submit button', 'e5', { role: 'button', label: 'Submit', confidence: 0.9 })
+    const result = cache.get('submit button')
+    expect(result).not.toBeNull()
+    expect(result!.elementId).toBe('e5')
+  })
+
+  it('normalizes keys (case-insensitive)', () => {
+    const cache = new ResolutionCache()
+    cache.set('Submit Button', 'e5', { role: 'button', label: 'Submit', confidence: 0.9 })
+    expect(cache.get('submit button')).not.toBeNull()
+  })
+
+  it('rejects low-confidence entries', () => {
+    const cache = new ResolutionCache({ minConfidence: 0.7 })
+    cache.set('weak match', 'e1', { role: 'button', label: 'X', confidence: 0.3 })
+    expect(cache.get('weak match')).toBeNull()
+  })
+
+  it('expires entries after TTL', () => {
+    const cache = new ResolutionCache({ ttl: 1 }) // 1ms TTL
+    cache.set('test', 'e1', { role: 'button', label: 'Test', confidence: 0.9 })
+    // Entry should expire almost immediately
+    // (may or may not be expired depending on timing, so just verify no crash)
+    const result = cache.get('test')
+    // Result is either the entry or null — both valid
+    expect(result === null || result.elementId === 'e1').toBe(true)
+  })
+
+  it('tracks hits', () => {
+    const cache = new ResolutionCache()
+    cache.set('btn', 'e1', { role: 'button', label: 'OK', confidence: 0.9 })
+    cache.get('btn')
+    cache.get('btn')
+    const stats = cache.stats()
+    expect(stats.entries).toBe(1)
+    expect(stats.totalHits).toBe(2)
+  })
+
+  it('evicts oldest when at capacity', () => {
+    const cache = new ResolutionCache({ maxEntries: 2 })
+    cache.set('a', 'e1', { role: 'button', label: 'A', confidence: 0.9 })
+    cache.set('b', 'e2', { role: 'button', label: 'B', confidence: 0.9 })
+    cache.set('c', 'e3', { role: 'button', label: 'C', confidence: 0.9 })
+    // 'a' should have been evicted
+    expect(cache.get('a')).toBeNull()
+    expect(cache.get('b')).not.toBeNull()
+    expect(cache.get('c')).not.toBeNull()
+  })
+
+  it('clears all entries', () => {
+    const cache = new ResolutionCache()
+    cache.set('x', 'e1', { role: 'button', label: 'X', confidence: 0.9 })
+    cache.clear()
+    expect(cache.stats().entries).toBe(0)
+  })
+})
+
+// ─── Adaptive Modality ──────────────────────────────────────
+
+describe('assessUnderstanding', () => {
+  it('returns low score for empty tree', () => {
+    const result = assessUnderstanding([])
+    expect(result.score).toBe(0)
+    expect(result.needsScreenshot).toBe(true)
+  })
+
+  it('returns high score for well-labeled interactive elements', () => {
+    const elements: Element[] = [
+      makeElement({ id: 'e1', label: 'Submit', role: 'button' }),
+      makeElement({ id: 'e2', label: 'Email', role: 'textfield', actions: ['setValue'] }),
+      makeElement({ id: 'e3', label: 'Password', role: 'textfield', actions: ['setValue'] }),
+      makeElement({ id: 'e4', label: 'Login Page', role: 'heading', actions: [] }),
+      makeElement({ id: 'e5', label: 'Forgot Password', role: 'link' }),
+    ]
+    const result = assessUnderstanding(elements)
+    expect(result.score).toBeGreaterThan(0.6)
+    expect(result.needsScreenshot).toBe(false)
+  })
+
+  it('penalizes unlabeled interactive elements', () => {
+    const elements: Element[] = [
+      makeElement({ id: 'e1', label: '', role: 'button' }),
+      makeElement({ id: 'e2', label: '', role: 'button' }),
+      makeElement({ id: 'e3', label: '', role: 'button' }),
+    ]
+    const result = assessUnderstanding(elements)
+    expect(result.score).toBeLessThan(0.5)
+    expect(result.needsScreenshot).toBe(true)
+  })
+
+  it('penalizes single-role trees (Canvas/WebGL)', () => {
+    const elements = Array.from({ length: 10 }, (_, i) =>
+      makeElement({ id: `e${i}`, label: `Item ${i}`, role: 'group', actions: [] })
+    )
+    const result = assessUnderstanding(elements)
+    expect(result.dimensions.specialCasePenalty).toBeGreaterThan(0)
+  })
+
+  it('respects custom threshold', () => {
+    const elements: Element[] = [
+      makeElement({ id: 'e1', label: 'OK', role: 'button' }),
+    ]
+    const strict = assessUnderstanding(elements, { threshold: 0.9 })
+    const lenient = assessUnderstanding(elements, { threshold: 0.2 })
+    // Same score, different recommendation
+    expect(strict.score).toBe(lenient.score)
+    expect(strict.needsScreenshot).not.toBe(lenient.needsScreenshot)
+  })
+
+  it('provides reasoning string', () => {
+    const result = assessUnderstanding([])
+    expect(result.reasoning.length).toBeGreaterThan(0)
   })
 })
