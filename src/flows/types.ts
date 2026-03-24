@@ -4,7 +4,7 @@
  * Common types used across all built-in flows.
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from '../engine/page-like.js';
 
 export interface FlowStep {
   action: string;

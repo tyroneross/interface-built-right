@@ -5,7 +5,7 @@
  * Provides verdicts, recommendations, and recovery hints.
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from '../engine/page-like.js';
 import { classifyPageIntent, type PageIntent, type PageIntentResult } from './page-intent.js';
 import { detectPageState, type PageState } from './state-detector.js';
 

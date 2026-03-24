@@ -1,4 +1,6 @@
-import { chromium } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { mkdir, access, readFile, writeFile, unlink, chmod, stat } from 'fs/promises';
 import { join, resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';
@@ -200,15 +202,12 @@ export async function performLogin(options: LoginOptions): Promise<string> {
   console.log('   Navigate to your login page and complete authentication.');
   console.log('   When finished, close the browser window to save your session.\n');
 
-  const browser = await chromium.launch({
+  const driver = new EngineDriver();
+  await driver.launch({
     headless: false, // Visible browser for manual login
-  });
-
-  const context = await browser.newContext({
     viewport: { width: 1280, height: 800 },
   });
-
-  const page = await context.newPage();
+  const page = new CompatPage(driver);
 
   try {
     // Navigate to the provided URL
@@ -217,22 +216,18 @@ export async function performLogin(options: LoginOptions): Promise<string> {
       timeout: 30000,
     });
 
-    // Wait for browser to close (user manually closes it after login)
-    // or timeout after the specified duration
+    // Wait for the timeout duration — user performs login in the visible browser
     await Promise.race([
-      new Promise<void>((resolve) => {
-        browser.on('disconnected', () => resolve());
-      }),
       new Promise<void>((_, reject) => {
         setTimeout(() => reject(new Error('Login timeout exceeded')), timeout);
       }),
     ]);
 
   } catch (error) {
-    // If browser is still open, save the state before closing
-    if (browser.isConnected()) {
-      await saveAuthState(context, authStatePath, outputDir);
-      await browser.close();
+    // If driver is still running, save state before closing
+    if (driver.isLaunched) {
+      await saveAuthState(driver, authStatePath, outputDir);
+      await driver.close();
     }
 
     // Check if it was a timeout or browser close
@@ -241,27 +236,10 @@ export async function performLogin(options: LoginOptions): Promise<string> {
     }
   }
 
-  // If we get here without the browser being disconnected, save state
-  if (browser.isConnected()) {
-    await saveAuthState(context, authStatePath, outputDir);
-    await browser.close();
-  } else {
-    // Browser was closed by user - try to reconnect to save state
-    console.log('\n⚠️  Browser was closed. Attempting to save any captured state...');
-
-    // Create a new context just to save an empty state as fallback
-    const newBrowser = await chromium.launch({ headless: true });
-    const newContext = await newBrowser.newContext();
-
-    // Try to use any cookies from the page
-    try {
-      await newContext.addCookies(await context.cookies());
-    } catch {
-      // Context might be closed
-    }
-
-    await saveAuthState(newContext, authStatePath, outputDir);
-    await newBrowser.close();
+  // Save state and close
+  if (driver.isLaunched) {
+    await saveAuthState(driver, authStatePath, outputDir);
+    await driver.close();
   }
 
   console.log(`\n✅ Auth state saved for user: ${currentUser}`);
@@ -276,11 +254,12 @@ export async function performLogin(options: LoginOptions): Promise<string> {
  * Save auth state with metadata and secure permissions
  */
 async function saveAuthState(
-  context: import('playwright').BrowserContext,
+  driver: EngineDriver,
   authStatePath: string,
   _outputDir: string
 ): Promise<void> {
-  const state = await context.storageState();
+  const cookies = await driver.getCookies();
+  const state = { cookies, origins: [] };
   const currentUser = userInfo().username;
 
   const storedState: StoredAuthState = {

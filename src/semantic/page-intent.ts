@@ -6,7 +6,7 @@
  * without parsing raw accessibility trees.
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from '../engine/page-like.js';
 
 export type PageIntent =
   | 'auth'        // Login, register, forgot-password, reset-password

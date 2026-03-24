@@ -4,7 +4,7 @@
  * Handles generic form submission with field detection.
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from '../engine/page-like.js';
 import { findFieldByLabel, findButton, waitForNavigation, type FlowResult, type FlowStep, type FlowOptions } from './types.js';
 
 export interface FormField {

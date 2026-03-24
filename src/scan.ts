@@ -1,5 +1,5 @@
-import type { Page } from 'playwright';
-import { chromium } from 'playwright';
+import type { PageLike as Page } from './engine/page-like.js';
+import { EngineDriver } from './engine/driver.js';
 import type { EnhancedElement, AuditResult, Viewport } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
@@ -93,12 +93,12 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     : viewportOpt;
 
   // Launch browser
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
+  const driver = new EngineDriver();
+  await driver.launch({
+    headless: true,
     viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
   });
-  const page = await context.newPage();
+  const page = new Page(driver);
 
   // Capture console output
   const consoleErrors: string[] = [];
@@ -171,8 +171,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       summary,
     };
   } finally {
-    await context.close();
-    await browser.close();
+    await driver.close();
   }
 }
 

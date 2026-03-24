@@ -1,4 +1,6 @@
-import { chromium, type Page, type Browser } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { VIEWPORTS, type Viewport } from './schemas.js';
 
 /**
@@ -92,63 +94,54 @@ export async function testResponsive(
   } = options;
 
   const results: ViewportResult[] = [];
-  let browser: Browser | null = null;
 
-  try {
-    browser = await chromium.launch({ headless: true });
+  for (const viewportSpec of viewports) {
+    // Resolve viewport
+    let viewport: Viewport;
+    let viewportName: string;
 
-    for (const viewportSpec of viewports) {
-      // Resolve viewport
-      let viewport: Viewport;
-      let viewportName: string;
+    if (typeof viewportSpec === 'string') {
+      viewport = VIEWPORTS[viewportSpec];
+      viewportName = viewportSpec;
+    } else {
+      viewport = viewportSpec;
+      viewportName = `${viewportSpec.width}x${viewportSpec.height}`;
+    }
 
-      if (typeof viewportSpec === 'string') {
-        viewport = VIEWPORTS[viewportSpec];
-        viewportName = viewportSpec;
-      } else {
-        viewport = viewportSpec;
-        viewportName = `${viewportSpec.width}x${viewportSpec.height}`;
-      }
+    const driver = new EngineDriver();
+    await driver.launch({
+      headless: true,
+      viewport: { width: viewport.width, height: viewport.height },
+    });
+    const page = new CompatPage(driver);
 
-      const context = await browser.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        reducedMotion: 'reduce',
+    try {
+      await page.goto(url, {
+        waitUntil: 'networkidle',
+        timeout,
       });
 
-      const page = await context.newPage();
+      // Wait for animations
+      await page.waitForTimeout(500);
 
-      try {
-        await page.goto(url, {
-          waitUntil: 'networkidle',
-          timeout,
-        });
+      // Run viewport-specific tests
+      const result = await analyzeViewport(page, viewport, viewportName, {
+        minTouchTarget,
+        minFontSize,
+      });
 
-        // Wait for animations
-        await page.waitForTimeout(500);
-
-        // Run viewport-specific tests
-        const result = await analyzeViewport(page, viewport, viewportName, {
-          minTouchTarget,
-          minFontSize,
-        });
-
-        // Capture screenshot if requested
-        if (captureScreenshots) {
-          const { mkdir } = await import('fs/promises');
-          await mkdir(outputDir, { recursive: true });
-          const screenshotPath = `${outputDir}/${viewportName}.png`;
-          await page.screenshot({ path: screenshotPath, fullPage: true });
-          result.screenshot = screenshotPath;
-        }
-
-        results.push(result);
-      } finally {
-        await context.close();
+      // Capture screenshot if requested
+      if (captureScreenshots) {
+        const { mkdir } = await import('fs/promises');
+        await mkdir(outputDir, { recursive: true });
+        const screenshotPath = `${outputDir}/${viewportName}.png`;
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        result.screenshot = screenshotPath;
       }
-    }
-  } finally {
-    if (browser) {
-      await browser.close();
+
+      results.push(result);
+    } finally {
+      await driver.close();
     }
   }
 
@@ -180,7 +173,7 @@ export async function testResponsive(
  * Analyze a single viewport for responsive issues
  */
 async function analyzeViewport(
-  page: Page,
+  page: PageLike,
   viewport: Viewport,
   viewportName: string,
   options: { minTouchTarget: number; minFontSize: number }

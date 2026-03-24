@@ -5,7 +5,7 @@
  * Includes AI-powered search testing with step screenshots and content extraction.
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from '../engine/page-like.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import {

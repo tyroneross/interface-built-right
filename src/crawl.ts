@@ -1,4 +1,6 @@
-import { chromium, Browser } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { URL } from 'url';
 
 export interface CrawlOptions {
@@ -52,13 +54,13 @@ export async function discoverPages(options: CrawlOptions): Promise<CrawlResult>
     { url: url, depth: 0 }
   ];
 
-  let browser: Browser | null = null;
+  let driver: EngineDriver | null = null;
   let totalLinks = 0;
 
   try {
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext();
-    const page = await context.newPage();
+    driver = new EngineDriver();
+    await driver.launch({ headless: true });
+    const page = new CompatPage(driver);
 
     while (queue.length > 0 && discovered.size < maxPages) {
       const current = queue.shift();
@@ -138,9 +140,9 @@ export async function discoverPages(options: CrawlOptions): Promise<CrawlResult>
       }
     }
 
-    await browser.close();
+    await driver.close();
   } catch (error) {
-    if (browser) await browser.close();
+    if (driver) await driver.close();
     throw error;
   }
 
@@ -207,11 +209,12 @@ function shouldSkipUrl(url: URL): boolean {
  * Useful for finding main pages without full crawl
  */
 export async function getNavigationLinks(url: string): Promise<DiscoveredPage[]> {
-  let browser: Browser | null = null;
+  let driver: EngineDriver | null = null;
 
   try {
-    browser = await chromium.launch({ headless: true });
-    const page = await browser.newPage();
+    driver = new EngineDriver();
+    await driver.launch({ headless: true });
+    const page = new CompatPage(driver);
 
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
@@ -250,7 +253,7 @@ export async function getNavigationLinks(url: string): Promise<DiscoveredPage[]>
       return links;
     });
 
-    await browser.close();
+    await driver.close();
 
     // Convert to DiscoveredPage format
     const pages: DiscoveredPage[] = [];
@@ -287,7 +290,7 @@ export async function getNavigationLinks(url: string): Promise<DiscoveredPage[]>
 
     return Array.from(uniquePages.values());
   } catch (error) {
-    if (browser) await browser.close();
+    if (driver) await driver.close();
     throw error;
   }
 }

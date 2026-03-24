@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { PageLike as Page } from './engine/page-like.js';
 
 /**
  * Interactive element info

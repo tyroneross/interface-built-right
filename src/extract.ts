@@ -1,4 +1,6 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -111,28 +113,27 @@ const CSS_PROPERTIES_TO_EXTRACT = [
   'gridTemplateRows',
 ];
 
-// Singleton browser instance
-let browser: Browser | null = null;
+// Singleton driver instance
+let driver: EngineDriver | null = null;
 
 /**
- * Get or create browser instance
+ * Get or create driver instance
  */
-async function getBrowser(): Promise<Browser> {
-  if (!browser) {
-    browser = await chromium.launch({
-      headless: true,
-    });
+async function getDriver(): Promise<EngineDriver> {
+  if (!driver) {
+    driver = new EngineDriver();
+    await driver.launch({ headless: true });
   }
-  return browser;
+  return driver;
 }
 
 /**
  * Close the browser instance
  */
 export async function closeBrowser(): Promise<void> {
-  if (browser) {
-    await browser.close();
-    browser = null;
+  if (driver) {
+    await driver.close();
+    driver = null;
   }
 }
 
@@ -186,7 +187,7 @@ async function releaseLock(outputDir: string): Promise<void> {
  * Extract computed styles for an element
  */
 async function extractElementStyles(
-  page: Page,
+  page: PageLike,
   selector: string
 ): Promise<ExtractedElement[]> {
   return page.evaluate(
@@ -253,7 +254,7 @@ const INTERACTIVE_SELECTORS = [
 /**
  * Extract enhanced interactive elements with handler detection
  */
-export async function extractInteractiveElements(page: Page): Promise<EnhancedElement[]> {
+export async function extractInteractiveElements(page: PageLike): Promise<EnhancedElement[]> {
   return page.evaluate((selectors) => {
     const seen = new Set<Element>();
     const elements: EnhancedElement[] = [];
@@ -480,7 +481,7 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
 /**
  * Extract CSS custom properties (variables)
  */
-async function extractCSSVariables(page: Page): Promise<CSSVariables> {
+async function extractCSSVariables(page: PageLike): Promise<CSSVariables> {
   return page.evaluate(() => {
     const root = document.documentElement;
     const variables: CSSVariables = {};
@@ -558,7 +559,6 @@ export async function extractFromURL(
   // Create lock
   await createLock(outputDir);
 
-  const browserInstance = await getBrowser();
   let timeoutHandle: NodeJS.Timeout | null = null;
 
   try {
@@ -570,15 +570,12 @@ export async function extractFromURL(
     });
 
     const extractionPromise = async () => {
-      const context = await browserInstance.newContext({
-        viewport: {
-          width: viewport.width,
-          height: viewport.height,
-        },
-        reducedMotion: 'reduce',
+      const driverInstance = new EngineDriver();
+      await driverInstance.launch({
+        headless: true,
+        viewport: { width: viewport.width, height: viewport.height },
       });
-
-      const page = await context.newPage();
+      const page = new CompatPage(driverInstance);
 
       try {
         // Navigate to URL
@@ -644,7 +641,7 @@ export async function extractFromURL(
 
         return result;
       } finally {
-        await context.close();
+        await driverInstance.close();
       }
     };
 

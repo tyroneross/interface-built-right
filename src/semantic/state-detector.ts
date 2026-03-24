@@ -5,7 +5,7 @@
  * Provides AI agents with actionable state information.
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from '../engine/page-like.js';
 
 export interface AuthState {
   authenticated: boolean | null; // null = can't determine

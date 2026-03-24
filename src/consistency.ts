@@ -1,4 +1,6 @@
-import { chromium, Browser } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 
 /**
  * UI metrics extracted from a page for consistency checking
@@ -85,7 +87,7 @@ export interface ConsistencyOptions {
 /**
  * Extract UI metrics from a page
  */
-async function extractMetrics(page: import('playwright').Page, url: string): Promise<PageMetrics> {
+async function extractMetrics(page: PageLike, url: string): Promise<PageMetrics> {
   const parsedUrl = new URL(url);
 
   const metrics = await page.evaluate(() => {
@@ -260,15 +262,16 @@ function calculateScore(inconsistencies: Inconsistency[]): number {
 export async function checkConsistency(options: ConsistencyOptions): Promise<ConsistencyResult> {
   const { urls, timeout = 15000, ignore = [] } = options;
 
-  let browser: Browser | null = null;
+  let driver: EngineDriver | null = null;
   const pages: PageMetrics[] = [];
 
   try {
-    browser = await chromium.launch({ headless: true });
-    const context = await browser.newContext({
+    driver = new EngineDriver();
+    await driver.launch({
+      headless: true,
       viewport: { width: 1920, height: 1080 },
     });
-    const page = await context.newPage();
+    const page = new CompatPage(driver);
 
     for (const url of urls) {
       try {
@@ -284,9 +287,9 @@ export async function checkConsistency(options: ConsistencyOptions): Promise<Con
       }
     }
 
-    await browser.close();
+    await driver.close();
   } catch (error) {
-    if (browser) await browser.close();
+    if (driver) await driver.close();
     throw error;
   }
 

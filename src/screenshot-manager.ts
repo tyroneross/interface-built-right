@@ -5,7 +5,7 @@
  * Prevents disk bloat with configurable retention policies.
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from './engine/page-like.js';
 import { writeFile, readFile, readdir, stat, unlink, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join, basename, dirname } from 'path';

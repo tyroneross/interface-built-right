@@ -7,7 +7,7 @@
  * 3. Inferring expected elements from page intent when no baseline exists
  */
 
-import type { Page } from 'playwright';
+import type { PageLike as Page } from '../engine/page-like.js';
 import type { LandmarkElement } from '../schemas.js';
 import type { PageIntent } from './page-intent.js';
 

@@ -1,4 +1,6 @@
-import { chromium, type Browser, type Page } from 'playwright';
+import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
+import type { PageLike } from './engine/page-like.js';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { VIEWPORTS, type Viewport, type LandmarkElement } from './schemas.js';
@@ -11,7 +13,7 @@ import { classifyPageIntent, type PageIntent } from './semantic/page-intent.js';
 /**
  * Apply dynamic content masking to a page before screenshot
  */
-async function applyMasking(page: Page, mask?: MaskOptions): Promise<void> {
+async function applyMasking(page: PageLike, mask?: MaskOptions): Promise<void> {
   // Default: always disable animations
   const hideAnimations = mask?.hideAnimations !== false;
 
@@ -139,27 +141,26 @@ type StorageState = {
   }>;
 };
 
-let browser: Browser | null = null;
+let driver: EngineDriver | null = null;
 
 /**
- * Get or create a browser instance
+ * Get or create a driver instance
  */
-async function getBrowser(): Promise<Browser> {
-  if (!browser) {
-    browser = await chromium.launch({
-      headless: true,
-    });
+async function getDriver(): Promise<EngineDriver> {
+  if (!driver) {
+    driver = new EngineDriver();
+    await driver.launch({ headless: true });
   }
-  return browser;
+  return driver;
 }
 
 /**
  * Close the browser instance
  */
 export async function closeBrowser(): Promise<void> {
-  if (browser) {
-    await browser.close();
-    browser = null;
+  if (driver) {
+    await driver.close();
+    driver = null;
   }
 }
 
@@ -195,19 +196,12 @@ export async function captureScreenshot(
     }
   }
 
-  const browserInstance = await getBrowser();
-  const context = await browserInstance.newContext({
-    viewport: {
-      width: viewport.width,
-      height: viewport.height,
-    },
-    // Disable animations for consistent screenshots
-    reducedMotion: 'reduce',
-    // Load auth state if available (Playwright accepts object or file path)
-    ...(storageState ? { storageState } : {}),
+  const driverInstance = new EngineDriver();
+  await driverInstance.launch({
+    headless: true,
+    viewport: { width: viewport.width, height: viewport.height },
   });
-
-  const page = await context.newPage();
+  const page = new CompatPage(driverInstance);
 
   try {
     // Navigate to URL
@@ -248,7 +242,7 @@ export async function captureScreenshot(
 
     return outputPath;
   } finally {
-    await context.close();
+    await driverInstance.close();
   }
 }
 
@@ -293,17 +287,12 @@ export async function captureWithLandmarks(
     }
   }
 
-  const browserInstance = await getBrowser();
-  const context = await browserInstance.newContext({
-    viewport: {
-      width: viewport.width,
-      height: viewport.height,
-    },
-    reducedMotion: 'reduce',
-    ...(storageState ? { storageState } : {}),
+  const driverInstance = new EngineDriver();
+  await driverInstance.launch({
+    headless: true,
+    viewport: { width: viewport.width, height: viewport.height },
   });
-
-  const page = await context.newPage();
+  const page = new CompatPage(driverInstance);
 
   try {
     // Navigate to URL
@@ -351,7 +340,7 @@ export async function captureWithLandmarks(
       pageIntent: intentResult.intent,
     };
   } finally {
-    await context.close();
+    await driverInstance.close();
   }
 }
 
@@ -430,17 +419,12 @@ export async function captureWithDiagnostics(
       }
     }
 
-    const browserInstance = await getBrowser();
-    const context = await browserInstance.newContext({
-      viewport: {
-        width: viewport.width,
-        height: viewport.height,
-      },
-      reducedMotion: 'reduce',
-      ...(storageState ? { storageState } : {}),
+    const driverInstance = new EngineDriver();
+    await driverInstance.launch({
+      headless: true,
+      viewport: { width: viewport.width, height: viewport.height },
     });
-
-    const page = await context.newPage();
+    const page = new CompatPage(driverInstance);
 
     // Collect console errors
     page.on('console', msg => {
@@ -470,7 +454,7 @@ export async function captureWithDiagnostics(
       });
       navigationTime = Date.now() - navStart;
     } catch (navError) {
-      await context.close();
+      await driverInstance.close();
 
       const errorMsg = navError instanceof Error ? navError.message : String(navError);
       const isTimeout = errorMsg.includes('Timeout');
@@ -539,7 +523,7 @@ export async function captureWithDiagnostics(
     }
     renderTime = Date.now() - renderStart;
 
-    await context.close();
+    await driverInstance.close();
 
     // Generate performance suggestions
     if (navigationTime > 5000) {
