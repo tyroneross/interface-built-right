@@ -64,8 +64,6 @@ function generateRulesForPrinciple(
   index: number
 ): DynamicRule[] {
   const rules: DynamicRule[] = [];
-  const baseId = principle.id || `principle-${index + 1}`;
-
   // Generate rules based on principle keywords and patterns
   const keywords = extractKeywords(principle);
 
@@ -178,14 +176,13 @@ function createButtonSizingRule(
     principleId: principle.id,
     framework: frameworkName,
     principleIndex: index,
-    check: (element: EnhancedElement, context: RuleContext): Violation | null => {
-      if (element.tagName !== 'button' && element.role !== 'button') return null;
+    check: (element: EnhancedElement, _context: RuleContext): Violation | null => {
+      if (element.tagName !== 'button' && element.a11y?.role !== 'button') return null;
 
       const width = element.bounds?.width || 0;
-      const height = element.bounds?.height || 0;
 
       // Check if button has text suggesting it's a primary action
-      const text = (element.text || element.innerText || '').toLowerCase();
+      const text = (element.text || '').toLowerCase();
       const isPrimaryAction = /submit|save|confirm|checkout|buy|sign|login|register|continue/i.test(text);
 
       // Very small buttons for primary actions
@@ -223,7 +220,7 @@ function createTouchTargetRule(
     framework: frameworkName,
     principleIndex: index,
     check: (element: EnhancedElement, context: RuleContext): Violation | null => {
-      if (!element.interactive?.isInteractive) return null;
+      if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
 
       const width = element.bounds?.width || 0;
       const height = element.bounds?.height || 0;
@@ -291,7 +288,7 @@ function createStatusColorRule(
       const style = element.computedStyles;
       if (!style) return null;
 
-      const text = (element.text || element.innerText || '').toLowerCase();
+      const text = (element.text || '').toLowerCase();
       const isStatusText = /success|error|warning|pending|active|inactive|status/i.test(text);
 
       if (isStatusText && style.backgroundColor && style.backgroundColor !== 'transparent') {

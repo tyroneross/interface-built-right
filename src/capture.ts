@@ -72,7 +72,7 @@ async function applyMasking(page: PageLike, mask?: MaskOptions): Promise<void> {
       typeof p === 'string' ? p : p.source
     );
 
-    await page.evaluate(({ patterns, placeholder }) => {
+    await page.evaluate(({ patterns, placeholder }: { patterns: string[]; placeholder: string }) => {
       const walker = document.createTreeWalker(
         document.body,
         NodeFilter.SHOW_TEXT,
@@ -123,36 +123,9 @@ export interface CaptureResult {
   };
 }
 
-// Playwright's storage state type
-type StorageState = {
-  cookies: Array<{
-    name: string;
-    value: string;
-    domain: string;
-    path: string;
-    expires: number;
-    httpOnly: boolean;
-    secure: boolean;
-    sameSite: 'Strict' | 'Lax' | 'None';
-  }>;
-  origins: Array<{
-    origin: string;
-    localStorage: Array<{ name: string; value: string }>;
-  }>;
-};
+
 
 let driver: EngineDriver | null = null;
-
-/**
- * Get or create a driver instance
- */
-async function getDriver(): Promise<EngineDriver> {
-  if (!driver) {
-    driver = new EngineDriver();
-    await driver.launch({ headless: true });
-  }
-  return driver;
-}
 
 /**
  * Close the browser instance
@@ -187,11 +160,9 @@ export async function captureScreenshot(
   await mkdir(dirname(outputPath), { recursive: true });
 
   // Load auth state if available (handles validation, expiration, user isolation)
-  let storageState: StorageState | undefined;
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
-      storageState = authState as StorageState;
       console.log('🔐 Using saved authentication state');
     }
   }
@@ -278,11 +249,9 @@ export async function captureWithLandmarks(
   await mkdir(dirname(outputPath), { recursive: true });
 
   // Load auth state if available
-  let storageState: StorageState | undefined;
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
-      storageState = authState as StorageState;
       console.log('🔐 Using saved authentication state');
     }
   }
@@ -411,12 +380,8 @@ export async function captureWithDiagnostics(
     await mkdir(dirname(outputPath), { recursive: true });
 
     // Load auth state if available
-    let storageState: StorageState | undefined;
     if (outputDir && !isDeployedEnvironment()) {
-      const authState = await loadAuthState(outputDir);
-      if (authState) {
-        storageState = authState as StorageState;
-      }
+      await loadAuthState(outputDir);
     }
 
     const driverInstance = new EngineDriver();
@@ -434,17 +399,19 @@ export async function captureWithDiagnostics(
     });
 
     // Collect network errors
-    page.on('requestfailed', request => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    page.on?.('requestfailed', ((request: { failure(): { errorText?: string } | null; url(): string }) => {
       const failure = request.failure();
       networkErrors.push(`${request.url()}: ${failure?.errorText || 'failed'}`);
-    });
+    }) as any);
 
     // Track HTTP status
-    page.on('response', response => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    page.on?.('response', ((response: { url(): string; status(): number }) => {
       if (response.url() === url || response.url() === url + '/') {
         httpStatus = response.status();
       }
-    });
+    }) as any);
 
     try {
       const navStart = Date.now();

@@ -30,7 +30,7 @@ function makeScanResult(overrides: Partial<ScanResult> = {}): ScanResult {
         totalInteractive: 5,
         withHandlers: 4,
         withoutHandlers: 1,
-        issueCount: 0,
+        issueCount: { error: 0, warning: 0, info: 0 },
       },
     },
     semantic: {
@@ -38,9 +38,9 @@ function makeScanResult(overrides: Partial<ScanResult> = {}): ScanResult {
       confidence: 0.85,
       pageIntent: { intent: 'dashboard', confidence: 0.85, signals: ['charts present'] },
       state: {
-        auth: { authenticated: false, confidence: 0.5 },
-        loading: { loading: false, type: 'none', confidence: 0.9 },
-        errors: { hasErrors: false, errors: [], confidence: 0.9 },
+        auth: { authenticated: false, confidence: 0.5, signals: [] },
+        loading: { loading: false, type: 'none', elements: 0 },
+        errors: { hasErrors: false, errors: [], severity: 'none' },
         ready: true,
       },
       availableActions: [],
@@ -211,7 +211,7 @@ describe('formatScanResult', () => {
         ...makeScanResult().semantic,
         state: {
           ...makeScanResult().semantic.state,
-          auth: { authenticated: true, username: 'john', confidence: 0.9 },
+          auth: { authenticated: true, username: 'john', confidence: 0.9, signals: [] },
         },
       },
     });
@@ -226,7 +226,7 @@ describe('formatScanResult', () => {
         ...makeScanResult().semantic,
         state: {
           ...makeScanResult().semantic.state,
-          loading: { loading: true, type: 'spinner', confidence: 0.8 },
+          loading: { loading: true, type: 'spinner', elements: 1 },
         },
       },
     });
@@ -241,7 +241,7 @@ describe('formatScanResult', () => {
         ...makeScanResult().semantic,
         state: {
           ...makeScanResult().semantic.state,
-          errors: { hasErrors: true, errors: ['404 Not Found'], confidence: 0.9 },
+          errors: { hasErrors: true, errors: [{ type: 'notfound' as const, message: '404 Not Found' }], severity: 'error' },
         },
       },
     });

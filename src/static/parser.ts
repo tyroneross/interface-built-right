@@ -239,7 +239,7 @@ function determineInteractivity(tagName: string, attrs: Record<string, string>) 
 
   // Tag-based interactivity
   const interactiveTags = ['button', 'a', 'input', 'select', 'textarea'];
-  const isInteractiveTag = interactiveTags.includes(tagName);
+  void interactiveTags;
 
   // Handler type detection
   let handlerType: string | null = null;

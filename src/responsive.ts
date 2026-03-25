@@ -180,7 +180,7 @@ async function analyzeViewport(
 ): Promise<ViewportResult> {
   const isMobile = viewport.width < 768;
 
-  const analysisResult = await page.evaluate(({ viewportWidth, minTouchTarget, minFontSize, isMobile }) => {
+  const analysisResult = await page.evaluate(({ viewportWidth, minTouchTarget, minFontSize, isMobile }: { viewportWidth: number; minTouchTarget: number; minFontSize: number; isMobile: boolean }) => {
     const layoutIssues: LayoutIssue[] = [];
     const touchTargets: TouchTargetIssue[] = [];
     const textIssues: TextIssue[] = [];

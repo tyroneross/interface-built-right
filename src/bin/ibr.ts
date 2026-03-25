@@ -17,7 +17,6 @@ import {
   getPendingOperations,
   waitForCompletion,
   formatPendingOperations,
-  type OperationType,
 } from '../operation-tracker.js';
 
 const program = new Command();
@@ -289,9 +288,10 @@ program
       const { loadRulesConfig, runRules, createAuditResult, formatAuditResult, registerPreset } = await import('../rules/engine.js');
       const { register } = await import('../rules/presets/minimal.js');
       const { extractInteractiveElements } = await import('../extract.js');
+      // @ts-ignore -- playwright is an optional peer dependency
       const { chromium } = await import('playwright');
       const { discoverUserContext, formatContextSummary } = await import('../context-loader.js');
-      const { generateRulesFromFramework, createPresetFromFramework } = await import('../rules/dynamic-rules.js');
+      const { createPresetFromFramework } = await import('../rules/dynamic-rules.js');
 
       // Register built-in presets
       register();
@@ -387,7 +387,7 @@ program
 
       if (runVisual) {
         const { compareImages, analyzeComparison } = await import('../compare.js');
-        const { listSessions, getSessionPaths, getMostRecentSession } = await import('../session.js');
+        const { listSessions, getSessionPaths } = await import('../session.js');
         const { mkdir, access } = await import('fs/promises');
         const { join } = await import('path');
 
@@ -476,7 +476,7 @@ program
         if (baselineSession && baselineSession.landmarkElements) {
           // APPROACH 1: Compare against baseline landmarks
           const currentLandmarks = await detectLandmarks(page);
-          const comparison = compareLandmarks(baselineSession.landmarkElements, currentLandmarks);
+          void compareLandmarks(baselineSession.landmarkElements, currentLandmarks);
 
           // Check which baseline elements are now missing
           for (const landmark of baselineSession.landmarkElements) {
@@ -2060,6 +2060,7 @@ program
     json?: boolean;
   }) => {
     try {
+      // @ts-ignore -- playwright is an optional peer dependency
       const { chromium } = await import('playwright');
       const { aiSearchFlow } = await import('../flows/search.js');
       const { generateValidationContext, generateValidationPrompt, analyzeForObviousIssues } = await import('../flows/search-validation.js');

@@ -1,6 +1,5 @@
 import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
-import type { PageLike } from './engine/page-like.js';
 import { writeFile, readFile, mkdir, rename } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
@@ -156,8 +155,6 @@ export class LiveSession {
     const driver = new EngineDriver();
     await driver.launch({
       headless: !sandbox && !debug,
-      slowMo: debug ? 100 : 0,
-      devtools: debug,
       viewport: {
         width: viewport.width,
         height: viewport.height,
@@ -838,7 +835,7 @@ export class LiveSession {
 
   async select(selector: string, values: string | string[]): Promise<void> {
     const page = this.ensurePage();
-    await page.selectOption(selector, values);
+    await page.selectOption?.(selector, Array.isArray(values) ? values[0] : values);
   }
 
   /**

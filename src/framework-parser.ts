@@ -45,8 +45,6 @@ const PRINCIPLES_SECTION_PATTERNS = [
   /^##\s*RULES?/im,
 ];
 
-// Numbered principle pattern
-const NUMBERED_PRINCIPLE = /^###\s*(\d+)\.\s*(.+)$/m;
 
 /**
  * Parse a design framework from markdown content

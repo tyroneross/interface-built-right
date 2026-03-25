@@ -7,7 +7,6 @@ import {
   ComparisonResultSchema,
   ChangedRegionSchema,
   VerdictSchema,
-  AnalysisSchema,
   VIEWPORTS,
 } from './schemas.js';
 

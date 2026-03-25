@@ -117,17 +117,6 @@ const CSS_PROPERTIES_TO_EXTRACT = [
 let driver: EngineDriver | null = null;
 
 /**
- * Get or create driver instance
- */
-async function getDriver(): Promise<EngineDriver> {
-  if (!driver) {
-    driver = new EngineDriver();
-    await driver.launch({ headless: true });
-  }
-  return driver;
-}
-
-/**
  * Close the browser instance
  */
 export async function closeBrowser(): Promise<void> {
@@ -191,7 +180,7 @@ async function extractElementStyles(
   selector: string
 ): Promise<ExtractedElement[]> {
   return page.evaluate(
-    ({ sel, props }) => {
+    ({ sel, props }: { sel: string; props: string[] }) => {
       const elements = document.querySelectorAll(sel);
       const results: ExtractedElement[] = [];
 
@@ -255,7 +244,7 @@ const INTERACTIVE_SELECTORS = [
  * Extract enhanced interactive elements with handler detection
  */
 export async function extractInteractiveElements(page: PageLike): Promise<EnhancedElement[]> {
-  return page.evaluate((selectors) => {
+  return page.evaluate((selectors: string[]) => {
     const seen = new Set<Element>();
     const elements: EnhancedElement[] = [];
 

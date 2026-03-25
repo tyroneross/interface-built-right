@@ -89,7 +89,7 @@ export async function waitForNavigation(
 ): Promise<void> {
   try {
     await Promise.race([
-      page.waitForNavigation?.({ timeout }),
+      page.waitForNavigation?.(),
       page.waitForLoadState?.('networkidle', { timeout }),
     ]);
   } catch {

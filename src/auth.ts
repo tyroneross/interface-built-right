@@ -1,6 +1,5 @@
 import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
-import type { PageLike } from './engine/page-like.js';
 import { mkdir, access, readFile, writeFile, unlink, chmod, stat } from 'fs/promises';
 import { join, resolve } from 'path';
 import { existsSync, readFileSync } from 'fs';

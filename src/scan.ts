@@ -1,5 +1,6 @@
-import type { PageLike as Page } from './engine/page-like.js';
+import type { PageLike } from './engine/page-like.js';
 import { EngineDriver } from './engine/driver.js';
+import { CompatPage } from './engine/compat.js';
 import type { EnhancedElement, AuditResult, Viewport } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
@@ -98,12 +99,12 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     headless: true,
     viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
   });
-  const page = new Page(driver);
+  const page: PageLike = new CompatPage(driver);
 
   // Capture console output
   const consoleErrors: string[] = [];
   const consoleWarnings: string[] = [];
-  page.on('console', msg => {
+  page.on?.('console', (msg: { type(): string; text(): string }) => {
     if (msg.type() === 'error') {
       consoleErrors.push(msg.text());
     } else if (msg.type() === 'warning') {
@@ -119,7 +120,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     });
 
     // Wait for network idle
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    await page.waitForLoadState?.('networkidle', { timeout: 10000 }).catch(() => {});
 
     // Wait for specific selector if provided
     if (waitFor) {
@@ -180,7 +181,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
  * Exported for use by LiveSession.scanPage() — runs against any Playwright page.
  */
 export async function extractAndAudit(
-  page: Page,
+  page: PageLike,
   viewport: Viewport
 ): Promise<{ all: EnhancedElement[]; audit: AuditResult }> {
   const isMobile = viewport.width < 768;

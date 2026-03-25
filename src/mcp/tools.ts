@@ -7,16 +7,13 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
 import { join } from "path";
-import { scan, formatScanResult } from "../scan.js";
+import { scan } from "../scan.js";
 import {
   compare,
-  type CompareInput,
-  type CompareResult,
   InterfaceBuiltRight,
 } from "../index.js";
 import {
   listSessions,
-  getMostRecentSession,
   getSessionStats,
   createSession,
   getSessionPaths,
@@ -551,7 +548,7 @@ async function handleScan(
     lines.push("");
     lines.push(`Issues (${result.issues.length}):`);
     for (const issue of result.issues.slice(0, 10)) {
-      lines.push(`- [${issue.severity}] ${issue.message}`);
+      lines.push(`- [${issue.severity}] ${issue.description}`);
     }
     if (result.issues.length > 10) {
       lines.push(`  ... and ${result.issues.length - 10} more`);
@@ -641,24 +638,24 @@ async function handleCompare(
   const report = await ibr.check(session.id);
 
   const lines = [
-    `Comparison: ${report.session.name} (${report.session.id})`,
-    `URL: ${report.session.url}`,
-    `Verdict: ${report.verdict}`,
-    `Diff: ${report.diffPercent.toFixed(2)}% (${report.diffPixels} pixels)`,
-    `${report.summary}`,
+    `Comparison: ${report.sessionName} (${report.sessionId})`,
+    `URL: ${report.url}`,
+    `Verdict: ${report.analysis.verdict}`,
+    `Diff: ${report.comparison.diffPercent.toFixed(2)}% (${report.comparison.diffPixels} pixels)`,
+    `${report.analysis.summary}`,
   ];
 
-  if (report.changedRegions && report.changedRegions.length > 0) {
+  if (report.analysis.changedRegions && report.analysis.changedRegions.length > 0) {
     lines.push("");
-    lines.push(`Changed regions (${report.changedRegions.length}):`);
-    for (const r of report.changedRegions.slice(0, 5)) {
+    lines.push(`Changed regions (${report.analysis.changedRegions.length}):`);
+    for (const r of report.analysis.changedRegions.slice(0, 5)) {
       lines.push(`- ${r.location}: ${r.description} [${r.severity}]`);
     }
   }
 
-  if (report.recommendation) {
+  if (report.analysis.recommendation) {
     lines.push("");
-    lines.push(`Recommendation: ${report.recommendation}`);
+    lines.push(`Recommendation: ${report.analysis.recommendation}`);
   }
 
   return textResponse(lines.join("\n"));
@@ -1153,7 +1150,7 @@ async function handleNativeCompare(
 
 async function handleNativeDevices(
   args: Record<string, unknown>
-): Promise<{ content: Array<{ type: string; text: string }> }> {
+): Promise<McpResponse> {
   const platformFilter = args.platform as string | undefined;
 
   let devices = await listDevices();

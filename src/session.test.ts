@@ -13,7 +13,6 @@ import {
   findSessions,
   cleanSessions,
   getMostRecentSession,
-  getTimeline,
   getSessionsByRoute,
   getSessionStats,
 } from './session.js';
