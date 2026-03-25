@@ -2724,7 +2724,7 @@ program
       }
 
       // Check if already registered
-      const alreadyRegistered = settings.plugins.some(p =>
+      const alreadyRegistered = (settings.plugins ?? []).some(p =>
         p.includes('interface-built-right/plugin') || p === pluginPath
       );
 

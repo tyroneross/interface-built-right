@@ -46,6 +46,9 @@ function makeScanResult(overrides: Partial<ScanResult> = {}): ScanResult {
       availableActions: [],
       issues: [],
       summary: 'dashboard page, ready',
+      url: 'http://localhost:3000/dashboard',
+      title: 'Dashboard',
+      timestamp: '2025-01-01T00:00:00.000Z',
     },
     console: { errors: [], warnings: [] },
     verdict: 'PASS',
@@ -178,7 +181,7 @@ describe('formatScanResult', () => {
           ],
         }] as any,
         issues: [],
-        summary: { totalInteractive: 3, withHandlers: 3, withoutHandlers: 0, issueCount: 0 },
+        summary: { totalInteractive: 3, withHandlers: 3, withoutHandlers: 0, issueCount: { error: 0, warning: 0, info: 0 } },
       },
     });
     const output = formatScanResult(result);
@@ -342,7 +345,7 @@ describe('formatScanResult', () => {
           fields: [{ name: 'q', type: 'text', required: false, hasLabel: false }],
         }] as any,
         issues: [],
-        summary: { totalInteractive: 1, withHandlers: 0, withoutHandlers: 1, issueCount: 0 },
+        summary: { totalInteractive: 1, withHandlers: 0, withoutHandlers: 1, issueCount: { error: 0, warning: 0, info: 0 } },
       },
     });
     const output = formatScanResult(result);
