@@ -57,7 +57,7 @@ export async function loginFlow(
       };
     }
 
-    await emailField.fill(options.email);
+    await emailField.fill?.(options.email);
     steps.push({ action: 'fill email/username', success: true });
 
     // Step 2: Find password field
@@ -73,7 +73,7 @@ export async function loginFlow(
       };
     }
 
-    await passwordField.fill(options.password);
+    await passwordField.fill?.(options.password);
     steps.push({ action: 'fill password', success: true });
 
     // Step 3: Handle remember me (optional)
@@ -84,7 +84,7 @@ export async function loginFlow(
         'label:has-text("remember") input[type="checkbox"]'
       );
       if (rememberCheckbox) {
-        await rememberCheckbox.check();
+        await rememberCheckbox.check?.();
         steps.push({ action: 'check remember me', success: true });
       }
     }
@@ -108,7 +108,7 @@ export async function loginFlow(
       };
     }
 
-    await submitButton.click();
+    await submitButton.click?.();
     steps.push({ action: 'click submit', success: true });
 
     // Step 5: Wait for navigation/response

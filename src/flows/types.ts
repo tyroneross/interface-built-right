@@ -89,8 +89,8 @@ export async function waitForNavigation(
 ): Promise<void> {
   try {
     await Promise.race([
-      page.waitForNavigation({ timeout }),
-      page.waitForLoadState('networkidle', { timeout }),
+      page.waitForNavigation?.({ timeout }),
+      page.waitForLoadState?.('networkidle', { timeout }),
     ]);
   } catch {
     // Timeout is acceptable - page might not navigate

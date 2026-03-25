@@ -78,14 +78,14 @@ export async function searchFlow(
     }
 
     // Clear existing content and type query
-    await searchField.fill('');
-    await searchField.fill(options.query);
+    await searchField.fill?.('');
+    await searchField.fill?.(options.query);
     steps.push({ action: `type "${options.query}"`, success: true });
 
     // Step 2: Submit if requested (default true)
     if (options.submit !== false) {
       // Try pressing Enter first
-      await searchField.press('Enter');
+      await searchField.press?.('Enter');
       steps.push({ action: 'submit search', success: true });
 
       // Wait for results
@@ -184,7 +184,7 @@ async function extractResultContent(
   page: Page,
   resultsSelector: string
 ): Promise<ExtractedResult[]> {
-  return page.evaluate((selector) => {
+  return page.evaluate((selector: string) => {
     const elements = document.querySelectorAll(selector);
     const results: ExtractedResult[] = [];
 
@@ -208,7 +208,7 @@ async function extractResultContent(
       if (el.id) {
         selector = `#${el.id}`;
       } else if (el.className && typeof el.className === 'string') {
-        const classes = el.className.split(' ').filter(c => c.trim())[0];
+        const classes = el.className.split(' ').filter((c: string) => c.trim())[0];
         if (classes) selector += `.${classes}`;
         selector += `:nth-of-type(${index + 1})`;
       }
@@ -299,8 +299,8 @@ export async function aiSearchFlow(
 
     // Step 3: Type query with timing
     const typingStart = Date.now();
-    await searchField.fill('');
-    await searchField.fill(options.query);
+    await searchField.fill?.('');
+    await searchField.fill?.(options.query);
     timing.typing = Date.now() - typingStart;
     steps.push({ action: `type "${options.query}"`, success: true, duration: timing.typing });
 
@@ -314,7 +314,7 @@ export async function aiSearchFlow(
     // Step 5: Submit if requested (default true)
     const waitingStart = Date.now();
     if (options.submit !== false) {
-      await searchField.press('Enter');
+      await searchField.press?.('Enter');
       steps.push({ action: 'submit search', success: true });
 
       // Wait for results

@@ -22,7 +22,6 @@ import { getSemanticOutput, formatSemanticText, type SemanticResult } from './se
 import { loginFlow, searchFlow, formFlow, type FlowLoginOptions, type FlowSearchOptions, type FlowFormOptions } from './flows/index.js';
 import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
-import type { PageLike } from './engine/page-like.js';
 import { mkdir, access } from 'fs/promises';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';

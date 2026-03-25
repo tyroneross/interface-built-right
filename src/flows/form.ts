@@ -68,17 +68,17 @@ export async function formFlow(
       if (element) {
         try {
           if (fieldType === 'select') {
-            await element.selectOption(field.value);
+            await element.selectOption?.(field.value);
           } else if (fieldType === 'checkbox') {
             if (field.value === 'true' || field.value === '1') {
-              await element.check();
+              await element.check?.();
             } else {
-              await element.uncheck();
+              await element.uncheck?.();
             }
           } else if (fieldType === 'radio') {
-            await element.check();
+            await element.check?.();
           } else {
-            await element.fill(field.value);
+            await element.fill?.(field.value);
           }
           filledFields.push(field.name);
           steps.push({ action: `fill ${field.name}`, success: true });
@@ -118,7 +118,7 @@ export async function formFlow(
       };
     }
 
-    await submitButton.click();
+    await submitButton.click?.();
     steps.push({ action: 'click submit', success: true });
 
     // Step 3: Wait for response

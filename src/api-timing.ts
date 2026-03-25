@@ -199,9 +199,9 @@ export async function measureApiTiming(
   });
 
   // Clean up listeners
-  page.off('request', requestHandler);
-  page.off('response', responseHandler);
-  page.off('requestfailed', requestFailedHandler);
+  page.off?.('request', requestHandler);
+  page.off?.('response', responseHandler);
+  page.off?.('requestfailed', requestFailedHandler);
 
   // Calculate summary
   const totalRequests = completedRequests.length;
@@ -330,9 +330,9 @@ export function createApiTracker(page: Page, options: ApiTimingOptions = {}) {
 
     stop(): ApiTimingResult {
       isTracking = false;
-      page.off('request', requestHandler);
-      page.off('response', responseHandler);
-      page.off('requestfailed', requestFailedHandler);
+      page.off?.('request', requestHandler);
+      page.off?.('response', responseHandler);
+      page.off?.('requestfailed', requestFailedHandler);
 
       const totalRequests = completedRequests.length;
       const totalTime = completedRequests.reduce((sum, r) => sum + r.duration, 0);
