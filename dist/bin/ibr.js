@@ -319,6 +319,2633 @@ var init_schemas = __esm({
   }
 });
 
+// src/engine/cdp/connection.ts
+var DEFAULT_TIMEOUT_MS, CdpConnection;
+var init_connection = __esm({
+  "src/engine/cdp/connection.ts"() {
+    "use strict";
+    DEFAULT_TIMEOUT_MS = 3e4;
+    CdpConnection = class {
+      ws = null;
+      nextId = 0;
+      pending = /* @__PURE__ */ new Map();
+      eventHandlers = /* @__PURE__ */ new Map();
+      timeoutMs;
+      constructor(options) {
+        this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      }
+      async connect(wsUrl) {
+        return new Promise((resolve3, reject) => {
+          const ws = new WebSocket(wsUrl);
+          let settled = false;
+          const onOpen = () => {
+            if (settled) return;
+            settled = true;
+            this.ws = ws;
+            ws.addEventListener("message", (event) => this.handleMessage(event));
+            ws.addEventListener("close", () => this.handleClose());
+            ws.addEventListener("error", () => this.handleClose());
+            resolve3();
+          };
+          const onError = () => {
+            if (settled) return;
+            settled = true;
+            reject(new Error(`WebSocket connection failed: ${wsUrl}`));
+          };
+          ws.addEventListener("open", onOpen);
+          ws.addEventListener("error", onError);
+        });
+      }
+      async send(method, params, sessionId) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          throw new Error("Not connected");
+        }
+        const id = ++this.nextId;
+        return new Promise((resolve3, reject) => {
+          const timer = setTimeout(() => {
+            if (this.pending.has(id)) {
+              this.pending.delete(id);
+              const secs = (this.timeoutMs / 1e3).toFixed(0);
+              reject(new Error(
+                `CDP request '${method}' timed out after ${secs}s. The browser may be unresponsive or the operation is taking too long.`
+              ));
+            }
+          }, this.timeoutMs);
+          this.pending.set(id, {
+            resolve: resolve3,
+            reject,
+            timer
+          });
+          const msg = { id, method };
+          if (params) msg.params = params;
+          if (sessionId) msg.sessionId = sessionId;
+          this.ws.send(JSON.stringify(msg));
+        });
+      }
+      on(method, handler) {
+        if (!this.eventHandlers.has(method)) {
+          this.eventHandlers.set(method, /* @__PURE__ */ new Set());
+        }
+        this.eventHandlers.get(method).add(handler);
+      }
+      off(method, handler) {
+        this.eventHandlers.get(method)?.delete(handler);
+      }
+      handleMessage(event) {
+        let data;
+        try {
+          data = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
+        if ("id" in data && this.pending.has(data.id)) {
+          const id = data.id;
+          const { resolve: resolve3, reject, timer } = this.pending.get(id);
+          clearTimeout(timer);
+          this.pending.delete(id);
+          if (data.error) {
+            const err = data.error;
+            reject(new Error(`CDP error ${err.code}: ${err.message}`));
+          } else {
+            resolve3(data.result);
+          }
+        } else if ("method" in data) {
+          const handlers = this.eventHandlers.get(data.method);
+          if (handlers) {
+            for (const handler of handlers) handler(data.params);
+          }
+        }
+      }
+      handleClose() {
+        for (const [, { reject, timer }] of this.pending) {
+          clearTimeout(timer);
+          reject(new Error("WebSocket closed"));
+        }
+        this.pending.clear();
+        this.ws = null;
+      }
+      async close() {
+        for (const [, { timer }] of this.pending) {
+          clearTimeout(timer);
+        }
+        if (this.ws) {
+          this.ws.close();
+          this.ws = null;
+        }
+        this.pending.clear();
+      }
+      get connected() {
+        return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/browser.ts
+function findChrome() {
+  for (const p of CHROME_PATHS) {
+    if ((0, import_node_fs.existsSync)(p)) return p;
+  }
+  return null;
+}
+function randomPort() {
+  return 49152 + Math.floor(Math.random() * (65535 - 49152));
+}
+var import_node_child_process, import_node_fs, import_promises, import_node_os, import_node_path, CHROME_PATHS, BrowserManager;
+var init_browser = __esm({
+  "src/engine/cdp/browser.ts"() {
+    "use strict";
+    import_node_child_process = require("child_process");
+    import_node_fs = require("fs");
+    import_promises = require("fs/promises");
+    import_node_os = require("os");
+    import_node_path = require("path");
+    CHROME_PATHS = [
+      // macOS
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      // Linux
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium",
+      // Windows (WSL)
+      "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+    ];
+    BrowserManager = class {
+      process = null;
+      _port = 0;
+      async launch(options = {}) {
+        const headless = options.headless ?? true;
+        this._port = options.port ?? randomPort();
+        const userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+        const chromePath = options.chromePath ?? findChrome();
+        if (!chromePath) {
+          throw new Error(
+            `Chrome not found. Install Google Chrome or pass chromePath option.
+Checked: ${CHROME_PATHS.join(", ")}`
+          );
+        }
+        await (0, import_promises.mkdir)(userDataDir, { recursive: true });
+        const args = [
+          `--remote-debugging-port=${this._port}`,
+          `--user-data-dir=${userDataDir}`,
+          "--no-first-run",
+          "--no-default-browser-check",
+          "--disable-background-networking",
+          "--disable-sync"
+        ];
+        if (headless) {
+          args.push("--headless=new");
+        }
+        this.process = (0, import_node_child_process.spawn)(chromePath, args, { stdio: "pipe" });
+        this.process.on("error", (err) => {
+          console.error(`Chrome process error: ${err.message}`);
+        });
+        return this.waitForDebugger();
+      }
+      async waitForDebugger() {
+        const maxAttempts = 50;
+        for (let i = 0; i < maxAttempts; i++) {
+          try {
+            const res = await fetch(`http://127.0.0.1:${this._port}/json/version`);
+            const data = await res.json();
+            return data.webSocketDebuggerUrl;
+          } catch {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }
+        throw new Error(
+          `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?`
+        );
+      }
+      async close() {
+        if (!this.process) return;
+        const proc = this.process;
+        this.process = null;
+        await new Promise((resolve3) => {
+          const killTimer = setTimeout(() => {
+            try {
+              proc.kill("SIGKILL");
+            } catch {
+            }
+            resolve3();
+          }, 3e3);
+          proc.once("close", () => {
+            clearTimeout(killTimer);
+            resolve3();
+          });
+          proc.kill("SIGTERM");
+        });
+      }
+      get running() {
+        return this.process !== null && !this.process.killed;
+      }
+      get port() {
+        return this._port;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/target.ts
+var TargetDomain;
+var init_target = __esm({
+  "src/engine/cdp/target.ts"() {
+    "use strict";
+    TargetDomain = class {
+      constructor(conn) {
+        this.conn = conn;
+      }
+      async createPage(url) {
+        const result = await this.conn.send(
+          "Target.createTarget",
+          { url }
+        );
+        return result.targetId;
+      }
+      async attach(targetId) {
+        const result = await this.conn.send(
+          "Target.attachToTarget",
+          { targetId, flatten: true }
+        );
+        return result.sessionId;
+      }
+      async close(targetId) {
+        await this.conn.send("Target.closeTarget", { targetId });
+      }
+      async list() {
+        const result = await this.conn.send("Target.getTargets");
+        return result.targetInfos;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/page.ts
+var PageDomain;
+var init_page = __esm({
+  "src/engine/cdp/page.ts"() {
+    "use strict";
+    PageDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async navigate(url) {
+        const result = await this.conn.send(
+          "Page.navigate",
+          { url },
+          this.sessionId
+        );
+        return result.frameId;
+      }
+      async screenshot(options = {}) {
+        const format = options.format ?? "png";
+        if (options.fullPage) {
+          return this.fullPageScreenshot(format, options.quality);
+        }
+        const params = { format };
+        if (options.quality !== void 0) params.quality = options.quality;
+        if (options.clip) {
+          params.clip = { ...options.clip, scale: options.clip.scale ?? 1 };
+        }
+        const result = await this.conn.send(
+          "Page.captureScreenshot",
+          params,
+          this.sessionId
+        );
+        return Buffer.from(result.data, "base64");
+      }
+      /**
+       * Full-page screenshot via getLayoutMetrics + device metrics override.
+       * Technique: get content size → override viewport to content size →
+       * capture with captureBeyondViewport → restore viewport.
+       */
+      async fullPageScreenshot(format, quality) {
+        const metrics = await this.getLayoutMetrics();
+        const { width, height } = metrics.contentSize;
+        await this.conn.send("Emulation.setDeviceMetricsOverride", {
+          width: Math.ceil(width),
+          height: Math.ceil(height),
+          deviceScaleFactor: 1,
+          mobile: false
+        }, this.sessionId);
+        try {
+          const params = {
+            format,
+            captureBeyondViewport: true,
+            clip: { x: 0, y: 0, width, height, scale: 1 }
+          };
+          if (quality !== void 0) params.quality = quality;
+          const result = await this.conn.send(
+            "Page.captureScreenshot",
+            params,
+            this.sessionId
+          );
+          return Buffer.from(result.data, "base64");
+        } finally {
+          await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
+        }
+      }
+      async getLayoutMetrics() {
+        return this.conn.send(
+          "Page.getLayoutMetrics",
+          {},
+          this.sessionId
+        );
+      }
+      async enableLifecycleEvents() {
+        await this.conn.send("Page.setLifecycleEventsEnabled", { enabled: true }, this.sessionId);
+        await this.conn.send("Page.enable", {}, this.sessionId);
+      }
+      /**
+       * Inject CSS into the page.
+       * Uses callFunctionOn with CSS passed as a proper argument (not interpolated)
+       * to avoid injection issues with special characters in CSS content.
+       */
+      async addStyleTag(css) {
+        const docResult = await this.conn.send("Runtime.evaluate", {
+          expression: "document",
+          returnByValue: false
+        }, this.sessionId);
+        await this.conn.send("Runtime.callFunctionOn", {
+          functionDeclaration: '(cssText) => { const style = document.createElement("style"); style.textContent = cssText; document.head.appendChild(style); }',
+          objectId: docResult.result.objectId,
+          arguments: [{ value: css }],
+          returnByValue: true
+        }, this.sessionId);
+      }
+      /**
+       * Inject script that runs on every navigation (including future ones).
+       * Uses Page.addScriptToEvaluateOnNewDocument.
+       */
+      async addScriptOnLoad(source) {
+        const result = await this.conn.send(
+          "Page.addScriptToEvaluateOnNewDocument",
+          { source },
+          this.sessionId
+        );
+        return result.identifier;
+      }
+    };
+  }
+});
+
+// src/engine/normalize.ts
+function normalizeRole(rawRole, platform) {
+  if (platform === "web") return WEB_ROLES[rawRole] ?? "group";
+  return MACOS_ROLES[rawRole] ?? "group";
+}
+var WEB_ROLES, MACOS_ROLES;
+var init_normalize = __esm({
+  "src/engine/normalize.ts"() {
+    "use strict";
+    WEB_ROLES = {
+      button: "button",
+      textbox: "textfield",
+      TextField: "textfield",
+      link: "link",
+      checkbox: "checkbox",
+      switch: "switch",
+      slider: "slider",
+      tab: "tab",
+      combobox: "select",
+      listbox: "select",
+      heading: "heading",
+      img: "image",
+      image: "image",
+      StaticText: "text",
+      group: "group",
+      generic: "group",
+      navigation: "group",
+      main: "group",
+      contentinfo: "group",
+      banner: "group",
+      form: "group",
+      search: "group",
+      region: "group",
+      article: "group",
+      section: "group",
+      complementary: "group"
+    };
+    MACOS_ROLES = {
+      AXButton: "button",
+      AXTextField: "textfield",
+      AXTextArea: "textfield",
+      AXLink: "link",
+      AXCheckBox: "checkbox",
+      AXSwitch: "switch",
+      AXSlider: "slider",
+      AXTab: "tab",
+      AXRadioButton: "tab",
+      AXPopUpButton: "select",
+      AXComboBox: "select",
+      AXStaticText: "text",
+      AXImage: "image",
+      AXGroup: "group",
+      AXWindow: "group",
+      AXScrollArea: "group",
+      AXToolbar: "group",
+      AXSplitGroup: "group",
+      AXList: "group",
+      AXOutline: "group",
+      AXTable: "group",
+      AXRow: "group",
+      AXColumn: "group",
+      AXCell: "group"
+    };
+  }
+});
+
+// src/engine/cdp/accessibility.ts
+var SKIP_ROLES, AccessibilityDomain;
+var init_accessibility = __esm({
+  "src/engine/cdp/accessibility.ts"() {
+    "use strict";
+    init_normalize();
+    SKIP_ROLES = /* @__PURE__ */ new Set(["WebArea", "RootWebArea", "GenericContainer", "none", "IgnoredRole"]);
+    AccessibilityDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      nodeMap = /* @__PURE__ */ new Map();
+      // elementId → backendDOMNodeId
+      loadCompleteHandlers = /* @__PURE__ */ new Set();
+      nodesUpdatedHandlers = /* @__PURE__ */ new Set();
+      enabled = false;
+      // Stored references for cleanup
+      loadCompleteListener = null;
+      nodesUpdatedListener = null;
+      async enable() {
+        if (this.enabled) return;
+        this.enabled = true;
+        await this.conn.send("Accessibility.enable", {}, this.sessionId);
+        this.loadCompleteListener = () => {
+          for (const handler of this.loadCompleteHandlers) handler();
+        };
+        this.nodesUpdatedListener = (params) => {
+          const { nodes } = params;
+          for (const handler of this.nodesUpdatedHandlers) handler(nodes);
+        };
+        this.conn.on("Accessibility.loadComplete", this.loadCompleteListener);
+        this.conn.on("Accessibility.nodesUpdated", this.nodesUpdatedListener);
+      }
+      async disable() {
+        if (!this.enabled) return;
+        this.enabled = false;
+        if (this.loadCompleteListener) {
+          this.conn.off("Accessibility.loadComplete", this.loadCompleteListener);
+          this.loadCompleteListener = null;
+        }
+        if (this.nodesUpdatedListener) {
+          this.conn.off("Accessibility.nodesUpdated", this.nodesUpdatedListener);
+          this.nodesUpdatedListener = null;
+        }
+      }
+      async getSnapshot() {
+        const result = await this.conn.send(
+          "Accessibility.getFullAXTree",
+          {},
+          this.sessionId
+        );
+        return this.convertToElements(result.nodes);
+      }
+      /**
+       * queryAXTree — CDP-native search by accessible name and/or role.
+       * Faster than getFullAXTree + filter for targeted element finding.
+       * Note: does NOT clear/repopulate nodeMap — merges into existing map.
+       */
+      async queryAXTree(options) {
+        const params = {};
+        if (options.accessibleName) params.accessibleName = options.accessibleName;
+        if (options.role) params.role = options.role;
+        if (options.backendNodeId) {
+          params.backendNodeId = options.backendNodeId;
+        } else {
+          const doc = await this.conn.send(
+            "DOM.getDocument",
+            {},
+            this.sessionId
+          );
+          params.nodeId = doc.root.nodeId;
+        }
+        try {
+          const result = await this.conn.send(
+            "Accessibility.queryAXTree",
+            params,
+            this.sessionId
+          );
+          return this.convertToElements(result.nodes, false);
+        } catch {
+          return [];
+        }
+      }
+      getBackendNodeId(elementId) {
+        return this.nodeMap.get(elementId);
+      }
+      /** Subscribe to Accessibility.loadComplete events. */
+      onLoadComplete(handler) {
+        this.loadCompleteHandlers.add(handler);
+      }
+      /** Subscribe to Accessibility.nodesUpdated events. */
+      onNodesUpdated(handler) {
+        this.nodesUpdatedHandlers.add(handler);
+      }
+      offLoadComplete(handler) {
+        this.loadCompleteHandlers.delete(handler);
+      }
+      offNodesUpdated(handler) {
+        this.nodesUpdatedHandlers.delete(handler);
+      }
+      /**
+       * Convert CDP AX nodes to Elements.
+       * @param clearMap If true (default), clears nodeMap first. Set false for queryAXTree
+       *   to merge results into existing map without invalidating prior IDs.
+       */
+      convertToElements(nodes, clearMap = true) {
+        const elements = [];
+        if (clearMap) {
+          this.nodeMap.clear();
+        }
+        for (const node of nodes) {
+          if (SKIP_ROLES.has(node.role.value)) continue;
+          const role = normalizeRole(node.role.value, "web");
+          const label = node.name?.value ?? "";
+          if (role === "group" && !label) continue;
+          const id = node.backendDOMNodeId ? `e${node.backendDOMNodeId}` : `ex${Math.random().toString(36).slice(2, 8)}`;
+          const el = {
+            id,
+            role,
+            label,
+            value: node.value?.value ?? null,
+            enabled: this.getProperty(node, "disabled") !== true,
+            focused: this.getProperty(node, "focused") === true,
+            actions: this.inferActions(role),
+            bounds: [0, 0, 0, 0],
+            parent: null
+          };
+          if (node.backendDOMNodeId) {
+            this.nodeMap.set(el.id, node.backendDOMNodeId);
+          }
+          elements.push(el);
+        }
+        return elements;
+      }
+      getProperty(node, name) {
+        return node.properties?.find((p) => p.name === name)?.value?.value;
+      }
+      inferActions(role) {
+        switch (role) {
+          case "button":
+          case "link":
+          case "checkbox":
+          case "tab":
+          case "switch":
+            return ["press"];
+          case "textfield":
+            return ["setValue"];
+          case "slider":
+            return ["increment", "decrement", "setValue"];
+          case "select":
+            return ["press", "showMenu"];
+          default:
+            return [];
+        }
+      }
+    };
+  }
+});
+
+// src/engine/cdp/dom.ts
+var DomDomain;
+var init_dom = __esm({
+  "src/engine/cdp/dom.ts"() {
+    "use strict";
+    DomDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async getElementCenter(backendNodeId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+        const q = result.model.content;
+        const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
+        const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
+        return { x, y };
+      }
+      async getBoxModel(backendNodeId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+        return result.model;
+      }
+      async getDocument() {
+        return this.conn.send("DOM.getDocument", {}, this.sessionId);
+      }
+      /**
+       * Find a single element by CSS selector.
+       * Returns the nodeId, or null if not found.
+       */
+      async querySelector(nodeId, selector) {
+        try {
+          const result = await this.conn.send(
+            "DOM.querySelector",
+            { nodeId, selector },
+            this.sessionId
+          );
+          return result.nodeId > 0 ? result.nodeId : null;
+        } catch {
+          return null;
+        }
+      }
+      /**
+       * Find all elements matching a CSS selector.
+       * Returns array of nodeIds.
+       */
+      async querySelectorAll(nodeId, selector) {
+        try {
+          const result = await this.conn.send(
+            "DOM.querySelectorAll",
+            { nodeId, selector },
+            this.sessionId
+          );
+          return result.nodeIds.filter((id) => id > 0);
+        } catch {
+          return [];
+        }
+      }
+      /**
+       * Get the outer HTML of a node.
+       */
+      async getOuterHTML(nodeId, backendNodeId) {
+        const params = {};
+        if (nodeId !== void 0) params.nodeId = nodeId;
+        if (backendNodeId !== void 0) params.backendNodeId = backendNodeId;
+        const result = await this.conn.send(
+          "DOM.getOuterHTML",
+          params,
+          this.sessionId
+        );
+        return result.outerHTML;
+      }
+      /**
+       * Get attributes of a node as key-value pairs.
+       */
+      async getAttributes(nodeId) {
+        const result = await this.conn.send(
+          "DOM.getAttributes",
+          { nodeId },
+          this.sessionId
+        );
+        const attrs = {};
+        for (let i = 0; i < result.attributes.length; i += 2) {
+          attrs[result.attributes[i]] = result.attributes[i + 1];
+        }
+        return attrs;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/input.ts
+function charToCode(char) {
+  if (SPECIAL_CODES[char]) return SPECIAL_CODES[char];
+  const upper = char.toUpperCase();
+  if (upper >= "A" && upper <= "Z") return `Key${upper}`;
+  return "";
+}
+var InputDomain, SPECIAL_KEYS, SPECIAL_CODES;
+var init_input = __esm({
+  "src/engine/cdp/input.ts"() {
+    "use strict";
+    InputDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async click(x, y) {
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x,
+          y,
+          button: "left",
+          clickCount: 1
+        }, this.sessionId);
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x,
+          y,
+          button: "left",
+          clickCount: 1
+        }, this.sessionId);
+      }
+      async type(text) {
+        for (const char of text) {
+          const code = charToCode(char);
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            text: char,
+            key: char,
+            code
+          }, this.sessionId);
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: char,
+            code
+          }, this.sessionId);
+        }
+      }
+      /**
+       * Press a special key (Enter, Tab, Escape, Backspace, etc.)
+       */
+      async pressKey(key) {
+        const keyDef = SPECIAL_KEYS[key];
+        if (!keyDef) {
+          await this.type(key);
+          return;
+        }
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyDown",
+          key: keyDef.key,
+          code: keyDef.code,
+          text: keyDef.text
+        }, this.sessionId);
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key: keyDef.key,
+          code: keyDef.code
+        }, this.sessionId);
+      }
+      async hover(x, y) {
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x,
+          y
+        }, this.sessionId);
+      }
+      async scroll(x, y, deltaX, deltaY) {
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          x,
+          y,
+          deltaX,
+          deltaY
+        }, this.sessionId);
+      }
+    };
+    SPECIAL_KEYS = {
+      Enter: { key: "Enter", code: "Enter", text: "\r" },
+      Tab: { key: "Tab", code: "Tab", text: "	" },
+      Escape: { key: "Escape", code: "Escape" },
+      Backspace: { key: "Backspace", code: "Backspace" },
+      Delete: { key: "Delete", code: "Delete" },
+      ArrowUp: { key: "ArrowUp", code: "ArrowUp" },
+      ArrowDown: { key: "ArrowDown", code: "ArrowDown" },
+      ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft" },
+      ArrowRight: { key: "ArrowRight", code: "ArrowRight" },
+      Home: { key: "Home", code: "Home" },
+      End: { key: "End", code: "End" },
+      PageUp: { key: "PageUp", code: "PageUp" },
+      PageDown: { key: "PageDown", code: "PageDown" }
+    };
+    SPECIAL_CODES = {
+      " ": "Space",
+      "0": "Digit0",
+      "1": "Digit1",
+      "2": "Digit2",
+      "3": "Digit3",
+      "4": "Digit4",
+      "5": "Digit5",
+      "6": "Digit6",
+      "7": "Digit7",
+      "8": "Digit8",
+      "9": "Digit9",
+      "`": "Backquote",
+      "-": "Minus",
+      "=": "Equal",
+      "[": "BracketLeft",
+      "]": "BracketRight",
+      "\\": "Backslash",
+      ";": "Semicolon",
+      "'": "Quote",
+      ",": "Comma",
+      ".": "Period",
+      "/": "Slash",
+      "~": "Backquote",
+      "!": "Digit1",
+      "@": "Digit2",
+      "#": "Digit3",
+      "$": "Digit4",
+      "%": "Digit5",
+      "^": "Digit6",
+      "&": "Digit7",
+      "*": "Digit8",
+      "(": "Digit9",
+      ")": "Digit0",
+      "_": "Minus",
+      "+": "Equal",
+      "{": "BracketLeft",
+      "}": "BracketRight",
+      "|": "Backslash",
+      ":": "Semicolon",
+      '"': "Quote",
+      "<": "Comma",
+      ">": "Period",
+      "?": "Slash",
+      "	": "Tab",
+      "\n": "Enter"
+    };
+  }
+});
+
+// src/engine/cdp/runtime.ts
+var RuntimeDomain;
+var init_runtime = __esm({
+  "src/engine/cdp/runtime.ts"() {
+    "use strict";
+    RuntimeDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      /**
+       * Evaluate a JavaScript expression string in the page context.
+       */
+      async evaluate(expression) {
+        const result = await this.conn.send("Runtime.evaluate", {
+          expression,
+          returnByValue: true,
+          awaitPromise: true
+        }, this.sessionId);
+        if (result.exceptionDetails) {
+          const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+          throw new Error(`Evaluation failed: ${msg}`);
+        }
+        return result.result.value;
+      }
+      /**
+       * Call a function with structured arguments in the page context.
+       * This is the CDP equivalent of Playwright's page.evaluate(fn, ...args).
+       *
+       * The function declaration is serialized as a string, and arguments
+       * are passed as CDP CallArgument objects (primitives by value).
+       *
+       * Usage:
+       *   await runtime.callFunctionOn(
+       *     '(selector, prop) => getComputedStyle(document.querySelector(selector))[prop]',
+       *     ['.header', 'color']
+       *   )
+       */
+      async callFunctionOn(functionDeclaration, args) {
+        const docResult = await this.conn.send("Runtime.evaluate", {
+          expression: "document",
+          returnByValue: false
+        }, this.sessionId);
+        const callArgs = args?.map((arg) => {
+          if (arg === void 0) return { unserializableValue: "undefined" };
+          return { value: arg };
+        });
+        const result = await this.conn.send("Runtime.callFunctionOn", {
+          functionDeclaration,
+          objectId: docResult.result.objectId,
+          arguments: callArgs,
+          returnByValue: true,
+          awaitPromise: true
+        }, this.sessionId);
+        if (result.exceptionDetails) {
+          const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+          throw new Error(`callFunctionOn failed: ${msg}`);
+        }
+        return result.result.value;
+      }
+      /**
+       * Enable the Runtime domain to receive events (like consoleAPICalled).
+       */
+      async enable() {
+        await this.conn.send("Runtime.enable", {}, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/css.ts
+var CssDomain;
+var init_css = __esm({
+  "src/engine/cdp/css.ts"() {
+    "use strict";
+    CssDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async enable() {
+        await this.conn.send("CSS.enable", {}, this.sessionId);
+      }
+      /**
+       * Get computed styles for a DOM node.
+       * Returns all computed CSS properties as key-value pairs.
+       */
+      async getComputedStyle(nodeId) {
+        const result = await this.conn.send("CSS.getComputedStyleForNode", { nodeId }, this.sessionId);
+        const styles = {};
+        for (const { name, value } of result.computedStyle) {
+          styles[name] = value;
+        }
+        return styles;
+      }
+      /**
+       * Get computed styles filtered to specific properties.
+       * More efficient when you only need a few properties.
+       */
+      async getComputedStyleFiltered(nodeId, properties) {
+        const all = await this.getComputedStyle(nodeId);
+        const filtered = {};
+        for (const prop of properties) {
+          if (prop in all) {
+            filtered[prop] = all[prop];
+          }
+        }
+        return filtered;
+      }
+      /**
+       * Get matched CSS rules for a node — includes inline, attribute,
+       * inherited, pseudo-element, and keyframe styles.
+       */
+      async getMatchedStyles(nodeId) {
+        return this.conn.send("CSS.getMatchedStylesForNode", { nodeId }, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/snapshot.ts
+var SnapshotDomain;
+var init_snapshot = __esm({
+  "src/engine/cdp/snapshot.ts"() {
+    "use strict";
+    SnapshotDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async enable() {
+        await this.conn.send("DOMSnapshot.enable", {}, this.sessionId);
+      }
+      /**
+       * Capture full DOM snapshot — one call gets everything.
+       * Returns flattened arrays with string deduplication.
+       */
+      async captureSnapshot(options) {
+        return this.conn.send(
+          "DOMSnapshot.captureSnapshot",
+          {
+            computedStyles: options.computedStyles,
+            includePaintOrder: options.includePaintOrder,
+            includeDOMRects: options.includeDOMRects,
+            includeBlendedBackgroundColors: options.includeBlendedBackgroundColors,
+            includeTextColorOpacities: options.includeTextColorOpacities
+          },
+          this.sessionId
+        );
+      }
+      /**
+       * Helper: resolve a string index from the snapshot's strings array.
+       */
+      resolveString(strings, index) {
+        return strings[index] ?? "";
+      }
+      /**
+       * Helper: extract computed style values for a layout node.
+       *
+       * CDP format: `styles[nodeIndex]` is an array of string indices.
+       * Each index maps to the value of the corresponding property in the
+       * `computedStyles` parameter you passed to `captureSnapshot`.
+       * The property names are known — they're the strings you requested.
+       *
+       * @param strings The strings array from CaptureSnapshotResult
+       * @param styleIndices The style indices for one layout node (from LayoutTreeSnapshot.styles[n])
+       * @param requestedProperties The computedStyles array you passed to captureSnapshot
+       */
+      resolveStyles(strings, styleIndices, requestedProperties) {
+        const result = {};
+        for (let i = 0; i < styleIndices.length && i < requestedProperties.length; i++) {
+          const name = requestedProperties[i];
+          const value = strings[styleIndices[i]];
+          if (name) result[name] = value ?? "";
+        }
+        return result;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/emulation.ts
+var EmulationDomain;
+var init_emulation = __esm({
+  "src/engine/cdp/emulation.ts"() {
+    "use strict";
+    EmulationDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      /**
+       * Override device metrics (viewport size, scale, mobile mode).
+       */
+      async setDeviceMetrics(config) {
+        await this.conn.send("Emulation.setDeviceMetricsOverride", {
+          width: config.width,
+          height: config.height,
+          deviceScaleFactor: config.deviceScaleFactor ?? 1,
+          mobile: config.mobile ?? false
+        }, this.sessionId);
+      }
+      /**
+       * Clear device metrics override (restore defaults).
+       */
+      async clearDeviceMetrics() {
+        await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
+      }
+      /**
+       * Hide scrollbars (useful for consistent screenshots).
+       */
+      async setScrollbarsHidden(hidden) {
+        await this.conn.send("Emulation.setScrollbarsHidden", { hidden }, this.sessionId);
+      }
+      /**
+       * Emulate reduced motion preference (disable animations for screenshots).
+       */
+      async setReducedMotion(enabled) {
+        await this.conn.send("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-reduced-motion", value: enabled ? "reduce" : "" }]
+        }, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/network.ts
+var NetworkDomain;
+var init_network = __esm({
+  "src/engine/cdp/network.ts"() {
+    "use strict";
+    NetworkDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async enable() {
+        await this.conn.send("Network.enable", {}, this.sessionId);
+      }
+      /**
+       * Get all cookies, optionally filtered by URLs.
+       */
+      async getCookies(urls) {
+        const params = {};
+        if (urls) params.urls = urls;
+        const result = await this.conn.send(
+          "Network.getCookies",
+          params,
+          this.sessionId
+        );
+        return result.cookies;
+      }
+      /**
+       * Set a cookie.
+       */
+      async setCookie(cookie) {
+        const result = await this.conn.send(
+          "Network.setCookie",
+          cookie,
+          this.sessionId
+        );
+        return result.success;
+      }
+      /**
+       * Set multiple cookies at once.
+       */
+      async setCookies(cookies) {
+        await this.conn.send("Network.setCookies", {
+          cookies
+        }, this.sessionId);
+      }
+      /**
+       * Clear all browser cookies.
+       */
+      async clearCookies() {
+        await this.conn.send("Network.clearBrowserCookies", {}, this.sessionId);
+      }
+      /**
+       * Delete specific cookies by name and optional URL/domain.
+       */
+      async deleteCookies(params) {
+        await this.conn.send("Network.deleteCookies", params, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/console.ts
+var ConsoleDomain;
+var init_console = __esm({
+  "src/engine/cdp/console.ts"() {
+    "use strict";
+    ConsoleDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      handlers = /* @__PURE__ */ new Set();
+      messages = [];
+      enabled = false;
+      /**
+       * Enable console capture.
+       * Must call Runtime.enable first to receive consoleAPICalled events.
+       */
+      async enable() {
+        if (this.enabled) return;
+        this.enabled = true;
+        await this.conn.send("Runtime.enable", {}, this.sessionId);
+        this.conn.on("Runtime.consoleAPICalled", (params) => {
+          const data = params;
+          const text = data.args.map((arg) => arg.value !== void 0 ? String(arg.value) : arg.description ?? "").join(" ");
+          const frame = data.stackTrace?.callFrames[0];
+          const message = {
+            type: data.type,
+            text,
+            url: frame?.url,
+            lineNumber: frame?.lineNumber,
+            timestamp: data.timestamp
+          };
+          this.messages.push(message);
+          for (const handler of this.handlers) {
+            handler(message);
+          }
+        });
+      }
+      /** Subscribe to console messages. */
+      onMessage(handler) {
+        this.handlers.add(handler);
+      }
+      offMessage(handler) {
+        this.handlers.delete(handler);
+      }
+      /** Get all captured messages. */
+      getMessages() {
+        return [...this.messages];
+      }
+      /** Get only errors and warnings. */
+      getErrors() {
+        return this.messages.filter((m) => m.type === "error" || m.type === "warning");
+      }
+      /** Clear captured messages. */
+      clear() {
+        this.messages = [];
+      }
+    };
+  }
+});
+
+// src/engine/cdp/wait.ts
+function buildFingerprint(elements) {
+  return elements.filter((e) => e.actions.length > 0).map((e) => `${e.role}:${e.label}:${e.enabled}`).sort().join("|");
+}
+async function waitForStableTree(getSnapshot, options) {
+  const interval = options?.interval ?? 100;
+  const stableTime = options?.stableTime ?? 300;
+  const timeout = options?.timeout ?? 1e4;
+  let lastFingerprint = "";
+  let stableSince = Date.now();
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const elements2 = await getSnapshot();
+    const fingerprint = buildFingerprint(elements2);
+    if (fingerprint === lastFingerprint) {
+      if (Date.now() - stableSince >= stableTime) {
+        return { elements: elements2, timedOut: false };
+      }
+    } else {
+      lastFingerprint = fingerprint;
+      stableSince = Date.now();
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  const elements = await getSnapshot();
+  return { elements, timedOut: true };
+}
+async function waitForStable(conn, getSnapshot, options) {
+  const eventName = options?.eventName ?? "Accessibility.nodesUpdated";
+  const timeout = options?.timeout ?? 1e4;
+  const stableTime = options?.stableTime ?? 300;
+  const deadline = Date.now() + timeout;
+  let changed = false;
+  const handler = () => {
+    changed = true;
+  };
+  conn.on(eventName, handler);
+  let elements = await getSnapshot();
+  let lastFingerprint = buildFingerprint(elements);
+  let stableSince = Date.now();
+  try {
+    while (Date.now() < deadline) {
+      if (changed) {
+        changed = false;
+        elements = await getSnapshot();
+        const fingerprint = buildFingerprint(elements);
+        if (fingerprint !== lastFingerprint) {
+          lastFingerprint = fingerprint;
+          stableSince = Date.now();
+        }
+      }
+      if (Date.now() - stableSince >= stableTime) {
+        return { elements, timedOut: false };
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    elements = await getSnapshot();
+    return { elements, timedOut: true };
+  } finally {
+    conn.off(eventName, handler);
+  }
+}
+var init_wait = __esm({
+  "src/engine/cdp/wait.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/serialize.ts
+function serializeSnapshot(snapshot) {
+  const target = snapshot.url ?? snapshot.appName ?? "unknown";
+  const lines = [
+    `# Page: ${target}`,
+    `# Platform: ${snapshot.platform} | Elements: ${snapshot.elements.length}`,
+    ""
+  ];
+  for (const el of snapshot.elements) {
+    lines.push(serializeElement(el));
+  }
+  return lines.join("\n");
+}
+function serializeElement(el) {
+  let line = `[${el.id}] ${el.role} "${el.label}"`;
+  const props = [];
+  if (el.role === "textfield") {
+    if (el.value !== null && el.value !== "") {
+      props.push(`value="${el.value}"`);
+    } else {
+      props.push("empty");
+    }
+  } else if (el.value !== null && el.value !== "") {
+    props.push(`value="${el.value}"`);
+  }
+  if (el.focused) props.push("focused");
+  if (el.role === "button") {
+    props.push(el.enabled ? "enabled" : "disabled");
+  }
+  if (props.length > 0) line += " " + props.join(", ");
+  return line;
+}
+var init_serialize = __esm({
+  "src/engine/serialize.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/observe.ts
+function observe(elements, options = {}) {
+  let filtered = elements.filter((e) => e.actions.length > 0);
+  if (options.role) {
+    const role = options.role.toLowerCase();
+    filtered = filtered.filter((e) => e.role === role);
+  }
+  if (options.intent) {
+    const words = options.intent.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+    if (words.length > 0) {
+      filtered = filtered.filter((e) => {
+        const labelLower = e.label.toLowerCase();
+        return words.some((w) => labelLower.includes(w));
+      });
+    }
+  }
+  const descriptors = filtered.map((el) => ({
+    elementId: el.id,
+    description: describeAction(el),
+    actions: el.actions,
+    role: el.role,
+    label: el.label,
+    serialized: serializeElement(el)
+  }));
+  if (options.limit && descriptors.length > options.limit) {
+    return descriptors.slice(0, options.limit);
+  }
+  return descriptors;
+}
+function describeAction(el) {
+  const actionVerb = el.actions[0] === "press" ? "Click" : el.actions[0] === "setValue" ? "Type into" : el.actions[0] === "showMenu" ? "Open" : "Interact with";
+  const state = el.enabled ? "" : " (disabled)";
+  return `${actionVerb} ${el.role} "${el.label}"${state}`;
+}
+var init_observe = __esm({
+  "src/engine/observe.ts"() {
+    "use strict";
+    init_serialize();
+  }
+});
+
+// src/engine/extract.ts
+function extractFromAXTree(elements, schema) {
+  const result = {};
+  for (const [fieldName, field] of Object.entries(schema)) {
+    const match = findMatchingElement(elements, field);
+    if (!match) {
+      result[fieldName] = field.extract === "exists" ? false : null;
+      continue;
+    }
+    switch (field.extract) {
+      case "text":
+        result[fieldName] = match.label || match.value || null;
+        break;
+      case "value":
+        result[fieldName] = match.value || null;
+        break;
+      case "exists":
+        result[fieldName] = true;
+        break;
+      default:
+        result[fieldName] = null;
+    }
+  }
+  return result;
+}
+function extractList(elements, options) {
+  let filtered = elements;
+  if (options.role) {
+    filtered = filtered.filter((e) => e.role === options.role);
+  }
+  if (options.labelPattern) {
+    filtered = filtered.filter((e) => options.labelPattern.test(e.label));
+  }
+  const items = filtered.map((e) => ({
+    label: e.label,
+    value: e.value,
+    id: e.id
+  }));
+  if (options.maxItems) {
+    return items.slice(0, options.maxItems);
+  }
+  return items;
+}
+function extractPageMeta(elements) {
+  return {
+    headings: elements.filter((e) => e.role === "heading").map((e) => e.label),
+    links: elements.filter((e) => e.role === "link").map((e) => ({ label: e.label, id: e.id })),
+    inputs: elements.filter((e) => e.role === "textfield").map((e) => ({ label: e.label, value: e.value, id: e.id })),
+    buttons: elements.filter((e) => e.role === "button").map((e) => ({ label: e.label, enabled: e.enabled, id: e.id }))
+  };
+}
+function findMatchingElement(elements, field) {
+  for (const el of elements) {
+    if (field.role && el.role !== field.role) continue;
+    if (field.label) {
+      if (!el.label.toLowerCase().includes(field.label.toLowerCase())) continue;
+    }
+    return el;
+  }
+  return null;
+}
+var init_extract = __esm({
+  "src/engine/extract.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/cache.ts
+var ResolutionCache;
+var init_cache = __esm({
+  "src/engine/cache.ts"() {
+    "use strict";
+    ResolutionCache = class {
+      cache = /* @__PURE__ */ new Map();
+      maxEntries;
+      ttl;
+      minConfidence;
+      constructor(options = {}) {
+        this.maxEntries = options.maxEntries ?? 100;
+        this.ttl = options.ttl ?? 5 * 60 * 1e3;
+        this.minConfidence = options.minConfidence ?? 0.7;
+      }
+      /**
+       * Look up a cached resolution for an intent.
+       * Returns the cached elementId if found and not expired, null otherwise.
+       */
+      get(intent) {
+        const key = this.normalizeKey(intent);
+        const entry = this.cache.get(key);
+        if (!entry) return null;
+        if (Date.now() - entry.createdAt > this.ttl) {
+          this.cache.delete(key);
+          return null;
+        }
+        entry.hits++;
+        entry.lastHit = Date.now();
+        return entry;
+      }
+      /**
+       * Cache a successful resolution.
+       * Only caches if confidence meets threshold.
+       */
+      set(intent, elementId, metadata) {
+        if (metadata.confidence < this.minConfidence) return;
+        const key = this.normalizeKey(intent);
+        if (this.cache.size >= this.maxEntries && !this.cache.has(key)) {
+          this.evictOldest();
+        }
+        this.cache.set(key, {
+          intent,
+          elementId,
+          role: metadata.role,
+          label: metadata.label,
+          confidence: metadata.confidence,
+          createdAt: Date.now(),
+          hits: 0,
+          lastHit: 0
+        });
+      }
+      /**
+       * Invalidate a specific cache entry (e.g., when element is gone).
+       */
+      invalidate(intent) {
+        this.cache.delete(this.normalizeKey(intent));
+      }
+      /**
+       * Clear all cache entries (e.g., after navigation).
+       */
+      clear() {
+        this.cache.clear();
+      }
+      /**
+       * Get cache statistics.
+       */
+      stats() {
+        let totalHits = 0;
+        let totalConfidence = 0;
+        for (const entry of this.cache.values()) {
+          totalHits += entry.hits;
+          totalConfidence += entry.confidence;
+        }
+        return {
+          entries: this.cache.size,
+          totalHits,
+          avgConfidence: this.cache.size > 0 ? totalConfidence / this.cache.size : 0
+        };
+      }
+      normalizeKey(intent) {
+        return intent.toLowerCase().trim();
+      }
+      evictOldest() {
+        let oldest = null;
+        let oldestTime = Infinity;
+        for (const [key, entry] of this.cache) {
+          const lastUsed = entry.lastHit || entry.createdAt;
+          if (lastUsed < oldestTime) {
+            oldestTime = lastUsed;
+            oldest = key;
+          }
+        }
+        if (oldest) this.cache.delete(oldest);
+      }
+    };
+  }
+});
+
+// src/engine/modality.ts
+function assessUnderstanding(elements, options = {}) {
+  const threshold = options.threshold ?? 0.6;
+  if (elements.length === 0) {
+    return {
+      score: 0,
+      needsScreenshot: true,
+      dimensions: { textQuality: 0, semanticRelevance: 0, structuralClarity: 0, specialCasePenalty: 0 },
+      reasoning: "Empty AX tree \u2014 screenshot required for any understanding"
+    };
+  }
+  const textQuality = scoreTextQuality(elements);
+  const semanticRelevance = scoreSemanticRelevance(elements);
+  const structuralClarity = scoreStructuralClarity(elements);
+  const specialCasePenalty = scoreSpecialCases(elements);
+  const raw = textQuality * 0.35 + semanticRelevance * 0.3 + structuralClarity * 0.2;
+  const score = Math.max(0, Math.min(1, raw - specialCasePenalty));
+  const needsScreenshot = score < threshold;
+  const reasoning = buildReasoning(score, threshold, { textQuality, semanticRelevance, structuralClarity, specialCasePenalty });
+  return {
+    score,
+    needsScreenshot,
+    dimensions: { textQuality, semanticRelevance, structuralClarity, specialCasePenalty },
+    reasoning
+  };
+}
+function scoreTextQuality(elements) {
+  if (elements.length === 0) return 0;
+  let labeled = 0;
+  let meaningful = 0;
+  for (const el of elements) {
+    if (el.label) {
+      labeled++;
+      if (el.label.length > 1 && /[a-zA-Z]/.test(el.label)) {
+        meaningful++;
+      }
+    }
+  }
+  const labelRatio = labeled / elements.length;
+  const meaningfulRatio = elements.length > 0 ? meaningful / elements.length : 0;
+  return labelRatio * 0.4 + meaningfulRatio * 0.6;
+}
+function scoreSemanticRelevance(elements) {
+  const interactive = elements.filter((e) => e.actions.length > 0);
+  if (interactive.length === 0) return 0.5;
+  let wellLabeled = 0;
+  for (const el of interactive) {
+    if (el.label && el.label.length > 1) {
+      wellLabeled++;
+    }
+  }
+  return wellLabeled / interactive.length;
+}
+function scoreStructuralClarity(elements) {
+  const roles = new Set(elements.map((e) => e.role));
+  const roleDiversity = Math.min(1, roles.size / 5);
+  const count = elements.length;
+  let countScore;
+  if (count < 3) {
+    countScore = count / 3;
+  } else if (count > 500) {
+    countScore = Math.max(0.3, 1 - (count - 500) / 2e3);
+  } else {
+    countScore = 1;
+  }
+  return roleDiversity * 0.5 + countScore * 0.5;
+}
+function scoreSpecialCases(elements) {
+  let penalty = 0;
+  const roles = new Set(elements.map((e) => e.role));
+  if (roles.size === 1 && elements.length > 5) {
+    penalty += 0.3;
+  }
+  if (elements.length < 3) {
+    penalty += 0.2;
+  }
+  const interactive = elements.filter((e) => e.actions.length > 0);
+  const unlabeled = interactive.filter((e) => !e.label || e.label.length <= 1);
+  if (interactive.length > 0 && unlabeled.length / interactive.length > 0.5) {
+    penalty += 0.2;
+  }
+  return Math.min(0.8, penalty);
+}
+function buildReasoning(score, threshold, dims) {
+  const parts = [];
+  if (dims.textQuality < 0.4) parts.push("low text quality (many unlabeled elements)");
+  if (dims.semanticRelevance < 0.5) parts.push("poor semantic relevance (interactive elements lack labels)");
+  if (dims.structuralClarity < 0.4) parts.push("weak structure (low role diversity)");
+  if (dims.specialCasePenalty > 0.1) parts.push("special case detected (possible Canvas/custom rendering)");
+  if (parts.length === 0) {
+    return score >= threshold ? "AX tree provides sufficient understanding \u2014 screenshot not needed" : "AX tree quality is borderline \u2014 screenshot recommended for accuracy";
+  }
+  const action = score >= threshold ? "AX tree usable despite" : "Screenshot recommended due to";
+  return `${action}: ${parts.join(", ")}`;
+}
+var init_modality = __esm({
+  "src/engine/modality.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/resolve.ts
+var resolve_exports = {};
+__export(resolve_exports, {
+  jaroWinkler: () => jaroWinkler,
+  parseSpatialHints: () => parseSpatialHints,
+  resolve: () => resolve
+});
+function resolve(options) {
+  if (options.mode === "algorithmic") {
+    return resolveAlgorithmic(options);
+  }
+  const { intent, elements } = options;
+  if (elements.length === 0) {
+    return { element: null, confidence: 0, candidates: [] };
+  }
+  const intentLower = intent.toLowerCase();
+  const scored = scoreElements(elements, intentLower);
+  if (scored.length === 0) {
+    return {
+      element: elements[0],
+      confidence: 0,
+      candidates: elements.filter((e) => e.actions.length > 0),
+      visionFallback: options.mode === "claude"
+    };
+  }
+  const best = scored[0];
+  if (best.score >= 1 || scored.length === 1 && best.score >= 0.5) {
+    return {
+      element: best.element,
+      confidence: best.score
+    };
+  }
+  const threshold = best.score * 0.8;
+  const candidates = scored.filter((s) => s.score >= threshold).map((s) => s.element);
+  const result = {
+    element: best.element,
+    confidence: best.score,
+    candidates: candidates.length > 1 ? candidates : void 0
+  };
+  if (best.score < 0.3 && options.mode === "claude") {
+    result.visionFallback = true;
+  }
+  return result;
+}
+function scoreElements(elements, intentLower) {
+  const scored = [];
+  for (const el of elements) {
+    const labelLower = el.label.toLowerCase();
+    let score = 0;
+    if (labelLower.length === 0) continue;
+    const escapedLabel = escapeRegex(labelLower);
+    const labelRegex = new RegExp(`\\b${escapedLabel}\\b`, "i");
+    if (labelRegex.test(intentLower)) {
+      const labelWords = labelLower.trim().split(/\s+/);
+      if (labelWords.length > 1) {
+        score = 1;
+      } else {
+        const intentWords = intentLower.split(/\s+/);
+        const exactWordMatch = intentWords.includes(labelLower);
+        if (exactWordMatch && labelWords[0].length > 1) {
+          score = 0.5;
+        }
+      }
+    } else {
+      const intentWords = intentLower.split(/\s+/);
+      const matchedWords = intentWords.filter(
+        (w) => w.length > 2 && labelLower.includes(w)
+      );
+      if (matchedWords.length > 0) {
+        score = 0.5;
+      }
+    }
+    if (intentLower.includes(el.role)) {
+      score = Math.min(score + 0.2, 1);
+    }
+    if (el.actions.length === 0 && score > 0) {
+      score *= 0.5;
+    }
+    if (score > 0) {
+      scored.push({ element: el, score });
+    }
+  }
+  return scored.sort((a, b) => b.score - a.score);
+}
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function resolveAlgorithmic(options) {
+  const { intent, elements } = options;
+  if (elements.length === 0) {
+    return { element: null, confidence: 0, candidates: [] };
+  }
+  const intentLower = intent.toLowerCase();
+  const hints = parseSpatialHints(intentLower);
+  const cleanedIntent = cleanIntent(intentLower);
+  const scored = [];
+  for (let i = 0; i < elements.length; i++) {
+    const el = elements[i];
+    let score = 0;
+    const roleScore = scoreRole(cleanedIntent, el.role);
+    const intentIsOnlyRole = cleanedIntent.trim() === el.role.toLowerCase() || cleanedIntent.trim().split(/\s+/).every((w) => scoreRole(w, el.role) > 0);
+    const labelScore = intentIsOnlyRole ? 0 : scoreLabelSimilarity(cleanedIntent, el.label);
+    const spatialScore = scoreSpatial(hints, el, i, elements);
+    score = roleScore * 0.3 + labelScore * 0.5 + spatialScore * 0.2;
+    if (labelScore >= 0.99) {
+      score = Math.max(score, 0.75);
+    }
+    if (score > 0) {
+      scored.push({ element: el, score });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  if (scored.length === 0) {
+    return { element: elements[0], confidence: 0, candidates: [] };
+  }
+  const best = scored[0];
+  if (best.score >= 0.7) {
+    return {
+      element: best.element,
+      confidence: best.score
+    };
+  }
+  return {
+    element: best.element,
+    confidence: best.score,
+    candidates: scored.map((s) => s.element)
+  };
+}
+function scoreRole(intent, role) {
+  const roleLower = role.toLowerCase();
+  const intentWords = intent.split(/\s+/);
+  for (const word of intentWords) {
+    if (word === roleLower) return 1;
+    if (word === "btn" && roleLower === "button") return 0.8;
+    if (word === "input" && roleLower === "textfield") return 0.8;
+    if (word === "text" && roleLower === "textfield") return 0.6;
+  }
+  return 0;
+}
+function scoreLabelSimilarity(intent, label) {
+  if (!label) return 0;
+  const labelLower = label.toLowerCase();
+  if (intent.includes(labelLower)) return 1;
+  if (labelLower.includes(intent.trim())) return 0.9;
+  const jw = jaroWinkler(intent, labelLower);
+  const intentWords = intent.split(/\s+/).filter((w) => w.length > 2);
+  let bestWordJw = 0;
+  for (const word of intentWords) {
+    bestWordJw = Math.max(bestWordJw, jaroWinkler(word, labelLower));
+  }
+  const labelWords = labelLower.split(/\s+/).filter((w) => w.length > 2);
+  let bestLabelWordJw = 0;
+  for (const lw of labelWords) {
+    for (const iw of intentWords) {
+      bestLabelWordJw = Math.max(bestLabelWordJw, jaroWinkler(iw, lw));
+    }
+  }
+  return Math.max(jw, bestWordJw, bestLabelWordJw);
+}
+function parseSpatialHints(intent) {
+  const hints = {};
+  if (/\bfirst\b/.test(intent)) hints.position = "first";
+  else if (/\blast\b/.test(intent)) hints.position = "last";
+  else if (/\btop\b/.test(intent)) hints.position = "top";
+  else if (/\bbottom\b/.test(intent)) hints.position = "bottom";
+  const nearMatch = intent.match(/\b(?:next to|near|beside|by)\s+(.+?)(?:\s*$)/);
+  if (nearMatch) hints.near = nearMatch[1].trim();
+  return hints;
+}
+function scoreSpatial(hints, _el, index, allElements) {
+  if (!hints.position && !hints.near) return 0;
+  let score = 0;
+  if (hints.position) {
+    switch (hints.position) {
+      case "first":
+      case "top":
+        score = Math.max(0, 1 - index / Math.max(allElements.length - 1, 1));
+        break;
+      case "last":
+      case "bottom":
+        score = index / Math.max(allElements.length - 1, 1);
+        break;
+    }
+  }
+  if (hints.near) {
+    const nearLower = hints.near.toLowerCase();
+    for (let i = 0; i < allElements.length; i++) {
+      if (allElements[i].label.toLowerCase().includes(nearLower)) {
+        const distance = Math.abs(index - i);
+        if (distance > 0 && distance <= 3) {
+          score = Math.max(score, 1 - (distance - 1) * 0.3);
+        }
+        break;
+      }
+    }
+  }
+  return score;
+}
+function cleanIntent(intent) {
+  return intent.replace(/\b(first|last|top|bottom)\b/g, "").replace(/\b(next to|near|beside|by)\s+\S+/g, "").replace(/\b(click|tap|press|select|choose)\b/g, "").replace(/\s+/g, " ").trim();
+}
+function jaroWinkler(s1, s2) {
+  if (s1 === s2) return 1;
+  if (s1.length === 0 || s2.length === 0) return 0;
+  const jaro = jaroDistance(s1, s2);
+  if (jaro === 0) return 0;
+  let prefixLen = 0;
+  const maxPrefix = Math.min(4, Math.min(s1.length, s2.length));
+  for (let i = 0; i < maxPrefix; i++) {
+    if (s1[i] === s2[i]) {
+      prefixLen++;
+    } else {
+      break;
+    }
+  }
+  return jaro + prefixLen * 0.1 * (1 - jaro);
+}
+function jaroDistance(s1, s2) {
+  if (s1 === s2) return 1;
+  const len1 = s1.length;
+  const len2 = s2.length;
+  const matchWindow = Math.max(0, Math.floor(Math.max(len1, len2) / 2) - 1);
+  const s1Matches = new Array(len1).fill(false);
+  const s2Matches = new Array(len2).fill(false);
+  let matches = 0;
+  let transpositions = 0;
+  for (let i = 0; i < len1; i++) {
+    const start = Math.max(0, i - matchWindow);
+    const end = Math.min(i + matchWindow + 1, len2);
+    for (let j = start; j < end; j++) {
+      if (s2Matches[j] || s1[i] !== s2[j]) continue;
+      s1Matches[i] = true;
+      s2Matches[j] = true;
+      matches++;
+      break;
+    }
+  }
+  if (matches === 0) return 0;
+  let k = 0;
+  for (let i = 0; i < len1; i++) {
+    if (!s1Matches[i]) continue;
+    while (!s2Matches[k]) k++;
+    if (s1[i] !== s2[k]) transpositions++;
+    k++;
+  }
+  return (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
+}
+var init_resolve = __esm({
+  "src/engine/resolve.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/driver.ts
+function chunkElements(elements, maxTokens) {
+  const charsPerToken = 4;
+  const charsPerElement = 40;
+  const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
+  return elements.slice(0, maxElements);
+}
+var EngineDriver;
+var init_driver = __esm({
+  "src/engine/driver.ts"() {
+    "use strict";
+    init_connection();
+    init_browser();
+    init_target();
+    init_page();
+    init_accessibility();
+    init_dom();
+    init_input();
+    init_runtime();
+    init_css();
+    init_snapshot();
+    init_emulation();
+    init_network();
+    init_console();
+    init_wait();
+    init_serialize();
+    init_observe();
+    init_extract();
+    init_cache();
+    init_modality();
+    EngineDriver = class {
+      browser = new BrowserManager();
+      conn = new CdpConnection();
+      // Resolution cache initialized in constructor or with defaults
+      target;
+      _page;
+      ax;
+      dom;
+      input;
+      runtime;
+      css;
+      snapshot;
+      emulation;
+      network;
+      console;
+      targetId = null;
+      sessionId = null;
+      currentUrl = "";
+      launched = false;
+      resolutionCache = new ResolutionCache();
+      // ─── Lifecycle ──────────────────────────────────────────
+      async launch(options = {}) {
+        const wsUrl = await this.browser.launch(options);
+        await this.conn.connect(wsUrl);
+        this.target = new TargetDomain(this.conn);
+        this.launched = true;
+        this.targetId = await this.target.createPage("about:blank");
+        this.sessionId = await this.target.attach(this.targetId);
+        this._page = new PageDomain(this.conn, this.sessionId);
+        this.ax = new AccessibilityDomain(this.conn, this.sessionId);
+        this.dom = new DomDomain(this.conn, this.sessionId);
+        this.input = new InputDomain(this.conn, this.sessionId);
+        this.runtime = new RuntimeDomain(this.conn, this.sessionId);
+        this.css = new CssDomain(this.conn, this.sessionId);
+        this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
+        this.emulation = new EmulationDomain(this.conn, this.sessionId);
+        this.network = new NetworkDomain(this.conn, this.sessionId);
+        this.console = new ConsoleDomain(this.conn, this.sessionId);
+        await this._page.enableLifecycleEvents();
+        await this.ax.enable();
+        await this.console.enable();
+        if (options.viewport) {
+          await this.emulation.setDeviceMetrics(options.viewport);
+        }
+      }
+      async close() {
+        if (this.targetId) {
+          await this.target.close(this.targetId).catch(() => {
+          });
+          this.targetId = null;
+        }
+        await this.conn.close();
+        await this.browser.close();
+        this.launched = false;
+      }
+      get isLaunched() {
+        return this.launched;
+      }
+      // ─── Navigation ─────────────────────────────────────────
+      async navigate(url, options = {}) {
+        const waitFor = options.waitFor ?? "stable";
+        await this._page.navigate(url);
+        if (waitFor === "stable") {
+          await waitForStable(
+            this.conn,
+            () => this.ax.getSnapshot(),
+            { timeout: options.timeout ?? 1e4, eventName: "Accessibility.nodesUpdated" }
+          );
+        } else if (waitFor === "load") {
+          await waitForStableTree(
+            () => this.ax.getSnapshot(),
+            { timeout: options.timeout ?? 1e4 }
+          );
+        }
+        this.currentUrl = await this.runtime.evaluate("location.href") ?? url;
+        this.resolutionCache.clear();
+      }
+      get url() {
+        return this.currentUrl;
+      }
+      // ─── Element Discovery (LLM-native) ────────────────────
+      /**
+       * Discover elements on the page with filtering and chunking.
+       * Designed for LLM context windows — returns only actionable elements.
+       */
+      async discover(options = {}) {
+        const filter = options.filter ?? "interactive";
+        const elements = await this.ax.getSnapshot();
+        let filtered;
+        switch (filter) {
+          case "interactive":
+            filtered = elements.filter((e) => e.actions.length > 0);
+            break;
+          case "leaf":
+            filtered = elements.filter((e) => e.label && e.role !== "group");
+            break;
+          case "all":
+          default:
+            filtered = elements;
+        }
+        if (options.chunk && options.maxTokens) {
+          filtered = chunkElements(filtered, options.maxTokens);
+        }
+        if (options.serialize) {
+          const snap = {
+            url: this.currentUrl,
+            platform: "web",
+            elements: filtered,
+            timestamp: Date.now()
+          };
+          return serializeSnapshot(snap);
+        }
+        return filtered;
+      }
+      /**
+       * 3-tier element resolution with auto-caching:
+       * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
+       */
+      async find(name, options = {}) {
+        const cacheKey = options.role ? `${name}:${options.role}` : name;
+        const cached = this.resolutionCache.get(cacheKey);
+        if (cached) {
+          const elements = await this.ax.getSnapshot();
+          const match = elements.find((e) => e.id === cached.elementId);
+          if (match) return match;
+          this.resolutionCache.invalidate(cacheKey);
+        }
+        const queryResult = await this.ax.queryAXTree({
+          accessibleName: name,
+          role: options.role
+        });
+        if (queryResult.length > 0) {
+          const el = queryResult[0];
+          this.resolutionCache.set(cacheKey, el.id, {
+            role: el.role,
+            label: el.label,
+            confidence: 1
+          });
+          return el;
+        }
+        const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
+        const allElements = await this.ax.getSnapshot();
+        const result = resolve3({
+          intent: options.role ? `${name} ${options.role}` : name,
+          elements: allElements,
+          mode: "algorithmic"
+        });
+        if (result.confidence >= 0.5 && result.element) {
+          this.resolutionCache.set(cacheKey, result.element.id, {
+            role: result.element.role,
+            label: result.element.label,
+            confidence: result.confidence
+          });
+          return result.element;
+        }
+        return null;
+      }
+      // ─── Interactions ───────────────────────────────────────
+      async click(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+      }
+      async type(elementId, text) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await this.input.type(text);
+      }
+      async fill(elementId, value) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await this.runtime.callFunctionOn(
+          '() => { if (document.activeElement) { document.activeElement.value = ""; document.activeElement.dispatchEvent(new Event("input", { bubbles: true })); } }'
+        );
+        await this.input.type(value);
+      }
+      async hover(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.hover(x, y);
+      }
+      async pressKey(key) {
+        await this.input.pressKey(key);
+      }
+      async scroll(deltaY, x = 0, y = 0) {
+        await this.input.scroll(x, y, 0, deltaY);
+      }
+      // ─── Screenshots ────────────────────────────────────────
+      async screenshot(options = {}) {
+        return this._page.screenshot(options);
+      }
+      async screenshotElement(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const model = await this.dom.getBoxModel(backendNodeId);
+        const q = model.content;
+        const x = Math.min(q[0], q[2], q[4], q[6]);
+        const y = Math.min(q[1], q[3], q[5], q[7]);
+        return this._page.screenshot({
+          clip: { x, y, width: model.width, height: model.height }
+        });
+      }
+      // ─── Page State ─────────────────────────────────────────
+      /**
+       * One-call page state capture — combines DOMSnapshot, AX tree, and screenshot.
+       */
+      async captureState(options = {}) {
+        const state = {
+          url: this.currentUrl,
+          timestamp: Date.now()
+        };
+        const promises = [];
+        if (options.computedStyles) {
+          promises.push(
+            this.snapshot.captureSnapshot({
+              computedStyles: options.computedStyles
+            }).then((result) => {
+              state.domSnapshot = result;
+            })
+          );
+        }
+        if (options.includeAXTree !== false) {
+          promises.push(
+            this.ax.getSnapshot().then((elements) => {
+              state.axTree = elements;
+            })
+          );
+        }
+        if (options.includeScreenshot) {
+          promises.push(
+            this._page.screenshot().then((buf) => {
+              state.screenshot = buf;
+            })
+          );
+        }
+        await Promise.all(promises);
+        return state;
+      }
+      /** Get AX tree snapshot. */
+      async getSnapshot() {
+        return this.ax.getSnapshot();
+      }
+      async evaluate(exprOrFn, ...args) {
+        if (args.length > 0) {
+          return this.runtime.callFunctionOn(exprOrFn, args);
+        }
+        return this.runtime.evaluate(exprOrFn);
+      }
+      // ─── DOM Queries ────────────────────────────────────────
+      async querySelector(selector) {
+        const doc = await this.dom.getDocument();
+        return this.dom.querySelector(doc.root.nodeId, selector);
+      }
+      async querySelectorAll(selector) {
+        const doc = await this.dom.getDocument();
+        return this.dom.querySelectorAll(doc.root.nodeId, selector);
+      }
+      async getOuterHTML(nodeId) {
+        return this.dom.getOuterHTML(nodeId);
+      }
+      async getAttributes(nodeId) {
+        return this.dom.getAttributes(nodeId);
+      }
+      async getComputedStyle(nodeId, properties) {
+        if (properties) {
+          return this.css.getComputedStyleFiltered(nodeId, properties);
+        }
+        return this.css.getComputedStyle(nodeId);
+      }
+      // ─── CSS Injection ──────────────────────────────────────
+      async addStyleTag(css) {
+        return this._page.addStyleTag(css);
+      }
+      // ─── Viewport ───────────────────────────────────────────
+      async setViewport(config) {
+        await this.emulation.setDeviceMetrics(config);
+      }
+      async clearViewport() {
+        await this.emulation.clearDeviceMetrics();
+      }
+      // ─── Cookies / Auth ─────────────────────────────────────
+      async getCookies(urls) {
+        return this.network.getCookies(urls);
+      }
+      async setCookies(cookies) {
+        return this.network.setCookies(cookies);
+      }
+      async clearCookies() {
+        return this.network.clearCookies();
+      }
+      // ─── Console ────────────────────────────────────────────
+      getConsoleMessages() {
+        return this.console.getMessages();
+      }
+      getConsoleErrors() {
+        return this.console.getErrors();
+      }
+      clearConsole() {
+        this.console.clear();
+      }
+      // ─── Content ────────────────────────────────────────────
+      async content() {
+        return this.runtime.evaluate("document.documentElement.outerHTML");
+      }
+      async title() {
+        return this.runtime.evaluate("document.title");
+      }
+      async textContent(selector) {
+        return this.runtime.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); return el ? el.textContent : null; }",
+          [selector]
+        );
+      }
+      async getAttribute(selector, attribute) {
+        return this.runtime.callFunctionOn(
+          "(sel, attr) => { const el = document.querySelector(sel); return el ? el.getAttribute(attr) : null; }",
+          [selector, attribute]
+        );
+      }
+      // ─── LLM-Native: Observe ─────────────────────────────────
+      /**
+       * Preview what actions are possible without executing.
+       * Returns serializable descriptors for act().
+       */
+      async observe(options) {
+        const elements = await this.ax.getSnapshot();
+        return observe(elements, options);
+      }
+      // ─── LLM-Native: Extract ───────────────────────────────
+      /**
+       * Extract structured data from AX tree using a schema.
+       */
+      async extract(schema) {
+        const elements = await this.ax.getSnapshot();
+        return extractFromAXTree(elements, schema);
+      }
+      /**
+       * Extract a list of repeated elements.
+       */
+      async extractItems(options) {
+        const elements = await this.ax.getSnapshot();
+        return extractList(elements, options);
+      }
+      /**
+       * Extract page-level metadata (headings, links, inputs, buttons).
+       */
+      async extractMeta() {
+        const elements = await this.ax.getSnapshot();
+        return extractPageMeta(elements);
+      }
+      // ─── LLM-Native: Adaptive Modality ─────────────────────
+      /**
+       * Assess how well the AX tree captures the page.
+       * Returns a score and whether a screenshot is recommended.
+       */
+      async assessUnderstanding(options) {
+        const elements = await this.ax.getSnapshot();
+        return assessUnderstanding(elements, options);
+      }
+      // ─── LLM-Native: Cache ─────────────────────────────────
+      /** Get resolution cache statistics. */
+      get cacheStats() {
+        return this.resolutionCache.stats();
+      }
+      /** Configure the resolution cache. */
+      configureCache(options) {
+        this.resolutionCache = new ResolutionCache(options);
+      }
+      // ─── Direct domain access (for advanced use) ───────────
+      get page() {
+        return this._page;
+      }
+      get accessibility() {
+        return this.ax;
+      }
+      get domDomain() {
+        return this.dom;
+      }
+      get runtimeDomain() {
+        return this.runtime;
+      }
+      get cssDomain() {
+        return this.css;
+      }
+      get snapshotDomain() {
+        return this.snapshot;
+      }
+      get emulationDomain() {
+        return this.emulation;
+      }
+      get networkDomain() {
+        return this.network;
+      }
+      get consoleDomain() {
+        return this.console;
+      }
+      get connection() {
+        return this.conn;
+      }
+      /** The CDP debug port Chrome is listening on. Only valid after launch(). */
+      get debugPort() {
+        return this.browser.port;
+      }
+      /**
+       * Connect to an already-running Chrome instance instead of launching a new one.
+       * Used by browser-server reconnection to attach to a persistent Chrome process.
+       */
+      async connectExisting(wsUrl) {
+        await this.conn.connect(wsUrl);
+        this.target = new TargetDomain(this.conn);
+        this.launched = true;
+        this.targetId = await this.target.createPage("about:blank");
+        this.sessionId = await this.target.attach(this.targetId);
+        this._page = new PageDomain(this.conn, this.sessionId);
+        this.ax = new AccessibilityDomain(this.conn, this.sessionId);
+        this.dom = new DomDomain(this.conn, this.sessionId);
+        this.input = new InputDomain(this.conn, this.sessionId);
+        this.runtime = new RuntimeDomain(this.conn, this.sessionId);
+        this.css = new CssDomain(this.conn, this.sessionId);
+        this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
+        this.emulation = new EmulationDomain(this.conn, this.sessionId);
+        this.network = new NetworkDomain(this.conn, this.sessionId);
+        this.console = new ConsoleDomain(this.conn, this.sessionId);
+        await this._page.enableLifecycleEvents();
+        await this.ax.enable();
+        await this.console.enable();
+      }
+    };
+  }
+});
+
+// src/engine/compat.ts
+var import_promises2, import_path, CompatElementHandle, CompatLocator, CompatPage;
+var init_compat = __esm({
+  "src/engine/compat.ts"() {
+    "use strict";
+    import_promises2 = require("fs/promises");
+    import_path = require("path");
+    CompatElementHandle = class {
+      constructor(driver3, nodeId) {
+        this.driver = driver3;
+        this.nodeId = nodeId;
+      }
+      async screenshot(options) {
+        const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+        const q = model.content;
+        const x = Math.min(q[0], q[2], q[4], q[6]);
+        const y = Math.min(q[1], q[3], q[5], q[7]);
+        const buf = await this.driver.page.screenshot({
+          clip: { x, y, width: model.width, height: model.height }
+        });
+        if (options?.path) {
+          await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
+          await (0, import_promises2.writeFile)(options.path, buf);
+        }
+        return buf;
+      }
+      async textContent() {
+        const html = await this.driver.domDomain.getOuterHTML(this.nodeId);
+        return html.replace(/<[^>]*>/g, "").trim() || null;
+      }
+      async boundingBox() {
+        try {
+          const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+          const q = model.content;
+          return {
+            x: Math.min(q[0], q[2], q[4], q[6]),
+            y: Math.min(q[1], q[3], q[5], q[7]),
+            width: model.width,
+            height: model.height
+          };
+        } catch {
+          return null;
+        }
+      }
+      async getAttribute(name) {
+        try {
+          const attrs = await this.driver.domDomain.getAttributes(this.nodeId);
+          return attrs[name] ?? null;
+        } catch {
+          return null;
+        }
+      }
+    };
+    CompatLocator = class _CompatLocator {
+      constructor(driver3, selector) {
+        this.driver = driver3;
+        this.selector = selector;
+      }
+      // Visible filter stored for potential future use in resolveNode
+      visible = false;
+      filter(options) {
+        const loc = new _CompatLocator(this.driver, this.selector);
+        loc.visible = options.visible ?? false;
+        return loc;
+      }
+      first() {
+        return this;
+      }
+      async click(_options) {
+        const nodeId = await this.resolveNode(_options?.timeout);
+        if (!nodeId) throw new Error(`Element not found: ${this.selector}`);
+        await this.driver.runtimeDomain.callFunctionOn(
+          '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
+          [this.selector]
+        );
+      }
+      async fill(text, _options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, val) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        el.value = val;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }`,
+          [this.selector, text]
+        );
+      }
+      async focus(_options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
+          [this.selector]
+        );
+      }
+      async press(key, _options) {
+        await this.focus();
+        await this.driver.pressKey(key);
+      }
+      async pressSequentially(text, _options) {
+        await this.focus();
+        for (const char of text) {
+          await this.driver.runtimeDomain.callFunctionOn(
+            '(sel, ch) => { const el = document.querySelector(sel); if (el) { el.value += ch; el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+            [this.selector, char]
+          );
+        }
+      }
+      async waitFor(options) {
+        const timeout = options?.timeout ?? 3e4;
+        const deadline = Date.now() + timeout;
+        while (Date.now() < deadline) {
+          const nodeId = await this.driver.querySelector(this.selector);
+          if (nodeId) return;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        throw new Error(`Timed out waiting for ${this.selector}`);
+      }
+      async resolveNode(timeout) {
+        const deadline = Date.now() + (timeout ?? 5e3);
+        while (Date.now() < deadline) {
+          const nodeId = await this.driver.querySelector(this.selector);
+          if (nodeId) return nodeId;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return null;
+      }
+    };
+    CompatPage = class {
+      constructor(driver3) {
+        this.driver = driver3;
+      }
+      consoleHandlers = [];
+      consoleListening = false;
+      async goto(url, options) {
+        await this.driver.navigate(url, {
+          waitFor: options?.waitUntil === "networkidle" ? "stable" : "load",
+          timeout: options?.timeout
+        });
+      }
+      async evaluate(fnOrExpr, ...args) {
+        if (typeof fnOrExpr === "function") {
+          const fnStr = fnOrExpr.toString();
+          if (args.length > 0) {
+            const actualArgs = args.length === 1 && typeof args[0] === "object" && args[0] !== null ? Object.values(args[0]) : args;
+            return this.driver.evaluate(`(${fnStr})`, ...actualArgs);
+          }
+          return this.driver.evaluate(`(${fnStr})()`);
+        }
+        if (args.length > 0) {
+          return this.driver.evaluate(fnOrExpr, ...args);
+        }
+        return this.driver.evaluate(fnOrExpr);
+      }
+      async $(selector) {
+        const nodeId = await this.driver.querySelector(selector);
+        if (!nodeId) return null;
+        return new CompatElementHandle(this.driver, nodeId);
+      }
+      async $$(selector) {
+        const nodeIds = await this.driver.querySelectorAll(selector);
+        return nodeIds.map((id) => new CompatElementHandle(this.driver, id));
+      }
+      async screenshot(options) {
+        const buf = await this.driver.screenshot({
+          fullPage: options?.fullPage
+        });
+        if (options?.path) {
+          await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
+          await (0, import_promises2.writeFile)(options.path, buf);
+        }
+        return buf;
+      }
+      async addStyleTag(options) {
+        await this.driver.addStyleTag(options.content);
+      }
+      async waitForSelector(selector, options) {
+        const timeout = options?.timeout ?? 3e4;
+        const deadline = Date.now() + timeout;
+        while (Date.now() < deadline) {
+          const nodeId = await this.driver.querySelector(selector);
+          if (nodeId) return new CompatElementHandle(this.driver, nodeId);
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        throw new Error(`Timed out waiting for selector: ${selector}`);
+      }
+      async waitForTimeout(ms) {
+        await new Promise((r) => setTimeout(r, ms));
+      }
+      async waitForLoadState(_state, _options) {
+        await this.driver.navigate(this.driver.url, { waitFor: "stable", timeout: _options?.timeout ?? 1e4 }).catch(() => {
+        });
+      }
+      async waitForNavigation() {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      async content() {
+        return this.driver.content();
+      }
+      async title() {
+        return this.driver.title();
+      }
+      async textContent(selector) {
+        return this.driver.textContent(selector);
+      }
+      async innerText(selector) {
+        return this.driver.evaluate(
+          '(sel) => { const el = document.querySelector(sel); return el ? el.innerText : ""; }',
+          selector
+        );
+      }
+      async getAttribute(selector, name) {
+        return this.driver.getAttribute(selector, name);
+      }
+      async click(selector, _options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
+          [selector]
+        );
+      }
+      async fill(selector, value) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, val) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        el.value = val;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }`,
+          [selector, value]
+        );
+      }
+      async type(selector, text, _options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
+          [selector]
+        );
+        for (const char of text) {
+          await this.driver.runtimeDomain.callFunctionOn(
+            '(sel, ch) => { const el = document.querySelector(sel); if (el) { el.value += ch; el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+            [selector, char]
+          );
+        }
+      }
+      async check(selector) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el && !el.checked) el.click(); }",
+          [selector]
+        );
+      }
+      async uncheck(selector) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el && el.checked) el.click(); }",
+          [selector]
+        );
+      }
+      async selectOption(selector, value) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, val) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        el.value = val;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }`,
+          [selector, value]
+        );
+      }
+      async hover(selector, _options) {
+        const nodeId = await this.driver.querySelector(selector);
+        if (!nodeId) throw new Error(`Element not found: ${selector}`);
+        const center = await this.driver.domDomain.getElementCenter(nodeId);
+        await this.driver.runtimeDomain.callFunctionOn(
+          '(x, y) => { const el = document.elementFromPoint(x, y); if (el) el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true })); }',
+          [center.x, center.y]
+        );
+      }
+      locator(selector) {
+        return new CompatLocator(this.driver, selector);
+      }
+      on(event, handler) {
+        if (event === "console") {
+          this.consoleHandlers.push(handler);
+          if (!this.consoleListening) {
+            this.consoleListening = true;
+            this.driver.consoleDomain.onMessage((msg) => {
+              const compatMsg = {
+                type: () => msg.type,
+                text: () => msg.text
+              };
+              for (const h of this.consoleHandlers) h(compatMsg);
+            });
+          }
+        }
+      }
+      url() {
+        return this.driver.url;
+      }
+      keyboard = {
+        press: async (key) => {
+          await this.driver.pressKey(key);
+        }
+      };
+    };
+  }
+});
+
 // src/types.ts
 var DEFAULT_DYNAMIC_SELECTORS;
 var init_types = __esm({
@@ -369,12 +2996,12 @@ function isDeployedEnvironment() {
 }
 function getAuthStatePath(outputDir) {
   const username = (0, import_os.userInfo)().username;
-  return (0, import_path.join)(outputDir, `auth.${username}.json`);
+  return (0, import_path2.join)(outputDir, `auth.${username}.json`);
 }
 function getSecureAuthPath(projectPath) {
   const username = (0, import_os.userInfo)().username;
-  const projectHash = (0, import_crypto.createHash)("sha256").update((0, import_path.resolve)(projectPath)).digest("hex").substring(0, 16);
-  return (0, import_path.join)(
+  const projectHash = (0, import_crypto.createHash)("sha256").update((0, import_path2.resolve)(projectPath)).digest("hex").substring(0, 16);
+  return (0, import_path2.join)(
     (0, import_os.homedir)(),
     ".config",
     "ibr",
@@ -383,7 +3010,7 @@ function getSecureAuthPath(projectPath) {
   );
 }
 function validateGitignore(projectDir) {
-  const gitignorePath = (0, import_path.join)(projectDir, ".gitignore");
+  const gitignorePath = (0, import_path2.join)(projectDir, ".gitignore");
   if ((0, import_fs.existsSync)(gitignorePath)) {
     const gitignore = (0, import_fs.readFileSync)(gitignorePath, "utf-8");
     const lines = gitignore.split("\n").map((l) => l.trim());
@@ -400,7 +3027,7 @@ function validateGitignore(projectDir) {
 }
 async function hasAuthState(outputDir) {
   try {
-    await (0, import_promises.access)(getAuthStatePath(outputDir));
+    await (0, import_promises3.access)(getAuthStatePath(outputDir));
     return true;
   } catch {
     return false;
@@ -413,7 +3040,7 @@ async function loadAuthState(outputDir) {
   }
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises.readFile)(authPath, "utf-8");
+    const content = await (0, import_promises3.readFile)(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       console.warn("\u26A0\uFE0F  Legacy auth format detected. Please re-authenticate with `ibr login`.");
@@ -446,9 +3073,9 @@ async function performLogin(options) {
     );
   }
   validateGitignore(process.cwd());
-  await (0, import_promises.mkdir)(outputDir, { recursive: true, mode: 448 });
+  await (0, import_promises3.mkdir)(outputDir, { recursive: true, mode: 448 });
   try {
-    await (0, import_promises.chmod)(outputDir, 448);
+    await (0, import_promises3.chmod)(outputDir, 448);
   } catch {
   }
   const authStatePath = getAuthStatePath(outputDir);
@@ -457,49 +3084,35 @@ async function performLogin(options) {
   console.log(`   User: ${currentUser}`);
   console.log("   Navigate to your login page and complete authentication.");
   console.log("   When finished, close the browser window to save your session.\n");
-  const browser3 = await import_playwright.chromium.launch({
-    headless: false
+  const driver3 = new EngineDriver();
+  await driver3.launch({
+    headless: false,
     // Visible browser for manual login
-  });
-  const context = await browser3.newContext({
     viewport: { width: 1280, height: 800 }
   });
-  const page = await context.newPage();
+  const page = new CompatPage(driver3);
   try {
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout: 3e4
     });
     await Promise.race([
-      new Promise((resolve2) => {
-        browser3.on("disconnected", () => resolve2());
-      }),
       new Promise((_, reject) => {
         setTimeout(() => reject(new Error("Login timeout exceeded")), timeout);
       })
     ]);
   } catch (error) {
-    if (browser3.isConnected()) {
-      await saveAuthState(context, authStatePath, outputDir);
-      await browser3.close();
+    if (driver3.isLaunched) {
+      await saveAuthState(driver3, authStatePath, outputDir);
+      await driver3.close();
     }
     if (error instanceof Error && error.message.includes("timeout")) {
       throw error;
     }
   }
-  if (browser3.isConnected()) {
-    await saveAuthState(context, authStatePath, outputDir);
-    await browser3.close();
-  } else {
-    console.log("\n\u26A0\uFE0F  Browser was closed. Attempting to save any captured state...");
-    const newBrowser = await import_playwright.chromium.launch({ headless: true });
-    const newContext = await newBrowser.newContext();
-    try {
-      await newContext.addCookies(await context.cookies());
-    } catch {
-    }
-    await saveAuthState(newContext, authStatePath, outputDir);
-    await newBrowser.close();
+  if (driver3.isLaunched) {
+    await saveAuthState(driver3, authStatePath, outputDir);
+    await driver3.close();
   }
   console.log(`
 \u2705 Auth state saved for user: ${currentUser}`);
@@ -508,8 +3121,9 @@ async function performLogin(options) {
   console.log("   Future captures will use this authentication.\n");
   return authStatePath;
 }
-async function saveAuthState(context, authStatePath, _outputDir) {
-  const state = await context.storageState();
+async function saveAuthState(driver3, authStatePath, _outputDir) {
+  const cookies = await driver3.getCookies();
+  const state = { cookies, origins: [] };
   const currentUser = (0, import_os.userInfo)().username;
   const storedState = {
     state,
@@ -518,27 +3132,27 @@ async function saveAuthState(context, authStatePath, _outputDir) {
       expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1e3,
       // 7 days
       username: currentUser,
-      projectPath: (0, import_path.resolve)(process.cwd())
+      projectPath: (0, import_path2.resolve)(process.cwd())
     }
   };
-  await (0, import_promises.writeFile)(
+  await (0, import_promises3.writeFile)(
     authStatePath,
     JSON.stringify(storedState, null, 2),
     { mode: 384 }
     // rw-------
   );
   try {
-    await (0, import_promises.chmod)(authStatePath, 384);
+    await (0, import_promises3.chmod)(authStatePath, 384);
   } catch {
   }
 }
 async function clearAuthState(outputDir) {
   const authPath = getAuthStatePath(outputDir);
   try {
-    const stats = await (0, import_promises.stat)(authPath);
+    const stats = await (0, import_promises3.stat)(authPath);
     const randomData = (0, import_crypto.randomBytes)(stats.size);
-    await (0, import_promises.writeFile)(authPath, randomData, { mode: 384 });
-    await (0, import_promises.unlink)(authPath);
+    await (0, import_promises3.writeFile)(authPath, randomData, { mode: 384 });
+    await (0, import_promises3.unlink)(authPath);
     console.log("\u2705 Auth state securely cleared");
   } catch {
     console.log("\u2139\uFE0F  No auth state to clear");
@@ -547,7 +3161,7 @@ async function clearAuthState(outputDir) {
 async function getAuthStateInfo(outputDir) {
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises.readFile)(authPath, "utf-8");
+    const content = await (0, import_promises3.readFile)(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       return { exists: true };
@@ -563,13 +3177,14 @@ async function getAuthStateInfo(outputDir) {
     return null;
   }
 }
-var import_playwright, import_promises, import_path, import_fs, import_os, import_crypto;
+var import_promises3, import_path2, import_fs, import_os, import_crypto;
 var init_auth = __esm({
   "src/auth.ts"() {
     "use strict";
-    import_playwright = require("playwright");
-    import_promises = require("fs/promises");
-    import_path = require("path");
+    init_driver();
+    init_compat();
+    import_promises3 = require("fs/promises");
+    import_path2 = require("path");
     import_fs = require("fs");
     import_os = require("os");
     import_crypto = require("crypto");
@@ -1041,18 +3656,10 @@ async function applyMasking(page, mask) {
     }, { patterns, placeholder });
   }
 }
-async function getBrowser() {
-  if (!browser) {
-    browser = await import_playwright2.chromium.launch({
-      headless: true
-    });
-  }
-  return browser;
-}
 async function closeBrowser() {
-  if (browser) {
-    await browser.close();
-    browser = null;
+  if (driver) {
+    await driver.close();
+    driver = null;
   }
 }
 async function captureScreenshot(options) {
@@ -1068,27 +3675,19 @@ async function captureScreenshot(options) {
     waitFor,
     delay
   } = options;
-  await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
-  let storageState;
+  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
-      storageState = authState;
       console.log("\u{1F510} Using saved authentication state");
     }
   }
-  const browserInstance = await getBrowser();
-  const context = await browserInstance.newContext({
-    viewport: {
-      width: viewport.width,
-      height: viewport.height
-    },
-    // Disable animations for consistent screenshots
-    reducedMotion: "reduce",
-    // Load auth state if available (Playwright accepts object or file path)
-    ...storageState ? { storageState } : {}
+  const driverInstance = new EngineDriver();
+  await driverInstance.launch({
+    headless: true,
+    viewport: { width: viewport.width, height: viewport.height }
   });
-  const page = await context.newPage();
+  const page = new CompatPage(driverInstance);
   try {
     await page.goto(url, {
       waitUntil: waitForNetworkIdle ? "networkidle" : "load",
@@ -1117,7 +3716,7 @@ async function captureScreenshot(options) {
     }
     return outputPath;
   } finally {
-    await context.close();
+    await driverInstance.close();
   }
 }
 async function captureWithLandmarks(options) {
@@ -1132,25 +3731,19 @@ async function captureWithLandmarks(options) {
     selector,
     waitFor
   } = options;
-  await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
-  let storageState;
+  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
-      storageState = authState;
       console.log("\u{1F510} Using saved authentication state");
     }
   }
-  const browserInstance = await getBrowser();
-  const context = await browserInstance.newContext({
-    viewport: {
-      width: viewport.width,
-      height: viewport.height
-    },
-    reducedMotion: "reduce",
-    ...storageState ? { storageState } : {}
+  const driverInstance = new EngineDriver();
+  await driverInstance.launch({
+    headless: true,
+    viewport: { width: viewport.width, height: viewport.height }
   });
-  const page = await context.newPage();
+  const page = new CompatPage(driverInstance);
   try {
     await page.goto(url, {
       waitUntil: waitForNetworkIdle ? "networkidle" : "load",
@@ -1185,7 +3778,7 @@ async function captureWithLandmarks(options) {
       pageIntent: intentResult.intent
     };
   } finally {
-    await context.close();
+    await driverInstance.close();
   }
 }
 function getViewport(name) {
@@ -1225,38 +3818,30 @@ async function captureWithDiagnostics(options) {
   const suggestions = [];
   let httpStatus;
   try {
-    await (0, import_promises2.mkdir)((0, import_path2.dirname)(outputPath), { recursive: true });
-    let storageState;
+    await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
     if (outputDir && !isDeployedEnvironment()) {
-      const authState = await loadAuthState(outputDir);
-      if (authState) {
-        storageState = authState;
-      }
+      await loadAuthState(outputDir);
     }
-    const browserInstance = await getBrowser();
-    const context = await browserInstance.newContext({
-      viewport: {
-        width: viewport.width,
-        height: viewport.height
-      },
-      reducedMotion: "reduce",
-      ...storageState ? { storageState } : {}
+    const driverInstance = new EngineDriver();
+    await driverInstance.launch({
+      headless: true,
+      viewport: { width: viewport.width, height: viewport.height }
     });
-    const page = await context.newPage();
+    const page = new CompatPage(driverInstance);
     page.on("console", (msg) => {
       if (msg.type() === "error") {
         consoleErrors.push(msg.text());
       }
     });
-    page.on("requestfailed", (request) => {
+    page.on?.("requestfailed", ((request) => {
       const failure = request.failure();
       networkErrors.push(`${request.url()}: ${failure?.errorText || "failed"}`);
-    });
-    page.on("response", (response) => {
+    }));
+    page.on?.("response", ((response) => {
       if (response.url() === url || response.url() === url + "/") {
         httpStatus = response.status();
       }
-    });
+    }));
     try {
       const navStart = Date.now();
       await page.goto(url, {
@@ -1265,7 +3850,7 @@ async function captureWithDiagnostics(options) {
       });
       navigationTime = Date.now() - navStart;
     } catch (navError) {
-      await context.close();
+      await driverInstance.close();
       const errorMsg = navError instanceof Error ? navError.message : String(navError);
       const isTimeout = errorMsg.includes("Timeout");
       if (isTimeout) {
@@ -1321,7 +3906,7 @@ async function captureWithDiagnostics(options) {
       });
     }
     renderTime = Date.now() - renderStart;
-    await context.close();
+    await driverInstance.close();
     if (navigationTime > 5e3) {
       suggestions.push(`Slow page load: ${(navigationTime / 1e3).toFixed(1)}s`);
     }
@@ -1366,19 +3951,20 @@ async function captureWithDiagnostics(options) {
     };
   }
 }
-var import_playwright2, import_promises2, import_path2, browser;
+var import_promises4, import_path3, driver;
 var init_capture = __esm({
   "src/capture.ts"() {
     "use strict";
-    import_playwright2 = require("playwright");
-    import_promises2 = require("fs/promises");
-    import_path2 = require("path");
+    init_driver();
+    init_compat();
+    import_promises4 = require("fs/promises");
+    import_path3 = require("path");
     init_schemas();
     init_types();
     init_auth();
     init_landmarks();
     init_page_intent();
-    browser = null;
+    driver = null;
   }
 });
 
@@ -1445,8 +4031,8 @@ async function compareImages(options) {
     // pixelmatch threshold (0-1), lower = stricter
   } = options;
   const [baselineBuffer, currentBuffer] = await Promise.all([
-    (0, import_promises3.readFile)(baselinePath),
-    (0, import_promises3.readFile)(currentPath)
+    (0, import_promises5.readFile)(baselinePath),
+    (0, import_promises5.readFile)(currentPath)
   ]);
   const baseline = import_pngjs.PNG.sync.read(baselineBuffer);
   const current = import_pngjs.PNG.sync.read(currentBuffer);
@@ -1475,8 +4061,8 @@ async function compareImages(options) {
       // Green for anti-aliased differences
     }
   );
-  await (0, import_promises3.mkdir)((0, import_path3.dirname)(diffPath), { recursive: true });
-  await (0, import_promises3.writeFile)(diffPath, import_pngjs.PNG.sync.write(diff));
+  await (0, import_promises5.mkdir)((0, import_path4.dirname)(diffPath), { recursive: true });
+  await (0, import_promises5.writeFile)(diffPath, import_pngjs.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
   return {
     match: diffPixels === 0,
@@ -1567,14 +4153,14 @@ function getVerdictDescription(verdict) {
       return "Unknown verdict";
   }
 }
-var import_pixelmatch, import_pngjs, import_promises3, import_path3, DEFAULT_REGIONS;
+var import_pixelmatch, import_pngjs, import_promises5, import_path4, DEFAULT_REGIONS;
 var init_compare = __esm({
   "src/compare.ts"() {
     "use strict";
     import_pixelmatch = __toESM(require("pixelmatch"));
     import_pngjs = require("pngjs");
-    import_promises3 = require("fs/promises");
-    import_path3 = require("path");
+    import_promises5 = require("fs/promises");
+    import_path4 = require("path");
     DEFAULT_REGIONS = [
       { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
       { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
@@ -1594,7 +4180,7 @@ __export(git_context_exports, {
 });
 async function parseGitConfig(configPath) {
   try {
-    const content = await (0, import_promises4.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises6.readFile)(configPath, "utf-8");
     const lines = content.split("\n");
     let currentRemote = null;
     let remoteUrl = null;
@@ -1644,7 +4230,7 @@ function getCurrentBranch(dir) {
   }
 }
 async function getGitContext(dir) {
-  const gitConfigPath = (0, import_path4.join)(dir, ".git", "config");
+  const gitConfigPath = (0, import_path5.join)(dir, ".git", "config");
   const { remote, remoteUrl } = await parseGitConfig(gitConfigPath);
   const repoName = remoteUrl ? extractRepoName(remoteUrl) : null;
   const branch = getCurrentBranch(dir);
@@ -1657,8 +4243,8 @@ async function getGitContext(dir) {
 }
 async function getAppName(dir) {
   try {
-    const packageJsonPath = (0, import_path4.join)(dir, "package.json");
-    const content = await (0, import_promises4.readFile)(packageJsonPath, "utf-8");
+    const packageJsonPath = (0, import_path5.join)(dir, "package.json");
+    const content = await (0, import_promises6.readFile)(packageJsonPath, "utf-8");
     const packageJson = JSON.parse(content);
     if (packageJson.name) {
       const name = packageJson.name;
@@ -1667,7 +4253,7 @@ async function getAppName(dir) {
     }
   } catch {
   }
-  return (0, import_path4.basename)(dir);
+  return (0, import_path5.basename)(dir);
 }
 async function getAppContext(dir) {
   const [gitContext, appName] = await Promise.all([
@@ -1681,16 +4267,16 @@ async function getAppContext(dir) {
 }
 function getSessionBasePath(outputDir, context) {
   if (context.repoName && context.branch) {
-    return (0, import_path4.join)(outputDir, "apps", context.appName, context.branch, "sessions");
+    return (0, import_path5.join)(outputDir, "apps", context.appName, context.branch, "sessions");
   }
-  return (0, import_path4.join)(outputDir, "sessions");
+  return (0, import_path5.join)(outputDir, "sessions");
 }
-var import_promises4, import_path4, import_child_process;
+var import_promises6, import_path5, import_child_process;
 var init_git_context = __esm({
   "src/git-context.ts"() {
     "use strict";
-    import_promises4 = require("fs/promises");
-    import_path4 = require("path");
+    import_promises6 = require("fs/promises");
+    import_path5 = require("path");
     import_child_process = require("child_process");
   }
 });
@@ -1719,24 +4305,24 @@ function generateSessionId() {
   return `${SESSION_PREFIX}${(0, import_nanoid.nanoid)(10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path5.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path6.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path5.join)(root, "session.json"),
-    baseline: (0, import_path5.join)(root, "baseline.png"),
-    current: (0, import_path5.join)(root, "current.png"),
-    diff: (0, import_path5.join)(root, "diff.png")
+    sessionJson: (0, import_path6.join)(root, "session.json"),
+    baseline: (0, import_path6.join)(root, "baseline.png"),
+    current: (0, import_path6.join)(root, "current.png"),
+    diff: (0, import_path6.join)(root, "diff.png")
   };
 }
 function getSessionPathsWithContext(outputDir, sessionId, context) {
-  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path5.join)(outputDir, "sessions");
-  const root = (0, import_path5.join)(basePath, sessionId);
+  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path6.join)(outputDir, "sessions");
+  const root = (0, import_path6.join)(basePath, sessionId);
   return {
     root,
-    sessionJson: (0, import_path5.join)(root, "session.json"),
-    baseline: (0, import_path5.join)(root, "baseline.png"),
-    current: (0, import_path5.join)(root, "current.png"),
-    diff: (0, import_path5.join)(root, "diff.png")
+    sessionJson: (0, import_path6.join)(root, "session.json"),
+    baseline: (0, import_path6.join)(root, "baseline.png"),
+    current: (0, import_path6.join)(root, "current.png"),
+    diff: (0, import_path6.join)(root, "diff.png")
   };
 }
 async function getCachedAppContext(projectDir) {
@@ -1767,14 +4353,14 @@ async function createSession(outputDir, url, name, viewport, platform) {
     createdAt: now,
     updatedAt: now
   };
-  await (0, import_promises5.mkdir)(paths.root, { recursive: true });
-  await (0, import_promises5.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
+  await (0, import_promises7.mkdir)(paths.root, { recursive: true });
+  await (0, import_promises7.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
   return session;
 }
 async function getSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    const content = await (0, import_promises5.readFile)(paths.sessionJson, "utf-8");
+    const content = await (0, import_promises7.readFile)(paths.sessionJson, "utf-8");
     const data = JSON.parse(content);
     return SessionSchema.parse(data);
   } catch {
@@ -1792,7 +4378,7 @@ async function updateSession(outputDir, sessionId, updates) {
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const paths = getSessionPaths(outputDir, sessionId);
-  await (0, import_promises5.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
+  await (0, import_promises7.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
   return updated;
 }
 async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
@@ -1803,9 +4389,9 @@ async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
   });
 }
 async function listSessions(outputDir) {
-  const sessionsDir = (0, import_path5.join)(outputDir, "sessions");
+  const sessionsDir = (0, import_path6.join)(outputDir, "sessions");
   try {
-    const entries = await (0, import_promises5.readdir)(sessionsDir, { withFileTypes: true });
+    const entries = await (0, import_promises7.readdir)(sessionsDir, { withFileTypes: true });
     const sessions = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
@@ -1829,7 +4415,7 @@ async function getMostRecentSession(outputDir) {
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    await (0, import_promises5.rm)(paths.root, { recursive: true, force: true });
+    await (0, import_promises7.rm)(paths.root, { recursive: true, force: true });
     return true;
   } catch {
     return false;
@@ -1960,13 +4546,13 @@ async function getSessionStats(outputDir) {
     byVerdict
   };
 }
-var import_nanoid, import_promises5, import_path5, SESSION_PREFIX, cachedContext, contextCacheDir;
+var import_nanoid, import_promises7, import_path6, SESSION_PREFIX, cachedContext, contextCacheDir;
 var init_session = __esm({
   "src/session.ts"() {
     "use strict";
     import_nanoid = require("nanoid");
-    import_promises5 = require("fs/promises");
-    import_path5 = require("path");
+    import_promises7 = require("fs/promises");
+    import_path6 = require("path");
     init_schemas();
     init_git_context();
     SESSION_PREFIX = "sess_";
@@ -2336,7 +4922,7 @@ var init_state_detector = __esm({
 
 // src/semantic/output.ts
 async function getSemanticOutput(page) {
-  const url = page.url();
+  const url = page.url?.() ?? "";
   const title = await page.title();
   const timestamp = (/* @__PURE__ */ new Date()).toISOString();
   const [pageIntent, state] = await Promise.all([
@@ -2674,8 +5260,8 @@ async function findButton(page, patterns) {
 async function waitForNavigation(page, timeout = 1e4) {
   try {
     await Promise.race([
-      page.waitForNavigation({ timeout }),
-      page.waitForLoadState("networkidle", { timeout })
+      page.waitForNavigation?.(),
+      page.waitForLoadState?.("networkidle", { timeout })
     ]);
   } catch {
   }
@@ -2708,7 +5294,7 @@ async function loginFlow(page, options) {
         duration: Date.now() - startTime
       };
     }
-    await emailField.fill(options.email);
+    await emailField.fill?.(options.email);
     steps.push({ action: "fill email/username", success: true });
     const passwordField = await page.$('input[type="password"]');
     if (!passwordField) {
@@ -2720,14 +5306,14 @@ async function loginFlow(page, options) {
         duration: Date.now() - startTime
       };
     }
-    await passwordField.fill(options.password);
+    await passwordField.fill?.(options.password);
     steps.push({ action: "fill password", success: true });
     if (options.rememberMe) {
       const rememberCheckbox = await page.$(
         'input[type="checkbox"][name*="remember"], input[type="checkbox"][id*="remember"], label:has-text("remember") input[type="checkbox"]'
       );
       if (rememberCheckbox) {
-        await rememberCheckbox.check();
+        await rememberCheckbox.check?.();
         steps.push({ action: "check remember me", success: true });
       }
     }
@@ -2747,7 +5333,7 @@ async function loginFlow(page, options) {
         duration: Date.now() - startTime
       };
     }
-    await submitButton.click();
+    await submitButton.click?.();
     steps.push({ action: "click submit", success: true });
     await waitForNavigation(page, timeout);
     steps.push({ action: "wait for response", success: true });
@@ -2819,11 +5405,11 @@ async function searchFlow(page, options) {
         duration: Date.now() - startTime
       };
     }
-    await searchField.fill("");
-    await searchField.fill(options.query);
+    await searchField.fill?.("");
+    await searchField.fill?.(options.query);
     steps.push({ action: `type "${options.query}"`, success: true });
     if (options.submit !== false) {
-      await searchField.press("Enter");
+      await searchField.press?.("Enter");
       steps.push({ action: "submit search", success: true });
       await waitForNavigation(page, timeout);
       steps.push({ action: "wait for results", success: true });
@@ -2865,7 +5451,7 @@ async function captureStepScreenshot(page, step, artifactDir, startTime) {
   const timing = Date.now() - startTime;
   const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
   const filename = `${stepNum}-${step}.png`;
-  const path2 = (0, import_path6.join)(artifactDir, filename);
+  const path2 = (0, import_path7.join)(artifactDir, filename);
   await page.addStyleTag({
     content: `
       *, *::before, *::after {
@@ -2931,8 +5517,8 @@ async function aiSearchFlow(page, options) {
   };
   let artifactDir;
   if (captureSteps && options.sessionDir) {
-    artifactDir = (0, import_path6.join)(options.sessionDir, `search-${Date.now()}`);
-    await (0, import_promises6.mkdir)(artifactDir, { recursive: true });
+    artifactDir = (0, import_path7.join)(options.sessionDir, `search-${Date.now()}`);
+    await (0, import_promises8.mkdir)(artifactDir, { recursive: true });
   }
   try {
     if (captureSteps && artifactDir) {
@@ -2961,8 +5547,8 @@ async function aiSearchFlow(page, options) {
       };
     }
     const typingStart = Date.now();
-    await searchField.fill("");
-    await searchField.fill(options.query);
+    await searchField.fill?.("");
+    await searchField.fill?.(options.query);
     timing.typing = Date.now() - typingStart;
     steps.push({ action: `type "${options.query}"`, success: true, duration: timing.typing });
     if (captureSteps && artifactDir) {
@@ -2972,7 +5558,7 @@ async function aiSearchFlow(page, options) {
     }
     const waitingStart = Date.now();
     if (options.submit !== false) {
-      await searchField.press("Enter");
+      await searchField.press?.("Enter");
       steps.push({ action: "submit search", success: true });
       await waitForNavigation(page, timeout);
       steps.push({ action: "wait for results", success: true });
@@ -3008,8 +5594,8 @@ async function aiSearchFlow(page, options) {
         timing,
         extractedResults
       };
-      await (0, import_promises6.writeFile)(
-        (0, import_path6.join)(artifactDir, "results.json"),
+      await (0, import_promises8.writeFile)(
+        (0, import_path7.join)(artifactDir, "results.json"),
         JSON.stringify(resultsData, null, 2)
       );
     }
@@ -3048,12 +5634,12 @@ async function aiSearchFlow(page, options) {
     };
   }
 }
-var import_promises6, import_path6;
+var import_promises8, import_path7;
 var init_search = __esm({
   "src/flows/search.ts"() {
     "use strict";
-    import_promises6 = require("fs/promises");
-    import_path6 = require("path");
+    import_promises8 = require("fs/promises");
+    import_path7 = require("path");
     init_types2();
   }
 });
@@ -3083,17 +5669,17 @@ async function formFlow(page, options) {
       if (element) {
         try {
           if (fieldType === "select") {
-            await element.selectOption(field.value);
+            await element.selectOption?.(field.value);
           } else if (fieldType === "checkbox") {
             if (field.value === "true" || field.value === "1") {
-              await element.check();
+              await element.check?.();
             } else {
-              await element.uncheck();
+              await element.uncheck?.();
             }
           } else if (fieldType === "radio") {
-            await element.check();
+            await element.check?.();
           } else {
-            await element.fill(field.value);
+            await element.fill?.(field.value);
           }
           filledFields.push(field.name);
           steps.push({ action: `fill ${field.name}`, success: true });
@@ -3126,7 +5712,7 @@ async function formFlow(page, options) {
         duration: Date.now() - startTime
       };
     }
-    await submitButton.click();
+    await submitButton.click?.();
     steps.push({ action: "click submit", success: true });
     await waitForNavigation(page, timeout);
     steps.push({ action: "wait for response", success: true });
@@ -3404,10 +5990,10 @@ var init_flows = __esm({
 
 // src/cleanup.ts
 async function loadRetentionConfig(outputDir) {
-  const configPath = (0, import_path7.join)(outputDir, "..", ".ibrrc.json");
+  const configPath = (0, import_path8.join)(outputDir, "..", ".ibrrc.json");
   try {
-    await (0, import_promises7.access)(configPath);
-    const content = await (0, import_promises7.readFile)(configPath, "utf-8");
+    await (0, import_promises9.access)(configPath);
+    const content = await (0, import_promises9.readFile)(configPath, "utf-8");
     const config = JSON.parse(content);
     return {
       ...DEFAULT_RETENTION,
@@ -3535,12 +6121,12 @@ function formatRetentionStatus(status) {
   }
   return lines.join("\n");
 }
-var import_promises7, import_path7, DEFAULT_RETENTION;
+var import_promises9, import_path8, DEFAULT_RETENTION;
 var init_cleanup = __esm({
   "src/cleanup.ts"() {
     "use strict";
-    import_promises7 = require("fs/promises");
-    import_path7 = require("path");
+    import_promises9 = require("fs/promises");
+    import_path8 = require("path");
     init_session();
     DEFAULT_RETENTION = {
       maxSessions: void 0,
@@ -3684,14 +6270,15 @@ function calculateScore(inconsistencies) {
 }
 async function checkConsistency(options) {
   const { urls, timeout = 15e3, ignore = [] } = options;
-  let browser3 = null;
+  let driver3 = null;
   const pages = [];
   try {
-    browser3 = await import_playwright3.chromium.launch({ headless: true });
-    const context = await browser3.newContext({
+    driver3 = new EngineDriver();
+    await driver3.launch({
+      headless: true,
       viewport: { width: 1920, height: 1080 }
     });
-    const page = await context.newPage();
+    const page = new CompatPage(driver3);
     for (const url of urls) {
       try {
         await page.goto(url, {
@@ -3704,9 +6291,9 @@ async function checkConsistency(options) {
         console.error(`Failed to analyze ${url}:`, error instanceof Error ? error.message : error);
       }
     }
-    await browser3.close();
+    await driver3.close();
   } catch (error) {
-    if (browser3) await browser3.close();
+    if (driver3) await driver3.close();
     throw error;
   }
   if (pages.length < 2) {
@@ -3771,11 +6358,11 @@ function formatConsistencyReport(result) {
   }
   return lines.join("\n");
 }
-var import_playwright3;
 var init_consistency = __esm({
   "src/consistency.ts"() {
     "use strict";
-    import_playwright3 = require("playwright");
+    init_driver();
+    init_compat();
   }
 });
 
@@ -3801,12 +6388,12 @@ async function discoverPages(options) {
   const queue = [
     { url, depth: 0 }
   ];
-  let browser3 = null;
+  let driver3 = null;
   let totalLinks = 0;
   try {
-    browser3 = await import_playwright4.chromium.launch({ headless: true });
-    const context = await browser3.newContext();
-    const page = await context.newPage();
+    driver3 = new EngineDriver();
+    await driver3.launch({ headless: true });
+    const page = new CompatPage(driver3);
     while (queue.length > 0 && discovered.size < maxPages) {
       const current = queue.shift();
       if (!current) break;
@@ -3857,9 +6444,9 @@ async function discoverPages(options) {
         console.error(`Failed to load ${current.url}:`, error instanceof Error ? error.message : error);
       }
     }
-    await browser3.close();
+    await driver3.close();
   } catch (error) {
-    if (browser3) await browser3.close();
+    if (driver3) await driver3.close();
     throw error;
   }
   const crawlTime = Date.now() - startTime;
@@ -3927,10 +6514,11 @@ function shouldSkipUrl(url) {
   return false;
 }
 async function getNavigationLinks(url) {
-  let browser3 = null;
+  let driver3 = null;
   try {
-    browser3 = await import_playwright4.chromium.launch({ headless: true });
-    const page = await browser3.newPage();
+    driver3 = new EngineDriver();
+    await driver3.launch({ headless: true });
+    const page = new CompatPage(driver3);
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout: 15e3
@@ -3961,7 +6549,7 @@ async function getNavigationLinks(url) {
       }
       return links;
     });
-    await browser3.close();
+    await driver3.close();
     const pages = [];
     for (const link of navLinks) {
       try {
@@ -3986,15 +6574,16 @@ async function getNavigationLinks(url) {
     }
     return Array.from(uniquePages.values());
   } catch (error) {
-    if (browser3) await browser3.close();
+    if (driver3) await driver3.close();
     throw error;
   }
 }
-var import_playwright4, import_url;
+var import_url;
 var init_crawl = __esm({
   "src/crawl.ts"() {
     "use strict";
-    import_playwright4 = require("playwright");
+    init_driver();
+    init_compat();
     import_url = require("url");
   }
 });
@@ -4463,12 +7052,12 @@ var init_integration = __esm({
 
 // src/operation-tracker.ts
 function getOperationsPath(outputDir) {
-  return (0, import_path8.join)(outputDir, "operations.json");
+  return (0, import_path9.join)(outputDir, "operations.json");
 }
 async function readState(outputDir) {
   const path2 = getOperationsPath(outputDir);
   try {
-    const content = await (0, import_promises8.readFile)(path2, "utf-8");
+    const content = await (0, import_promises10.readFile)(path2, "utf-8");
     return JSON.parse(content);
   } catch {
     return { pending: [], lastUpdated: (/* @__PURE__ */ new Date()).toISOString() };
@@ -4476,9 +7065,9 @@ async function readState(outputDir) {
 }
 async function writeState(outputDir, state) {
   const path2 = getOperationsPath(outputDir);
-  await (0, import_promises8.mkdir)((0, import_path8.dirname)(path2), { recursive: true });
+  await (0, import_promises10.mkdir)((0, import_path9.dirname)(path2), { recursive: true });
   state.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
-  await (0, import_promises8.writeFile)(path2, JSON.stringify(state, null, 2));
+  await (0, import_promises10.writeFile)(path2, JSON.stringify(state, null, 2));
 }
 async function registerOperation(outputDir, options) {
   const state = await readState(outputDir);
@@ -4532,7 +7121,7 @@ async function waitForCompletion(outputDir, options = {}) {
     if (options.onProgress) {
       options.onProgress(pending.length);
     }
-    await new Promise((resolve2) => setTimeout(resolve2, pollInterval));
+    await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
   }
   return false;
 }
@@ -4560,13 +7149,13 @@ function withOperationTracking(outputDir, options) {
     }
   };
 }
-var import_nanoid2, import_promises8, import_path8, OPERATION_PREFIX;
+var import_nanoid2, import_promises10, import_path9, OPERATION_PREFIX;
 var init_operation_tracker = __esm({
   "src/operation-tracker.ts"() {
     "use strict";
     import_nanoid2 = require("nanoid");
-    import_promises8 = require("fs/promises");
-    import_path8 = require("path");
+    import_promises10 = require("fs/promises");
+    import_path9 = require("path");
     OPERATION_PREFIX = "op_";
   }
 });
@@ -4587,7 +7176,7 @@ function rateMetric(value, thresholds) {
 }
 async function measureWebVitals(page) {
   const metrics = await page.evaluate(() => {
-    return new Promise((resolve2) => {
+    return new Promise((resolve3) => {
       const result = {
         LCP: null,
         FID: null,
@@ -4637,7 +7226,7 @@ async function measureWebVitals(page) {
         if (navEntry) {
           result.TTI = navEntry.domInteractive;
         }
-        resolve2(result);
+        resolve3(result);
       }, 3e3);
     });
   });
@@ -5092,20 +7681,20 @@ async function measureApiTiming(page, options = {}) {
   page.on("request", requestHandler);
   page.on("response", responseHandler);
   page.on("requestfailed", requestFailedHandler);
-  await new Promise((resolve2) => {
+  await new Promise((resolve3) => {
     const startWait = Date.now();
     const check = () => {
       if (requests.size === 0 || Date.now() - startWait > timeout) {
-        resolve2();
+        resolve3();
         return;
       }
       setTimeout(check, 100);
     };
     setTimeout(check, 1e3);
   });
-  page.off("request", requestHandler);
-  page.off("response", responseHandler);
-  page.off("requestfailed", requestFailedHandler);
+  page.off?.("request", requestHandler);
+  page.off?.("response", responseHandler);
+  page.off?.("requestfailed", requestFailedHandler);
   const totalRequests = completedRequests.length;
   const totalTime = completedRequests.reduce((sum, r) => sum + r.duration, 0);
   const totalSize = completedRequests.reduce((sum, r) => sum + r.size, 0);
@@ -5203,9 +7792,9 @@ function createApiTracker(page, options = {}) {
     },
     stop() {
       isTracking = false;
-      page.off("request", requestHandler);
-      page.off("response", responseHandler);
-      page.off("requestfailed", requestFailedHandler);
+      page.off?.("request", requestHandler);
+      page.off?.("response", responseHandler);
+      page.off?.("requestfailed", requestFailedHandler);
       const totalRequests = completedRequests.length;
       const totalTime = completedRequests.reduce((sum, r) => sum + r.duration, 0);
       const totalSize = completedRequests.reduce((sum, r) => sum + r.size, 0);
@@ -5308,49 +7897,42 @@ async function testResponsive(url, options = {}) {
     timeout = 3e4
   } = options;
   const results = [];
-  let browser3 = null;
-  try {
-    browser3 = await import_playwright5.chromium.launch({ headless: true });
-    for (const viewportSpec of viewports) {
-      let viewport;
-      let viewportName;
-      if (typeof viewportSpec === "string") {
-        viewport = VIEWPORTS[viewportSpec];
-        viewportName = viewportSpec;
-      } else {
-        viewport = viewportSpec;
-        viewportName = `${viewportSpec.width}x${viewportSpec.height}`;
-      }
-      const context = await browser3.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        reducedMotion: "reduce"
-      });
-      const page = await context.newPage();
-      try {
-        await page.goto(url, {
-          waitUntil: "networkidle",
-          timeout
-        });
-        await page.waitForTimeout(500);
-        const result = await analyzeViewport(page, viewport, viewportName, {
-          minTouchTarget,
-          minFontSize
-        });
-        if (captureScreenshots) {
-          const { mkdir: mkdir18 } = await import("fs/promises");
-          await mkdir18(outputDir, { recursive: true });
-          const screenshotPath = `${outputDir}/${viewportName}.png`;
-          await page.screenshot({ path: screenshotPath, fullPage: true });
-          result.screenshot = screenshotPath;
-        }
-        results.push(result);
-      } finally {
-        await context.close();
-      }
+  for (const viewportSpec of viewports) {
+    let viewport;
+    let viewportName;
+    if (typeof viewportSpec === "string") {
+      viewport = VIEWPORTS[viewportSpec];
+      viewportName = viewportSpec;
+    } else {
+      viewport = viewportSpec;
+      viewportName = `${viewportSpec.width}x${viewportSpec.height}`;
     }
-  } finally {
-    if (browser3) {
-      await browser3.close();
+    const driver3 = new EngineDriver();
+    await driver3.launch({
+      headless: true,
+      viewport: { width: viewport.width, height: viewport.height }
+    });
+    const page = new CompatPage(driver3);
+    try {
+      await page.goto(url, {
+        waitUntil: "networkidle",
+        timeout
+      });
+      await page.waitForTimeout(500);
+      const result = await analyzeViewport(page, viewport, viewportName, {
+        minTouchTarget,
+        minFontSize
+      });
+      if (captureScreenshots) {
+        const { mkdir: mkdir20 } = await import("fs/promises");
+        await mkdir20(outputDir, { recursive: true });
+        const screenshotPath = `${outputDir}/${viewportName}.png`;
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        result.screenshot = screenshotPath;
+      }
+      results.push(result);
+    } finally {
+      await driver3.close();
     }
   }
   const totalIssues = results.reduce(
@@ -5527,11 +8109,11 @@ function formatResponsiveResult(result) {
   }
   return lines.join("\n");
 }
-var import_playwright5;
 var init_responsive = __esm({
   "src/responsive.ts"() {
     "use strict";
-    import_playwright5 = require("playwright");
+    init_driver();
+    init_compat();
     init_schemas();
   }
 });
@@ -5558,13 +8140,13 @@ __export(memory_exports, {
   saveSummary: () => saveSummary
 });
 async function initMemory(outputDir) {
-  const memoryDir = (0, import_path9.join)(outputDir, MEMORY_DIR);
-  await (0, import_promises9.mkdir)((0, import_path9.join)(memoryDir, PREFERENCES_DIR), { recursive: true });
-  await (0, import_promises9.mkdir)((0, import_path9.join)(memoryDir, LEARNED_DIR), { recursive: true });
-  await (0, import_promises9.mkdir)((0, import_path9.join)(memoryDir, ARCHIVE_DIR), { recursive: true });
+  const memoryDir = (0, import_path10.join)(outputDir, MEMORY_DIR);
+  await (0, import_promises11.mkdir)((0, import_path10.join)(memoryDir, PREFERENCES_DIR), { recursive: true });
+  await (0, import_promises11.mkdir)((0, import_path10.join)(memoryDir, LEARNED_DIR), { recursive: true });
+  await (0, import_promises11.mkdir)((0, import_path10.join)(memoryDir, ARCHIVE_DIR), { recursive: true });
 }
 function getMemoryPath(outputDir, ...segments) {
-  return (0, import_path9.join)(outputDir, MEMORY_DIR, ...segments);
+  return (0, import_path10.join)(outputDir, MEMORY_DIR, ...segments);
 }
 async function loadSummary(outputDir) {
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
@@ -5572,7 +8154,7 @@ async function loadSummary(outputDir) {
     return createEmptySummary();
   }
   try {
-    const content = await (0, import_promises9.readFile)(summaryPath, "utf-8");
+    const content = await (0, import_promises11.readFile)(summaryPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return createEmptySummary();
@@ -5581,7 +8163,7 @@ async function loadSummary(outputDir) {
 async function saveSummary(outputDir, summary) {
   await initMemory(outputDir);
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  await (0, import_promises9.writeFile)(summaryPath, JSON.stringify(summary, null, 2));
+  await (0, import_promises11.writeFile)(summaryPath, JSON.stringify(summary, null, 2));
 }
 function createEmptySummary() {
   return {
@@ -5617,7 +8199,7 @@ async function addPreference(outputDir, input) {
     sessionIds: input.sessionIds
   };
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${pref.id}.json`);
-  await (0, import_promises9.writeFile)(prefPath, JSON.stringify(pref, null, 2));
+  await (0, import_promises11.writeFile)(prefPath, JSON.stringify(pref, null, 2));
   await rebuildSummary(outputDir);
   return pref;
 }
@@ -5625,7 +8207,7 @@ async function getPreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
   if (!(0, import_fs2.existsSync)(prefPath)) return null;
   try {
-    const content = await (0, import_promises9.readFile)(prefPath, "utf-8");
+    const content = await (0, import_promises11.readFile)(prefPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return null;
@@ -5634,19 +8216,19 @@ async function getPreference(outputDir, prefId) {
 async function removePreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
   if (!(0, import_fs2.existsSync)(prefPath)) return false;
-  await (0, import_promises9.unlink)(prefPath);
+  await (0, import_promises11.unlink)(prefPath);
   await rebuildSummary(outputDir);
   return true;
 }
 async function listPreferences(outputDir, filter) {
   const prefsDir = getMemoryPath(outputDir, PREFERENCES_DIR);
   if (!(0, import_fs2.existsSync)(prefsDir)) return [];
-  const files = await (0, import_promises9.readdir)(prefsDir);
+  const files = await (0, import_promises11.readdir)(prefsDir);
   const prefs = [];
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises9.readFile)((0, import_path9.join)(prefsDir, file), "utf-8");
+      const content = await (0, import_promises11.readFile)((0, import_path10.join)(prefsDir, file), "utf-8");
       const pref = JSON.parse(content);
       if (filter?.category && pref.category !== filter.category) continue;
       if (filter?.route && pref.route !== filter.route) continue;
@@ -5669,18 +8251,18 @@ async function learnFromSession(outputDir, session, observations) {
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const learnPath = getMemoryPath(outputDir, LEARNED_DIR, `${learned.id}.json`);
-  await (0, import_promises9.writeFile)(learnPath, JSON.stringify(learned, null, 2));
+  await (0, import_promises11.writeFile)(learnPath, JSON.stringify(learned, null, 2));
   return learned;
 }
 async function listLearned(outputDir) {
   const learnedDir = getMemoryPath(outputDir, LEARNED_DIR);
   if (!(0, import_fs2.existsSync)(learnedDir)) return [];
-  const files = await (0, import_promises9.readdir)(learnedDir);
+  const files = await (0, import_promises11.readdir)(learnedDir);
   const items = [];
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises9.readFile)((0, import_path9.join)(learnedDir, file), "utf-8");
+      const content = await (0, import_promises11.readFile)((0, import_path10.join)(learnedDir, file), "utf-8");
       items.push(JSON.parse(content));
     } catch {
     }
@@ -5690,7 +8272,7 @@ async function listLearned(outputDir) {
 async function promoteToPreference(outputDir, learnedId) {
   const learnedPath = getMemoryPath(outputDir, LEARNED_DIR, `${learnedId}.json`);
   if (!(0, import_fs2.existsSync)(learnedPath)) return null;
-  const content = await (0, import_promises9.readFile)(learnedPath, "utf-8");
+  const content = await (0, import_promises11.readFile)(learnedPath, "utf-8");
   const learned = JSON.parse(content);
   if (learned.observations.length === 0) return null;
   const obs = learned.observations[0];
@@ -5747,7 +8329,7 @@ async function archiveSummary(outputDir) {
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
   const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp}.json`);
   try {
-    await (0, import_promises9.copyFile)(summaryPath, archivePath);
+    await (0, import_promises11.copyFile)(summaryPath, archivePath);
   } catch {
   }
 }
@@ -5863,13 +8445,13 @@ function formatPreference(pref) {
   lines.push(`Updated: ${pref.updatedAt}`);
   return lines.join("\n");
 }
-var import_promises9, import_fs2, import_path9, import_nanoid3, MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES;
+var import_promises11, import_fs2, import_path10, import_nanoid3, MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES;
 var init_memory = __esm({
   "src/memory.ts"() {
     "use strict";
-    import_promises9 = require("fs/promises");
+    import_promises11 = require("fs/promises");
     import_fs2 = require("fs");
-    import_path9 = require("path");
+    import_path10 = require("path");
     import_nanoid3 = require("nanoid");
     MEMORY_DIR = "memory";
     SUMMARY_FILE = "summary.json";
@@ -5952,17 +8534,17 @@ var init_types3 = __esm({
 
 // src/decision-tracker.ts
 function getDecisionsDir(outputDir) {
-  return (0, import_path10.join)(outputDir, CONTEXT_DIR, DECISIONS_DIR);
+  return (0, import_path11.join)(outputDir, CONTEXT_DIR, DECISIONS_DIR);
 }
 function routeToFilename(route) {
   return route.replace(/^\/+/, "").replace(/\//g, "_").replace(/[^a-zA-Z0-9_-]/g, "") || "_root";
 }
 function getRouteLogPath(outputDir, route) {
   const filename = `${routeToFilename(route)}.jsonl`;
-  return (0, import_path10.join)(getDecisionsDir(outputDir), filename);
+  return (0, import_path11.join)(getDecisionsDir(outputDir), filename);
 }
 async function ensureContextDirs(outputDir) {
-  await (0, import_promises10.mkdir)(getDecisionsDir(outputDir), { recursive: true });
+  await (0, import_promises12.mkdir)(getDecisionsDir(outputDir), { recursive: true });
 }
 async function recordDecision(outputDir, options) {
   await ensureContextDirs(outputDir);
@@ -5981,7 +8563,7 @@ async function recordDecision(outputDir, options) {
   };
   DecisionEntrySchema.parse(entry);
   const logPath = getRouteLogPath(outputDir, options.route);
-  await (0, import_promises10.appendFile)(logPath, JSON.stringify(entry) + "\n");
+  await (0, import_promises12.appendFile)(logPath, JSON.stringify(entry) + "\n");
   return entry;
 }
 async function getDecisionsByRoute(outputDir, route) {
@@ -5989,7 +8571,7 @@ async function getDecisionsByRoute(outputDir, route) {
   if (!(0, import_fs3.existsSync)(logPath)) {
     return [];
   }
-  const content = await (0, import_promises10.readFile)(logPath, "utf-8");
+  const content = await (0, import_promises12.readFile)(logPath, "utf-8");
   const lines = content.trim().split("\n").filter(Boolean);
   return lines.map((line) => DecisionEntrySchema.parse(JSON.parse(line)));
 }
@@ -6003,11 +8585,11 @@ async function queryDecisions(outputDir, options = {}) {
     if (!(0, import_fs3.existsSync)(decisionsDir)) {
       return [];
     }
-    const files = await (0, import_promises10.readdir)(decisionsDir);
+    const files = await (0, import_promises12.readdir)(decisionsDir);
     for (const file of files) {
       if (!file.endsWith(".jsonl")) continue;
-      const filePath = (0, import_path10.join)(decisionsDir, file);
-      const content = await (0, import_promises10.readFile)(filePath, "utf-8");
+      const filePath = (0, import_path11.join)(decisionsDir, file);
+      const content = await (0, import_promises12.readFile)(filePath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       for (const line of lines) {
         decisions.push(DecisionEntrySchema.parse(JSON.parse(line)));
@@ -6034,11 +8616,11 @@ async function getDecision(outputDir, decisionId) {
   if (!(0, import_fs3.existsSync)(decisionsDir)) {
     return null;
   }
-  const files = await (0, import_promises10.readdir)(decisionsDir);
+  const files = await (0, import_promises12.readdir)(decisionsDir);
   for (const file of files) {
     if (!file.endsWith(".jsonl")) continue;
-    const filePath = (0, import_path10.join)(decisionsDir, file);
-    const content = await (0, import_promises10.readFile)(filePath, "utf-8");
+    const filePath = (0, import_path11.join)(decisionsDir, file);
+    const content = await (0, import_promises12.readFile)(filePath, "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     for (const line of lines) {
       const entry = DecisionEntrySchema.parse(JSON.parse(line));
@@ -6054,7 +8636,7 @@ async function getTrackedRoutes(outputDir) {
   if (!(0, import_fs3.existsSync)(decisionsDir)) {
     return [];
   }
-  const files = await (0, import_promises10.readdir)(decisionsDir);
+  const files = await (0, import_promises12.readdir)(decisionsDir);
   return files.filter((f) => f.endsWith(".jsonl")).map((f) => f.replace(".jsonl", "").replace(/_/g, "/").replace(/^\/?/, "/"));
 }
 async function getDecisionStats(outputDir) {
@@ -6072,22 +8654,22 @@ async function getDecisionsSize(outputDir) {
   if (!(0, import_fs3.existsSync)(decisionsDir)) {
     return 0;
   }
-  const files = await (0, import_promises10.readdir)(decisionsDir);
+  const files = await (0, import_promises12.readdir)(decisionsDir);
   let total = 0;
   for (const file of files) {
     if (!file.endsWith(".jsonl")) continue;
-    const s = await (0, import_promises10.stat)((0, import_path10.join)(decisionsDir, file));
+    const s = await (0, import_promises12.stat)((0, import_path11.join)(decisionsDir, file));
     total += s.size;
   }
   return total;
 }
-var import_nanoid4, import_promises10, import_path10, import_fs3, CONTEXT_DIR, DECISIONS_DIR;
+var import_nanoid4, import_promises12, import_path11, import_fs3, CONTEXT_DIR, DECISIONS_DIR;
 var init_decision_tracker = __esm({
   "src/decision-tracker.ts"() {
     "use strict";
     import_nanoid4 = require("nanoid");
-    import_promises10 = require("fs/promises");
-    import_path10 = require("path");
+    import_promises12 = require("fs/promises");
+    import_path11 = require("path");
     import_fs3 = require("fs");
     init_types3();
     CONTEXT_DIR = "context";
@@ -6097,15 +8679,15 @@ var init_decision_tracker = __esm({
 
 // src/context/compact.ts
 function getCompactPath(outputDir) {
-  return (0, import_path11.join)(outputDir, CONTEXT_DIR2, COMPACT_FILE);
+  return (0, import_path12.join)(outputDir, CONTEXT_DIR2, COMPACT_FILE);
 }
 function getArchiveDir(outputDir) {
-  return (0, import_path11.join)(outputDir, CONTEXT_DIR2, ARCHIVE_DIR2);
+  return (0, import_path12.join)(outputDir, CONTEXT_DIR2, ARCHIVE_DIR2);
 }
 async function loadCompactContext(outputDir, sessionId) {
   const compactPath = getCompactPath(outputDir);
   if ((0, import_fs4.existsSync)(compactPath)) {
-    const content = await (0, import_promises11.readFile)(compactPath, "utf-8");
+    const content = await (0, import_promises13.readFile)(compactPath, "utf-8");
     return CompactContextSchema.parse(JSON.parse(content));
   }
   return {
@@ -6123,10 +8705,10 @@ async function loadCompactContext(outputDir, sessionId) {
   };
 }
 async function saveCompactContext(outputDir, context) {
-  const contextDir = (0, import_path11.join)(outputDir, CONTEXT_DIR2);
-  await (0, import_promises11.mkdir)(contextDir, { recursive: true });
+  const contextDir = (0, import_path12.join)(outputDir, CONTEXT_DIR2);
+  await (0, import_promises13.mkdir)(contextDir, { recursive: true });
   const compactPath = getCompactPath(outputDir);
-  await (0, import_promises11.writeFile)(compactPath, JSON.stringify(context, null, 2));
+  await (0, import_promises13.writeFile)(compactPath, JSON.stringify(context, null, 2));
 }
 async function updateCompactContext(outputDir, sessionId) {
   const current = await loadCompactContext(outputDir, sessionId);
@@ -6167,10 +8749,10 @@ async function updateCompactContext(outputDir, sessionId) {
 async function compactContext(outputDir, request) {
   const current = await loadCompactContext(outputDir);
   const archiveDir = getArchiveDir(outputDir);
-  await (0, import_promises11.mkdir)(archiveDir, { recursive: true });
+  await (0, import_promises13.mkdir)(archiveDir, { recursive: true });
   const archiveFilename = `compact_${Date.now()}.json`;
-  const archivePath = (0, import_path11.join)(archiveDir, archiveFilename);
-  await (0, import_promises11.writeFile)(archivePath, JSON.stringify(current, null, 2));
+  const archivePath = (0, import_path12.join)(archiveDir, archiveFilename);
+  await (0, import_promises13.writeFile)(archivePath, JSON.stringify(current, null, 2));
   const decisionsCompacted = current.decisions_summary.reduce(
     (sum, s) => sum + s.decision_count,
     0
@@ -6225,15 +8807,15 @@ async function addKnownIssue(outputDir, issue) {
 async function isCompactContextOversize(outputDir) {
   const compactPath = getCompactPath(outputDir);
   if (!(0, import_fs4.existsSync)(compactPath)) return false;
-  const content = await (0, import_promises11.readFile)(compactPath, "utf-8");
+  const content = await (0, import_promises13.readFile)(compactPath, "utf-8");
   return Buffer.byteLength(content, "utf-8") > 4096;
 }
-var import_promises11, import_path11, import_fs4, import_nanoid5, CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
+var import_promises13, import_path12, import_fs4, import_nanoid5, CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
 var init_compact = __esm({
   "src/context/compact.ts"() {
     "use strict";
-    import_promises11 = require("fs/promises");
-    import_path11 = require("path");
+    import_promises13 = require("fs/promises");
+    import_path12 = require("path");
     import_fs4 = require("fs");
     import_nanoid5 = require("nanoid");
     init_types3();
@@ -6253,31 +8835,23 @@ __export(extract_exports, {
   extractInteractiveElements: () => extractInteractiveElements,
   getReferenceSessionPaths: () => getReferenceSessionPaths
 });
-async function getBrowser2() {
-  if (!browser2) {
-    browser2 = await import_playwright6.chromium.launch({
-      headless: true
-    });
-  }
-  return browser2;
-}
 async function closeBrowser2() {
-  if (browser2) {
-    await browser2.close();
-    browser2 = null;
+  if (driver2) {
+    await driver2.close();
+    driver2 = null;
   }
 }
 async function checkLock(outputDir) {
-  const lockPath = (0, import_path12.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path13.join)(outputDir, LOCK_FILE);
   if (!(0, import_fs5.existsSync)(lockPath)) {
     return false;
   }
   try {
-    const content = await (0, import_promises12.readFile)(lockPath, "utf-8");
+    const content = await (0, import_promises14.readFile)(lockPath, "utf-8");
     const timestamp = parseInt(content, 10);
     const age = Date.now() - timestamp;
     if (age > LOCK_TIMEOUT_MS) {
-      await (0, import_promises12.unlink)(lockPath);
+      await (0, import_promises14.unlink)(lockPath);
       return false;
     }
     return true;
@@ -6286,13 +8860,13 @@ async function checkLock(outputDir) {
   }
 }
 async function createLock(outputDir) {
-  const lockPath = (0, import_path12.join)(outputDir, LOCK_FILE);
-  await (0, import_promises12.writeFile)(lockPath, Date.now().toString());
+  const lockPath = (0, import_path13.join)(outputDir, LOCK_FILE);
+  await (0, import_promises14.writeFile)(lockPath, Date.now().toString());
 }
 async function releaseLock(outputDir) {
-  const lockPath = (0, import_path12.join)(outputDir, LOCK_FILE);
+  const lockPath = (0, import_path13.join)(outputDir, LOCK_FILE);
   try {
-    await (0, import_promises12.unlink)(lockPath);
+    await (0, import_promises14.unlink)(lockPath);
   } catch {
   }
 }
@@ -6559,10 +9133,9 @@ async function extractFromURL(options) {
   if (await checkLock(outputDir)) {
     throw new Error("Another extraction is in progress. Please wait.");
   }
-  const sessionDir = (0, import_path12.join)(outputDir, "sessions", sessionId);
-  await (0, import_promises12.mkdir)(sessionDir, { recursive: true });
+  const sessionDir = (0, import_path13.join)(outputDir, "sessions", sessionId);
+  await (0, import_promises14.mkdir)(sessionDir, { recursive: true });
   await createLock(outputDir);
-  const browserInstance = await getBrowser2();
   let timeoutHandle = null;
   try {
     const timeoutPromise = new Promise((_, reject) => {
@@ -6571,14 +9144,12 @@ async function extractFromURL(options) {
       }, timeout);
     });
     const extractionPromise = async () => {
-      const context = await browserInstance.newContext({
-        viewport: {
-          width: viewport.width,
-          height: viewport.height
-        },
-        reducedMotion: "reduce"
+      const driverInstance = new EngineDriver();
+      await driverInstance.launch({
+        headless: true,
+        viewport: { width: viewport.width, height: viewport.height }
       });
-      const page = await context.newPage();
+      const page = new CompatPage(driverInstance);
       try {
         await page.goto(url, {
           waitUntil: "networkidle",
@@ -6602,7 +9173,7 @@ async function extractFromURL(options) {
           elements.push(...extracted);
         }
         const cssVariables = await extractCSSVariables(page);
-        const screenshotPath = (0, import_path12.join)(sessionDir, "reference.png");
+        const screenshotPath = (0, import_path13.join)(sessionDir, "reference.png");
         await page.screenshot({
           path: screenshotPath,
           fullPage: true,
@@ -6617,14 +9188,14 @@ async function extractFromURL(options) {
           cssVariables,
           screenshotPath
         };
-        await (0, import_promises12.writeFile)(
-          (0, import_path12.join)(sessionDir, "reference.json"),
+        await (0, import_promises14.writeFile)(
+          (0, import_path13.join)(sessionDir, "reference.json"),
           JSON.stringify(result2, null, 2)
         );
-        await (0, import_promises12.writeFile)((0, import_path12.join)(sessionDir, "reference.html"), html);
+        await (0, import_promises14.writeFile)((0, import_path13.join)(sessionDir, "reference.html"), html);
         return result2;
       } finally {
-        await context.close();
+        await driverInstance.close();
       }
     };
     const result = await Promise.race([extractionPromise(), timeoutPromise]);
@@ -6637,25 +9208,26 @@ async function extractFromURL(options) {
   }
 }
 function getReferenceSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path12.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path13.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path12.join)(root, "session.json"),
-    reference: (0, import_path12.join)(root, "reference.png"),
-    referenceHtml: (0, import_path12.join)(root, "reference.html"),
-    referenceData: (0, import_path12.join)(root, "reference.json"),
-    current: (0, import_path12.join)(root, "current.png"),
-    diff: (0, import_path12.join)(root, "diff.png")
+    sessionJson: (0, import_path13.join)(root, "session.json"),
+    reference: (0, import_path13.join)(root, "reference.png"),
+    referenceHtml: (0, import_path13.join)(root, "reference.html"),
+    referenceData: (0, import_path13.join)(root, "reference.json"),
+    current: (0, import_path13.join)(root, "current.png"),
+    diff: (0, import_path13.join)(root, "diff.png")
   };
 }
-var import_playwright6, import_promises12, import_fs5, import_path12, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, browser2, INTERACTIVE_SELECTORS;
-var init_extract = __esm({
+var import_promises14, import_fs5, import_path13, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS;
+var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
-    import_playwright6 = require("playwright");
-    import_promises12 = require("fs/promises");
+    init_driver();
+    init_compat();
+    import_promises14 = require("fs/promises");
     import_fs5 = require("fs");
-    import_path12 = require("path");
+    import_path13 = require("path");
     init_schemas();
     LOCK_FILE = ".extracting";
     LOCK_TIMEOUT_MS = 18e4;
@@ -6701,7 +9273,7 @@ var init_extract = __esm({
       "gridTemplateColumns",
       "gridTemplateRows"
     ];
-    browser2 = null;
+    driver2 = null;
     INTERACTIVE_SELECTORS = [
       "button",
       "a[href]",
@@ -6740,15 +9312,15 @@ async function scan(url, options = {}) {
     screenshot
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
-  const browser3 = await import_playwright7.chromium.launch({ headless: true });
-  const context = await browser3.newContext({
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
-    userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  const driver3 = new EngineDriver();
+  await driver3.launch({
+    headless: true,
+    viewport: { width: resolvedViewport.width, height: resolvedViewport.height }
   });
-  const page = await context.newPage();
+  const page = new CompatPage(driver3);
   const consoleErrors = [];
   const consoleWarnings = [];
-  page.on("console", (msg) => {
+  page.on?.("console", (msg) => {
     if (msg.type() === "error") {
       consoleErrors.push(msg.text());
     } else if (msg.type() === "warning") {
@@ -6760,7 +9332,7 @@ async function scan(url, options = {}) {
       waitUntil: "domcontentloaded",
       timeout
     });
-    await page.waitForLoadState("networkidle", { timeout: 1e4 }).catch(() => {
+    await page.waitForLoadState?.("networkidle", { timeout: 1e4 }).catch(() => {
     });
     if (waitFor) {
       await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
@@ -6803,8 +9375,7 @@ async function scan(url, options = {}) {
       summary
     };
   } finally {
-    await context.close();
-    await browser3.close();
+    await driver3.close();
   }
 }
 async function extractAndAudit(page, viewport) {
@@ -6932,7 +9503,7 @@ function formatScanResult(result) {
   lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${(result.semantic.confidence * 100).toFixed(0)}% confidence)`);
   lines.push(`  Auth:     ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`);
   lines.push(`  Loading:  ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`);
-  lines.push(`  Errors:   ${result.semantic.state.errors.hasErrors ? result.semantic.state.errors.errors.join(", ") : "None"}`);
+  lines.push(`  Errors:   ${result.semantic.state.errors.hasErrors ? result.semantic.state.errors.errors.map((e) => e.message).join(", ") : "None"}`);
   lines.push("");
   lines.push("  ELEMENTS");
   lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
@@ -6983,13 +9554,13 @@ function formatScanResult(result) {
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_playwright7;
 var init_scan = __esm({
   "src/scan.ts"() {
     "use strict";
-    import_playwright7 = require("playwright");
+    init_driver();
+    init_compat();
     init_schemas();
-    init_extract();
+    init_extract2();
     init_interactivity();
     init_semantic();
   }
@@ -7224,7 +9795,7 @@ async function bootDevice(udid) {
     return;
   }
   await execFileAsync("xcrun", ["simctl", "boot", udid]);
-  await new Promise((resolve2) => setTimeout(resolve2, 2e3));
+  await new Promise((resolve3) => setTimeout(resolve3, 2e3));
 }
 function formatDevice(device) {
   const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
@@ -7246,7 +9817,7 @@ async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises13.mkdir)((0, import_path13.dirname)(outputPath), { recursive: true });
+    await (0, import_promises15.mkdir)((0, import_path14.dirname)(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -7272,14 +9843,14 @@ async function captureNativeScreenshot(options) {
     };
   }
 }
-var import_child_process3, import_util2, import_promises13, import_path13, execFileAsync2;
+var import_child_process3, import_util2, import_promises15, import_path14, execFileAsync2;
 var init_capture2 = __esm({
   "src/native/capture.ts"() {
     "use strict";
     import_child_process3 = require("child_process");
     import_util2 = require("util");
-    import_promises13 = require("fs/promises");
-    import_path13 = require("path");
+    import_promises15 = require("fs/promises");
+    import_path14 = require("path");
     init_viewports();
     execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
   }
@@ -7377,14 +9948,14 @@ async function ensureExtractor() {
   if ((0, import_fs7.existsSync)(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
-  await (0, import_promises14.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  await (0, import_promises16.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
     await execFileAsync3("swift", ["build", "-c", "release"], {
       cwd: SWIFT_SOURCE_DIR,
       timeout: 12e4
       // 2 minutes for first compile
     });
-    const buildPath = (0, import_path14.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    const buildPath = (0, import_path15.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
     if (!(0, import_fs7.existsSync)(buildPath)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
@@ -7399,7 +9970,7 @@ async function ensureExtractor() {
 }
 function isExtractorAvailable() {
   if ((0, import_fs7.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs7.existsSync)((0, import_path14.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  return (0, import_fs7.existsSync)((0, import_path15.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -7459,20 +10030,20 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs7, import_promises14, import_path14, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
-var init_extract2 = __esm({
+var import_child_process4, import_util3, import_fs7, import_promises16, import_path15, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util3 = require("util");
     import_fs7 = require("fs");
-    import_promises14 = require("fs/promises");
-    import_path14 = require("path");
+    import_promises16 = require("fs/promises");
+    import_path15 = require("path");
     init_role_map();
     execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path14.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path14.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = (0, import_path14.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    EXTRACTOR_DIR = (0, import_path15.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path15.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = (0, import_path15.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
   }
 });
 
@@ -7653,20 +10224,20 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises15.mkdir)((0, import_path15.dirname)(outputPath), { recursive: true });
+  await (0, import_promises17.mkdir)((0, import_path16.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
 }
-var import_child_process5, import_util4, import_promises15, import_path15, execFileAsync4, execAsync;
+var import_child_process5, import_util4, import_promises17, import_path16, execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
     "use strict";
     import_child_process5 = require("child_process");
     import_util4 = require("util");
-    import_promises15 = require("fs/promises");
-    import_path15 = require("path");
-    init_extract2();
+    import_promises17 = require("fs/promises");
+    import_path16 = require("path");
+    init_extract3();
     init_role_map();
     execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
     execAsync = (0, import_util4.promisify)(import_child_process5.exec);
@@ -7939,7 +10510,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp = Date.now();
-    const ssPath = (0, import_path16.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const ssPath = (0, import_path17.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -8151,17 +10722,17 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_path16;
+var import_path17;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
     "use strict";
-    import_path16 = require("path");
+    import_path17 = require("path");
     init_scan();
-    init_extract();
+    init_extract2();
     init_simulator();
     init_capture2();
     init_viewports();
-    init_extract2();
+    init_extract3();
     init_rules();
     init_macos();
     init_interactivity2();
@@ -8202,7 +10773,7 @@ var init_native = __esm({
     init_viewports();
     init_simulator();
     init_capture2();
-    init_extract2();
+    init_extract3();
     init_rules();
     init_scan2();
     init_macos();
@@ -8418,7 +10989,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path17.join)((0, import_os2.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path18.join)((0, import_os2.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -8428,11 +10999,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises16.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises18.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path17.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path17.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path17.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path18.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path18.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path18.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -8454,12 +11025,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises16.access)(actualBaselinePath);
+    await (0, import_promises18.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises16.access)(actualCurrentPath);
+    await (0, import_promises18.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -8508,7 +11079,7 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path17.dirname)(paths.diff),
+      outputDir: (0, import_path18.dirname)(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
@@ -8526,7 +11097,7 @@ async function compareAll(options = {}) {
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path17.dirname)(paths.diff),
+          outputDir: (0, import_path18.dirname)(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -8538,7 +11109,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_playwright8, import_promises16, import_path17, import_os2, InterfaceBuiltRight, IBRSession;
+var import_promises18, import_path18, import_os2, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -8549,9 +11120,10 @@ var init_index = __esm({
     init_report();
     init_semantic();
     init_flows();
-    import_playwright8 = require("playwright");
-    import_promises16 = require("fs/promises");
-    import_path17 = require("path");
+    init_driver();
+    init_compat();
+    import_promises18 = require("fs/promises");
+    import_path18 = require("path");
     import_os2 = require("os");
     init_cleanup();
     init_schemas();
@@ -8741,12 +11313,9 @@ var init_index = __esm({
         const fullUrl = this.resolveUrl(url);
         const viewportName = options.viewport || "desktop";
         const viewport = VIEWPORTS[viewportName];
-        const browser3 = await import_playwright8.chromium.launch({ headless: true });
-        const context = await browser3.newContext({
-          viewport,
-          userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-        });
-        const page = await context.newPage();
+        const driver3 = new EngineDriver();
+        await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+        const page = new CompatPage(driver3);
         await page.goto(fullUrl, {
           waitUntil: "domcontentloaded",
           timeout: options.timeout || this.config.timeout
@@ -8759,7 +11328,7 @@ var init_index = __esm({
           await page.waitForSelector(options.waitFor, { timeout: 1e4 }).catch(() => {
           });
         }
-        return new IBRSession(page, browser3, context, this.config);
+        return new IBRSession(page, driver3, this.config);
       }
       /**
        * Close the browser instance
@@ -8790,15 +11359,13 @@ var init_index = __esm({
       }
     };
     IBRSession = class {
-      /** Raw Playwright page for advanced use */
+      /** Page interface for browser interaction */
       page;
-      browser;
-      context;
+      driver;
       config;
-      constructor(page, browser3, context, config) {
+      constructor(page, driver3, config) {
         this.page = page;
-        this.browser = browser3;
-        this.context = context;
+        this.driver = driver3;
         this.config = config;
       }
       /**
@@ -8851,20 +11418,14 @@ var init_index = __esm({
         });
       }
       /**
-       * Mock a network request (thin wrapper on page.route)
+       * Mock a network request.
+       * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
+       * This is a placeholder that throws until CDP Fetch is added to the engine.
        */
-      async mock(pattern, response) {
-        await this.page.route(pattern, async (route) => {
-          const body = typeof response.body === "object" ? JSON.stringify(response.body) : response.body || "";
-          await route.fulfill({
-            status: response.status || 200,
-            body,
-            headers: {
-              "Content-Type": typeof response.body === "object" ? "application/json" : "text/plain",
-              ...response.headers
-            }
-          });
-        });
+      async mock(_pattern, _response) {
+        throw new Error(
+          "Network mocking not yet supported by CDP engine. This requires the CDP Fetch domain which is planned for a future update."
+        );
       }
       /**
        * Built-in flows for common automation patterns
@@ -8931,8 +11492,7 @@ var init_index = __esm({
        * Close the session and browser
        */
       async close() {
-        await this.context.close();
-        await this.browser.close();
+        await this.driver.close();
       }
     };
   }
@@ -9121,12 +11681,12 @@ function listPresets() {
   return Array.from(presets.keys());
 }
 async function loadRulesConfig(projectDir) {
-  const configPath = (0, import_path18.join)(projectDir, ".ibr", "rules.json");
+  const configPath = (0, import_path19.join)(projectDir, ".ibr", "rules.json");
   if (!(0, import_fs8.existsSync)(configPath)) {
     return { extends: [], rules: {} };
   }
   try {
-    const content = await (0, import_promises17.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises19.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch (error) {
     console.warn(`Failed to parse rules.json: ${error}`);
@@ -9236,13 +11796,13 @@ async function loadMemoryPreset(outputDir) {
   } catch {
   }
 }
-var import_promises17, import_fs8, import_path18, presets;
+var import_promises19, import_fs8, import_path19, presets;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
-    import_promises17 = require("fs/promises");
+    import_promises19 = require("fs/promises");
     import_fs8 = require("fs");
-    import_path18 = require("path");
+    import_path19 = require("path");
     presets = /* @__PURE__ */ new Map();
     Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
     });
@@ -9429,19 +11989,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path19.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = (0, import_path20.join)(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path19.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = (0, import_path20.join)(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path19.join)((0, import_os3.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = (0, import_path20.join)((0, import_os3.homedir)(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -9450,10 +12010,10 @@ async function discoverUserContext(projectDir) {
   const config = await loadIBRConfig(projectDir);
   let memory;
   const outputDir = config.outputDir || "./.ibr";
-  const memoryPath = (0, import_path19.join)(outputDir, "memory", "summary.json");
+  const memoryPath = (0, import_path20.join)(outputDir, "memory", "summary.json");
   if ((0, import_fs9.existsSync)(memoryPath)) {
     try {
-      const memContent = await (0, import_promises18.readFile)(memoryPath, "utf-8");
+      const memContent = await (0, import_promises20.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
     } catch {
     }
@@ -9478,7 +12038,7 @@ async function tryLoadFramework(filePath, type) {
   }
   source.found = true;
   try {
-    const content = await (0, import_promises18.readFile)(filePath, "utf-8");
+    const content = await (0, import_promises20.readFile)(filePath, "utf-8");
     const framework = parseDesignFramework(content, filePath);
     if (framework) {
       source.hasFramework = true;
@@ -9489,12 +12049,12 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path19.join)(projectDir, ".ibrrc.json");
+  const configPath = (0, import_path20.join)(projectDir, ".ibrrc.json");
   if (!(0, import_fs9.existsSync)(configPath)) {
     return {};
   }
   try {
-    const content = await (0, import_promises18.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises20.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -9524,13 +12084,13 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs9, import_promises18, import_path19, import_os3;
+var import_fs9, import_promises20, import_path20, import_os3;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
     import_fs9 = require("fs");
-    import_promises18 = require("fs/promises");
-    import_path19 = require("path");
+    import_promises20 = require("fs/promises");
+    import_path20 = require("path");
     import_os3 = require("os");
     init_framework_parser();
   }
@@ -9567,7 +12127,6 @@ function createPresetFromFramework(framework) {
 }
 function generateRulesForPrinciple(principle, frameworkName, index) {
   const rules2 = [];
-  const baseId = principle.id || `principle-${index + 1}`;
   const keywords = extractKeywords(principle);
   if (keywords.has("group") || keywords.has("border") || keywords.has("isolate")) {
     rules2.push(createBorderGroupingRule(principle, frameworkName, index));
@@ -9639,11 +12198,10 @@ function createButtonSizingRule(principle, frameworkName, index) {
     principleId: principle.id,
     framework: frameworkName,
     principleIndex: index,
-    check: (element, context) => {
-      if (element.tagName !== "button" && element.role !== "button") return null;
+    check: (element, _context) => {
+      if (element.tagName !== "button" && element.a11y?.role !== "button") return null;
       const width = element.bounds?.width || 0;
-      const height = element.bounds?.height || 0;
-      const text = (element.text || element.innerText || "").toLowerCase();
+      const text = (element.text || "").toLowerCase();
       const isPrimaryAction = /submit|save|confirm|checkout|buy|sign|login|register|continue/i.test(text);
       if (isPrimaryAction && width < 120) {
         return {
@@ -9670,7 +12228,7 @@ function createTouchTargetRule(principle, frameworkName, index) {
     framework: frameworkName,
     principleIndex: index,
     check: (element, context) => {
-      if (!element.interactive?.isInteractive) return null;
+      if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
       const width = element.bounds?.width || 0;
       const height = element.bounds?.height || 0;
       const minSize = context.isMobile ? 44 : 24;
@@ -9715,7 +12273,7 @@ function createStatusColorRule(principle, frameworkName, index) {
     check: (element, _context) => {
       const style = element.computedStyles;
       if (!style) return null;
-      const text = (element.text || element.innerText || "").toLowerCase();
+      const text = (element.text || "").toLowerCase();
       const isStatusText = /success|error|warning|pending|active|inactive|status/i.test(text);
       if (isStatusText && style.backgroundColor && style.backgroundColor !== "transparent") {
         const bgColor = style.backgroundColor;
@@ -9799,9 +12357,9 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path20.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path20.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path20.join)(outputDir, "sessions")
+    stateFile: (0, import_path21.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path21.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path21.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
@@ -9810,11 +12368,15 @@ async function isServerRunning(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises19.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises21.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
-    const browser3 = await import_playwright9.chromium.connect(state.wsEndpoint, { timeout: 2e3 });
-    await browser3.close();
-    return true;
+    if (!state.cdpUrl) {
+      return false;
+    }
+    const res = await fetch(`${state.cdpUrl}/json/version`, {
+      signal: AbortSignal.timeout(2e3)
+    });
+    return res.ok;
   } catch {
     await cleanupServerState(outputDir);
     return false;
@@ -9823,9 +12385,14 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises19.unlink)(stateFile);
+    await (0, import_promises21.unlink)(stateFile);
   } catch {
   }
+}
+async function resolveWsEndpoint(cdpUrl) {
+  const res = await fetch(`${cdpUrl}/json/version`);
+  const data = await res.json();
+  return data.webSocketDebuggerUrl;
 }
 async function startBrowserServer(outputDir, options = {}) {
   const { stateFile, profileDir } = getPaths(outputDir);
@@ -9834,14 +12401,13 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises19.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises21.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises19.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises21.mkdir)(profileDir, { recursive: true });
   }
-  const debugPort = 9222 + Math.floor(Math.random() * 1e3);
-  const browserArgs = [`--remote-debugging-port=${debugPort}`];
+  const extraArgs = [];
   if (options.lowMemory) {
-    browserArgs.push(
+    extraArgs.push(
       "--disable-gpu",
       // Disable GPU acceleration
       "--disable-dev-shm-usage",
@@ -9867,12 +12433,14 @@ async function startBrowserServer(outputDir, options = {}) {
       // Limit V8 heap to 256MB
     );
   }
-  const server = await import_playwright9.chromium.launchServer({
+  const driver3 = new EngineDriver();
+  await driver3.launch({
     headless,
-    args: browserArgs
+    userDataDir: isolated ? profileDir : void 0
   });
-  const wsEndpoint = server.wsEndpoint();
+  const debugPort = driver3.debugPort;
   const cdpUrl = `http://127.0.0.1:${debugPort}`;
+  const wsEndpoint = await resolveWsEndpoint(cdpUrl);
   const state = {
     wsEndpoint,
     cdpUrl,
@@ -9882,8 +12450,8 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises19.writeFile)(stateFile, JSON.stringify(state, null, 2));
-  return { server, wsEndpoint };
+  await (0, import_promises21.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  return { driver: driver3, wsEndpoint };
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
@@ -9891,14 +12459,17 @@ async function connectToBrowserServer(outputDir) {
     return null;
   }
   try {
-    const content = await (0, import_promises19.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises21.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
+    let wsUrl;
     if (state.cdpUrl) {
-      const browser4 = await import_playwright9.chromium.connectOverCDP(state.cdpUrl, { timeout: 5e3 });
-      return browser4;
+      wsUrl = await resolveWsEndpoint(state.cdpUrl);
+    } else {
+      wsUrl = state.wsEndpoint;
     }
-    const browser3 = await import_playwright9.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
-    return browser3;
+    const driver3 = new EngineDriver();
+    await driver3.connectExisting(wsUrl);
+    return driver3;
   } catch (error) {
     await cleanupServerState(outputDir);
     return null;
@@ -9910,11 +12481,13 @@ async function stopBrowserServer(outputDir) {
     return false;
   }
   try {
-    const content = await (0, import_promises19.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises21.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
-    const browser3 = await import_playwright9.chromium.connect(state.wsEndpoint, { timeout: 5e3 });
-    await browser3.close();
-    await (0, import_promises19.unlink)(stateFile);
+    const wsUrl = state.cdpUrl ? await resolveWsEndpoint(state.cdpUrl) : state.wsEndpoint;
+    const driver3 = new EngineDriver();
+    await driver3.connectExisting(wsUrl);
+    await driver3.close();
+    await (0, import_promises21.unlink)(stateFile);
     return true;
   } catch {
     await cleanupServerState(outputDir);
@@ -9931,7 +12504,7 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path20.join)(sessionsDir, entry.name, "live-session.json");
+      const statePath = (0, import_path21.join)(sessionsDir, entry.name, "live-session.json");
       if ((0, import_fs10.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
@@ -9939,32 +12512,30 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_playwright9, import_promises19, import_fs10, import_path20, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_promises21, import_fs10, import_path21, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
-    import_playwright9 = require("playwright");
-    import_promises19 = require("fs/promises");
+    init_driver();
+    init_compat();
+    import_promises21 = require("fs/promises");
     import_fs10 = require("fs");
-    import_path20 = require("path");
+    import_path21 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
-    init_extract();
+    init_extract2();
     init_scan();
     init_interactivity();
     init_semantic();
     SERVER_STATE_FILE = "browser-server.json";
     ISOLATED_PROFILE_DIR = "browser-profile";
     PersistentSession = class _PersistentSession {
-      // Browser reference kept for potential future cleanup operations
-      browser;
-      context;
+      driver;
       page;
       state;
       sessionDir;
-      constructor(browser3, context, page, state, sessionDir) {
-        this.browser = browser3;
-        this.context = context;
+      constructor(driver3, page, state, sessionDir) {
+        this.driver = driver3;
         this.page = page;
         this.state = state;
         this.sessionDir = sessionDir;
@@ -9974,24 +12545,22 @@ var init_browser_server = __esm({
        */
       static async create(outputDir, options) {
         const { url, name, viewport = VIEWPORTS.desktop, waitFor, timeout = 3e4 } = options;
-        const browser3 = await connectToBrowserServer(outputDir);
-        if (!browser3) {
+        const driver3 = await connectToBrowserServer(outputDir);
+        if (!driver3) {
           throw new Error(
             "No browser server running.\nStart one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
           );
         }
         const sessionId = `live_${(0, import_nanoid6.nanoid)(10)}`;
-        const sessionsDir = (0, import_path20.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path20.join)(sessionsDir, sessionId);
-        await (0, import_promises19.mkdir)(sessionDir, { recursive: true });
-        const context = await browser3.newContext({
-          viewport: {
-            width: viewport.width,
-            height: viewport.height
-          },
-          reducedMotion: "reduce"
+        const sessionsDir = (0, import_path21.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path21.join)(sessionsDir, sessionId);
+        await (0, import_promises21.mkdir)(sessionDir, { recursive: true });
+        await driver3.setViewport({
+          width: viewport.width,
+          height: viewport.height
         });
-        const page = await context.newPage();
+        await driver3.emulationDomain.setReducedMotion(true);
+        const page = new CompatPage(driver3);
         const navStart = Date.now();
         await page.goto(url, {
           waitUntil: "networkidle",
@@ -10016,57 +12585,38 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises19.writeFile)(
-          (0, import_path20.join)(sessionDir, "live-session.json"),
+        await (0, import_promises21.writeFile)(
+          (0, import_path21.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path20.join)(sessionDir, "baseline.png"),
+          path: (0, import_path21.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
-        return new _PersistentSession(browser3, context, page, state, sessionDir);
+        return new _PersistentSession(driver3, page, state, sessionDir);
       }
       /**
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path20.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path20.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path21.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path21.join)(sessionDir, "live-session.json");
         if (!(0, import_fs10.existsSync)(statePath)) {
           return null;
         }
-        const browser3 = await connectToBrowserServer(outputDir);
-        if (!browser3) {
+        const driver3 = await connectToBrowserServer(outputDir);
+        if (!driver3) {
           return null;
         }
-        const content = await (0, import_promises19.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises21.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
-        const contexts = browser3.contexts();
-        let context;
-        let page;
-        const targetHost = new URL(state.url).host;
-        if (contexts.length > 0) {
-          for (const ctx of contexts) {
-            const pages = ctx.pages();
-            for (const p of pages) {
-              if (p.url().includes(targetHost)) {
-                context = ctx;
-                page = p;
-                return new _PersistentSession(browser3, context, page, state, sessionDir);
-              }
-            }
-          }
-        }
-        context = await browser3.newContext({
-          viewport: {
-            width: state.viewport.width,
-            height: state.viewport.height
-          },
-          reducedMotion: "reduce"
+        const page = new CompatPage(driver3);
+        await driver3.setViewport({
+          width: state.viewport.width,
+          height: state.viewport.height
         });
-        page = await context.newPage();
         await page.goto(state.url, { waitUntil: "networkidle" });
-        return new _PersistentSession(browser3, context, page, state, sessionDir);
+        return new _PersistentSession(driver3, page, state, sessionDir);
       }
       get id() {
         return this.state.id;
@@ -10082,8 +12632,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises19.writeFile)(
-          (0, import_path20.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises21.writeFile)(
+          (0, import_path21.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -10225,7 +12775,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path20.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path21.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -10300,20 +12850,22 @@ var init_browser_server = __esm({
         };
         const { x, y } = scrollMap[direction];
         if (options?.selector) {
-          const position2 = await this.page.evaluate(({ sel, deltaX, deltaY }) => {
-            const el = document.querySelector(sel);
-            if (!el) {
-              throw new Error(`Container not found: ${sel}`);
-            }
-            el.scrollBy(deltaX, deltaY);
-            return { x: el.scrollLeft, y: el.scrollTop };
-          }, { sel: options.selector, deltaX: x, deltaY: y });
+          const position2 = await this.page.evaluate(
+            `(function(sel, deltaX, deltaY) {
+          var el = document.querySelector(sel);
+          if (!el) throw new Error('Container not found: ' + sel);
+          el.scrollBy(deltaX, deltaY);
+          return { x: el.scrollLeft, y: el.scrollTop };
+        })(${JSON.stringify(options.selector)}, ${x}, ${y})`
+          );
           return position2;
         }
-        const position = await this.page.evaluate(({ deltaX, deltaY }) => {
-          window.scrollBy(deltaX, deltaY);
-          return { x: window.scrollX, y: window.scrollY };
-        }, { deltaX: x, deltaY: y });
+        const position = await this.page.evaluate(
+          `(function(deltaX, deltaY) {
+        window.scrollBy(deltaX, deltaY);
+        return { x: window.scrollX, y: window.scrollY };
+      })(${x}, ${y})`
+        );
         return position;
       }
       async evaluate(script) {
@@ -10486,7 +13038,7 @@ var init_browser_server = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path20.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path21.join)(this.sessionDir, screenshotFile);
         try {
           await this.page.addStyleTag({
             content: `*, *::before, *::after {
@@ -10579,12 +13131,12 @@ var init_browser_server = __esm({
         if (this.state.captures && this.state.captures.length > 0) {
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
-            const archiveDir = (0, import_path20.join)(this.sessionDir, "archive");
-            await (0, import_promises19.mkdir)(archiveDir, { recursive: true });
+            const archiveDir = (0, import_path21.join)(this.sessionDir, "archive");
+            await (0, import_promises21.mkdir)(archiveDir, { recursive: true });
             const { rename: rename2 } = await import("fs/promises");
             for (const cap of ephemeral) {
-              const src = (0, import_path20.join)(this.sessionDir, cap.screenshot);
-              const dest = (0, import_path20.join)(archiveDir, cap.screenshot);
+              const src = (0, import_path21.join)(this.sessionDir, cap.screenshot);
+              const dest = (0, import_path21.join)(archiveDir, cap.screenshot);
               try {
                 if ((0, import_fs10.existsSync)(src)) {
                   await rename2(src, dest);
@@ -10596,10 +13148,10 @@ var init_browser_server = __esm({
             await this.saveState();
           }
         }
-        await this.context.close();
+        await this.driver.close();
       }
       /**
-       * Get raw Playwright page
+       * Get raw CompatPage (engine-backed page adapter)
        */
       getPage() {
         return this.page;
@@ -10614,22 +13166,22 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_playwright10, import_promises20, import_fs11, import_path21, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises22, import_fs11, import_path22, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
-    import_playwright10 = require("playwright");
-    import_promises20 = require("fs/promises");
+    init_driver();
+    init_compat();
+    import_promises22 = require("fs/promises");
     import_fs11 = require("fs");
-    import_path21 = require("path");
+    import_path22 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
     init_scan();
     init_interactivity();
     init_semantic();
     LiveSession = class _LiveSession {
-      browser = null;
-      context = null;
+      driver = null;
       page = null;
       state;
       outputDir;
@@ -10637,12 +13189,11 @@ var init_live_session = __esm({
       stepCounter = 0;
       consoleErrors = [];
       consoleWarnings = [];
-      constructor(state, outputDir, browser3, context, page) {
+      constructor(state, outputDir, driver3, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path21.join)(outputDir, "sessions", state.id);
-        this.browser = browser3;
-        this.context = context;
+        this.sessionDir = (0, import_path22.join)(outputDir, "sessions", state.id);
+        this.driver = driver3;
         this.page = page;
         page.on("console", (msg) => {
           if (msg.type() === "error") {
@@ -10666,21 +13217,17 @@ var init_live_session = __esm({
           autoCapture = false
         } = options;
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
-        const sessionDir = (0, import_path21.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises20.mkdir)(sessionDir, { recursive: true });
-        const browser3 = await import_playwright10.chromium.launch({
+        const sessionDir = (0, import_path22.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises22.mkdir)(sessionDir, { recursive: true });
+        const driver3 = new EngineDriver();
+        await driver3.launch({
           headless: !sandbox && !debug,
-          slowMo: debug ? 100 : 0,
-          devtools: debug
-        });
-        const context = await browser3.newContext({
           viewport: {
             width: viewport.width,
             height: viewport.height
-          },
-          reducedMotion: "reduce"
+          }
         });
-        const page = await context.newPage();
+        const page = new CompatPage(driver3);
         const navStart = Date.now();
         await page.goto(url, {
           waitUntil: "networkidle",
@@ -10704,15 +13251,15 @@ var init_live_session = __esm({
           }],
           captures: []
         };
-        await (0, import_promises20.writeFile)(
-          (0, import_path21.join)(sessionDir, "live-session.json"),
+        await (0, import_promises22.writeFile)(
+          (0, import_path22.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path21.join)(sessionDir, "baseline.png"),
+          path: (0, import_path22.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
-        const session = new _LiveSession(state, outputDir, browser3, context, page);
+        const session = new _LiveSession(state, outputDir, driver3, page);
         if (autoCapture) {
           await session.capture({ keep: true, label: "initial" });
         }
@@ -10723,26 +13270,24 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path21.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path21.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path22.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path22.join)(sessionDir, "live-session.json");
         if (!(0, import_fs11.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises20.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises22.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
-        const browser3 = await import_playwright10.chromium.launch({
-          headless: !state.sandbox
-        });
-        const context = await browser3.newContext({
+        const driver3 = new EngineDriver();
+        await driver3.launch({
+          headless: !state.sandbox,
           viewport: {
             width: state.viewport.width,
             height: state.viewport.height
-          },
-          reducedMotion: "reduce"
+          }
         });
-        const page = await context.newPage();
+        const page = new CompatPage(driver3);
         await page.goto(state.url, { waitUntil: "networkidle" });
-        const session = new _LiveSession(state, outputDir, browser3, context, page);
+        const session = new _LiveSession(state, outputDir, driver3, page);
         session.stepCounter = state.captures.length;
         return session;
       }
@@ -10762,7 +13307,7 @@ var init_live_session = __esm({
         return [...this.state.captures];
       }
       get isActive() {
-        return this.browser !== null && this.page !== null;
+        return this.driver !== null && this.page !== null;
       }
       // ============================================================================
       // SCAN + CAPTURE (NEW)
@@ -10845,7 +13390,7 @@ var init_live_session = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path21.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path22.join)(this.sessionDir, screenshotFile);
         try {
           await page.addStyleTag({
             content: `
@@ -11188,7 +13733,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path21.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path22.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -11263,10 +13808,10 @@ var init_live_session = __esm({
       }
       async select(selector, values) {
         const page = this.ensurePage();
-        await page.selectOption(selector, values);
+        await page.selectOption?.(selector, Array.isArray(values) ? values[0] : values);
       }
       /**
-       * Get underlying Playwright page (for advanced use)
+       * Get underlying CompatPage (for advanced use)
        */
       getPage() {
         return this.ensurePage();
@@ -11288,13 +13833,9 @@ var init_live_session = __esm({
           }
         }
         await this.archiveEphemeralScreenshots();
-        if (this.context) {
-          await this.context.close();
-          this.context = null;
-        }
-        if (this.browser) {
-          await this.browser.close();
-          this.browser = null;
+        if (this.driver) {
+          await this.driver.close();
+          this.driver = null;
         }
         this.page = null;
         await this.saveState();
@@ -11306,14 +13847,14 @@ var init_live_session = __esm({
       async archiveEphemeralScreenshots() {
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
-        const archiveDir = (0, import_path21.join)(this.sessionDir, "archive");
-        await (0, import_promises20.mkdir)(archiveDir, { recursive: true });
+        const archiveDir = (0, import_path22.join)(this.sessionDir, "archive");
+        await (0, import_promises22.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
-          const src = (0, import_path21.join)(this.sessionDir, cap.screenshot);
-          const dest = (0, import_path21.join)(archiveDir, cap.screenshot);
+          const src = (0, import_path22.join)(this.sessionDir, cap.screenshot);
+          const dest = (0, import_path22.join)(archiveDir, cap.screenshot);
           try {
             if ((0, import_fs11.existsSync)(src)) {
-              await (0, import_promises20.rename)(src, dest);
+              await (0, import_promises22.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
           } catch {
@@ -11328,8 +13869,8 @@ var init_live_session = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises20.writeFile)(
-          (0, import_path21.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises22.writeFile)(
+          (0, import_path22.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -11397,13 +13938,13 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises21, import_fs12, import_path22, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises23, import_fs12, import_path23, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
-    import_promises21 = require("fs/promises");
+    import_promises23 = require("fs/promises");
     import_fs12 = require("fs");
-    import_path22 = require("path");
+    import_path23 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
       maxSizeBytes: 500 * 1024 * 1024,
@@ -11424,12 +13965,12 @@ var init_screenshot_manager = __esm({
         const { sessionId, fullPage = false, selector } = options;
         let outputPath;
         if (sessionId) {
-          const sessionDir = (0, import_path22.join)(this.outputDir, "sessions", sessionId);
-          await (0, import_promises21.mkdir)(sessionDir, { recursive: true });
-          outputPath = (0, import_path22.join)(sessionDir, `${name}.png`);
+          const sessionDir = (0, import_path23.join)(this.outputDir, "sessions", sessionId);
+          await (0, import_promises23.mkdir)(sessionDir, { recursive: true });
+          outputPath = (0, import_path23.join)(sessionDir, `${name}.png`);
         } else {
-          await (0, import_promises21.mkdir)(this.outputDir, { recursive: true });
-          outputPath = (0, import_path22.join)(this.outputDir, `${name}.png`);
+          await (0, import_promises23.mkdir)(this.outputDir, { recursive: true });
+          outputPath = (0, import_path23.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
           content: `
@@ -11460,7 +14001,7 @@ var init_screenshot_manager = __esm({
        * List all screenshots for a session
        */
       async list(sessionId) {
-        const sessionDir = (0, import_path22.join)(this.outputDir, "sessions", sessionId);
+        const sessionDir = (0, import_path23.join)(this.outputDir, "sessions", sessionId);
         if (!(0, import_fs12.existsSync)(sessionDir)) {
           return [];
         }
@@ -11473,15 +14014,15 @@ var init_screenshot_manager = __esm({
        * List all screenshots across all sessions
        */
       async listAll() {
-        const sessionsDir = (0, import_path22.join)(this.outputDir, "sessions");
+        const sessionsDir = (0, import_path23.join)(this.outputDir, "sessions");
         if (!(0, import_fs12.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
-        const sessions = await (0, import_promises21.readdir)(sessionsDir);
+        const sessions = await (0, import_promises23.readdir)(sessionsDir);
         for (const sessionId of sessions) {
-          const sessionDir = (0, import_path22.join)(sessionsDir, sessionId);
-          const stats = await (0, import_promises21.stat)(sessionDir);
+          const sessionDir = (0, import_path23.join)(sessionsDir, sessionId);
+          const stats = await (0, import_promises23.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
           }
@@ -11493,13 +14034,13 @@ var init_screenshot_manager = __esm({
        * Scan a directory for PNG files
        */
       async scanDirectory(dir, sessionId, results) {
-        const entries = await (0, import_promises21.readdir)(dir, { withFileTypes: true });
+        const entries = await (0, import_promises23.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
-          const fullPath = (0, import_path22.join)(dir, entry.name);
+          const fullPath = (0, import_path23.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
-            const stats = await (0, import_promises21.stat)(fullPath);
+            const stats = await (0, import_promises23.stat)(fullPath);
             const now = Date.now();
             const stepMatch = entry.name.match(/^\d+-(.+)\.png$/);
             const step = stepMatch ? stepMatch[1] : void 0;
@@ -11522,19 +14063,19 @@ var init_screenshot_manager = __esm({
         if (!(0, import_fs12.existsSync)(path2)) {
           return null;
         }
-        const stats = await (0, import_promises21.stat)(path2);
-        const name = (0, import_path22.basename)(path2);
-        const dir = (0, import_path22.dirname)(path2);
+        const stats = await (0, import_promises23.stat)(path2);
+        const name = (0, import_path23.basename)(path2);
+        const dir = (0, import_path23.dirname)(path2);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
         const step = stepMatch ? stepMatch[1] : void 0;
         const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
         const sessionId = sessionMatch ? sessionMatch[1] : void 0;
         let query;
         let userIntent;
-        const resultsPath = (0, import_path22.join)(dir, "results.json");
+        const resultsPath = (0, import_path23.join)(dir, "results.json");
         if ((0, import_fs12.existsSync)(resultsPath)) {
           try {
-            const resultsContent = await (0, import_promises21.readFile)(resultsPath, "utf-8");
+            const resultsContent = await (0, import_promises23.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
             query = results.query;
             userIntent = results.userIntent;
@@ -11593,7 +14134,7 @@ var init_screenshot_manager = __esm({
         for (const shot of toDelete) {
           try {
             if (!dryRun) {
-              await (0, import_promises21.unlink)(shot.path);
+              await (0, import_promises23.unlink)(shot.path);
             }
             report.deleted++;
             report.bytesFreed += shot.size;
@@ -11631,17 +14172,17 @@ var init_screenshot_manager = __esm({
        * Save configuration to file
        */
       async saveConfig() {
-        const configPath = (0, import_path22.join)(this.outputDir, "screenshot-config.json");
-        await (0, import_promises21.writeFile)(configPath, JSON.stringify(this.config, null, 2));
+        const configPath = (0, import_path23.join)(this.outputDir, "screenshot-config.json");
+        await (0, import_promises23.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
        */
       async loadConfig() {
-        const configPath = (0, import_path22.join)(this.outputDir, "screenshot-config.json");
+        const configPath = (0, import_path23.join)(this.outputDir, "screenshot-config.json");
         if ((0, import_fs12.existsSync)(configPath)) {
           try {
-            const content = await (0, import_promises21.readFile)(configPath, "utf-8");
+            const content = await (0, import_promises23.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
             this.config = { ...DEFAULT_CONFIG, ...loaded };
           } catch {
@@ -11654,17 +14195,17 @@ var init_screenshot_manager = __esm({
 
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises22 = require("fs/promises");
-var import_path23 = require("path");
+var import_promises24 = require("fs/promises");
+var import_path24 = require("path");
 var import_fs13 = require("fs");
 init_index();
 init_operation_tracker();
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path23.join)(process.cwd(), ".ibrrc.json");
+  const configPath = (0, import_path24.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs13.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises22.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises24.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -11673,13 +14214,13 @@ async function loadConfig() {
 }
 var IBR_DEFAULT_PORT = 4200;
 async function isPortAvailable(port) {
-  return new Promise((resolve2) => {
+  return new Promise((resolve3) => {
     import("net").then(({ createServer }) => {
       const server = createServer();
-      server.once("error", () => resolve2(false));
+      server.once("error", () => resolve3(false));
       server.once("listening", () => {
         server.close();
-        resolve2(true);
+        resolve3(true);
       });
       server.listen(port, "127.0.0.1");
     });
@@ -11789,8 +14330,8 @@ program.command("auto").description("Zero-config: detect server, scan pages, ope
     if (options.open !== false && captured > 0) {
       console.log("");
       console.log("Opening viewer...");
-      const { spawn } = await import("child_process");
-      spawn("npx", ["ibr", "serve"], {
+      const { spawn: spawn2 } = await import("child_process");
+      spawn2("npx", ["ibr", "serve"], {
         stdio: "inherit",
         shell: true,
         detached: true
@@ -11840,10 +14381,10 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     const globalOpts = program.opts();
     const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const { register: register2 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
-    const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
-    const { chromium: chromium11 } = await import("playwright");
+    const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract2(), extract_exports));
+    const { chromium } = await import("playwright");
     const { discoverUserContext: discoverUserContext2, formatContextSummary: formatContextSummary2 } = await Promise.resolve().then(() => (init_context_loader(), context_loader_exports));
-    const { generateRulesFromFramework: generateRulesFromFramework2, createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
+    const { createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
     register2();
     const userContext = await discoverUserContext2(process.cwd());
     if (options.showFramework) {
@@ -11876,9 +14417,9 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     console.log("");
     console.log(`Auditing ${resolvedUrl}...`);
     console.log("");
-    const browser3 = await chromium11.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true });
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
-    const context = await browser3.newContext({
+    const context = await browser.newContext({
       viewport: { width: viewport.width, height: viewport.height },
       reducedMotion: "reduce"
     });
@@ -11900,9 +14441,9 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     let visualResult = null;
     if (runVisual) {
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
-      const { listSessions: listSessions2, getSessionPaths: getSessionPaths2, getMostRecentSession: getMostRecentSession2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { mkdir: mkdir18, access: access4 } = await import("fs/promises");
-      const { join: join21 } = await import("path");
+      const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
+      const { mkdir: mkdir20, access: access4 } = await import("fs/promises");
+      const { join: join22 } = await import("path");
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -11910,7 +14451,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir18(join21(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir20(join22(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -11941,7 +14482,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { readFile: readFile18 } = await import("fs/promises");
-      const { join: join21 } = await import("path");
+      const { join: join22 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
@@ -11950,7 +14491,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       let elementChecks = [];
       if (baselineSession && baselineSession.landmarkElements) {
         const currentLandmarks = await detectLandmarks2(page);
-        const comparison = compareLandmarks2(baselineSession.landmarkElements, currentLandmarks);
+        void compareLandmarks2(baselineSession.landmarkElements, currentLandmarks);
         for (const landmark of baselineSession.landmarkElements) {
           if (landmark.found) {
             const stillExists = currentLandmarks.find((l) => l.name === landmark.name && l.found);
@@ -11966,7 +14507,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join21(process.cwd(), "CLAUDE.md");
+          const claudeMdPath = join22(process.cwd(), "CLAUDE.md");
           const content = await readFile18(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
@@ -12011,7 +14552,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       };
     }
     await context.close();
-    await browser3.close();
+    await browser.close();
     let integrationResult = null;
     if (options.checkApis) {
       const { scanDirectoryForApiCalls: scanDirectoryForApiCalls2, discoverApiRoutes: discoverApiRoutes2, findOrphanEndpoints: findOrphanEndpoints2 } = await Promise.resolve().then(() => (init_integration(), integration_exports));
@@ -12282,14 +14823,14 @@ program.command("delete <sessionId>").description("Delete a specific session").a
   }
 });
 program.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
-  const { spawn } = await import("child_process");
-  const { resolve: resolve2 } = await import("path");
-  const packageRoot = resolve2(process.cwd());
-  let webUiDir = (0, import_path23.join)(packageRoot, "web-ui");
+  const { spawn: spawn2 } = await import("child_process");
+  const { resolve: resolve3 } = await import("path");
+  const packageRoot = resolve3(process.cwd());
+  let webUiDir = (0, import_path24.join)(packageRoot, "web-ui");
   if (!(0, import_fs13.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path23.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path23.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path24.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path24.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
       if ((0, import_fs13.existsSync)(p)) {
@@ -12342,7 +14883,7 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   console.log(`Starting web UI on http://localhost:${port}`);
   console.log("Press Ctrl+C to stop the server.");
   console.log("");
-  const server = spawn("npm", ["run", "dev", "--", "-p", String(port)], {
+  const server = spawn2("npm", ["run", "dev", "--", "-p", String(port)], {
     cwd: webUiDir,
     stdio: "inherit",
     shell: true
@@ -12402,7 +14943,7 @@ program.command("session:start [url]").description("Start an interactive browser
     if (!serverRunning) {
       const modeLabel = options.lowMemory ? " (low-memory mode)" : "";
       console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
-      const { server } = await startBrowserServer2(outputDir, {
+      const { driver: driver3 } = await startBrowserServer2(outputDir, {
         headless,
         debug: options.debug,
         isolated: true,
@@ -12434,11 +14975,11 @@ program.command("session:start [url]").description("Start an interactive browser
       console.log("To close: npx ibr session:close all");
       console.log("");
       console.log("Browser server running. Press Ctrl+C to stop.");
-      await new Promise((resolve2) => {
+      await new Promise((resolve3) => {
         const cleanup = async () => {
           console.log("\nShutting down browser server...");
-          server.close();
-          resolve2();
+          await driver3.close();
+          resolve3();
         };
         process.on("SIGINT", cleanup);
         process.on("SIGTERM", cleanup);
@@ -13099,26 +15640,26 @@ program.command("screenshots:view <path>").description("View a screenshot with m
 });
 program.command("search-test <url>").description("Run AI search test with screenshots and validation context").option("-q, --query <query>", "Search query to test", "test").option("-i, --intent <intent>", "User intent for validation").option("--results-selector <css>", "CSS selector for results").option("--no-screenshots", "Skip capturing screenshots").option("--json", "Output as JSON").action(async (url, options) => {
   try {
-    const { chromium: chromium11 } = await import("playwright");
+    const { chromium } = await import("playwright");
     const { aiSearchFlow: aiSearchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
     const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
-    const { mkdir: mkdir18 } = await import("fs/promises");
+    const { mkdir: mkdir20 } = await import("fs/promises");
     console.log(`Testing search on ${url}...`);
     console.log(`Query: "${options.query}"`);
     if (options.intent) console.log(`Intent: ${options.intent}`);
     console.log("");
-    const browser3 = await chromium11.launch({ headless: true });
+    const browser = await chromium.launch({ headless: true });
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
-    const context = await browser3.newContext({
+    const context = await browser.newContext({
       viewport: { width: viewport.width, height: viewport.height },
       reducedMotion: "reduce"
     });
     const page = await context.newPage();
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path23.join)(outputDir, "sessions", `search-${Date.now()}`);
-    await mkdir18(sessionDir, { recursive: true });
+    const sessionDir = (0, import_path24.join)(outputDir, "sessions", `search-${Date.now()}`);
+    await mkdir20(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
       userIntent: options.intent || `Find results related to: ${options.query}`,
@@ -13128,7 +15669,7 @@ program.command("search-test <url>").description("Run AI search test with screen
       sessionDir
     });
     await context.close();
-    await browser3.close();
+    await browser.close();
     const validationContext = generateValidationContext2(result);
     const obvIssues = analyzeForObviousIssues2(validationContext);
     if (options.json) {
@@ -13382,13 +15923,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join21 } = await import("path");
+    const { join: join22 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join21(outputDir, "diagnose", "test.png"),
+      outputPath: join22(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -13450,13 +15991,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   }
 });
 async function isPortInUse(port) {
-  return new Promise((resolve2) => {
+  return new Promise((resolve3) => {
     const net = require("net");
     const server = net.createServer();
-    server.once("error", () => resolve2(true));
+    server.once("error", () => resolve3(true));
     server.once("listening", () => {
       server.close();
-      resolve2(false);
+      resolve3(false);
     });
     server.listen(port, "127.0.0.1");
   });
@@ -13505,9 +16046,9 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile12, readFile: readFile18, mkdir: mkdir18 } = await import("fs/promises");
-  const configPath = (0, import_path23.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path23.join)(process.cwd(), ".claude", "settings.json");
+  const { writeFile: writeFile13, readFile: readFile18, mkdir: mkdir20 } = await import("fs/promises");
+  const configPath = (0, import_path24.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path24.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
   if (!(0, import_fs13.existsSync)(configPath)) {
     let baseUrl;
@@ -13546,7 +16087,7 @@ program.command("init").description("Initialize IBR config and optionally regist
         autoClean: true
       }
     };
-    await writeFile12(configPath, JSON.stringify(config, null, 2));
+    await writeFile13(configPath, JSON.stringify(config, null, 2));
     configCreated = true;
     console.log("");
     console.log("Created .ibrrc.json");
@@ -13563,7 +16104,7 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs13.existsSync)((0, import_path23.join)(process.cwd(), ".claude"));
+  const claudeDirExists = (0, import_fs13.existsSync)((0, import_path24.join)(process.cwd(), ".claude"));
   const hasClaudeSettings = (0, import_fs13.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
@@ -13573,7 +16114,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs13.existsSync)((0, import_path23.join)(process.cwd(), p))) {
+    if ((0, import_fs13.existsSync)((0, import_path24.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -13598,7 +16139,7 @@ program.command("init").description("Initialize IBR config and optionally regist
     } catch {
       settings = { plugins: [] };
     }
-    const alreadyRegistered = settings.plugins.some(
+    const alreadyRegistered = (settings.plugins ?? []).some(
       (p) => p.includes("interface-built-right/plugin") || p === pluginPath
     );
     if (alreadyRegistered) {
@@ -13632,10 +16173,10 @@ program.command("init").description("Initialize IBR config and optionally regist
     input: process.stdin,
     output: process.stdout
   });
-  const answer = await new Promise((resolve2) => {
+  const answer = await new Promise((resolve3) => {
     rl.question("Register IBR plugin for Claude Code? [Y/n] ", (ans) => {
       rl.close();
-      resolve2(ans.trim().toLowerCase());
+      resolve3(ans.trim().toLowerCase());
     });
   });
   if (answer === "n" || answer === "no") {
@@ -13652,11 +16193,11 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir18((0, import_path23.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir20((0, import_path24.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
-    await writeFile12(claudeSettingsPath, JSON.stringify(settings, null, 2));
+    await writeFile13(claudeSettingsPath, JSON.stringify(settings, null, 2));
     console.log("");
     console.log("IBR plugin registered.");
     console.log("");

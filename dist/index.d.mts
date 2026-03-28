@@ -1,6 +1,113 @@
-import { Page, Browser, BrowserContext } from 'playwright';
 import { z } from 'zod';
 
+/**
+ * PageLike — structural interface that both Playwright's Page and CompatPage satisfy.
+ * Use this as the parameter type in functions that need to work with either.
+ */
+interface ElementHandleLike {
+    screenshot(options?: {
+        path?: string;
+        type?: string;
+    }): Promise<Buffer>;
+    textContent(): Promise<string | null>;
+    boundingBox(): Promise<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    } | null>;
+    getAttribute?(name: string): Promise<string | null>;
+    click?(options?: any): Promise<void>;
+    fill?(value: string, options?: any): Promise<void>;
+    check?(options?: any): Promise<void>;
+    uncheck?(options?: any): Promise<void>;
+    selectOption?(value: string | string[], options?: any): Promise<any>;
+    press?(key: string, options?: any): Promise<void>;
+    focus?(options?: any): Promise<void>;
+    type?(text: string, options?: any): Promise<void>;
+}
+interface LocatorLike {
+    filter(options: {
+        visible?: boolean;
+    }): LocatorLike;
+    first(): LocatorLike;
+    click(options?: {
+        timeout?: number;
+        force?: boolean;
+    }): Promise<void>;
+    fill(text: string, options?: {
+        timeout?: number;
+    }): Promise<void>;
+    focus(options?: {
+        timeout?: number;
+    }): Promise<void>;
+    press(key: string, options?: {
+        timeout?: number;
+    }): Promise<void>;
+    pressSequentially(text: string, options?: {
+        delay?: number;
+        timeout?: number;
+    }): Promise<void>;
+    waitFor(options?: {
+        state?: string;
+        timeout?: number;
+    }): Promise<void>;
+}
+interface PageLike {
+    goto(url: string, options?: {
+        waitUntil?: string;
+        timeout?: number;
+    }): Promise<any>;
+    evaluate(fn: any, ...args: any[]): Promise<any>;
+    $(selector: string): Promise<ElementHandleLike | null>;
+    $$(selector: string): Promise<ElementHandleLike[]>;
+    screenshot(options?: {
+        path?: string;
+        fullPage?: boolean;
+        type?: string;
+    }): Promise<Buffer>;
+    addStyleTag(options: {
+        content: string;
+    }): Promise<any>;
+    waitForSelector(selector: string, options?: {
+        timeout?: number;
+    }): Promise<ElementHandleLike | null>;
+    waitForTimeout(ms: number): Promise<void>;
+    content(): Promise<string>;
+    title(): Promise<string>;
+    textContent(selector: string): Promise<string | null>;
+    getAttribute?(selector: string, name: string): Promise<string | null>;
+    click?(selector: string, options?: {
+        timeout?: number;
+    }): Promise<void>;
+    fill?(selector: string, value: string): Promise<void>;
+    type?(selector: string, text: string, options?: {
+        delay?: number;
+    }): Promise<void>;
+    hover?(selector: string, options?: {
+        timeout?: number;
+    }): Promise<void>;
+    check?(selector: string): Promise<void>;
+    uncheck?(selector: string): Promise<void>;
+    selectOption?(selector: string, value: string): Promise<any>;
+    locator?(selector: string): LocatorLike;
+    on?(event: string, handler: any): void;
+    off?(event: string, handler: any): void;
+    url?(): string;
+    keyboard?: {
+        press(key: string): Promise<void>;
+    };
+    innerText?(selector: string): Promise<string>;
+    waitForNavigation?(): Promise<any>;
+    waitForLoadState?(state?: string, options?: {
+        timeout?: number;
+    }): Promise<void>;
+}
+
+type Page = PageLike & {
+    on(event: string, handler: any): void;
+    off?(event: string, handler: any): void;
+};
 /**
  * API request timing info
  */
@@ -161,7 +268,7 @@ interface InteractivityResult {
 /**
  * Test interactivity of all interactive elements on a page
  */
-declare function testInteractivity(page: Page): Promise<InteractivityResult>;
+declare function testInteractivity(page: PageLike): Promise<InteractivityResult>;
 /**
  * Format interactivity result for console output
  */
@@ -246,11 +353,11 @@ interface PerformanceResult {
  * Note: FID requires actual user interaction, so it will be null
  * for automated tests. Use TTI as an alternative measure.
  */
-declare function measureWebVitals(page: Page): Promise<WebVitals>;
+declare function measureWebVitals(page: PageLike): Promise<WebVitals>;
 /**
  * Measure performance and return rated results
  */
-declare function measurePerformance(page: Page): Promise<PerformanceResult>;
+declare function measurePerformance(page: PageLike): Promise<PerformanceResult>;
 /**
  * Format performance result for console output
  */
@@ -284,15 +391,15 @@ interface FlowOptions {
 /**
  * Find a form field by common label patterns
  */
-declare function findFieldByLabel(page: Page, labels: string[]): Promise<ReturnType<Page['$']>>;
+declare function findFieldByLabel(page: PageLike, labels: string[]): Promise<ReturnType<PageLike['$']>>;
 /**
  * Find a button by common patterns
  */
-declare function findButton(page: Page, patterns: string[]): Promise<ReturnType<Page['$']>>;
+declare function findButton(page: PageLike, patterns: string[]): Promise<ReturnType<PageLike['$']>>;
 /**
  * Wait for navigation or network idle
  */
-declare function waitForNavigation(page: Page, timeout?: number): Promise<void>;
+declare function waitForNavigation(page: PageLike, timeout?: number): Promise<void>;
 /**
  * Screenshot captured at a specific step during search flow
  */
@@ -408,7 +515,7 @@ interface FormResult extends FlowResult {
 /**
  * Execute form submission flow
  */
-declare function formFlow(page: Page, options: FlowFormOptions): Promise<FormResult>;
+declare function formFlow(page: PageLike, options: FlowFormOptions): Promise<FormResult>;
 
 /**
  * Search Flow
@@ -434,7 +541,7 @@ interface SearchResult extends FlowResult {
 /**
  * Execute search flow
  */
-declare function searchFlow(page: Page, options: FlowSearchOptions): Promise<SearchResult>;
+declare function searchFlow(page: PageLike, options: FlowSearchOptions): Promise<SearchResult>;
 /**
  * Execute AI-enhanced search flow with screenshots and content extraction
  *
@@ -444,7 +551,7 @@ declare function searchFlow(page: Page, options: FlowSearchOptions): Promise<Sea
  * - Extraction of result content for AI validation
  * - User intent tracking for relevance checking
  */
-declare function aiSearchFlow(page: Page, options: AISearchOptions): Promise<AISearchResult>;
+declare function aiSearchFlow(page: PageLike, options: AISearchOptions): Promise<AISearchResult>;
 
 /**
  * Login Flow
@@ -471,7 +578,7 @@ interface LoginResult extends FlowResult {
 /**
  * Execute login flow
  */
-declare function loginFlow(page: Page, options: FlowLoginOptions): Promise<LoginResult>;
+declare function loginFlow(page: PageLike, options: FlowLoginOptions): Promise<LoginResult>;
 
 /**
  * Viewport configuration for screenshot capture
@@ -481,7 +588,15 @@ declare const ViewportSchema: z.ZodObject<{
     name: z.ZodString;
     width: z.ZodNumber;
     height: z.ZodNumber;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    width: number;
+    height: number;
+}, {
+    name: string;
+    width: number;
+    height: number;
+}>;
 /**
  * Predefined viewport configurations
  */
@@ -582,34 +697,98 @@ declare const ConfigSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        width: number;
+        height: number;
+    }, {
+        name: string;
+        width: number;
+        height: number;
+    }>>;
     viewports: z.ZodOptional<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>>>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        width: number;
+        height: number;
+    }, {
+        name: string;
+        width: number;
+        height: number;
+    }>, "many">>;
     threshold: z.ZodDefault<z.ZodNumber>;
     fullPage: z.ZodDefault<z.ZodBoolean>;
     waitForNetworkIdle: z.ZodDefault<z.ZodBoolean>;
     timeout: z.ZodDefault<z.ZodNumber>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    threshold: number;
+    outputDir: string;
+    viewport: {
+        name: string;
+        width: number;
+        height: number;
+    };
+    fullPage: boolean;
+    waitForNetworkIdle: boolean;
+    timeout: number;
+    baseUrl: string;
+    viewports?: {
+        name: string;
+        width: number;
+        height: number;
+    }[] | undefined;
+}, {
+    baseUrl: string;
+    threshold?: number | undefined;
+    outputDir?: string | undefined;
+    viewport?: {
+        name: string;
+        width: number;
+        height: number;
+    } | undefined;
+    fullPage?: boolean | undefined;
+    waitForNetworkIdle?: boolean | undefined;
+    timeout?: number | undefined;
+    viewports?: {
+        name: string;
+        width: number;
+        height: number;
+    }[] | undefined;
+}>;
 /**
  * Session query options
  */
 declare const SessionQuerySchema: z.ZodObject<{
     route: z.ZodOptional<z.ZodString>;
     url: z.ZodOptional<z.ZodString>;
-    status: z.ZodOptional<z.ZodEnum<{
-        baseline: "baseline";
-        compared: "compared";
-        pending: "pending";
-    }>>;
+    status: z.ZodOptional<z.ZodEnum<["baseline", "compared", "pending"]>>;
     name: z.ZodOptional<z.ZodString>;
     createdAfter: z.ZodOptional<z.ZodDate>;
     createdBefore: z.ZodOptional<z.ZodDate>;
     viewport: z.ZodOptional<z.ZodString>;
     limit: z.ZodDefault<z.ZodNumber>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    limit: number;
+    name?: string | undefined;
+    status?: "baseline" | "compared" | "pending" | undefined;
+    url?: string | undefined;
+    viewport?: string | undefined;
+    route?: string | undefined;
+    createdAfter?: Date | undefined;
+    createdBefore?: Date | undefined;
+}, {
+    name?: string | undefined;
+    status?: "baseline" | "compared" | "pending" | undefined;
+    url?: string | undefined;
+    viewport?: string | undefined;
+    limit?: number | undefined;
+    route?: string | undefined;
+    createdAfter?: Date | undefined;
+    createdBefore?: Date | undefined;
+}>;
 /**
  * Comparison result from pixelmatch
  */
@@ -619,106 +798,213 @@ declare const ComparisonResultSchema: z.ZodObject<{
     diffPixels: z.ZodNumber;
     totalPixels: z.ZodNumber;
     threshold: z.ZodNumber;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    threshold: number;
+    match: boolean;
+    diffPercent: number;
+    diffPixels: number;
+    totalPixels: number;
+}, {
+    threshold: number;
+    match: boolean;
+    diffPercent: number;
+    diffPixels: number;
+    totalPixels: number;
+}>;
 /**
  * Changed region detected in comparison
  */
 declare const ChangedRegionSchema: z.ZodObject<{
-    location: z.ZodEnum<{
-        top: "top";
-        bottom: "bottom";
-        left: "left";
-        right: "right";
-        center: "center";
-        full: "full";
-    }>;
+    location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
     bounds: z.ZodObject<{
         x: z.ZodNumber;
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>;
-    description: z.ZodString;
-    severity: z.ZodEnum<{
-        expected: "expected";
-        unexpected: "unexpected";
-        critical: "critical";
+    }, "strip", z.ZodTypeAny, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
     }>;
-}, z.core.$strip>;
+    description: z.ZodString;
+    severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
+}, "strip", z.ZodTypeAny, {
+    location: "top" | "bottom" | "left" | "right" | "center" | "full";
+    bounds: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    };
+    description: string;
+    severity: "expected" | "unexpected" | "critical";
+}, {
+    location: "top" | "bottom" | "left" | "right" | "center" | "full";
+    bounds: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    };
+    description: string;
+    severity: "expected" | "unexpected" | "critical";
+}>;
 /**
  * Analysis verdict types
  */
-declare const VerdictSchema: z.ZodEnum<{
-    MATCH: "MATCH";
-    EXPECTED_CHANGE: "EXPECTED_CHANGE";
-    UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
-    LAYOUT_BROKEN: "LAYOUT_BROKEN";
-}>;
+declare const VerdictSchema: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
 /**
  * Analysis result
  */
 declare const AnalysisSchema: z.ZodObject<{
-    verdict: z.ZodEnum<{
-        MATCH: "MATCH";
-        EXPECTED_CHANGE: "EXPECTED_CHANGE";
-        UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
-        LAYOUT_BROKEN: "LAYOUT_BROKEN";
-    }>;
+    verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
     summary: z.ZodString;
     changedRegions: z.ZodArray<z.ZodObject<{
-        location: z.ZodEnum<{
-            top: "top";
-            bottom: "bottom";
-            left: "left";
-            right: "right";
-            center: "center";
-            full: "full";
-        }>;
+        location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
         bounds: z.ZodObject<{
             x: z.ZodNumber;
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, z.core.$strip>;
-        description: z.ZodString;
-        severity: z.ZodEnum<{
-            expected: "expected";
-            unexpected: "unexpected";
-            critical: "critical";
+        }, "strip", z.ZodTypeAny, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
         }>;
-    }, z.core.$strip>>;
+        description: z.ZodString;
+        severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
+    }, "strip", z.ZodTypeAny, {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }, {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }>, "many">;
     unexpectedChanges: z.ZodArray<z.ZodObject<{
-        location: z.ZodEnum<{
-            top: "top";
-            bottom: "bottom";
-            left: "left";
-            right: "right";
-            center: "center";
-            full: "full";
-        }>;
+        location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
         bounds: z.ZodObject<{
             x: z.ZodNumber;
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, z.core.$strip>;
-        description: z.ZodString;
-        severity: z.ZodEnum<{
-            expected: "expected";
-            unexpected: "unexpected";
-            critical: "critical";
+        }, "strip", z.ZodTypeAny, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
         }>;
-    }, z.core.$strip>>;
+        description: z.ZodString;
+        severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
+    }, "strip", z.ZodTypeAny, {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }, {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }>, "many">;
     recommendation: z.ZodNullable<z.ZodString>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+    summary: string;
+    changedRegions: {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }[];
+    unexpectedChanges: {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }[];
+    recommendation: string | null;
+}, {
+    verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+    summary: string;
+    changedRegions: {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }[];
+    unexpectedChanges: {
+        location: "top" | "bottom" | "left" | "right" | "center" | "full";
+        bounds: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        };
+        description: string;
+        severity: "expected" | "unexpected" | "critical";
+    }[];
+    recommendation: string | null;
+}>;
 /**
  * Session status
  */
-declare const SessionStatusSchema: z.ZodEnum<{
-    baseline: "baseline";
-    compared: "compared";
-    pending: "pending";
-}>;
+declare const SessionStatusSchema: z.ZodEnum<["baseline", "compared", "pending"]>;
 /**
  * Element bounds (moved up for LandmarkElementSchema dependency)
  */
@@ -727,7 +1013,17 @@ declare const BoundsSchema: z.ZodObject<{
     y: z.ZodNumber;
     width: z.ZodNumber;
     height: z.ZodNumber;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+}, {
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+}>;
 /**
  * Landmark element detected on page
  */
@@ -740,8 +1036,38 @@ declare const LandmarkElementSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    selector: string;
+    found: boolean;
+    bounds?: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    } | undefined;
+}, {
+    name: string;
+    selector: string;
+    found: boolean;
+    bounds?: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    } | undefined;
+}>;
 /**
  * Visual session
  */
@@ -753,17 +1079,17 @@ declare const SessionSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>;
-    status: z.ZodEnum<{
-        baseline: "baseline";
-        compared: "compared";
-        pending: "pending";
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        width: number;
+        height: number;
+    }, {
+        name: string;
+        width: number;
+        height: number;
     }>;
-    platform: z.ZodOptional<z.ZodEnum<{
-        web: "web";
-        ios: "ios";
-        watchos: "watchos";
-    }>>;
+    status: z.ZodEnum<["baseline", "compared", "pending"]>;
+    platform: z.ZodOptional<z.ZodEnum<["web", "ios", "watchos"]>>;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
     comparison: z.ZodOptional<z.ZodObject<{
@@ -772,61 +1098,158 @@ declare const SessionSchema: z.ZodObject<{
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    }, {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    }>>;
     analysis: z.ZodOptional<z.ZodObject<{
-        verdict: z.ZodEnum<{
-            MATCH: "MATCH";
-            EXPECTED_CHANGE: "EXPECTED_CHANGE";
-            UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
-            LAYOUT_BROKEN: "LAYOUT_BROKEN";
-        }>;
+        verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
         summary: z.ZodString;
         changedRegions: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<{
-                top: "top";
-                bottom: "bottom";
-                left: "left";
-                right: "right";
-                center: "center";
-                full: "full";
-            }>;
+            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, z.core.$strip>;
-            description: z.ZodString;
-            severity: z.ZodEnum<{
-                expected: "expected";
-                unexpected: "unexpected";
-                critical: "critical";
+            }, "strip", z.ZodTypeAny, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            }, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
             }>;
-        }, z.core.$strip>>;
+            description: z.ZodString;
+            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
+        }, "strip", z.ZodTypeAny, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }>, "many">;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<{
-                top: "top";
-                bottom: "bottom";
-                left: "left";
-                right: "right";
-                center: "center";
-                full: "full";
-            }>;
+            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, z.core.$strip>;
-            description: z.ZodString;
-            severity: z.ZodEnum<{
-                expected: "expected";
-                unexpected: "unexpected";
-                critical: "critical";
+            }, "strip", z.ZodTypeAny, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            }, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
             }>;
-        }, z.core.$strip>>;
+            description: z.ZodString;
+            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
+        }, "strip", z.ZodTypeAny, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }>, "many">;
         recommendation: z.ZodNullable<z.ZodString>;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    }, {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    }>>;
     landmarkElements: z.ZodOptional<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         selector: z.ZodString;
@@ -836,10 +1259,158 @@ declare const SessionSchema: z.ZodObject<{
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, z.core.$strip>>;
-    }, z.core.$strip>>>;
+        }, "strip", z.ZodTypeAny, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        selector: string;
+        found: boolean;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+    }, {
+        name: string;
+        selector: string;
+        found: boolean;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+    }>, "many">>;
     pageIntent: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    status: "baseline" | "compared" | "pending";
+    url: string;
+    viewport: {
+        name: string;
+        width: number;
+        height: number;
+    };
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    platform?: "web" | "ios" | "watchos" | undefined;
+    comparison?: {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    } | undefined;
+    analysis?: {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    } | undefined;
+    landmarkElements?: {
+        name: string;
+        selector: string;
+        found: boolean;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+    }[] | undefined;
+    pageIntent?: string | undefined;
+}, {
+    name: string;
+    status: "baseline" | "compared" | "pending";
+    url: string;
+    viewport: {
+        name: string;
+        width: number;
+        height: number;
+    };
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    platform?: "web" | "ios" | "watchos" | undefined;
+    comparison?: {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    } | undefined;
+    analysis?: {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    } | undefined;
+    landmarkElements?: {
+        name: string;
+        selector: string;
+        found: boolean;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+    }[] | undefined;
+    pageIntent?: string | undefined;
+}>;
 /**
  * Full comparison report
  */
@@ -852,75 +1423,288 @@ declare const ComparisonReportSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        name: string;
+        width: number;
+        height: number;
+    }, {
+        name: string;
+        width: number;
+        height: number;
+    }>;
     comparison: z.ZodObject<{
         match: z.ZodBoolean;
         diffPercent: z.ZodNumber;
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    }, {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    }>;
     analysis: z.ZodObject<{
-        verdict: z.ZodEnum<{
-            MATCH: "MATCH";
-            EXPECTED_CHANGE: "EXPECTED_CHANGE";
-            UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
-            LAYOUT_BROKEN: "LAYOUT_BROKEN";
-        }>;
+        verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
         summary: z.ZodString;
         changedRegions: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<{
-                top: "top";
-                bottom: "bottom";
-                left: "left";
-                right: "right";
-                center: "center";
-                full: "full";
-            }>;
+            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, z.core.$strip>;
-            description: z.ZodString;
-            severity: z.ZodEnum<{
-                expected: "expected";
-                unexpected: "unexpected";
-                critical: "critical";
+            }, "strip", z.ZodTypeAny, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            }, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
             }>;
-        }, z.core.$strip>>;
+            description: z.ZodString;
+            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
+        }, "strip", z.ZodTypeAny, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }>, "many">;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<{
-                top: "top";
-                bottom: "bottom";
-                left: "left";
-                right: "right";
-                center: "center";
-                full: "full";
-            }>;
+            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, z.core.$strip>;
-            description: z.ZodString;
-            severity: z.ZodEnum<{
-                expected: "expected";
-                unexpected: "unexpected";
-                critical: "critical";
+            }, "strip", z.ZodTypeAny, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            }, {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
             }>;
-        }, z.core.$strip>>;
+            description: z.ZodString;
+            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
+        }, "strip", z.ZodTypeAny, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }, {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }>, "many">;
         recommendation: z.ZodNullable<z.ZodString>;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    }, {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    }>;
     files: z.ZodObject<{
         baseline: z.ZodString;
         current: z.ZodString;
         diff: z.ZodString;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        baseline: string;
+        current: string;
+        diff: string;
+    }, {
+        baseline: string;
+        current: string;
+        diff: string;
+    }>;
     webViewUrl: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    url: string;
+    viewport: {
+        name: string;
+        width: number;
+        height: number;
+    };
+    sessionId: string;
+    comparison: {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    };
+    analysis: {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    };
+    sessionName: string;
+    timestamp: string;
+    files: {
+        baseline: string;
+        current: string;
+        diff: string;
+    };
+    webViewUrl?: string | undefined;
+}, {
+    url: string;
+    viewport: {
+        name: string;
+        width: number;
+        height: number;
+    };
+    sessionId: string;
+    comparison: {
+        threshold: number;
+        match: boolean;
+        diffPercent: number;
+        diffPixels: number;
+        totalPixels: number;
+    };
+    analysis: {
+        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
+        summary: string;
+        changedRegions: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        unexpectedChanges: {
+            location: "top" | "bottom" | "left" | "right" | "center" | "full";
+            bounds: {
+                width: number;
+                height: number;
+                x: number;
+                y: number;
+            };
+            description: string;
+            severity: "expected" | "unexpected" | "critical";
+        }[];
+        recommendation: string | null;
+    };
+    sessionName: string;
+    timestamp: string;
+    files: {
+        baseline: string;
+        current: string;
+        diff: string;
+    };
+    webViewUrl?: string | undefined;
+}>;
 /**
  * Element interactivity detection
  */
@@ -933,7 +1717,25 @@ declare const InteractiveStateSchema: z.ZodObject<{
     hasReactHandler: z.ZodOptional<z.ZodBoolean>;
     hasVueHandler: z.ZodOptional<z.ZodBoolean>;
     hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    hasOnClick: boolean;
+    hasHref: boolean;
+    isDisabled: boolean;
+    tabIndex: number;
+    cursor: string;
+    hasReactHandler?: boolean | undefined;
+    hasVueHandler?: boolean | undefined;
+    hasAngularHandler?: boolean | undefined;
+}, {
+    hasOnClick: boolean;
+    hasHref: boolean;
+    isDisabled: boolean;
+    tabIndex: number;
+    cursor: string;
+    hasReactHandler?: boolean | undefined;
+    hasVueHandler?: boolean | undefined;
+    hasAngularHandler?: boolean | undefined;
+}>;
 /**
  * Accessibility attributes
  */
@@ -942,7 +1744,17 @@ declare const A11yAttributesSchema: z.ZodObject<{
     ariaLabel: z.ZodNullable<z.ZodString>;
     ariaDescribedBy: z.ZodNullable<z.ZodString>;
     ariaHidden: z.ZodOptional<z.ZodBoolean>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    role: string | null;
+    ariaLabel: string | null;
+    ariaDescribedBy: string | null;
+    ariaHidden?: boolean | undefined;
+}, {
+    role: string | null;
+    ariaLabel: string | null;
+    ariaDescribedBy: string | null;
+    ariaHidden?: boolean | undefined;
+}>;
 /**
  * Enhanced element with interactivity and accessibility
  */
@@ -957,7 +1769,17 @@ declare const EnhancedElementSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }>;
     computedStyles: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     interactive: z.ZodObject<{
         hasOnClick: z.ZodBoolean;
@@ -968,35 +1790,129 @@ declare const EnhancedElementSchema: z.ZodObject<{
         hasReactHandler: z.ZodOptional<z.ZodBoolean>;
         hasVueHandler: z.ZodOptional<z.ZodBoolean>;
         hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    }, {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    }>;
     a11y: z.ZodObject<{
         role: z.ZodNullable<z.ZodString>;
         ariaLabel: z.ZodNullable<z.ZodString>;
         ariaDescribedBy: z.ZodNullable<z.ZodString>;
         ariaHidden: z.ZodOptional<z.ZodBoolean>;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    }, {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    }>;
     sourceHint: z.ZodOptional<z.ZodObject<{
         dataTestId: z.ZodNullable<z.ZodString>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        dataTestId: string | null;
+    }, {
+        dataTestId: string | null;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    bounds: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    };
+    selector: string;
+    tagName: string;
+    interactive: {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    };
+    a11y: {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    };
+    id?: string | undefined;
+    className?: string | undefined;
+    text?: string | undefined;
+    computedStyles?: Record<string, string> | undefined;
+    sourceHint?: {
+        dataTestId: string | null;
+    } | undefined;
+}, {
+    bounds: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    };
+    selector: string;
+    tagName: string;
+    interactive: {
+        hasOnClick: boolean;
+        hasHref: boolean;
+        isDisabled: boolean;
+        tabIndex: number;
+        cursor: string;
+        hasReactHandler?: boolean | undefined;
+        hasVueHandler?: boolean | undefined;
+        hasAngularHandler?: boolean | undefined;
+    };
+    a11y: {
+        role: string | null;
+        ariaLabel: string | null;
+        ariaDescribedBy: string | null;
+        ariaHidden?: boolean | undefined;
+    };
+    id?: string | undefined;
+    className?: string | undefined;
+    text?: string | undefined;
+    computedStyles?: Record<string, string> | undefined;
+    sourceHint?: {
+        dataTestId: string | null;
+    } | undefined;
+}>;
 /**
  * Element issue detected during audit
  */
 declare const ElementIssueSchema: z.ZodObject<{
-    type: z.ZodEnum<{
-        NO_HANDLER: "NO_HANDLER";
-        PLACEHOLDER_LINK: "PLACEHOLDER_LINK";
-        TOUCH_TARGET_SMALL: "TOUCH_TARGET_SMALL";
-        MISSING_ARIA_LABEL: "MISSING_ARIA_LABEL";
-        DISABLED_NO_VISUAL: "DISABLED_NO_VISUAL";
-    }>;
-    severity: z.ZodEnum<{
-        error: "error";
-        warning: "warning";
-        info: "info";
-    }>;
+    type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
+    severity: z.ZodEnum<["error", "warning", "info"]>;
     message: z.ZodString;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+    severity: "error" | "warning" | "info";
+}, {
+    message: string;
+    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+    severity: "error" | "warning" | "info";
+}>;
 /**
  * Audit result for a captured page
  */
@@ -1006,21 +1922,39 @@ declare const AuditResultSchema: z.ZodObject<{
     withHandlers: z.ZodNumber;
     withoutHandlers: z.ZodNumber;
     issues: z.ZodArray<z.ZodObject<{
-        type: z.ZodEnum<{
-            NO_HANDLER: "NO_HANDLER";
-            PLACEHOLDER_LINK: "PLACEHOLDER_LINK";
-            TOUCH_TARGET_SMALL: "TOUCH_TARGET_SMALL";
-            MISSING_ARIA_LABEL: "MISSING_ARIA_LABEL";
-            DISABLED_NO_VISUAL: "DISABLED_NO_VISUAL";
-        }>;
-        severity: z.ZodEnum<{
-            error: "error";
-            warning: "warning";
-            info: "info";
-        }>;
+        type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
+        severity: z.ZodEnum<["error", "warning", "info"]>;
         message: z.ZodString;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }, {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }>, "many">;
+}, "strip", z.ZodTypeAny, {
+    issues: {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }[];
+    totalElements: number;
+    interactiveCount: number;
+    withHandlers: number;
+    withoutHandlers: number;
+}, {
+    issues: {
+        message: string;
+        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
+        severity: "error" | "warning" | "info";
+    }[];
+    totalElements: number;
+    interactiveCount: number;
+    withHandlers: number;
+    withoutHandlers: number;
+}>;
 type Viewport = z.infer<typeof ViewportSchema>;
 type Config = z.infer<typeof ConfigSchema>;
 type SessionQuery = z.infer<typeof SessionQuerySchema>;
@@ -1041,48 +1975,31 @@ type AuditResult = z.infer<typeof AuditResultSchema>;
 /**
  * Rule severity levels
  */
-declare const RuleSeveritySchema: z.ZodEnum<{
-    error: "error";
-    off: "off";
-    warn: "warn";
-}>;
+declare const RuleSeveritySchema: z.ZodEnum<["off", "warn", "error"]>;
 /**
  * Individual rule setting
  */
-declare const RuleSettingSchema: z.ZodUnion<readonly [z.ZodEnum<{
-    error: "error";
-    off: "off";
-    warn: "warn";
-}>, z.ZodTuple<[z.ZodEnum<{
-    error: "error";
-    off: "off";
-    warn: "warn";
-}>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>;
+declare const RuleSettingSchema: z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>;
 /**
  * Rules configuration (user's .ibr/rules.json)
  */
 declare const RulesConfigSchema: z.ZodObject<{
-    extends: z.ZodOptional<z.ZodArray<z.ZodString>>;
-    rules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodEnum<{
-        error: "error";
-        off: "off";
-        warn: "warn";
-    }>, z.ZodTuple<[z.ZodEnum<{
-        error: "error";
-        off: "off";
-        warn: "warn";
-    }>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>>>;
-}, z.core.$strip>;
+    extends: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+    rules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>>>;
+}, "strip", z.ZodTypeAny, {
+    extends?: string[] | undefined;
+    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
+}, {
+    extends?: string[] | undefined;
+    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
+}>;
 /**
  * Violation detected by a rule
  */
 declare const ViolationSchema: z.ZodObject<{
     ruleId: z.ZodString;
     ruleName: z.ZodString;
-    severity: z.ZodEnum<{
-        error: "error";
-        warn: "warn";
-    }>;
+    severity: z.ZodEnum<["warn", "error"]>;
     message: z.ZodString;
     element: z.ZodOptional<z.ZodString>;
     bounds: z.ZodOptional<z.ZodObject<{
@@ -1090,9 +2007,45 @@ declare const ViolationSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }, {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    }>>;
     fix: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    message: string;
+    severity: "error" | "warn";
+    ruleId: string;
+    ruleName: string;
+    bounds?: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    } | undefined;
+    element?: string | undefined;
+    fix?: string | undefined;
+}, {
+    message: string;
+    severity: "error" | "warn";
+    ruleId: string;
+    ruleName: string;
+    bounds?: {
+        width: number;
+        height: number;
+        x: number;
+        y: number;
+    } | undefined;
+    element?: string | undefined;
+    fix?: string | undefined;
+}>;
 /**
  * Full audit report with rule violations
  */
@@ -1103,10 +2056,7 @@ declare const RuleAuditResultSchema: z.ZodObject<{
     violations: z.ZodArray<z.ZodObject<{
         ruleId: z.ZodString;
         ruleName: z.ZodString;
-        severity: z.ZodEnum<{
-            error: "error";
-            warn: "warn";
-        }>;
+        severity: z.ZodEnum<["warn", "error"]>;
         message: z.ZodString;
         element: z.ZodOptional<z.ZodString>;
         bounds: z.ZodOptional<z.ZodObject<{
@@ -1114,15 +2064,105 @@ declare const RuleAuditResultSchema: z.ZodObject<{
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, z.core.$strip>>;
+        }, "strip", z.ZodTypeAny, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }, {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        }>>;
         fix: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }, {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }>, "many">;
     summary: z.ZodObject<{
         errors: z.ZodNumber;
         warnings: z.ZodNumber;
         passed: z.ZodNumber;
-    }, z.core.$strip>;
-}, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        errors: number;
+        warnings: number;
+        passed: number;
+    }, {
+        errors: number;
+        warnings: number;
+        passed: number;
+    }>;
+}, "strip", z.ZodTypeAny, {
+    url: string;
+    summary: {
+        errors: number;
+        warnings: number;
+        passed: number;
+    };
+    timestamp: string;
+    elementsScanned: number;
+    violations: {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }[];
+}, {
+    url: string;
+    summary: {
+        errors: number;
+        warnings: number;
+        passed: number;
+    };
+    timestamp: string;
+    elementsScanned: number;
+    violations: {
+        message: string;
+        severity: "error" | "warn";
+        ruleId: string;
+        ruleName: string;
+        bounds?: {
+            width: number;
+            height: number;
+            x: number;
+            y: number;
+        } | undefined;
+        element?: string | undefined;
+        fix?: string | undefined;
+    }[];
+}>;
 type RuleSeverity = z.infer<typeof RuleSeveritySchema>;
 type RuleSetting = z.infer<typeof RuleSettingSchema>;
 type RulesConfig = z.infer<typeof RulesConfigSchema>;
@@ -1131,105 +2171,110 @@ type RuleAuditResult = z.infer<typeof RuleAuditResultSchema>;
 /**
  * Source of a UI/UX preference
  */
-declare const MemorySourceSchema: z.ZodEnum<{
-    user: "user";
-    learned: "learned";
-    framework: "framework";
-}>;
+declare const MemorySourceSchema: z.ZodEnum<["user", "learned", "framework"]>;
 /**
  * Preference categories
  */
-declare const PreferenceCategorySchema: z.ZodEnum<{
-    color: "color";
-    layout: "layout";
-    typography: "typography";
-    navigation: "navigation";
-    component: "component";
-    spacing: "spacing";
-    interaction: "interaction";
-    content: "content";
-}>;
+declare const PreferenceCategorySchema: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
 /**
  * Expectation operator for comparing values
  */
-declare const ExpectationOperatorSchema: z.ZodEnum<{
-    equals: "equals";
-    contains: "contains";
-    matches: "matches";
-    gte: "gte";
-    lte: "lte";
-}>;
+declare const ExpectationOperatorSchema: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
 /**
  * A single UI/UX expectation
  */
 declare const ExpectationSchema: z.ZodObject<{
     property: z.ZodString;
-    operator: z.ZodEnum<{
-        equals: "equals";
-        contains: "contains";
-        matches: "matches";
-        gte: "gte";
-        lte: "lte";
-    }>;
+    operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
     value: z.ZodString;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    value: string;
+    property: string;
+    operator: "equals" | "contains" | "matches" | "gte" | "lte";
+}, {
+    value: string;
+    property: string;
+    operator: "equals" | "contains" | "matches" | "gte" | "lte";
+}>;
 /**
  * Full preference with history
  */
 declare const PreferenceSchema: z.ZodObject<{
     id: z.ZodString;
     description: z.ZodString;
-    category: z.ZodEnum<{
-        color: "color";
-        layout: "layout";
-        typography: "typography";
-        navigation: "navigation";
-        component: "component";
-        spacing: "spacing";
-        interaction: "interaction";
-        content: "content";
-    }>;
-    source: z.ZodEnum<{
-        user: "user";
-        learned: "learned";
-        framework: "framework";
-    }>;
+    category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
+    source: z.ZodEnum<["user", "learned", "framework"]>;
     route: z.ZodOptional<z.ZodString>;
     componentType: z.ZodOptional<z.ZodString>;
     expectation: z.ZodObject<{
         property: z.ZodString;
-        operator: z.ZodEnum<{
-            equals: "equals";
-            contains: "contains";
-            matches: "matches";
-            gte: "gte";
-            lte: "lte";
-        }>;
+        operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
         value: z.ZodString;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        value: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+    }, {
+        value: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+    }>;
     confidence: z.ZodDefault<z.ZodNumber>;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
-    sessionIds: z.ZodOptional<z.ZodArray<z.ZodString>>;
-}, z.core.$strip>;
+    sessionIds: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+}, "strip", z.ZodTypeAny, {
+    description: string;
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    source: "user" | "learned" | "framework";
+    expectation: {
+        value: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+    };
+    confidence: number;
+    route?: string | undefined;
+    componentType?: string | undefined;
+    sessionIds?: string[] | undefined;
+}, {
+    description: string;
+    id: string;
+    createdAt: string;
+    updatedAt: string;
+    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    source: "user" | "learned" | "framework";
+    expectation: {
+        value: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+    };
+    route?: string | undefined;
+    componentType?: string | undefined;
+    confidence?: number | undefined;
+    sessionIds?: string[] | undefined;
+}>;
 /**
  * Observation extracted from a session
  */
 declare const ObservationSchema: z.ZodObject<{
     description: z.ZodString;
-    category: z.ZodEnum<{
-        color: "color";
-        layout: "layout";
-        typography: "typography";
-        navigation: "navigation";
-        component: "component";
-        spacing: "spacing";
-        interaction: "interaction";
-        content: "content";
-    }>;
+    category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
     property: z.ZodString;
     value: z.ZodString;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    value: string;
+    description: string;
+    property: string;
+    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+}, {
+    value: string;
+    description: string;
+    property: string;
+    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+}>;
 /**
  * Learned expectation from an approved session
  */
@@ -1239,51 +2284,81 @@ declare const LearnedExpectationSchema: z.ZodObject<{
     route: z.ZodString;
     observations: z.ZodArray<z.ZodObject<{
         description: z.ZodString;
-        category: z.ZodEnum<{
-            color: "color";
-            layout: "layout";
-            typography: "typography";
-            navigation: "navigation";
-            component: "component";
-            spacing: "spacing";
-            interaction: "interaction";
-            content: "content";
-        }>;
+        category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
         property: z.ZodString;
         value: z.ZodString;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        value: string;
+        description: string;
+        property: string;
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    }, {
+        value: string;
+        description: string;
+        property: string;
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    }>, "many">;
     approved: z.ZodBoolean;
     createdAt: z.ZodString;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    sessionId: string;
+    id: string;
+    createdAt: string;
+    route: string;
+    observations: {
+        value: string;
+        description: string;
+        property: string;
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    }[];
+    approved: boolean;
+}, {
+    sessionId: string;
+    id: string;
+    createdAt: string;
+    route: string;
+    observations: {
+        value: string;
+        description: string;
+        property: string;
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    }[];
+    approved: boolean;
+}>;
 /**
  * Compact preference pointer for summary
  */
 declare const ActivePreferenceSchema: z.ZodObject<{
     id: z.ZodString;
     description: z.ZodString;
-    category: z.ZodEnum<{
-        color: "color";
-        layout: "layout";
-        typography: "typography";
-        navigation: "navigation";
-        component: "component";
-        spacing: "spacing";
-        interaction: "interaction";
-        content: "content";
-    }>;
+    category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
     route: z.ZodOptional<z.ZodString>;
     componentType: z.ZodOptional<z.ZodString>;
     property: z.ZodString;
-    operator: z.ZodEnum<{
-        equals: "equals";
-        contains: "contains";
-        matches: "matches";
-        gte: "gte";
-        lte: "lte";
-    }>;
+    operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
     value: z.ZodString;
     confidence: z.ZodNumber;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    value: string;
+    description: string;
+    id: string;
+    property: string;
+    operator: "equals" | "contains" | "matches" | "gte" | "lte";
+    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    confidence: number;
+    route?: string | undefined;
+    componentType?: string | undefined;
+}, {
+    value: string;
+    description: string;
+    id: string;
+    property: string;
+    operator: "equals" | "contains" | "matches" | "gte" | "lte";
+    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+    confidence: number;
+    route?: string | undefined;
+    componentType?: string | undefined;
+}>;
 /**
  * Memory summary - always-loaded compact file
  */
@@ -1295,34 +2370,89 @@ declare const MemorySummarySchema: z.ZodObject<{
         totalLearned: z.ZodNumber;
         byCategory: z.ZodRecord<z.ZodString, z.ZodNumber>;
         bySource: z.ZodRecord<z.ZodString, z.ZodNumber>;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        totalPreferences: number;
+        totalLearned: number;
+        byCategory: Record<string, number>;
+        bySource: Record<string, number>;
+    }, {
+        totalPreferences: number;
+        totalLearned: number;
+        byCategory: Record<string, number>;
+        bySource: Record<string, number>;
+    }>;
     activePreferences: z.ZodArray<z.ZodObject<{
         id: z.ZodString;
         description: z.ZodString;
-        category: z.ZodEnum<{
-            color: "color";
-            layout: "layout";
-            typography: "typography";
-            navigation: "navigation";
-            component: "component";
-            spacing: "spacing";
-            interaction: "interaction";
-            content: "content";
-        }>;
+        category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
         route: z.ZodOptional<z.ZodString>;
         componentType: z.ZodOptional<z.ZodString>;
         property: z.ZodString;
-        operator: z.ZodEnum<{
-            equals: "equals";
-            contains: "contains";
-            matches: "matches";
-            gte: "gte";
-            lte: "lte";
-        }>;
+        operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
         value: z.ZodString;
         confidence: z.ZodNumber;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        value: string;
+        description: string;
+        id: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+        confidence: number;
+        route?: string | undefined;
+        componentType?: string | undefined;
+    }, {
+        value: string;
+        description: string;
+        id: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+        confidence: number;
+        route?: string | undefined;
+        componentType?: string | undefined;
+    }>, "many">;
+}, "strip", z.ZodTypeAny, {
+    updatedAt: string;
+    version: 1;
+    stats: {
+        totalPreferences: number;
+        totalLearned: number;
+        byCategory: Record<string, number>;
+        bySource: Record<string, number>;
+    };
+    activePreferences: {
+        value: string;
+        description: string;
+        id: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+        confidence: number;
+        route?: string | undefined;
+        componentType?: string | undefined;
+    }[];
+}, {
+    updatedAt: string;
+    version: 1;
+    stats: {
+        totalPreferences: number;
+        totalLearned: number;
+        byCategory: Record<string, number>;
+        bySource: Record<string, number>;
+    };
+    activePreferences: {
+        value: string;
+        description: string;
+        id: string;
+        property: string;
+        operator: "equals" | "contains" | "matches" | "gte" | "lte";
+        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
+        confidence: number;
+        route?: string | undefined;
+        componentType?: string | undefined;
+    }[];
+}>;
 type MemorySource = z.infer<typeof MemorySourceSchema>;
 type PreferenceCategory = z.infer<typeof PreferenceCategorySchema>;
 type ExpectationOperator = z.infer<typeof ExpectationOperatorSchema>;
@@ -1473,7 +2603,7 @@ interface PageIntentResult {
 /**
  * Classify page intent from DOM analysis
  */
-declare function classifyPageIntent(page: Page): Promise<PageIntentResult>;
+declare function classifyPageIntent(page: PageLike): Promise<PageIntentResult>;
 /**
  * Get human-readable description of page intent
  */
@@ -1516,23 +2646,23 @@ interface PageState {
 /**
  * Detect authentication state from page signals
  */
-declare function detectAuthState(page: Page): Promise<AuthState>;
+declare function detectAuthState(page: PageLike): Promise<AuthState>;
 /**
  * Detect loading state from page signals
  */
-declare function detectLoadingState(page: Page): Promise<LoadingState>;
+declare function detectLoadingState(page: PageLike): Promise<LoadingState>;
 /**
  * Detect error state from page signals
  */
-declare function detectErrorState(page: Page): Promise<ErrorState>;
+declare function detectErrorState(page: PageLike): Promise<ErrorState>;
 /**
  * Detect full page state
  */
-declare function detectPageState(page: Page): Promise<PageState>;
+declare function detectPageState(page: PageLike): Promise<PageState>;
 /**
  * Wait for page to be ready (not loading, no errors)
  */
-declare function waitForPageReady(page: Page, options?: {
+declare function waitForPageReady(page: PageLike, options?: {
     timeout?: number;
     ignoreErrors?: boolean;
 }): Promise<PageState>;
@@ -1578,7 +2708,7 @@ interface SemanticResult {
 /**
  * Get semantic understanding of a page
  */
-declare function getSemanticOutput(page: Page): Promise<SemanticResult>;
+declare function getSemanticOutput(page: PageLike): Promise<SemanticResult>;
 /**
  * Format semantic result as concise text for AI consumption
  */
@@ -1618,7 +2748,7 @@ type LandmarkType = keyof typeof LANDMARK_SELECTORS;
 /**
  * Detect all landmark elements on a page
  */
-declare function detectLandmarks(page: Page): Promise<LandmarkElement[]>;
+declare function detectLandmarks(page: PageLike): Promise<LandmarkElement[]>;
 /**
  * Get expected landmarks based on page intent
  * Used when no baseline exists
@@ -1754,6 +2884,1068 @@ declare const flows: {
     readonly form: typeof formFlow;
 };
 type FlowName = keyof typeof flows;
+
+/**
+ * CDP WebSocket transport layer.
+ * Forked from Spectra — adapted for IBR engine.
+ * Uses Node.js 22+ built-in WebSocket (no ws package).
+ */
+type EventHandler = (params: unknown) => void;
+declare class CdpConnection {
+    private ws;
+    private nextId;
+    private pending;
+    private eventHandlers;
+    private timeoutMs;
+    constructor(options?: {
+        timeoutMs?: number;
+    });
+    connect(wsUrl: string): Promise<void>;
+    send<T = unknown>(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<T>;
+    on(method: string, handler: EventHandler): void;
+    off(method: string, handler: EventHandler): void;
+    private handleMessage;
+    private handleClose;
+    close(): Promise<void>;
+    get connected(): boolean;
+}
+
+interface BrowserOptions {
+    headless?: boolean;
+    port?: number;
+    userDataDir?: string;
+    chromePath?: string;
+}
+
+/**
+ * CDP Page domain — navigation, screenshots, lifecycle events.
+ * Forked from Spectra — extended with getLayoutMetrics, clip screenshots,
+ * captureBeyondViewport, and CSS/script injection.
+ */
+
+interface ScreenshotOptions {
+    format?: 'png' | 'jpeg';
+    quality?: number;
+    fullPage?: boolean;
+    clip?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        scale?: number;
+    };
+}
+interface LayoutMetrics {
+    contentSize: {
+        width: number;
+        height: number;
+    };
+    layoutViewport: {
+        pageX: number;
+        pageY: number;
+        clientWidth: number;
+        clientHeight: number;
+    };
+    visualViewport: {
+        offsetX: number;
+        offsetY: number;
+        pageX: number;
+        pageY: number;
+        clientWidth: number;
+        clientHeight: number;
+        scale: number;
+    };
+}
+declare class PageDomain {
+    private conn;
+    private sessionId?;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    navigate(url: string): Promise<string>;
+    screenshot(options?: ScreenshotOptions): Promise<Buffer>;
+    /**
+     * Full-page screenshot via getLayoutMetrics + device metrics override.
+     * Technique: get content size → override viewport to content size →
+     * capture with captureBeyondViewport → restore viewport.
+     */
+    private fullPageScreenshot;
+    getLayoutMetrics(): Promise<LayoutMetrics>;
+    enableLifecycleEvents(): Promise<void>;
+    /**
+     * Inject CSS into the page.
+     * Uses callFunctionOn with CSS passed as a proper argument (not interpolated)
+     * to avoid injection issues with special characters in CSS content.
+     */
+    addStyleTag(css: string): Promise<void>;
+    /**
+     * Inject script that runs on every navigation (including future ones).
+     * Uses Page.addScriptToEvaluateOnNewDocument.
+     */
+    addScriptOnLoad(source: string): Promise<string>;
+}
+
+interface Element {
+    id: string;
+    role: string;
+    label: string;
+    value: string | null;
+    enabled: boolean;
+    focused: boolean;
+    actions: string[];
+    bounds: [number, number, number, number];
+    parent: string | null;
+}
+
+/**
+ * CDP Accessibility domain — AX tree access, queryAXTree, event subscriptions.
+ * Forked from Spectra — extended with queryAXTree-first resolution and events.
+ */
+
+interface CdpAXNode {
+    nodeId: string;
+    role: {
+        value: string;
+    };
+    name?: {
+        value: string;
+    };
+    value?: {
+        value: string;
+    };
+    properties?: Array<{
+        name: string;
+        value: {
+            value: unknown;
+        };
+    }>;
+    childIds?: string[];
+    backendDOMNodeId?: number;
+}
+declare class AccessibilityDomain {
+    private conn;
+    private sessionId?;
+    private nodeMap;
+    private loadCompleteHandlers;
+    private nodesUpdatedHandlers;
+    private enabled;
+    private loadCompleteListener;
+    private nodesUpdatedListener;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    enable(): Promise<void>;
+    disable(): Promise<void>;
+    getSnapshot(): Promise<Element[]>;
+    /**
+     * queryAXTree — CDP-native search by accessible name and/or role.
+     * Faster than getFullAXTree + filter for targeted element finding.
+     * Note: does NOT clear/repopulate nodeMap — merges into existing map.
+     */
+    queryAXTree(options: {
+        accessibleName?: string;
+        role?: string;
+        backendNodeId?: number;
+    }): Promise<Element[]>;
+    getBackendNodeId(elementId: string): number | undefined;
+    /** Subscribe to Accessibility.loadComplete events. */
+    onLoadComplete(handler: () => void): void;
+    /** Subscribe to Accessibility.nodesUpdated events. */
+    onNodesUpdated(handler: (nodes: CdpAXNode[]) => void): void;
+    offLoadComplete(handler: () => void): void;
+    offNodesUpdated(handler: (nodes: CdpAXNode[]) => void): void;
+    /**
+     * Convert CDP AX nodes to Elements.
+     * @param clearMap If true (default), clears nodeMap first. Set false for queryAXTree
+     *   to merge results into existing map without invalidating prior IDs.
+     */
+    private convertToElements;
+    private getProperty;
+    private inferActions;
+}
+
+/**
+ * CDP DOM domain — element queries, box model, HTML extraction.
+ * Forked from Spectra — extended with querySelector, querySelectorAll, getOuterHTML.
+ */
+
+declare class DomDomain {
+    private conn;
+    private sessionId?;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    getElementCenter(backendNodeId: number): Promise<{
+        x: number;
+        y: number;
+    }>;
+    getBoxModel(backendNodeId: number): Promise<{
+        content: number[];
+        padding: number[];
+        border: number[];
+        margin: number[];
+        width: number;
+        height: number;
+    }>;
+    getDocument(): Promise<{
+        root: {
+            nodeId: number;
+        };
+    }>;
+    /**
+     * Find a single element by CSS selector.
+     * Returns the nodeId, or null if not found.
+     */
+    querySelector(nodeId: number, selector: string): Promise<number | null>;
+    /**
+     * Find all elements matching a CSS selector.
+     * Returns array of nodeIds.
+     */
+    querySelectorAll(nodeId: number, selector: string): Promise<number[]>;
+    /**
+     * Get the outer HTML of a node.
+     */
+    getOuterHTML(nodeId?: number, backendNodeId?: number): Promise<string>;
+    /**
+     * Get attributes of a node as key-value pairs.
+     */
+    getAttributes(nodeId: number): Promise<Record<string, string>>;
+}
+
+/**
+ * CDP Runtime domain — JavaScript evaluation in page context.
+ * Forked from Spectra — extended with callFunctionOn for function+args evaluation.
+ */
+
+declare class RuntimeDomain {
+    private conn;
+    private sessionId?;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    /**
+     * Evaluate a JavaScript expression string in the page context.
+     */
+    evaluate(expression: string): Promise<unknown>;
+    /**
+     * Call a function with structured arguments in the page context.
+     * This is the CDP equivalent of Playwright's page.evaluate(fn, ...args).
+     *
+     * The function declaration is serialized as a string, and arguments
+     * are passed as CDP CallArgument objects (primitives by value).
+     *
+     * Usage:
+     *   await runtime.callFunctionOn(
+     *     '(selector, prop) => getComputedStyle(document.querySelector(selector))[prop]',
+     *     ['.header', 'color']
+     *   )
+     */
+    callFunctionOn(functionDeclaration: string, args?: unknown[]): Promise<unknown>;
+    /**
+     * Enable the Runtime domain to receive events (like consoleAPICalled).
+     */
+    enable(): Promise<void>;
+}
+
+/**
+ * CDP CSS domain — computed styles, matched rules.
+ * NEW for IBR — direct computed style access without page.evaluate(getComputedStyle).
+ */
+
+interface CSSComputedStyleProperty {
+    name: string;
+    value: string;
+}
+declare class CssDomain {
+    private conn;
+    private sessionId?;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    enable(): Promise<void>;
+    /**
+     * Get computed styles for a DOM node.
+     * Returns all computed CSS properties as key-value pairs.
+     */
+    getComputedStyle(nodeId: number): Promise<Record<string, string>>;
+    /**
+     * Get computed styles filtered to specific properties.
+     * More efficient when you only need a few properties.
+     */
+    getComputedStyleFiltered(nodeId: number, properties: string[]): Promise<Record<string, string>>;
+    /**
+     * Get matched CSS rules for a node — includes inline, attribute,
+     * inherited, pseudo-element, and keyframe styles.
+     */
+    getMatchedStyles(nodeId: number): Promise<{
+        inlineStyle?: {
+            cssProperties: CSSComputedStyleProperty[];
+        };
+        matchedCSSRules: Array<{
+            rule: {
+                selectorList: {
+                    text: string;
+                };
+                style: {
+                    cssProperties: CSSComputedStyleProperty[];
+                };
+            };
+        }>;
+    }>;
+}
+
+/**
+ * CDP DOMSnapshot domain — one-call full DOM + layout + computed style extraction.
+ * NEW for IBR — replaces dozens of individual page.evaluate() calls.
+ */
+
+interface DocumentSnapshot {
+    documentURL: number;
+    title: number;
+    baseURL: number;
+    contentLanguage: number;
+    encodingName: number;
+    publicId: number;
+    systemId: number;
+    frameId: number;
+    nodes: NodeTreeSnapshot;
+    layout: LayoutTreeSnapshot;
+    textBoxes: TextBoxSnapshot;
+    scrollOffsetX?: number;
+    scrollOffsetY?: number;
+    contentWidth?: number;
+    contentHeight?: number;
+}
+interface NodeTreeSnapshot {
+    parentIndex?: number[];
+    nodeType?: number[];
+    shadowRootType?: {
+        index: number;
+        value: number;
+    };
+    nodeName?: number[];
+    nodeValue?: number[];
+    backendNodeId?: number[];
+    attributes?: Array<number[]>;
+    textValue?: {
+        index: number;
+        value: number;
+    };
+    inputValue?: {
+        index: number;
+        value: number;
+    };
+    inputChecked?: {
+        index: number;
+    };
+    optionSelected?: {
+        index: number;
+    };
+    contentDocumentIndex?: {
+        index: number;
+        value: number;
+    };
+    pseudoType?: {
+        index: number;
+        value: number;
+    };
+    pseudoIdentifier?: {
+        index: number;
+        value: number;
+    };
+    isClickable?: {
+        index: number;
+    };
+    currentSourceURL?: {
+        index: number;
+        value: number;
+    };
+    originURL?: {
+        index: number;
+        value: number;
+    };
+}
+interface LayoutTreeSnapshot {
+    nodeIndex: number[];
+    styles: Array<number[]>;
+    bounds: Array<number[]>;
+    text: number[];
+    stackingContexts: {
+        index: number;
+    };
+    paintOrders?: number[];
+    offsetRects?: Array<number[]>;
+    scrollRects?: Array<number[]>;
+    clientRects?: Array<number[]>;
+    blendedBackgroundColors?: Array<number>;
+    textColorOpacities?: Array<number>;
+}
+interface TextBoxSnapshot {
+    layoutIndex: number[];
+    bounds: Array<number[]>;
+    start: number[];
+    length: number[];
+}
+interface CaptureSnapshotResult {
+    documents: DocumentSnapshot[];
+    strings: string[];
+}
+interface CaptureSnapshotOptions {
+    /** CSS property names to include in computed styles. */
+    computedStyles: string[];
+    /** Include paint order info. */
+    includePaintOrder?: boolean;
+    /** Include DOM rects (offsetRects, clientRects, scrollRects). */
+    includeDOMRects?: boolean;
+    /** Include blended background colors. */
+    includeBlendedBackgroundColors?: boolean;
+    /** Include text color opacities. */
+    includeTextColorOpacities?: boolean;
+}
+declare class SnapshotDomain {
+    private conn;
+    private sessionId?;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    enable(): Promise<void>;
+    /**
+     * Capture full DOM snapshot — one call gets everything.
+     * Returns flattened arrays with string deduplication.
+     */
+    captureSnapshot(options: CaptureSnapshotOptions): Promise<CaptureSnapshotResult>;
+    /**
+     * Helper: resolve a string index from the snapshot's strings array.
+     */
+    resolveString(strings: string[], index: number): string;
+    /**
+     * Helper: extract computed style values for a layout node.
+     *
+     * CDP format: `styles[nodeIndex]` is an array of string indices.
+     * Each index maps to the value of the corresponding property in the
+     * `computedStyles` parameter you passed to `captureSnapshot`.
+     * The property names are known — they're the strings you requested.
+     *
+     * @param strings The strings array from CaptureSnapshotResult
+     * @param styleIndices The style indices for one layout node (from LayoutTreeSnapshot.styles[n])
+     * @param requestedProperties The computedStyles array you passed to captureSnapshot
+     */
+    resolveStyles(strings: string[], styleIndices: number[], requestedProperties: string[]): Record<string, string>;
+}
+
+/**
+ * CDP Emulation domain — viewport, device metrics, media features.
+ * NEW for IBR — responsive testing via device metrics override.
+ */
+
+interface ViewportConfig {
+    width: number;
+    height: number;
+    deviceScaleFactor?: number;
+    mobile?: boolean;
+}
+declare class EmulationDomain {
+    private conn;
+    private sessionId?;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    /**
+     * Override device metrics (viewport size, scale, mobile mode).
+     */
+    setDeviceMetrics(config: ViewportConfig): Promise<void>;
+    /**
+     * Clear device metrics override (restore defaults).
+     */
+    clearDeviceMetrics(): Promise<void>;
+    /**
+     * Hide scrollbars (useful for consistent screenshots).
+     */
+    setScrollbarsHidden(hidden: boolean): Promise<void>;
+    /**
+     * Emulate reduced motion preference (disable animations for screenshots).
+     */
+    setReducedMotion(enabled: boolean): Promise<void>;
+}
+
+/**
+ * CDP Network domain — cookie management for auth state.
+ * NEW for IBR — replaces Playwright's storageState for auth persistence.
+ */
+
+interface Cookie {
+    name: string;
+    value: string;
+    domain: string;
+    path: string;
+    expires: number;
+    size: number;
+    httpOnly: boolean;
+    secure: boolean;
+    session: boolean;
+    sameSite?: 'Strict' | 'Lax' | 'None';
+}
+interface SetCookieParams {
+    name: string;
+    value: string;
+    url?: string;
+    domain?: string;
+    path?: string;
+    secure?: boolean;
+    httpOnly?: boolean;
+    sameSite?: 'Strict' | 'Lax' | 'None';
+    expires?: number;
+}
+declare class NetworkDomain {
+    private conn;
+    private sessionId?;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    enable(): Promise<void>;
+    /**
+     * Get all cookies, optionally filtered by URLs.
+     */
+    getCookies(urls?: string[]): Promise<Cookie[]>;
+    /**
+     * Set a cookie.
+     */
+    setCookie(cookie: SetCookieParams): Promise<boolean>;
+    /**
+     * Set multiple cookies at once.
+     */
+    setCookies(cookies: SetCookieParams[]): Promise<void>;
+    /**
+     * Clear all browser cookies.
+     */
+    clearCookies(): Promise<void>;
+    /**
+     * Delete specific cookies by name and optional URL/domain.
+     */
+    deleteCookies(params: {
+        name: string;
+        url?: string;
+        domain?: string;
+        path?: string;
+    }): Promise<void>;
+}
+
+/**
+ * CDP Console capture — subscribe to Runtime.consoleAPICalled events.
+ * NEW for IBR — replaces Playwright's page.on('console') for error detection.
+ */
+
+type ConsoleLevel = 'log' | 'debug' | 'info' | 'error' | 'warning' | 'dir' | 'dirxml' | 'table' | 'trace' | 'clear' | 'startGroup' | 'startGroupCollapsed' | 'endGroup' | 'assert' | 'profile' | 'profileEnd' | 'count' | 'timeEnd';
+interface ConsoleMessage {
+    type: ConsoleLevel;
+    text: string;
+    url?: string;
+    lineNumber?: number;
+    timestamp: number;
+}
+type ConsoleHandler$1 = (message: ConsoleMessage) => void;
+declare class ConsoleDomain {
+    private conn;
+    private sessionId?;
+    private handlers;
+    private messages;
+    private enabled;
+    constructor(conn: CdpConnection, sessionId?: string | undefined);
+    /**
+     * Enable console capture.
+     * Must call Runtime.enable first to receive consoleAPICalled events.
+     */
+    enable(): Promise<void>;
+    /** Subscribe to console messages. */
+    onMessage(handler: ConsoleHandler$1): void;
+    offMessage(handler: ConsoleHandler$1): void;
+    /** Get all captured messages. */
+    getMessages(): ConsoleMessage[];
+    /** Get only errors and warnings. */
+    getErrors(): ConsoleMessage[];
+    /** Clear captured messages. */
+    clear(): void;
+}
+
+/**
+ * Observe — preview what actions are possible without executing.
+ * Inspired by Stagehand's observe() primitive.
+ *
+ * Returns serializable action descriptors that can be logged, cached,
+ * or passed back to act() for execution.
+ */
+
+interface ActionDescriptor {
+    /** Element ID for act() */
+    elementId: string;
+    /** Human-readable description */
+    description: string;
+    /** Available actions */
+    actions: string[];
+    /** Element role */
+    role: string;
+    /** Element label */
+    label: string;
+    /** Compact serialized form */
+    serialized: string;
+}
+interface ObserveOptions {
+    /** Only include elements matching this intent */
+    intent?: string;
+    /** Filter by role */
+    role?: string;
+    /** Max results */
+    limit?: number;
+}
+
+/**
+ * Extract — pull structured data from the page using schemas.
+ * Inspired by Stagehand's extract() with Zod-like output typing.
+ *
+ * Unlike Stagehand (which uses an LLM to extract), this uses
+ * CDP DOM queries + AX tree to extract data deterministically.
+ * Claude interprets the result — we just provide structured data.
+ */
+
+interface ExtractField {
+    /** CSS selector to find the element */
+    selector?: string;
+    /** AX role to match */
+    role?: string;
+    /** AX label pattern (substring match) */
+    label?: string;
+    /** What to extract: 'text' | 'value' | 'attribute' | 'html' */
+    extract: 'text' | 'value' | 'attribute' | 'html' | 'exists';
+    /** Attribute name (when extract === 'attribute') */
+    attribute?: string;
+}
+interface ExtractSchema {
+    [fieldName: string]: ExtractField;
+}
+interface ExtractResult {
+    [fieldName: string]: string | boolean | null;
+}
+/**
+ * Extract page-level metadata from the AX tree.
+ */
+declare function extractPageMeta(elements: Element[]): {
+    headings: string[];
+    links: Array<{
+        label: string;
+        id: string;
+    }>;
+    inputs: Array<{
+        label: string;
+        value: string | null;
+        id: string;
+    }>;
+    buttons: Array<{
+        label: string;
+        enabled: boolean;
+        id: string;
+    }>;
+};
+
+/**
+ * Resolution cache — auto-caching for intent → element mappings.
+ * Inspired by Stagehand's selector auto-caching.
+ *
+ * When an intent resolves to an element, cache the mapping.
+ * Next time the same intent appears, replay the cached resolution
+ * without re-querying the AX tree. If replay fails (element gone),
+ * re-resolve and update the cache.
+ *
+ * Stagehand reports 3-5x speed improvement from caching.
+ */
+interface CachedResolution {
+    /** The original intent string */
+    intent: string;
+    /** Matched element's backendDOMNodeId-based ID */
+    elementId: string;
+    /** Role of the matched element */
+    role: string;
+    /** Label of the matched element */
+    label: string;
+    /** Confidence of the original resolution */
+    confidence: number;
+    /** When this cache entry was created */
+    createdAt: number;
+    /** Number of successful cache hits */
+    hits: number;
+    /** Last successful hit time */
+    lastHit: number;
+}
+interface CacheOptions {
+    /** Max cache entries (default: 100) */
+    maxEntries?: number;
+    /** Cache entry TTL in ms (default: 5 minutes) */
+    ttl?: number;
+    /** Minimum confidence to cache (default: 0.7) */
+    minConfidence?: number;
+}
+declare class ResolutionCache {
+    private cache;
+    private maxEntries;
+    private ttl;
+    private minConfidence;
+    constructor(options?: CacheOptions);
+    /**
+     * Look up a cached resolution for an intent.
+     * Returns the cached elementId if found and not expired, null otherwise.
+     */
+    get(intent: string): CachedResolution | null;
+    /**
+     * Cache a successful resolution.
+     * Only caches if confidence meets threshold.
+     */
+    set(intent: string, elementId: string, metadata: {
+        role: string;
+        label: string;
+        confidence: number;
+    }): void;
+    /**
+     * Invalidate a specific cache entry (e.g., when element is gone).
+     */
+    invalidate(intent: string): void;
+    /**
+     * Clear all cache entries (e.g., after navigation).
+     */
+    clear(): void;
+    /**
+     * Get cache statistics.
+     */
+    stats(): {
+        entries: number;
+        totalHits: number;
+        avgConfidence: number;
+    };
+    private normalizeKey;
+    private evictOldest;
+}
+
+/**
+ * Adaptive modality — Understanding Score calculator.
+ * Inspired by V-GEMS (arxiv 2603.02626).
+ *
+ * Scores how well the AX tree captures the page's content.
+ * High score → use AX tree only (fast, cheap).
+ * Low score → include screenshot (accurate, expensive).
+ *
+ * Dimensions:
+ * 1. Text Quality — do elements have meaningful labels?
+ * 2. Semantic Relevance — are interactive elements well-labeled?
+ * 3. Structural Clarity — is the AX tree well-organized?
+ * 4. Special Case Penalties — known problematic patterns
+ */
+
+interface UnderstandingScore {
+    /** Overall score 0-1. Below threshold → include screenshot. */
+    score: number;
+    /** Whether a screenshot is recommended */
+    needsScreenshot: boolean;
+    /** Breakdown of individual dimension scores */
+    dimensions: {
+        textQuality: number;
+        semanticRelevance: number;
+        structuralClarity: number;
+        specialCasePenalty: number;
+    };
+    /** Human-readable reasoning */
+    reasoning: string;
+}
+interface ModalityOptions {
+    /** Score threshold below which screenshot is recommended (default: 0.6) */
+    threshold?: number;
+}
+
+/**
+ * EngineDriver — high-level browser automation for LLM-driven UI validation.
+ * Orchestrates CDP domains into a purpose-built API.
+ */
+
+interface LaunchOptions extends BrowserOptions {
+    viewport?: ViewportConfig;
+}
+type WaitStrategy = 'stable' | 'load' | 'none';
+interface NavigateOptions {
+    waitFor?: WaitStrategy;
+    timeout?: number;
+}
+interface DiscoverOptions {
+    /** Filter elements: 'interactive' (buttons, links, inputs), 'leaf' (user-facing), 'all' */
+    filter?: 'interactive' | 'leaf' | 'all';
+    /** Enable chunking for context window limits */
+    chunk?: boolean;
+    /** Max tokens budget for chunked output (approximate) */
+    maxTokens?: number;
+    /** Return compact serialized format instead of raw elements */
+    serialize?: boolean;
+}
+interface FindOptions {
+    role?: string;
+}
+interface CaptureStateOptions {
+    computedStyles?: string[];
+    includeAXTree?: boolean;
+    includeScreenshot?: boolean;
+}
+interface CapturedState {
+    domSnapshot?: CaptureSnapshotResult;
+    axTree?: Element[];
+    screenshot?: Buffer;
+    url: string;
+    timestamp: number;
+}
+declare class EngineDriver {
+    private browser;
+    private conn;
+    private target;
+    private _page;
+    private ax;
+    private dom;
+    private input;
+    private runtime;
+    private css;
+    private snapshot;
+    private emulation;
+    private network;
+    private console;
+    private targetId;
+    private sessionId;
+    private currentUrl;
+    private launched;
+    private resolutionCache;
+    launch(options?: LaunchOptions): Promise<void>;
+    close(): Promise<void>;
+    get isLaunched(): boolean;
+    navigate(url: string, options?: NavigateOptions): Promise<void>;
+    get url(): string;
+    /**
+     * Discover elements on the page with filtering and chunking.
+     * Designed for LLM context windows — returns only actionable elements.
+     */
+    discover(options?: DiscoverOptions): Promise<Element[] | string>;
+    /**
+     * 3-tier element resolution with auto-caching:
+     * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
+     */
+    find(name: string, options?: FindOptions): Promise<Element | null>;
+    click(elementId: string): Promise<void>;
+    type(elementId: string, text: string): Promise<void>;
+    fill(elementId: string, value: string): Promise<void>;
+    hover(elementId: string): Promise<void>;
+    pressKey(key: string): Promise<void>;
+    scroll(deltaY: number, x?: number, y?: number): Promise<void>;
+    screenshot(options?: ScreenshotOptions): Promise<Buffer>;
+    screenshotElement(elementId: string): Promise<Buffer>;
+    /**
+     * One-call page state capture — combines DOMSnapshot, AX tree, and screenshot.
+     */
+    captureState(options?: CaptureStateOptions): Promise<CapturedState>;
+    /** Get AX tree snapshot. */
+    getSnapshot(): Promise<Element[]>;
+    /**
+     * Evaluate a JavaScript expression in the page context.
+     */
+    evaluate(expression: string): Promise<unknown>;
+    /**
+     * Call a function with arguments in the page context.
+     * Equivalent to Playwright's page.evaluate(fn, ...args).
+     */
+    evaluate(fn: string, ...args: unknown[]): Promise<unknown>;
+    querySelector(selector: string): Promise<number | null>;
+    querySelectorAll(selector: string): Promise<number[]>;
+    getOuterHTML(nodeId: number): Promise<string>;
+    getAttributes(nodeId: number): Promise<Record<string, string>>;
+    getComputedStyle(nodeId: number, properties?: string[]): Promise<Record<string, string>>;
+    addStyleTag(css: string): Promise<void>;
+    setViewport(config: ViewportConfig): Promise<void>;
+    clearViewport(): Promise<void>;
+    getCookies(urls?: string[]): Promise<Cookie[]>;
+    setCookies(cookies: SetCookieParams[]): Promise<void>;
+    clearCookies(): Promise<void>;
+    getConsoleMessages(): ConsoleMessage[];
+    getConsoleErrors(): ConsoleMessage[];
+    clearConsole(): void;
+    content(): Promise<string>;
+    title(): Promise<string>;
+    textContent(selector: string): Promise<string | null>;
+    getAttribute(selector: string, attribute: string): Promise<string | null>;
+    /**
+     * Preview what actions are possible without executing.
+     * Returns serializable descriptors for act().
+     */
+    observe(options?: ObserveOptions): Promise<ActionDescriptor[]>;
+    /**
+     * Extract structured data from AX tree using a schema.
+     */
+    extract(schema: ExtractSchema): Promise<ExtractResult>;
+    /**
+     * Extract a list of repeated elements.
+     */
+    extractItems(options: {
+        role?: string;
+        labelPattern?: RegExp;
+        maxItems?: number;
+    }): Promise<Array<{
+        label: string;
+        value: string | null;
+        id: string;
+    }>>;
+    /**
+     * Extract page-level metadata (headings, links, inputs, buttons).
+     */
+    extractMeta(): Promise<ReturnType<typeof extractPageMeta>>;
+    /**
+     * Assess how well the AX tree captures the page.
+     * Returns a score and whether a screenshot is recommended.
+     */
+    assessUnderstanding(options?: ModalityOptions): Promise<UnderstandingScore>;
+    /** Get resolution cache statistics. */
+    get cacheStats(): ReturnType<ResolutionCache['stats']>;
+    /** Configure the resolution cache. */
+    configureCache(options: CacheOptions): void;
+    get page(): PageDomain;
+    get accessibility(): AccessibilityDomain;
+    get domDomain(): DomDomain;
+    get runtimeDomain(): RuntimeDomain;
+    get cssDomain(): CssDomain;
+    get snapshotDomain(): SnapshotDomain;
+    get emulationDomain(): EmulationDomain;
+    get networkDomain(): NetworkDomain;
+    get consoleDomain(): ConsoleDomain;
+    get connection(): CdpConnection;
+    /** The CDP debug port Chrome is listening on. Only valid after launch(). */
+    get debugPort(): number;
+    /**
+     * Connect to an already-running Chrome instance instead of launching a new one.
+     * Used by browser-server reconnection to attach to a persistent Chrome process.
+     */
+    connectExisting(wsUrl: string): Promise<void>;
+}
+
+/**
+ * Playwright compatibility adapter.
+ *
+ * Provides a Page-like interface backed by EngineDriver's CDP.
+ * This allows incremental migration — existing IBR modules can use
+ * this adapter without being rewritten, while new code uses EngineDriver directly.
+ *
+ * NOT a full Playwright reimplementation. Only covers the subset IBR actually uses:
+ * - page.evaluate(fn, args) / page.evaluate(expression)
+ * - page.$(selector) / page.$$(selector)
+ * - page.goto(url, options)
+ * - page.screenshot(options)
+ * - page.addStyleTag({ content })
+ * - page.waitForSelector(selector, options)
+ * - page.waitForTimeout(ms)
+ * - page.content() / page.title() / page.textContent(selector)
+ * - page.getAttribute(selector, attr)
+ * - page.click(selector) / page.fill(selector, value)
+ * - page.on('console', handler)
+ * - page.keyboard.press(key)
+ * - page.locator(selector)
+ */
+
+/**
+ * Element handle returned by $() and $$()
+ */
+declare class CompatElementHandle {
+    private driver;
+    private nodeId;
+    constructor(driver: EngineDriver, nodeId: number);
+    screenshot(options?: {
+        path?: string;
+        type?: string;
+    }): Promise<Buffer>;
+    textContent(): Promise<string | null>;
+    boundingBox(): Promise<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    } | null>;
+    getAttribute(name: string): Promise<string | null>;
+}
+/**
+ * Minimal locator compatible with IBR's usage patterns.
+ */
+declare class CompatLocator {
+    private driver;
+    private selector;
+    visible: boolean;
+    constructor(driver: EngineDriver, selector: string);
+    filter(options: {
+        visible?: boolean;
+    }): CompatLocator;
+    first(): CompatLocator;
+    click(_options?: {
+        timeout?: number;
+        force?: boolean;
+    }): Promise<void>;
+    fill(text: string, _options?: {
+        timeout?: number;
+    }): Promise<void>;
+    focus(_options?: {
+        timeout?: number;
+    }): Promise<void>;
+    press(key: string, _options?: {
+        timeout?: number;
+    }): Promise<void>;
+    pressSequentially(text: string, _options?: {
+        delay?: number;
+        timeout?: number;
+    }): Promise<void>;
+    waitFor(options?: {
+        state?: string;
+        timeout?: number;
+    }): Promise<void>;
+    private resolveNode;
+}
+type ConsoleHandler = (msg: {
+    type: () => string;
+    text: () => string;
+}) => void;
+/**
+ * Playwright-compatible Page interface backed by EngineDriver.
+ */
+declare class CompatPage {
+    private driver;
+    private consoleHandlers;
+    private consoleListening;
+    constructor(driver: EngineDriver);
+    goto(url: string, options?: {
+        waitUntil?: string;
+        timeout?: number;
+    }): Promise<void>;
+    evaluate<T>(fnOrExpr: string | ((...args: unknown[]) => T), ...args: unknown[]): Promise<T>;
+    $(selector: string): Promise<CompatElementHandle | null>;
+    $$(selector: string): Promise<CompatElementHandle[]>;
+    screenshot(options?: {
+        path?: string;
+        fullPage?: boolean;
+        type?: string;
+    }): Promise<Buffer>;
+    addStyleTag(options: {
+        content: string;
+    }): Promise<void>;
+    waitForSelector(selector: string, options?: {
+        timeout?: number;
+    }): Promise<CompatElementHandle | null>;
+    waitForTimeout(ms: number): Promise<void>;
+    waitForLoadState(_state?: string, _options?: {
+        timeout?: number;
+    }): Promise<void>;
+    waitForNavigation(): Promise<void>;
+    content(): Promise<string>;
+    title(): Promise<string>;
+    textContent(selector: string): Promise<string | null>;
+    innerText(selector: string): Promise<string>;
+    getAttribute(selector: string, name: string): Promise<string | null>;
+    click(selector: string, _options?: {
+        timeout?: number;
+    }): Promise<void>;
+    fill(selector: string, value: string): Promise<void>;
+    type(selector: string, text: string, _options?: {
+        delay?: number;
+    }): Promise<void>;
+    check(selector: string): Promise<void>;
+    uncheck(selector: string): Promise<void>;
+    selectOption(selector: string, value: string): Promise<void>;
+    hover(selector: string, _options?: {
+        timeout?: number;
+    }): Promise<void>;
+    locator(selector: string): CompatLocator;
+    on(event: string, handler: ConsoleHandler): void;
+    url(): string;
+    keyboard: {
+        press: (key: string) => Promise<void>;
+    };
+}
 
 /**
  * Capture result with timing and diagnostic info
@@ -2476,16 +4668,7 @@ declare function formatPreference(pref: Preference): string;
 /**
  * Types of UI decisions that can be tracked
  */
-declare const DecisionTypeSchema: z.ZodEnum<{
-    css_change: "css_change";
-    layout_change: "layout_change";
-    color_change: "color_change";
-    spacing_change: "spacing_change";
-    component_add: "component_add";
-    component_remove: "component_remove";
-    component_modify: "component_modify";
-    content_change: "content_change";
-}>;
+declare const DecisionTypeSchema: z.ZodEnum<["css_change", "layout_change", "color_change", "spacing_change", "component_add", "component_remove", "component_modify", "content_change"]>;
 /**
  * Before/after state snapshot for a decision
  */
@@ -2493,7 +4676,15 @@ declare const DecisionStateSchema: z.ZodObject<{
     css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     html_snippet: z.ZodOptional<z.ZodString>;
     screenshot_ref: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    css?: Record<string, string> | undefined;
+    html_snippet?: string | undefined;
+    screenshot_ref?: string | undefined;
+}, {
+    css?: Record<string, string> | undefined;
+    html_snippet?: string | undefined;
+    screenshot_ref?: string | undefined;
+}>;
 /**
  * A single UI decision entry stored in JSONL logs
  */
@@ -2502,31 +4693,78 @@ declare const DecisionEntrySchema: z.ZodObject<{
     timestamp: z.ZodString;
     route: z.ZodString;
     component: z.ZodOptional<z.ZodString>;
-    type: z.ZodEnum<{
-        css_change: "css_change";
-        layout_change: "layout_change";
-        color_change: "color_change";
-        spacing_change: "spacing_change";
-        component_add: "component_add";
-        component_remove: "component_remove";
-        component_modify: "component_modify";
-        content_change: "content_change";
-    }>;
+    type: z.ZodEnum<["css_change", "layout_change", "color_change", "spacing_change", "component_add", "component_remove", "component_modify", "content_change"]>;
     description: z.ZodString;
     rationale: z.ZodOptional<z.ZodString>;
     before: z.ZodOptional<z.ZodObject<{
         css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         html_snippet: z.ZodOptional<z.ZodString>;
         screenshot_ref: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    }, {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    }>>;
     after: z.ZodOptional<z.ZodObject<{
         css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         html_snippet: z.ZodOptional<z.ZodString>;
         screenshot_ref: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-    files_changed: z.ZodArray<z.ZodString>;
+    }, "strip", z.ZodTypeAny, {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    }, {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    }>>;
+    files_changed: z.ZodArray<z.ZodString, "many">;
     session_id: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    type: "css_change" | "layout_change" | "color_change" | "spacing_change" | "component_add" | "component_remove" | "component_modify" | "content_change";
+    description: string;
+    id: string;
+    timestamp: string;
+    route: string;
+    files_changed: string[];
+    component?: string | undefined;
+    before?: {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    } | undefined;
+    rationale?: string | undefined;
+    after?: {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    } | undefined;
+    session_id?: string | undefined;
+}, {
+    type: "css_change" | "layout_change" | "color_change" | "spacing_change" | "component_add" | "component_remove" | "component_modify" | "content_change";
+    description: string;
+    id: string;
+    timestamp: string;
+    route: string;
+    files_changed: string[];
+    component?: string | undefined;
+    before?: {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    } | undefined;
+    rationale?: string | undefined;
+    after?: {
+        css?: Record<string, string> | undefined;
+        html_snippet?: string | undefined;
+        screenshot_ref?: string | undefined;
+    } | undefined;
+    session_id?: string | undefined;
+}>;
 /**
  * Route-level decision summary for compact context
  */
@@ -2536,15 +4774,35 @@ declare const DecisionSummarySchema: z.ZodObject<{
     latest_change: z.ZodString;
     decision_count: z.ZodNumber;
     full_log_ref: z.ZodString;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    route: string;
+    latest_change: string;
+    decision_count: number;
+    full_log_ref: string;
+    component?: string | undefined;
+}, {
+    route: string;
+    latest_change: string;
+    decision_count: number;
+    full_log_ref: string;
+    component?: string | undefined;
+}>;
 /**
  * Current UI state tracking in compact context
  */
 declare const CurrentUIStateSchema: z.ZodObject<{
     last_snapshot_ref: z.ZodOptional<z.ZodString>;
     pending_verifications: z.ZodNumber;
-    known_issues: z.ZodArray<z.ZodString>;
-}, z.core.$strip>;
+    known_issues: z.ZodArray<z.ZodString, "many">;
+}, "strip", z.ZodTypeAny, {
+    pending_verifications: number;
+    known_issues: string[];
+    last_snapshot_ref?: string | undefined;
+}, {
+    pending_verifications: number;
+    known_issues: string[];
+    last_snapshot_ref?: string | undefined;
+}>;
 /**
  * Compact context — always-loaded LLM-friendly summary (<4KB target)
  */
@@ -2559,25 +4817,83 @@ declare const CompactContextSchema: z.ZodObject<{
         latest_change: z.ZodString;
         decision_count: z.ZodNumber;
         full_log_ref: z.ZodString;
-    }, z.core.$strip>>;
+    }, "strip", z.ZodTypeAny, {
+        route: string;
+        latest_change: string;
+        decision_count: number;
+        full_log_ref: string;
+        component?: string | undefined;
+    }, {
+        route: string;
+        latest_change: string;
+        decision_count: number;
+        full_log_ref: string;
+        component?: string | undefined;
+    }>, "many">;
     current_ui_state: z.ZodObject<{
         last_snapshot_ref: z.ZodOptional<z.ZodString>;
         pending_verifications: z.ZodNumber;
-        known_issues: z.ZodArray<z.ZodString>;
-    }, z.core.$strip>;
+        known_issues: z.ZodArray<z.ZodString, "many">;
+    }, "strip", z.ZodTypeAny, {
+        pending_verifications: number;
+        known_issues: string[];
+        last_snapshot_ref?: string | undefined;
+    }, {
+        pending_verifications: number;
+        known_issues: string[];
+        last_snapshot_ref?: string | undefined;
+    }>;
     preferences_active: z.ZodNumber;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    version: 1;
+    session_id: string;
+    updated_at: string;
+    decisions_summary: {
+        route: string;
+        latest_change: string;
+        decision_count: number;
+        full_log_ref: string;
+        component?: string | undefined;
+    }[];
+    current_ui_state: {
+        pending_verifications: number;
+        known_issues: string[];
+        last_snapshot_ref?: string | undefined;
+    };
+    preferences_active: number;
+    active_route?: string | undefined;
+}, {
+    version: 1;
+    session_id: string;
+    updated_at: string;
+    decisions_summary: {
+        route: string;
+        latest_change: string;
+        decision_count: number;
+        full_log_ref: string;
+        component?: string | undefined;
+    }[];
+    current_ui_state: {
+        pending_verifications: number;
+        known_issues: string[];
+        last_snapshot_ref?: string | undefined;
+    };
+    preferences_active: number;
+    active_route?: string | undefined;
+}>;
 /**
  * Request to compact current context
  */
 declare const CompactionRequestSchema: z.ZodObject<{
-    reason: z.ZodEnum<{
-        session_ending: "session_ending";
-        context_limit: "context_limit";
-        manual: "manual";
-    }>;
-    preserve_decisions: z.ZodOptional<z.ZodArray<z.ZodString>>;
-}, z.core.$strip>;
+    reason: z.ZodEnum<["session_ending", "context_limit", "manual"]>;
+    preserve_decisions: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
+}, "strip", z.ZodTypeAny, {
+    reason: "session_ending" | "context_limit" | "manual";
+    preserve_decisions?: string[] | undefined;
+}, {
+    reason: "session_ending" | "context_limit" | "manual";
+    preserve_decisions?: string[] | undefined;
+}>;
 /**
  * Result of context compaction
  */
@@ -2593,18 +4909,120 @@ declare const CompactionResultSchema: z.ZodObject<{
             latest_change: z.ZodString;
             decision_count: z.ZodNumber;
             full_log_ref: z.ZodString;
-        }, z.core.$strip>>;
+        }, "strip", z.ZodTypeAny, {
+            route: string;
+            latest_change: string;
+            decision_count: number;
+            full_log_ref: string;
+            component?: string | undefined;
+        }, {
+            route: string;
+            latest_change: string;
+            decision_count: number;
+            full_log_ref: string;
+            component?: string | undefined;
+        }>, "many">;
         current_ui_state: z.ZodObject<{
             last_snapshot_ref: z.ZodOptional<z.ZodString>;
             pending_verifications: z.ZodNumber;
-            known_issues: z.ZodArray<z.ZodString>;
-        }, z.core.$strip>;
+            known_issues: z.ZodArray<z.ZodString, "many">;
+        }, "strip", z.ZodTypeAny, {
+            pending_verifications: number;
+            known_issues: string[];
+            last_snapshot_ref?: string | undefined;
+        }, {
+            pending_verifications: number;
+            known_issues: string[];
+            last_snapshot_ref?: string | undefined;
+        }>;
         preferences_active: z.ZodNumber;
-    }, z.core.$strip>;
+    }, "strip", z.ZodTypeAny, {
+        version: 1;
+        session_id: string;
+        updated_at: string;
+        decisions_summary: {
+            route: string;
+            latest_change: string;
+            decision_count: number;
+            full_log_ref: string;
+            component?: string | undefined;
+        }[];
+        current_ui_state: {
+            pending_verifications: number;
+            known_issues: string[];
+            last_snapshot_ref?: string | undefined;
+        };
+        preferences_active: number;
+        active_route?: string | undefined;
+    }, {
+        version: 1;
+        session_id: string;
+        updated_at: string;
+        decisions_summary: {
+            route: string;
+            latest_change: string;
+            decision_count: number;
+            full_log_ref: string;
+            component?: string | undefined;
+        }[];
+        current_ui_state: {
+            pending_verifications: number;
+            known_issues: string[];
+            last_snapshot_ref?: string | undefined;
+        };
+        preferences_active: number;
+        active_route?: string | undefined;
+    }>;
     archived_to: z.ZodString;
     decisions_compacted: z.ZodNumber;
     decisions_preserved: z.ZodNumber;
-}, z.core.$strip>;
+}, "strip", z.ZodTypeAny, {
+    compact_context: {
+        version: 1;
+        session_id: string;
+        updated_at: string;
+        decisions_summary: {
+            route: string;
+            latest_change: string;
+            decision_count: number;
+            full_log_ref: string;
+            component?: string | undefined;
+        }[];
+        current_ui_state: {
+            pending_verifications: number;
+            known_issues: string[];
+            last_snapshot_ref?: string | undefined;
+        };
+        preferences_active: number;
+        active_route?: string | undefined;
+    };
+    archived_to: string;
+    decisions_compacted: number;
+    decisions_preserved: number;
+}, {
+    compact_context: {
+        version: 1;
+        session_id: string;
+        updated_at: string;
+        decisions_summary: {
+            route: string;
+            latest_change: string;
+            decision_count: number;
+            full_log_ref: string;
+            component?: string | undefined;
+        }[];
+        current_ui_state: {
+            pending_verifications: number;
+            known_issues: string[];
+            last_snapshot_ref?: string | undefined;
+        };
+        preferences_active: number;
+        active_route?: string | undefined;
+    };
+    archived_to: string;
+    decisions_compacted: number;
+    decisions_preserved: number;
+}>;
 type DecisionType = z.infer<typeof DecisionTypeSchema>;
 type DecisionState = z.infer<typeof DecisionStateSchema>;
 type DecisionEntry = z.infer<typeof DecisionEntrySchema>;
@@ -3348,12 +5766,11 @@ declare class InterfaceBuiltRight {
  * AI-friendly semantic output.
  */
 declare class IBRSession {
-    /** Raw Playwright page for advanced use */
-    readonly page: Page;
-    private browser;
-    private context;
+    /** Page interface for browser interaction */
+    readonly page: CompatPage;
+    private driver;
     private config;
-    constructor(page: Page, browser: Browser, context: BrowserContext, config: Config);
+    constructor(page: CompatPage, driver: EngineDriver, config: Config);
     /**
      * Get semantic understanding of the current page
      */
@@ -3383,9 +5800,11 @@ declare class IBRSession {
      */
     screenshot(path?: string): Promise<Buffer>;
     /**
-     * Mock a network request (thin wrapper on page.route)
+     * Mock a network request.
+     * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
+     * This is a placeholder that throws until CDP Fetch is added to the engine.
      */
-    mock(pattern: string | RegExp, response: {
+    mock(_pattern: string | RegExp, _response: {
         status?: number;
         body?: string | object;
         headers?: Record<string, string>;
