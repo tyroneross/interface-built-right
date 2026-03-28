@@ -23,6 +23,21 @@ IBR is a Claude Code plugin that validates your UI implementation against what t
 
 It works from the terminal, from Claude Code slash commands, or from code. Zero config required.
 
+## Architecture
+
+IBR runs on a custom **CDP browser engine** — direct Chrome DevTools Protocol over WebSocket. No Playwright, no Puppeteer, no heavyweight browser automation dependencies.
+
+**LLM-native features** built into the engine:
+
+| Feature | What it does |
+|---------|-------------|
+| **queryAXTree-first resolution** | Find elements by semantic name+role (not fragile CSS selectors). 4-tier: CDP-native search → Jaro-Winkler fuzzy → vision fallback |
+| **DOM chunking** | Filter to interactive/leaf elements, chunk for LLM context windows. 60-70% fewer tokens |
+| **Adaptive modality** | Scores AX tree quality. High → use text data. Low → include screenshot. Vision only when needed |
+| **Resolution cache** | Caches intent→element mappings. Same query twice = instant. Clears on navigation |
+| **observe()** | Preview available actions without executing. Returns serializable descriptors |
+| **extract()** | Pull structured data from AX tree using schemas |
+
 ## The Problem
 
 User says "make the buttons blue with 16px Inter font." You build it. But did it work?
@@ -34,7 +49,7 @@ User says "make the buttons blue with 16px Inter font." You build it. But did it
 ## How It Works
 
 ```bash
-# User describes what they want → you build it → validate with IBR
+# User describes what they want -> you build it -> validate with IBR
 npx ibr scan http://localhost:3000/page --json
 ```
 
@@ -107,7 +122,7 @@ IBR works standalone, but it's built for Claude Code. As a plugin, it automatica
 
 **3. Use in conversation:**
 
-> "Make the header dark with a purple CTA" → Claude builds it → runs `npx ibr scan` → checks `backgroundColor` on header and button → confirms match or iterates
+> "Make the header dark with a purple CTA" -> Claude builds it -> runs `npx ibr scan` -> checks `backgroundColor` on header and button -> confirms match or iterates
 
 The plugin hooks handle the rest — nudging Claude to validate after UI work and suggesting scan data alongside visual checks for thorough coverage.
 
@@ -116,7 +131,7 @@ The plugin hooks handle the rest — nudging Claude to validate after UI work an
 When installed as a Claude Code plugin, IBR provides:
 
 - **Design validation reminders** — after UI file edits, nudges to run `npx ibr scan` to verify against user intent
-- **Scan + screenshot guidance** — when Playwright screenshot is used, suggests also running IBR scan for precise property data alongside the visual check
+- **Scan + screenshot guidance** — suggests also running IBR scan for precise property data alongside visual checks
 - **Session end check** — reminds if UI work was done but not validated
 - **Bash safety** — blocks destructive commands (`rm -rf /`, `git push --force`, etc.)
 - **Sensitive path protection** — prevents writes to `~/.ssh`, `~/.aws`, `/etc/`
@@ -281,6 +296,46 @@ console.log(result.summary);    // "Header background changed. Layout intact."
 ```
 
 <details>
+<summary>Engine API (advanced)</summary>
+
+```typescript
+import { EngineDriver, CompatPage } from '@tyroneross/interface-built-right/engine';
+
+// Direct CDP engine access
+const driver = new EngineDriver();
+await driver.launch({ headless: true, viewport: { width: 1920, height: 1080 } });
+
+// Navigate with stability detection
+await driver.navigate('http://localhost:3000', { waitFor: 'stable' });
+
+// Discover interactive elements (LLM-optimized)
+const elements = await driver.discover({
+  filter: 'interactive',
+  serialize: true,        // compact format for context windows
+  maxTokens: 4000,
+});
+
+// Find elements by intent (not CSS selectors)
+const button = await driver.find('Submit', { role: 'button' });
+
+// Assess page understanding quality
+const understanding = await driver.assessUnderstanding();
+if (understanding.needsScreenshot) {
+  const screenshot = await driver.screenshot({ fullPage: true });
+}
+
+// Extract structured data
+const data = await driver.extract({
+  title: { role: 'heading', extract: 'text' },
+  isLoggedIn: { role: 'button', label: 'logout', extract: 'exists' },
+});
+
+await driver.close();
+```
+
+</details>
+
+<details>
 <summary>Session-based workflow</summary>
 
 ```typescript
@@ -326,14 +381,14 @@ Available viewports: `desktop`, `laptop`, `tablet`, `mobile`, `iphone-14`, `ipho
 | Problem | Fix |
 |---------|-----|
 | `Command not found: ibr` | Use `npx ibr --help` |
-| Playwright browsers not installed | `npx playwright install chromium` |
+| Chrome not found | Install Google Chrome, or pass `chromePath` option |
 | Auth state expired | `npx ibr login <url>` |
 | Session not found | `npx ibr list` to see available sessions |
 
 ## Requirements
 
-- Node.js 18+
-- Playwright (installed automatically with IBR)
+- Node.js 22+ (uses built-in WebSocket for CDP)
+- Google Chrome installed (uses system Chrome, no downloads needed)
 
 ## License
 

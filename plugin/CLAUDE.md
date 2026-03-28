@@ -2,6 +2,8 @@
 
 IBR reads live UI and returns structured data — computed CSS, bounds, handler wiring, accessibility, page structure. Scan output is ground truth for what is actually rendered. Use this data to inform implementation decisions during the build and confirm results after. Screenshots complement scans for visual coherence, rendering bugs, and canvas/SVG content.
 
+IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSocket. No Playwright dependency. Elements are found by semantic accessibility tree queries (name + role), not fragile CSS selectors.
+
 **Setup:** Add `.ibr/` to `.gitignore`
 
 ## When to Use
@@ -28,13 +30,25 @@ Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
 
 **Page-level:** `pageIntent` (auth|form|listing|detail|dashboard|error|landing), `state.auth`, `state.loading`, `state.errors`, `console` (errors[], warnings[]), `verdict` (PASS|ISSUES|FAIL)
 
-## IBR vs Screenshot vs Playwright
+## IBR Engine Capabilities
+
+The CDP engine provides LLM-native features beyond basic scanning:
+
+| Feature | Use When |
+|---------|----------|
+| `discover({ filter: 'interactive', serialize: true })` | Need compact element list for context window |
+| `find('Submit', { role: 'button' })` | Find element by intent, not CSS selector |
+| `observe()` | Preview available actions before executing |
+| `extract({ field: { role, label, extract } })` | Pull structured data from accessibility tree |
+| `assessUnderstanding()` | Decide whether screenshot is needed (adaptive modality) |
+| `captureState({ computedStyles, includeAXTree, includeScreenshot })` | One-call full page state |
+
+## IBR vs Screenshot
 
 | Task | Tool |
 |------|------|
 | Exact CSS values, handler wiring, a11y audit, console errors | `ibr scan` |
 | Visual coherence, rendering bugs, canvas/SVG | Screenshot |
-| Multi-step flows, file uploads, dialogs | Playwright |
 | Track visual changes | `ibr start` + `ibr check` |
 
 Use scan first for property verification, add screenshot when visual confirmation needed.
