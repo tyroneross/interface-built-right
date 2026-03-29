@@ -3596,4 +3596,155 @@ program
     }
   })
 
+// ─── record-change command ────────────────────────────────────────────────────
+// Record a structured design change specification for later verification.
+// Usage:
+//   npx ibr record-change http://localhost:3000 \
+//     --element "header" \
+//     --description "Blue header, 48px bold" \
+//     --checks '[{"property":"color","operator":"contains","value":"blue","confidence":0.6}]'
+
+program
+  .command('record-change <url>')
+  .description('Record a design change specification for later verification')
+  .option('--element <name>', 'Accessible name or CSS selector of the target element')
+  .option('--description <text>', 'Human-readable description of the change')
+  .option('--checks <json>', 'JSON array of check objects: [{property,operator,value,confidence}]')
+  .option('--platform <platform>', 'Target platform: web, ios, macos', 'web')
+  .action(async (url: string, options: {
+    element?: string;
+    description?: string;
+    checks?: string;
+    platform?: string;
+  }) => {
+    try {
+      const { saveChange } = await import('../design-verifier.js');
+      const { DesignChangeSchema } = await import('../context/types.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      if (!options.element) {
+        console.error('Error: --element is required');
+        process.exit(1);
+      }
+      if (!options.description) {
+        console.error('Error: --description is required');
+        process.exit(1);
+      }
+
+      let checks: unknown[] = [];
+      if (options.checks) {
+        try {
+          checks = JSON.parse(options.checks);
+          if (!Array.isArray(checks)) {
+            console.error('Error: --checks must be a JSON array');
+            process.exit(1);
+          }
+        } catch {
+          console.error('Error: --checks is not valid JSON');
+          process.exit(1);
+        }
+      }
+
+      // Validate and parse the change using Zod schema
+      const changeRaw = {
+        description: options.description,
+        element: options.element,
+        checks,
+        source: 'structured' as const,
+        platform: (options.platform as 'web' | 'ios' | 'macos') || 'web',
+        timestamp: new Date().toISOString(),
+      };
+
+      const parseResult = DesignChangeSchema.safeParse(changeRaw);
+      if (!parseResult.success) {
+        console.error('Error: invalid change specification');
+        for (const issue of parseResult.error.issues) {
+          console.error(`  ${issue.path.join('.')}: ${issue.message}`);
+        }
+        process.exit(1);
+      }
+
+      await saveChange(outputDir, parseResult.data);
+
+      console.log('Design change recorded:');
+      console.log(`  Element:     ${parseResult.data.element}`);
+      console.log(`  Description: ${parseResult.data.description}`);
+      console.log(`  Checks:      ${parseResult.data.checks.length}`);
+      console.log(`  Platform:    ${parseResult.data.platform ?? 'web'}`);
+      console.log(`  Saved to:    ${outputDir}/design-changes.json`);
+      console.log('');
+      console.log('To verify:');
+      console.log(`  npx ibr verify-changes ${url}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ─── verify-changes command ───────────────────────────────────────────────────
+// Verify all recorded design changes against a live page.
+// Usage:
+//   npx ibr verify-changes http://localhost:3000
+//   npx ibr verify-changes http://localhost:3000 --json
+
+program
+  .command('verify-changes <url>')
+  .description('Verify all recorded design changes against the live page')
+  .option('--json', 'Output results as JSON')
+  .action(async (url: string, options: { json?: boolean }) => {
+    const driver = new EngineDriver();
+    try {
+      const { loadChanges, verifyAllChanges, formatVerifyResult } = await import('../design-verifier.js');
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const changes = await loadChanges(outputDir);
+
+      if (changes.length === 0) {
+        console.log('No design changes recorded.');
+        console.log('');
+        console.log('Record a change first:');
+        console.log('  npx ibr record-change <url> --element "header" --description "Blue header" --checks \'[...]\'');
+        return;
+      }
+
+      console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
+      console.log('');
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.navigate(resolvedUrl);
+
+      // Small wait for hydration
+      await new Promise((r) => setTimeout(r, 500));
+
+      const results = await verifyAllChanges(changes, driver);
+
+      if (options.json) {
+        console.log(JSON.stringify(results, null, 2));
+      } else {
+        for (const result of results) {
+          console.log(formatVerifyResult(result));
+          console.log('');
+        }
+
+        const passed = results.filter((r) => r.overallPassed).length;
+        const failed = results.filter((r) => !r.overallPassed).length;
+        console.log(`Summary: ${passed} passed, ${failed} failed`);
+      }
+
+      await driver.close();
+
+      if (results.some((r) => !r.overallPassed)) {
+        process.exit(1);
+      }
+    } catch (error) {
+      await driver.close().catch(() => {});
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 program.parse();
