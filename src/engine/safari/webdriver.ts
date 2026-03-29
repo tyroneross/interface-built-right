@@ -172,7 +172,7 @@ export class WebDriverClient {
 
   // ─── Window management ───────────────────────────────────
 
-  async setWindowRect(rect: { width: number; height: number }): Promise<void> {
+  async setWindowRect(rect: { width: number; height: number; x?: number; y?: number }): Promise<void> {
     await this.post(this.session('/window/rect'), rect)
   }
 

@@ -10,7 +10,7 @@
  *   - WebDriver's executeScript handles interactions (avoids AX↔DOM ID mapping)
  */
 
-import { execFile } from 'child_process'
+import { execFile, exec } from 'child_process'
 import { promisify } from 'util'
 import type { BrowserDriver } from '../types.js'
 import type { Element } from '../types.js'
@@ -35,11 +35,6 @@ export class SafariDriver implements BrowserDriver {
     viewport?: { width: number; height: number }
     normalize?: boolean
   } = {}): Promise<void> {
-    // Safari has no headless mode — warn but continue
-    if (options.headless) {
-      console.warn('[SafariDriver] Safari does not support headless mode. Running visible.')
-    }
-
     this.session = new SafariSession()
     const port = await this.session.start()
 
@@ -47,9 +42,14 @@ export class SafariDriver implements BrowserDriver {
     await this.client.createSession()
 
     // Set viewport size if requested
-    if (options.viewport) {
-      await this.client.setWindowRect(options.viewport)
-    }
+    const vp = options.viewport ?? { width: 1920, height: 1080 }
+
+    // Safari has no headless mode — hide the window instead:
+    // 1. Move window off-screen so it's not visible
+    // 2. Hide Safari from Dock/app switcher via AppleScript
+    // Screenshots and AX tree still work — safaridriver captures web content directly.
+    await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 })
+    exec('osascript -e \'tell application "System Events" to set visible of process "Safari" to false\'')
   }
 
   async close(): Promise<void> {
