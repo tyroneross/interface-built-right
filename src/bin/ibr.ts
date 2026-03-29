@@ -3375,4 +3375,133 @@ program
     }
   });
 
+// ============================================================================
+// INTERACT COMMAND — act→verify→screenshot pipeline
+// ============================================================================
+
+program
+  .command('interact <url>')
+  .description('Run interaction assertions: click X, verify Y happened')
+  .option('-a, --action <spec>', 'Action specification (repeatable). Format: type[:role]:target[:value]', (val, acc: string[]) => { acc.push(val); return acc }, [] as string[])
+  .option('-e, --expect <spec>', 'Assertion specification (repeatable). Format: visible|hidden|text|count:value', (val, acc: string[]) => { acc.push(val); return acc }, [] as string[])
+  .option('--expect-screenshot <name>', 'Capture screenshot after last action with this name')
+  .option('--json', 'Output as JSON')
+  .option('--sandbox', 'Show visible browser window (default: headless)')
+  .action(async (url: string, options: {
+    action: string[]
+    expect: string[]
+    expectScreenshot?: string
+    json?: boolean
+    sandbox?: boolean
+  }) => {
+    const {
+      runInteractionTest,
+      parseActionArg,
+      parseExpectArg,
+      formatInteractionResult,
+    } = await import('../interaction-test.js')
+
+    const globalOpts = program.opts()
+    const outputDir = globalOpts.output || './.ibr'
+    const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop
+
+    if (!options.action || options.action.length === 0) {
+      console.error('Error: at least one --action is required')
+      console.error('')
+      console.error('Usage:')
+      console.error('  npx ibr interact <url> --action "click:button:Submit" --expect "heading:Success"')
+      process.exit(1)
+    }
+
+    // Parse action args into steps — each --action gets its own step
+    // All --expect args apply to the last step
+    const steps = options.action.map((actionSpec, i) => {
+      let action
+      try {
+        action = parseActionArg(actionSpec)
+      } catch (err) {
+        console.error(`Error parsing --action "${actionSpec}": ${err instanceof Error ? err.message : err}`)
+        process.exit(1)
+      }
+
+      const isLastStep = i === options.action.length - 1
+
+      // Assign expect assertions to the last step only
+      let expectObj: ReturnType<typeof parseExpectArg> = undefined
+
+      if (isLastStep && (options.expect.length > 0 || options.expectScreenshot)) {
+        expectObj = {}
+
+        for (const expectSpec of options.expect) {
+          try {
+            const parsed = parseExpectArg(expectSpec)
+            Object.assign(expectObj, parsed)
+          } catch (err) {
+            console.error(`Error parsing --expect "${expectSpec}": ${err instanceof Error ? err.message : err}`)
+            process.exit(1)
+          }
+        }
+
+        if (options.expectScreenshot) {
+          expectObj.screenshot = options.expectScreenshot
+        }
+      }
+
+      return { action, expect: expectObj }
+    })
+
+    try {
+      const resolvedUrl = await resolveBaseUrl(url)
+
+      if (!options.json) {
+        console.log(`Interacting with ${resolvedUrl}...`)
+        console.log(`${steps.length} step(s)`)
+        console.log('')
+      }
+
+      const results = await runInteractionTest({
+        url: resolvedUrl,
+        steps,
+        viewport,
+        outputDir: join(outputDir, 'interactions'),
+        headless: !options.sandbox,
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(results.map((r) => ({
+          ...r,
+          before: { ...r.before, screenshot: undefined },
+          after: { ...r.after, screenshot: undefined },
+        })), null, 2))
+      } else {
+        for (const result of results) {
+          console.log(formatInteractionResult(result))
+          console.log('')
+        }
+
+        // Summary
+        const totalAssertions = results.flatMap((r) => r.assertions).length
+        const passedAssertions = results.flatMap((r) => r.assertions).filter((a) => a.passed).length
+        const failedActions = results.filter((r) => !r.action.success).length
+
+        if (totalAssertions > 0) {
+          console.log(`Assertions: ${passedAssertions}/${totalAssertions} passed`)
+        }
+        if (failedActions > 0) {
+          console.log(`Actions failed: ${failedActions}/${results.length}`)
+        }
+      }
+
+      // Exit 1 if any assertion failed or any action failed
+      const anyFailed =
+        results.some((r) => !r.action.success) ||
+        results.some((r) => r.assertions.some((a) => !a.passed))
+
+      if (anyFailed) process.exit(1)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
 program.parse();

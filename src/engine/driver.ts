@@ -17,6 +17,8 @@ import { EmulationDomain, type ViewportConfig } from './cdp/emulation.js'
 import { NetworkDomain, type Cookie, type SetCookieParams } from './cdp/network.js'
 import { ConsoleDomain, type ConsoleMessage } from './cdp/console.js'
 import { waitForStableTree, waitForStable } from './cdp/wait.js'
+import pixelmatch from 'pixelmatch'
+import { PNG } from 'pngjs'
 import type { Element, Snapshot } from './types.js'
 import { serializeSnapshot } from './serialize.js'
 import { observe, type ActionDescriptor, type ObserveOptions } from './observe.js'
@@ -306,6 +308,152 @@ export class EngineDriver {
 
   async scroll(deltaY: number, x = 0, y = 0): Promise<void> {
     await this.input.scroll(x, y, 0, deltaY)
+  }
+
+  // ─── Interaction Assertions ─────────────────────────────
+
+  /**
+   * Before/after state capture around an action.
+   * Returns element diff and pixel diff.
+   */
+  async actAndCapture(action: () => Promise<void>): Promise<{
+    before: { elements: Element[]; screenshot: Buffer }
+    after: { elements: Element[]; screenshot: Buffer }
+    diff: { addedElements: Element[]; removedElements: Element[]; pixelDiff: number }
+  }> {
+    // Capture before state
+    const [beforeElements, beforeScreenshot] = await Promise.all([
+      this.ax.getSnapshot(),
+      this._page.screenshot(),
+    ])
+
+    // Execute action
+    await action()
+
+    // Wait for stability
+    await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5000, stableTime: 300 })
+
+    // Capture after state
+    const [afterElements, afterScreenshot] = await Promise.all([
+      this.ax.getSnapshot(),
+      this._page.screenshot(),
+    ])
+
+    // Compute element diff by id
+    const beforeIds = new Set(beforeElements.map((e) => e.id))
+    const afterIds = new Set(afterElements.map((e) => e.id))
+    const addedElements = afterElements.filter((e) => !beforeIds.has(e.id))
+    const removedElements = beforeElements.filter((e) => !afterIds.has(e.id))
+
+    // Compute pixel diff
+    let pixelDiff = 0
+    try {
+      const beforePng = PNG.sync.read(beforeScreenshot)
+      const afterPng = PNG.sync.read(afterScreenshot)
+      if (beforePng.width === afterPng.width && beforePng.height === afterPng.height) {
+        const { width, height } = beforePng
+        const diffPng = new PNG({ width, height })
+        pixelDiff = pixelmatch(beforePng.data, afterPng.data, diffPng.data, width, height, {
+          threshold: 0.1,
+          includeAA: false,
+        })
+      }
+    } catch {
+      // Pixel diff is best-effort — ignore errors
+    }
+
+    return {
+      before: { elements: beforeElements, screenshot: beforeScreenshot },
+      after: { elements: afterElements, screenshot: afterScreenshot },
+      diff: { addedElements, removedElements, pixelDiff },
+    }
+  }
+
+  /**
+   * Set a <select> element's value and dispatch change event.
+   */
+  async select(elementId: string, value: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    await this.input.click(x, y)
+    await new Promise((r) => setTimeout(r, 100))
+
+    await this.runtime.callFunctionOn(
+      '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+      [value],
+    )
+  }
+
+  /**
+   * Toggle a checkbox element.
+   */
+  async check(elementId: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    await this.input.click(x, y)
+  }
+
+  /**
+   * Double-click an element.
+   */
+  async doubleClick(elementId: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    await this.input.click(x, y)
+    await new Promise((r) => setTimeout(r, 50))
+    await this.input.click(x, y)
+  }
+
+  /**
+   * Right-click an element (opens context menu).
+   */
+  async rightClick(elementId: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const sid = this.sessionId ?? undefined
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1,
+    }, sid)
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1,
+    }, sid)
+  }
+
+  /**
+   * Wait until an element with the given name (and optional role) appears in the AX tree.
+   * Polls at 200ms intervals. Throws on timeout.
+   */
+  async waitForElement(
+    name: string,
+    options?: { role?: string; timeout?: number },
+  ): Promise<Element> {
+    const timeout = options?.timeout ?? 10000
+    const deadline = Date.now() + timeout
+    const interval = 200
+
+    while (Date.now() < deadline) {
+      const elements = await this.ax.getSnapshot()
+      const match = elements.find((e) => {
+        const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) ||
+          e.value?.toString().toLowerCase().includes(name.toLowerCase())
+        const roleMatch = !options?.role || e.role === options.role
+        return nameMatch && roleMatch
+      })
+      if (match) return match
+      await new Promise((r) => setTimeout(r, interval))
+    }
+
+    throw new Error(
+      `waitForElement: element "${name}"${options?.role ? ` (role: ${options.role})` : ''} not found within ${timeout}ms`,
+    )
   }
 
   // ─── Screenshots ────────────────────────────────────────
