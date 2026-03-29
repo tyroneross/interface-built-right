@@ -104,7 +104,7 @@ async function executeStep(
           return
         }
         if (action.type === 'scroll') {
-          const delta = action.value ? parseInt(action.value, 10) : 300
+          const delta = action.value ? (parseInt(action.value, 10) || 300) : 300
           await driver.scroll(delta)
           return
         }
@@ -128,7 +128,7 @@ async function executeStep(
           await driver.pressKey(action.value ?? 'Enter')
           break
         case 'scroll': {
-          const delta = action.value ? parseInt(action.value, 10) : 300
+          const delta = action.value ? (parseInt(action.value, 10) || 300) : 300
           await driver.scroll(delta)
           break
         }

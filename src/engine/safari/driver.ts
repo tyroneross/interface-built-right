@@ -49,7 +49,9 @@ export class SafariDriver implements BrowserDriver {
     // 2. Hide Safari from Dock/app switcher via AppleScript
     // Screenshots and AX tree still work — safaridriver captures web content directly.
     await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 })
-    exec('osascript -e \'tell application "System Events" to set visible of process "Safari" to false\'')
+    // Hide Safari from Dock/app switcher — best-effort, ignore errors
+    // (may fail if accessibility permissions not granted on macOS Sequoia+)
+    exec('osascript -e \'tell application "System Events" to set visible of process "Safari" to false\'', () => {})
   }
 
   async close(): Promise<void> {
@@ -396,9 +398,9 @@ export class SafariDriver implements BrowserDriver {
           try { el = document.querySelector(eid); } catch(e) {}
         }
 
-        // Strategy 2: aria-label match
+        // Strategy 2: aria-label match (use CSS.escape to prevent selector injection)
         if (!el) {
-          el = document.querySelector('[aria-label="' + eid + '"]');
+          try { el = document.querySelector('[aria-label="' + CSS.escape(eid) + '"]'); } catch(e) {}
         }
 
         // Strategy 3: button/link text content

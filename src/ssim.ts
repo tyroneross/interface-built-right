@@ -138,6 +138,11 @@ export function computeSSIM(
 ): SSIMResult {
   const windowSize = options.windowSize ?? 8
 
+  // Guard: zero-size images are trivially identical
+  if (img1.width === 0 || img1.height === 0 || img2.width === 0 || img2.height === 0) {
+    return { score: 1, verdict: 'pass' }
+  }
+
   if (img1.width !== img2.width || img1.height !== img2.height) {
     throw new Error(
       `SSIM requires equal dimensions. `

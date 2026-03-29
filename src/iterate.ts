@@ -41,7 +41,7 @@ export interface IterateOptions {
   autoApprove?: boolean
 }
 
-export type FinalState = 'resolved' | 'stagnant' | 'oscillating' | 'regressing' | 'budget_exceeded'
+export type FinalState = 'resolved' | 'stagnant' | 'oscillating' | 'regressing' | 'budget_exceeded' | 'in_progress'
 
 export interface IterateResult {
   iterations: IterationState[]
@@ -269,8 +269,8 @@ export async function iterate(options: IterateOptions): Promise<IterateResult> {
     return result
   }
 
-  // Not yet converged — return intermediate state
-  return buildResult(allIterations, 'budget_exceeded')  // caller checks iterations.length vs maxIterations
+  // Not yet converged — return intermediate state for next iteration
+  return buildResult(allIterations, 'in_progress')
 }
 
 // ─── Result Builder ───────────────────────────────────────
@@ -295,6 +295,9 @@ function buildResult(iterations: IterationState[], finalState: FinalState): Iter
       break
     case 'budget_exceeded':
       summary = `Reached ${iterations.length} iteration(s). ${last?.issueCount ?? 0} issue(s) remaining. Approach: ${last?.approachHint ?? 'unknown'}.`
+      break
+    case 'in_progress':
+      summary = `Iteration ${iterations.length} complete. ${last?.issueCount ?? 0} issue(s) remaining. Ready for next iteration.`
       break
   }
 

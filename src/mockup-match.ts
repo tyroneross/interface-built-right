@@ -144,7 +144,7 @@ export async function matchMockup(options: MockupMatchOptions): Promise<MockupMa
   } = options
 
   // Step 1: Read mockup
-  const mockup = await readPng(mockupPath)
+  let mockup = await readPng(mockupPath)
 
   // Viewport: use mockup dimensions unless overridden
   const viewport: ViewportConfig = {
@@ -232,9 +232,9 @@ export async function matchMockup(options: MockupMatchOptions): Promise<MockupMa
           maskedRegions.push(region.label)
         }
 
-        // Replace data with masked versions
+        // Replace data with masked versions (create new objects, don't mutate originals)
         live = { data: liveData, width: live.width, height: live.height }
-        mockup.data = mockupData
+        mockup = { data: mockupData, width: mockup.width, height: mockup.height }
       }
     }
 

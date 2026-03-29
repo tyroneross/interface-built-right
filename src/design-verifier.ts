@@ -134,7 +134,8 @@ async function getComputedProperty(
   try {
     // Try to find the element by accessible name first (AX tree lookup)
     // If the query looks like a CSS selector (starts with . # [ or tag), use querySelector
-    const isSelector = /^[.#\[a-z]/i.test(elementQuery) && !/\s/.test(elementQuery.slice(1));
+    // Detect CSS selectors: must start with . # [ or contain > + ~ combinators
+    const isSelector = /^[.#\[]/.test(elementQuery) || /[>+~]/.test(elementQuery);
 
     let jsExpression: string;
     if (isSelector) {
@@ -147,10 +148,11 @@ async function getComputedProperty(
       `;
     } else {
       // Try to find by aria-label or text content
+      // Use CSS.escape to prevent selector injection from user-provided labels
       jsExpression = `
         (function() {
-          // Try aria-label match
-          const byAria = document.querySelector('[aria-label=${JSON.stringify(elementQuery)}]');
+          // Try aria-label match (CSS.escape prevents injection)
+          const byAria = document.querySelector('[aria-label="' + CSS.escape(${JSON.stringify(elementQuery)}) + '"]');
           if (byAria) return getComputedStyle(byAria)[${JSON.stringify(property)}] || null;
           // Try text content match (first element with matching text)
           const all = document.querySelectorAll('*');

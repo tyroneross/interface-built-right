@@ -6,9 +6,9 @@ import { mkdir, readFile, writeFile, readdir, rm, access, unlink, copyFile, appe
 import { tmpdir, userInfo, homedir } from 'os';
 import * as path from 'path';
 import { join, dirname } from 'path';
-import { randomBytes } from 'crypto';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
+import { randomBytes } from 'crypto';
 import { nanoid } from 'nanoid';
 import { URL as URL$1 } from 'url';
 import { promisify } from 'util';
@@ -1440,6 +1440,10 @@ Checked: ${CHROME_PATHS.join(", ")}`
     if (headless) {
       args.push("--headless=new");
     }
+    if (options.normalize) {
+      args.push("--disable-lcd-text");
+      args.push("--force-device-scale-factor=1");
+    }
     this.process = spawn(chromePath, args, { stdio: "pipe" });
     this.process.on("error", (err) => {
       console.error(`Chrome process error: ${err.message}`);
@@ -2728,6 +2732,52 @@ function buildReasoning(score, threshold, dims) {
   return `${action}: ${parts.join(", ")}`;
 }
 
+// src/engine/shadow-dom.ts
+async function extractShadowElements(runtime) {
+  const result = await runtime.evaluate(`
+    (function() {
+      const found = [];
+
+      function walk(root) {
+        const children = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
+        for (const el of children) {
+          // Descend into open shadow roots
+          if (el.shadowRoot) {
+            const shadowChildren = Array.from(el.shadowRoot.querySelectorAll('*'));
+            for (const shadowEl of shadowChildren) {
+              const rect = shadowEl.getBoundingClientRect();
+              found.push({
+                tagName: shadowEl.tagName.toLowerCase(),
+                role: shadowEl.getAttribute('role'),
+                label: shadowEl.getAttribute('aria-label') || shadowEl.getAttribute('aria-labelledby'),
+                textContent: (shadowEl.textContent || '').trim().slice(0, 200) || null,
+                bounds: rect.width > 0 || rect.height > 0
+                  ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                  : null,
+              });
+              // Recurse into nested shadow roots
+              if (shadowEl.shadowRoot) {
+                walk(shadowEl.shadowRoot);
+              }
+            }
+          }
+        }
+      }
+
+      walk(document);
+      return found;
+    })()
+  `);
+  if (!Array.isArray(result)) return [];
+  return result.map((item) => ({
+    tagName: String(item.tagName ?? "unknown"),
+    role: item.role != null ? String(item.role) : null,
+    label: item.label != null ? String(item.label) : null,
+    textContent: item.textContent != null ? String(item.textContent) : null,
+    bounds: item.bounds != null ? item.bounds : null
+  }));
+}
+
 // src/engine/driver.ts
 var EngineDriver = class {
   browser = new BrowserManager();
@@ -2746,7 +2796,7 @@ var EngineDriver = class {
   console;
   targetId = null;
   sessionId = null;
-  currentUrl = "";
+  _currentUrl = "";
   launched = false;
   resolutionCache = new ResolutionCache();
   // ─── Lifecycle ──────────────────────────────────────────
@@ -2803,11 +2853,15 @@ var EngineDriver = class {
         { timeout: options.timeout ?? 1e4 }
       );
     }
-    this.currentUrl = await this.runtime.evaluate("location.href") ?? url;
+    this._currentUrl = await this.runtime.evaluate("location.href") ?? url;
     this.resolutionCache.clear();
   }
   get url() {
-    return this.currentUrl;
+    return this._currentUrl;
+  }
+  /** BrowserDriver interface: currentUrl alias */
+  get currentUrl() {
+    return this._currentUrl;
   }
   // ─── Element Discovery (LLM-native) ────────────────────
   /**
@@ -2834,7 +2888,7 @@ var EngineDriver = class {
     }
     if (options.serialize) {
       const snap = {
-        url: this.currentUrl,
+        url: this._currentUrl,
         platform: "web",
         elements: filtered};
       return serializeSnapshot(snap);
@@ -2920,6 +2974,127 @@ var EngineDriver = class {
   async scroll(deltaY, x = 0, y = 0) {
     await this.input.scroll(x, y, 0, deltaY);
   }
+  // ─── Interaction Assertions ─────────────────────────────
+  /**
+   * Before/after state capture around an action.
+   * Returns element diff and pixel diff.
+   */
+  async actAndCapture(action) {
+    const [beforeElements, beforeScreenshot] = await Promise.all([
+      this.ax.getSnapshot(),
+      this._page.screenshot()
+    ]);
+    await action();
+    await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+    const [afterElements, afterScreenshot] = await Promise.all([
+      this.ax.getSnapshot(),
+      this._page.screenshot()
+    ]);
+    const beforeIds = new Set(beforeElements.map((e) => e.id));
+    const afterIds = new Set(afterElements.map((e) => e.id));
+    const addedElements = afterElements.filter((e) => !beforeIds.has(e.id));
+    const removedElements = beforeElements.filter((e) => !afterIds.has(e.id));
+    let pixelDiff = 0;
+    try {
+      const beforePng = PNG.sync.read(beforeScreenshot);
+      const afterPng = PNG.sync.read(afterScreenshot);
+      if (beforePng.width === afterPng.width && beforePng.height === afterPng.height) {
+        const { width, height } = beforePng;
+        const diffPng = new PNG({ width, height });
+        pixelDiff = pixelmatch(beforePng.data, afterPng.data, diffPng.data, width, height, {
+          threshold: 0.1,
+          includeAA: false
+        });
+      }
+    } catch {
+    }
+    return {
+      before: { elements: beforeElements, screenshot: beforeScreenshot },
+      after: { elements: afterElements, screenshot: afterScreenshot },
+      diff: { addedElements, removedElements, pixelDiff }
+    };
+  }
+  /**
+   * Set a <select> element's value and dispatch change event.
+   */
+  async select(elementId, value) {
+    const backendNodeId = this.ax.getBackendNodeId(elementId);
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+    const { x, y } = await this.dom.getElementCenter(backendNodeId);
+    await this.input.click(x, y);
+    await new Promise((r) => setTimeout(r, 100));
+    await this.runtime.callFunctionOn(
+      '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+      [value]
+    );
+  }
+  /**
+   * Toggle a checkbox element.
+   */
+  async check(elementId) {
+    const backendNodeId = this.ax.getBackendNodeId(elementId);
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+    const { x, y } = await this.dom.getElementCenter(backendNodeId);
+    await this.input.click(x, y);
+  }
+  /**
+   * Double-click an element.
+   */
+  async doubleClick(elementId) {
+    const backendNodeId = this.ax.getBackendNodeId(elementId);
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+    const { x, y } = await this.dom.getElementCenter(backendNodeId);
+    await this.input.click(x, y);
+    await new Promise((r) => setTimeout(r, 50));
+    await this.input.click(x, y);
+  }
+  /**
+   * Right-click an element (opens context menu).
+   */
+  async rightClick(elementId) {
+    const backendNodeId = this.ax.getBackendNodeId(elementId);
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+    const { x, y } = await this.dom.getElementCenter(backendNodeId);
+    const sid = this.sessionId ?? void 0;
+    await this.conn.send("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x,
+      y,
+      button: "right",
+      buttons: 2,
+      clickCount: 1
+    }, sid);
+    await this.conn.send("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x,
+      y,
+      button: "right",
+      buttons: 0,
+      clickCount: 1
+    }, sid);
+  }
+  /**
+   * Wait until an element with the given name (and optional role) appears in the AX tree.
+   * Polls at 200ms intervals. Throws on timeout.
+   */
+  async waitForElement(name, options) {
+    const timeout = options?.timeout ?? 1e4;
+    const deadline = Date.now() + timeout;
+    const interval = 200;
+    while (Date.now() < deadline) {
+      const elements = await this.ax.getSnapshot();
+      const match = elements.find((e) => {
+        const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase());
+        const roleMatch = !options?.role || e.role === options.role;
+        return nameMatch && roleMatch;
+      });
+      if (match) return match;
+      await new Promise((r) => setTimeout(r, interval));
+    }
+    throw new Error(
+      `waitForElement: element "${name}"${options?.role ? ` (role: ${options.role})` : ""} not found within ${timeout}ms`
+    );
+  }
   // ─── Screenshots ────────────────────────────────────────
   async screenshot(options = {}) {
     return this._page.screenshot(options);
@@ -2941,7 +3116,7 @@ var EngineDriver = class {
    */
   async captureState(options = {}) {
     const state = {
-      url: this.currentUrl,
+      url: this._currentUrl,
       timestamp: Date.now()
     };
     const promises = [];
@@ -3091,6 +3266,60 @@ var EngineDriver = class {
   async assessUnderstanding(options) {
     const elements = await this.ax.getSnapshot();
     return assessUnderstanding(elements, options);
+  }
+  // ─── Coverage Reporting ────────────────────────────────
+  /**
+   * Report AX tree coverage against estimated visible DOM elements.
+   * Surfaces blind spots: shadow DOM, canvas, iframes.
+   */
+  async getCoverage() {
+    const gaps = [];
+    const axElements = await this.ax.getSnapshot();
+    const axTreeCount = axElements.length;
+    const estimatedVisible = await this.runtime.evaluate(`
+      (function() {
+        const all = document.querySelectorAll('*');
+        let count = 0;
+        for (const el of all) {
+          if (el.getAttribute('aria-hidden') === 'true') continue;
+          if (el.offsetWidth > 0 || el.offsetHeight > 0) count++;
+        }
+        return count;
+      })()
+    `);
+    const canvasCount = await this.runtime.evaluate(
+      `document.querySelectorAll('canvas').length`
+    );
+    const iframeCount = await this.runtime.evaluate(
+      `document.querySelectorAll('iframe').length`
+    );
+    const shadowElements = await extractShadowElements(this.runtime);
+    const shadowDomCount = shadowElements.length;
+    const recovered = shadowDomCount;
+    if (canvasCount > 0) {
+      gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? "s" : ""} (invisible to AX tree)`);
+    }
+    if (iframeCount > 0) {
+      gaps.push(`${iframeCount} iframe${iframeCount > 1 ? "s" : ""} (separate AX tree${iframeCount > 1 ? "s" : ""})`);
+    }
+    if (shadowDomCount > 0) {
+      gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? "s" : ""} (open shadow root \u2014 recovered via piercing)`);
+    }
+    const safeVisible = estimatedVisible > 0 ? estimatedVisible : 1;
+    const coveragePercent = Math.min(100, Math.round(axTreeCount / safeVisible * 100));
+    if (coveragePercent < 50) {
+      gaps.push(`Low AX coverage: ${coveragePercent}% of visible DOM captured`);
+    }
+    return {
+      axTreeCount,
+      estimatedVisible,
+      coveragePercent,
+      shadowDomCount,
+      canvasCount,
+      iframeCount,
+      recovered,
+      gaps
+    };
   }
   // ─── LLM-Native: Cache ─────────────────────────────────
   /** Get resolution cache statistics. */
@@ -4257,7 +4486,7 @@ async function captureWithDiagnostics(options) {
       error: {
         type: "unknown",
         message: errorMsg,
-        suggestion: "Check browser installation: npx playwright install chromium"
+        suggestion: "Check that Chrome is installed and accessible. IBR uses a direct CDP connection \u2014 ensure Chrome is available on your PATH or at the default install location."
       }
     };
   }
@@ -7685,6 +7914,39 @@ var CompactionResultSchema = z.object({
   decisions_compacted: z.number(),
   decisions_preserved: z.number()
 });
+var DesignCheckOperatorSchema = z.enum([
+  "eq",
+  // exact equality
+  "gt",
+  // numeric greater-than
+  "lt",
+  // numeric less-than
+  "contains",
+  // substring or token match
+  "not",
+  // negation
+  "exists",
+  // element is present in AX tree
+  "truthy"
+  // value is non-empty / non-zero
+]);
+var DesignCheckSchema = z.object({
+  property: z.string(),
+  operator: DesignCheckOperatorSchema,
+  value: z.union([z.string(), z.number()]),
+  confidence: z.number().min(0).max(1)
+});
+var DesignChangeSchema = z.object({
+  description: z.string(),
+  element: z.string(),
+  checks: z.array(DesignCheckSchema),
+  source: z.enum(["structured", "parsed"]),
+  platform: z.enum(["web", "ios", "macos"]).optional(),
+  timestamp: z.string()
+});
+var DecisionEntryWithChecksSchema = DecisionEntrySchema.extend({
+  checks: z.array(DesignCheckSchema).optional()
+});
 
 // src/decision-tracker.ts
 var CONTEXT_DIR = "context";
@@ -8182,10 +8444,11 @@ async function scan(url, options = {}) {
       await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
       });
     }
-    const [elements, interactivity, semantic] = await Promise.all([
+    const [elements, interactivity, semantic, coverage] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
       testInteractivity(page),
-      getSemanticOutput(page)
+      getSemanticOutput(page),
+      driver2.getCoverage().catch(() => void 0)
     ]);
     if (screenshot) {
       await page.screenshot({
@@ -8214,6 +8477,7 @@ async function scan(url, options = {}) {
         errors: consoleErrors,
         warnings: consoleWarnings
       },
+      coverage,
       verdict,
       issues,
       summary
@@ -9943,6 +10207,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map
