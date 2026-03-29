@@ -43,3 +43,4 @@ src/native/swift/**/.build/
 .claude-code-debugger/
 CLAUDE.md
 *.tgz
+.worktrees/
