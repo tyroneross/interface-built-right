@@ -44,3 +44,4 @@ src/native/swift/**/.build/
 CLAUDE.md
 *.tgz
 .worktrees/
+.bookmark/
