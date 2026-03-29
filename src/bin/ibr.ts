@@ -2,6 +2,9 @@ import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { EngineDriver } from '../engine/driver.js';
+import type { BrowserDriver } from '../engine/types.js';
+import { CompatPage } from '../engine/compat.js';
 import {
   InterfaceBuiltRight,
   formatReportText,
@@ -81,6 +84,18 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
   return new InterfaceBuiltRight(merged);
 }
 
+/**
+ * Create the appropriate BrowserDriver based on --browser global option.
+ * Defaults to Chrome (EngineDriver).
+ */
+async function createDriver(browser?: string): Promise<BrowserDriver> {
+  if (browser === 'safari') {
+    const { SafariDriver } = await import('../engine/safari/driver.js');
+    return new SafariDriver();
+  }
+  return new EngineDriver();
+}
+
 program
   .name('ibr')
   .description('Design validation for Claude Code')
@@ -91,7 +106,8 @@ program
   .option('-b, --base-url <url>', 'Base URL for the application')
   .option('-o, --output <dir>', 'Output directory', './.ibr')
   .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet', 'desktop')
-  .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0');
+  .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0')
+  .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome');
 
 // Start command
 program
@@ -288,8 +304,6 @@ program
       const { loadRulesConfig, runRules, createAuditResult, formatAuditResult, registerPreset } = await import('../rules/engine.js');
       const { register } = await import('../rules/presets/minimal.js');
       const { extractInteractiveElements } = await import('../extract.js');
-      // @ts-ignore -- playwright is an optional peer dependency
-      const { chromium } = await import('playwright');
       const { discoverUserContext, formatContextSummary } = await import('../context-loader.js');
       const { createPresetFromFramework } = await import('../rules/dynamic-rules.js');
 
@@ -341,15 +355,10 @@ program
       console.log('');
 
       // Launch browser for audit
-      const browser = await chromium.launch({ headless: true });
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
-
-      const context = await browser.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        reducedMotion: 'reduce',
-      });
-
-      const page = await context.newPage();
+      const driver = new EngineDriver();
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
       // Wait for React/Vue/Angular hydration
@@ -555,8 +564,7 @@ program
         };
       }
 
-      await context.close();
-      await browser.close();
+      await driver.close();
 
       // Run integration checks if requested
       let integrationResult: { orphanCount: number; orphans: Array<{ endpoint: string; method: string; file: string; line?: number }> } | null = null;
@@ -2060,8 +2068,6 @@ program
     json?: boolean;
   }) => {
     try {
-      // @ts-ignore -- playwright is an optional peer dependency
-      const { chromium } = await import('playwright');
       const { aiSearchFlow } = await import('../flows/search.js');
       const { generateValidationContext, generateValidationPrompt, analyzeForObviousIssues } = await import('../flows/search-validation.js');
       const globalOpts = program.opts();
@@ -2074,15 +2080,10 @@ program
       console.log('');
 
       // Launch browser
-      const browser = await chromium.launch({ headless: true });
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
-
-      const context = await browser.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        reducedMotion: 'reduce',
-      });
-
-      const page = await context.newPage();
+      const driver = new EngineDriver();
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
       // Create session directory for artifacts
@@ -2099,8 +2100,7 @@ program
         sessionDir,
       });
 
-      await context.close();
-      await browser.close();
+      await driver.close();
 
       // Generate validation context
       const validationContext = generateValidationContext(result);
@@ -3216,5 +3216,878 @@ program
       process.exit(1);
     }
   });
+
+// test-search command — run searchFlow against a URL
+program
+  .command('test-search <url>')
+  .description('Test search functionality on a page using the search flow')
+  .option('-q, --query <q>', 'Search query', 'test')
+  .option('--expect-count <n>', 'Expected minimum result count', '0')
+  .option('--results-selector <css>', 'CSS selector for result elements')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, options: {
+    query: string;
+    expectCount: string;
+    resultsSelector?: string;
+    json?: boolean;
+  }) => {
+    const driver = new EngineDriver();
+    try {
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const { searchFlow } = await import('../flows/search.js');
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
+      await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+      const result = await searchFlow(page, {
+        query: options.query,
+        resultsSelector: options.resultsSelector,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+        console.log(`Results found: ${result.resultCount}`);
+        console.log(`Has results: ${result.hasResults}`);
+        console.log(`Duration: ${result.duration}ms`);
+        if (result.error) console.log(`Error: ${result.error}`);
+        const expected = parseInt(options.expectCount, 10);
+        if (expected > 0 && result.resultCount < expected) {
+          console.log(`Expected at least ${expected} results, got ${result.resultCount}`);
+        }
+      }
+
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    } finally {
+      await driver.close();
+    }
+  });
+
+// test-form command — run formFlow against a URL
+program
+  .command('test-form <url>')
+  .description('Test form submission on a page using the form flow')
+  .option('--fill <json>', 'JSON object of field name to value pairs, e.g. \'{"email":"user@example.com"}\'')
+  .option('--submit-button <text>', 'Text of the submit button')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, options: {
+    fill?: string;
+    submitButton?: string;
+    json?: boolean;
+  }) => {
+    const driver = new EngineDriver();
+    try {
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const { formFlow } = await import('../flows/form.js');
+
+      // Parse fill JSON into FormField array
+      let fields: Array<{ name: string; value: string }> = [];
+      if (options.fill) {
+        try {
+          const parsed = JSON.parse(options.fill) as Record<string, string>;
+          fields = Object.entries(parsed).map(([name, value]) => ({ name, value }));
+        } catch {
+          console.error('Error: --fill must be valid JSON, e.g. \'{"email":"user@example.com"}\'');
+          process.exit(1);
+        }
+      }
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
+      await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+      const result = await formFlow(page, {
+        fields,
+        submitButton: options.submitButton,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+        console.log(`Fields filled: ${result.filledFields.join(', ') || 'none'}`);
+        if (result.failedFields.length > 0) {
+          console.log(`Fields failed: ${result.failedFields.join(', ')}`);
+        }
+        console.log(`Duration: ${result.duration}ms`);
+        if (result.error) console.log(`Error: ${result.error}`);
+      }
+
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    } finally {
+      await driver.close();
+    }
+  });
+
+// test-login command — run loginFlow against a URL
+program
+  .command('test-login <url>')
+  .description('Test login flow on a page using the login flow')
+  .option('--email <email>', 'Email or username to log in with')
+  .option('--password <password>', 'Password to log in with')
+  .option('--success-indicator <text>', 'Selector or text indicating successful login')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, options: {
+    email?: string;
+    password?: string;
+    successIndicator?: string;
+    json?: boolean;
+  }) => {
+    const driver = new EngineDriver();
+    try {
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const { loginFlow } = await import('../flows/login.js');
+
+      if (!options.email || !options.password) {
+        console.error('Error: --email and --password are required');
+        process.exit(1);
+      }
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
+      await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+      const result = await loginFlow(page, {
+        email: options.email,
+        password: options.password,
+        successIndicator: options.successIndicator,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+        console.log(`Authenticated: ${result.authenticated}`);
+        if (result.username) console.log(`Username: ${result.username}`);
+        console.log(`Duration: ${result.duration}ms`);
+        if (result.error) console.log(`Error: ${result.error}`);
+      }
+
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    } finally {
+      await driver.close();
+    }
+  });
+
+// ============================================================================
+// INTERACT COMMAND — act→verify→screenshot pipeline
+// ============================================================================
+
+program
+  .command('interact <url>')
+  .description('Run interaction assertions: click X, verify Y happened')
+  .option('-a, --action <spec>', 'Action specification (repeatable). Format: type[:role]:target[:value]', (val, acc: string[]) => { acc.push(val); return acc }, [] as string[])
+  .option('-e, --expect <spec>', 'Assertion specification (repeatable). Format: visible|hidden|text|count:value', (val, acc: string[]) => { acc.push(val); return acc }, [] as string[])
+  .option('--expect-screenshot <name>', 'Capture screenshot after last action with this name')
+  .option('--json', 'Output as JSON')
+  .option('--sandbox', 'Show visible browser window (default: headless)')
+  .action(async (url: string, options: {
+    action: string[]
+    expect: string[]
+    expectScreenshot?: string
+    json?: boolean
+    sandbox?: boolean
+  }) => {
+    const {
+      runInteractionTest,
+      parseActionArg,
+      parseExpectArg,
+      formatInteractionResult,
+    } = await import('../interaction-test.js')
+
+    const globalOpts = program.opts()
+    const outputDir = globalOpts.output || './.ibr'
+    const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop
+
+    if (!options.action || options.action.length === 0) {
+      console.error('Error: at least one --action is required')
+      console.error('')
+      console.error('Usage:')
+      console.error('  npx ibr interact <url> --action "click:button:Submit" --expect "heading:Success"')
+      process.exit(1)
+    }
+
+    // Parse action args into steps — each --action gets its own step
+    // All --expect args apply to the last step
+    const steps = options.action.map((actionSpec, i) => {
+      let action
+      try {
+        action = parseActionArg(actionSpec)
+      } catch (err) {
+        console.error(`Error parsing --action "${actionSpec}": ${err instanceof Error ? err.message : err}`)
+        process.exit(1)
+      }
+
+      const isLastStep = i === options.action.length - 1
+
+      // Assign expect assertions to the last step only
+      let expectObj: ReturnType<typeof parseExpectArg> = undefined
+
+      if (isLastStep && (options.expect.length > 0 || options.expectScreenshot)) {
+        expectObj = {}
+
+        for (const expectSpec of options.expect) {
+          try {
+            const parsed = parseExpectArg(expectSpec)
+            Object.assign(expectObj, parsed)
+          } catch (err) {
+            console.error(`Error parsing --expect "${expectSpec}": ${err instanceof Error ? err.message : err}`)
+            process.exit(1)
+          }
+        }
+
+        if (options.expectScreenshot) {
+          expectObj.screenshot = options.expectScreenshot
+        }
+      }
+
+      return { action, expect: expectObj }
+    })
+
+    try {
+      const resolvedUrl = await resolveBaseUrl(url)
+
+      if (!options.json) {
+        console.log(`Interacting with ${resolvedUrl}...`)
+        console.log(`${steps.length} step(s)`)
+        console.log('')
+      }
+
+      const results = await runInteractionTest({
+        url: resolvedUrl,
+        steps,
+        viewport,
+        outputDir: join(outputDir, 'interactions'),
+        headless: !options.sandbox,
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(results.map((r) => ({
+          ...r,
+          before: { ...r.before, screenshot: undefined },
+          after: { ...r.after, screenshot: undefined },
+        })), null, 2))
+      } else {
+        for (const result of results) {
+          console.log(formatInteractionResult(result))
+          console.log('')
+        }
+
+        // Summary
+        const totalAssertions = results.flatMap((r) => r.assertions).length
+        const passedAssertions = results.flatMap((r) => r.assertions).filter((a) => a.passed).length
+        const failedActions = results.filter((r) => !r.action.success).length
+
+        if (totalAssertions > 0) {
+          console.log(`Assertions: ${passedAssertions}/${totalAssertions} passed`)
+        }
+        if (failedActions > 0) {
+          console.log(`Actions failed: ${failedActions}/${results.length}`)
+        }
+      }
+
+      // Exit 1 if any assertion failed or any action failed
+      const anyFailed =
+        results.some((r) => !r.action.success) ||
+        results.some((r) => r.assertions.some((a) => !a.passed))
+
+      if (anyFailed) process.exit(1)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// ─── match command ────────────────────────────────────────────────────────────
+// Compare a design mockup PNG against a live rendered web page.
+// Usage:
+//   npx ibr match <mockup.png> <url>
+//   npx ibr match <mockup.png> <url> --selector '.hero-section'
+//   npx ibr match <mockup.png> <url> --mask-dynamic --save-diff diff.png
+
+program
+  .command('match <mockup> <url>')
+  .description('Compare a design mockup PNG against a live rendered page (SSIM + pixelmatch)')
+  .option('-s, --selector <css>', 'Crop live page to this CSS selector before comparison')
+  .option('-m, --mask-dynamic', 'Auto-mask dynamic content (timestamps, ads, live regions)')
+  .option('--json', 'Output results as JSON')
+  .option('--save-diff <path>', 'Save the pixel diff image to this file path')
+  .option('--headless', 'Run browser headless (default: true)', true)
+  .action(async (mockup: string, url: string, options: {
+    selector?: string
+    maskDynamic?: boolean
+    json?: boolean
+    saveDiff?: string
+    headless?: boolean
+  }) => {
+    try {
+      const { matchMockup, saveDiffImage } = await import('../mockup-match.js')
+      const { basename } = await import('path')
+      const globalOpts = program.opts()
+
+      // Resolve viewport from global --viewport option
+      const viewportName = (globalOpts.viewport as string) || 'desktop'
+      const viewportPreset = VIEWPORTS[viewportName as keyof typeof VIEWPORTS]
+
+      const result = await matchMockup({
+        mockupPath: mockup,
+        url,
+        selector: options.selector,
+        maskDynamic: options.maskDynamic ?? false,
+        headless: options.headless ?? true,
+        ...(viewportPreset ? { viewport: { width: viewportPreset.width, height: viewportPreset.height } } : {}),
+      })
+
+      // Save diff image if requested
+      if (options.saveDiff) {
+        await saveDiffImage(result.pixelDiff.diffImage, options.saveDiff)
+      }
+
+      if (options.json) {
+        const out = {
+          ssim: result.ssim,
+          pixelDiff: {
+            count: result.pixelDiff.count,
+            percentage: result.pixelDiff.percentage,
+          },
+          mockupDimensions: result.mockupDimensions,
+          liveDimensions: result.liveDimensions,
+          maskedRegions: result.maskedRegions,
+          ...(options.saveDiff ? { diffSavedTo: options.saveDiff } : {}),
+        }
+        console.log(JSON.stringify(out, null, 2))
+      } else {
+        const label = options.selector
+          ? options.selector.replace(/^[.#]/, '')
+          : basename(mockup, '.png')
+
+        const verdictSymbol = result.ssim.verdict === 'pass' ? 'PASS'
+          : result.ssim.verdict === 'review' ? 'REVIEW' : 'FAIL'
+
+        console.log(`\nMockup Match: ${label}`)
+        console.log(`  SSIM: ${result.ssim.score.toFixed(4)} (${verdictSymbol})`)
+        console.log(`  Pixel diff: ${result.pixelDiff.percentage}% (${result.pixelDiff.count} pixels)`)
+        console.log(`  Mockup: ${result.mockupDimensions.width}x${result.mockupDimensions.height}`)
+        console.log(`  Live: ${result.liveDimensions.width}x${result.liveDimensions.height}`)
+
+        if (result.maskedRegions.length > 0) {
+          console.log(`  Masked: ${result.maskedRegions.length} regions (${result.maskedRegions.join(', ')})`)
+        }
+
+        if (options.saveDiff) {
+          console.log(`  Diff saved: ${options.saveDiff}`)
+        }
+        console.log('')
+      }
+
+      // Exit 0 for pass, 1 for review or fail
+      if (result.ssim.verdict !== 'pass') {
+        process.exit(1)
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// ─── record-change command ────────────────────────────────────────────────────
+// Record a structured design change specification for later verification.
+// Usage:
+//   npx ibr record-change http://localhost:3000 \
+//     --element "header" \
+//     --description "Blue header, 48px bold" \
+//     --checks '[{"property":"color","operator":"contains","value":"blue","confidence":0.6}]'
+
+program
+  .command('record-change <url>')
+  .description('Record a design change specification for later verification')
+  .option('--element <name>', 'Accessible name or CSS selector of the target element')
+  .option('--description <text>', 'Human-readable description of the change')
+  .option('--checks <json>', 'JSON array of check objects: [{property,operator,value,confidence}]')
+  .option('--platform <platform>', 'Target platform: web, ios, macos', 'web')
+  .action(async (url: string, options: {
+    element?: string;
+    description?: string;
+    checks?: string;
+    platform?: string;
+  }) => {
+    try {
+      const { saveChange } = await import('../design-verifier.js');
+      const { DesignChangeSchema } = await import('../context/types.js');
+      const globalOpts = program.opts();
+      const outputDir = globalOpts.output || './.ibr';
+
+      if (!options.element) {
+        console.error('Error: --element is required');
+        process.exit(1);
+      }
+      if (!options.description) {
+        console.error('Error: --description is required');
+        process.exit(1);
+      }
+
+      let checks: unknown[] = [];
+      if (options.checks) {
+        try {
+          checks = JSON.parse(options.checks);
+          if (!Array.isArray(checks)) {
+            console.error('Error: --checks must be a JSON array');
+            process.exit(1);
+          }
+        } catch {
+          console.error('Error: --checks is not valid JSON');
+          process.exit(1);
+        }
+      }
+
+      // Validate and parse the change using Zod schema
+      const changeRaw = {
+        description: options.description,
+        element: options.element,
+        checks,
+        source: 'structured' as const,
+        platform: (options.platform as 'web' | 'ios' | 'macos') || 'web',
+        timestamp: new Date().toISOString(),
+      };
+
+      const parseResult = DesignChangeSchema.safeParse(changeRaw);
+      if (!parseResult.success) {
+        console.error('Error: invalid change specification');
+        for (const issue of parseResult.error.issues) {
+          console.error(`  ${issue.path.join('.')}: ${issue.message}`);
+        }
+        process.exit(1);
+      }
+
+      await saveChange(outputDir, parseResult.data);
+
+      console.log('Design change recorded:');
+      console.log(`  Element:     ${parseResult.data.element}`);
+      console.log(`  Description: ${parseResult.data.description}`);
+      console.log(`  Checks:      ${parseResult.data.checks.length}`);
+      console.log(`  Platform:    ${parseResult.data.platform ?? 'web'}`);
+      console.log(`  Saved to:    ${outputDir}/design-changes.json`);
+      console.log('');
+      console.log('To verify:');
+      console.log(`  npx ibr verify-changes ${url}`);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ─── verify-changes command ───────────────────────────────────────────────────
+// Verify all recorded design changes against a live page.
+// Usage:
+//   npx ibr verify-changes http://localhost:3000
+//   npx ibr verify-changes http://localhost:3000 --json
+
+program
+  .command('verify-changes <url>')
+  .description('Verify all recorded design changes against the live page')
+  .option('--json', 'Output results as JSON')
+  .action(async (url: string, options: { json?: boolean }) => {
+    const globalOpts = program.opts();
+    const driver = await createDriver(globalOpts.browser);
+    try {
+      const { loadChanges, verifyAllChanges, formatVerifyResult } = await import('../design-verifier.js');
+      const resolvedUrl = await resolveBaseUrl(url);
+      const outputDir = globalOpts.output || './.ibr';
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const changes = await loadChanges(outputDir);
+
+      if (changes.length === 0) {
+        console.log('No design changes recorded.');
+        console.log('');
+        console.log('Record a change first:');
+        console.log('  npx ibr record-change <url> --element "header" --description "Blue header" --checks \'[...]\'');
+        return;
+      }
+
+      console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
+      console.log('');
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.navigate(resolvedUrl);
+
+      // Small wait for hydration
+      await new Promise((r) => setTimeout(r, 500));
+
+      const results = await verifyAllChanges(changes, driver);
+
+      if (options.json) {
+        console.log(JSON.stringify(results, null, 2));
+      } else {
+        for (const result of results) {
+          console.log(formatVerifyResult(result));
+          console.log('');
+        }
+
+        const passed = results.filter((r) => r.overallPassed).length;
+        const failed = results.filter((r) => !r.overallPassed).length;
+        console.log(`Summary: ${passed} passed, ${failed} failed`);
+      }
+
+      await driver.close();
+
+      if (results.some((r) => !r.overallPassed)) {
+        process.exit(1);
+      }
+    } catch (error) {
+      await driver.close().catch(() => {});
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================
+// PHASE 5 — TEST GENERATION, EXECUTION, SCRIPTING, ITERATE
+// ============================================================
+
+// generate-test command
+program
+  .command('generate-test <url>')
+  .description('Generate a declarative .ibr-test.json file from page observation')
+  .option('--scenario <text>', 'Natural language scenario description')
+  .option('--test-file <path>', 'Output path for test file', '.ibr-test.json')
+  .action(async (url: string, options: { scenario?: string; testFile: string }) => {
+    try {
+      const { generateTest } = await import('../test-generator.js')
+      const suite = await generateTest({
+        url,
+        scenario: options.scenario,
+        outputPath: options.testFile,
+      })
+      const pageNames = Object.keys(suite)
+      const total = pageNames.reduce((s, k) => s + suite[k].tests.length, 0)
+      console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) → ${options.testFile}`)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// test command
+program
+  .command('test')
+  .description('Run declarative .ibr-test.json test file')
+  .option('--file <path>', 'Path to test file', '.ibr-test.json')
+  .option('--output-dir <dir>', 'Directory to store screenshots/results', '.ibr/test-results')
+  .option('--headless', 'Run headless (default: true)', true)
+  .option('--json', 'Output results as JSON')
+  .action(async (options: { file: string; outputDir: string; headless: boolean; json?: boolean }) => {
+    try {
+      const { runTests, formatRunResult } = await import('../test-runner.js')
+      const results = await runTests({
+        filePath: options.file,
+        outputDir: options.outputDir,
+        headless: options.headless,
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(results, null, 2))
+      } else {
+        for (const result of results) {
+          console.log(formatRunResult(result))
+          console.log('')
+        }
+        const totalPassed = results.reduce((s, r) => s + r.passed, 0)
+        const totalFailed = results.reduce((s, r) => s + r.failed, 0)
+        console.log(`Summary: ${totalPassed} passed, ${totalFailed} failed`)
+      }
+
+      const anyFailed = results.some(r => r.failed > 0)
+      process.exit(anyFailed ? 1 : 0)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// run-script command
+program
+  .command('run-script <script>')
+  .description('Execute a Python test script with sandboxed resource limits')
+  .option('--url <url>', 'URL passed to script as IBR_URL env var')
+  .option('--timeout <ms>', 'Timeout in milliseconds', '60000')
+  .option('--memory <mb>', 'Memory limit in MB', '512')
+  .option('--cpu <seconds>', 'CPU time limit in seconds', '30')
+  .option('--json', 'Output result as JSON')
+  .action(async (script: string, options: { url?: string; timeout: string; memory: string; cpu: string; json?: boolean }) => {
+    try {
+      const { runScript, formatScriptResult } = await import('../script-runner.js')
+      const result = await runScript({
+        scriptPath: script,
+        url: options.url,
+        timeout: parseInt(options.timeout, 10),
+        memoryMB: parseInt(options.memory, 10),
+        cpuSeconds: parseInt(options.cpu, 10),
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2))
+      } else {
+        console.log(formatScriptResult(result))
+      }
+
+      process.exit(result.exitCode)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// iterate command
+program
+  .command('iterate <url>')
+  .description('Run one iteration of the test-fix loop and report convergence state')
+  .option('--test <path>', 'Path to .ibr-test.json (uses IBR scan if omitted)')
+  .option('--max-iterations <n>', 'Maximum iterations before stopping', '7')
+  .option('--output-dir <dir>', 'Directory for iteration state and results', '.ibr/iterate')
+  .option('--auto-approve', 'Skip user approval at checkpoint iterations')
+  .option('--reset', 'Reset iteration state and start fresh')
+  .option('--json', 'Output result as JSON')
+  .action(async (url: string, options: { test?: string; maxIterations: string; outputDir: string; autoApprove?: boolean; reset?: boolean; json?: boolean }) => {
+    try {
+      const { iterate, resetIterateState } = await import('../iterate.js')
+
+      if (options.reset) {
+        await resetIterateState(options.outputDir)
+        console.log('Iteration state reset.')
+        return
+      }
+
+      const result = await iterate({
+        url,
+        testFile: options.test,
+        maxIterations: parseInt(options.maxIterations, 10),
+        outputDir: options.outputDir,
+        autoApprove: options.autoApprove ?? false,
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2))
+      } else {
+        const last = result.iterations[result.iterations.length - 1]
+        if (last) {
+          console.log(`Iteration ${last.iteration}: ${last.issueCount} issue(s) | hash=${last.scanHash} | delta=${last.netDelta >= 0 ? '+' : ''}${last.netDelta} | ${last.approachHint}`)
+        }
+        console.log(`State: ${result.finalState}`)
+        console.log(result.summary)
+      }
+
+      // Exit non-zero if regressing or budget exceeded with remaining issues
+      const last = result.iterations[result.iterations.length - 1]
+      const hasIssues = last ? last.issueCount > 0 : false
+      if (result.finalState === 'regressing' || (result.finalState === 'budget_exceeded' && hasIssues)) {
+        process.exit(1)
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// ─── compare-browsers command ─────────────────────────────────────────────────
+// Run a scan in both Chrome and Safari, then diff screenshots + element lists.
+// Usage:
+//   npx ibr compare-browsers <url>
+//   npx ibr compare-browsers <url> --save-diff .ibr/browser-diff.png --json
+
+program
+  .command('compare-browsers <url>')
+  .description('Scan in Chrome and Safari, diff screenshots and element counts')
+  .option('--save-diff <path>', 'Save pixel diff image to this path')
+  .option('--json', 'Output results as JSON')
+  .option('--timeout <ms>', 'Navigation timeout in ms', '15000')
+  .action(async (url: string, options: {
+    saveDiff?: string
+    json?: boolean
+    timeout: string
+  }) => {
+    const resolvedUrl = await resolveBaseUrl(url)
+    const globalOpts = program.opts()
+    const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop
+    const timeout = parseInt(options.timeout, 10)
+
+    if (!options.json) {
+      console.log(`Comparing browsers for: ${resolvedUrl}`)
+      console.log('')
+    }
+
+    // ── Chrome scan ──────────────────────────────────────────
+    if (!options.json) console.log('Chrome: launching...')
+    const chromeDriver = new EngineDriver()
+    let chromeScreenshot: Buffer | null = null
+    let chromeElements: any[] = []
+    let chromeError: string | null = null
+
+    try {
+      await chromeDriver.launch({
+        headless: true,
+        viewport: { width: viewport.width, height: viewport.height },
+      })
+      await chromeDriver.navigate(resolvedUrl, { waitFor: 'stable', timeout })
+      chromeScreenshot = await chromeDriver.screenshot()
+      const discovered = await chromeDriver.discover({ filter: 'interactive' })
+      chromeElements = Array.isArray(discovered) ? discovered : []
+      if (!options.json) console.log(`Chrome: ${chromeElements.length} interactive elements`)
+    } catch (err) {
+      chromeError = err instanceof Error ? err.message : String(err)
+      if (!options.json) console.log(`Chrome: failed — ${chromeError}`)
+    } finally {
+      await chromeDriver.close().catch(() => {})
+    }
+
+    // ── Safari scan ──────────────────────────────────────────
+    if (!options.json) console.log('Safari: launching...')
+    const { SafariDriver } = await import('../engine/safari/driver.js')
+    const safariDriver = new SafariDriver()
+    let safariScreenshot: Buffer | null = null
+    let safariElements: any[] = []
+    let safariError: string | null = null
+
+    try {
+      // Check safaridriver is enabled before attempting
+      const { SafariSession } = await import('../engine/safari/session.js')
+      const enabled = await SafariSession.isEnabled()
+      if (!enabled) {
+        safariError = 'safaridriver not enabled. Run: sudo safaridriver --enable'
+        if (!options.json) console.log(`Safari: skipped — ${safariError}`)
+      } else {
+        await safariDriver.launch({ viewport: { width: viewport.width, height: viewport.height } })
+        await safariDriver.navigate(resolvedUrl, { waitFor: 'load', timeout })
+        safariScreenshot = await safariDriver.screenshot()
+        const discovered = await safariDriver.discover({ filter: 'interactive' })
+        safariElements = Array.isArray(discovered) ? discovered : []
+        if (!options.json) console.log(`Safari: ${safariElements.length} interactive elements`)
+      }
+    } catch (err) {
+      safariError = err instanceof Error ? err.message : String(err)
+      if (!options.json) console.log(`Safari: failed — ${safariError}`)
+    } finally {
+      await safariDriver.close().catch(() => {})
+    }
+
+    // ── Visual diff ──────────────────────────────────────────
+    let pixelDiff: number | null = null
+    let diffPercent: number | null = null
+    let diffSaved = false
+
+    if (chromeScreenshot && safariScreenshot) {
+      try {
+        const { PNG } = await import('pngjs')
+        const pixelmatch = (await import('pixelmatch')).default
+
+        const chromePng = PNG.sync.read(chromeScreenshot)
+        const safariPng = PNG.sync.read(safariScreenshot)
+
+        // Resize to smaller dimension if sizes differ
+        const w = Math.min(chromePng.width, safariPng.width)
+        const h = Math.min(chromePng.height, safariPng.height)
+
+        const diff = new PNG({ width: w, height: h })
+
+        // Crop chrome to match safari dims
+        const chromeData = cropPngData(chromePng.data, chromePng.width, w, h)
+        const safariData = cropPngData(safariPng.data, safariPng.width, w, h)
+
+        pixelDiff = pixelmatch(chromeData, safariData, diff.data, w, h, {
+          threshold: 0.1,
+          includeAA: false,
+        })
+        diffPercent = Math.round((pixelDiff / (w * h)) * 10000) / 100
+
+        if (options.saveDiff) {
+          const { writeFile, mkdir: mkdirFs } = await import('fs/promises')
+          const { dirname } = await import('path')
+          await mkdirFs(dirname(options.saveDiff), { recursive: true })
+          await writeFile(options.saveDiff, PNG.sync.write(diff))
+          diffSaved = true
+        }
+      } catch {
+        // Pixel diff is best-effort
+      }
+    }
+
+    // ── Element diff ─────────────────────────────────────────
+    const chromeLabels = new Set(chromeElements.map((e: any) => e.label?.toLowerCase()).filter(Boolean))
+    const safariLabels = new Set(safariElements.map((e: any) => e.label?.toLowerCase()).filter(Boolean))
+    const onlyInChrome = [...chromeLabels].filter((l) => !safariLabels.has(l))
+    const onlyInSafari = [...safariLabels].filter((l) => !chromeLabels.has(l))
+
+    // ── Output ───────────────────────────────────────────────
+    const result = {
+      url: resolvedUrl,
+      chrome: {
+        elementCount: chromeElements.length,
+        error: chromeError,
+      },
+      safari: {
+        elementCount: safariElements.length,
+        error: safariError,
+      },
+      diff: {
+        pixelDiff,
+        diffPercent,
+        diffSaved: diffSaved ? options.saveDiff : null,
+        elementsOnlyInChrome: onlyInChrome,
+        elementsOnlyInSafari: onlyInSafari,
+      },
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2))
+    } else {
+      console.log('')
+      console.log('Results:')
+      console.log(`  Chrome: ${chromeError ? 'ERROR' : `${chromeElements.length} elements`}`)
+      console.log(`  Safari: ${safariError ? 'ERROR' : `${safariElements.length} elements`}`)
+      if (pixelDiff !== null) {
+        console.log(`  Visual diff: ${diffPercent}% (${pixelDiff} pixels)`)
+      }
+      if (onlyInChrome.length > 0) {
+        console.log(`  Only in Chrome: ${onlyInChrome.slice(0, 5).join(', ')}${onlyInChrome.length > 5 ? ` +${onlyInChrome.length - 5} more` : ''}`)
+      }
+      if (onlyInSafari.length > 0) {
+        console.log(`  Only in Safari: ${onlyInSafari.slice(0, 5).join(', ')}${onlyInSafari.length > 5 ? ` +${onlyInSafari.length - 5} more` : ''}`)
+      }
+      if (diffSaved) {
+        console.log(`  Diff saved: ${options.saveDiff}`)
+      }
+    }
+  })
+
+/** Helper: crop PNG pixel data to new dimensions */
+function cropPngData(data: Buffer, srcWidth: number, dstWidth: number, dstHeight: number): Buffer {
+  const dst = Buffer.alloc(dstWidth * dstHeight * 4)
+  for (let y = 0; y < dstHeight; y++) {
+    const srcOff = y * srcWidth * 4
+    const dstOff = y * dstWidth * 4
+    data.copy(dst, dstOff, srcOff, srcOff + dstWidth * 4)
+  }
+  return dst
+}
 
 program.parse();

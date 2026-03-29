@@ -91,12 +91,60 @@ export const CompactionResultSchema = z.object({
   decisions_preserved: z.number(),
 });
 
+// ─── Design Change Capture ───────────────────────────────────
+
+/**
+ * Operators for comparing CSS/semantic property values
+ */
+export const DesignCheckOperatorSchema = z.enum([
+  'eq',       // exact equality
+  'gt',       // numeric greater-than
+  'lt',       // numeric less-than
+  'contains', // substring or token match
+  'not',      // negation
+  'exists',   // element is present in AX tree
+  'truthy',   // value is non-empty / non-zero
+]);
+
+/**
+ * A single verifiable check against a CSS property or semantic state
+ */
+export const DesignCheckSchema = z.object({
+  property: z.string(),
+  operator: DesignCheckOperatorSchema,
+  value: z.union([z.string(), z.number()]),
+  confidence: z.number().min(0).max(1),
+});
+
+/**
+ * A structured UI change description captured at write-time (~95% accuracy)
+ */
+export const DesignChangeSchema = z.object({
+  description: z.string(),
+  element: z.string(),
+  checks: z.array(DesignCheckSchema),
+  source: z.enum(['structured', 'parsed']),
+  platform: z.enum(['web', 'ios', 'macos']).optional(),
+  timestamp: z.string(),
+});
+
+/**
+ * Extended DecisionEntry with optional design checks attached
+ */
+export const DecisionEntryWithChecksSchema = DecisionEntrySchema.extend({
+  checks: z.array(DesignCheckSchema).optional(),
+});
+
 // Type exports
 export type DecisionType = z.infer<typeof DecisionTypeSchema>;
 export type DecisionState = z.infer<typeof DecisionStateSchema>;
 export type DecisionEntry = z.infer<typeof DecisionEntrySchema>;
+export type DecisionEntryWithChecks = z.infer<typeof DecisionEntryWithChecksSchema>;
 export type DecisionSummary = z.infer<typeof DecisionSummarySchema>;
 export type CurrentUIState = z.infer<typeof CurrentUIStateSchema>;
 export type CompactContext = z.infer<typeof CompactContextSchema>;
 export type CompactionRequest = z.infer<typeof CompactionRequestSchema>;
 export type CompactionResult = z.infer<typeof CompactionResultSchema>;
+export type DesignCheckOperator = z.infer<typeof DesignCheckOperatorSchema>;
+export type DesignCheck = z.infer<typeof DesignCheckSchema>;
+export type DesignChange = z.infer<typeof DesignChangeSchema>;

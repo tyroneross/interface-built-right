@@ -30,295 +30,6 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// src/schemas.ts
-var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema;
-var init_schemas = __esm({
-  "src/schemas.ts"() {
-    "use strict";
-    import_zod = require("zod");
-    ViewportSchema = import_zod.z.object({
-      name: import_zod.z.string().min(1).max(50),
-      width: import_zod.z.number().min(100).max(3840),
-      height: import_zod.z.number().min(100).max(2160)
-    });
-    VIEWPORTS = {
-      desktop: { name: "desktop", width: 1920, height: 1080 },
-      "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440 },
-      "desktop-sm": { name: "desktop-sm", width: 1440, height: 900 },
-      laptop: { name: "laptop", width: 1366, height: 768 },
-      tablet: { name: "tablet", width: 768, height: 1024 },
-      "tablet-landscape": { name: "tablet-landscape", width: 1024, height: 768 },
-      mobile: { name: "mobile", width: 375, height: 667 },
-      "mobile-lg": { name: "mobile-lg", width: 414, height: 896 },
-      "iphone-14": { name: "iphone-14", width: 390, height: 844 },
-      "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 },
-      // Native simulator viewports
-      "iphone-16": { name: "iphone-16", width: 393, height: 852 },
-      "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
-      "iphone-16-pro": { name: "iphone-16-pro", width: 402, height: 874 },
-      "iphone-16-pro-max": { name: "iphone-16-pro-max", width: 440, height: 956 },
-      "watch-series-10-42mm": { name: "watch-series-10-42mm", width: 176, height: 215 },
-      "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
-      "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
-    };
-    ConfigSchema = import_zod.z.object({
-      baseUrl: import_zod.z.string().url("Must be a valid URL"),
-      outputDir: import_zod.z.string().default("./.ibr"),
-      viewport: ViewportSchema.default(VIEWPORTS.desktop),
-      viewports: import_zod.z.array(ViewportSchema).optional(),
-      // Multi-viewport support
-      threshold: import_zod.z.number().min(0).max(100).default(1),
-      fullPage: import_zod.z.boolean().default(true),
-      waitForNetworkIdle: import_zod.z.boolean().default(true),
-      timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4)
-    });
-    SessionQuerySchema = import_zod.z.object({
-      route: import_zod.z.string().optional(),
-      url: import_zod.z.string().optional(),
-      status: import_zod.z.enum(["baseline", "compared", "pending"]).optional(),
-      name: import_zod.z.string().optional(),
-      createdAfter: import_zod.z.date().optional(),
-      createdBefore: import_zod.z.date().optional(),
-      viewport: import_zod.z.string().optional(),
-      limit: import_zod.z.number().min(1).max(100).default(50)
-    });
-    ComparisonResultSchema = import_zod.z.object({
-      match: import_zod.z.boolean(),
-      diffPercent: import_zod.z.number(),
-      diffPixels: import_zod.z.number(),
-      totalPixels: import_zod.z.number(),
-      threshold: import_zod.z.number()
-    });
-    ChangedRegionSchema = import_zod.z.object({
-      location: import_zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
-      bounds: import_zod.z.object({
-        x: import_zod.z.number(),
-        y: import_zod.z.number(),
-        width: import_zod.z.number(),
-        height: import_zod.z.number()
-      }),
-      description: import_zod.z.string(),
-      severity: import_zod.z.enum(["expected", "unexpected", "critical"])
-    });
-    VerdictSchema = import_zod.z.enum([
-      "MATCH",
-      "EXPECTED_CHANGE",
-      "UNEXPECTED_CHANGE",
-      "LAYOUT_BROKEN"
-    ]);
-    AnalysisSchema = import_zod.z.object({
-      verdict: VerdictSchema,
-      summary: import_zod.z.string(),
-      changedRegions: import_zod.z.array(ChangedRegionSchema),
-      unexpectedChanges: import_zod.z.array(ChangedRegionSchema),
-      recommendation: import_zod.z.string().nullable()
-    });
-    SessionStatusSchema = import_zod.z.enum(["baseline", "compared", "pending"]);
-    BoundsSchema = import_zod.z.object({
-      x: import_zod.z.number(),
-      y: import_zod.z.number(),
-      width: import_zod.z.number(),
-      height: import_zod.z.number()
-    });
-    LandmarkElementSchema = import_zod.z.object({
-      name: import_zod.z.string(),
-      // e.g., 'logo', 'header', 'nav'
-      selector: import_zod.z.string(),
-      // CSS selector used to find it
-      found: import_zod.z.boolean(),
-      bounds: BoundsSchema.optional()
-    });
-    SessionSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      name: import_zod.z.string(),
-      url: import_zod.z.string().min(1),
-      viewport: ViewportSchema,
-      status: SessionStatusSchema,
-      platform: import_zod.z.enum(["web", "ios", "watchos"]).optional(),
-      createdAt: import_zod.z.string().datetime(),
-      updatedAt: import_zod.z.string().datetime(),
-      comparison: ComparisonResultSchema.optional(),
-      analysis: AnalysisSchema.optional(),
-      // Landmark elements detected at baseline capture
-      landmarkElements: import_zod.z.array(LandmarkElementSchema).optional(),
-      // Page intent detected at baseline
-      pageIntent: import_zod.z.string().optional()
-    });
-    ComparisonReportSchema = import_zod.z.object({
-      sessionId: import_zod.z.string(),
-      sessionName: import_zod.z.string(),
-      url: import_zod.z.string(),
-      timestamp: import_zod.z.string().datetime(),
-      viewport: ViewportSchema,
-      comparison: ComparisonResultSchema,
-      analysis: AnalysisSchema,
-      files: import_zod.z.object({
-        baseline: import_zod.z.string(),
-        current: import_zod.z.string(),
-        diff: import_zod.z.string()
-      }),
-      webViewUrl: import_zod.z.string().optional()
-    });
-    InteractiveStateSchema = import_zod.z.object({
-      hasOnClick: import_zod.z.boolean(),
-      hasHref: import_zod.z.boolean(),
-      isDisabled: import_zod.z.boolean(),
-      tabIndex: import_zod.z.number(),
-      cursor: import_zod.z.string(),
-      // Framework-specific detection
-      hasReactHandler: import_zod.z.boolean().optional(),
-      hasVueHandler: import_zod.z.boolean().optional(),
-      hasAngularHandler: import_zod.z.boolean().optional()
-    });
-    A11yAttributesSchema = import_zod.z.object({
-      role: import_zod.z.string().nullable(),
-      ariaLabel: import_zod.z.string().nullable(),
-      ariaDescribedBy: import_zod.z.string().nullable(),
-      ariaHidden: import_zod.z.boolean().optional()
-    });
-    EnhancedElementSchema = import_zod.z.object({
-      // Identity
-      selector: import_zod.z.string(),
-      tagName: import_zod.z.string(),
-      id: import_zod.z.string().optional(),
-      className: import_zod.z.string().optional(),
-      text: import_zod.z.string().optional(),
-      // Position
-      bounds: BoundsSchema,
-      // Styles (subset)
-      computedStyles: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
-      // Interactivity
-      interactive: InteractiveStateSchema,
-      // Accessibility
-      a11y: A11yAttributesSchema,
-      // Source hints for debugging
-      sourceHint: import_zod.z.object({
-        dataTestId: import_zod.z.string().nullable()
-      }).optional()
-    });
-    ElementIssueSchema = import_zod.z.object({
-      type: import_zod.z.enum([
-        "NO_HANDLER",
-        // Interactive-looking but no handler
-        "PLACEHOLDER_LINK",
-        // href="#" without handler
-        "TOUCH_TARGET_SMALL",
-        // < 44px on mobile
-        "MISSING_ARIA_LABEL",
-        // Interactive without label
-        "DISABLED_NO_VISUAL"
-        // Disabled but no visual indication
-      ]),
-      severity: import_zod.z.enum(["error", "warning", "info"]),
-      message: import_zod.z.string()
-    });
-    AuditResultSchema = import_zod.z.object({
-      totalElements: import_zod.z.number(),
-      interactiveCount: import_zod.z.number(),
-      withHandlers: import_zod.z.number(),
-      withoutHandlers: import_zod.z.number(),
-      issues: import_zod.z.array(ElementIssueSchema)
-    });
-    RuleSeveritySchema = import_zod.z.enum(["off", "warn", "error"]);
-    RuleSettingSchema = import_zod.z.union([
-      RuleSeveritySchema,
-      import_zod.z.tuple([RuleSeveritySchema, import_zod.z.record(import_zod.z.string(), import_zod.z.unknown())])
-    ]);
-    RulesConfigSchema = import_zod.z.object({
-      extends: import_zod.z.array(import_zod.z.string()).optional(),
-      rules: import_zod.z.record(import_zod.z.string(), RuleSettingSchema).optional()
-    });
-    ViolationSchema = import_zod.z.object({
-      ruleId: import_zod.z.string(),
-      ruleName: import_zod.z.string(),
-      severity: import_zod.z.enum(["warn", "error"]),
-      message: import_zod.z.string(),
-      element: import_zod.z.string().optional(),
-      // Selector of violating element
-      bounds: BoundsSchema.optional(),
-      fix: import_zod.z.string().optional()
-      // Suggested fix
-    });
-    RuleAuditResultSchema = import_zod.z.object({
-      url: import_zod.z.string(),
-      timestamp: import_zod.z.string(),
-      elementsScanned: import_zod.z.number(),
-      violations: import_zod.z.array(ViolationSchema),
-      summary: import_zod.z.object({
-        errors: import_zod.z.number(),
-        warnings: import_zod.z.number(),
-        passed: import_zod.z.number()
-      })
-    });
-    MemorySourceSchema = import_zod.z.enum(["user", "learned", "framework"]);
-    PreferenceCategorySchema = import_zod.z.enum([
-      "color",
-      "layout",
-      "typography",
-      "navigation",
-      "component",
-      "spacing",
-      "interaction",
-      "content"
-    ]);
-    ExpectationOperatorSchema = import_zod.z.enum(["equals", "contains", "matches", "gte", "lte"]);
-    ExpectationSchema = import_zod.z.object({
-      property: import_zod.z.string(),
-      operator: ExpectationOperatorSchema,
-      value: import_zod.z.string()
-    });
-    PreferenceSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      description: import_zod.z.string(),
-      category: PreferenceCategorySchema,
-      source: MemorySourceSchema,
-      route: import_zod.z.string().optional(),
-      componentType: import_zod.z.string().optional(),
-      expectation: ExpectationSchema,
-      confidence: import_zod.z.number().min(0).max(1).default(1),
-      createdAt: import_zod.z.string().datetime(),
-      updatedAt: import_zod.z.string().datetime(),
-      sessionIds: import_zod.z.array(import_zod.z.string()).optional()
-    });
-    ObservationSchema = import_zod.z.object({
-      description: import_zod.z.string(),
-      category: PreferenceCategorySchema,
-      property: import_zod.z.string(),
-      value: import_zod.z.string()
-    });
-    LearnedExpectationSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      sessionId: import_zod.z.string(),
-      route: import_zod.z.string(),
-      observations: import_zod.z.array(ObservationSchema),
-      approved: import_zod.z.boolean(),
-      createdAt: import_zod.z.string().datetime()
-    });
-    ActivePreferenceSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      description: import_zod.z.string(),
-      category: PreferenceCategorySchema,
-      route: import_zod.z.string().optional(),
-      componentType: import_zod.z.string().optional(),
-      property: import_zod.z.string(),
-      operator: ExpectationOperatorSchema,
-      value: import_zod.z.string(),
-      confidence: import_zod.z.number()
-    });
-    MemorySummarySchema = import_zod.z.object({
-      version: import_zod.z.literal(1),
-      updatedAt: import_zod.z.string().datetime(),
-      stats: import_zod.z.object({
-        totalPreferences: import_zod.z.number(),
-        totalLearned: import_zod.z.number(),
-        byCategory: import_zod.z.record(import_zod.z.string(), import_zod.z.number()),
-        bySource: import_zod.z.record(import_zod.z.string(), import_zod.z.number())
-      }),
-      activePreferences: import_zod.z.array(ActivePreferenceSchema)
-    });
-  }
-});
-
 // src/engine/cdp/connection.ts
 var DEFAULT_TIMEOUT_MS, CdpConnection;
 var init_connection = __esm({
@@ -335,7 +46,7 @@ var init_connection = __esm({
         this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       }
       async connect(wsUrl) {
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve5, reject) => {
           const ws = new WebSocket(wsUrl);
           let settled = false;
           const onOpen = () => {
@@ -345,7 +56,7 @@ var init_connection = __esm({
             ws.addEventListener("message", (event) => this.handleMessage(event));
             ws.addEventListener("close", () => this.handleClose());
             ws.addEventListener("error", () => this.handleClose());
-            resolve3();
+            resolve5();
           };
           const onError = () => {
             if (settled) return;
@@ -361,7 +72,7 @@ var init_connection = __esm({
           throw new Error("Not connected");
         }
         const id = ++this.nextId;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve5, reject) => {
           const timer = setTimeout(() => {
             if (this.pending.has(id)) {
               this.pending.delete(id);
@@ -372,7 +83,7 @@ var init_connection = __esm({
             }
           }, this.timeoutMs);
           this.pending.set(id, {
-            resolve: resolve3,
+            resolve: resolve5,
             reject,
             timer
           });
@@ -400,14 +111,14 @@ var init_connection = __esm({
         }
         if ("id" in data && this.pending.has(data.id)) {
           const id = data.id;
-          const { resolve: resolve3, reject, timer } = this.pending.get(id);
+          const { resolve: resolve5, reject, timer } = this.pending.get(id);
           clearTimeout(timer);
           this.pending.delete(id);
           if (data.error) {
             const err = data.error;
             reject(new Error(`CDP error ${err.code}: ${err.message}`));
           } else {
-            resolve3(data.result);
+            resolve5(data.result);
           }
         } else if ("method" in data) {
           const handlers = this.eventHandlers.get(data.method);
@@ -499,6 +210,10 @@ Checked: ${CHROME_PATHS.join(", ")}`
         if (headless) {
           args.push("--headless=new");
         }
+        if (options.normalize) {
+          args.push("--disable-lcd-text");
+          args.push("--force-device-scale-factor=1");
+        }
         this.process = (0, import_node_child_process.spawn)(chromePath, args, { stdio: "pipe" });
         this.process.on("error", (err) => {
           console.error(`Chrome process error: ${err.message}`);
@@ -524,17 +239,17 @@ Checked: ${CHROME_PATHS.join(", ")}`
         if (!this.process) return;
         const proc = this.process;
         this.process = null;
-        await new Promise((resolve3) => {
+        await new Promise((resolve5) => {
           const killTimer = setTimeout(() => {
             try {
               proc.kill("SIGKILL");
             } catch {
             }
-            resolve3();
+            resolve5();
           }, 3e3);
           proc.once("close", () => {
             clearTimeout(killTimer);
-            resolve3();
+            resolve5();
           });
           proc.kill("SIGTERM");
         });
@@ -1921,6 +1636,57 @@ var init_modality = __esm({
   }
 });
 
+// src/engine/shadow-dom.ts
+async function extractShadowElements(runtime) {
+  const result = await runtime.evaluate(`
+    (function() {
+      const found = [];
+
+      function walk(root) {
+        const children = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
+        for (const el of children) {
+          // Descend into open shadow roots
+          if (el.shadowRoot) {
+            const shadowChildren = Array.from(el.shadowRoot.querySelectorAll('*'));
+            for (const shadowEl of shadowChildren) {
+              const rect = shadowEl.getBoundingClientRect();
+              found.push({
+                tagName: shadowEl.tagName.toLowerCase(),
+                role: shadowEl.getAttribute('role'),
+                label: shadowEl.getAttribute('aria-label') || shadowEl.getAttribute('aria-labelledby'),
+                textContent: (shadowEl.textContent || '').trim().slice(0, 200) || null,
+                bounds: rect.width > 0 || rect.height > 0
+                  ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                  : null,
+              });
+              // Recurse into nested shadow roots
+              if (shadowEl.shadowRoot) {
+                walk(shadowEl.shadowRoot);
+              }
+            }
+          }
+        }
+      }
+
+      walk(document);
+      return found;
+    })()
+  `);
+  if (!Array.isArray(result)) return [];
+  return result.map((item) => ({
+    tagName: String(item.tagName ?? "unknown"),
+    role: item.role != null ? String(item.role) : null,
+    label: item.label != null ? String(item.label) : null,
+    textContent: item.textContent != null ? String(item.textContent) : null,
+    bounds: item.bounds != null ? item.bounds : null
+  }));
+}
+var init_shadow_dom = __esm({
+  "src/engine/shadow-dom.ts"() {
+    "use strict";
+  }
+});
+
 // src/engine/resolve.ts
 var resolve_exports = {};
 __export(resolve_exports, {
@@ -2181,7 +1947,7 @@ function chunkElements(elements, maxTokens) {
   const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
   return elements.slice(0, maxElements);
 }
-var EngineDriver;
+var import_pixelmatch, import_pngjs, EngineDriver;
 var init_driver = __esm({
   "src/engine/driver.ts"() {
     "use strict";
@@ -2199,11 +1965,14 @@ var init_driver = __esm({
     init_network();
     init_console();
     init_wait();
+    import_pixelmatch = __toESM(require("pixelmatch"));
+    import_pngjs = require("pngjs");
     init_serialize();
     init_observe();
     init_extract();
     init_cache();
     init_modality();
+    init_shadow_dom();
     EngineDriver = class {
       browser = new BrowserManager();
       conn = new CdpConnection();
@@ -2221,7 +1990,7 @@ var init_driver = __esm({
       console;
       targetId = null;
       sessionId = null;
-      currentUrl = "";
+      _currentUrl = "";
       launched = false;
       resolutionCache = new ResolutionCache();
       // ─── Lifecycle ──────────────────────────────────────────
@@ -2278,11 +2047,15 @@ var init_driver = __esm({
             { timeout: options.timeout ?? 1e4 }
           );
         }
-        this.currentUrl = await this.runtime.evaluate("location.href") ?? url;
+        this._currentUrl = await this.runtime.evaluate("location.href") ?? url;
         this.resolutionCache.clear();
       }
       get url() {
-        return this.currentUrl;
+        return this._currentUrl;
+      }
+      /** BrowserDriver interface: currentUrl alias */
+      get currentUrl() {
+        return this._currentUrl;
       }
       // ─── Element Discovery (LLM-native) ────────────────────
       /**
@@ -2309,7 +2082,7 @@ var init_driver = __esm({
         }
         if (options.serialize) {
           const snap = {
-            url: this.currentUrl,
+            url: this._currentUrl,
             platform: "web",
             elements: filtered,
             timestamp: Date.now()
@@ -2344,9 +2117,9 @@ var init_driver = __esm({
           });
           return el;
         }
-        const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
+        const { resolve: resolve5 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
         const allElements = await this.ax.getSnapshot();
-        const result = resolve3({
+        const result = resolve5({
           intent: options.role ? `${name} ${options.role}` : name,
           elements: allElements,
           mode: "algorithmic"
@@ -2397,6 +2170,127 @@ var init_driver = __esm({
       async scroll(deltaY, x = 0, y = 0) {
         await this.input.scroll(x, y, 0, deltaY);
       }
+      // ─── Interaction Assertions ─────────────────────────────
+      /**
+       * Before/after state capture around an action.
+       * Returns element diff and pixel diff.
+       */
+      async actAndCapture(action) {
+        const [beforeElements, beforeScreenshot] = await Promise.all([
+          this.ax.getSnapshot(),
+          this._page.screenshot()
+        ]);
+        await action();
+        await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+        const [afterElements, afterScreenshot] = await Promise.all([
+          this.ax.getSnapshot(),
+          this._page.screenshot()
+        ]);
+        const beforeIds = new Set(beforeElements.map((e) => e.id));
+        const afterIds = new Set(afterElements.map((e) => e.id));
+        const addedElements = afterElements.filter((e) => !beforeIds.has(e.id));
+        const removedElements = beforeElements.filter((e) => !afterIds.has(e.id));
+        let pixelDiff = 0;
+        try {
+          const beforePng = import_pngjs.PNG.sync.read(beforeScreenshot);
+          const afterPng = import_pngjs.PNG.sync.read(afterScreenshot);
+          if (beforePng.width === afterPng.width && beforePng.height === afterPng.height) {
+            const { width, height } = beforePng;
+            const diffPng = new import_pngjs.PNG({ width, height });
+            pixelDiff = (0, import_pixelmatch.default)(beforePng.data, afterPng.data, diffPng.data, width, height, {
+              threshold: 0.1,
+              includeAA: false
+            });
+          }
+        } catch {
+        }
+        return {
+          before: { elements: beforeElements, screenshot: beforeScreenshot },
+          after: { elements: afterElements, screenshot: afterScreenshot },
+          diff: { addedElements, removedElements, pixelDiff }
+        };
+      }
+      /**
+       * Set a <select> element's value and dispatch change event.
+       */
+      async select(elementId, value) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await new Promise((r) => setTimeout(r, 100));
+        await this.runtime.callFunctionOn(
+          '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+          [value]
+        );
+      }
+      /**
+       * Toggle a checkbox element.
+       */
+      async check(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+      }
+      /**
+       * Double-click an element.
+       */
+      async doubleClick(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await new Promise((r) => setTimeout(r, 50));
+        await this.input.click(x, y);
+      }
+      /**
+       * Right-click an element (opens context menu).
+       */
+      async rightClick(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const sid = this.sessionId ?? void 0;
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x,
+          y,
+          button: "right",
+          buttons: 2,
+          clickCount: 1
+        }, sid);
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x,
+          y,
+          button: "right",
+          buttons: 0,
+          clickCount: 1
+        }, sid);
+      }
+      /**
+       * Wait until an element with the given name (and optional role) appears in the AX tree.
+       * Polls at 200ms intervals. Throws on timeout.
+       */
+      async waitForElement(name, options) {
+        const timeout = options?.timeout ?? 1e4;
+        const deadline = Date.now() + timeout;
+        const interval = 200;
+        while (Date.now() < deadline) {
+          const elements = await this.ax.getSnapshot();
+          const match = elements.find((e) => {
+            const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase());
+            const roleMatch = !options?.role || e.role === options.role;
+            return nameMatch && roleMatch;
+          });
+          if (match) return match;
+          await new Promise((r) => setTimeout(r, interval));
+        }
+        throw new Error(
+          `waitForElement: element "${name}"${options?.role ? ` (role: ${options.role})` : ""} not found within ${timeout}ms`
+        );
+      }
       // ─── Screenshots ────────────────────────────────────────
       async screenshot(options = {}) {
         return this._page.screenshot(options);
@@ -2418,7 +2312,7 @@ var init_driver = __esm({
        */
       async captureState(options = {}) {
         const state = {
-          url: this.currentUrl,
+          url: this._currentUrl,
           timestamp: Date.now()
         };
         const promises = [];
@@ -2568,6 +2462,60 @@ var init_driver = __esm({
       async assessUnderstanding(options) {
         const elements = await this.ax.getSnapshot();
         return assessUnderstanding(elements, options);
+      }
+      // ─── Coverage Reporting ────────────────────────────────
+      /**
+       * Report AX tree coverage against estimated visible DOM elements.
+       * Surfaces blind spots: shadow DOM, canvas, iframes.
+       */
+      async getCoverage() {
+        const gaps = [];
+        const axElements = await this.ax.getSnapshot();
+        const axTreeCount = axElements.length;
+        const estimatedVisible = await this.runtime.evaluate(`
+      (function() {
+        const all = document.querySelectorAll('*');
+        let count = 0;
+        for (const el of all) {
+          if (el.getAttribute('aria-hidden') === 'true') continue;
+          if (el.offsetWidth > 0 || el.offsetHeight > 0) count++;
+        }
+        return count;
+      })()
+    `);
+        const canvasCount = await this.runtime.evaluate(
+          `document.querySelectorAll('canvas').length`
+        );
+        const iframeCount = await this.runtime.evaluate(
+          `document.querySelectorAll('iframe').length`
+        );
+        const shadowElements = await extractShadowElements(this.runtime);
+        const shadowDomCount = shadowElements.length;
+        const recovered = shadowDomCount;
+        if (canvasCount > 0) {
+          gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? "s" : ""} (invisible to AX tree)`);
+        }
+        if (iframeCount > 0) {
+          gaps.push(`${iframeCount} iframe${iframeCount > 1 ? "s" : ""} (separate AX tree${iframeCount > 1 ? "s" : ""})`);
+        }
+        if (shadowDomCount > 0) {
+          gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? "s" : ""} (open shadow root \u2014 recovered via piercing)`);
+        }
+        const safeVisible = estimatedVisible > 0 ? estimatedVisible : 1;
+        const coveragePercent = Math.min(100, Math.round(axTreeCount / safeVisible * 100));
+        if (coveragePercent < 50) {
+          gaps.push(`Low AX coverage: ${coveragePercent}% of visible DOM captured`);
+        }
+        return {
+          axTreeCount,
+          estimatedVisible,
+          coveragePercent,
+          shadowDomCount,
+          canvasCount,
+          iframeCount,
+          recovered,
+          gaps
+        };
       }
       // ─── LLM-Native: Cache ─────────────────────────────────
       /** Get resolution cache statistics. */
@@ -2943,6 +2891,295 @@ var init_compat = __esm({
         }
       };
     };
+  }
+});
+
+// src/schemas.ts
+var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema;
+var init_schemas = __esm({
+  "src/schemas.ts"() {
+    "use strict";
+    import_zod = require("zod");
+    ViewportSchema = import_zod.z.object({
+      name: import_zod.z.string().min(1).max(50),
+      width: import_zod.z.number().min(100).max(3840),
+      height: import_zod.z.number().min(100).max(2160)
+    });
+    VIEWPORTS = {
+      desktop: { name: "desktop", width: 1920, height: 1080 },
+      "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440 },
+      "desktop-sm": { name: "desktop-sm", width: 1440, height: 900 },
+      laptop: { name: "laptop", width: 1366, height: 768 },
+      tablet: { name: "tablet", width: 768, height: 1024 },
+      "tablet-landscape": { name: "tablet-landscape", width: 1024, height: 768 },
+      mobile: { name: "mobile", width: 375, height: 667 },
+      "mobile-lg": { name: "mobile-lg", width: 414, height: 896 },
+      "iphone-14": { name: "iphone-14", width: 390, height: 844 },
+      "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 },
+      // Native simulator viewports
+      "iphone-16": { name: "iphone-16", width: 393, height: 852 },
+      "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
+      "iphone-16-pro": { name: "iphone-16-pro", width: 402, height: 874 },
+      "iphone-16-pro-max": { name: "iphone-16-pro-max", width: 440, height: 956 },
+      "watch-series-10-42mm": { name: "watch-series-10-42mm", width: 176, height: 215 },
+      "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
+      "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
+    };
+    ConfigSchema = import_zod.z.object({
+      baseUrl: import_zod.z.string().url("Must be a valid URL"),
+      outputDir: import_zod.z.string().default("./.ibr"),
+      viewport: ViewportSchema.default(VIEWPORTS.desktop),
+      viewports: import_zod.z.array(ViewportSchema).optional(),
+      // Multi-viewport support
+      threshold: import_zod.z.number().min(0).max(100).default(1),
+      fullPage: import_zod.z.boolean().default(true),
+      waitForNetworkIdle: import_zod.z.boolean().default(true),
+      timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4)
+    });
+    SessionQuerySchema = import_zod.z.object({
+      route: import_zod.z.string().optional(),
+      url: import_zod.z.string().optional(),
+      status: import_zod.z.enum(["baseline", "compared", "pending"]).optional(),
+      name: import_zod.z.string().optional(),
+      createdAfter: import_zod.z.date().optional(),
+      createdBefore: import_zod.z.date().optional(),
+      viewport: import_zod.z.string().optional(),
+      limit: import_zod.z.number().min(1).max(100).default(50)
+    });
+    ComparisonResultSchema = import_zod.z.object({
+      match: import_zod.z.boolean(),
+      diffPercent: import_zod.z.number(),
+      diffPixels: import_zod.z.number(),
+      totalPixels: import_zod.z.number(),
+      threshold: import_zod.z.number()
+    });
+    ChangedRegionSchema = import_zod.z.object({
+      location: import_zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
+      bounds: import_zod.z.object({
+        x: import_zod.z.number(),
+        y: import_zod.z.number(),
+        width: import_zod.z.number(),
+        height: import_zod.z.number()
+      }),
+      description: import_zod.z.string(),
+      severity: import_zod.z.enum(["expected", "unexpected", "critical"])
+    });
+    VerdictSchema = import_zod.z.enum([
+      "MATCH",
+      "EXPECTED_CHANGE",
+      "UNEXPECTED_CHANGE",
+      "LAYOUT_BROKEN"
+    ]);
+    AnalysisSchema = import_zod.z.object({
+      verdict: VerdictSchema,
+      summary: import_zod.z.string(),
+      changedRegions: import_zod.z.array(ChangedRegionSchema),
+      unexpectedChanges: import_zod.z.array(ChangedRegionSchema),
+      recommendation: import_zod.z.string().nullable()
+    });
+    SessionStatusSchema = import_zod.z.enum(["baseline", "compared", "pending"]);
+    BoundsSchema = import_zod.z.object({
+      x: import_zod.z.number(),
+      y: import_zod.z.number(),
+      width: import_zod.z.number(),
+      height: import_zod.z.number()
+    });
+    LandmarkElementSchema = import_zod.z.object({
+      name: import_zod.z.string(),
+      // e.g., 'logo', 'header', 'nav'
+      selector: import_zod.z.string(),
+      // CSS selector used to find it
+      found: import_zod.z.boolean(),
+      bounds: BoundsSchema.optional()
+    });
+    SessionSchema = import_zod.z.object({
+      id: import_zod.z.string(),
+      name: import_zod.z.string(),
+      url: import_zod.z.string().min(1),
+      viewport: ViewportSchema,
+      status: SessionStatusSchema,
+      platform: import_zod.z.enum(["web", "ios", "watchos"]).optional(),
+      createdAt: import_zod.z.string().datetime(),
+      updatedAt: import_zod.z.string().datetime(),
+      comparison: ComparisonResultSchema.optional(),
+      analysis: AnalysisSchema.optional(),
+      // Landmark elements detected at baseline capture
+      landmarkElements: import_zod.z.array(LandmarkElementSchema).optional(),
+      // Page intent detected at baseline
+      pageIntent: import_zod.z.string().optional()
+    });
+    ComparisonReportSchema = import_zod.z.object({
+      sessionId: import_zod.z.string(),
+      sessionName: import_zod.z.string(),
+      url: import_zod.z.string(),
+      timestamp: import_zod.z.string().datetime(),
+      viewport: ViewportSchema,
+      comparison: ComparisonResultSchema,
+      analysis: AnalysisSchema,
+      files: import_zod.z.object({
+        baseline: import_zod.z.string(),
+        current: import_zod.z.string(),
+        diff: import_zod.z.string()
+      }),
+      webViewUrl: import_zod.z.string().optional()
+    });
+    InteractiveStateSchema = import_zod.z.object({
+      hasOnClick: import_zod.z.boolean(),
+      hasHref: import_zod.z.boolean(),
+      isDisabled: import_zod.z.boolean(),
+      tabIndex: import_zod.z.number(),
+      cursor: import_zod.z.string(),
+      // Framework-specific detection
+      hasReactHandler: import_zod.z.boolean().optional(),
+      hasVueHandler: import_zod.z.boolean().optional(),
+      hasAngularHandler: import_zod.z.boolean().optional()
+    });
+    A11yAttributesSchema = import_zod.z.object({
+      role: import_zod.z.string().nullable(),
+      ariaLabel: import_zod.z.string().nullable(),
+      ariaDescribedBy: import_zod.z.string().nullable(),
+      ariaHidden: import_zod.z.boolean().optional()
+    });
+    EnhancedElementSchema = import_zod.z.object({
+      // Identity
+      selector: import_zod.z.string(),
+      tagName: import_zod.z.string(),
+      id: import_zod.z.string().optional(),
+      className: import_zod.z.string().optional(),
+      text: import_zod.z.string().optional(),
+      // Position
+      bounds: BoundsSchema,
+      // Styles (subset)
+      computedStyles: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+      // Interactivity
+      interactive: InteractiveStateSchema,
+      // Accessibility
+      a11y: A11yAttributesSchema,
+      // Source hints for debugging
+      sourceHint: import_zod.z.object({
+        dataTestId: import_zod.z.string().nullable()
+      }).optional()
+    });
+    ElementIssueSchema = import_zod.z.object({
+      type: import_zod.z.enum([
+        "NO_HANDLER",
+        // Interactive-looking but no handler
+        "PLACEHOLDER_LINK",
+        // href="#" without handler
+        "TOUCH_TARGET_SMALL",
+        // < 44px on mobile
+        "MISSING_ARIA_LABEL",
+        // Interactive without label
+        "DISABLED_NO_VISUAL"
+        // Disabled but no visual indication
+      ]),
+      severity: import_zod.z.enum(["error", "warning", "info"]),
+      message: import_zod.z.string()
+    });
+    AuditResultSchema = import_zod.z.object({
+      totalElements: import_zod.z.number(),
+      interactiveCount: import_zod.z.number(),
+      withHandlers: import_zod.z.number(),
+      withoutHandlers: import_zod.z.number(),
+      issues: import_zod.z.array(ElementIssueSchema)
+    });
+    RuleSeveritySchema = import_zod.z.enum(["off", "warn", "error"]);
+    RuleSettingSchema = import_zod.z.union([
+      RuleSeveritySchema,
+      import_zod.z.tuple([RuleSeveritySchema, import_zod.z.record(import_zod.z.string(), import_zod.z.unknown())])
+    ]);
+    RulesConfigSchema = import_zod.z.object({
+      extends: import_zod.z.array(import_zod.z.string()).optional(),
+      rules: import_zod.z.record(import_zod.z.string(), RuleSettingSchema).optional()
+    });
+    ViolationSchema = import_zod.z.object({
+      ruleId: import_zod.z.string(),
+      ruleName: import_zod.z.string(),
+      severity: import_zod.z.enum(["warn", "error"]),
+      message: import_zod.z.string(),
+      element: import_zod.z.string().optional(),
+      // Selector of violating element
+      bounds: BoundsSchema.optional(),
+      fix: import_zod.z.string().optional()
+      // Suggested fix
+    });
+    RuleAuditResultSchema = import_zod.z.object({
+      url: import_zod.z.string(),
+      timestamp: import_zod.z.string(),
+      elementsScanned: import_zod.z.number(),
+      violations: import_zod.z.array(ViolationSchema),
+      summary: import_zod.z.object({
+        errors: import_zod.z.number(),
+        warnings: import_zod.z.number(),
+        passed: import_zod.z.number()
+      })
+    });
+    MemorySourceSchema = import_zod.z.enum(["user", "learned", "framework"]);
+    PreferenceCategorySchema = import_zod.z.enum([
+      "color",
+      "layout",
+      "typography",
+      "navigation",
+      "component",
+      "spacing",
+      "interaction",
+      "content"
+    ]);
+    ExpectationOperatorSchema = import_zod.z.enum(["equals", "contains", "matches", "gte", "lte"]);
+    ExpectationSchema = import_zod.z.object({
+      property: import_zod.z.string(),
+      operator: ExpectationOperatorSchema,
+      value: import_zod.z.string()
+    });
+    PreferenceSchema = import_zod.z.object({
+      id: import_zod.z.string(),
+      description: import_zod.z.string(),
+      category: PreferenceCategorySchema,
+      source: MemorySourceSchema,
+      route: import_zod.z.string().optional(),
+      componentType: import_zod.z.string().optional(),
+      expectation: ExpectationSchema,
+      confidence: import_zod.z.number().min(0).max(1).default(1),
+      createdAt: import_zod.z.string().datetime(),
+      updatedAt: import_zod.z.string().datetime(),
+      sessionIds: import_zod.z.array(import_zod.z.string()).optional()
+    });
+    ObservationSchema = import_zod.z.object({
+      description: import_zod.z.string(),
+      category: PreferenceCategorySchema,
+      property: import_zod.z.string(),
+      value: import_zod.z.string()
+    });
+    LearnedExpectationSchema = import_zod.z.object({
+      id: import_zod.z.string(),
+      sessionId: import_zod.z.string(),
+      route: import_zod.z.string(),
+      observations: import_zod.z.array(ObservationSchema),
+      approved: import_zod.z.boolean(),
+      createdAt: import_zod.z.string().datetime()
+    });
+    ActivePreferenceSchema = import_zod.z.object({
+      id: import_zod.z.string(),
+      description: import_zod.z.string(),
+      category: PreferenceCategorySchema,
+      route: import_zod.z.string().optional(),
+      componentType: import_zod.z.string().optional(),
+      property: import_zod.z.string(),
+      operator: ExpectationOperatorSchema,
+      value: import_zod.z.string(),
+      confidence: import_zod.z.number()
+    });
+    MemorySummarySchema = import_zod.z.object({
+      version: import_zod.z.literal(1),
+      updatedAt: import_zod.z.string().datetime(),
+      stats: import_zod.z.object({
+        totalPreferences: import_zod.z.number(),
+        totalLearned: import_zod.z.number(),
+        byCategory: import_zod.z.record(import_zod.z.string(), import_zod.z.number()),
+        bySource: import_zod.z.record(import_zod.z.string(), import_zod.z.number())
+      }),
+      activePreferences: import_zod.z.array(ActivePreferenceSchema)
+    });
   }
 });
 
@@ -3946,7 +4183,7 @@ async function captureWithDiagnostics(options) {
       error: {
         type: "unknown",
         message: errorMsg,
-        suggestion: "Check browser installation: npx playwright install chromium"
+        suggestion: "Check that Chrome is installed and accessible. IBR uses a direct CDP connection \u2014 ensure Chrome is available on your PATH or at the default install location."
       }
     };
   }
@@ -4034,17 +4271,17 @@ async function compareImages(options) {
     (0, import_promises5.readFile)(baselinePath),
     (0, import_promises5.readFile)(currentPath)
   ]);
-  const baseline = import_pngjs.PNG.sync.read(baselineBuffer);
-  const current = import_pngjs.PNG.sync.read(currentBuffer);
+  const baseline = import_pngjs2.PNG.sync.read(baselineBuffer);
+  const current = import_pngjs2.PNG.sync.read(currentBuffer);
   if (baseline.width !== current.width || baseline.height !== current.height) {
     throw new Error(
       `Image dimensions mismatch: baseline (${baseline.width}x${baseline.height}) vs current (${current.width}x${current.height})`
     );
   }
   const { width, height } = baseline;
-  const diff = new import_pngjs.PNG({ width, height });
+  const diff = new import_pngjs2.PNG({ width, height });
   const totalPixels = width * height;
-  const diffPixels = (0, import_pixelmatch.default)(
+  const diffPixels = (0, import_pixelmatch2.default)(
     baseline.data,
     current.data,
     diff.data,
@@ -4062,7 +4299,7 @@ async function compareImages(options) {
     }
   );
   await (0, import_promises5.mkdir)((0, import_path4.dirname)(diffPath), { recursive: true });
-  await (0, import_promises5.writeFile)(diffPath, import_pngjs.PNG.sync.write(diff));
+  await (0, import_promises5.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
   return {
     match: diffPixels === 0,
@@ -4153,12 +4390,12 @@ function getVerdictDescription(verdict) {
       return "Unknown verdict";
   }
 }
-var import_pixelmatch, import_pngjs, import_promises5, import_path4, DEFAULT_REGIONS;
+var import_pixelmatch2, import_pngjs2, import_promises5, import_path4, DEFAULT_REGIONS;
 var init_compare = __esm({
   "src/compare.ts"() {
     "use strict";
-    import_pixelmatch = __toESM(require("pixelmatch"));
-    import_pngjs = require("pngjs");
+    import_pixelmatch2 = __toESM(require("pixelmatch"));
+    import_pngjs2 = require("pngjs");
     import_promises5 = require("fs/promises");
     import_path4 = require("path");
     DEFAULT_REGIONS = [
@@ -5273,6 +5510,10 @@ var init_types2 = __esm({
 });
 
 // src/flows/login.ts
+var login_exports = {};
+__export(login_exports, {
+  loginFlow: () => loginFlow
+});
 async function loginFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -5645,6 +5886,10 @@ var init_search = __esm({
 });
 
 // src/flows/form.ts
+var form_exports = {};
+__export(form_exports, {
+  formFlow: () => formFlow
+});
 async function formFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -7121,7 +7366,7 @@ async function waitForCompletion(outputDir, options = {}) {
     if (options.onProgress) {
       options.onProgress(pending.length);
     }
-    await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
+    await new Promise((resolve5) => setTimeout(resolve5, pollInterval));
   }
   return false;
 }
@@ -7176,7 +7421,7 @@ function rateMetric(value, thresholds) {
 }
 async function measureWebVitals(page) {
   const metrics = await page.evaluate(() => {
-    return new Promise((resolve3) => {
+    return new Promise((resolve5) => {
       const result = {
         LCP: null,
         FID: null,
@@ -7226,7 +7471,7 @@ async function measureWebVitals(page) {
         if (navEntry) {
           result.TTI = navEntry.domInteractive;
         }
-        resolve3(result);
+        resolve5(result);
       }, 3e3);
     });
   });
@@ -7681,11 +7926,11 @@ async function measureApiTiming(page, options = {}) {
   page.on("request", requestHandler);
   page.on("response", responseHandler);
   page.on("requestfailed", requestFailedHandler);
-  await new Promise((resolve3) => {
+  await new Promise((resolve5) => {
     const startWait = Date.now();
     const check = () => {
       if (requests.size === 0 || Date.now() - startWait > timeout) {
-        resolve3();
+        resolve5();
         return;
       }
       setTimeout(check, 100);
@@ -7924,8 +8169,8 @@ async function testResponsive(url, options = {}) {
         minFontSize
       });
       if (captureScreenshots) {
-        const { mkdir: mkdir20 } = await import("fs/promises");
-        await mkdir20(outputDir, { recursive: true });
+        const { mkdir: mkdir26 } = await import("fs/promises");
+        await mkdir26(outputDir, { recursive: true });
         const screenshotPath = `${outputDir}/${viewportName}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
         result.screenshot = screenshotPath;
@@ -8465,7 +8710,22 @@ var init_memory = __esm({
 });
 
 // src/context/types.ts
-var import_zod2, DecisionTypeSchema, DecisionStateSchema, DecisionEntrySchema, DecisionSummarySchema, CurrentUIStateSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema;
+var types_exports = {};
+__export(types_exports, {
+  CompactContextSchema: () => CompactContextSchema,
+  CompactionRequestSchema: () => CompactionRequestSchema,
+  CompactionResultSchema: () => CompactionResultSchema,
+  CurrentUIStateSchema: () => CurrentUIStateSchema,
+  DecisionEntrySchema: () => DecisionEntrySchema,
+  DecisionEntryWithChecksSchema: () => DecisionEntryWithChecksSchema,
+  DecisionStateSchema: () => DecisionStateSchema,
+  DecisionSummarySchema: () => DecisionSummarySchema,
+  DecisionTypeSchema: () => DecisionTypeSchema,
+  DesignChangeSchema: () => DesignChangeSchema,
+  DesignCheckOperatorSchema: () => DesignCheckOperatorSchema,
+  DesignCheckSchema: () => DesignCheckSchema
+});
+var import_zod2, DecisionTypeSchema, DecisionStateSchema, DecisionEntrySchema, DecisionSummarySchema, CurrentUIStateSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignChangeSchema, DecisionEntryWithChecksSchema;
 var init_types3 = __esm({
   "src/context/types.ts"() {
     "use strict";
@@ -8528,6 +8788,39 @@ var init_types3 = __esm({
       archived_to: import_zod2.z.string(),
       decisions_compacted: import_zod2.z.number(),
       decisions_preserved: import_zod2.z.number()
+    });
+    DesignCheckOperatorSchema = import_zod2.z.enum([
+      "eq",
+      // exact equality
+      "gt",
+      // numeric greater-than
+      "lt",
+      // numeric less-than
+      "contains",
+      // substring or token match
+      "not",
+      // negation
+      "exists",
+      // element is present in AX tree
+      "truthy"
+      // value is non-empty / non-zero
+    ]);
+    DesignCheckSchema = import_zod2.z.object({
+      property: import_zod2.z.string(),
+      operator: DesignCheckOperatorSchema,
+      value: import_zod2.z.union([import_zod2.z.string(), import_zod2.z.number()]),
+      confidence: import_zod2.z.number().min(0).max(1)
+    });
+    DesignChangeSchema = import_zod2.z.object({
+      description: import_zod2.z.string(),
+      element: import_zod2.z.string(),
+      checks: import_zod2.z.array(DesignCheckSchema),
+      source: import_zod2.z.enum(["structured", "parsed"]),
+      platform: import_zod2.z.enum(["web", "ios", "macos"]).optional(),
+      timestamp: import_zod2.z.string()
+    });
+    DecisionEntryWithChecksSchema = DecisionEntrySchema.extend({
+      checks: import_zod2.z.array(DesignCheckSchema).optional()
     });
   }
 });
@@ -9338,10 +9631,11 @@ async function scan(url, options = {}) {
       await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
       });
     }
-    const [elements, interactivity, semantic] = await Promise.all([
+    const [elements, interactivity, semantic, coverage] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
       testInteractivity(page),
-      getSemanticOutput(page)
+      getSemanticOutput(page),
+      driver3.getCoverage().catch(() => void 0)
     ]);
     if (screenshot) {
       await page.screenshot({
@@ -9370,6 +9664,7 @@ async function scan(url, options = {}) {
         errors: consoleErrors,
         warnings: consoleWarnings
       },
+      coverage,
       verdict,
       issues,
       summary
@@ -9795,7 +10090,7 @@ async function bootDevice(udid) {
     return;
   }
   await execFileAsync("xcrun", ["simctl", "boot", udid]);
-  await new Promise((resolve3) => setTimeout(resolve3, 2e3));
+  await new Promise((resolve5) => setTimeout(resolve5, 2e3));
 }
 function formatDevice(device) {
   const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
@@ -10801,9 +11096,13 @@ __export(index_exports, {
   DEFAULT_DYNAMIC_SELECTORS: () => DEFAULT_DYNAMIC_SELECTORS,
   DEFAULT_RETENTION: () => DEFAULT_RETENTION,
   DecisionEntrySchema: () => DecisionEntrySchema,
+  DecisionEntryWithChecksSchema: () => DecisionEntryWithChecksSchema,
   DecisionStateSchema: () => DecisionStateSchema,
   DecisionSummarySchema: () => DecisionSummarySchema,
   DecisionTypeSchema: () => DecisionTypeSchema,
+  DesignChangeSchema: () => DesignChangeSchema,
+  DesignCheckOperatorSchema: () => DesignCheckOperatorSchema,
+  DesignCheckSchema: () => DesignCheckSchema,
   ElementIssueSchema: () => ElementIssueSchema,
   EnhancedElementSchema: () => EnhancedElementSchema,
   ExpectationOperatorSchema: () => ExpectationOperatorSchema,
@@ -11493,6 +11792,648 @@ var init_index = __esm({
        */
       async close() {
         await this.driver.close();
+      }
+    };
+  }
+});
+
+// src/engine/safari/webdriver.ts
+var WebDriverClient;
+var init_webdriver = __esm({
+  "src/engine/safari/webdriver.ts"() {
+    "use strict";
+    WebDriverClient = class {
+      baseUrl;
+      sessionId = null;
+      constructor(port) {
+        this.baseUrl = `http://localhost:${port}`;
+      }
+      // ─── Internal HTTP helpers ───────────────────────────────
+      async post(path2, body) {
+        const res = await fetch(`${this.baseUrl}${path2}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "(no body)");
+          throw new Error(`WebDriver POST ${path2} failed: HTTP ${res.status} \u2014 ${text}`);
+        }
+        const json = await res.json();
+        return json.value;
+      }
+      async get(path2) {
+        const res = await fetch(`${this.baseUrl}${path2}`);
+        if (!res.ok) {
+          const text = await res.text().catch(() => "(no body)");
+          throw new Error(`WebDriver GET ${path2} failed: HTTP ${res.status} \u2014 ${text}`);
+        }
+        const json = await res.json();
+        return json.value;
+      }
+      async delete(path2) {
+        const res = await fetch(`${this.baseUrl}${path2}`, { method: "DELETE" });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "(no body)");
+          throw new Error(`WebDriver DELETE ${path2} failed: HTTP ${res.status} \u2014 ${text}`);
+        }
+        const json = await res.json();
+        return json.value;
+      }
+      session(path2 = "") {
+        if (!this.sessionId) throw new Error("No active WebDriver session");
+        return `/session/${this.sessionId}${path2}`;
+      }
+      // ─── Session management ──────────────────────────────────
+      /**
+       * Create a new WebDriver session.
+       * Returns the session ID.
+       */
+      async createSession(capabilities = {}) {
+        const body = {
+          capabilities: {
+            alwaysMatch: {
+              browserName: "safari",
+              ...capabilities
+            }
+          }
+        };
+        const value = await this.post("/session", body);
+        if (typeof value === "string") {
+          this.sessionId = value;
+        } else if (value && typeof value === "object" && "sessionId" in value) {
+          this.sessionId = value.sessionId;
+        } else {
+          throw new Error(`Unexpected createSession response: ${JSON.stringify(value)}`);
+        }
+        return this.sessionId;
+      }
+      /** Delete the current WebDriver session. */
+      async deleteSession() {
+        if (!this.sessionId) return;
+        await this.delete(this.session()).catch(() => {
+        });
+        this.sessionId = null;
+      }
+      get activeSessionId() {
+        return this.sessionId;
+      }
+      // ─── Navigation ──────────────────────────────────────────
+      async navigateTo(url) {
+        await this.post(this.session("/url"), { url });
+      }
+      async getCurrentUrl() {
+        return this.get(this.session("/url"));
+      }
+      // ─── Screenshots ─────────────────────────────────────────
+      /**
+       * Take a full-page screenshot.
+       * Returns a PNG buffer decoded from the base64 response.
+       */
+      async takeScreenshot() {
+        const b64 = await this.get(this.session("/screenshot"));
+        return Buffer.from(b64, "base64");
+      }
+      // ─── Element interaction ─────────────────────────────────
+      /**
+       * Find a single element using the given strategy and value.
+       * Returns the WebDriver element ID string.
+       */
+      async findElement(strategy, value) {
+        const result = await this.post(
+          this.session("/element"),
+          { using: strategy, value }
+        );
+        const W3C_KEY = "element-6066-11e4-a52e-4f735466cecf";
+        const elementId = result[W3C_KEY] ?? result["ELEMENT"];
+        if (!elementId) {
+          throw new Error(`findElement: no element ID in response: ${JSON.stringify(result)}`);
+        }
+        return elementId;
+      }
+      async clickElement(elementId) {
+        await this.post(this.session(`/element/${elementId}/click`), {});
+      }
+      async sendKeys(elementId, text) {
+        await this.post(this.session(`/element/${elementId}/value`), { text });
+      }
+      async clearElement(elementId) {
+        await this.post(this.session(`/element/${elementId}/clear`), {});
+      }
+      async getElementRect(elementId) {
+        return this.get(this.session(`/element/${elementId}/rect`));
+      }
+      async getElementText(elementId) {
+        return this.get(this.session(`/element/${elementId}/text`));
+      }
+      // ─── JavaScript execution ────────────────────────────────
+      async executeScript(script, args = []) {
+        return this.post(this.session("/execute/sync"), { script, args });
+      }
+      // ─── Window management ───────────────────────────────────
+      async setWindowRect(rect) {
+        await this.post(this.session("/window/rect"), rect);
+      }
+      // ─── Health check ────────────────────────────────────────
+      async status() {
+        try {
+          await this.get("/status");
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    };
+  }
+});
+
+// src/engine/safari/session.ts
+var session_exports2 = {};
+__export(session_exports2, {
+  SafariSession: () => SafariSession
+});
+var import_child_process6, import_util5, execFileAsync5, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var init_session2 = __esm({
+  "src/engine/safari/session.ts"() {
+    "use strict";
+    import_child_process6 = require("child_process");
+    import_util5 = require("util");
+    execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
+    PORT_RANGE_START = 9500;
+    PORT_RANGE_END = 9599;
+    READY_POLL_INTERVAL_MS = 200;
+    READY_TIMEOUT_MS = 15e3;
+    SafariSession = class {
+      process = null;
+      port = PORT_RANGE_START;
+      // ─── Start ──────────────────────────────────────────────
+      /**
+       * Start safaridriver on the given port (or auto-find a free one).
+       * Returns the port it's listening on.
+       */
+      async start(port) {
+        if (this.process) {
+          return this.port;
+        }
+        this.port = port ?? await this.findFreePort();
+        this.process = (0, import_child_process6.spawn)("safaridriver", ["--port", String(this.port)], {
+          stdio: ["ignore", "pipe", "pipe"]
+        });
+        this.process.on("exit", (code) => {
+          if (code !== null && code !== 0) {
+            console.error(`[SafariSession] safaridriver exited with code ${code}`);
+          }
+          this.process = null;
+        });
+        await this.waitUntilReady();
+        return this.port;
+      }
+      // ─── Stop ───────────────────────────────────────────────
+      async stop() {
+        if (!this.process) return;
+        this.process.kill("SIGTERM");
+        await new Promise((resolve5) => {
+          const timeout = setTimeout(() => {
+            this.process?.kill("SIGKILL");
+            resolve5();
+          }, 2e3);
+          this.process.once("exit", () => {
+            clearTimeout(timeout);
+            resolve5();
+          });
+        });
+        this.process = null;
+      }
+      isRunning() {
+        return this.process !== null && !this.process.killed;
+      }
+      // ─── Static: capability check ────────────────────────────
+      /**
+       * Returns true if safaridriver is enabled (one-time sudo setup was done).
+       * Tests by trying to get safaridriver version — fails if not enabled.
+       */
+      static async isEnabled() {
+        try {
+          await execFileAsync5("safaridriver", ["--version"], { timeout: 5e3 });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      // ─── Internals ───────────────────────────────────────────
+      async waitUntilReady() {
+        const deadline = Date.now() + READY_TIMEOUT_MS;
+        const url = `http://localhost:${this.port}/status`;
+        while (Date.now() < deadline) {
+          try {
+            const res = await fetch(url);
+            if (res.ok) return;
+          } catch {
+          }
+          await new Promise((r) => setTimeout(r, READY_POLL_INTERVAL_MS));
+        }
+        throw new Error(
+          `safaridriver did not become ready on port ${this.port} within ${READY_TIMEOUT_MS}ms. Ensure "sudo safaridriver --enable" has been run.`
+        );
+      }
+      async findFreePort() {
+        const { createServer } = await import("net");
+        for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
+          const available = await new Promise((resolve5) => {
+            const server = createServer();
+            server.once("error", () => resolve5(false));
+            server.once("listening", () => {
+              server.close();
+              resolve5(true);
+            });
+            server.listen(p, "127.0.0.1");
+          });
+          if (available) return p;
+        }
+        throw new Error(
+          `No free port found in range ${PORT_RANGE_START}-${PORT_RANGE_END} for safaridriver`
+        );
+      }
+    };
+  }
+});
+
+// src/engine/safari/driver.ts
+var driver_exports = {};
+__export(driver_exports, {
+  SafariDriver: () => SafariDriver
+});
+var import_child_process7, import_util6, execFileAsync6, SafariDriver;
+var init_driver2 = __esm({
+  "src/engine/safari/driver.ts"() {
+    "use strict";
+    import_child_process7 = require("child_process");
+    import_util6 = require("util");
+    init_webdriver();
+    init_session2();
+    init_extract3();
+    init_serialize();
+    execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+    SafariDriver = class {
+      client = null;
+      session = null;
+      _currentUrl = "";
+      _axElements = [];
+      // ─── Lifecycle ──────────────────────────────────────────
+      async launch(options = {}) {
+        if (options.headless) {
+          console.warn("[SafariDriver] Safari does not support headless mode. Running visible.");
+        }
+        this.session = new SafariSession();
+        const port = await this.session.start();
+        this.client = new WebDriverClient(port);
+        await this.client.createSession();
+        if (options.viewport) {
+          await this.client.setWindowRect(options.viewport);
+        }
+      }
+      async close() {
+        if (this.client) {
+          await this.client.deleteSession().catch(() => {
+          });
+          this.client = null;
+        }
+        if (this.session) {
+          await this.session.stop();
+          this.session = null;
+        }
+        this._currentUrl = "";
+        this._axElements = [];
+      }
+      // ─── Navigation ─────────────────────────────────────────
+      async navigate(url, options = {}) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this.client.navigateTo(url);
+        const strategy = options.waitFor ?? "load";
+        const timeout = options.timeout ?? 1e4;
+        if (strategy !== "none") {
+          const deadline = Date.now() + timeout;
+          while (Date.now() < deadline) {
+            try {
+              const state = await this.client.executeScript(
+                "return document.readyState"
+              );
+              if (state === "complete") break;
+            } catch {
+            }
+            await new Promise((r) => setTimeout(r, 200));
+          }
+          if (strategy === "stable") {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
+        this._currentUrl = await this.client.getCurrentUrl().catch(() => url);
+        this._axElements = await this._fetchAXElements().catch(() => []);
+      }
+      get currentUrl() {
+        return this._currentUrl;
+      }
+      // ─── Screenshots ─────────────────────────────────────────
+      async screenshot(options) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        const buf = await this.client.takeScreenshot();
+        if (options?.clip) {
+          return this._cropScreenshot(buf, options.clip);
+        }
+        return buf;
+      }
+      // ─── Element discovery ───────────────────────────────────
+      /**
+       * Discover elements via macOS AX API.
+       * Falls back to WebDriver JS query if AX extraction unavailable.
+       */
+      async discover(options = {}) {
+        const filter = options.filter ?? "interactive";
+        this._axElements = await this._fetchAXElements();
+        let filtered;
+        switch (filter) {
+          case "interactive":
+            filtered = this._axElements.filter((e) => e.actions.length > 0);
+            break;
+          case "leaf":
+            filtered = this._axElements.filter((e) => e.label && e.role !== "group");
+            break;
+          case "all":
+          default:
+            filtered = this._axElements;
+        }
+        if (options.serialize) {
+          const snap = {
+            url: this._currentUrl,
+            platform: "web",
+            elements: filtered,
+            timestamp: Date.now()
+          };
+          return serializeSnapshot(snap);
+        }
+        return filtered;
+      }
+      /**
+       * Find an element by name + optional role in the AX tree.
+       */
+      async find(name, options = {}) {
+        if (this._axElements.length === 0) {
+          this._axElements = await this._fetchAXElements().catch(() => []);
+        }
+        const nameLower = name.toLowerCase();
+        const match = this._axElements.find((e) => {
+          const nameMatch = e.label?.toLowerCase().includes(nameLower) || e.value?.toString().toLowerCase().includes(nameLower);
+          const roleMatch = !options.role || e.role === options.role;
+          return nameMatch && roleMatch;
+        });
+        return match ?? null;
+      }
+      // ─── Interactions ────────────────────────────────────────
+      /**
+       * Click an element. The elementId is either:
+       * - An AX element ID (from discover/find) — resolved via JS querySelector by label
+       * - A CSS selector passed directly
+       */
+      async click(elementId) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "click");
+      }
+      async type(elementId, text) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "focus");
+        await this.client.executeScript(
+          `(function(text) {
+        const el = document.activeElement;
+        if (el) {
+          el.value = (el.value || '') + text;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })(arguments[0])`,
+          [text]
+        );
+      }
+      async fill(elementId, value) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "focus");
+        await this.client.executeScript(
+          `(function(value) {
+        const el = document.activeElement;
+        if (el) {
+          el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })(arguments[0])`,
+          [value]
+        );
+      }
+      async hover(elementId) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "mouseover");
+      }
+      async pressKey(key) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        try {
+          const activeElId = await this.client.executeScript(
+            `return document.activeElement ? document.activeElement.tagName : ''`
+          );
+          if (activeElId) {
+            await this.client.executeScript(
+              `(function(key) {
+            document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true }));
+            document.activeElement.dispatchEvent(new KeyboardEvent('keyup', { key: key, bubbles: true }));
+          })(arguments[0])`,
+              [key]
+            );
+          }
+        } catch {
+        }
+      }
+      async scroll(deltaY, _x = 0, _y = 0) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this.client.executeScript(
+          `window.scrollBy(0, arguments[0])`,
+          [deltaY]
+        );
+      }
+      // ─── Evaluation ─────────────────────────────────────────
+      async evaluate(expression) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        return this.client.executeScript(`return (${expression})`);
+      }
+      // ─── Internals ───────────────────────────────────────────
+      /**
+       * Fetch the AX element tree for the running Safari window.
+       * Uses the Swift ibr-ax-extract binary with Safari's PID.
+       */
+      async _fetchAXElements() {
+        try {
+          const extractorPath = await ensureExtractor();
+          const { stdout } = await execFileAsync6(
+            extractorPath,
+            ["--app", "Safari"],
+            { timeout: 15e3 }
+          );
+          const lines = stdout.split("\n");
+          const jsonStr = lines.slice(1).join("\n").trim();
+          if (!jsonStr) return [];
+          const raw = JSON.parse(jsonStr);
+          return this._mapAXToElements(raw);
+        } catch {
+          return [];
+        }
+      }
+      /**
+       * Map raw macOS AX JSON output to IBR Element format.
+       */
+      _mapAXToElements(rawElements, parentId = null) {
+        const elements = [];
+        let idx = 0;
+        for (const raw of rawElements) {
+          const id = `safari-ax-${parentId ? parentId + "-" : ""}${idx++}`;
+          const role = this._mapAXRole(raw.role ?? "AXUnknown");
+          const label = raw.title ?? raw.description ?? raw.value ?? "";
+          const actions = (raw.actions ?? []).map(
+            (a) => a.replace(/^AX/, "").toLowerCase()
+          );
+          elements.push({
+            id,
+            role,
+            label,
+            value: raw.value ?? null,
+            enabled: raw.enabled ?? true,
+            focused: raw.focused ?? false,
+            actions,
+            bounds: [
+              raw.position?.x ?? 0,
+              raw.position?.y ?? 0,
+              raw.size?.width ?? 0,
+              raw.size?.height ?? 0
+            ],
+            parent: parentId
+          });
+          if (raw.children && raw.children.length > 0) {
+            const children = this._mapAXToElements(raw.children, id);
+            elements.push(...children);
+          }
+        }
+        return elements;
+      }
+      /** Map macOS AX role names to ARIA-style roles */
+      _mapAXRole(axRole) {
+        const map = {
+          AXButton: "button",
+          AXLink: "link",
+          AXTextField: "textbox",
+          AXTextArea: "textbox",
+          AXCheckBox: "checkbox",
+          AXRadioButton: "radio",
+          AXComboBox: "combobox",
+          AXPopUpButton: "combobox",
+          AXSlider: "slider",
+          AXImage: "img",
+          AXStaticText: "text",
+          AXHeading: "heading",
+          AXList: "list",
+          AXListItem: "listitem",
+          AXTable: "table",
+          AXRow: "row",
+          AXCell: "cell",
+          AXGroup: "group",
+          AXScrollArea: "scrollbar",
+          AXWebArea: "main",
+          AXWindow: "dialog",
+          AXMenuBar: "menubar",
+          AXMenu: "menu",
+          AXMenuItem: "menuitem",
+          AXToolbar: "toolbar"
+        };
+        return map[axRole] ?? axRole.replace(/^AX/, "").toLowerCase();
+      }
+      /**
+       * Execute a DOM action on an element.
+       * Resolution order:
+       *   1. CSS selector (if elementId looks like one: starts with . # [ or is a tag)
+       *   2. ARIA label match via querySelector [aria-label="..."]
+       *   3. Text content match via TreeWalker
+       */
+      async _executeElementAction(elementId, action) {
+        const script = `
+      (function(eid, action) {
+        let el = null;
+
+        // Strategy 1: treat as CSS selector
+        const looksLikeCss = /^[.#\\[a-zA-Z]/.test(eid);
+        if (looksLikeCss) {
+          try { el = document.querySelector(eid); } catch(e) {}
+        }
+
+        // Strategy 2: aria-label match
+        if (!el) {
+          el = document.querySelector('[aria-label="' + eid + '"]');
+        }
+
+        // Strategy 3: button/link text content
+        if (!el) {
+          const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_ELEMENT,
+            null
+          );
+          let node;
+          while ((node = walker.nextNode())) {
+            if (node.textContent && node.textContent.trim() === eid) {
+              if (['BUTTON','A','INPUT','SELECT','TEXTAREA'].includes(node.tagName)) {
+                el = node;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!el) return false;
+
+        if (action === 'click') {
+          el.click();
+        } else if (action === 'focus') {
+          el.focus();
+        } else if (action === 'mouseover') {
+          el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+          el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        }
+
+        return true;
+      })(arguments[0], arguments[1])
+    `;
+        const found = await this.client.executeScript(script, [elementId, action]);
+        if (!found) {
+          throw new Error(`SafariDriver: element not found for action "${action}": ${elementId}`);
+        }
+      }
+      /**
+       * Crop a PNG buffer to a clip region using pngjs.
+       * Gracefully returns the full buffer if pngjs unavailable or clip fails.
+       */
+      async _cropScreenshot(buf, clip) {
+        try {
+          const { PNG: PNG4 } = await import("pngjs");
+          const src = PNG4.sync.read(buf);
+          const dst = new PNG4({ width: clip.width, height: clip.height });
+          for (let y = 0; y < clip.height; y++) {
+            for (let x = 0; x < clip.width; x++) {
+              const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
+              const dstIdx = (y * clip.width + x) * 4;
+              dst.data[dstIdx] = src.data[srcIdx];
+              dst.data[dstIdx + 1] = src.data[srcIdx + 1];
+              dst.data[dstIdx + 2] = src.data[srcIdx + 2];
+              dst.data[dstIdx + 3] = src.data[srcIdx + 3];
+            }
+          }
+          return PNG4.sync.write(dst);
+        } catch {
+          return buf;
+        }
       }
     };
   }
@@ -14193,19 +15134,1628 @@ var init_screenshot_manager = __esm({
   }
 });
 
+// src/interaction-test.ts
+var interaction_test_exports = {};
+__export(interaction_test_exports, {
+  formatInteractionResult: () => formatInteractionResult,
+  parseActionArg: () => parseActionArg,
+  parseExpectArg: () => parseExpectArg,
+  runInteractionTest: () => runInteractionTest
+});
+async function runInteractionTest(options) {
+  const { url, steps, viewport, outputDir = ".ibr/interactions", headless = true } = options;
+  const driver3 = new EngineDriver();
+  const launchOpts = {
+    headless,
+    viewport: viewport ? { width: viewport.width, height: viewport.height } : void 0
+  };
+  try {
+    await driver3.launch(launchOpts);
+    await driver3.navigate(url);
+    const results = [];
+    for (const step of steps) {
+      const result = await executeStep(driver3, step, url, outputDir);
+      results.push(result);
+    }
+    return results;
+  } finally {
+    await driver3.close();
+  }
+}
+async function executeStep(driver3, step, url, outputDir) {
+  const { action, expect: expectation } = step;
+  const actionStart = Date.now();
+  let actionSuccess = true;
+  let actionError;
+  async function resolveTarget() {
+    if (!action.target) return null;
+    const el = await driver3.find(action.target);
+    return el?.id ?? null;
+  }
+  let captureResult = null;
+  try {
+    captureResult = await driver3.actAndCapture(async () => {
+      const elementId = await resolveTarget();
+      if (!elementId) {
+        if (action.type === "press") {
+          await driver3.pressKey(action.value ?? "Enter");
+          return;
+        }
+        if (action.type === "scroll") {
+          const delta = action.value ? parseInt(action.value, 10) : 300;
+          await driver3.scroll(delta);
+          return;
+        }
+        throw new Error(`Element not found: "${action.target}"`);
+      }
+      switch (action.type) {
+        case "click":
+          await driver3.click(elementId);
+          break;
+        case "type":
+          await driver3.type(elementId, action.value ?? "");
+          break;
+        case "fill":
+          await driver3.fill(elementId, action.value ?? "");
+          break;
+        case "hover":
+          await driver3.hover(elementId);
+          break;
+        case "press":
+          await driver3.pressKey(action.value ?? "Enter");
+          break;
+        case "scroll": {
+          const delta = action.value ? parseInt(action.value, 10) : 300;
+          await driver3.scroll(delta);
+          break;
+        }
+        case "select":
+          await driver3.select(elementId, action.value ?? "");
+          break;
+        case "check":
+          await driver3.check(elementId);
+          break;
+        case "doubleClick":
+          await driver3.doubleClick(elementId);
+          break;
+        case "rightClick":
+          await driver3.rightClick(elementId);
+          break;
+        default:
+          throw new Error(`Unknown action type: ${action.type}`);
+      }
+    });
+  } catch (err) {
+    actionSuccess = false;
+    actionError = err instanceof Error ? err.message : String(err);
+    const emptyScreenshot = Buffer.alloc(0);
+    captureResult = {
+      before: { elements: [], screenshot: emptyScreenshot },
+      after: { elements: [], screenshot: emptyScreenshot },
+      diff: { addedElements: [], removedElements: [], pixelDiff: 0 }
+    };
+  }
+  const actionDuration = Date.now() - actionStart;
+  const assertions = [];
+  if (expectation) {
+    const afterElements = captureResult.after.elements;
+    if (expectation.visible !== void 0) {
+      const name = expectation.visible;
+      const found = afterElements.some(
+        (e) => e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase())
+      );
+      assertions.push({
+        check: `visible: "${name}"`,
+        passed: found,
+        detail: found ? `Element "${name}" found in after state` : `Element "${name}" not found in after state (${afterElements.length} elements)`
+      });
+    }
+    if (expectation.hidden !== void 0) {
+      const name = expectation.hidden;
+      const found = afterElements.some(
+        (e) => e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase())
+      );
+      assertions.push({
+        check: `hidden: "${name}"`,
+        passed: !found,
+        detail: found ? `Element "${name}" still present in after state (expected hidden)` : `Element "${name}" correctly absent in after state`
+      });
+    }
+    if (expectation.text !== void 0) {
+      const text = expectation.text.toLowerCase();
+      const found = afterElements.some(
+        (e) => e.label?.toLowerCase().includes(text) || e.value?.toString().toLowerCase().includes(text)
+      );
+      assertions.push({
+        check: `text: "${expectation.text}"`,
+        passed: found,
+        detail: found ? `Text "${expectation.text}" found in after state` : `Text "${expectation.text}" not found in any element`
+      });
+    }
+    if (expectation.count !== void 0) {
+      if (expectation.visible !== void 0) {
+        const name = expectation.visible.toLowerCase();
+        const matching = afterElements.filter(
+          (e) => e.label?.toLowerCase().includes(name) || e.value?.toString().toLowerCase().includes(name)
+        );
+        const passed = matching.length === expectation.count;
+        assertions.push({
+          check: `count: ${expectation.count} of "${expectation.visible}"`,
+          passed,
+          detail: `Found ${matching.length} elements matching "${expectation.visible}" (expected ${expectation.count})`
+        });
+      } else {
+        const interactive = afterElements.filter((e) => e.actions && e.actions.length > 0);
+        const passed = interactive.length === expectation.count;
+        assertions.push({
+          check: `count: ${expectation.count} interactive elements`,
+          passed,
+          detail: `Found ${interactive.length} interactive elements (expected ${expectation.count})`
+        });
+      }
+    }
+    if (expectation.screenshot !== void 0) {
+      try {
+        await (0, import_promises24.mkdir)(outputDir, { recursive: true });
+        const screenshotPath = (0, import_path24.join)(outputDir, `${expectation.screenshot}.png`);
+        await (0, import_promises24.writeFile)(screenshotPath, captureResult.after.screenshot);
+        assertions.push({
+          check: `screenshot: "${expectation.screenshot}"`,
+          passed: true,
+          detail: `Screenshot saved to ${screenshotPath}`
+        });
+      } catch (err) {
+        assertions.push({
+          check: `screenshot: "${expectation.screenshot}"`,
+          passed: false,
+          detail: `Failed to save screenshot: ${err instanceof Error ? err.message : String(err)}`
+        });
+      }
+    }
+  }
+  return {
+    url,
+    step,
+    action: { success: actionSuccess, duration: actionDuration, error: actionError },
+    assertions,
+    before: {
+      screenshot: captureResult.before.screenshot,
+      elementCount: captureResult.before.elements.length
+    },
+    after: {
+      screenshot: captureResult.after.screenshot,
+      elementCount: captureResult.after.elements.length
+    },
+    diff: {
+      addedElements: captureResult.diff.addedElements.map((e) => e.label || e.id),
+      removedElements: captureResult.diff.removedElements.map((e) => e.label || e.id),
+      pixelDiff: captureResult.diff.pixelDiff
+    }
+  };
+}
+function parseActionArg(arg) {
+  const ACTION_TYPES = /* @__PURE__ */ new Set([
+    "click",
+    "type",
+    "fill",
+    "hover",
+    "press",
+    "scroll",
+    "select",
+    "check",
+    "doubleClick",
+    "rightClick"
+  ]);
+  const parts = arg.split(":");
+  if (parts.length < 1) throw new Error(`Invalid action arg: "${arg}"`);
+  const type = parts[0];
+  if (!ACTION_TYPES.has(type)) throw new Error(`Unknown action type: "${type}"`);
+  if (type === "press") {
+    return { type, value: parts[1] ?? "Enter" };
+  }
+  if (type === "scroll") {
+    return { type, value: parts[1] ?? "300" };
+  }
+  const KNOWN_ROLES = /* @__PURE__ */ new Set([
+    "button",
+    "link",
+    "textbox",
+    "checkbox",
+    "combobox",
+    "heading",
+    "listitem",
+    "menuitem",
+    "radio",
+    "tab",
+    "img",
+    "input",
+    "select"
+  ]);
+  let target;
+  let value;
+  if (parts.length === 2) {
+    target = parts[1];
+  } else if (parts.length === 3) {
+    if (KNOWN_ROLES.has(parts[1].toLowerCase())) {
+      target = parts[2];
+    } else {
+      target = parts[1];
+      value = parts[2];
+    }
+  } else if (parts.length >= 4) {
+    if (KNOWN_ROLES.has(parts[1].toLowerCase())) {
+      target = parts[2];
+      value = parts.slice(3).join(":");
+    } else {
+      target = parts[1];
+      value = parts.slice(2).join(":");
+    }
+  } else {
+    throw new Error(`Cannot parse action arg: "${arg}"`);
+  }
+  return { type, target, value };
+}
+function parseExpectArg(arg) {
+  const parts = arg.split(":");
+  if (parts.length < 2) throw new Error(`Invalid expect arg: "${arg}"`);
+  const keyword = parts[0].toLowerCase();
+  switch (keyword) {
+    case "hidden":
+      return { hidden: parts.slice(1).join(":") };
+    case "text":
+      return { text: parts.slice(1).join(":") };
+    case "count":
+      return { count: parseInt(parts[1], 10) };
+    default:
+      if (keyword === "visible") {
+        return { visible: parts.slice(1).join(":") };
+      }
+      return { visible: parts.slice(1).join(":") };
+  }
+}
+function formatInteractionResult(result) {
+  const lines = [];
+  const { step, action, assertions, before, after, diff } = result;
+  const statusIcon = action.success ? "PASS" : "FAIL";
+  lines.push(`[${statusIcon}] ${step.action.type} "${step.action.target ?? step.action.value}" (${action.duration}ms)`);
+  if (action.error) {
+    lines.push(`  Error: ${action.error}`);
+  }
+  lines.push(`  Before: ${before.elementCount} elements`);
+  lines.push(`  After:  ${after.elementCount} elements`);
+  if (diff.addedElements.length > 0) {
+    lines.push(`  Added:   ${diff.addedElements.slice(0, 5).join(", ")}${diff.addedElements.length > 5 ? ` (+${diff.addedElements.length - 5} more)` : ""}`);
+  }
+  if (diff.removedElements.length > 0) {
+    lines.push(`  Removed: ${diff.removedElements.slice(0, 5).join(", ")}${diff.removedElements.length > 5 ? ` (+${diff.removedElements.length - 5} more)` : ""}`);
+  }
+  if (diff.pixelDiff > 0) {
+    lines.push(`  Visual:  ${diff.pixelDiff} pixels changed`);
+  }
+  if (assertions.length > 0) {
+    lines.push("  Assertions:");
+    for (const a of assertions) {
+      const icon = a.passed ? "PASS" : "FAIL";
+      lines.push(`    [${icon}] ${a.check}`);
+      if (!a.passed) {
+        lines.push(`         ${a.detail}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+var import_promises24, import_path24;
+var init_interaction_test = __esm({
+  "src/interaction-test.ts"() {
+    "use strict";
+    import_promises24 = require("fs/promises");
+    import_path24 = require("path");
+    init_driver();
+  }
+});
+
+// src/ssim.ts
+function toLuminance(data, width, height) {
+  const pixels = width * height;
+  const luma = new Float64Array(pixels);
+  for (let i = 0; i < pixels; i++) {
+    const offset = i * 4;
+    luma[i] = 0.299 * data[offset] + 0.587 * data[offset + 1] + 0.114 * data[offset + 2];
+  }
+  return luma;
+}
+function extractWindow(luma, imgWidth, x, y, windowSize) {
+  const win = new Float64Array(windowSize * windowSize);
+  let idx = 0;
+  for (let row = 0; row < windowSize; row++) {
+    const rowOffset = (y + row) * imgWidth + x;
+    for (let col = 0; col < windowSize; col++) {
+      win[idx++] = luma[rowOffset + col];
+    }
+  }
+  return win;
+}
+function mean(arr) {
+  let sum = 0;
+  for (let i = 0; i < arr.length; i++) sum += arr[i];
+  return sum / arr.length;
+}
+function statsWithMeans(x, y, meanX, meanY) {
+  const n = x.length;
+  let varX = 0;
+  let varY = 0;
+  let covXY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = x[i] - meanX;
+    const dy = y[i] - meanY;
+    varX += dx * dx;
+    varY += dy * dy;
+    covXY += dx * dy;
+  }
+  return { varX: varX / n, varY: varY / n, covXY: covXY / n };
+}
+function windowSSIM(winX, winY) {
+  const muX = mean(winX);
+  const muY = mean(winY);
+  const { varX, varY, covXY } = statsWithMeans(winX, winY, muX, muY);
+  const muX2 = muX * muX;
+  const muY2 = muY * muY;
+  const muXY = muX * muY;
+  const numerator = (2 * muXY + C1) * (2 * covXY + C2);
+  const denominator = (muX2 + muY2 + C1) * (varX + varY + C2);
+  return numerator / denominator;
+}
+function computeSSIM(img1, img2, options = {}) {
+  const windowSize = options.windowSize ?? 8;
+  if (img1.width !== img2.width || img1.height !== img2.height) {
+    throw new Error(
+      `SSIM requires equal dimensions. img1: ${img1.width}x${img1.height}, img2: ${img2.width}x${img2.height}`
+    );
+  }
+  const { width, height } = img1;
+  if (width < windowSize || height < windowSize) {
+    const luma12 = toLuminance(img1.data, width, height);
+    const luma22 = toLuminance(img2.data, width, height);
+    const score2 = Math.max(0, Math.min(1, windowSSIM(luma12, luma22)));
+    return { score: score2, verdict: scoreToVerdict(score2) };
+  }
+  const luma1 = toLuminance(img1.data, width, height);
+  const luma2 = toLuminance(img2.data, width, height);
+  const maxX = width - windowSize;
+  const maxY = height - windowSize;
+  let totalSSIM = 0;
+  let windowCount = 0;
+  const step = Math.max(1, Math.floor(windowSize / 2));
+  for (let y = 0; y <= maxY; y += step) {
+    for (let x = 0; x <= maxX; x += step) {
+      const win1 = extractWindow(luma1, width, x, y, windowSize);
+      const win2 = extractWindow(luma2, width, x, y, windowSize);
+      totalSSIM += windowSSIM(win1, win2);
+      windowCount++;
+    }
+  }
+  if (windowCount === 0) {
+    return { score: 1, verdict: "pass" };
+  }
+  const score = Math.max(0, Math.min(1, totalSSIM / windowCount));
+  return { score, verdict: scoreToVerdict(score) };
+}
+function scoreToVerdict(score) {
+  if (score > 0.85) return "pass";
+  if (score >= 0.7) return "review";
+  return "fail";
+}
+var C1, C2;
+var init_ssim = __esm({
+  "src/ssim.ts"() {
+    "use strict";
+    C1 = (0.01 * 255) ** 2;
+    C2 = (0.03 * 255) ** 2;
+  }
+});
+
+// src/mockup-match.ts
+var mockup_match_exports = {};
+__export(mockup_match_exports, {
+  matchMockup: () => matchMockup,
+  saveDiffImage: () => saveDiffImage
+});
+async function readPng(filePath) {
+  const buffer = await (0, import_promises25.readFile)(filePath);
+  const png = import_pngjs3.PNG.sync.read(buffer);
+  return { data: png.data, width: png.width, height: png.height };
+}
+function decodePng(buffer) {
+  const png = import_pngjs3.PNG.sync.read(buffer);
+  return { data: png.data, width: png.width, height: png.height };
+}
+function resizeNearest(src, srcW, srcH, dstW, dstH) {
+  const dst = Buffer.allocUnsafe(dstW * dstH * 4);
+  const scaleX = srcW / dstW;
+  const scaleY = srcH / dstH;
+  for (let y = 0; y < dstH; y++) {
+    for (let x = 0; x < dstW; x++) {
+      const srcX = Math.min(Math.floor(x * scaleX), srcW - 1);
+      const srcY = Math.min(Math.floor(y * scaleY), srcH - 1);
+      const srcIdx = (srcY * srcW + srcX) * 4;
+      const dstIdx = (y * dstW + x) * 4;
+      dst[dstIdx] = src[srcIdx];
+      dst[dstIdx + 1] = src[srcIdx + 1];
+      dst[dstIdx + 2] = src[srcIdx + 2];
+      dst[dstIdx + 3] = src[srcIdx + 3];
+    }
+  }
+  return dst;
+}
+function paintRegionGray(data, width, x, y, regionW, regionH) {
+  const gray = 128;
+  for (let row = y; row < y + regionH; row++) {
+    for (let col = x; col < x + regionW; col++) {
+      const idx = (row * width + col) * 4;
+      if (idx + 3 < data.length) {
+        data[idx] = gray;
+        data[idx + 1] = gray;
+        data[idx + 2] = gray;
+        data[idx + 3] = 255;
+      }
+    }
+  }
+}
+async function matchMockup(options) {
+  const {
+    mockupPath,
+    url,
+    selector,
+    maskDynamic = false,
+    headless = true
+  } = options;
+  const mockup = await readPng(mockupPath);
+  const viewport = {
+    width: options.viewport?.width ?? mockup.width,
+    height: options.viewport?.height ?? mockup.height,
+    deviceScaleFactor: 1,
+    mobile: false
+  };
+  const driver3 = new EngineDriver();
+  try {
+    await driver3.launch({
+      headless,
+      normalize: true,
+      viewport
+    });
+    await driver3.navigate(url, { waitFor: "stable", timeout: 15e3 });
+    let screenshotBuffer;
+    if (selector) {
+      const nodeId = await driver3.querySelector(selector);
+      if (nodeId === null) {
+        throw new Error(`Selector not found: ${selector}`);
+      }
+      const bounds = await driver3.evaluate(
+        `(sel => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; })`,
+        selector
+      );
+      if (!bounds || bounds.width === 0 || bounds.height === 0) {
+        throw new Error(`Selector "${selector}" has zero bounds or is not visible`);
+      }
+      screenshotBuffer = await driver3.screenshot({
+        clip: {
+          x: Math.round(bounds.x),
+          y: Math.round(bounds.y),
+          width: Math.round(bounds.width),
+          height: Math.round(bounds.height)
+        }
+      });
+    } else {
+      screenshotBuffer = await driver3.screenshot();
+    }
+    let live = decodePng(screenshotBuffer);
+    const maskedRegions = [];
+    if (maskDynamic) {
+      const dynamicRegions = await findDynamicRegions(driver3);
+      if (dynamicRegions.length > 0) {
+        const mockupData = Buffer.from(mockup.data);
+        const liveData = Buffer.from(live.data);
+        for (const region of dynamicRegions) {
+          const scaleX = live.width / viewport.width;
+          const scaleY = live.height / viewport.height;
+          const liveX = Math.round(region.x * scaleX);
+          const liveY = Math.round(region.y * scaleY);
+          const liveW = Math.round(region.width * scaleX);
+          const liveH = Math.round(region.height * scaleY);
+          const mockX = Math.round(region.x * (mockup.width / viewport.width));
+          const mockY = Math.round(region.y * (mockup.height / viewport.height));
+          const mockW = Math.round(region.width * (mockup.width / viewport.width));
+          const mockH = Math.round(region.height * (mockup.height / viewport.height));
+          paintRegionGray(liveData, live.width, liveX, liveY, liveW, liveH);
+          paintRegionGray(mockupData, mockup.width, mockX, mockY, mockW, mockH);
+          maskedRegions.push(region.label);
+        }
+        live = { data: liveData, width: live.width, height: live.height };
+        mockup.data = mockupData;
+      }
+    }
+    let compareData1 = mockup.data;
+    let compareData2 = live.data;
+    let compareWidth = mockup.width;
+    let compareHeight = mockup.height;
+    if (live.width !== mockup.width || live.height !== mockup.height) {
+      compareData2 = resizeNearest(live.data, live.width, live.height, mockup.width, mockup.height);
+    }
+    const ssimResult = computeSSIM(
+      { data: compareData1, width: compareWidth, height: compareHeight },
+      { data: compareData2, width: compareWidth, height: compareHeight }
+    );
+    const diffPng = new import_pngjs3.PNG({ width: compareWidth, height: compareHeight });
+    const diffPixelCount = (0, import_pixelmatch3.default)(
+      compareData1,
+      compareData2,
+      diffPng.data,
+      compareWidth,
+      compareHeight,
+      {
+        threshold: 0.1,
+        includeAA: false,
+        alpha: 0.1,
+        diffColor: [255, 0, 0]
+      }
+    );
+    const totalPixels = compareWidth * compareHeight;
+    const diffImage = import_pngjs3.PNG.sync.write(diffPng);
+    return {
+      ssim: ssimResult,
+      pixelDiff: {
+        count: diffPixelCount,
+        percentage: Math.round(diffPixelCount / totalPixels * 1e4) / 100,
+        diffImage
+      },
+      mockupDimensions: { width: mockup.width, height: mockup.height },
+      liveDimensions: { width: live.width, height: live.height },
+      maskedRegions
+    };
+  } finally {
+    await driver3.close();
+  }
+}
+async function findDynamicRegions(driver3) {
+  const regions = [];
+  const selectors = [
+    '[role="timer"]',
+    '[role="status"]',
+    '[role="log"]',
+    '[role="marquee"]',
+    '[role="alert"]',
+    "time[datetime]",
+    "[data-timestamp]",
+    "[data-time]",
+    "[data-date]",
+    ".timestamp",
+    ".ad",
+    ".advertisement",
+    ".ad-banner",
+    ".sponsored",
+    "ins.adsbygoogle"
+  ];
+  for (const sel of selectors) {
+    try {
+      const boundsJson = await driver3.evaluate(
+        `(sel => {
+          const els = document.querySelectorAll(sel);
+          const results = [];
+          for (const el of els) {
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) {
+              results.push({ x: r.left, y: r.top, width: r.width, height: r.height, label: el.getAttribute('role') || el.className || sel });
+            }
+          }
+          return JSON.stringify(results);
+        })`,
+        sel
+      );
+      if (boundsJson) {
+        const parsed = JSON.parse(boundsJson);
+        for (const item of parsed) {
+          const isDuplicate = regions.some(
+            (r) => Math.abs(r.x - item.x) < 2 && Math.abs(r.y - item.y) < 2
+          );
+          if (!isDuplicate) {
+            const labelStr = typeof item.label === "string" ? item.label.split(" ")[0] : sel;
+            regions.push({ x: item.x, y: item.y, width: item.width, height: item.height, label: labelStr });
+          }
+        }
+      }
+    } catch {
+    }
+  }
+  return regions;
+}
+async function saveDiffImage(diffImage, outputPath) {
+  await (0, import_promises25.writeFile)(outputPath, diffImage);
+}
+var import_promises25, import_pngjs3, import_pixelmatch3;
+var init_mockup_match = __esm({
+  "src/mockup-match.ts"() {
+    "use strict";
+    import_promises25 = require("fs/promises");
+    import_pngjs3 = require("pngjs");
+    import_pixelmatch3 = __toESM(require("pixelmatch"));
+    init_driver();
+    init_ssim();
+  }
+});
+
+// src/design-verifier.ts
+var design_verifier_exports = {};
+__export(design_verifier_exports, {
+  buildReconciliationMatrix: () => buildReconciliationMatrix,
+  formatReconciliationMatrix: () => formatReconciliationMatrix,
+  formatVerifyResult: () => formatVerifyResult,
+  loadChanges: () => loadChanges,
+  saveChange: () => saveChange,
+  verifyAllChanges: () => verifyAllChanges,
+  verifyChange: () => verifyChange
+});
+function applyOperator(actual, operator, expected) {
+  if (actual === null) {
+    if (operator === "exists" || operator === "truthy") {
+      return { passed: false, detail: "element not found" };
+    }
+    return { passed: false, detail: "could not read property (element or value not found)" };
+  }
+  const actualStr = String(actual).trim();
+  const expectedStr = String(expected).trim();
+  switch (operator) {
+    case "eq":
+      return {
+        passed: actualStr === expectedStr,
+        detail: actualStr === expectedStr ? `"${actualStr}" equals "${expectedStr}"` : `"${actualStr}" !== "${expectedStr}"`
+      };
+    case "contains":
+      return {
+        passed: actualStr.toLowerCase().includes(expectedStr.toLowerCase()),
+        detail: actualStr.toLowerCase().includes(expectedStr.toLowerCase()) ? `"${actualStr}" contains "${expectedStr}"` : `"${actualStr}" does not contain "${expectedStr}"`
+      };
+    case "not":
+      return {
+        passed: actualStr !== expectedStr,
+        detail: actualStr !== expectedStr ? `"${actualStr}" is not "${expectedStr}"` : `"${actualStr}" equals "${expectedStr}" (expected not to)`
+      };
+    case "gt": {
+      const a = parseFloat(actualStr);
+      const e = parseFloat(expectedStr);
+      if (isNaN(a) || isNaN(e)) {
+        return { passed: false, detail: `cannot compare non-numeric values: "${actualStr}" > "${expectedStr}"` };
+      }
+      return {
+        passed: a > e,
+        detail: a > e ? `${a} > ${e}` : `${a} is not > ${e}`
+      };
+    }
+    case "lt": {
+      const a = parseFloat(actualStr);
+      const e = parseFloat(expectedStr);
+      if (isNaN(a) || isNaN(e)) {
+        return { passed: false, detail: `cannot compare non-numeric values: "${actualStr}" < "${expectedStr}"` };
+      }
+      return {
+        passed: a < e,
+        detail: a < e ? `${a} < ${e}` : `${a} is not < ${e}`
+      };
+    }
+    case "exists":
+      return { passed: true, detail: "element exists in AX tree" };
+    case "truthy": {
+      const isTruthy = actualStr !== "" && actualStr !== "0" && actualStr !== "none" && actualStr !== "false";
+      return {
+        passed: isTruthy,
+        detail: isTruthy ? `"${actualStr}" is truthy` : `"${actualStr}" is falsy`
+      };
+    }
+    default:
+      return { passed: false, detail: `unknown operator: ${operator}` };
+  }
+}
+async function getComputedProperty(driver3, elementQuery, property) {
+  try {
+    const isSelector = /^[.#\[a-z]/i.test(elementQuery) && !/\s/.test(elementQuery.slice(1));
+    let jsExpression;
+    if (isSelector) {
+      jsExpression = `
+        (function() {
+          const el = document.querySelector(${JSON.stringify(elementQuery)});
+          if (!el) return null;
+          return getComputedStyle(el)[${JSON.stringify(property)}] || null;
+        })()
+      `;
+    } else {
+      jsExpression = `
+        (function() {
+          // Try aria-label match
+          const byAria = document.querySelector('[aria-label=${JSON.stringify(elementQuery)}]');
+          if (byAria) return getComputedStyle(byAria)[${JSON.stringify(property)}] || null;
+          // Try text content match (first element with matching text)
+          const all = document.querySelectorAll('*');
+          for (const el of all) {
+            if (el.children.length === 0 && el.textContent && el.textContent.trim() === ${JSON.stringify(elementQuery)}) {
+              return getComputedStyle(el)[${JSON.stringify(property)}] || null;
+            }
+          }
+          return null;
+        })()
+      `;
+    }
+    const result = await driver3.evaluate(jsExpression);
+    return result === null || result === void 0 ? null : String(result);
+  } catch {
+    return null;
+  }
+}
+async function checkSemanticProperty(driver3, elementQuery, property) {
+  const element = await driver3.find(elementQuery);
+  if (!element) return null;
+  switch (property) {
+    case "visible":
+    case "exists":
+      return "true";
+    case "role":
+      return element.role ?? null;
+    case "label":
+    case "name":
+      return element.label ?? null;
+    case "value":
+      return element.value !== void 0 ? String(element.value) : null;
+    default:
+      return null;
+  }
+}
+async function verifyChange(change, driver3) {
+  const results = [];
+  for (const check of change.checks) {
+    const result = await verifyCheck(driver3, change.element, check);
+    results.push(result);
+  }
+  const passed = results.filter((r) => r.passed).length;
+  const total = results.length;
+  const ambiguous = results.filter((r) => !r.passed && r.actual === null).length;
+  const failed = results.filter((r) => !r.passed && r.actual !== null).length;
+  const overallPassed = passed === total;
+  const parts = [`Verified ${passed}/${total} properties`];
+  if (ambiguous > 0) parts.push(`${ambiguous} ambiguous`);
+  if (failed > 0) parts.push(`${failed} failed`);
+  return {
+    change,
+    results,
+    overallPassed,
+    summary: parts.join(", ")
+  };
+}
+async function verifyCheck(driver3, elementQuery, check) {
+  const { property, operator, value, confidence } = check;
+  let actual = null;
+  if (operator === "exists" || operator === "truthy" || property === "role" || property === "label" || property === "name") {
+    actual = await checkSemanticProperty(driver3, elementQuery, property);
+  }
+  if (actual === null && operator !== "exists") {
+    actual = await getComputedProperty(driver3, elementQuery, property);
+  }
+  const { passed, detail } = applyOperator(actual, operator, value);
+  return {
+    property,
+    expected: value,
+    actual,
+    passed,
+    confidence,
+    detail
+  };
+}
+async function verifyAllChanges(changes, driver3) {
+  const results = [];
+  for (const change of changes) {
+    results.push(await verifyChange(change, driver3));
+  }
+  return results;
+}
+function buildReconciliationMatrix(spec, platformResults) {
+  const rowMap = /* @__PURE__ */ new Map();
+  for (const [platform, verifyResults] of Object.entries(platformResults)) {
+    for (const vr of verifyResults) {
+      for (const checkResult of vr.results) {
+        const key = `${vr.change.element}::${checkResult.property}`;
+        if (!rowMap.has(key)) {
+          rowMap.set(key, {
+            property: `${vr.change.element} \u2014 ${checkResult.property}`,
+            expected: checkResult.expected,
+            platforms: {}
+          });
+        }
+        const row = rowMap.get(key);
+        row.platforms[platform] = {
+          actual: checkResult.actual,
+          passed: checkResult.passed
+        };
+      }
+    }
+  }
+  const rows = Array.from(rowMap.values());
+  const platformNames = Object.keys(platformResults);
+  let allPass = 0;
+  let anyFail = 0;
+  for (const row of rows) {
+    const platformStatuses = platformNames.map((p) => row.platforms[p]?.passed ?? null);
+    const hasFail = platformStatuses.some((s) => s === false);
+    if (hasFail) anyFail++;
+    else allPass++;
+  }
+  return {
+    spec,
+    rows,
+    summary: `${allPass} properties pass on all platforms, ${anyFail} have platform-specific failures`
+  };
+}
+function formatVerifyResult(result) {
+  const lines = [];
+  const status = result.overallPassed ? "PASS" : "FAIL";
+  lines.push(`[${status}] ${result.change.description}`);
+  lines.push(`  Element: ${result.change.element}`);
+  lines.push(`  ${result.summary}`);
+  for (const r of result.results) {
+    const icon = r.passed ? "ok" : "fail";
+    const conf = `(confidence: ${(r.confidence * 100).toFixed(0)}%)`;
+    lines.push(`    [${icon}] ${r.property}: ${r.detail} ${conf}`);
+  }
+  return lines.join("\n");
+}
+function formatReconciliationMatrix(matrix) {
+  const lines = [];
+  lines.push(`Reconciliation: ${matrix.spec}`);
+  lines.push(matrix.summary);
+  lines.push("");
+  if (matrix.rows.length === 0) {
+    lines.push("  No properties to compare.");
+    return lines.join("\n");
+  }
+  const allPlatforms = Array.from(
+    new Set(matrix.rows.flatMap((r) => Object.keys(r.platforms)))
+  );
+  const colWidth = 30;
+  const platWidth = 20;
+  const header = "Property".padEnd(colWidth) + allPlatforms.map((p) => p.padEnd(platWidth)).join("");
+  lines.push(header);
+  lines.push("-".repeat(colWidth + allPlatforms.length * platWidth));
+  for (const row of matrix.rows) {
+    const label = row.property.slice(0, colWidth - 1).padEnd(colWidth);
+    const platformCols = allPlatforms.map((p) => {
+      const cell = row.platforms[p];
+      if (!cell) return "n/a".padEnd(platWidth);
+      const icon = cell.passed ? "ok" : "fail";
+      const val = cell.actual !== null ? String(cell.actual).slice(0, 12) : "(null)";
+      return `[${icon}] ${val}`.padEnd(platWidth);
+    });
+    lines.push(label + platformCols.join(""));
+  }
+  return lines.join("\n");
+}
+async function loadChanges(outputDir) {
+  const filePath = (0, import_path25.join)(outputDir, CHANGES_FILE);
+  if (!(0, import_fs13.existsSync)(filePath)) return [];
+  try {
+    const raw = await (0, import_promises26.readFile)(filePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed;
+  } catch {
+    return [];
+  }
+}
+async function saveChange(outputDir, change) {
+  await (0, import_promises26.mkdir)(outputDir, { recursive: true });
+  const existing = await loadChanges(outputDir);
+  existing.push(change);
+  const filePath = (0, import_path25.join)(outputDir, CHANGES_FILE);
+  await (0, import_promises26.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
+}
+var import_promises26, import_fs13, import_path25, CHANGES_FILE;
+var init_design_verifier = __esm({
+  "src/design-verifier.ts"() {
+    "use strict";
+    import_promises26 = require("fs/promises");
+    import_fs13 = require("fs");
+    import_path25 = require("path");
+    CHANGES_FILE = "design-changes.json";
+  }
+});
+
+// src/test-generator.ts
+var test_generator_exports = {};
+__export(test_generator_exports, {
+  generateTest: () => generateTest
+});
+function guessInputValue(label) {
+  const lower = label.toLowerCase();
+  for (const [key, val] of Object.entries(INPUT_SAMPLE_VALUES)) {
+    if (lower.includes(key)) return val;
+  }
+  return "test value";
+}
+function isInputLike(el) {
+  return ["textbox", "searchbox", "combobox", "spinbutton", "slider"].includes(el.role);
+}
+function isClickable(el) {
+  return ["button", "link", "menuitem", "tab", "checkbox", "radio", "switch", "option"].includes(el.role) || el.actions.includes("click");
+}
+function scenarioRelevance(el, keywords) {
+  if (!el.label) return 0;
+  const label = el.label.toLowerCase();
+  let score = 0;
+  for (const kw of keywords) {
+    if (label.includes(kw)) score += 2;
+    else if (kw.includes(label) || label.startsWith(kw.slice(0, 3))) score += 1;
+  }
+  return score;
+}
+async function generateTest(options) {
+  const { url, scenario, outputPath = ".ibr-test.json" } = options;
+  const driver3 = new EngineDriver();
+  let elements = [];
+  let pageTitle = "page";
+  try {
+    await driver3.launch({ headless: true });
+    await driver3.navigate(url);
+    try {
+      const title = await driver3.title();
+      if (title) pageTitle = title;
+    } catch {
+    }
+    const discovered = await driver3.discover({ filter: "interactive" });
+    elements = discovered;
+  } finally {
+    await driver3.close();
+  }
+  let pageName;
+  try {
+    const pathname = new URL(url).pathname;
+    pageName = pathname === "/" ? "home" : pathname.replace(/\//g, "-").replace(/^-/, "");
+  } catch {
+    pageName = pageTitle.toLowerCase().replace(/\s+/g, "-").slice(0, 32) || "page";
+  }
+  const tests = [];
+  if (scenario) {
+    tests.push(buildScenarioTest(scenario, elements));
+  } else {
+    tests.push(buildSmokeTest(elements, url));
+  }
+  const suite = {
+    [pageName]: { url, tests }
+  };
+  const dir = (0, import_path26.dirname)(outputPath);
+  if (dir && dir !== ".") {
+    await (0, import_promises27.mkdir)(dir, { recursive: true });
+  }
+  await (0, import_promises27.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
+  console.log(`[test-generator] wrote ${outputPath}`);
+  return suite;
+}
+function buildSmokeTest(elements, _url) {
+  const steps = [];
+  steps.push({ screenshot: "initial-state" });
+  for (const el of elements) {
+    if (!el.label) continue;
+    if (isInputLike(el)) {
+      const value = guessInputValue(el.label);
+      steps.push({ fill: { target: el.label, value } });
+      steps.push({ assert: { visible: el.label } });
+    } else if (isClickable(el)) {
+      const label = el.label.toLowerCase();
+      const isNav = ["logout", "sign out", "delete", "remove", "close"].some((w) => label.includes(w));
+      if (!isNav) {
+        steps.push({ click: el.label });
+        steps.push({ wait: 500 });
+        steps.push({ screenshot: `after-click-${el.label.toLowerCase().replace(/\s+/g, "-").slice(0, 20)}` });
+      }
+    }
+  }
+  steps.push({ assert: { count: elements.filter((e) => e.actions.length > 0).length } });
+  return {
+    name: "smoke test",
+    steps
+  };
+}
+function buildScenarioTest(scenario, elements) {
+  const keywords = scenario.toLowerCase().replace(/[^a-z0-9\s]/g, " ").split(/\s+/).filter((w) => w.length > 2);
+  const scored = elements.filter((el) => el.label && (isInputLike(el) || isClickable(el))).map((el) => ({ el, score: scenarioRelevance(el, keywords) })).filter((x) => x.score > 0).sort((a, b) => b.score - a.score);
+  const steps = [];
+  steps.push({ screenshot: "scenario-start" });
+  const inputs = scored.filter((x) => isInputLike(x.el));
+  const clickables = scored.filter((x) => isClickable(x.el));
+  for (const { el } of inputs) {
+    const value = guessInputValue(el.label);
+    steps.push({ fill: { target: el.label, value } });
+  }
+  for (const { el } of clickables.slice(0, 3)) {
+    steps.push({ click: el.label });
+    steps.push({ wait: 800 });
+  }
+  for (const kw of keywords.slice(0, 2)) {
+    if (kw.length > 3) {
+      steps.push({ assert: { text: kw } });
+    }
+  }
+  steps.push({ screenshot: "scenario-end" });
+  return {
+    name: scenario,
+    steps
+  };
+}
+var import_promises27, import_path26, INPUT_SAMPLE_VALUES;
+var init_test_generator = __esm({
+  "src/test-generator.ts"() {
+    "use strict";
+    import_promises27 = require("fs/promises");
+    import_path26 = require("path");
+    init_driver();
+    INPUT_SAMPLE_VALUES = {
+      email: "test@example.com",
+      password: "Test1234!",
+      search: "test query",
+      query: "test query",
+      name: "Test User",
+      username: "testuser",
+      phone: "555-0100",
+      message: "Hello world",
+      comment: "This is a comment",
+      title: "Test Title",
+      description: "Test description"
+    };
+  }
+});
+
+// src/test-runner.ts
+var test_runner_exports = {};
+__export(test_runner_exports, {
+  formatRunResult: () => formatRunResult,
+  runTests: () => runTests
+});
+async function runTests(options = {}) {
+  const {
+    filePath = ".ibr-test.json",
+    outputDir = ".ibr/test-results",
+    headless = true,
+    viewport
+  } = options;
+  const raw = await (0, import_promises28.readFile)((0, import_path27.resolve)(filePath), "utf-8");
+  const suite = JSON.parse(raw);
+  await (0, import_promises28.mkdir)(outputDir, { recursive: true });
+  const allResults = [];
+  const runStart = Date.now();
+  for (const [pageName, pageSuite] of Object.entries(suite)) {
+    console.log(`[test-runner] page: ${pageName} (${pageSuite.url})`);
+    const driver3 = new EngineDriver();
+    try {
+      await driver3.launch({
+        headless,
+        viewport: viewport ?? { width: 1280, height: 720 }
+      });
+      await driver3.navigate(pageSuite.url);
+      const testResults = [];
+      for (const testCase of pageSuite.tests) {
+        console.log(`[test-runner]   test: ${testCase.name}`);
+        const testStart = Date.now();
+        const stepResults = [];
+        for (const step of testCase.steps) {
+          const stepResult = await executeStep2(driver3, step, outputDir);
+          stepResults.push(stepResult);
+          if (!stepResult.passed) {
+            console.log(`[test-runner]     FAIL: ${stepResult.step} \u2014 ${stepResult.error}`);
+          }
+        }
+        const allPassed = stepResults.every((s) => s.passed);
+        testResults.push({
+          name: testCase.name,
+          passed: allPassed,
+          steps: stepResults,
+          duration: Date.now() - testStart
+        });
+      }
+      const passed = testResults.filter((t) => t.passed).length;
+      const failed = testResults.filter((t) => !t.passed).length;
+      const runResult = {
+        url: pageSuite.url,
+        total: testResults.length,
+        passed,
+        failed,
+        tests: testResults,
+        duration: Date.now() - runStart
+      };
+      allResults.push(runResult);
+      const resultPath = (0, import_path27.join)(outputDir, `${pageName}-results.json`);
+      await (0, import_promises28.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
+      console.log(`[test-runner]   results: ${resultPath}`);
+    } finally {
+      await driver3.close();
+    }
+  }
+  return allResults;
+}
+async function executeStep2(driver3, step, outputDir) {
+  const start = Date.now();
+  const stepDesc = describeStep(step);
+  try {
+    if ("click" in step) {
+      const el = await driver3.find(step.click);
+      if (!el) throw new Error(`Element not found: "${step.click}"`);
+      await driver3.click(el.id);
+      await new Promise((r) => setTimeout(r, 200));
+    } else if ("fill" in step) {
+      const el = await driver3.find(step.fill.target);
+      if (!el) throw new Error(`Element not found: "${step.fill.target}"`);
+      await driver3.fill(el.id, step.fill.value);
+    } else if ("type" in step) {
+      const el = await driver3.find(step.type.target);
+      if (!el) throw new Error(`Element not found: "${step.type.target}"`);
+      await driver3.type(el.id, step.type.value);
+    } else if ("assert" in step) {
+      await runAssert(driver3, step.assert);
+    } else if ("screenshot" in step) {
+      await (0, import_promises28.mkdir)(outputDir, { recursive: true });
+      const screenshotPath = (0, import_path27.join)(outputDir, `${step.screenshot}.png`);
+      const buf = await driver3.screenshot();
+      await (0, import_promises28.writeFile)(screenshotPath, buf);
+      return {
+        step: stepDesc,
+        passed: true,
+        duration: Date.now() - start,
+        screenshot: screenshotPath
+      };
+    } else if ("wait" in step) {
+      const waitVal = step.wait;
+      if (typeof waitVal === "number") {
+        await new Promise((r) => setTimeout(r, waitVal));
+      } else {
+        await driver3.waitForElement(waitVal, { timeout: 1e4 });
+      }
+    }
+    return { step: stepDesc, passed: true, duration: Date.now() - start };
+  } catch (err) {
+    return {
+      step: stepDesc,
+      passed: false,
+      duration: Date.now() - start,
+      error: err instanceof Error ? err.message : String(err)
+    };
+  }
+}
+async function runAssert(driver3, assertion) {
+  const elements = await driver3.getSnapshot();
+  if (assertion.visible !== void 0) {
+    const name = assertion.visible.toLowerCase();
+    const found = elements.some(
+      (e) => e.label?.toLowerCase().includes(name) || e.value?.toString().toLowerCase().includes(name)
+    );
+    if (!found) {
+      throw new Error(`assert.visible: "${assertion.visible}" not found in AX tree (${elements.length} elements)`);
+    }
+  }
+  if (assertion.hidden !== void 0) {
+    const name = assertion.hidden.toLowerCase();
+    const found = elements.some(
+      (e) => e.label?.toLowerCase().includes(name) || e.value?.toString().toLowerCase().includes(name)
+    );
+    if (found) {
+      throw new Error(`assert.hidden: "${assertion.hidden}" still present in AX tree (expected absent)`);
+    }
+  }
+  if (assertion.text !== void 0) {
+    const text = assertion.text.toLowerCase();
+    const found = elements.some(
+      (e) => e.label?.toLowerCase().includes(text) || e.value?.toString().toLowerCase().includes(text)
+    );
+    if (!found) {
+      throw new Error(`assert.text: "${assertion.text}" not found in any element`);
+    }
+  }
+  if (assertion.count !== void 0) {
+    const interactive = elements.filter((e) => e.actions && e.actions.length > 0);
+    if (interactive.length !== assertion.count) {
+      throw new Error(
+        `assert.count: expected ${assertion.count} interactive elements, got ${interactive.length}`
+      );
+    }
+  }
+}
+function describeStep(step) {
+  if ("click" in step) return `click "${step.click}"`;
+  if ("fill" in step) return `fill "${step.fill.target}" with "${step.fill.value}"`;
+  if ("type" in step) return `type "${step.type.value}" into "${step.type.target}"`;
+  if ("assert" in step) {
+    const parts = [];
+    if (step.assert.visible) parts.push(`visible: "${step.assert.visible}"`);
+    if (step.assert.hidden) parts.push(`hidden: "${step.assert.hidden}"`);
+    if (step.assert.text) parts.push(`text: "${step.assert.text}"`);
+    if (step.assert.count !== void 0) parts.push(`count: ${step.assert.count}`);
+    return `assert { ${parts.join(", ")} }`;
+  }
+  if ("screenshot" in step) return `screenshot "${step.screenshot}"`;
+  if ("wait" in step) {
+    return typeof step.wait === "number" ? `wait ${step.wait}ms` : `wait for "${step.wait}"`;
+  }
+  return "unknown step";
+}
+function formatRunResult(result) {
+  const lines = [];
+  const verdict = result.failed === 0 ? "PASS" : "FAIL";
+  lines.push(`[${verdict}] ${result.url}  (${result.total} tests, ${result.passed} passed, ${result.failed} failed, ${result.duration}ms)`);
+  for (const test of result.tests) {
+    const icon = test.passed ? "PASS" : "FAIL";
+    lines.push(`  [${icon}] ${test.name} (${test.duration}ms)`);
+    for (const step of test.steps) {
+      if (!step.passed) {
+        lines.push(`    [FAIL] ${step.step}`);
+        if (step.error) lines.push(`           ${step.error}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+var import_promises28, import_path27;
+var init_test_runner = __esm({
+  "src/test-runner.ts"() {
+    "use strict";
+    import_promises28 = require("fs/promises");
+    import_path27 = require("path");
+    init_driver();
+  }
+});
+
+// src/script-runner.ts
+var script_runner_exports = {};
+__export(script_runner_exports, {
+  formatScriptResult: () => formatScriptResult,
+  runScript: () => runScript
+});
+function buildWrapper(scriptPath, cpuSeconds, memoryMB) {
+  return `
+import sys, os, resource, importlib.util
+
+def _set_limits():
+    cpu = ${cpuSeconds}
+    mem = ${memoryMB} * 1024 * 1024
+    try:
+        resource.setrlimit(resource.RLIMIT_CPU, (cpu, cpu))
+    except (ValueError, resource.error):
+        pass
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (mem, mem))
+    except (ValueError, resource.error):
+        pass
+
+_set_limits()
+
+# Execute the user script in its own namespace
+_script = ${JSON.stringify(scriptPath)}
+_spec = importlib.util.spec_from_file_location("user_script", _script)
+_mod = importlib.util.module_from_spec(_spec)
+sys.modules["user_script"] = _mod
+_spec.loader.exec_module(_mod)
+`;
+}
+async function runScript(options) {
+  const {
+    scriptPath,
+    url,
+    timeout = 6e4,
+    memoryMB = 512,
+    cpuSeconds = 30,
+    env = {}
+  } = options;
+  const tmpId = (0, import_crypto2.randomBytes)(8).toString("hex");
+  const tmpDir = (0, import_path28.join)((0, import_os4.tmpdir)(), `ibr-script-${tmpId}`);
+  await (0, import_promises29.mkdir)(tmpDir, { recursive: true });
+  const copiedScript = (0, import_path28.join)(tmpDir, "user_script.py");
+  const wrapperPath = (0, import_path28.join)(tmpDir, "wrapper.py");
+  try {
+    await (0, import_promises29.copyFile)(scriptPath, copiedScript);
+    await (0, import_promises29.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
+    const start = Date.now();
+    let timedOut = false;
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+    await new Promise((resolvePromise) => {
+      const child = (0, import_child_process8.spawn)("python3", [wrapperPath], {
+        cwd: tmpDir,
+        detached: true,
+        shell: false,
+        env: {
+          ...process.env,
+          ...url ? { IBR_URL: url } : {},
+          IBR_SESSION_DIR: tmpDir,
+          ...env
+        }
+      });
+      const killTimer = setTimeout(() => {
+        timedOut = true;
+        try {
+          if (child.pid !== void 0) {
+            process.kill(-child.pid, "SIGKILL");
+          }
+        } catch {
+          child.kill("SIGKILL");
+        }
+      }, timeout);
+      child.stdout.on("data", (chunk) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk.toString();
+      });
+      child.on("close", (code) => {
+        clearTimeout(killTimer);
+        exitCode = code ?? (timedOut ? 124 : 1);
+        resolvePromise();
+      });
+      child.on("error", (err) => {
+        clearTimeout(killTimer);
+        stderr += `
+Process error: ${err.message}`;
+        exitCode = 1;
+        resolvePromise();
+      });
+    });
+    const duration = Date.now() - start;
+    let output = null;
+    const trimmed = stdout.trim();
+    if (trimmed) {
+      try {
+        output = JSON.parse(trimmed);
+      } catch {
+        output = null;
+      }
+    }
+    return { exitCode, stdout, stderr, output, duration, timedOut };
+  } finally {
+    await (0, import_promises29.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
+    });
+  }
+}
+function formatScriptResult(result) {
+  const lines = [];
+  const verdict = result.exitCode === 0 ? "PASS" : result.timedOut ? "TIMEOUT" : "FAIL";
+  lines.push(`[${verdict}] exit=${result.exitCode} duration=${result.duration}ms${result.timedOut ? " (timed out)" : ""}`);
+  if (result.stdout.trim()) {
+    lines.push("stdout:");
+    lines.push(result.stdout.trimEnd());
+  }
+  if (result.stderr.trim()) {
+    lines.push("stderr:");
+    lines.push(result.stderr.trimEnd());
+  }
+  return lines.join("\n");
+}
+var import_child_process8, import_promises29, import_path28, import_os4, import_crypto2;
+var init_script_runner = __esm({
+  "src/script-runner.ts"() {
+    "use strict";
+    import_child_process8 = require("child_process");
+    import_promises29 = require("fs/promises");
+    import_path28 = require("path");
+    import_os4 = require("os");
+    import_crypto2 = require("crypto");
+  }
+});
+
+// src/iterate.ts
+var iterate_exports = {};
+__export(iterate_exports, {
+  iterate: () => iterate,
+  resetIterateState: () => resetIterateState
+});
+async function loadState(statePath) {
+  try {
+    const raw = await (0, import_promises30.readFile)(statePath, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+async function saveState(statePath, state) {
+  await (0, import_promises30.mkdir)((0, import_path29.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises30.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
+}
+function hashIssues(issues) {
+  const sorted = [...issues].sort();
+  return (0, import_crypto3.createHash)("sha256").update(sorted.join("\n")).digest("hex").slice(0, 16);
+}
+function extractIssueFingerprints(scanResult) {
+  return scanResult.issues.map((i) => `${i.category}:${i.severity}:${i.description.slice(0, 80)}`);
+}
+function testRunFingerprints(results) {
+  const fps = [];
+  for (const run of results) {
+    for (const test of run.tests) {
+      if (!test.passed) {
+        fps.push(`test:fail:${test.name}`);
+        for (const step of test.steps) {
+          if (!step.passed) fps.push(`step:fail:${step.step.slice(0, 60)}`);
+        }
+      }
+    }
+  }
+  return fps;
+}
+function detectConvergence(states) {
+  const n = states.length;
+  if (n < 2) return { converged: false };
+  const last = states[n - 1];
+  const prev = states[n - 2];
+  if (last.issueCount === 0) {
+    return { converged: true, reason: "resolved" };
+  }
+  if (last.scanHash === prev.scanHash) {
+    return { converged: true, reason: "stagnant" };
+  }
+  if (n >= 3) {
+    const beforePrev = states[n - 3];
+    if (last.scanHash === beforePrev.scanHash) {
+      return { converged: true, reason: "oscillating" };
+    }
+  }
+  if (n >= 3) {
+    const beforePrev = states[n - 3];
+    if (last.issueCount > prev.issueCount && prev.issueCount > beforePrev.issueCount) {
+      return { converged: true, reason: "regressing" };
+    }
+  }
+  return { converged: false };
+}
+async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIssueCount) {
+  const start = Date.now();
+  let fingerprints = [];
+  let issueCount = 0;
+  let approachHint = "";
+  if (testFile) {
+    try {
+      const results = await runTests({
+        filePath: testFile,
+        outputDir: (0, import_path29.join)(outputDir, `iter-${iterationNumber}`)
+      });
+      fingerprints = testRunFingerprints(results);
+      issueCount = fingerprints.length;
+      const total = results.reduce((s, r) => s + r.total, 0);
+      const failed = results.reduce((s, r) => s + r.failed, 0);
+      approachHint = `${total - failed}/${total} tests passing`;
+    } catch (err) {
+      fingerprints = [`runner-error:${err instanceof Error ? err.message.slice(0, 60) : String(err)}`];
+      issueCount = 1;
+      approachHint = "test runner error";
+    }
+  } else {
+    try {
+      const result = await scan(url, { outputDir: (0, import_path29.join)(outputDir, `iter-${iterationNumber}`) });
+      fingerprints = extractIssueFingerprints(result);
+      issueCount = result.issues.length;
+      approachHint = `verdict=${result.verdict} issues=${issueCount}`;
+    } catch (err) {
+      fingerprints = [`scan-error:${err instanceof Error ? err.message.slice(0, 60) : String(err)}`];
+      issueCount = 1;
+      approachHint = "scan error";
+    }
+  }
+  const scanHash = hashIssues(fingerprints);
+  const netDelta = prevIssueCount - issueCount;
+  return {
+    iteration: iterationNumber,
+    scanHash,
+    issueCount,
+    netDelta,
+    approachHint,
+    durationMs: Date.now() - start,
+    converged: false
+  };
+}
+async function iterate(options) {
+  const {
+    url,
+    testFile,
+    maxIterations = 7,
+    outputDir = ".ibr/iterate",
+    autoApprove = false
+  } = options;
+  const statePath = (0, import_path29.join)(outputDir, "iterate-state.json");
+  await (0, import_promises30.mkdir)(outputDir, { recursive: true });
+  let persisted = await loadState(statePath);
+  if (!persisted || persisted.url !== url) {
+    persisted = {
+      url,
+      iterations: [],
+      createdAt: (/* @__PURE__ */ new Date()).toISOString(),
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+  }
+  const allIterations = persisted.iterations;
+  if (allIterations.length >= maxIterations) {
+    return buildResult(allIterations, "budget_exceeded");
+  }
+  const iterationNumber = allIterations.length + 1;
+  const prevIssueCount = allIterations.length > 0 ? allIterations[allIterations.length - 1].issueCount : Infinity;
+  console.log(`[iterate] iteration ${iterationNumber}/${maxIterations}...`);
+  const state = await runOneIteration(url, testFile, outputDir, iterationNumber, prevIssueCount === Infinity ? 0 : prevIssueCount);
+  allIterations.push(state);
+  const { converged, reason } = detectConvergence(allIterations);
+  let finalState = null;
+  if (converged && reason) {
+    state.converged = true;
+    state.reason = reason;
+    finalState = reason;
+  } else if (allIterations.length >= maxIterations) {
+    finalState = "budget_exceeded";
+  } else if (!autoApprove && CHECKPOINT_ITERATIONS.has(iterationNumber)) {
+    finalState = null;
+  }
+  persisted.iterations = allIterations;
+  persisted.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+  await saveState(statePath, persisted);
+  if (finalState) {
+    const result = buildResult(allIterations, finalState);
+    console.log(`[iterate] ${finalState}: ${result.summary}`);
+    return result;
+  }
+  return buildResult(allIterations, "budget_exceeded");
+}
+function buildResult(iterations, finalState) {
+  const last = iterations[iterations.length - 1];
+  const totalMs = iterations.reduce((s, i) => s + i.durationMs, 0);
+  let summary;
+  switch (finalState) {
+    case "resolved":
+      summary = `All issues resolved after ${iterations.length} iteration(s) (${totalMs}ms total)`;
+      break;
+    case "stagnant":
+      summary = `No change detected after ${iterations.length} iteration(s) \u2014 same ${last?.issueCount ?? 0} issue(s). Try a different approach.`;
+      break;
+    case "oscillating":
+      summary = `Oscillating fix detected (A\u2192B\u2192A pattern) after ${iterations.length} iteration(s). Manual investigation needed.`;
+      break;
+    case "regressing":
+      summary = `Issue count increased 2 consecutive iterations (now ${last?.issueCount ?? 0}). Reverting last change recommended.`;
+      break;
+    case "budget_exceeded":
+      summary = `Reached ${iterations.length} iteration(s). ${last?.issueCount ?? 0} issue(s) remaining. Approach: ${last?.approachHint ?? "unknown"}.`;
+      break;
+  }
+  return { iterations, finalState, summary };
+}
+async function resetIterateState(outputDir = ".ibr/iterate") {
+  const statePath = (0, import_path29.join)(outputDir, "iterate-state.json");
+  await (0, import_promises30.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
+  });
+}
+var import_crypto3, import_promises30, import_path29, CHECKPOINT_ITERATIONS;
+var init_iterate = __esm({
+  "src/iterate.ts"() {
+    "use strict";
+    import_crypto3 = require("crypto");
+    import_promises30 = require("fs/promises");
+    import_path29 = require("path");
+    init_test_runner();
+    init_scan();
+    CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
+  }
+});
+
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises24 = require("fs/promises");
-var import_path24 = require("path");
-var import_fs13 = require("fs");
+var import_promises31 = require("fs/promises");
+var import_path30 = require("path");
+var import_fs14 = require("fs");
+init_driver();
+init_compat();
 init_index();
 init_operation_tracker();
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path24.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs13.existsSync)(configPath)) {
+  const configPath = (0, import_path30.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs14.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises24.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises31.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -14214,13 +16764,13 @@ async function loadConfig() {
 }
 var IBR_DEFAULT_PORT = 4200;
 async function isPortAvailable(port) {
-  return new Promise((resolve3) => {
+  return new Promise((resolve5) => {
     import("net").then(({ createServer }) => {
       const server = createServer();
-      server.once("error", () => resolve3(false));
+      server.once("error", () => resolve5(false));
       server.once("listening", () => {
         server.close();
-        resolve3(true);
+        resolve5(true);
       });
       server.listen(port, "127.0.0.1");
     });
@@ -14247,8 +16797,15 @@ async function createIBR(options = {}) {
   };
   return new InterfaceBuiltRight(merged);
 }
+async function createDriver(browser) {
+  if (browser === "safari") {
+    const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports));
+    return new SafariDriver2();
+  }
+  return new EngineDriver();
+}
 program.name("ibr").description("Design validation for Claude Code").version("0.4.1");
-program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0");
+program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
@@ -14330,8 +16887,8 @@ program.command("auto").description("Zero-config: detect server, scan pages, ope
     if (options.open !== false && captured > 0) {
       console.log("");
       console.log("Opening viewer...");
-      const { spawn: spawn2 } = await import("child_process");
-      spawn2("npx", ["ibr", "serve"], {
+      const { spawn: spawn4 } = await import("child_process");
+      spawn4("npx", ["ibr", "serve"], {
         stdio: "inherit",
         shell: true,
         detached: true
@@ -14382,7 +16939,6 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const { register: register2 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
     const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract2(), extract_exports));
-    const { chromium } = await import("playwright");
     const { discoverUserContext: discoverUserContext2, formatContextSummary: formatContextSummary2 } = await Promise.resolve().then(() => (init_context_loader(), context_loader_exports));
     const { createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
     register2();
@@ -14417,13 +16973,10 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     console.log("");
     console.log(`Auditing ${resolvedUrl}...`);
     console.log("");
-    const browser = await chromium.launch({ headless: true });
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
-    const context = await browser.newContext({
-      viewport: { width: viewport.width, height: viewport.height },
-      reducedMotion: "reduce"
-    });
-    const page = await context.newPage();
+    const driver3 = new EngineDriver();
+    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     await page.waitForTimeout(1e3);
     const elements = await extractInteractiveElements2(page);
@@ -14442,8 +16995,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runVisual) {
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { mkdir: mkdir20, access: access4 } = await import("fs/promises");
-      const { join: join22 } = await import("path");
+      const { mkdir: mkdir26, access: access4 } = await import("fs/promises");
+      const { join: join27 } = await import("path");
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -14451,7 +17004,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir20(join22(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir26(join27(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -14481,8 +17034,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runSemantic) {
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { readFile: readFile18 } = await import("fs/promises");
-      const { join: join22 } = await import("path");
+      const { readFile: readFile22 } = await import("fs/promises");
+      const { join: join27 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
@@ -14507,8 +17060,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join22(process.cwd(), "CLAUDE.md");
-          const content = await readFile18(claudeMdPath, "utf-8");
+          const claudeMdPath = join27(process.cwd(), "CLAUDE.md");
+          const content = await readFile22(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
         }
@@ -14551,8 +17104,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
         issues: semanticIssues
       };
     }
-    await context.close();
-    await browser.close();
+    await driver3.close();
     let integrationResult = null;
     if (options.checkApis) {
       const { scanDirectoryForApiCalls: scanDirectoryForApiCalls2, discoverApiRoutes: discoverApiRoutes2, findOrphanEndpoints: findOrphanEndpoints2 } = await Promise.resolve().then(() => (init_integration(), integration_exports));
@@ -14823,23 +17375,23 @@ program.command("delete <sessionId>").description("Delete a specific session").a
   }
 });
 program.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
-  const { spawn: spawn2 } = await import("child_process");
-  const { resolve: resolve3 } = await import("path");
-  const packageRoot = resolve3(process.cwd());
-  let webUiDir = (0, import_path24.join)(packageRoot, "web-ui");
-  if (!(0, import_fs13.existsSync)(webUiDir)) {
+  const { spawn: spawn4 } = await import("child_process");
+  const { resolve: resolve5 } = await import("path");
+  const packageRoot = resolve5(process.cwd());
+  let webUiDir = (0, import_path30.join)(packageRoot, "web-ui");
+  if (!(0, import_fs14.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path24.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path24.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path30.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path30.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs13.existsSync)(p)) {
+      if ((0, import_fs14.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs13.existsSync)(webUiDir)) {
+  if (!(0, import_fs14.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -14883,7 +17435,7 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   console.log(`Starting web UI on http://localhost:${port}`);
   console.log("Press Ctrl+C to stop the server.");
   console.log("");
-  const server = spawn2("npm", ["run", "dev", "--", "-p", String(port)], {
+  const server = spawn4("npm", ["run", "dev", "--", "-p", String(port)], {
     cwd: webUiDir,
     stdio: "inherit",
     shell: true
@@ -14975,11 +17527,11 @@ program.command("session:start [url]").description("Start an interactive browser
       console.log("To close: npx ibr session:close all");
       console.log("");
       console.log("Browser server running. Press Ctrl+C to stop.");
-      await new Promise((resolve3) => {
+      await new Promise((resolve5) => {
         const cleanup = async () => {
           console.log("\nShutting down browser server...");
           await driver3.close();
-          resolve3();
+          resolve5();
         };
         process.on("SIGINT", cleanup);
         process.on("SIGTERM", cleanup);
@@ -15640,26 +18192,22 @@ program.command("screenshots:view <path>").description("View a screenshot with m
 });
 program.command("search-test <url>").description("Run AI search test with screenshots and validation context").option("-q, --query <query>", "Search query to test", "test").option("-i, --intent <intent>", "User intent for validation").option("--results-selector <css>", "CSS selector for results").option("--no-screenshots", "Skip capturing screenshots").option("--json", "Output as JSON").action(async (url, options) => {
   try {
-    const { chromium } = await import("playwright");
     const { aiSearchFlow: aiSearchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
     const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
-    const { mkdir: mkdir20 } = await import("fs/promises");
+    const { mkdir: mkdir26 } = await import("fs/promises");
     console.log(`Testing search on ${url}...`);
     console.log(`Query: "${options.query}"`);
     if (options.intent) console.log(`Intent: ${options.intent}`);
     console.log("");
-    const browser = await chromium.launch({ headless: true });
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
-    const context = await browser.newContext({
-      viewport: { width: viewport.width, height: viewport.height },
-      reducedMotion: "reduce"
-    });
-    const page = await context.newPage();
+    const driver3 = new EngineDriver();
+    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path24.join)(outputDir, "sessions", `search-${Date.now()}`);
-    await mkdir20(sessionDir, { recursive: true });
+    const sessionDir = (0, import_path30.join)(outputDir, "sessions", `search-${Date.now()}`);
+    await mkdir26(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
       userIntent: options.intent || `Find results related to: ${options.query}`,
@@ -15668,8 +18216,7 @@ program.command("search-test <url>").description("Run AI search test with screen
       extractContent: true,
       sessionDir
     });
-    await context.close();
-    await browser.close();
+    await driver3.close();
     const validationContext = generateValidationContext2(result);
     const obvIssues = analyzeForObviousIssues2(validationContext);
     if (options.json) {
@@ -15923,13 +18470,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join22 } = await import("path");
+    const { join: join27 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join22(outputDir, "diagnose", "test.png"),
+      outputPath: join27(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -15991,13 +18538,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   }
 });
 async function isPortInUse(port) {
-  return new Promise((resolve3) => {
+  return new Promise((resolve5) => {
     const net = require("net");
     const server = net.createServer();
-    server.once("error", () => resolve3(true));
+    server.once("error", () => resolve5(true));
     server.once("listening", () => {
       server.close();
-      resolve3(false);
+      resolve5(false);
     });
     server.listen(port, "127.0.0.1");
   });
@@ -16046,11 +18593,11 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile13, readFile: readFile18, mkdir: mkdir20 } = await import("fs/promises");
-  const configPath = (0, import_path24.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path24.join)(process.cwd(), ".claude", "settings.json");
+  const { writeFile: writeFile20, readFile: readFile22, mkdir: mkdir26 } = await import("fs/promises");
+  const configPath = (0, import_path30.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path30.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs13.existsSync)(configPath)) {
+  if (!(0, import_fs14.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -16087,7 +18634,7 @@ program.command("init").description("Initialize IBR config and optionally regist
         autoClean: true
       }
     };
-    await writeFile13(configPath, JSON.stringify(config, null, 2));
+    await writeFile20(configPath, JSON.stringify(config, null, 2));
     configCreated = true;
     console.log("");
     console.log("Created .ibrrc.json");
@@ -16104,8 +18651,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs13.existsSync)((0, import_path24.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs13.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs14.existsSync)((0, import_path30.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs14.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -16114,7 +18661,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs13.existsSync)((0, import_path24.join)(process.cwd(), p))) {
+    if ((0, import_fs14.existsSync)((0, import_path30.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -16131,7 +18678,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   let settings = { plugins: [] };
   if (hasClaudeSettings) {
     try {
-      const content = await readFile18(claudeSettingsPath, "utf-8");
+      const content = await readFile22(claudeSettingsPath, "utf-8");
       settings = JSON.parse(content);
       if (!settings.plugins) {
         settings.plugins = [];
@@ -16173,10 +18720,10 @@ program.command("init").description("Initialize IBR config and optionally regist
     input: process.stdin,
     output: process.stdout
   });
-  const answer = await new Promise((resolve3) => {
+  const answer = await new Promise((resolve5) => {
     rl.question("Register IBR plugin for Claude Code? [Y/n] ", (ans) => {
       rl.close();
-      resolve3(ans.trim().toLowerCase());
+      resolve5(ans.trim().toLowerCase());
     });
   });
   if (answer === "n" || answer === "no") {
@@ -16193,11 +18740,11 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir20((0, import_path24.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir26((0, import_path30.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
-    await writeFile13(claudeSettingsPath, JSON.stringify(settings, null, 2));
+    await writeFile20(claudeSettingsPath, JSON.stringify(settings, null, 2));
     console.log("");
     console.log("IBR plugin registered.");
     console.log("");
@@ -16498,5 +19045,606 @@ program.command("scan:macos").description("Scan a running macOS native app via A
     process.exit(1);
   }
 });
+program.command("test-search <url>").description("Test search functionality on a page using the search flow").option("-q, --query <q>", "Search query", "test").option("--expect-count <n>", "Expected minimum result count", "0").option("--results-selector <css>", "CSS selector for result elements").option("--json", "Output as JSON").action(async (url, options) => {
+  const driver3 = new EngineDriver();
+  try {
+    const resolvedUrl = await resolveBaseUrl(url);
+    const globalOpts = program.opts();
+    const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+    const { searchFlow: searchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
+    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    const page = new CompatPage(driver3);
+    await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
+    const result = await searchFlow2(page, {
+      query: options.query,
+      resultsSelector: options.resultsSelector
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Status: ${result.success ? "SUCCESS" : "FAILED"}`);
+      console.log(`Results found: ${result.resultCount}`);
+      console.log(`Has results: ${result.hasResults}`);
+      console.log(`Duration: ${result.duration}ms`);
+      if (result.error) console.log(`Error: ${result.error}`);
+      const expected = parseInt(options.expectCount, 10);
+      if (expected > 0 && result.resultCount < expected) {
+        console.log(`Expected at least ${expected} results, got ${result.resultCount}`);
+      }
+    }
+    if (!result.success) process.exit(1);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  } finally {
+    await driver3.close();
+  }
+});
+program.command("test-form <url>").description("Test form submission on a page using the form flow").option("--fill <json>", `JSON object of field name to value pairs, e.g. '{"email":"user@example.com"}'`).option("--submit-button <text>", "Text of the submit button").option("--json", "Output as JSON").action(async (url, options) => {
+  const driver3 = new EngineDriver();
+  try {
+    const resolvedUrl = await resolveBaseUrl(url);
+    const globalOpts = program.opts();
+    const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+    const { formFlow: formFlow2 } = await Promise.resolve().then(() => (init_form(), form_exports));
+    let fields = [];
+    if (options.fill) {
+      try {
+        const parsed = JSON.parse(options.fill);
+        fields = Object.entries(parsed).map(([name, value]) => ({ name, value }));
+      } catch {
+        console.error(`Error: --fill must be valid JSON, e.g. '{"email":"user@example.com"}'`);
+        process.exit(1);
+      }
+    }
+    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    const page = new CompatPage(driver3);
+    await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
+    const result = await formFlow2(page, {
+      fields,
+      submitButton: options.submitButton
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Status: ${result.success ? "SUCCESS" : "FAILED"}`);
+      console.log(`Fields filled: ${result.filledFields.join(", ") || "none"}`);
+      if (result.failedFields.length > 0) {
+        console.log(`Fields failed: ${result.failedFields.join(", ")}`);
+      }
+      console.log(`Duration: ${result.duration}ms`);
+      if (result.error) console.log(`Error: ${result.error}`);
+    }
+    if (!result.success) process.exit(1);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  } finally {
+    await driver3.close();
+  }
+});
+program.command("test-login <url>").description("Test login flow on a page using the login flow").option("--email <email>", "Email or username to log in with").option("--password <password>", "Password to log in with").option("--success-indicator <text>", "Selector or text indicating successful login").option("--json", "Output as JSON").action(async (url, options) => {
+  const driver3 = new EngineDriver();
+  try {
+    const resolvedUrl = await resolveBaseUrl(url);
+    const globalOpts = program.opts();
+    const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+    const { loginFlow: loginFlow2 } = await Promise.resolve().then(() => (init_login(), login_exports));
+    if (!options.email || !options.password) {
+      console.error("Error: --email and --password are required");
+      process.exit(1);
+    }
+    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    const page = new CompatPage(driver3);
+    await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
+    const result = await loginFlow2(page, {
+      email: options.email,
+      password: options.password,
+      successIndicator: options.successIndicator
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(`Status: ${result.success ? "SUCCESS" : "FAILED"}`);
+      console.log(`Authenticated: ${result.authenticated}`);
+      if (result.username) console.log(`Username: ${result.username}`);
+      console.log(`Duration: ${result.duration}ms`);
+      if (result.error) console.log(`Error: ${result.error}`);
+    }
+    if (!result.success) process.exit(1);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  } finally {
+    await driver3.close();
+  }
+});
+program.command("interact <url>").description("Run interaction assertions: click X, verify Y happened").option("-a, --action <spec>", "Action specification (repeatable). Format: type[:role]:target[:value]", (val, acc) => {
+  acc.push(val);
+  return acc;
+}, []).option("-e, --expect <spec>", "Assertion specification (repeatable). Format: visible|hidden|text|count:value", (val, acc) => {
+  acc.push(val);
+  return acc;
+}, []).option("--expect-screenshot <name>", "Capture screenshot after last action with this name").option("--json", "Output as JSON").option("--sandbox", "Show visible browser window (default: headless)").action(async (url, options) => {
+  const {
+    runInteractionTest: runInteractionTest2,
+    parseActionArg: parseActionArg2,
+    parseExpectArg: parseExpectArg2,
+    formatInteractionResult: formatInteractionResult2
+  } = await Promise.resolve().then(() => (init_interaction_test(), interaction_test_exports));
+  const globalOpts = program.opts();
+  const outputDir = globalOpts.output || "./.ibr";
+  const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+  if (!options.action || options.action.length === 0) {
+    console.error("Error: at least one --action is required");
+    console.error("");
+    console.error("Usage:");
+    console.error('  npx ibr interact <url> --action "click:button:Submit" --expect "heading:Success"');
+    process.exit(1);
+  }
+  const steps = options.action.map((actionSpec, i) => {
+    let action;
+    try {
+      action = parseActionArg2(actionSpec);
+    } catch (err) {
+      console.error(`Error parsing --action "${actionSpec}": ${err instanceof Error ? err.message : err}`);
+      process.exit(1);
+    }
+    const isLastStep = i === options.action.length - 1;
+    let expectObj = void 0;
+    if (isLastStep && (options.expect.length > 0 || options.expectScreenshot)) {
+      expectObj = {};
+      for (const expectSpec of options.expect) {
+        try {
+          const parsed = parseExpectArg2(expectSpec);
+          Object.assign(expectObj, parsed);
+        } catch (err) {
+          console.error(`Error parsing --expect "${expectSpec}": ${err instanceof Error ? err.message : err}`);
+          process.exit(1);
+        }
+      }
+      if (options.expectScreenshot) {
+        expectObj.screenshot = options.expectScreenshot;
+      }
+    }
+    return { action, expect: expectObj };
+  });
+  try {
+    const resolvedUrl = await resolveBaseUrl(url);
+    if (!options.json) {
+      console.log(`Interacting with ${resolvedUrl}...`);
+      console.log(`${steps.length} step(s)`);
+      console.log("");
+    }
+    const results = await runInteractionTest2({
+      url: resolvedUrl,
+      steps,
+      viewport,
+      outputDir: (0, import_path30.join)(outputDir, "interactions"),
+      headless: !options.sandbox
+    });
+    if (options.json) {
+      console.log(JSON.stringify(results.map((r) => ({
+        ...r,
+        before: { ...r.before, screenshot: void 0 },
+        after: { ...r.after, screenshot: void 0 }
+      })), null, 2));
+    } else {
+      for (const result of results) {
+        console.log(formatInteractionResult2(result));
+        console.log("");
+      }
+      const totalAssertions = results.flatMap((r) => r.assertions).length;
+      const passedAssertions = results.flatMap((r) => r.assertions).filter((a) => a.passed).length;
+      const failedActions = results.filter((r) => !r.action.success).length;
+      if (totalAssertions > 0) {
+        console.log(`Assertions: ${passedAssertions}/${totalAssertions} passed`);
+      }
+      if (failedActions > 0) {
+        console.log(`Actions failed: ${failedActions}/${results.length}`);
+      }
+    }
+    const anyFailed = results.some((r) => !r.action.success) || results.some((r) => r.assertions.some((a) => !a.passed));
+    if (anyFailed) process.exit(1);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("match <mockup> <url>").description("Compare a design mockup PNG against a live rendered page (SSIM + pixelmatch)").option("-s, --selector <css>", "Crop live page to this CSS selector before comparison").option("-m, --mask-dynamic", "Auto-mask dynamic content (timestamps, ads, live regions)").option("--json", "Output results as JSON").option("--save-diff <path>", "Save the pixel diff image to this file path").option("--headless", "Run browser headless (default: true)", true).action(async (mockup, url, options) => {
+  try {
+    const { matchMockup: matchMockup2, saveDiffImage: saveDiffImage2 } = await Promise.resolve().then(() => (init_mockup_match(), mockup_match_exports));
+    const { basename: basename4 } = await import("path");
+    const globalOpts = program.opts();
+    const viewportName = globalOpts.viewport || "desktop";
+    const viewportPreset = VIEWPORTS[viewportName];
+    const result = await matchMockup2({
+      mockupPath: mockup,
+      url,
+      selector: options.selector,
+      maskDynamic: options.maskDynamic ?? false,
+      headless: options.headless ?? true,
+      ...viewportPreset ? { viewport: { width: viewportPreset.width, height: viewportPreset.height } } : {}
+    });
+    if (options.saveDiff) {
+      await saveDiffImage2(result.pixelDiff.diffImage, options.saveDiff);
+    }
+    if (options.json) {
+      const out = {
+        ssim: result.ssim,
+        pixelDiff: {
+          count: result.pixelDiff.count,
+          percentage: result.pixelDiff.percentage
+        },
+        mockupDimensions: result.mockupDimensions,
+        liveDimensions: result.liveDimensions,
+        maskedRegions: result.maskedRegions,
+        ...options.saveDiff ? { diffSavedTo: options.saveDiff } : {}
+      };
+      console.log(JSON.stringify(out, null, 2));
+    } else {
+      const label = options.selector ? options.selector.replace(/^[.#]/, "") : basename4(mockup, ".png");
+      const verdictSymbol = result.ssim.verdict === "pass" ? "PASS" : result.ssim.verdict === "review" ? "REVIEW" : "FAIL";
+      console.log(`
+Mockup Match: ${label}`);
+      console.log(`  SSIM: ${result.ssim.score.toFixed(4)} (${verdictSymbol})`);
+      console.log(`  Pixel diff: ${result.pixelDiff.percentage}% (${result.pixelDiff.count} pixels)`);
+      console.log(`  Mockup: ${result.mockupDimensions.width}x${result.mockupDimensions.height}`);
+      console.log(`  Live: ${result.liveDimensions.width}x${result.liveDimensions.height}`);
+      if (result.maskedRegions.length > 0) {
+        console.log(`  Masked: ${result.maskedRegions.length} regions (${result.maskedRegions.join(", ")})`);
+      }
+      if (options.saveDiff) {
+        console.log(`  Diff saved: ${options.saveDiff}`);
+      }
+      console.log("");
+    }
+    if (result.ssim.verdict !== "pass") {
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("record-change <url>").description("Record a design change specification for later verification").option("--element <name>", "Accessible name or CSS selector of the target element").option("--description <text>", "Human-readable description of the change").option("--checks <json>", "JSON array of check objects: [{property,operator,value,confidence}]").option("--platform <platform>", "Target platform: web, ios, macos", "web").action(async (url, options) => {
+  try {
+    const { saveChange: saveChange2 } = await Promise.resolve().then(() => (init_design_verifier(), design_verifier_exports));
+    const { DesignChangeSchema: DesignChangeSchema2 } = await Promise.resolve().then(() => (init_types3(), types_exports));
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || "./.ibr";
+    if (!options.element) {
+      console.error("Error: --element is required");
+      process.exit(1);
+    }
+    if (!options.description) {
+      console.error("Error: --description is required");
+      process.exit(1);
+    }
+    let checks = [];
+    if (options.checks) {
+      try {
+        checks = JSON.parse(options.checks);
+        if (!Array.isArray(checks)) {
+          console.error("Error: --checks must be a JSON array");
+          process.exit(1);
+        }
+      } catch {
+        console.error("Error: --checks is not valid JSON");
+        process.exit(1);
+      }
+    }
+    const changeRaw = {
+      description: options.description,
+      element: options.element,
+      checks,
+      source: "structured",
+      platform: options.platform || "web",
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const parseResult = DesignChangeSchema2.safeParse(changeRaw);
+    if (!parseResult.success) {
+      console.error("Error: invalid change specification");
+      for (const issue of parseResult.error.issues) {
+        console.error(`  ${issue.path.join(".")}: ${issue.message}`);
+      }
+      process.exit(1);
+    }
+    await saveChange2(outputDir, parseResult.data);
+    console.log("Design change recorded:");
+    console.log(`  Element:     ${parseResult.data.element}`);
+    console.log(`  Description: ${parseResult.data.description}`);
+    console.log(`  Checks:      ${parseResult.data.checks.length}`);
+    console.log(`  Platform:    ${parseResult.data.platform ?? "web"}`);
+    console.log(`  Saved to:    ${outputDir}/design-changes.json`);
+    console.log("");
+    console.log("To verify:");
+    console.log(`  npx ibr verify-changes ${url}`);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("verify-changes <url>").description("Verify all recorded design changes against the live page").option("--json", "Output results as JSON").action(async (url, options) => {
+  const globalOpts = program.opts();
+  const driver3 = await createDriver(globalOpts.browser);
+  try {
+    const { loadChanges: loadChanges2, verifyAllChanges: verifyAllChanges2, formatVerifyResult: formatVerifyResult2 } = await Promise.resolve().then(() => (init_design_verifier(), design_verifier_exports));
+    const resolvedUrl = await resolveBaseUrl(url);
+    const outputDir = globalOpts.output || "./.ibr";
+    const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+    const changes = await loadChanges2(outputDir);
+    if (changes.length === 0) {
+      console.log("No design changes recorded.");
+      console.log("");
+      console.log("Record a change first:");
+      console.log(`  npx ibr record-change <url> --element "header" --description "Blue header" --checks '[...]'`);
+      return;
+    }
+    console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
+    console.log("");
+    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver3.navigate(resolvedUrl);
+    await new Promise((r) => setTimeout(r, 500));
+    const results = await verifyAllChanges2(changes, driver3);
+    if (options.json) {
+      console.log(JSON.stringify(results, null, 2));
+    } else {
+      for (const result of results) {
+        console.log(formatVerifyResult2(result));
+        console.log("");
+      }
+      const passed = results.filter((r) => r.overallPassed).length;
+      const failed = results.filter((r) => !r.overallPassed).length;
+      console.log(`Summary: ${passed} passed, ${failed} failed`);
+    }
+    await driver3.close();
+    if (results.some((r) => !r.overallPassed)) {
+      process.exit(1);
+    }
+  } catch (error) {
+    await driver3.close().catch(() => {
+    });
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("generate-test <url>").description("Generate a declarative .ibr-test.json file from page observation").option("--scenario <text>", "Natural language scenario description").option("--output <path>", "Output path for test file", ".ibr-test.json").action(async (url, options) => {
+  try {
+    const { generateTest: generateTest2 } = await Promise.resolve().then(() => (init_test_generator(), test_generator_exports));
+    const suite = await generateTest2({
+      url,
+      scenario: options.scenario,
+      outputPath: options.output
+    });
+    const pageNames = Object.keys(suite);
+    const total = pageNames.reduce((s, k) => s + suite[k].tests.length, 0);
+    console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) \u2192 ${options.output}`);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("test").description("Run declarative .ibr-test.json test file").option("--file <path>", "Path to test file", ".ibr-test.json").option("--output-dir <dir>", "Directory to store screenshots/results", ".ibr/test-results").option("--headless", "Run headless (default: true)", true).option("--json", "Output results as JSON").action(async (options) => {
+  try {
+    const { runTests: runTests2, formatRunResult: formatRunResult2 } = await Promise.resolve().then(() => (init_test_runner(), test_runner_exports));
+    const results = await runTests2({
+      filePath: options.file,
+      outputDir: options.outputDir,
+      headless: options.headless
+    });
+    if (options.json) {
+      console.log(JSON.stringify(results, null, 2));
+    } else {
+      for (const result of results) {
+        console.log(formatRunResult2(result));
+        console.log("");
+      }
+      const totalPassed = results.reduce((s, r) => s + r.passed, 0);
+      const totalFailed = results.reduce((s, r) => s + r.failed, 0);
+      console.log(`Summary: ${totalPassed} passed, ${totalFailed} failed`);
+    }
+    const anyFailed = results.some((r) => r.failed > 0);
+    process.exit(anyFailed ? 1 : 0);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("run-script <script>").description("Execute a Python test script with sandboxed resource limits").option("--url <url>", "URL passed to script as IBR_URL env var").option("--timeout <ms>", "Timeout in milliseconds", "60000").option("--memory <mb>", "Memory limit in MB", "512").option("--cpu <seconds>", "CPU time limit in seconds", "30").option("--json", "Output result as JSON").action(async (script, options) => {
+  try {
+    const { runScript: runScript2, formatScriptResult: formatScriptResult2 } = await Promise.resolve().then(() => (init_script_runner(), script_runner_exports));
+    const result = await runScript2({
+      scriptPath: script,
+      url: options.url,
+      timeout: parseInt(options.timeout, 10),
+      memoryMB: parseInt(options.memory, 10),
+      cpuSeconds: parseInt(options.cpu, 10)
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(formatScriptResult2(result));
+    }
+    process.exit(result.exitCode);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("iterate <url>").description("Run one iteration of the test-fix loop and report convergence state").option("--test <path>", "Path to .ibr-test.json (uses IBR scan if omitted)").option("--max-iterations <n>", "Maximum iterations before stopping", "7").option("--output-dir <dir>", "Directory for iteration state and results", ".ibr/iterate").option("--auto-approve", "Skip user approval at checkpoint iterations").option("--reset", "Reset iteration state and start fresh").option("--json", "Output result as JSON").action(async (url, options) => {
+  try {
+    const { iterate: iterate2, resetIterateState: resetIterateState2 } = await Promise.resolve().then(() => (init_iterate(), iterate_exports));
+    if (options.reset) {
+      await resetIterateState2(options.outputDir);
+      console.log("Iteration state reset.");
+      return;
+    }
+    const result = await iterate2({
+      url,
+      testFile: options.test,
+      maxIterations: parseInt(options.maxIterations, 10),
+      outputDir: options.outputDir,
+      autoApprove: options.autoApprove ?? false
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      const last2 = result.iterations[result.iterations.length - 1];
+      if (last2) {
+        console.log(`Iteration ${last2.iteration}: ${last2.issueCount} issue(s) | hash=${last2.scanHash} | delta=${last2.netDelta >= 0 ? "+" : ""}${last2.netDelta} | ${last2.approachHint}`);
+      }
+      console.log(`State: ${result.finalState}`);
+      console.log(result.summary);
+    }
+    const last = result.iterations[result.iterations.length - 1];
+    const hasIssues = last ? last.issueCount > 0 : false;
+    if (result.finalState === "regressing" || result.finalState === "budget_exceeded" && hasIssues) {
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("compare-browsers <url>").description("Scan in Chrome and Safari, diff screenshots and element counts").option("--save-diff <path>", "Save pixel diff image to this path").option("--json", "Output results as JSON").option("--timeout <ms>", "Navigation timeout in ms", "15000").action(async (url, options) => {
+  const resolvedUrl = await resolveBaseUrl(url);
+  const globalOpts = program.opts();
+  const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
+  const timeout = parseInt(options.timeout, 10);
+  if (!options.json) {
+    console.log(`Comparing browsers for: ${resolvedUrl}`);
+    console.log("");
+  }
+  if (!options.json) console.log("Chrome: launching...");
+  const chromeDriver = new EngineDriver();
+  let chromeScreenshot = null;
+  let chromeElements = [];
+  let chromeError = null;
+  try {
+    await chromeDriver.launch({
+      headless: true,
+      viewport: { width: viewport.width, height: viewport.height }
+    });
+    await chromeDriver.navigate(resolvedUrl, { waitFor: "stable", timeout });
+    chromeScreenshot = await chromeDriver.screenshot();
+    const discovered = await chromeDriver.discover({ filter: "interactive" });
+    chromeElements = Array.isArray(discovered) ? discovered : [];
+    if (!options.json) console.log(`Chrome: ${chromeElements.length} interactive elements`);
+  } catch (err) {
+    chromeError = err instanceof Error ? err.message : String(err);
+    if (!options.json) console.log(`Chrome: failed \u2014 ${chromeError}`);
+  } finally {
+    await chromeDriver.close().catch(() => {
+    });
+  }
+  if (!options.json) console.log("Safari: launching...");
+  const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports));
+  const safariDriver = new SafariDriver2();
+  let safariScreenshot = null;
+  let safariElements = [];
+  let safariError = null;
+  try {
+    const { SafariSession: SafariSession2 } = await Promise.resolve().then(() => (init_session2(), session_exports2));
+    const enabled = await SafariSession2.isEnabled();
+    if (!enabled) {
+      safariError = "safaridriver not enabled. Run: sudo safaridriver --enable";
+      if (!options.json) console.log(`Safari: skipped \u2014 ${safariError}`);
+    } else {
+      await safariDriver.launch({ viewport: { width: viewport.width, height: viewport.height } });
+      await safariDriver.navigate(resolvedUrl, { waitFor: "load", timeout });
+      safariScreenshot = await safariDriver.screenshot();
+      const discovered = await safariDriver.discover({ filter: "interactive" });
+      safariElements = Array.isArray(discovered) ? discovered : [];
+      if (!options.json) console.log(`Safari: ${safariElements.length} interactive elements`);
+    }
+  } catch (err) {
+    safariError = err instanceof Error ? err.message : String(err);
+    if (!options.json) console.log(`Safari: failed \u2014 ${safariError}`);
+  } finally {
+    await safariDriver.close().catch(() => {
+    });
+  }
+  let pixelDiff = null;
+  let diffPercent = null;
+  let diffSaved = false;
+  if (chromeScreenshot && safariScreenshot) {
+    try {
+      const { PNG: PNG4 } = await import("pngjs");
+      const pixelmatch4 = (await import("pixelmatch")).default;
+      const chromePng = PNG4.sync.read(chromeScreenshot);
+      const safariPng = PNG4.sync.read(safariScreenshot);
+      const w = Math.min(chromePng.width, safariPng.width);
+      const h = Math.min(chromePng.height, safariPng.height);
+      const diff = new PNG4({ width: w, height: h });
+      const chromeData = cropPngData(chromePng.data, chromePng.width, w, h);
+      const safariData = cropPngData(safariPng.data, safariPng.width, w, h);
+      pixelDiff = pixelmatch4(chromeData, safariData, diff.data, w, h, {
+        threshold: 0.1,
+        includeAA: false
+      });
+      diffPercent = Math.round(pixelDiff / (w * h) * 1e4) / 100;
+      if (options.saveDiff) {
+        const { writeFile: writeFile20, mkdir: mkdirFs } = await import("fs/promises");
+        const { dirname: dirname10 } = await import("path");
+        await mkdirFs(dirname10(options.saveDiff), { recursive: true });
+        await writeFile20(options.saveDiff, PNG4.sync.write(diff));
+        diffSaved = true;
+      }
+    } catch {
+    }
+  }
+  const chromeLabels = new Set(chromeElements.map((e) => e.label?.toLowerCase()).filter(Boolean));
+  const safariLabels = new Set(safariElements.map((e) => e.label?.toLowerCase()).filter(Boolean));
+  const onlyInChrome = [...chromeLabels].filter((l) => !safariLabels.has(l));
+  const onlyInSafari = [...safariLabels].filter((l) => !chromeLabels.has(l));
+  const result = {
+    url: resolvedUrl,
+    chrome: {
+      elementCount: chromeElements.length,
+      error: chromeError
+    },
+    safari: {
+      elementCount: safariElements.length,
+      error: safariError
+    },
+    diff: {
+      pixelDiff,
+      diffPercent,
+      diffSaved: diffSaved ? options.saveDiff : null,
+      elementsOnlyInChrome: onlyInChrome,
+      elementsOnlyInSafari: onlyInSafari
+    }
+  };
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    console.log("");
+    console.log("Results:");
+    console.log(`  Chrome: ${chromeError ? "ERROR" : `${chromeElements.length} elements`}`);
+    console.log(`  Safari: ${safariError ? "ERROR" : `${safariElements.length} elements`}`);
+    if (pixelDiff !== null) {
+      console.log(`  Visual diff: ${diffPercent}% (${pixelDiff} pixels)`);
+    }
+    if (onlyInChrome.length > 0) {
+      console.log(`  Only in Chrome: ${onlyInChrome.slice(0, 5).join(", ")}${onlyInChrome.length > 5 ? ` +${onlyInChrome.length - 5} more` : ""}`);
+    }
+    if (onlyInSafari.length > 0) {
+      console.log(`  Only in Safari: ${onlyInSafari.slice(0, 5).join(", ")}${onlyInSafari.length > 5 ? ` +${onlyInSafari.length - 5} more` : ""}`);
+    }
+    if (diffSaved) {
+      console.log(`  Diff saved: ${options.saveDiff}`);
+    }
+  }
+});
+function cropPngData(data, srcWidth, dstWidth, dstHeight) {
+  const dst = Buffer.alloc(dstWidth * dstHeight * 4);
+  for (let y = 0; y < dstHeight; y++) {
+    const srcOff = y * srcWidth * 4;
+    const dstOff = y * dstWidth * 4;
+    data.copy(dst, dstOff, srcOff, srcOff + dstWidth * 4);
+  }
+  return dst;
+}
 program.parse();
 //# sourceMappingURL=ibr.js.map

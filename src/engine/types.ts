@@ -50,6 +50,48 @@ export interface ActResult {
   snapshot: Snapshot
 }
 
+// ─── BrowserDriver ──────────────────────────────────────────
+/**
+ * Common driver interface implemented by both EngineDriver (Chrome/CDP)
+ * and SafariDriver (safaridriver/WebDriver + macOS AX API).
+ */
+export interface BrowserDriver {
+  launch(options: {
+    headless?: boolean
+    viewport?: { width: number; height: number }
+    normalize?: boolean
+  }): Promise<void>
+
+  navigate(url: string, options?: {
+    waitFor?: 'stable' | 'load' | 'none'
+    timeout?: number
+  }): Promise<void>
+
+  screenshot(options?: {
+    clip?: { x: number; y: number; width: number; height: number }
+  }): Promise<Buffer>
+
+  discover(options?: {
+    filter?: 'interactive' | 'leaf' | 'all'
+    serialize?: boolean
+  }): Promise<any>
+
+  find(name: string, options?: { role?: string }): Promise<any | null>
+
+  click(elementId: string): Promise<void>
+  type(elementId: string, text: string): Promise<void>
+  fill(elementId: string, value: string): Promise<void>
+  hover(elementId: string): Promise<void>
+  pressKey(key: string): Promise<void>
+  scroll(deltaY: number, x?: number, y?: number): Promise<void>
+
+  evaluate<T>(expression: string): Promise<T>
+
+  close(): Promise<void>
+
+  readonly currentUrl: string
+}
+
 // ─── Resolution ─────────────────────────────────────────────
 export interface ResolveOptions {
   intent: string

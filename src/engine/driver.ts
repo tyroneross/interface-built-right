@@ -17,12 +17,34 @@ import { EmulationDomain, type ViewportConfig } from './cdp/emulation.js'
 import { NetworkDomain, type Cookie, type SetCookieParams } from './cdp/network.js'
 import { ConsoleDomain, type ConsoleMessage } from './cdp/console.js'
 import { waitForStableTree, waitForStable } from './cdp/wait.js'
-import type { Element, Snapshot } from './types.js'
+import pixelmatch from 'pixelmatch'
+import { PNG } from 'pngjs'
+import type { Element, Snapshot, BrowserDriver } from './types.js'
 import { serializeSnapshot } from './serialize.js'
 import { observe, type ActionDescriptor, type ObserveOptions } from './observe.js'
 import { extractFromAXTree, extractList, extractPageMeta, type ExtractSchema, type ExtractResult } from './extract.js'
 import { ResolutionCache, type CacheOptions } from './cache.js'
 import { assessUnderstanding, type UnderstandingScore, type ModalityOptions } from './modality.js'
+import { extractShadowElements } from './shadow-dom.js'
+
+export interface CoverageReport {
+  /** Elements captured by the AX tree */
+  axTreeCount: number
+  /** Estimated visible elements in the DOM (not aria-hidden, has dimensions) */
+  estimatedVisible: number
+  /** axTreeCount / estimatedVisible * 100, capped at 100 */
+  coveragePercent: number
+  /** Elements found inside open shadow DOMs (invisible to AX tree) */
+  shadowDomCount: number
+  /** Canvas elements on the page (completely opaque to AX tree) */
+  canvasCount: number
+  /** Iframe elements on the page (separate AX trees) */
+  iframeCount: number
+  /** Elements recovered via shadow DOM piercing */
+  recovered: number
+  /** Human-readable descriptions of coverage gaps */
+  gaps: string[]
+}
 
 export interface LaunchOptions extends BrowserOptions {
   viewport?: ViewportConfig
@@ -64,7 +86,7 @@ export interface CapturedState {
   timestamp: number
 }
 
-export class EngineDriver {
+export class EngineDriver implements BrowserDriver {
   private browser = new BrowserManager()
   private conn = new CdpConnection()
   // Resolution cache initialized in constructor or with defaults
@@ -82,7 +104,7 @@ export class EngineDriver {
 
   private targetId: string | null = null
   private sessionId: string | null = null
-  private currentUrl = ''
+  private _currentUrl = ''
   private launched = false
   private resolutionCache = new ResolutionCache()
 
@@ -156,15 +178,21 @@ export class EngineDriver {
     // 'none' — return immediately
 
     // Read actual URL after navigation (handles redirects)
-    this.currentUrl = await this.runtime.evaluate('location.href') as string ?? url
+    this._currentUrl = await this.runtime.evaluate('location.href') as string ?? url
 
     // Clear resolution cache on navigation (element IDs change)
     this.resolutionCache.clear()
   }
 
   get url(): string {
-    return this.currentUrl
+    return this._currentUrl
   }
+
+  /** BrowserDriver interface: currentUrl alias */
+  get currentUrl(): string {
+    return this._currentUrl
+  }
+
 
   // ─── Element Discovery (LLM-native) ────────────────────
 
@@ -196,7 +224,7 @@ export class EngineDriver {
 
     if (options.serialize) {
       const snap: Snapshot = {
-        url: this.currentUrl,
+        url: this._currentUrl,
         platform: 'web',
         elements: filtered,
         timestamp: Date.now(),
@@ -264,8 +292,28 @@ export class EngineDriver {
     const backendNodeId = this.ax.getBackendNodeId(elementId)
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
-    await this.input.click(x, y)
+    // Use DOM.resolveNode + callFunctionOn to call .click() on the DOM element.
+    // This triggers ALL click handlers: addEventListener, inline onclick, and href navigation.
+    // CDP Input.dispatchMouseEvent only fires addEventListener handlers, NOT inline onclick.
+    const sid = this.sessionId ?? undefined
+    let domClickWorked = false
+    try {
+      const resolved: any = await this.conn.send('DOM.resolveNode', { backendNodeId }, sid)
+      if (resolved?.object?.objectId) {
+        await this.conn.send('Runtime.callFunctionOn', {
+          objectId: resolved.object.objectId,
+          functionDeclaration: 'function() { this.click(); }',
+        }, sid)
+        domClickWorked = true
+      }
+    } catch {
+      // DOM click failed — fall back to coordinate-based click
+    }
+
+    if (!domClickWorked) {
+      const { x, y } = await this.dom.getElementCenter(backendNodeId)
+      await this.input.click(x, y)
+    }
   }
 
   async type(elementId: string, text: string): Promise<void> {
@@ -308,6 +356,159 @@ export class EngineDriver {
     await this.input.scroll(x, y, 0, deltaY)
   }
 
+  // ─── Interaction Assertions ─────────────────────────────
+
+  /**
+   * Before/after state capture around an action.
+   * Returns element diff and pixel diff.
+   */
+  async actAndCapture(action: () => Promise<void>): Promise<{
+    before: { elements: Element[]; screenshot: Buffer }
+    after: { elements: Element[]; screenshot: Buffer }
+    diff: { addedElements: Element[]; removedElements: Element[]; pixelDiff: number }
+  }> {
+    // Capture before state
+    const [beforeElements, beforeScreenshot] = await Promise.all([
+      this.ax.getSnapshot(),
+      this._page.screenshot(),
+    ])
+
+    // Execute action
+    await action()
+
+    // Wait for AX tree stability (elements stop changing)
+    await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5000, stableTime: 300 })
+
+    // Wait for visual rendering to complete — CSS transitions, layout shifts,
+    // and repaint after DOM changes. requestAnimationFrame fires after the next
+    // composite, ensuring visibility changes (display:none → visible) are painted.
+    await this.runtime.evaluate(
+      'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'
+    ).catch(() => {})
+
+    // Capture after state
+    const [afterElements, afterScreenshot] = await Promise.all([
+      this.ax.getSnapshot(),
+      this._page.screenshot(),
+    ])
+
+    // Compute element diff by id
+    const beforeIds = new Set(beforeElements.map((e) => e.id))
+    const afterIds = new Set(afterElements.map((e) => e.id))
+    const addedElements = afterElements.filter((e) => !beforeIds.has(e.id))
+    const removedElements = beforeElements.filter((e) => !afterIds.has(e.id))
+
+    // Compute pixel diff
+    let pixelDiff = 0
+    try {
+      const beforePng = PNG.sync.read(beforeScreenshot)
+      const afterPng = PNG.sync.read(afterScreenshot)
+      if (beforePng.width === afterPng.width && beforePng.height === afterPng.height) {
+        const { width, height } = beforePng
+        const diffPng = new PNG({ width, height })
+        pixelDiff = pixelmatch(beforePng.data, afterPng.data, diffPng.data, width, height, {
+          threshold: 0.1,
+          includeAA: false,
+        })
+      }
+    } catch {
+      // Pixel diff is best-effort — ignore errors
+    }
+
+    return {
+      before: { elements: beforeElements, screenshot: beforeScreenshot },
+      after: { elements: afterElements, screenshot: afterScreenshot },
+      diff: { addedElements, removedElements, pixelDiff },
+    }
+  }
+
+  /**
+   * Set a <select> element's value and dispatch change event.
+   */
+  async select(elementId: string, value: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    await this.input.click(x, y)
+    await new Promise((r) => setTimeout(r, 100))
+
+    await this.runtime.callFunctionOn(
+      '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+      [value],
+    )
+  }
+
+  /**
+   * Toggle a checkbox element.
+   */
+  async check(elementId: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    await this.input.click(x, y)
+  }
+
+  /**
+   * Double-click an element.
+   */
+  async doubleClick(elementId: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    await this.input.click(x, y)
+    await new Promise((r) => setTimeout(r, 50))
+    await this.input.click(x, y)
+  }
+
+  /**
+   * Right-click an element (opens context menu).
+   */
+  async rightClick(elementId: string): Promise<void> {
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+
+    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const sid = this.sessionId ?? undefined
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed', x, y, button: 'right', buttons: 2, clickCount: 1,
+    }, sid)
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x, y, button: 'right', buttons: 0, clickCount: 1,
+    }, sid)
+  }
+
+  /**
+   * Wait until an element with the given name (and optional role) appears in the AX tree.
+   * Polls at 200ms intervals. Throws on timeout.
+   */
+  async waitForElement(
+    name: string,
+    options?: { role?: string; timeout?: number },
+  ): Promise<Element> {
+    const timeout = options?.timeout ?? 10000
+    const deadline = Date.now() + timeout
+    const interval = 200
+
+    while (Date.now() < deadline) {
+      const elements = await this.ax.getSnapshot()
+      const match = elements.find((e) => {
+        const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) ||
+          e.value?.toString().toLowerCase().includes(name.toLowerCase())
+        const roleMatch = !options?.role || e.role === options.role
+        return nameMatch && roleMatch
+      })
+      if (match) return match
+      await new Promise((r) => setTimeout(r, interval))
+    }
+
+    throw new Error(
+      `waitForElement: element "${name}"${options?.role ? ` (role: ${options.role})` : ''} not found within ${timeout}ms`,
+    )
+  }
+
   // ─── Screenshots ────────────────────────────────────────
 
   async screenshot(options: ScreenshotOptions = {}): Promise<Buffer> {
@@ -335,7 +536,7 @@ export class EngineDriver {
    */
   async captureState(options: CaptureStateOptions = {}): Promise<CapturedState> {
     const state: CapturedState = {
-      url: this.currentUrl,
+      url: this._currentUrl,
       timestamp: Date.now(),
     }
 
@@ -533,6 +734,77 @@ export class EngineDriver {
   async assessUnderstanding(options?: ModalityOptions): Promise<UnderstandingScore> {
     const elements = await this.ax.getSnapshot()
     return assessUnderstanding(elements, options)
+  }
+
+  // ─── Coverage Reporting ────────────────────────────────
+
+  /**
+   * Report AX tree coverage against estimated visible DOM elements.
+   * Surfaces blind spots: shadow DOM, canvas, iframes.
+   */
+  async getCoverage(): Promise<CoverageReport> {
+    const gaps: string[] = []
+
+    // 1. AX tree count
+    const axElements = await this.ax.getSnapshot()
+    const axTreeCount = axElements.length
+
+    // 2. Estimated visible DOM elements (not aria-hidden, has layout dimensions)
+    const estimatedVisible = await this.runtime.evaluate(`
+      (function() {
+        const all = document.querySelectorAll('*');
+        let count = 0;
+        for (const el of all) {
+          if (el.getAttribute('aria-hidden') === 'true') continue;
+          if (el.offsetWidth > 0 || el.offsetHeight > 0) count++;
+        }
+        return count;
+      })()
+    `) as number
+
+    // 3. Canvas elements
+    const canvasCount = await this.runtime.evaluate(
+      `document.querySelectorAll('canvas').length`,
+    ) as number
+
+    // 4. Iframe elements
+    const iframeCount = await this.runtime.evaluate(
+      `document.querySelectorAll('iframe').length`,
+    ) as number
+
+    // 5. Shadow DOM extraction
+    const shadowElements = await extractShadowElements(this.runtime)
+    const shadowDomCount = shadowElements.length
+    const recovered = shadowDomCount
+
+    // 6. Build gap descriptions
+    if (canvasCount > 0) {
+      gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? 's' : ''} (invisible to AX tree)`)
+    }
+    if (iframeCount > 0) {
+      gaps.push(`${iframeCount} iframe${iframeCount > 1 ? 's' : ''} (separate AX tree${iframeCount > 1 ? 's' : ''})`)
+    }
+    if (shadowDomCount > 0) {
+      gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? 's' : ''} (open shadow root — recovered via piercing)`)
+    }
+
+    const safeVisible = estimatedVisible > 0 ? estimatedVisible : 1
+    const coveragePercent = Math.min(100, Math.round((axTreeCount / safeVisible) * 100))
+
+    if (coveragePercent < 50) {
+      gaps.push(`Low AX coverage: ${coveragePercent}% of visible DOM captured`)
+    }
+
+    return {
+      axTreeCount,
+      estimatedVisible,
+      coveragePercent,
+      shadowDomCount,
+      canvasCount,
+      iframeCount,
+      recovered,
+      gaps,
+    }
   }
 
   // ─── LLM-Native: Cache ─────────────────────────────────

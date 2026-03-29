@@ -1,60 +1,111 @@
 ---
-description: Start an IBR iterative refinement loop — repeatedly scan, fix, and verify until criteria pass
-allowed_tools: Bash, Read, Write, Edit, Glob, Grep, mcp__ibr__scan, mcp__ibr__snapshot, mcp__ibr__compare, mcp__ibr__screenshot
+name: ibr:iterate
+description: Run one iteration of a test-fix loop and detect convergence (stagnant, oscillating, regressing)
+arguments:
+  - name: url
+    description: URL to scan or test
+    required: true
 ---
 
-# /ibr:iterate
+# ibr:iterate
 
-Start an automated scan-fix-verify loop that keeps running until IBR validation criteria are met.
+Run one iteration of a test-fix loop. Tracks convergence across iterations using SHA-256 hashing of the issue fingerprint set. Detects stagnant, oscillating, and regressing conditions so fix attempts don't spin indefinitely.
 
-## Instructions
+**Claude Code makes the actual code changes between iterations.** This command runs one iteration and reports state. Call it repeatedly in a loop or as part of an iterative fix workflow.
 
-1. Parse the user's message for:
-   - **URL** (required) — must be a localhost or 127.0.0.1 URL
-   - **Task prompt** (required) — what to build or fix
-   - **--max N** (optional) — max iterations, default 20, range 1-100
-   - **--criteria TYPE** (optional) — success criteria, default `scan_pass`
+## Usage
 
-2. Run the setup script:
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/setup-ibr-loop.sh" <url> [--max N] [--criteria TYPE] <prompt words...>
+# Single iteration using IBR scan
+npx ibr iterate http://localhost:3000
+
+# Use a declarative test file instead of scan
+npx ibr iterate http://localhost:3000 --test .ibr-test.json
+
+# Cap at 7 iterations
+npx ibr iterate http://localhost:3000 --max-iterations 7
+
+# Skip user approval at checkpoint iterations
+npx ibr iterate http://localhost:3000 --auto-approve
+
+# JSON output
+npx ibr iterate http://localhost:3000 --json
+
+# Reset state and start fresh
+npx ibr iterate http://localhost:3000 --reset
 ```
 
-3. If setup succeeds, immediately begin working on the task:
-   - Build or modify the UI as described in the prompt
-   - Run `ibr scan` on the URL to check progress
-   - Fix issues found by the scan
-   - When you believe the task is complete, stop — the Stop hook will check criteria and either allow exit or re-feed the prompt
+## Options
 
-4. If setup fails (non-localhost URL, missing prompt), relay the error to the user.
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--test <path>` | .ibr-test.json to run (omit to use IBR scan) | none |
+| `--max-iterations <n>` | Stop after N iterations | `7` |
+| `--output-dir <dir>` | State and results directory | `.ibr/iterate` |
+| `--auto-approve` | Skip checkpoint pauses | false |
+| `--reset` | Clear iteration state | false |
+| `--json` | Output result as JSON | false |
 
-## Criteria Types
+## Convergence Conditions
 
-| Type | Passes when | Best for |
-|------|-------------|----------|
-| `scan_pass` | IBR scan verdict is PASS | General UI tasks |
-| `zero_issues` | IBR scan shows Issues (0) | Accessibility hardening |
-| `compare_match` | IBR compare shows MATCH or EXPECTED_CHANGE | Targeted changes |
-| `custom` | Assistant outputs `<ibr-done/>` tag | Multi-page or subjective goals |
+| State | Meaning | Action |
+|-------|---------|--------|
+| `resolved` | Zero issues remaining | Done — success |
+| `stagnant` | Same issue hash 2 consecutive iterations | Try a different approach |
+| `oscillating` | Hash matches 2 iterations ago (A→B→A) | Manual investigation needed |
+| `regressing` | Issue count increased 2 consecutive iterations | Revert last change |
+| `budget_exceeded` | Reached max iterations | Review remaining issues |
 
-## How the Loop Works
+## Checkpoint Iterations
 
-A Stop hook intercepts session exit. After each attempt:
-- **Criteria met** — loop ends, exit allowed
-- **Max iterations reached** — loop ends with summary
-- **Pause point (2, 5, 10, 20)** — progress report, user decides continue/stop
-- **Otherwise** — prompt re-fed, next iteration begins
+At iterations 3, 7, 15, and 20 (unless `--auto-approve`), the loop pauses and returns current state for user review. The user can then decide whether to continue, change approach, or stop.
 
-State is tracked in `.ibr/loop-state.json`. Each iteration records verdict, issue count, and timestamp.
+## Workflow
 
-## Examples
+Claude Code uses this in a fix-and-iterate loop:
 
+```bash
+# 1. Generate test file
+npx ibr generate-test http://localhost:3000
+
+# 2. Run first iteration
+npx ibr iterate http://localhost:3000 --test .ibr-test.json
+
+# Claude Code fixes failing tests...
+
+# 3. Run next iteration
+npx ibr iterate http://localhost:3000 --test .ibr-test.json
+
+# 4. Continue until resolved or budget exceeded
+# Use --json to read convergence state programmatically
+npx ibr iterate http://localhost:3000 --test .ibr-test.json --json
 ```
-/ibr:iterate http://localhost:3000 Build a login form with email and password fields
-/ibr:iterate http://localhost:5173/dashboard --criteria zero_issues Fix all accessibility issues
-/ibr:iterate http://localhost:3000 --max 10 --criteria compare_match Refactor the header without visual regressions
+
+## State Persistence
+
+State is stored in `.ibr/iterate/iterate-state.json`. Each entry records:
+- `iteration` — sequence number
+- `scanHash` — SHA-256 fingerprint of current issues
+- `issueCount` — number of failing tests or scan issues
+- `netDelta` — issues resolved minus issues introduced
+- `approachHint` — human-readable summary of what was checked
+
+## JSON Output Shape
+
+```json
+{
+  "iterations": [
+    {
+      "iteration": 1,
+      "scanHash": "a3f2c9d1...",
+      "issueCount": 5,
+      "netDelta": 0,
+      "approachHint": "verdict=ISSUES issues=5",
+      "durationMs": 3200,
+      "converged": false
+    }
+  ],
+  "finalState": "budget_exceeded",
+  "summary": "Reached 1 iteration(s). 5 issue(s) remaining."
+}
 ```
-
-## Canceling
-
-Use `/ibr:cancel-iterate` to stop the loop at any time.

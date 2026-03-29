@@ -1,0 +1,38 @@
+{
+  "home": {
+    "url": "http://localhost:4477",
+    "tests": [
+      {
+        "name": "smoke test",
+        "steps": [
+          {
+            "screenshot": "initial-state"
+          },
+          {
+            "click": "Show Details"
+          },
+          {
+            "wait": 500
+          },
+          {
+            "screenshot": "after-click-show-details"
+          },
+          {
+            "click": "Search"
+          },
+          {
+            "wait": 500
+          },
+          {
+            "screenshot": "after-click-search"
+          },
+          {
+            "assert": {
+              "count": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

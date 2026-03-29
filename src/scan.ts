@@ -1,5 +1,5 @@
 import type { PageLike } from './engine/page-like.js';
-import { EngineDriver } from './engine/driver.js';
+import { EngineDriver, type CoverageReport } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
 import type { EnhancedElement, AuditResult, Viewport } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
@@ -34,6 +34,9 @@ export interface ScanResult {
     errors: string[];
     warnings: string[];
   };
+
+  /** AX tree coverage report — gaps like canvas, iframes, shadow DOM */
+  coverage?: CoverageReport;
 
   /** Overall scan verdict */
   verdict: 'PASS' | 'ISSUES' | 'FAIL';
@@ -128,10 +131,11 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     }
 
     // Run all analyses in parallel where possible
-    const [elements, interactivity, semantic] = await Promise.all([
+    const [elements, interactivity, semantic, coverage] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
       testInteractivity(page),
       getSemanticOutput(page),
+      driver.getCoverage().catch(() => undefined),
     ]);
 
     // Capture screenshot if requested
@@ -167,6 +171,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
         errors: consoleErrors,
         warnings: consoleWarnings,
       },
+      coverage,
       verdict,
       issues,
       summary,

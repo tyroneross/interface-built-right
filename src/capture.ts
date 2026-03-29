@@ -534,7 +534,7 @@ export async function captureWithDiagnostics(
       error: {
         type: 'unknown',
         message: errorMsg,
-        suggestion: 'Check browser installation: npx playwright install chromium',
+        suggestion: 'Check that Chrome is installed and accessible. IBR uses a direct CDP connection — ensure Chrome is available on your PATH or at the default install location.',
       },
     };
   }
