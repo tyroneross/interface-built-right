@@ -292,8 +292,28 @@ export class EngineDriver implements BrowserDriver {
     const backendNodeId = this.ax.getBackendNodeId(elementId)
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
-    await this.input.click(x, y)
+    // Use DOM.resolveNode + callFunctionOn to call .click() on the DOM element.
+    // This triggers ALL click handlers: addEventListener, inline onclick, and href navigation.
+    // CDP Input.dispatchMouseEvent only fires addEventListener handlers, NOT inline onclick.
+    const sid = this.sessionId ?? undefined
+    let domClickWorked = false
+    try {
+      const resolved: any = await this.conn.send('DOM.resolveNode', { backendNodeId }, sid)
+      if (resolved?.object?.objectId) {
+        await this.conn.send('Runtime.callFunctionOn', {
+          objectId: resolved.object.objectId,
+          functionDeclaration: 'function() { this.click(); }',
+        }, sid)
+        domClickWorked = true
+      }
+    } catch {
+      // DOM click failed — fall back to coordinate-based click
+    }
+
+    if (!domClickWorked) {
+      const { x, y } = await this.dom.getElementCenter(backendNodeId)
+      await this.input.click(x, y)
+    }
   }
 
   async type(elementId: string, text: string): Promise<void> {
@@ -356,8 +376,15 @@ export class EngineDriver implements BrowserDriver {
     // Execute action
     await action()
 
-    // Wait for stability
+    // Wait for AX tree stability (elements stop changing)
     await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5000, stableTime: 300 })
+
+    // Wait for visual rendering to complete — CSS transitions, layout shifts,
+    // and repaint after DOM changes. requestAnimationFrame fires after the next
+    // composite, ensuring visibility changes (display:none → visible) are painted.
+    await this.runtime.evaluate(
+      'new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))'
+    ).catch(() => {})
 
     // Capture after state
     const [afterElements, afterScreenshot] = await Promise.all([

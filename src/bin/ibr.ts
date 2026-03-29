@@ -3770,18 +3770,18 @@ program
   .command('generate-test <url>')
   .description('Generate a declarative .ibr-test.json file from page observation')
   .option('--scenario <text>', 'Natural language scenario description')
-  .option('--output <path>', 'Output path for test file', '.ibr-test.json')
-  .action(async (url: string, options: { scenario?: string; output: string }) => {
+  .option('--test-file <path>', 'Output path for test file', '.ibr-test.json')
+  .action(async (url: string, options: { scenario?: string; testFile: string }) => {
     try {
       const { generateTest } = await import('../test-generator.js')
       const suite = await generateTest({
         url,
         scenario: options.scenario,
-        outputPath: options.output,
+        outputPath: options.testFile,
       })
       const pageNames = Object.keys(suite)
       const total = pageNames.reduce((s, k) => s + suite[k].tests.length, 0)
-      console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) → ${options.output}`)
+      console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) → ${options.testFile}`)
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error)
       process.exit(1)
