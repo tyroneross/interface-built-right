@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { EngineDriver } from '../engine/driver.js';
+import { CompatPage } from '../engine/compat.js';
 import {
   InterfaceBuiltRight,
   formatReportText,
@@ -288,8 +290,6 @@ program
       const { loadRulesConfig, runRules, createAuditResult, formatAuditResult, registerPreset } = await import('../rules/engine.js');
       const { register } = await import('../rules/presets/minimal.js');
       const { extractInteractiveElements } = await import('../extract.js');
-      // @ts-ignore -- playwright is an optional peer dependency
-      const { chromium } = await import('playwright');
       const { discoverUserContext, formatContextSummary } = await import('../context-loader.js');
       const { createPresetFromFramework } = await import('../rules/dynamic-rules.js');
 
@@ -341,15 +341,10 @@ program
       console.log('');
 
       // Launch browser for audit
-      const browser = await chromium.launch({ headless: true });
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
-
-      const context = await browser.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        reducedMotion: 'reduce',
-      });
-
-      const page = await context.newPage();
+      const driver = new EngineDriver();
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
       // Wait for React/Vue/Angular hydration
@@ -555,8 +550,7 @@ program
         };
       }
 
-      await context.close();
-      await browser.close();
+      await driver.close();
 
       // Run integration checks if requested
       let integrationResult: { orphanCount: number; orphans: Array<{ endpoint: string; method: string; file: string; line?: number }> } | null = null;
@@ -2060,8 +2054,6 @@ program
     json?: boolean;
   }) => {
     try {
-      // @ts-ignore -- playwright is an optional peer dependency
-      const { chromium } = await import('playwright');
       const { aiSearchFlow } = await import('../flows/search.js');
       const { generateValidationContext, generateValidationPrompt, analyzeForObviousIssues } = await import('../flows/search-validation.js');
       const globalOpts = program.opts();
@@ -2074,15 +2066,10 @@ program
       console.log('');
 
       // Launch browser
-      const browser = await chromium.launch({ headless: true });
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
-
-      const context = await browser.newContext({
-        viewport: { width: viewport.width, height: viewport.height },
-        reducedMotion: 'reduce',
-      });
-
-      const page = await context.newPage();
+      const driver = new EngineDriver();
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
       // Create session directory for artifacts
@@ -2099,8 +2086,7 @@ program
         sessionDir,
       });
 
-      await context.close();
-      await browser.close();
+      await driver.close();
 
       // Generate validation context
       const validationContext = generateValidationContext(result);
@@ -3214,6 +3200,178 @@ program
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
+    }
+  });
+
+// test-search command — run searchFlow against a URL
+program
+  .command('test-search <url>')
+  .description('Test search functionality on a page using the search flow')
+  .option('-q, --query <q>', 'Search query', 'test')
+  .option('--expect-count <n>', 'Expected minimum result count', '0')
+  .option('--results-selector <css>', 'CSS selector for result elements')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, options: {
+    query: string;
+    expectCount: string;
+    resultsSelector?: string;
+    json?: boolean;
+  }) => {
+    const driver = new EngineDriver();
+    try {
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const { searchFlow } = await import('../flows/search.js');
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
+      await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+      const result = await searchFlow(page, {
+        query: options.query,
+        resultsSelector: options.resultsSelector,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+        console.log(`Results found: ${result.resultCount}`);
+        console.log(`Has results: ${result.hasResults}`);
+        console.log(`Duration: ${result.duration}ms`);
+        if (result.error) console.log(`Error: ${result.error}`);
+        const expected = parseInt(options.expectCount, 10);
+        if (expected > 0 && result.resultCount < expected) {
+          console.log(`Expected at least ${expected} results, got ${result.resultCount}`);
+        }
+      }
+
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    } finally {
+      await driver.close();
+    }
+  });
+
+// test-form command — run formFlow against a URL
+program
+  .command('test-form <url>')
+  .description('Test form submission on a page using the form flow')
+  .option('--fill <json>', 'JSON object of field name to value pairs, e.g. \'{"email":"user@example.com"}\'')
+  .option('--submit-button <text>', 'Text of the submit button')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, options: {
+    fill?: string;
+    submitButton?: string;
+    json?: boolean;
+  }) => {
+    const driver = new EngineDriver();
+    try {
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const { formFlow } = await import('../flows/form.js');
+
+      // Parse fill JSON into FormField array
+      let fields: Array<{ name: string; value: string }> = [];
+      if (options.fill) {
+        try {
+          const parsed = JSON.parse(options.fill) as Record<string, string>;
+          fields = Object.entries(parsed).map(([name, value]) => ({ name, value }));
+        } catch {
+          console.error('Error: --fill must be valid JSON, e.g. \'{"email":"user@example.com"}\'');
+          process.exit(1);
+        }
+      }
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
+      await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+      const result = await formFlow(page, {
+        fields,
+        submitButton: options.submitButton,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+        console.log(`Fields filled: ${result.filledFields.join(', ') || 'none'}`);
+        if (result.failedFields.length > 0) {
+          console.log(`Fields failed: ${result.failedFields.join(', ')}`);
+        }
+        console.log(`Duration: ${result.duration}ms`);
+        if (result.error) console.log(`Error: ${result.error}`);
+      }
+
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    } finally {
+      await driver.close();
+    }
+  });
+
+// test-login command — run loginFlow against a URL
+program
+  .command('test-login <url>')
+  .description('Test login flow on a page using the login flow')
+  .option('--email <email>', 'Email or username to log in with')
+  .option('--password <password>', 'Password to log in with')
+  .option('--success-indicator <text>', 'Selector or text indicating successful login')
+  .option('--json', 'Output as JSON')
+  .action(async (url: string, options: {
+    email?: string;
+    password?: string;
+    successIndicator?: string;
+    json?: boolean;
+  }) => {
+    const driver = new EngineDriver();
+    try {
+      const resolvedUrl = await resolveBaseUrl(url);
+      const globalOpts = program.opts();
+      const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
+
+      const { loginFlow } = await import('../flows/login.js');
+
+      if (!options.email || !options.password) {
+        console.error('Error: --email and --password are required');
+        process.exit(1);
+      }
+
+      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      const page = new CompatPage(driver);
+      await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
+
+      const result = await loginFlow(page, {
+        email: options.email,
+        password: options.password,
+        successIndicator: options.successIndicator,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(`Status: ${result.success ? 'SUCCESS' : 'FAILED'}`);
+        console.log(`Authenticated: ${result.authenticated}`);
+        if (result.username) console.log(`Username: ${result.username}`);
+        console.log(`Duration: ${result.duration}ms`);
+        if (result.error) console.log(`Error: ${result.error}`);
+      }
+
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    } finally {
+      await driver.close();
     }
   });
 
