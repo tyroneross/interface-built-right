@@ -35,6 +35,13 @@ export interface BrowserOptions {
   port?: number         // default: random ephemeral port
   userDataDir?: string  // default: ~/.ibr/chromium-profile/
   chromePath?: string   // override Chrome executable path
+  /**
+   * Rendering normalization for mockup comparison.
+   * Adds --disable-lcd-text and --force-device-scale-factor=1.
+   * These improve pixel-level consistency but reduce text rendering quality.
+   * Default: false
+   */
+  normalize?: boolean
 }
 
 function randomPort(): number {
@@ -70,6 +77,11 @@ export class BrowserManager {
     ]
     if (headless) {
       args.push('--headless=new')
+    }
+    if (options.normalize) {
+      // Reduce rendering inconsistencies for mockup pixel comparison
+      args.push('--disable-lcd-text')          // disable subpixel text rendering
+      args.push('--force-device-scale-factor=1') // prevent HiDPI scaling differences
     }
 
     this.process = spawn(chromePath, args, { stdio: 'pipe' })

@@ -3504,4 +3504,96 @@ program
     }
   })
 
+// ─── match command ────────────────────────────────────────────────────────────
+// Compare a design mockup PNG against a live rendered web page.
+// Usage:
+//   npx ibr match <mockup.png> <url>
+//   npx ibr match <mockup.png> <url> --selector '.hero-section'
+//   npx ibr match <mockup.png> <url> --mask-dynamic --save-diff diff.png
+
+program
+  .command('match <mockup> <url>')
+  .description('Compare a design mockup PNG against a live rendered page (SSIM + pixelmatch)')
+  .option('-s, --selector <css>', 'Crop live page to this CSS selector before comparison')
+  .option('-m, --mask-dynamic', 'Auto-mask dynamic content (timestamps, ads, live regions)')
+  .option('--json', 'Output results as JSON')
+  .option('--save-diff <path>', 'Save the pixel diff image to this file path')
+  .option('--headless', 'Run browser headless (default: true)', true)
+  .action(async (mockup: string, url: string, options: {
+    selector?: string
+    maskDynamic?: boolean
+    json?: boolean
+    saveDiff?: string
+    headless?: boolean
+  }) => {
+    try {
+      const { matchMockup, saveDiffImage } = await import('../mockup-match.js')
+      const { basename } = await import('path')
+      const globalOpts = program.opts()
+
+      // Resolve viewport from global --viewport option
+      const viewportName = (globalOpts.viewport as string) || 'desktop'
+      const viewportPreset = VIEWPORTS[viewportName as keyof typeof VIEWPORTS]
+
+      const result = await matchMockup({
+        mockupPath: mockup,
+        url,
+        selector: options.selector,
+        maskDynamic: options.maskDynamic ?? false,
+        headless: options.headless ?? true,
+        ...(viewportPreset ? { viewport: { width: viewportPreset.width, height: viewportPreset.height } } : {}),
+      })
+
+      // Save diff image if requested
+      if (options.saveDiff) {
+        await saveDiffImage(result.pixelDiff.diffImage, options.saveDiff)
+      }
+
+      if (options.json) {
+        const out = {
+          ssim: result.ssim,
+          pixelDiff: {
+            count: result.pixelDiff.count,
+            percentage: result.pixelDiff.percentage,
+          },
+          mockupDimensions: result.mockupDimensions,
+          liveDimensions: result.liveDimensions,
+          maskedRegions: result.maskedRegions,
+          ...(options.saveDiff ? { diffSavedTo: options.saveDiff } : {}),
+        }
+        console.log(JSON.stringify(out, null, 2))
+      } else {
+        const label = options.selector
+          ? options.selector.replace(/^[.#]/, '')
+          : basename(mockup, '.png')
+
+        const verdictSymbol = result.ssim.verdict === 'pass' ? 'PASS'
+          : result.ssim.verdict === 'review' ? 'REVIEW' : 'FAIL'
+
+        console.log(`\nMockup Match: ${label}`)
+        console.log(`  SSIM: ${result.ssim.score.toFixed(4)} (${verdictSymbol})`)
+        console.log(`  Pixel diff: ${result.pixelDiff.percentage}% (${result.pixelDiff.count} pixels)`)
+        console.log(`  Mockup: ${result.mockupDimensions.width}x${result.mockupDimensions.height}`)
+        console.log(`  Live: ${result.liveDimensions.width}x${result.liveDimensions.height}`)
+
+        if (result.maskedRegions.length > 0) {
+          console.log(`  Masked: ${result.maskedRegions.length} regions (${result.maskedRegions.join(', ')})`)
+        }
+
+        if (options.saveDiff) {
+          console.log(`  Diff saved: ${options.saveDiff}`)
+        }
+        console.log('')
+      }
+
+      // Exit 0 for pass, 1 for review or fail
+      if (result.ssim.verdict !== 'pass') {
+        process.exit(1)
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
 program.parse();
