@@ -59,6 +59,16 @@ Use scan first for property verification, add screenshot when visual confirmatio
 |---------|---------|
 | `/ibr:snapshot` | Capture reference point before UI changes |
 | `/ibr:compare` | Compare current state against reference point |
+| `/ibr:interact` | Click, type, verify — interaction assertions |
+| `/ibr:match` | Compare mockup PNG against live page (SSIM) |
+| `/ibr:test` | Run declarative .ibr-test.json tests |
+| `/ibr:generate-test` | Auto-generate tests from page observation |
+| `/ibr:record-change` | Record a design change for later verification |
+| `/ibr:verify-changes` | Verify all recorded design changes |
+| `/ibr:compare-browsers` | Side-by-side Chrome vs Safari diff |
+| `/ibr:test-search` | Test search flow on a page |
+| `/ibr:test-form` | Test form submission flow |
+| `/ibr:test-login` | Test login flow |
 | `/ibr:full-interface-scan` | Scan all pages, inspect every component |
 | `/ibr:build-baseline` | Create reference points for all pages |
 | `/ibr:ui` | Open web dashboard at localhost:4200 |
@@ -67,19 +77,48 @@ Use scan first for property verification, add screenshot when visual confirmatio
 ## CLI Reference
 
 ```bash
+# Core scanning
 npx ibr scan <url> --json           # read live UI data
 npx ibr start <url> --name "name"   # capture reference point
 npx ibr check                       # compare against reference point
+
+# Interaction testing
+npx ibr interact <url> --action 'click:button:Submit' --expect 'visible:Success'
+npx ibr test-search <url> --query "debug" --expect-count 1
+npx ibr test-form <url> --fill '{"name":"Test","email":"a@b.com"}'
+npx ibr test-login <url> --email user@test.com --password secret
+
+# Mockup matching
+npx ibr match mockup.png <url>                        # full page SSIM comparison
+npx ibr match mockup.png <url> --selector '.hero'     # region comparison
+npx ibr match mockup.png <url> --mask-dynamic          # auto-mask timestamps
+
+# Design verification
+npx ibr record-change <url> --element "header" --description "Blue 48px bold" --checks '[...]'
+npx ibr verify-changes <url>                           # verify all recorded changes
+
+# Test generation & execution
+npx ibr generate-test <url>                            # auto-generate .ibr-test.json
+npx ibr generate-test <url> --scenario "search for X"  # scenario-targeted
+npx ibr test                                           # run .ibr-test.json
+npx ibr run-script tests/e2e.py                        # execute Python test script
+
+# Fix-and-iterate
+npx ibr iterate <url> --test .ibr-test.json            # run one iteration, track convergence
+
+# Cross-browser
+npx ibr compare-browsers <url>                         # Chrome vs Safari side-by-side
+
+# Other
 npx ibr memory add "<spec>"         # store design spec
-npx ibr memory list                 # show stored specs
 npx ibr list                        # list sessions
-npx ibr login <url>                 # authenticate for protected pages
-npx ibr logout                      # clear auth
 npx ibr serve                       # open web dashboard
 ```
 
 **Viewports:** `desktop`, `laptop`, `tablet`, `mobile`, `iphone-14`, `iphone-14-pro-max`
 Use: `npx ibr scan <url> --viewport mobile --json`
+
+**Safari:** Add `--browser safari` to commands that support it. Requires one-time `sudo safaridriver --enable`.
 
 ## Interactive Sessions
 
