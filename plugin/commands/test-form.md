@@ -4,7 +4,7 @@ description: Test form submission on a page using the IBR form flow
 arguments:
   - name: url
     description: URL of the page with the form to test
-    required: true
+    required: false
 ---
 
 # IBR Test Form

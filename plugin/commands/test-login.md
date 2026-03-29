@@ -4,7 +4,7 @@ description: Test login flow on a page using the IBR login flow
 arguments:
   - name: url
     description: URL of the login page to test
-    required: true
+    required: false
 ---
 
 # IBR Test Login
