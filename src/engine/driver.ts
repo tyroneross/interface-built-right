@@ -25,6 +25,26 @@ import { observe, type ActionDescriptor, type ObserveOptions } from './observe.j
 import { extractFromAXTree, extractList, extractPageMeta, type ExtractSchema, type ExtractResult } from './extract.js'
 import { ResolutionCache, type CacheOptions } from './cache.js'
 import { assessUnderstanding, type UnderstandingScore, type ModalityOptions } from './modality.js'
+import { extractShadowElements } from './shadow-dom.js'
+
+export interface CoverageReport {
+  /** Elements captured by the AX tree */
+  axTreeCount: number
+  /** Estimated visible elements in the DOM (not aria-hidden, has dimensions) */
+  estimatedVisible: number
+  /** axTreeCount / estimatedVisible * 100, capped at 100 */
+  coveragePercent: number
+  /** Elements found inside open shadow DOMs (invisible to AX tree) */
+  shadowDomCount: number
+  /** Canvas elements on the page (completely opaque to AX tree) */
+  canvasCount: number
+  /** Iframe elements on the page (separate AX trees) */
+  iframeCount: number
+  /** Elements recovered via shadow DOM piercing */
+  recovered: number
+  /** Human-readable descriptions of coverage gaps */
+  gaps: string[]
+}
 
 export interface LaunchOptions extends BrowserOptions {
   viewport?: ViewportConfig
@@ -681,6 +701,77 @@ export class EngineDriver {
   async assessUnderstanding(options?: ModalityOptions): Promise<UnderstandingScore> {
     const elements = await this.ax.getSnapshot()
     return assessUnderstanding(elements, options)
+  }
+
+  // ─── Coverage Reporting ────────────────────────────────
+
+  /**
+   * Report AX tree coverage against estimated visible DOM elements.
+   * Surfaces blind spots: shadow DOM, canvas, iframes.
+   */
+  async getCoverage(): Promise<CoverageReport> {
+    const gaps: string[] = []
+
+    // 1. AX tree count
+    const axElements = await this.ax.getSnapshot()
+    const axTreeCount = axElements.length
+
+    // 2. Estimated visible DOM elements (not aria-hidden, has layout dimensions)
+    const estimatedVisible = await this.runtime.evaluate(`
+      (function() {
+        const all = document.querySelectorAll('*');
+        let count = 0;
+        for (const el of all) {
+          if (el.getAttribute('aria-hidden') === 'true') continue;
+          if (el.offsetWidth > 0 || el.offsetHeight > 0) count++;
+        }
+        return count;
+      })()
+    `) as number
+
+    // 3. Canvas elements
+    const canvasCount = await this.runtime.evaluate(
+      `document.querySelectorAll('canvas').length`,
+    ) as number
+
+    // 4. Iframe elements
+    const iframeCount = await this.runtime.evaluate(
+      `document.querySelectorAll('iframe').length`,
+    ) as number
+
+    // 5. Shadow DOM extraction
+    const shadowElements = await extractShadowElements(this.runtime)
+    const shadowDomCount = shadowElements.length
+    const recovered = shadowDomCount
+
+    // 6. Build gap descriptions
+    if (canvasCount > 0) {
+      gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? 's' : ''} (invisible to AX tree)`)
+    }
+    if (iframeCount > 0) {
+      gaps.push(`${iframeCount} iframe${iframeCount > 1 ? 's' : ''} (separate AX tree${iframeCount > 1 ? 's' : ''})`)
+    }
+    if (shadowDomCount > 0) {
+      gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? 's' : ''} (open shadow root — recovered via piercing)`)
+    }
+
+    const safeVisible = estimatedVisible > 0 ? estimatedVisible : 1
+    const coveragePercent = Math.min(100, Math.round((axTreeCount / safeVisible) * 100))
+
+    if (coveragePercent < 50) {
+      gaps.push(`Low AX coverage: ${coveragePercent}% of visible DOM captured`)
+    }
+
+    return {
+      axTreeCount,
+      estimatedVisible,
+      coveragePercent,
+      shadowDomCount,
+      canvasCount,
+      iframeCount,
+      recovered,
+      gaps,
+    }
   }
 
   // ─── LLM-Native: Cache ─────────────────────────────────
