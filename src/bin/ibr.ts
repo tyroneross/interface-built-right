@@ -3747,4 +3747,152 @@ program
     }
   });
 
+// ============================================================
+// PHASE 5 — TEST GENERATION, EXECUTION, SCRIPTING, ITERATE
+// ============================================================
+
+// generate-test command
+program
+  .command('generate-test <url>')
+  .description('Generate a declarative .ibr-test.json file from page observation')
+  .option('--scenario <text>', 'Natural language scenario description')
+  .option('--output <path>', 'Output path for test file', '.ibr-test.json')
+  .action(async (url: string, options: { scenario?: string; output: string }) => {
+    try {
+      const { generateTest } = await import('../test-generator.js')
+      const suite = await generateTest({
+        url,
+        scenario: options.scenario,
+        outputPath: options.output,
+      })
+      const pageNames = Object.keys(suite)
+      const total = pageNames.reduce((s, k) => s + suite[k].tests.length, 0)
+      console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) → ${options.output}`)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// test command
+program
+  .command('test')
+  .description('Run declarative .ibr-test.json test file')
+  .option('--file <path>', 'Path to test file', '.ibr-test.json')
+  .option('--output-dir <dir>', 'Directory to store screenshots/results', '.ibr/test-results')
+  .option('--headless', 'Run headless (default: true)', true)
+  .option('--json', 'Output results as JSON')
+  .action(async (options: { file: string; outputDir: string; headless: boolean; json?: boolean }) => {
+    try {
+      const { runTests, formatRunResult } = await import('../test-runner.js')
+      const results = await runTests({
+        filePath: options.file,
+        outputDir: options.outputDir,
+        headless: options.headless,
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(results, null, 2))
+      } else {
+        for (const result of results) {
+          console.log(formatRunResult(result))
+          console.log('')
+        }
+        const totalPassed = results.reduce((s, r) => s + r.passed, 0)
+        const totalFailed = results.reduce((s, r) => s + r.failed, 0)
+        console.log(`Summary: ${totalPassed} passed, ${totalFailed} failed`)
+      }
+
+      const anyFailed = results.some(r => r.failed > 0)
+      process.exit(anyFailed ? 1 : 0)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// run-script command
+program
+  .command('run-script <script>')
+  .description('Execute a Python test script with sandboxed resource limits')
+  .option('--url <url>', 'URL passed to script as IBR_URL env var')
+  .option('--timeout <ms>', 'Timeout in milliseconds', '60000')
+  .option('--memory <mb>', 'Memory limit in MB', '512')
+  .option('--cpu <seconds>', 'CPU time limit in seconds', '30')
+  .option('--json', 'Output result as JSON')
+  .action(async (script: string, options: { url?: string; timeout: string; memory: string; cpu: string; json?: boolean }) => {
+    try {
+      const { runScript, formatScriptResult } = await import('../script-runner.js')
+      const result = await runScript({
+        scriptPath: script,
+        url: options.url,
+        timeout: parseInt(options.timeout, 10),
+        memoryMB: parseInt(options.memory, 10),
+        cpuSeconds: parseInt(options.cpu, 10),
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2))
+      } else {
+        console.log(formatScriptResult(result))
+      }
+
+      process.exit(result.exitCode)
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
+// iterate command
+program
+  .command('iterate <url>')
+  .description('Run one iteration of the test-fix loop and report convergence state')
+  .option('--test <path>', 'Path to .ibr-test.json (uses IBR scan if omitted)')
+  .option('--max-iterations <n>', 'Maximum iterations before stopping', '7')
+  .option('--output-dir <dir>', 'Directory for iteration state and results', '.ibr/iterate')
+  .option('--auto-approve', 'Skip user approval at checkpoint iterations')
+  .option('--reset', 'Reset iteration state and start fresh')
+  .option('--json', 'Output result as JSON')
+  .action(async (url: string, options: { test?: string; maxIterations: string; outputDir: string; autoApprove?: boolean; reset?: boolean; json?: boolean }) => {
+    try {
+      const { iterate, resetIterateState } = await import('../iterate.js')
+
+      if (options.reset) {
+        await resetIterateState(options.outputDir)
+        console.log('Iteration state reset.')
+        return
+      }
+
+      const result = await iterate({
+        url,
+        testFile: options.test,
+        maxIterations: parseInt(options.maxIterations, 10),
+        outputDir: options.outputDir,
+        autoApprove: options.autoApprove ?? false,
+      })
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2))
+      } else {
+        const last = result.iterations[result.iterations.length - 1]
+        if (last) {
+          console.log(`Iteration ${last.iteration}: ${last.issueCount} issue(s) | hash=${last.scanHash} | delta=${last.netDelta >= 0 ? '+' : ''}${last.netDelta} | ${last.approachHint}`)
+        }
+        console.log(`State: ${result.finalState}`)
+        console.log(result.summary)
+      }
+
+      // Exit non-zero if regressing or budget exceeded with remaining issues
+      const last = result.iterations[result.iterations.length - 1]
+      const hasIssues = last ? last.issueCount > 0 : false
+      if (result.finalState === 'regressing' || (result.finalState === 'budget_exceeded' && hasIssues)) {
+        process.exit(1)
+      }
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error)
+      process.exit(1)
+    }
+  })
+
 program.parse();
