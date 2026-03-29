@@ -1,0 +1,42 @@
+{
+  "version": "1.0.0",
+  "project_path": "/Users/tyroneross/Desktop/git-folder/interface-built-right/.worktrees/visual-testing-platform",
+  "last_updated": 1774802696971,
+  "stats": {
+    "total_snapshots": 4,
+    "compaction_cycles": 0,
+    "last_compaction": 0,
+    "last_snapshot": 1774802696971,
+    "last_time_based": 1774802270872
+  },
+  "snapshots": [
+    {
+      "id": "SNAP_20260329_094456",
+      "timestamp": 1774802696971,
+      "trigger": "session_end",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    },
+    {
+      "id": "SNAP_20260329_093750",
+      "timestamp": 1774802270872,
+      "trigger": "time_interval",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    },
+    {
+      "id": "SNAP_20260329_083947",
+      "timestamp": 1774798787456,
+      "trigger": "session_end",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    },
+    {
+      "id": "SNAP_20260329_083940",
+      "timestamp": 1774798780477,
+      "trigger": "session_end",
+      "compaction_cycle": 0,
+      "files_changed_count": 2
+    }
+  ]
+}

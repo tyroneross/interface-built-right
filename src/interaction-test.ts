@@ -219,20 +219,31 @@ async function executeStep(
       })
     }
 
-    // count — number of elements matching the visible target
-    if (expectation.count !== undefined && expectation.visible !== undefined) {
-      const name = expectation.visible.toLowerCase()
-      const matching = afterElements.filter(
-        (e) =>
-          e.label?.toLowerCase().includes(name) ||
-          e.value?.toString().toLowerCase().includes(name),
-      )
-      const passed = matching.length === expectation.count
-      assertions.push({
-        check: `count: ${expectation.count} of "${expectation.visible}"`,
-        passed,
-        detail: `Found ${matching.length} elements matching "${expectation.visible}" (expected ${expectation.count})`,
-      })
+    // count — number of elements matching (uses visible target, or all interactive elements if no visible)
+    if (expectation.count !== undefined) {
+      if (expectation.visible !== undefined) {
+        const name = expectation.visible.toLowerCase()
+        const matching = afterElements.filter(
+          (e) =>
+            e.label?.toLowerCase().includes(name) ||
+            e.value?.toString().toLowerCase().includes(name),
+        )
+        const passed = matching.length === expectation.count
+        assertions.push({
+          check: `count: ${expectation.count} of "${expectation.visible}"`,
+          passed,
+          detail: `Found ${matching.length} elements matching "${expectation.visible}" (expected ${expectation.count})`,
+        })
+      } else {
+        // count without visible — count all interactive elements
+        const interactive = afterElements.filter((e) => e.actions && e.actions.length > 0)
+        const passed = interactive.length === expectation.count
+        assertions.push({
+          check: `count: ${expectation.count} interactive elements`,
+          passed,
+          detail: `Found ${interactive.length} interactive elements (expected ${expectation.count})`,
+        })
+      }
     }
 
     // screenshot — save the after screenshot with a given name

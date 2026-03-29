@@ -1,0 +1,38 @@
+{
+  "snapshot_id": "SNAP_20260329_083947",
+  "timestamp": 1774798787456,
+  "session_id": "007aa4e4-acc0-42b4-88e7-f97a1f2c6308",
+  "project_path": "/Users/tyroneross/Desktop/git-folder/interface-built-right/.worktrees/visual-testing-platform",
+  "trigger": "session_end",
+  "compaction_cycle": 0,
+  "files_changed": [
+    {
+      "path": "/Users/tyroneross/Desktop/git-folder/interface-built-right/.worktrees/visual-testing-platform/plugin/commands/test-form.md",
+      "operations": [
+        "edit"
+      ],
+      "lines_changed": 1
+    },
+    {
+      "path": "/Users/tyroneross/Desktop/git-folder/interface-built-right/.worktrees/visual-testing-platform/plugin/commands/test-login.md",
+      "operations": [
+        "edit"
+      ],
+      "lines_changed": 1
+    }
+  ],
+  "tools_summary": {
+    "Read": 28,
+    "Bash": 18,
+    "Grep": 14,
+    "Agent": 13,
+    "Write": 6,
+    "ToolSearch": 3,
+    "ExitPlanMode": 4,
+    "Skill": 3,
+    "Edit": 8,
+    "TaskCreate": 7,
+    "TaskUpdate": 2
+  },
+  "prior_snapshot_id": "SNAP_20260329_083940"
+}
