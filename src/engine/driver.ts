@@ -19,7 +19,7 @@ import { ConsoleDomain, type ConsoleMessage } from './cdp/console.js'
 import { waitForStableTree, waitForStable } from './cdp/wait.js'
 import pixelmatch from 'pixelmatch'
 import { PNG } from 'pngjs'
-import type { Element, Snapshot } from './types.js'
+import type { Element, Snapshot, BrowserDriver } from './types.js'
 import { serializeSnapshot } from './serialize.js'
 import { observe, type ActionDescriptor, type ObserveOptions } from './observe.js'
 import { extractFromAXTree, extractList, extractPageMeta, type ExtractSchema, type ExtractResult } from './extract.js'
@@ -86,7 +86,7 @@ export interface CapturedState {
   timestamp: number
 }
 
-export class EngineDriver {
+export class EngineDriver implements BrowserDriver {
   private browser = new BrowserManager()
   private conn = new CdpConnection()
   // Resolution cache initialized in constructor or with defaults
@@ -104,7 +104,7 @@ export class EngineDriver {
 
   private targetId: string | null = null
   private sessionId: string | null = null
-  private currentUrl = ''
+  private _currentUrl = ''
   private launched = false
   private resolutionCache = new ResolutionCache()
 
@@ -178,15 +178,21 @@ export class EngineDriver {
     // 'none' — return immediately
 
     // Read actual URL after navigation (handles redirects)
-    this.currentUrl = await this.runtime.evaluate('location.href') as string ?? url
+    this._currentUrl = await this.runtime.evaluate('location.href') as string ?? url
 
     // Clear resolution cache on navigation (element IDs change)
     this.resolutionCache.clear()
   }
 
   get url(): string {
-    return this.currentUrl
+    return this._currentUrl
   }
+
+  /** BrowserDriver interface: currentUrl alias */
+  get currentUrl(): string {
+    return this._currentUrl
+  }
+
 
   // ─── Element Discovery (LLM-native) ────────────────────
 
@@ -218,7 +224,7 @@ export class EngineDriver {
 
     if (options.serialize) {
       const snap: Snapshot = {
-        url: this.currentUrl,
+        url: this._currentUrl,
         platform: 'web',
         elements: filtered,
         timestamp: Date.now(),
@@ -503,7 +509,7 @@ export class EngineDriver {
    */
   async captureState(options: CaptureStateOptions = {}): Promise<CapturedState> {
     const state: CapturedState = {
-      url: this.currentUrl,
+      url: this._currentUrl,
       timestamp: Date.now(),
     }
 

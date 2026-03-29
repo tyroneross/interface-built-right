@@ -8,7 +8,7 @@
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import type { EngineDriver } from './engine/driver.js';
+import type { BrowserDriver } from './engine/types.js';
 import type { DesignChange, DesignCheck, DesignCheckOperator } from './context/types.js';
 
 // ─── Result types ────────────────────────────────────────────
@@ -127,7 +127,7 @@ function applyOperator(
 // ─── CSS property fetcher ────────────────────────────────────
 
 async function getComputedProperty(
-  driver: EngineDriver,
+  driver: BrowserDriver,
   elementQuery: string,
   property: string,
 ): Promise<string | null> {
@@ -174,7 +174,7 @@ async function getComputedProperty(
 // ─── Semantic check (exists / truthy via AX tree) ────────────
 
 async function checkSemanticProperty(
-  driver: EngineDriver,
+  driver: BrowserDriver,
   elementQuery: string,
   property: string,
 ): Promise<string | null> {
@@ -207,7 +207,7 @@ async function checkSemanticProperty(
  */
 export async function verifyChange(
   change: DesignChange,
-  driver: EngineDriver,
+  driver: BrowserDriver,
 ): Promise<VerifyResult> {
   const results: CheckResult[] = [];
 
@@ -236,7 +236,7 @@ export async function verifyChange(
 }
 
 async function verifyCheck(
-  driver: EngineDriver,
+  driver: BrowserDriver,
   elementQuery: string,
   check: DesignCheck,
 ): Promise<CheckResult> {
@@ -271,7 +271,7 @@ async function verifyCheck(
  */
 export async function verifyAllChanges(
   changes: DesignChange[],
-  driver: EngineDriver,
+  driver: BrowserDriver,
 ): Promise<VerifyResult[]> {
   const results: VerifyResult[] = [];
   for (const change of changes) {

@@ -3,6 +3,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { EngineDriver } from '../engine/driver.js';
+import type { BrowserDriver } from '../engine/types.js';
 import { CompatPage } from '../engine/compat.js';
 import {
   InterfaceBuiltRight,
@@ -83,6 +84,18 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
   return new InterfaceBuiltRight(merged);
 }
 
+/**
+ * Create the appropriate BrowserDriver based on --browser global option.
+ * Defaults to Chrome (EngineDriver).
+ */
+async function createDriver(browser?: string): Promise<BrowserDriver> {
+  if (browser === 'safari') {
+    const { SafariDriver } = await import('../engine/safari/driver.js');
+    return new SafariDriver();
+  }
+  return new EngineDriver();
+}
+
 program
   .name('ibr')
   .description('Design validation for Claude Code')
@@ -93,7 +106,8 @@ program
   .option('-b, --base-url <url>', 'Base URL for the application')
   .option('-o, --output <dir>', 'Output directory', './.ibr')
   .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet', 'desktop')
-  .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0');
+  .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0')
+  .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome');
 
 // Start command
 program
@@ -3693,11 +3707,11 @@ program
   .description('Verify all recorded design changes against the live page')
   .option('--json', 'Output results as JSON')
   .action(async (url: string, options: { json?: boolean }) => {
-    const driver = new EngineDriver();
+    const globalOpts = program.opts();
+    const driver = await createDriver(globalOpts.browser);
     try {
       const { loadChanges, verifyAllChanges, formatVerifyResult } = await import('../design-verifier.js');
       const resolvedUrl = await resolveBaseUrl(url);
-      const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
 
@@ -3894,5 +3908,186 @@ program
       process.exit(1)
     }
   })
+
+// ─── compare-browsers command ─────────────────────────────────────────────────
+// Run a scan in both Chrome and Safari, then diff screenshots + element lists.
+// Usage:
+//   npx ibr compare-browsers <url>
+//   npx ibr compare-browsers <url> --save-diff .ibr/browser-diff.png --json
+
+program
+  .command('compare-browsers <url>')
+  .description('Scan in Chrome and Safari, diff screenshots and element counts')
+  .option('--save-diff <path>', 'Save pixel diff image to this path')
+  .option('--json', 'Output results as JSON')
+  .option('--timeout <ms>', 'Navigation timeout in ms', '15000')
+  .action(async (url: string, options: {
+    saveDiff?: string
+    json?: boolean
+    timeout: string
+  }) => {
+    const resolvedUrl = await resolveBaseUrl(url)
+    const globalOpts = program.opts()
+    const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop
+    const timeout = parseInt(options.timeout, 10)
+
+    if (!options.json) {
+      console.log(`Comparing browsers for: ${resolvedUrl}`)
+      console.log('')
+    }
+
+    // ── Chrome scan ──────────────────────────────────────────
+    if (!options.json) console.log('Chrome: launching...')
+    const chromeDriver = new EngineDriver()
+    let chromeScreenshot: Buffer | null = null
+    let chromeElements: any[] = []
+    let chromeError: string | null = null
+
+    try {
+      await chromeDriver.launch({
+        headless: true,
+        viewport: { width: viewport.width, height: viewport.height },
+      })
+      await chromeDriver.navigate(resolvedUrl, { waitFor: 'stable', timeout })
+      chromeScreenshot = await chromeDriver.screenshot()
+      const discovered = await chromeDriver.discover({ filter: 'interactive' })
+      chromeElements = Array.isArray(discovered) ? discovered : []
+      if (!options.json) console.log(`Chrome: ${chromeElements.length} interactive elements`)
+    } catch (err) {
+      chromeError = err instanceof Error ? err.message : String(err)
+      if (!options.json) console.log(`Chrome: failed — ${chromeError}`)
+    } finally {
+      await chromeDriver.close().catch(() => {})
+    }
+
+    // ── Safari scan ──────────────────────────────────────────
+    if (!options.json) console.log('Safari: launching...')
+    const { SafariDriver } = await import('../engine/safari/driver.js')
+    const safariDriver = new SafariDriver()
+    let safariScreenshot: Buffer | null = null
+    let safariElements: any[] = []
+    let safariError: string | null = null
+
+    try {
+      // Check safaridriver is enabled before attempting
+      const { SafariSession } = await import('../engine/safari/session.js')
+      const enabled = await SafariSession.isEnabled()
+      if (!enabled) {
+        safariError = 'safaridriver not enabled. Run: sudo safaridriver --enable'
+        if (!options.json) console.log(`Safari: skipped — ${safariError}`)
+      } else {
+        await safariDriver.launch({ viewport: { width: viewport.width, height: viewport.height } })
+        await safariDriver.navigate(resolvedUrl, { waitFor: 'load', timeout })
+        safariScreenshot = await safariDriver.screenshot()
+        const discovered = await safariDriver.discover({ filter: 'interactive' })
+        safariElements = Array.isArray(discovered) ? discovered : []
+        if (!options.json) console.log(`Safari: ${safariElements.length} interactive elements`)
+      }
+    } catch (err) {
+      safariError = err instanceof Error ? err.message : String(err)
+      if (!options.json) console.log(`Safari: failed — ${safariError}`)
+    } finally {
+      await safariDriver.close().catch(() => {})
+    }
+
+    // ── Visual diff ──────────────────────────────────────────
+    let pixelDiff: number | null = null
+    let diffPercent: number | null = null
+    let diffSaved = false
+
+    if (chromeScreenshot && safariScreenshot) {
+      try {
+        const { PNG } = await import('pngjs')
+        const pixelmatch = (await import('pixelmatch')).default
+
+        const chromePng = PNG.sync.read(chromeScreenshot)
+        const safariPng = PNG.sync.read(safariScreenshot)
+
+        // Resize to smaller dimension if sizes differ
+        const w = Math.min(chromePng.width, safariPng.width)
+        const h = Math.min(chromePng.height, safariPng.height)
+
+        const diff = new PNG({ width: w, height: h })
+
+        // Crop chrome to match safari dims
+        const chromeData = cropPngData(chromePng.data, chromePng.width, w, h)
+        const safariData = cropPngData(safariPng.data, safariPng.width, w, h)
+
+        pixelDiff = pixelmatch(chromeData, safariData, diff.data, w, h, {
+          threshold: 0.1,
+          includeAA: false,
+        })
+        diffPercent = Math.round((pixelDiff / (w * h)) * 10000) / 100
+
+        if (options.saveDiff) {
+          const { writeFile, mkdir: mkdirFs } = await import('fs/promises')
+          const { dirname } = await import('path')
+          await mkdirFs(dirname(options.saveDiff), { recursive: true })
+          await writeFile(options.saveDiff, PNG.sync.write(diff))
+          diffSaved = true
+        }
+      } catch {
+        // Pixel diff is best-effort
+      }
+    }
+
+    // ── Element diff ─────────────────────────────────────────
+    const chromeLabels = new Set(chromeElements.map((e: any) => e.label?.toLowerCase()).filter(Boolean))
+    const safariLabels = new Set(safariElements.map((e: any) => e.label?.toLowerCase()).filter(Boolean))
+    const onlyInChrome = [...chromeLabels].filter((l) => !safariLabels.has(l))
+    const onlyInSafari = [...safariLabels].filter((l) => !chromeLabels.has(l))
+
+    // ── Output ───────────────────────────────────────────────
+    const result = {
+      url: resolvedUrl,
+      chrome: {
+        elementCount: chromeElements.length,
+        error: chromeError,
+      },
+      safari: {
+        elementCount: safariElements.length,
+        error: safariError,
+      },
+      diff: {
+        pixelDiff,
+        diffPercent,
+        diffSaved: diffSaved ? options.saveDiff : null,
+        elementsOnlyInChrome: onlyInChrome,
+        elementsOnlyInSafari: onlyInSafari,
+      },
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2))
+    } else {
+      console.log('')
+      console.log('Results:')
+      console.log(`  Chrome: ${chromeError ? 'ERROR' : `${chromeElements.length} elements`}`)
+      console.log(`  Safari: ${safariError ? 'ERROR' : `${safariElements.length} elements`}`)
+      if (pixelDiff !== null) {
+        console.log(`  Visual diff: ${diffPercent}% (${pixelDiff} pixels)`)
+      }
+      if (onlyInChrome.length > 0) {
+        console.log(`  Only in Chrome: ${onlyInChrome.slice(0, 5).join(', ')}${onlyInChrome.length > 5 ? ` +${onlyInChrome.length - 5} more` : ''}`)
+      }
+      if (onlyInSafari.length > 0) {
+        console.log(`  Only in Safari: ${onlyInSafari.slice(0, 5).join(', ')}${onlyInSafari.length > 5 ? ` +${onlyInSafari.length - 5} more` : ''}`)
+      }
+      if (diffSaved) {
+        console.log(`  Diff saved: ${options.saveDiff}`)
+      }
+    }
+  })
+
+/** Helper: crop PNG pixel data to new dimensions */
+function cropPngData(data: Buffer, srcWidth: number, dstWidth: number, dstHeight: number): Buffer {
+  const dst = Buffer.alloc(dstWidth * dstHeight * 4)
+  for (let y = 0; y < dstHeight; y++) {
+    const srcOff = y * srcWidth * 4
+    const dstOff = y * dstWidth * 4
+    data.copy(dst, dstOff, srcOff, srcOff + dstWidth * 4)
+  }
+  return dst
+}
 
 program.parse();
