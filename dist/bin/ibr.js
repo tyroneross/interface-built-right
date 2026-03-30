@@ -1941,6 +1941,10 @@ var init_resolve = __esm({
 });
 
 // src/engine/driver.ts
+var driver_exports = {};
+__export(driver_exports, {
+  EngineDriver: () => EngineDriver
+});
 function chunkElements(elements, maxTokens) {
   const charsPerToken = 4;
   const charsPerElement = 40;
@@ -12386,8 +12390,8 @@ var init_session2 = __esm({
 });
 
 // src/engine/safari/driver.ts
-var driver_exports = {};
-__export(driver_exports, {
+var driver_exports2 = {};
+__export(driver_exports2, {
   SafariDriver: () => SafariDriver
 });
 var import_child_process7, import_util6, execFileAsync6, SafariDriver;
@@ -17505,7 +17509,7 @@ async function createIBR(options = {}) {
 }
 async function createDriver(browser) {
   if (browser === "safari") {
-    const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports));
+    const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports2));
     return new SafariDriver2();
   }
   return new EngineDriver();
@@ -19887,7 +19891,7 @@ program.command("test-login <url>").description("Test login flow on a page using
     await driver3.close();
   }
 });
-program.command("interact <url>").description("Run interaction assertions: click X, verify Y happened").option("-a, --action <spec>", "Action specification (repeatable). Format: type[:role]:target[:value]", (val, acc) => {
+program.command("test-interact <url>").description("Run interaction assertions: click X, verify Y happened").option("-a, --action <spec>", "Action specification (repeatable). Format: type[:role]:target[:value]", (val, acc) => {
   acc.push(val);
   return acc;
 }, []).option("-e, --expect <spec>", "Assertion specification (repeatable). Format: visible|hidden|text|count:value", (val, acc) => {
@@ -20267,7 +20271,7 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
     });
   }
   if (!options.json) console.log("Safari: launching...");
-  const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports));
+  const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports2));
   const safariDriver = new SafariDriver2();
   let safariScreenshot = null;
   let safariElements = [];
@@ -20374,5 +20378,127 @@ function cropPngData(data, srcWidth, dstWidth, dstHeight) {
   }
   return dst;
 }
+program.command("interact <url>").description("Click, type, fill, or interact with elements on a page").requiredOption("-a, --action <action>", "Action: click, type, fill, hover, press, scroll, select, check").requiredOption("-t, --target <name>", "Element accessible name").option("-v, --value <text>", "Value for type/fill/press/select").option("-r, --role <role>", "ARIA role filter").option("--no-screenshot", "Skip screenshot after interaction").action(async (url, opts) => {
+  const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+  const driver3 = new EngineDriver2();
+  try {
+    await driver3.launch({ headless: true });
+    await driver3.navigate(url);
+    const element = await driver3.find(opts.target, opts.role ? { role: opts.role } : void 0);
+    if (!element) {
+      console.error(`Element not found: "${opts.target}"`);
+      console.error('Use "ibr observe <url>" to see available elements.');
+      process.exit(1);
+    }
+    const action = opts.action;
+    switch (action) {
+      case "click":
+        await driver3.click(element.id);
+        break;
+      case "type":
+        await driver3.type(element.id, opts.value || "");
+        break;
+      case "fill":
+        await driver3.fill(element.id, opts.value || "");
+        break;
+      case "hover":
+        await driver3.hover(element.id);
+        break;
+      case "press":
+        await driver3.pressKey(opts.value || "Enter");
+        break;
+      case "scroll":
+        await driver3.scroll(Number(opts.value) || 300);
+        break;
+      case "select":
+        await driver3.select(element.id, opts.value || "");
+        break;
+      case "check":
+        await driver3.check(element.id);
+        break;
+      default:
+        console.error(`Unknown action: ${action}`);
+        process.exit(1);
+    }
+    await new Promise((r) => setTimeout(r, 500));
+    console.log(`\u2713 ${action} on "${opts.target}" succeeded`);
+    if (opts.screenshot !== false) {
+      const fs2 = await import("fs");
+      const path2 = await import("path");
+      const buf = await driver3.screenshot();
+      const globalOpts = program.opts();
+      const outDir = globalOpts.output || "./.ibr";
+      fs2.mkdirSync(outDir, { recursive: true });
+      const filename = `interact-${Date.now()}.png`;
+      fs2.writeFileSync(path2.join(outDir, filename), buf);
+      console.log(`Screenshot: ${path2.join(outDir, filename)}`);
+    }
+  } catch (err) {
+    console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  } finally {
+    await driver3.close().catch(() => {
+    });
+  }
+});
+program.command("observe <url>").description("Preview available actions on a page without executing them").option("-r, --role <role>", "Filter by ARIA role").option("-l, --limit <n>", "Max results", "30").action(async (url, opts) => {
+  const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+  const driver3 = new EngineDriver2();
+  try {
+    await driver3.launch({ headless: true });
+    await driver3.navigate(url);
+    const actions = await driver3.observe({ role: opts.role, limit: Number(opts.limit) });
+    if (actions.length === 0) {
+      console.log("No interactive elements found.");
+      return;
+    }
+    console.log(`Found ${actions.length} interactive elements:
+`);
+    actions.forEach((a, i) => {
+      console.log(`  ${String(i + 1).padStart(2)}. [${a.role}] "${a.label}" \u2014 ${a.actions.join(", ")}`);
+    });
+  } catch (err) {
+    console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  } finally {
+    await driver3.close().catch(() => {
+    });
+  }
+});
+program.command("extract <url>").description("Extract structured data from a page \u2014 headings, buttons, inputs, links").action(async (url) => {
+  const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+  const driver3 = new EngineDriver2();
+  try {
+    await driver3.launch({ headless: true });
+    await driver3.navigate(url);
+    const meta = await driver3.extractMeta();
+    if (meta.headings.length > 0) {
+      console.log("Headings:");
+      meta.headings.forEach((h) => console.log(`  ${h}`));
+      console.log();
+    }
+    if (meta.buttons.length > 0) {
+      console.log(`Buttons (${meta.buttons.length}):`);
+      meta.buttons.forEach((b) => console.log(`  \u2022 ${b.label}${b.enabled === false ? " (disabled)" : ""}`));
+      console.log();
+    }
+    if (meta.inputs.length > 0) {
+      console.log(`Inputs (${meta.inputs.length}):`);
+      meta.inputs.forEach((inp) => console.log(`  \u2022 ${inp.label}${inp.value ? ` = "${inp.value}"` : ""}`));
+      console.log();
+    }
+    if (meta.links.length > 0) {
+      console.log(`Links (${meta.links.length}):`);
+      meta.links.slice(0, 20).forEach((l) => console.log(`  \u2022 ${l.label}`));
+      if (meta.links.length > 20) console.log(`  ... and ${meta.links.length - 20} more`);
+    }
+  } catch (err) {
+    console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  } finally {
+    await driver3.close().catch(() => {
+    });
+  }
+});
 program.parse();
 //# sourceMappingURL=ibr.js.map

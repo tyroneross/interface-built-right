@@ -32,6 +32,7 @@ import { captureScreenshot } from "../capture.js";
 import { VIEWPORTS } from "../schemas.js";
 import { loadTokenSpec, validateAgainstTokens } from '../tokens.js';
 import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
+import { EngineDriver } from '../engine/driver.js';
 
 // --- Content types ---
 
@@ -458,6 +459,133 @@ export const TOOLS = [
       openWorldHint: false,
     },
   },
+  // --- Interaction tools ---
+  {
+    name: "interact",
+    description: "Click, type, fill, or perform other interactions on page elements. Resolves elements by accessible name (e.g. 'Submit', 'Search tools'). Use 'observe' first to see available actions.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL of the page to interact with",
+        },
+        action: {
+          type: "string",
+          enum: ["click", "type", "fill", "hover", "press", "scroll", "select", "check", "doubleClick", "rightClick"],
+          description: "Interaction to perform",
+        },
+        target: {
+          type: "string",
+          description: "Accessible name or description of the element (e.g. 'Submit button', 'Search tools', 'FlowDoro')",
+        },
+        value: {
+          type: "string",
+          description: "Value for type/fill/press/select/scroll actions",
+        },
+        role: {
+          type: "string",
+          description: "Optional ARIA role filter (e.g. 'button', 'textbox', 'link')",
+        },
+        screenshot: {
+          type: "boolean",
+          description: "Capture screenshot after interaction (default: true)",
+        },
+      },
+      required: ["url", "action", "target"],
+    },
+    annotations: {
+      title: "Interact with Element",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "observe",
+    description: "Preview all available actions on a page without executing them. Returns clickable buttons, fillable inputs, links, and other interactive elements with their accessible names. Use before 'interact' to find the right target name.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to observe",
+        },
+        role: {
+          type: "string",
+          description: "Filter by ARIA role (e.g. 'button', 'textbox', 'link')",
+        },
+        limit: {
+          type: "number",
+          description: "Max number of actions to return (default: 30)",
+        },
+      },
+      required: ["url"],
+    },
+    annotations: {
+      title: "Observe Page Actions",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "extract",
+    description: "Extract structured data from a page — headings, buttons, inputs, links, forms. Use to verify page state after interactions.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to extract data from",
+        },
+      },
+      required: ["url"],
+    },
+    annotations: {
+      title: "Extract Page Data",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "interact_and_verify",
+    description: "Execute an interaction and capture before/after state to verify it worked. Returns element diff (added/removed elements) and optional screenshot comparison.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL of the page",
+        },
+        action: {
+          type: "string",
+          enum: ["click", "type", "fill", "hover", "press"],
+          description: "Interaction to perform",
+        },
+        target: {
+          type: "string",
+          description: "Accessible name of the element",
+        },
+        value: {
+          type: "string",
+          description: "Value for type/fill/press actions",
+        },
+      },
+      required: ["url", "action", "target"],
+    },
+    annotations: {
+      title: "Interact and Verify",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
 ];
 
 // --- Tool handlers ---
@@ -498,6 +626,163 @@ export async function handleToolCall(
         return await handleScanStatic(args);
       case "bridge_to_source":
         return await handleBridgeToSource(args);
+      case "interact": {
+        const { url, action, target, value, role, screenshot: wantScreenshot = true } = args as {
+          url: string; action: string; target: string; value?: string; role?: string; screenshot?: boolean
+        }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+
+          // Find element
+          const element = await driver.find(target, role ? { role } : undefined)
+          if (!element) {
+            return errorResponse(`Element not found: "${target}"${role ? ` (role: ${role})` : ''}. Use 'observe' to see available elements.`)
+          }
+
+          // Execute action
+          switch (action) {
+            case 'click': await driver.click(element.id); break
+            case 'type': await driver.type(element.id, value || ''); break
+            case 'fill': await driver.fill(element.id, value || ''); break
+            case 'hover': await driver.hover(element.id); break
+            case 'press': await driver.pressKey(value || 'Enter'); break
+            case 'scroll': await driver.scroll(Number(value) || 300); break
+            case 'select': await driver.select(element.id, value || ''); break
+            case 'check': await driver.check(element.id); break
+            case 'doubleClick': await driver.doubleClick(element.id); break
+            case 'rightClick': await driver.rightClick(element.id); break
+            default: return errorResponse(`Unknown action: ${action}`)
+          }
+
+          // Wait for UI to settle
+          await new Promise(r => setTimeout(r, 500))
+
+          // Capture screenshot if requested
+          if (wantScreenshot) {
+            const buf = await driver.screenshot()
+            const base64 = buf.toString('base64')
+            return imageResponse(base64, `✓ ${action} on "${target}" succeeded`)
+          }
+
+          return textResponse(`✓ ${action} on "${target}" succeeded`)
+        } catch (err) {
+          return errorResponse(`Interaction failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
+      case "observe": {
+        const { url, role: roleFilter, limit = 30 } = args as { url: string; role?: string; limit?: number }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+          const actions = await driver.observe({ role: roleFilter, limit })
+
+          if (actions.length === 0) {
+            return textResponse('No interactive elements found on this page.')
+          }
+
+          const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" — ${a.actions.join(', ')}`)
+          return textResponse(`Found ${actions.length} interactive elements:\n\n${lines.join('\n')}`)
+        } catch (err) {
+          return errorResponse(`Observe failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
+      case "extract": {
+        const { url } = args as { url: string }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+          const meta = await driver.extractMeta()
+
+          const sections: string[] = []
+          if (meta.headings.length > 0) {
+            sections.push(`Headings:\n${meta.headings.map(h => `  ${h}`).join('\n')}`)
+          }
+          if (meta.buttons.length > 0) {
+            sections.push(`Buttons (${meta.buttons.length}):\n${meta.buttons.map(b => `  • ${b.label}${b.enabled === false ? ' (disabled)' : ''}`).join('\n')}`)
+          }
+          if (meta.inputs.length > 0) {
+            sections.push(`Inputs (${meta.inputs.length}):\n${meta.inputs.map(inp => `  • ${inp.label}${inp.value ? ` = "${inp.value}"` : ''}`).join('\n')}`)
+          }
+          if (meta.links.length > 0) {
+            sections.push(`Links (${meta.links.length}):\n${meta.links.slice(0, 20).map(l => `  • ${l.label}`).join('\n')}${meta.links.length > 20 ? `\n  ... and ${meta.links.length - 20} more` : ''}`)
+          }
+
+          return textResponse(sections.join('\n\n') || 'No structured data found on page.')
+        } catch (err) {
+          return errorResponse(`Extract failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
+      case "interact_and_verify": {
+        const { url, action, target, value } = args as { url: string; action: string; target: string; value?: string }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+
+          const element = await driver.find(target)
+          if (!element) {
+            return errorResponse(`Element not found: "${target}". Use 'observe' to see available elements.`)
+          }
+
+          const result = await driver.actAndCapture(async () => {
+            switch (action) {
+              case 'click': await driver.click(element.id); break
+              case 'type': await driver.type(element.id, value || ''); break
+              case 'fill': await driver.fill(element.id, value || ''); break
+              case 'hover': await driver.hover(element.id); break
+              case 'press': await driver.pressKey(value || 'Enter'); break
+              default: throw new Error(`Unknown action: ${action}`)
+            }
+          })
+
+          const lines = [
+            `✓ ${action} on "${target}" — verified`,
+            ``,
+            `Elements added: ${result.diff.addedElements.length}`,
+            `Elements removed: ${result.diff.removedElements.length}`,
+            `Pixel diff: ${result.diff.pixelDiff}px`,
+          ]
+
+          if (result.diff.addedElements.length > 0) {
+            lines.push(``, `New elements:`)
+            result.diff.addedElements.slice(0, 10).forEach(el => {
+              lines.push(`  + [${el.role}] "${el.label || '(unnamed)'}"`)
+            })
+          }
+          if (result.diff.removedElements.length > 0) {
+            lines.push(``, `Removed elements:`)
+            result.diff.removedElements.slice(0, 10).forEach(el => {
+              lines.push(`  - [${el.role}] "${el.label || '(unnamed)'}"`)
+            })
+          }
+
+          // Return with after-screenshot
+          const base64 = result.after.screenshot.toString('base64')
+          return imageResponse(base64, lines.join('\n'))
+        } catch (err) {
+          return errorResponse(`Interact and verify failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }

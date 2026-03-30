@@ -42,7 +42,11 @@ IBR runs on a custom **CDP browser engine** — direct Chrome DevTools Protocol 
 
 | Feature | Command | What it does |
 |---------|---------|-------------|
-| **Interaction assertions** | `ibr interact` | Click, type, verify — act→verify→screenshot pipeline |
+| **Interact (MCP + CLI)** | `ibr interact` / MCP `interact` | Click, type, fill elements by accessible name. LLM-native interaction |
+| **Observe (MCP + CLI)** | `ibr observe` / MCP `observe` | Preview all clickable/fillable elements before interacting |
+| **Extract (MCP + CLI)** | `ibr extract` / MCP `extract` | Read page headings, buttons, inputs, links as structured data |
+| **Interact & Verify (MCP)** | MCP `interact_and_verify` | Act + capture before/after state diff (elements added/removed) |
+| **Interaction assertions** | `ibr test-interact` | Click, type, verify — act→verify→screenshot pipeline |
 | **Mockup matching** | `ibr match` | Compare design mockup PNG against live page (SSIM) |
 | **Design verification** | `ibr record-change` / `ibr verify-changes` | Capture design intent, verify against reality |
 | **Test generation** | `ibr generate-test` | Auto-generate .ibr-test.json from page observation |

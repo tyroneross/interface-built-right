@@ -1,107 +1,103 @@
 ---
 name: interactive-testing
-description: This skill should be used when the user asks to "test my form", "click through the flow", "test search functionality", "test the login", "interact with the page", or when multi-step browser interaction is needed before capturing state.
-version: 0.5.0
+description: This skill should be used when the user asks to "test my form", "click through the flow", "test search functionality", "test the login", "interact with the page", "click on", "type in", "what can I click", or when browser interaction testing is needed.
+version: 0.8.0
 user-invocable: true
 argument-hint: <url>
 ---
 
 # Interactive Browser Testing with IBR
 
-For pages requiring user interaction — search forms, login flows, dynamic content — use IBR's persistent session mode. Sessions keep a browser alive across multiple CLI commands.
+IBR can click, type, fill, and interact with elements on live pages — no Playwright needed. Elements are found by accessible name (not CSS selectors).
 
-Note: Session commands use the CLI because they require stateful browser connections. Use the `ibr scan` MCP tool for static page validation instead.
+## MCP Tools (preferred — works directly in Claude Code)
 
-## Quick Start
+### `observe` — See what's interactive
+```
+Use IBR observe tool on http://localhost:3000
+```
+Returns all clickable buttons, fillable inputs, links with their accessible names.
 
-```bash
-# Start a persistent browser session
-npx ibr session:start http://localhost:3000 --name "search-test"
-# Output: live_XYZ123
-
-# Type into a search box
-npx ibr session:type live_XYZ123 "input[name=search]" "quantum computing"
-
-# Click submit
-npx ibr session:click live_XYZ123 "button[type=submit]"
-
-# Wait for results
-npx ibr session:wait live_XYZ123 ".search-results"
-
-# Screenshot the result
-npx ibr session:screenshot live_XYZ123
-
-# Done — close session
-npx ibr session:close live_XYZ123
+### `interact` — Click, type, fill
+```
+Use IBR interact tool: click "Submit" on http://localhost:3000
+Use IBR interact tool: type "debug" in "Search" on http://localhost:3000/projects
+Use IBR interact tool: fill "Email" with "user@test.com" on http://localhost:3000
 ```
 
-## Session Commands
+### `extract` — Read page state
+```
+Use IBR extract tool on http://localhost:3000
+```
+Returns headings, buttons, inputs, links as structured data. Use after interactions to verify state changed.
 
-| Command | Purpose |
-|---------|---------|
-| `session:start <url>` | Start browser + session |
-| `session:click <id> <selector>` | Click element |
-| `session:type <id> <selector> <text>` | Type into element |
-| `session:press <id> <key>` | Press keyboard key |
-| `session:scroll <id> <direction> [px]` | Scroll page |
-| `session:screenshot <id>` | Capture screenshot |
-| `session:wait <id> <selector\|ms>` | Wait for selector/time |
-| `session:navigate <id> <url>` | Navigate to URL |
-| `session:html <id>` | Get page HTML |
-| `session:text <id> <selector>` | Extract text content |
-| `session:eval <id> <script>` | Run JavaScript |
-| `session:modal <id>` | Detect/dismiss modals |
-| `session:actions <id>` | Show action history |
-| `session:list` | List active sessions |
-| `session:close <id\|all>` | Close session(s) |
+### `interact_and_verify` — Act + verify in one step
+```
+Use IBR interact_and_verify tool: click "FlowDoro" on http://localhost:3000/projects
+```
+Captures before/after AX tree snapshots, reports elements added/removed and pixel diff.
 
-## Command Options
+## CLI Commands
 
-| Option | Command | Purpose |
-|--------|---------|---------|
-| `--force` | click | Click through overlays/modals |
-| `--append` | type | Append text without clearing |
-| `--submit` | type | Press Enter after typing |
-| `--selector <css>` | scroll | Scroll inside specific container |
-| `--viewport-only` | screenshot | Capture viewport only |
-| `--dismiss` | modal | Dismiss detected modal |
-| `--json` | eval, screenshot | Output as JSON |
-| `--sandbox` | start | Show browser window |
-| `--debug` | start | Visible + slow motion + devtools |
-
-## Common Workflows
-
-### Search testing
 ```bash
-npx ibr session:start http://localhost:3000 --name "search-test"
-npx ibr session:type <id> "input[name=search]" "test query" --submit
-npx ibr session:wait <id> ".search-results"
-npx ibr session:screenshot <id>
-npx ibr session:close <id>
+# See what's interactive
+npx ibr observe http://localhost:3000
+
+# Click a button
+npx ibr interact http://localhost:3000 --action click --target "Submit"
+
+# Type in a search box
+npx ibr interact http://localhost:3000 --action type --target "Search" --value "debug"
+
+# Fill a form field
+npx ibr interact http://localhost:3000 --action fill --target "Email" --value "user@test.com"
+
+# Extract page structure
+npx ibr extract http://localhost:3000
 ```
 
-### Login flow
+## Common Flows
+
+### Test search filtering
 ```bash
-npx ibr session:start http://localhost:3000/login --name "login-test"
-npx ibr session:type <id> "input[name=email]" "user@example.com"
-npx ibr session:type <id> "input[name=password]" "password123"
-npx ibr session:click <id> "button[type=submit]"
-npx ibr session:wait <id> ".dashboard"
-npx ibr session:screenshot <id>
-npx ibr session:close <id>
+npx ibr observe http://localhost:3000        # Find the search input name
+npx ibr interact http://localhost:3000 --action fill --target "Search tools" --value "debug"
+npx ibr extract http://localhost:3000         # Verify filtered results
 ```
 
-## When to Use Interactive Sessions
+### Test modal popup
+```bash
+npx ibr interact http://localhost:3000 --action click --target "FlowDoro"
+npx ibr extract http://localhost:3000         # Verify modal content appeared
+npx ibr interact http://localhost:3000 --action click --target "Close"  # or press Escape
+```
 
-- Testing search functionality
-- Testing forms that require input before showing results
-- Multi-step user flows (login, checkout, wizards)
-- Capturing state after JavaScript interactions
+### Test form submission
+```bash
+npx ibr interact http://localhost:3000 --action fill --target "Name" --value "John"
+npx ibr interact http://localhost:3000 --action fill --target "Email" --value "john@test.com"
+npx ibr interact http://localhost:3000 --action click --target "Submit"
+```
 
-## When to Use `ibr scan` MCP Tool Instead
+## Element Resolution
 
-- Page content loads on initial render
-- No user interaction needed
-- Just validating static content, CSS, handlers, or accessibility
+IBR finds elements by accessible name using a 4-tier strategy:
+1. **Cache** — previously resolved elements (instant)
+2. **queryAXTree** — CDP-native semantic search by name+role
+3. **Fuzzy matching** — Jaro-Winkler on the full accessibility tree
+4. **Vision fallback** — screenshot analysis when AX tree is insufficient
 
-*ibr — design validation*
+Use `--role` to narrow matches: `--role button`, `--role textbox`, `--role link`.
+
+## Supported Actions
+
+| Action | Description | Needs `--value` |
+|--------|-------------|:---:|
+| `click` | Click an element | No |
+| `type` | Type text (appends) | Yes |
+| `fill` | Clear + type text | Yes |
+| `hover` | Mouse hover | No |
+| `press` | Keyboard key press | Yes (key name) |
+| `scroll` | Scroll page | Yes (pixels) |
+| `select` | Select dropdown option | Yes |
+| `check` | Toggle checkbox | No |

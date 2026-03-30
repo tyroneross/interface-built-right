@@ -3473,7 +3473,7 @@ program
 // ============================================================================
 
 program
-  .command('interact <url>')
+  .command('test-interact <url>')
   .description('Run interaction assertions: click X, verify Y happened')
   .option('-a, --action <spec>', 'Action specification (repeatable). Format: type[:role]:target[:value]', (val, acc: string[]) => { acc.push(val); return acc }, [] as string[])
   .option('-e, --expect <spec>', 'Assertion specification (repeatable). Format: visible|hidden|text|count:value', (val, acc: string[]) => { acc.push(val); return acc }, [] as string[])
@@ -4168,5 +4168,136 @@ function cropPngData(data: Buffer, srcWidth: number, dstWidth: number, dstHeight
   }
   return dst
 }
+
+// ============================================================
+// ENGINE INTERACTION COMMANDS
+// interact / observe / extract — direct EngineDriver wrappers
+// ============================================================
+
+program
+  .command('interact <url>')
+  .description('Click, type, fill, or interact with elements on a page')
+  .requiredOption('-a, --action <action>', 'Action: click, type, fill, hover, press, scroll, select, check')
+  .requiredOption('-t, --target <name>', 'Element accessible name')
+  .option('-v, --value <text>', 'Value for type/fill/press/select')
+  .option('-r, --role <role>', 'ARIA role filter')
+  .option('--no-screenshot', 'Skip screenshot after interaction')
+  .action(async (url: string, opts: any) => {
+    const { EngineDriver } = await import('../engine/driver.js')
+    const driver = new EngineDriver()
+    try {
+      await driver.launch({ headless: true })
+      await driver.navigate(url)
+
+      const element = await driver.find(opts.target, opts.role ? { role: opts.role } : undefined)
+      if (!element) {
+        console.error(`Element not found: "${opts.target}"`)
+        console.error('Use "ibr observe <url>" to see available elements.')
+        process.exit(1)
+      }
+
+      const action = opts.action
+      switch (action) {
+        case 'click': await driver.click(element.id); break
+        case 'type': await driver.type(element.id, opts.value || ''); break
+        case 'fill': await driver.fill(element.id, opts.value || ''); break
+        case 'hover': await driver.hover(element.id); break
+        case 'press': await driver.pressKey(opts.value || 'Enter'); break
+        case 'scroll': await driver.scroll(Number(opts.value) || 300); break
+        case 'select': await driver.select(element.id, opts.value || ''); break
+        case 'check': await driver.check(element.id); break
+        default: console.error(`Unknown action: ${action}`); process.exit(1)
+      }
+
+      await new Promise(r => setTimeout(r, 500))
+      console.log(`✓ ${action} on "${opts.target}" succeeded`)
+
+      if (opts.screenshot !== false) {
+        const fs = await import('fs')
+        const path = await import('path')
+        const buf = await driver.screenshot()
+        const globalOpts = program.opts()
+        const outDir = globalOpts.output || './.ibr'
+        fs.mkdirSync(outDir, { recursive: true })
+        const filename = `interact-${Date.now()}.png`
+        fs.writeFileSync(path.join(outDir, filename), buf)
+        console.log(`Screenshot: ${path.join(outDir, filename)}`)
+      }
+    } catch (err) {
+      console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
+      process.exit(1)
+    } finally {
+      await driver.close().catch(() => {})
+    }
+  })
+
+program
+  .command('observe <url>')
+  .description('Preview available actions on a page without executing them')
+  .option('-r, --role <role>', 'Filter by ARIA role')
+  .option('-l, --limit <n>', 'Max results', '30')
+  .action(async (url: string, opts: any) => {
+    const { EngineDriver } = await import('../engine/driver.js')
+    const driver = new EngineDriver()
+    try {
+      await driver.launch({ headless: true })
+      await driver.navigate(url)
+      const actions = await driver.observe({ role: opts.role, limit: Number(opts.limit) })
+
+      if (actions.length === 0) {
+        console.log('No interactive elements found.')
+        return
+      }
+
+      console.log(`Found ${actions.length} interactive elements:\n`)
+      actions.forEach((a, i) => {
+        console.log(`  ${String(i + 1).padStart(2)}. [${a.role}] "${a.label}" — ${a.actions.join(', ')}`)
+      })
+    } catch (err) {
+      console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
+      process.exit(1)
+    } finally {
+      await driver.close().catch(() => {})
+    }
+  })
+
+program
+  .command('extract <url>')
+  .description('Extract structured data from a page — headings, buttons, inputs, links')
+  .action(async (url: string) => {
+    const { EngineDriver } = await import('../engine/driver.js')
+    const driver = new EngineDriver()
+    try {
+      await driver.launch({ headless: true })
+      await driver.navigate(url)
+      const meta = await driver.extractMeta()
+
+      if (meta.headings.length > 0) {
+        console.log('Headings:')
+        meta.headings.forEach(h => console.log(`  ${h}`))
+        console.log()
+      }
+      if (meta.buttons.length > 0) {
+        console.log(`Buttons (${meta.buttons.length}):`)
+        meta.buttons.forEach((b: any) => console.log(`  • ${b.label}${b.enabled === false ? ' (disabled)' : ''}`))
+        console.log()
+      }
+      if (meta.inputs.length > 0) {
+        console.log(`Inputs (${meta.inputs.length}):`)
+        meta.inputs.forEach((inp: any) => console.log(`  • ${inp.label}${inp.value ? ` = "${inp.value}"` : ''}`))
+        console.log()
+      }
+      if (meta.links.length > 0) {
+        console.log(`Links (${meta.links.length}):`)
+        meta.links.slice(0, 20).forEach((l: any) => console.log(`  • ${l.label}`))
+        if (meta.links.length > 20) console.log(`  ... and ${meta.links.length - 20} more`)
+      }
+    } catch (err) {
+      console.error(`Failed: ${err instanceof Error ? err.message : String(err)}`)
+      process.exit(1)
+    } finally {
+      await driver.close().catch(() => {})
+    }
+  })
 
 program.parse();
