@@ -21,6 +21,56 @@ import {
   waitForCompletion,
   formatPendingOperations,
 } from '../operation-tracker.js';
+import type { FixGuide } from '../native/fix-guide.js';
+
+// =============================================================================
+// FORMAT HELPERS
+// =============================================================================
+
+function formatFixGuide(guide: FixGuide): string {
+  const lines: string[] = [];
+  const count = guide.issues.length;
+
+  // Count unique files
+  const files = new Set(guide.issues.map(i => i.source?.file).filter(Boolean));
+  const fileCount = files.size;
+
+  lines.push('═══════════════════════════════════════════════════════');
+  lines.push(`  IBR FIX GUIDE — ${count} ${count === 1 ? 'issue' : 'issues'}${fileCount > 0 ? ` in ${fileCount} ${fileCount === 1 ? 'file' : 'files'}` : ''}`);
+  lines.push('═══════════════════════════════════════════════════════');
+
+  if (guide.screenshot) {
+    lines.push('');
+    lines.push(`  Annotated: ${guide.screenshot}`);
+  }
+
+  const CIRCLED = ['①','②','③','④','⑤','⑥','⑦','⑧','⑨','⑩',
+                   '⑪','⑫','⑬','⑭','⑮','⑯','⑰','⑱','⑲','⑳'];
+
+  for (let idx = 0; idx < guide.issues.length; idx++) {
+    const i = guide.issues[idx];
+    const num = idx < CIRCLED.length ? CIRCLED[idx] : `(${idx + 1})`;
+    lines.push('');
+    lines.push(`  ${num} [${i.severity}] ${i.what} (${i.where.screenRegion})`);
+    lines.push(`     Element: ${i.where.element} — ${i.current}`);
+    if (i.source) {
+      const conf = Math.round(i.source.confidence * 10) / 10;
+      lines.push(`     Source:  ${i.source.file}${i.source.line != null ? `:${i.source.line}` : ''} (${conf})`);
+      if (i.source.searchPattern) {
+        lines.push(`     Search:  ${i.source.searchPattern}`);
+      }
+    }
+    lines.push(`     Fix:     ${i.suggestedFix}`);
+  }
+
+  if (count === 0) {
+    lines.push('');
+    lines.push('  No issues found.');
+  }
+
+  lines.push('');
+  return lines.join('\n');
+}
 
 const program = new Command();
 
@@ -3005,7 +3055,8 @@ program
   .description('Scan a running simulator for accessibility and design issues')
   .option('--no-screenshot', 'Skip screenshot capture')
   .option('--json', 'Output as JSON')
-  .action(async (device: string | undefined, options: { screenshot?: boolean; json?: boolean }) => {
+  .option('--fix-guide', 'Generate actionable fix instructions with source mapping')
+  .action(async (device: string | undefined, options: { screenshot?: boolean; json?: boolean; fixGuide?: boolean }) => {
     try {
       const { scanNative, formatNativeScanResult } = await import('../native/index.js');
       const globalOpts = program.opts();
@@ -3017,7 +3068,35 @@ program
         outputDir,
       });
 
-      if (options.json) {
+      if (options.fixGuide) {
+        const { correlateToSource } = await import('../native/bridge.js');
+        const { generateFixGuide } = await import('../native/fix-guide.js');
+        const { annotateScreenshot } = await import('../native/annotate.js');
+
+        const bridgeResult = correlateToSource(result.elements.all, process.cwd());
+        const fixGuide = generateFixGuide(result, bridgeResult, null);
+
+        // Annotate screenshot if available
+        if (result.screenshotPath && fixGuide.issues.length > 0) {
+          const annotated = await annotateScreenshot(
+            result.screenshotPath,
+            fixGuide.issues.map(i => ({ id: i.id, bounds: i.where.bounds }))
+          );
+          if (annotated) fixGuide.screenshot = annotated;
+        }
+
+        // Save to disk
+        const { mkdirSync, writeFileSync } = await import('fs');
+        const guidePath = join(outputDir, 'native', 'fix-guide.json');
+        mkdirSync(join(outputDir, 'native'), { recursive: true });
+        writeFileSync(guidePath, JSON.stringify(fixGuide, null, 2));
+
+        if (options.json) {
+          console.log(JSON.stringify(fixGuide, null, 2));
+        } else {
+          console.log(formatFixGuide(fixGuide));
+        }
+      } else if (options.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {
         console.log(formatNativeScanResult(result));
