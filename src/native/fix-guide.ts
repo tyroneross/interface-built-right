@@ -86,7 +86,10 @@ function buildSuggestedFix(issueType: string, elementLabel: string): string {
     case 'TOUCH_TARGET_SMALL':
       return '.frame(minWidth: 44, minHeight: 44) or wrap in a larger tap area with .contentShape(Rectangle())';
     case 'MISSING_ARIA_LABEL': {
-      const desc = elementLabel && elementLabel.length > 0 ? elementLabel : 'descriptive text';
+      // Don't use raw selector as label — provide a meaningful placeholder
+      const desc = elementLabel && elementLabel.length > 0 && !elementLabel.startsWith('[role')
+        ? elementLabel
+        : 'descriptive text for this control';
       return `Add .accessibilityLabel("${desc}")`;
     }
     case 'NO_HANDLER':
@@ -151,7 +154,7 @@ export function generateFixGuide(
 ): FixGuide {
   const viewport = scanResult.viewport;
 
-  // Build a lookup: elementSelector → SourceCorrelation
+  // Build lookups for source correlation
   const correlationMap = new Map<string, SourceCorrelation>();
   if (bridgeResult) {
     for (const c of bridgeResult.correlations) {
@@ -162,44 +165,69 @@ export function generateFixGuide(
     }
   }
 
-  // Build a lookup: element selector → EnhancedElement bounds
+  // Build lookup: element label/selector → EnhancedElement bounds
+  // Multiple keys per element for flexible matching
   const boundsMap = new Map<string, { x: number; y: number; width: number; height: number }>();
+  // Also track elements by role+label pattern for unlabeled elements
+  const unlabeledButtons: Array<{ x: number; y: number; width: number; height: number }> = [];
   for (const el of scanResult.elements.all) {
-    if (el.selector) {
-      boundsMap.set(el.selector.toLowerCase(), {
-        x: el.bounds.x,
-        y: el.bounds.y,
-        width: el.bounds.width,
-        height: el.bounds.height,
-      });
+    const bounds = { x: el.bounds.x, y: el.bounds.y, width: el.bounds.width, height: el.bounds.height };
+    if (el.selector) boundsMap.set(el.selector.toLowerCase(), bounds);
+    if (el.a11y?.ariaLabel) boundsMap.set(el.a11y.ariaLabel.toLowerCase(), bounds);
+    if (el.text) boundsMap.set(el.text.toLowerCase(), bounds);
+    // Track unlabeled interactive elements for fallback matching
+    if (el.interactive?.hasOnClick && (!el.a11y?.ariaLabel || el.a11y.ariaLabel === '') && (!el.text || el.text === '')) {
+      unlabeledButtons.push(bounds);
     }
+  }
+  // For issues about unlabeled buttons, use first available unlabeled element bounds
+  let unlabeledIdx = 0;
+
+  // Extract label from issue description text (e.g., '"Save Screen"' or '"Play"')
+  function extractLabel(text: string): string {
+    const m = text.match(/"([^"]+)"/);
+    return m ? m[1] : '';
+  }
+
+  // Dedup key: normalized issue signature to avoid duplicates from audit + native rules
+  const seen = new Set<string>();
+  function dedupKey(label: string, issueType: string): string {
+    return `${label.toLowerCase()}:${issueType}`;
   }
 
   const fixableIssues: FixableIssue[] = [];
   let idCounter = 1;
 
-  // Process nativeIssues (ElementIssue[]) — these have type + severity + message
-  // nativeIssues don't carry an element reference directly; correlate via message text
+  // Process nativeIssues first (more specific, from platform rules)
   for (const issue of scanResult.nativeIssues) {
-    // Extract element hint from message (e.g. "Button 'Play'")
-    const labelMatch = issue.message.match(/['"]([^'"]+)['"]/);
-    const elementLabel = labelMatch ? labelMatch[1] : '';
+    const elementLabel = extractLabel(issue.message);
     const elementSelector = elementLabel || issue.type;
 
-    if (isSimulatorChrome(elementSelector, elementLabel)) continue;
+    // Filter simulator chrome from BOTH selector and full message text
+    if (isSimulatorChrome(elementSelector, issue.message)) continue;
 
-    const bounds = boundsMap.get(elementLabel.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
-    const region = computeScreenRegion(bounds, viewport);
+    const key = dedupKey(elementLabel || elementSelector, issue.type);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    let bounds = boundsMap.get(elementLabel.toLowerCase())
+      ?? boundsMap.get(elementSelector.toLowerCase())
+      ?? null;
+    // Fallback: for unlabeled elements, use next available unlabeled bounds
+    if (!bounds && elementLabel === '' && unlabeledIdx < unlabeledButtons.length) {
+      bounds = unlabeledButtons[unlabeledIdx++];
+    }
+    bounds = bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+    const region = bounds.x > 0 || bounds.y > 0
+      ? computeScreenRegion(bounds, viewport)
+      : 'unknown';
     const correlation = correlationMap.get(elementLabel.toLowerCase())
       ?? correlationMap.get(elementSelector.toLowerCase());
 
-    const category = issueTypeToCategory(issue.type);
-    const severity = issue.severity === 'info' ? 'warning' : issue.severity;
-
     fixableIssues.push({
       id: idCounter++,
-      category,
-      severity,
+      category: issueTypeToCategory(issue.type),
+      severity: issue.severity === 'info' ? 'warning' : issue.severity,
       what: issue.message,
       where: { element: elementSelector, bounds, screenRegion: region },
       current: issue.message,
@@ -215,28 +243,44 @@ export function generateFixGuide(
     });
   }
 
-  // Process ScanIssues — these have category + element + description + fix
+  // Process ScanIssues — skip duplicates already covered by nativeIssues
   for (const issue of scanResult.issues) {
-    const elementSelector = issue.element ?? '';
-    const elementLabel = elementSelector;
-
-    if (isSimulatorChrome(elementSelector, '')) continue;
     if (issue.severity === 'info') continue;
 
-    const bounds = boundsMap.get(elementSelector.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
-    const region = computeScreenRegion(bounds, viewport);
-    const correlation = correlationMap.get(elementSelector.toLowerCase());
+    const elementLabel = extractLabel(issue.description);
+    const elementSelector = issue.element ?? elementLabel;
 
-    const category = issue.category === 'interactivity' ? 'accessibility' : issue.category;
+    // Filter simulator chrome from description text
+    if (isSimulatorChrome(elementSelector, issue.description)) continue;
+
+    // Determine issue type from description for dedup
+    const issueType = issue.description.includes('touch target') || issue.description.includes('Touch target')
+      ? 'TOUCH_TARGET_SMALL'
+      : issue.description.includes('accessibility label') || issue.description.includes('aria-label')
+      ? 'MISSING_ARIA_LABEL'
+      : issue.category;
+
+    const key = dedupKey(elementLabel || elementSelector, issueType);
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const bounds = boundsMap.get(elementLabel.toLowerCase())
+      ?? boundsMap.get(elementSelector.toLowerCase())
+      ?? { x: 0, y: 0, width: 0, height: 0 };
+    const region = bounds.x > 0 || bounds.y > 0
+      ? computeScreenRegion(bounds, viewport)
+      : 'unknown';
+    const correlation = correlationMap.get(elementLabel.toLowerCase())
+      ?? correlationMap.get(elementSelector.toLowerCase());
 
     fixableIssues.push({
       id: idCounter++,
-      category,
+      category: issue.category === 'interactivity' ? 'touch-target' : issue.category,
       severity: issue.severity,
       what: issue.description,
       where: { element: elementSelector, bounds, screenRegion: region },
       current: issue.description,
-      required: issue.fix ?? 'Fix the reported issue',
+      required: issue.fix ?? buildSuggestedFix(issueType, elementLabel),
       source: correlation ? {
         file: correlation.sourceFile,
         line: correlation.sourceLine,
@@ -244,7 +288,7 @@ export function generateFixGuide(
         matchedOn: correlation.matchType,
         searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel),
       } : undefined,
-      suggestedFix: issue.fix ?? 'Review and fix the reported issue',
+      suggestedFix: issue.fix ?? buildSuggestedFix(issueType, elementLabel),
     });
   }
 
@@ -256,7 +300,9 @@ export function generateFixGuide(
   const issueCount = fixableIssues.length;
   const summary = issueCount === 0
     ? 'No issues found'
-    : `${issueCount} issue${issueCount !== 1 ? 's' : ''} in ${fileCount} file${fileCount !== 1 ? 's' : ''}`;
+    : fileCount > 0
+    ? `${issueCount} issue${issueCount !== 1 ? 's' : ''} in ${fileCount} file${fileCount !== 1 ? 's' : ''}`
+    : `${issueCount} issue${issueCount !== 1 ? 's' : ''}`;
 
   return {
     screenshot: annotatedScreenshot ?? scanResult.screenshotPath ?? '',
