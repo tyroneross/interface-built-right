@@ -3790,8 +3790,23 @@ var EngineDriver = class {
   async click(elementId) {
     const backendNodeId = this.ax.getBackendNodeId(elementId);
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.click(x, y);
+    const sid = this.sessionId ?? void 0;
+    let domClickWorked = false;
+    try {
+      const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId }, sid);
+      if (resolved?.object?.objectId) {
+        await this.conn.send("Runtime.callFunctionOn", {
+          objectId: resolved.object.objectId,
+          functionDeclaration: "function() { this.click(); }"
+        }, sid);
+        domClickWorked = true;
+      }
+    } catch {
+    }
+    if (!domClickWorked) {
+      const { x, y } = await this.dom.getElementCenter(backendNodeId);
+      await this.input.click(x, y);
+    }
   }
   async type(elementId, text) {
     const backendNodeId = this.ax.getBackendNodeId(elementId);
@@ -3834,6 +3849,10 @@ var EngineDriver = class {
     ]);
     await action();
     await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+    await this.runtime.evaluate(
+      "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+    ).catch(() => {
+    });
     const [afterElements, afterScreenshot] = await Promise.all([
       this.ax.getSnapshot(),
       this._page.screenshot()
@@ -7688,6 +7707,9 @@ async function scanMacOS(options) {
     summary
   };
 }
+
+// src/native/annotate.ts
+var import_pngjs3 = require("pngjs");
 
 // src/index.ts
 async function compare(options) {

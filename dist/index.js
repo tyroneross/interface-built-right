@@ -2966,8 +2966,23 @@ var EngineDriver = class {
   async click(elementId) {
     const backendNodeId = this.ax.getBackendNodeId(elementId);
     if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.click(x, y);
+    const sid = this.sessionId ?? void 0;
+    let domClickWorked = false;
+    try {
+      const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId }, sid);
+      if (resolved?.object?.objectId) {
+        await this.conn.send("Runtime.callFunctionOn", {
+          objectId: resolved.object.objectId,
+          functionDeclaration: "function() { this.click(); }"
+        }, sid);
+        domClickWorked = true;
+      }
+    } catch {
+    }
+    if (!domClickWorked) {
+      const { x, y } = await this.dom.getElementCenter(backendNodeId);
+      await this.input.click(x, y);
+    }
   }
   async type(elementId, text) {
     const backendNodeId = this.ax.getBackendNodeId(elementId);
@@ -3010,6 +3025,10 @@ var EngineDriver = class {
     ]);
     await action();
     await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+    await this.runtime.evaluate(
+      "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+    ).catch(() => {
+    });
     const [afterElements, afterScreenshot] = await Promise.all([
       this.ax.getSnapshot(),
       this._page.screenshot()
@@ -9758,6 +9777,284 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
+var DIGITS = [
+  [31, 17, 17, 17, 17, 17, 31],
+  // 0
+  [4, 6, 4, 4, 4, 4, 14],
+  // 1
+  [31, 16, 16, 31, 1, 1, 31],
+  // 2
+  [31, 16, 16, 31, 16, 16, 31],
+  // 3
+  [17, 17, 17, 31, 16, 16, 16],
+  // 4
+  [31, 1, 1, 31, 16, 16, 31],
+  // 5
+  [31, 1, 1, 31, 17, 17, 31],
+  // 6
+  [31, 16, 16, 8, 4, 4, 4],
+  // 7
+  [31, 17, 17, 31, 17, 17, 31],
+  // 8
+  [31, 17, 17, 31, 16, 16, 31]
+  // 9
+];
+function setPixel(png, x, y, r, g, b, a = 255) {
+  if (x < 0 || y < 0 || x >= png.width || y >= png.height) return;
+  const idx = (y * png.width + x) * 4;
+  png.data[idx] = r;
+  png.data[idx + 1] = g;
+  png.data[idx + 2] = b;
+  png.data[idx + 3] = a;
+}
+function drawRect(png, x, y, w, h, r, g, b, thickness = 2) {
+  for (let t = 0; t < thickness; t++) {
+    for (let i = x; i < x + w; i++) {
+      setPixel(png, i, y + t, r, g, b);
+      setPixel(png, i, y + h - 1 - t, r, g, b);
+    }
+    for (let j = y; j < y + h; j++) {
+      setPixel(png, x + t, j, r, g, b);
+      setPixel(png, x + w - 1 - t, j, r, g, b);
+    }
+  }
+}
+function drawFilledCircle(png, cx, cy, radius, r, g, b) {
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (dx * dx + dy * dy <= radius * radius) setPixel(png, cx + dx, cy + dy, r, g, b);
+    }
+  }
+}
+function drawDigit(png, cx, cy, digit, r, g, b) {
+  const rows = DIGITS[digit] ?? DIGITS[0];
+  const scale = 2;
+  const offX = cx - Math.floor(5 * scale / 2);
+  const offY = cy - Math.floor(7 * scale / 2);
+  for (let row = 0; row < 7; row++) {
+    for (let col = 0; col < 5; col++) {
+      if (rows[row] & 16 >> col) {
+        for (let sy = 0; sy < scale; sy++)
+          for (let sx = 0; sx < scale; sx++)
+            setPixel(png, offX + col * scale + sx, offY + row * scale + sy, r, g, b);
+      }
+    }
+  }
+}
+function drawLabel(png, cx, cy, id) {
+  drawFilledCircle(png, cx, cy, 10, 220, 30, 30);
+  const tens = Math.floor(id / 10);
+  const ones = id % 10;
+  if (tens > 0) {
+    drawDigit(png, cx - 5, cy, tens, 255, 255, 255);
+    drawDigit(png, cx + 5, cy, ones, 255, 255, 255);
+  } else {
+    drawDigit(png, cx, cy, ones, 255, 255, 255);
+  }
+}
+async function annotateScreenshot(screenshotPath, issues) {
+  let png;
+  try {
+    const buf = fs$1.readFileSync(screenshotPath);
+    png = pngjs.PNG.sync.read(buf);
+  } catch {
+    return null;
+  }
+  for (const issue of issues) {
+    const { x, y, width: w, height: h } = issue.bounds;
+    drawRect(png, x, y, w, h, 220, 30, 30, 2);
+    drawLabel(png, x, y, issue.id);
+  }
+  const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
+  try {
+    fs$1.writeFileSync(outPath, pngjs.PNG.sync.write(png));
+  } catch {
+    return null;
+  }
+  return outPath;
+}
+
+// src/native/fix-guide.ts
+var SIMULATOR_CHROME_PATTERNS = [
+  "Save Screen",
+  "Rotate",
+  "Sheet Grabber",
+  "Home Indicator",
+  "Status Bar",
+  "Side Button",
+  "Volume",
+  "Mute Switch"
+];
+function isSimulatorChrome(selector, label) {
+  const text = `${selector} ${label}`.toLowerCase();
+  return SIMULATOR_CHROME_PATTERNS.some((p) => text.includes(p.toLowerCase()));
+}
+function computeScreenRegion(bounds, viewport) {
+  const cx = bounds.x + bounds.width / 2;
+  const cy = bounds.y + bounds.height / 2;
+  const col = cx < viewport.width / 3 ? "left" : cx < viewport.width * 2 / 3 ? "center" : "right";
+  const row = cy < viewport.height / 3 ? "top" : cy < viewport.height * 2 / 3 ? "middle" : "bottom";
+  return `${row}-${col}`;
+}
+function buildSuggestedFix(issueType, elementLabel) {
+  switch (issueType) {
+    case "TOUCH_TARGET_SMALL":
+      return ".frame(minWidth: 44, minHeight: 44) or wrap in a larger tap area with .contentShape(Rectangle())";
+    case "MISSING_ARIA_LABEL": {
+      const desc = elementLabel && elementLabel.length > 0 && !elementLabel.startsWith("[role") ? elementLabel : "descriptive text for this control";
+      return `Add .accessibilityLabel("${desc}")`;
+    }
+    case "NO_HANDLER":
+      return "Add tap action or remove interactive appearance";
+    case "PLACEHOLDER_LINK":
+      return 'Replace href="#" with a real destination or add an onTapGesture handler';
+    case "DISABLED_NO_VISUAL":
+      return "Add .opacity(0.5) or .foregroundColor(.gray) to visually indicate disabled state";
+    default:
+      return "Review and fix accessibility issue";
+  }
+}
+function issueTypeToCategory(issueType) {
+  if (issueType === "TOUCH_TARGET_SMALL") return "touch-target";
+  if (issueType === "MISSING_ARIA_LABEL" || issueType === "DISABLED_NO_VISUAL") return "accessibility";
+  if (issueType === "NO_HANDLER" || issueType === "PLACEHOLDER_LINK") return "accessibility";
+  return "accessibility";
+}
+function buildSearchPattern(correlation, elementSelector, elementLabel) {
+  if (!correlation) {
+    if (elementLabel) {
+      const escaped = elementLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return `Button.*${escaped}|Text.*${escaped}`;
+    }
+    return elementSelector;
+  }
+  switch (correlation.matchType) {
+    case "identifier":
+      return correlation.elementSelector;
+    case "label":
+      return `.accessibilityLabel("${correlation.elementLabel}")`;
+    case "view-name":
+      return `struct ${correlation.viewName}: View`;
+    case "text": {
+      const label = correlation.elementLabel || elementLabel;
+      if (label) {
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return `Button.*${escaped}|Image.*${escaped}`;
+      }
+      return elementSelector;
+    }
+    default:
+      return elementSelector;
+  }
+}
+function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
+  const viewport = scanResult.viewport;
+  const correlationMap = /* @__PURE__ */ new Map();
+  if (bridgeResult) {
+    for (const c of bridgeResult.correlations) {
+      correlationMap.set(c.elementSelector.toLowerCase(), c);
+      if (c.elementLabel) {
+        correlationMap.set(c.elementLabel.toLowerCase(), c);
+      }
+    }
+  }
+  const boundsMap = /* @__PURE__ */ new Map();
+  const unlabeledButtons = [];
+  for (const el of scanResult.elements.all) {
+    const bounds = { x: el.bounds.x, y: el.bounds.y, width: el.bounds.width, height: el.bounds.height };
+    if (el.selector) boundsMap.set(el.selector.toLowerCase(), bounds);
+    if (el.a11y?.ariaLabel) boundsMap.set(el.a11y.ariaLabel.toLowerCase(), bounds);
+    if (el.text) boundsMap.set(el.text.toLowerCase(), bounds);
+    if (el.interactive?.hasOnClick && (!el.a11y?.ariaLabel || el.a11y.ariaLabel === "") && (!el.text || el.text === "")) {
+      unlabeledButtons.push(bounds);
+    }
+  }
+  let unlabeledIdx = 0;
+  function extractLabel(text) {
+    const m = text.match(/"([^"]+)"/);
+    return m ? m[1] : "";
+  }
+  const seen = /* @__PURE__ */ new Set();
+  function dedupKey(label, issueType) {
+    return `${label.toLowerCase()}:${issueType}`;
+  }
+  const fixableIssues = [];
+  let idCounter = 1;
+  for (const issue of scanResult.nativeIssues) {
+    const elementLabel = extractLabel(issue.message);
+    const elementSelector = elementLabel || issue.type;
+    if (isSimulatorChrome(elementSelector, issue.message)) continue;
+    const key = dedupKey(elementLabel || elementSelector, issue.type);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? null;
+    if (!bounds && elementLabel === "" && unlabeledIdx < unlabeledButtons.length) {
+      bounds = unlabeledButtons[unlabeledIdx++];
+    }
+    bounds = bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+    const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
+    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    fixableIssues.push({
+      id: idCounter++,
+      category: issueTypeToCategory(issue.type),
+      severity: issue.severity === "info" ? "warning" : issue.severity,
+      what: issue.message,
+      where: { element: elementSelector, bounds, screenRegion: region },
+      current: issue.message,
+      required: buildSuggestedFix(issue.type, elementLabel),
+      source: correlation ? {
+        file: correlation.sourceFile,
+        line: correlation.sourceLine,
+        confidence: correlation.confidence,
+        matchedOn: correlation.matchType,
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+      } : void 0,
+      suggestedFix: buildSuggestedFix(issue.type, elementLabel)
+    });
+  }
+  for (const issue of scanResult.issues) {
+    if (issue.severity === "info") continue;
+    const elementLabel = extractLabel(issue.description);
+    const elementSelector = issue.element ?? elementLabel;
+    if (isSimulatorChrome(elementSelector, issue.description)) continue;
+    const issueType = issue.description.includes("touch target") || issue.description.includes("Touch target") ? "TOUCH_TARGET_SMALL" : issue.description.includes("accessibility label") || issue.description.includes("aria-label") ? "MISSING_ARIA_LABEL" : issue.category;
+    const key = dedupKey(elementLabel || elementSelector, issueType);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
+    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    fixableIssues.push({
+      id: idCounter++,
+      category: issue.category === "interactivity" ? "touch-target" : issue.category,
+      severity: issue.severity,
+      what: issue.description,
+      where: { element: elementSelector, bounds, screenRegion: region },
+      current: issue.description,
+      required: issue.fix ?? buildSuggestedFix(issueType, elementLabel),
+      source: correlation ? {
+        file: correlation.sourceFile,
+        line: correlation.sourceLine,
+        confidence: correlation.confidence,
+        matchedOn: correlation.matchType,
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+      } : void 0,
+      suggestedFix: issue.fix ?? buildSuggestedFix(issueType, elementLabel)
+    });
+  }
+  const uniqueFiles = new Set(
+    fixableIssues.filter((i) => i.source).map((i) => i.source.file)
+  );
+  const fileCount = uniqueFiles.size;
+  const issueCount = fixableIssues.length;
+  const summary = issueCount === 0 ? "No issues found" : fileCount > 0 ? `${issueCount} issue${issueCount !== 1 ? "s" : ""} in ${fileCount} file${fileCount !== 1 ? "s" : ""}` : `${issueCount} issue${issueCount !== 1 ? "s" : ""}`;
+  return {
+    screenshot: annotatedScreenshot ?? scanResult.screenshotPath ?? "",
+    screenshotRaw: scanResult.screenshotPath ?? "",
+    issues: fixableIssues,
+    summary
+  };
+}
 
 // src/index.ts
 async function compare(options) {
@@ -10286,6 +10583,7 @@ exports.addPreference = addPreference;
 exports.aiSearchFlow = aiSearchFlow;
 exports.analyzeComparison = analyzeComparison;
 exports.analyzeForObviousIssues = analyzeForObviousIssues;
+exports.annotateScreenshot = annotateScreenshot;
 exports.archiveSummary = archiveSummary;
 exports.auditNativeElements = auditNativeElements;
 exports.bootDevice = bootDevice;
@@ -10355,6 +10653,7 @@ exports.formatSemanticText = formatSemanticText;
 exports.formatSessionSummary = formatSessionSummary;
 exports.formatValidationResult = formatValidationResult;
 exports.generateDevModePrompt = generateDevModePrompt;
+exports.generateFixGuide = generateFixGuide;
 exports.generateQuickSummary = generateQuickSummary;
 exports.generateReport = generateReport;
 exports.generateSessionId = generateSessionId;

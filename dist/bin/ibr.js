@@ -2138,8 +2138,23 @@ var init_driver = __esm({
       async click(elementId) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
         if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
-        await this.input.click(x, y);
+        const sid = this.sessionId ?? void 0;
+        let domClickWorked = false;
+        try {
+          const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId }, sid);
+          if (resolved?.object?.objectId) {
+            await this.conn.send("Runtime.callFunctionOn", {
+              objectId: resolved.object.objectId,
+              functionDeclaration: "function() { this.click(); }"
+            }, sid);
+            domClickWorked = true;
+          }
+        } catch {
+        }
+        if (!domClickWorked) {
+          const { x, y } = await this.dom.getElementCenter(backendNodeId);
+          await this.input.click(x, y);
+        }
       }
       async type(elementId, text) {
         const backendNodeId = this.ax.getBackendNodeId(elementId);
@@ -2182,6 +2197,10 @@ var init_driver = __esm({
         ]);
         await action();
         await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+        await this.runtime.evaluate(
+          "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+        ).catch(() => {
+        });
         const [afterElements, afterScreenshot] = await Promise.all([
           this.ax.getSnapshot(),
           this._page.screenshot()
@@ -11035,10 +11054,313 @@ var init_scan2 = __esm({
   }
 });
 
+// src/native/annotate.ts
+var annotate_exports = {};
+__export(annotate_exports, {
+  annotateScreenshot: () => annotateScreenshot
+});
+function setPixel(png, x, y, r, g, b, a = 255) {
+  if (x < 0 || y < 0 || x >= png.width || y >= png.height) return;
+  const idx = (y * png.width + x) * 4;
+  png.data[idx] = r;
+  png.data[idx + 1] = g;
+  png.data[idx + 2] = b;
+  png.data[idx + 3] = a;
+}
+function drawRect(png, x, y, w, h, r, g, b, thickness = 2) {
+  for (let t = 0; t < thickness; t++) {
+    for (let i = x; i < x + w; i++) {
+      setPixel(png, i, y + t, r, g, b);
+      setPixel(png, i, y + h - 1 - t, r, g, b);
+    }
+    for (let j = y; j < y + h; j++) {
+      setPixel(png, x + t, j, r, g, b);
+      setPixel(png, x + w - 1 - t, j, r, g, b);
+    }
+  }
+}
+function drawFilledCircle(png, cx, cy, radius, r, g, b) {
+  for (let dy = -radius; dy <= radius; dy++) {
+    for (let dx = -radius; dx <= radius; dx++) {
+      if (dx * dx + dy * dy <= radius * radius) setPixel(png, cx + dx, cy + dy, r, g, b);
+    }
+  }
+}
+function drawDigit(png, cx, cy, digit, r, g, b) {
+  const rows = DIGITS[digit] ?? DIGITS[0];
+  const scale = 2;
+  const offX = cx - Math.floor(5 * scale / 2);
+  const offY = cy - Math.floor(7 * scale / 2);
+  for (let row = 0; row < 7; row++) {
+    for (let col = 0; col < 5; col++) {
+      if (rows[row] & 16 >> col) {
+        for (let sy = 0; sy < scale; sy++)
+          for (let sx = 0; sx < scale; sx++)
+            setPixel(png, offX + col * scale + sx, offY + row * scale + sy, r, g, b);
+      }
+    }
+  }
+}
+function drawLabel(png, cx, cy, id) {
+  drawFilledCircle(png, cx, cy, 10, 220, 30, 30);
+  const tens = Math.floor(id / 10);
+  const ones = id % 10;
+  if (tens > 0) {
+    drawDigit(png, cx - 5, cy, tens, 255, 255, 255);
+    drawDigit(png, cx + 5, cy, ones, 255, 255, 255);
+  } else {
+    drawDigit(png, cx, cy, ones, 255, 255, 255);
+  }
+}
+async function annotateScreenshot(screenshotPath, issues) {
+  let png;
+  try {
+    const buf = (0, import_fs8.readFileSync)(screenshotPath);
+    png = import_pngjs3.PNG.sync.read(buf);
+  } catch {
+    return null;
+  }
+  for (const issue of issues) {
+    const { x, y, width: w, height: h } = issue.bounds;
+    drawRect(png, x, y, w, h, 220, 30, 30, 2);
+    drawLabel(png, x, y, issue.id);
+  }
+  const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
+  try {
+    (0, import_fs8.writeFileSync)(outPath, import_pngjs3.PNG.sync.write(png));
+  } catch {
+    return null;
+  }
+  return outPath;
+}
+var import_pngjs3, import_fs8, DIGITS;
+var init_annotate = __esm({
+  "src/native/annotate.ts"() {
+    "use strict";
+    import_pngjs3 = require("pngjs");
+    import_fs8 = require("fs");
+    DIGITS = [
+      [31, 17, 17, 17, 17, 17, 31],
+      // 0
+      [4, 6, 4, 4, 4, 4, 14],
+      // 1
+      [31, 16, 16, 31, 1, 1, 31],
+      // 2
+      [31, 16, 16, 31, 16, 16, 31],
+      // 3
+      [17, 17, 17, 31, 16, 16, 16],
+      // 4
+      [31, 1, 1, 31, 16, 16, 31],
+      // 5
+      [31, 1, 1, 31, 17, 17, 31],
+      // 6
+      [31, 16, 16, 8, 4, 4, 4],
+      // 7
+      [31, 17, 17, 31, 17, 17, 31],
+      // 8
+      [31, 17, 17, 31, 16, 16, 31]
+      // 9
+    ];
+  }
+});
+
+// src/native/fix-guide.ts
+var fix_guide_exports = {};
+__export(fix_guide_exports, {
+  generateFixGuide: () => generateFixGuide
+});
+function isSimulatorChrome(selector, label) {
+  const text = `${selector} ${label}`.toLowerCase();
+  return SIMULATOR_CHROME_PATTERNS.some((p) => text.includes(p.toLowerCase()));
+}
+function computeScreenRegion(bounds, viewport) {
+  const cx = bounds.x + bounds.width / 2;
+  const cy = bounds.y + bounds.height / 2;
+  const col = cx < viewport.width / 3 ? "left" : cx < viewport.width * 2 / 3 ? "center" : "right";
+  const row = cy < viewport.height / 3 ? "top" : cy < viewport.height * 2 / 3 ? "middle" : "bottom";
+  return `${row}-${col}`;
+}
+function buildSuggestedFix(issueType, elementLabel) {
+  switch (issueType) {
+    case "TOUCH_TARGET_SMALL":
+      return ".frame(minWidth: 44, minHeight: 44) or wrap in a larger tap area with .contentShape(Rectangle())";
+    case "MISSING_ARIA_LABEL": {
+      const desc = elementLabel && elementLabel.length > 0 && !elementLabel.startsWith("[role") ? elementLabel : "descriptive text for this control";
+      return `Add .accessibilityLabel("${desc}")`;
+    }
+    case "NO_HANDLER":
+      return "Add tap action or remove interactive appearance";
+    case "PLACEHOLDER_LINK":
+      return 'Replace href="#" with a real destination or add an onTapGesture handler';
+    case "DISABLED_NO_VISUAL":
+      return "Add .opacity(0.5) or .foregroundColor(.gray) to visually indicate disabled state";
+    default:
+      return "Review and fix accessibility issue";
+  }
+}
+function issueTypeToCategory(issueType) {
+  if (issueType === "TOUCH_TARGET_SMALL") return "touch-target";
+  if (issueType === "MISSING_ARIA_LABEL" || issueType === "DISABLED_NO_VISUAL") return "accessibility";
+  if (issueType === "NO_HANDLER" || issueType === "PLACEHOLDER_LINK") return "accessibility";
+  return "accessibility";
+}
+function buildSearchPattern(correlation, elementSelector, elementLabel) {
+  if (!correlation) {
+    if (elementLabel) {
+      const escaped = elementLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return `Button.*${escaped}|Text.*${escaped}`;
+    }
+    return elementSelector;
+  }
+  switch (correlation.matchType) {
+    case "identifier":
+      return correlation.elementSelector;
+    case "label":
+      return `.accessibilityLabel("${correlation.elementLabel}")`;
+    case "view-name":
+      return `struct ${correlation.viewName}: View`;
+    case "text": {
+      const label = correlation.elementLabel || elementLabel;
+      if (label) {
+        const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return `Button.*${escaped}|Image.*${escaped}`;
+      }
+      return elementSelector;
+    }
+    default:
+      return elementSelector;
+  }
+}
+function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
+  const viewport = scanResult.viewport;
+  const correlationMap = /* @__PURE__ */ new Map();
+  if (bridgeResult) {
+    for (const c of bridgeResult.correlations) {
+      correlationMap.set(c.elementSelector.toLowerCase(), c);
+      if (c.elementLabel) {
+        correlationMap.set(c.elementLabel.toLowerCase(), c);
+      }
+    }
+  }
+  const boundsMap = /* @__PURE__ */ new Map();
+  const unlabeledButtons = [];
+  for (const el of scanResult.elements.all) {
+    const bounds = { x: el.bounds.x, y: el.bounds.y, width: el.bounds.width, height: el.bounds.height };
+    if (el.selector) boundsMap.set(el.selector.toLowerCase(), bounds);
+    if (el.a11y?.ariaLabel) boundsMap.set(el.a11y.ariaLabel.toLowerCase(), bounds);
+    if (el.text) boundsMap.set(el.text.toLowerCase(), bounds);
+    if (el.interactive?.hasOnClick && (!el.a11y?.ariaLabel || el.a11y.ariaLabel === "") && (!el.text || el.text === "")) {
+      unlabeledButtons.push(bounds);
+    }
+  }
+  let unlabeledIdx = 0;
+  function extractLabel(text) {
+    const m = text.match(/"([^"]+)"/);
+    return m ? m[1] : "";
+  }
+  const seen = /* @__PURE__ */ new Set();
+  function dedupKey(label, issueType) {
+    return `${label.toLowerCase()}:${issueType}`;
+  }
+  const fixableIssues = [];
+  let idCounter = 1;
+  for (const issue of scanResult.nativeIssues) {
+    const elementLabel = extractLabel(issue.message);
+    const elementSelector = elementLabel || issue.type;
+    if (isSimulatorChrome(elementSelector, issue.message)) continue;
+    const key = dedupKey(elementLabel || elementSelector, issue.type);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    let bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? null;
+    if (!bounds && elementLabel === "" && unlabeledIdx < unlabeledButtons.length) {
+      bounds = unlabeledButtons[unlabeledIdx++];
+    }
+    bounds = bounds ?? { x: 0, y: 0, width: 0, height: 0 };
+    const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
+    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    fixableIssues.push({
+      id: idCounter++,
+      category: issueTypeToCategory(issue.type),
+      severity: issue.severity === "info" ? "warning" : issue.severity,
+      what: issue.message,
+      where: { element: elementSelector, bounds, screenRegion: region },
+      current: issue.message,
+      required: buildSuggestedFix(issue.type, elementLabel),
+      source: correlation ? {
+        file: correlation.sourceFile,
+        line: correlation.sourceLine,
+        confidence: correlation.confidence,
+        matchedOn: correlation.matchType,
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+      } : void 0,
+      suggestedFix: buildSuggestedFix(issue.type, elementLabel)
+    });
+  }
+  for (const issue of scanResult.issues) {
+    if (issue.severity === "info") continue;
+    const elementLabel = extractLabel(issue.description);
+    const elementSelector = issue.element ?? elementLabel;
+    if (isSimulatorChrome(elementSelector, issue.description)) continue;
+    const issueType = issue.description.includes("touch target") || issue.description.includes("Touch target") ? "TOUCH_TARGET_SMALL" : issue.description.includes("accessibility label") || issue.description.includes("aria-label") ? "MISSING_ARIA_LABEL" : issue.category;
+    const key = dedupKey(elementLabel || elementSelector, issueType);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
+    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    fixableIssues.push({
+      id: idCounter++,
+      category: issue.category === "interactivity" ? "touch-target" : issue.category,
+      severity: issue.severity,
+      what: issue.description,
+      where: { element: elementSelector, bounds, screenRegion: region },
+      current: issue.description,
+      required: issue.fix ?? buildSuggestedFix(issueType, elementLabel),
+      source: correlation ? {
+        file: correlation.sourceFile,
+        line: correlation.sourceLine,
+        confidence: correlation.confidence,
+        matchedOn: correlation.matchType,
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+      } : void 0,
+      suggestedFix: issue.fix ?? buildSuggestedFix(issueType, elementLabel)
+    });
+  }
+  const uniqueFiles = new Set(
+    fixableIssues.filter((i) => i.source).map((i) => i.source.file)
+  );
+  const fileCount = uniqueFiles.size;
+  const issueCount = fixableIssues.length;
+  const summary = issueCount === 0 ? "No issues found" : fileCount > 0 ? `${issueCount} issue${issueCount !== 1 ? "s" : ""} in ${fileCount} file${fileCount !== 1 ? "s" : ""}` : `${issueCount} issue${issueCount !== 1 ? "s" : ""}`;
+  return {
+    screenshot: annotatedScreenshot ?? scanResult.screenshotPath ?? "",
+    screenshotRaw: scanResult.screenshotPath ?? "",
+    issues: fixableIssues,
+    summary
+  };
+}
+var SIMULATOR_CHROME_PATTERNS;
+var init_fix_guide = __esm({
+  "src/native/fix-guide.ts"() {
+    "use strict";
+    SIMULATOR_CHROME_PATTERNS = [
+      "Save Screen",
+      "Rotate",
+      "Sheet Grabber",
+      "Home Indicator",
+      "Status Bar",
+      "Side Button",
+      "Volume",
+      "Mute Switch"
+    ];
+  }
+});
+
 // src/native/index.ts
 var native_exports = {};
 __export(native_exports, {
   NATIVE_VIEWPORTS: () => NATIVE_VIEWPORTS,
+  annotateScreenshot: () => annotateScreenshot,
   auditNativeElements: () => auditNativeElements,
   bootDevice: () => bootDevice,
   buildNativeInteractivity: () => buildNativeInteractivity,
@@ -11053,6 +11375,7 @@ __export(native_exports, {
   formatDevice: () => formatDevice,
   formatMacOSScanResult: () => formatMacOSScanResult,
   formatNativeScanResult: () => formatNativeScanResult,
+  generateFixGuide: () => generateFixGuide,
   getBootedDevices: () => getBootedDevices,
   getDeviceViewport: () => getDeviceViewport,
   isExtractorAvailable: () => isExtractorAvailable,
@@ -11074,6 +11397,8 @@ var init_native = __esm({
     init_macos();
     init_interactivity2();
     init_semantic2();
+    init_annotate();
+    init_fix_guide();
   }
 });
 
@@ -11136,6 +11461,7 @@ __export(index_exports, {
   aiSearchFlow: () => aiSearchFlow,
   analyzeComparison: () => analyzeComparison,
   analyzeForObviousIssues: () => analyzeForObviousIssues,
+  annotateScreenshot: () => annotateScreenshot,
   archiveSummary: () => archiveSummary,
   auditNativeElements: () => auditNativeElements,
   bootDevice: () => bootDevice,
@@ -11205,6 +11531,7 @@ __export(index_exports, {
   formatSessionSummary: () => formatSessionSummary,
   formatValidationResult: () => formatValidationResult,
   generateDevModePrompt: () => generateDevModePrompt,
+  generateFixGuide: () => generateFixGuide,
   generateQuickSummary: () => generateQuickSummary,
   generateReport: () => generateReport,
   generateSessionId: () => generateSessionId,
@@ -12081,16 +12408,14 @@ var init_driver2 = __esm({
       _axElements = [];
       // ─── Lifecycle ──────────────────────────────────────────
       async launch(options = {}) {
-        if (options.headless) {
-          console.warn("[SafariDriver] Safari does not support headless mode. Running visible.");
-        }
         this.session = new SafariSession();
         const port = await this.session.start();
         this.client = new WebDriverClient(port);
         await this.client.createSession();
-        if (options.viewport) {
-          await this.client.setWindowRect(options.viewport);
-        }
+        const vp = options.viewport ?? { width: 1920, height: 1080 };
+        await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
+        (0, import_child_process7.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        });
       }
       async close() {
         if (this.client) {
@@ -12369,9 +12694,9 @@ var init_driver2 = __esm({
           try { el = document.querySelector(eid); } catch(e) {}
         }
 
-        // Strategy 2: aria-label match
+        // Strategy 2: aria-label match (use CSS.escape to prevent selector injection)
         if (!el) {
-          el = document.querySelector('[aria-label="' + eid + '"]');
+          try { el = document.querySelector('[aria-label="' + CSS.escape(eid) + '"]'); } catch(e) {}
         }
 
         // Strategy 3: button/link text content
@@ -12417,9 +12742,9 @@ var init_driver2 = __esm({
        */
       async _cropScreenshot(buf, clip) {
         try {
-          const { PNG: PNG4 } = await import("pngjs");
-          const src = PNG4.sync.read(buf);
-          const dst = new PNG4({ width: clip.width, height: clip.height });
+          const { PNG: PNG5 } = await import("pngjs");
+          const src = PNG5.sync.read(buf);
+          const dst = new PNG5({ width: clip.width, height: clip.height });
           for (let y = 0; y < clip.height; y++) {
             for (let x = 0; x < clip.width; x++) {
               const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
@@ -12430,7 +12755,7 @@ var init_driver2 = __esm({
               dst.data[dstIdx + 3] = src.data[srcIdx + 3];
             }
           }
-          return PNG4.sync.write(dst);
+          return PNG5.sync.write(dst);
         } catch {
           return buf;
         }
@@ -12623,7 +12948,7 @@ function listPresets() {
 }
 async function loadRulesConfig(projectDir) {
   const configPath = (0, import_path19.join)(projectDir, ".ibr", "rules.json");
-  if (!(0, import_fs8.existsSync)(configPath)) {
+  if (!(0, import_fs9.existsSync)(configPath)) {
     return { extends: [], rules: {} };
   }
   try {
@@ -12737,12 +13062,12 @@ async function loadMemoryPreset(outputDir) {
   } catch {
   }
 }
-var import_promises19, import_fs8, import_path19, presets;
+var import_promises19, import_fs9, import_path19, presets;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
     import_promises19 = require("fs/promises");
-    import_fs8 = require("fs");
+    import_fs9 = require("fs");
     import_path19 = require("path");
     presets = /* @__PURE__ */ new Map();
     Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
@@ -12952,7 +13277,7 @@ async function discoverUserContext(projectDir) {
   let memory;
   const outputDir = config.outputDir || "./.ibr";
   const memoryPath = (0, import_path20.join)(outputDir, "memory", "summary.json");
-  if ((0, import_fs9.existsSync)(memoryPath)) {
+  if ((0, import_fs10.existsSync)(memoryPath)) {
     try {
       const memContent = await (0, import_promises20.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
@@ -12974,7 +13299,7 @@ async function tryLoadFramework(filePath, type) {
     found: false,
     hasFramework: false
   };
-  if (!(0, import_fs9.existsSync)(filePath)) {
+  if (!(0, import_fs10.existsSync)(filePath)) {
     return { source };
   }
   source.found = true;
@@ -12991,7 +13316,7 @@ async function tryLoadFramework(filePath, type) {
 }
 async function loadIBRConfig(projectDir) {
   const configPath = (0, import_path20.join)(projectDir, ".ibrrc.json");
-  if (!(0, import_fs9.existsSync)(configPath)) {
+  if (!(0, import_fs10.existsSync)(configPath)) {
     return {};
   }
   try {
@@ -13025,11 +13350,11 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs9, import_promises20, import_path20, import_os3;
+var import_fs10, import_promises20, import_path20, import_os3;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
-    import_fs9 = require("fs");
+    import_fs10 = require("fs");
     import_promises20 = require("fs/promises");
     import_path20 = require("path");
     import_os3 = require("os");
@@ -13305,7 +13630,7 @@ function getPaths(outputDir) {
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs10.existsSync)(stateFile)) {
+  if (!(0, import_fs11.existsSync)(stateFile)) {
     return false;
   }
   try {
@@ -13396,7 +13721,7 @@ async function startBrowserServer(outputDir, options = {}) {
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs10.existsSync)(stateFile)) {
+  if (!(0, import_fs11.existsSync)(stateFile)) {
     return null;
   }
   try {
@@ -13418,7 +13743,7 @@ async function connectToBrowserServer(outputDir) {
 }
 async function stopBrowserServer(outputDir) {
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs10.existsSync)(stateFile)) {
+  if (!(0, import_fs11.existsSync)(stateFile)) {
     return false;
   }
   try {
@@ -13437,7 +13762,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs10.existsSync)(sessionsDir)) {
+  if (!(0, import_fs11.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir6 } = await import("fs/promises");
@@ -13446,21 +13771,21 @@ async function listActiveSessions(outputDir) {
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
       const statePath = (0, import_path21.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs10.existsSync)(statePath)) {
+      if ((0, import_fs11.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_promises21, import_fs10, import_path21, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_promises21, import_fs11, import_path21, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises21 = require("fs/promises");
-    import_fs10 = require("fs");
+    import_fs11 = require("fs");
     import_path21 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
@@ -13542,7 +13867,7 @@ var init_browser_server = __esm({
       static async get(outputDir, sessionId) {
         const sessionDir = (0, import_path21.join)(outputDir, "sessions", sessionId);
         const statePath = (0, import_path21.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs10.existsSync)(statePath)) {
+        if (!(0, import_fs11.existsSync)(statePath)) {
           return null;
         }
         const driver3 = await connectToBrowserServer(outputDir);
@@ -14079,7 +14404,7 @@ var init_browser_server = __esm({
               const src = (0, import_path21.join)(this.sessionDir, cap.screenshot);
               const dest = (0, import_path21.join)(archiveDir, cap.screenshot);
               try {
-                if ((0, import_fs10.existsSync)(src)) {
+                if ((0, import_fs11.existsSync)(src)) {
                   await rename2(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
@@ -14107,14 +14432,14 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises22, import_fs11, import_path22, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises22, import_fs12, import_path22, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises22 = require("fs/promises");
-    import_fs11 = require("fs");
+    import_fs12 = require("fs");
     import_path22 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
@@ -14213,7 +14538,7 @@ var init_live_session = __esm({
       static async resume(outputDir, sessionId) {
         const sessionDir = (0, import_path22.join)(outputDir, "sessions", sessionId);
         const statePath = (0, import_path22.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs11.existsSync)(statePath)) {
+        if (!(0, import_fs12.existsSync)(statePath)) {
           return null;
         }
         const content = await (0, import_promises22.readFile)(statePath, "utf-8");
@@ -14794,7 +15119,7 @@ var init_live_session = __esm({
           const src = (0, import_path22.join)(this.sessionDir, cap.screenshot);
           const dest = (0, import_path22.join)(archiveDir, cap.screenshot);
           try {
-            if ((0, import_fs11.existsSync)(src)) {
+            if ((0, import_fs12.existsSync)(src)) {
               await (0, import_promises22.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
@@ -14879,12 +15204,12 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises23, import_fs12, import_path23, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises23, import_fs13, import_path23, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
     import_promises23 = require("fs/promises");
-    import_fs12 = require("fs");
+    import_fs13 = require("fs");
     import_path23 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
@@ -14943,7 +15268,7 @@ var init_screenshot_manager = __esm({
        */
       async list(sessionId) {
         const sessionDir = (0, import_path23.join)(this.outputDir, "sessions", sessionId);
-        if (!(0, import_fs12.existsSync)(sessionDir)) {
+        if (!(0, import_fs13.existsSync)(sessionDir)) {
           return [];
         }
         const screenshots = [];
@@ -14956,7 +15281,7 @@ var init_screenshot_manager = __esm({
        */
       async listAll() {
         const sessionsDir = (0, import_path23.join)(this.outputDir, "sessions");
-        if (!(0, import_fs12.existsSync)(sessionsDir)) {
+        if (!(0, import_fs13.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
@@ -15001,7 +15326,7 @@ var init_screenshot_manager = __esm({
        * Get metadata for a specific screenshot
        */
       async getMetadata(path2) {
-        if (!(0, import_fs12.existsSync)(path2)) {
+        if (!(0, import_fs13.existsSync)(path2)) {
           return null;
         }
         const stats = await (0, import_promises23.stat)(path2);
@@ -15014,7 +15339,7 @@ var init_screenshot_manager = __esm({
         let query;
         let userIntent;
         const resultsPath = (0, import_path23.join)(dir, "results.json");
-        if ((0, import_fs12.existsSync)(resultsPath)) {
+        if ((0, import_fs13.existsSync)(resultsPath)) {
           try {
             const resultsContent = await (0, import_promises23.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
@@ -15121,7 +15446,7 @@ var init_screenshot_manager = __esm({
        */
       async loadConfig() {
         const configPath = (0, import_path23.join)(this.outputDir, "screenshot-config.json");
-        if ((0, import_fs12.existsSync)(configPath)) {
+        if ((0, import_fs13.existsSync)(configPath)) {
           try {
             const content = await (0, import_promises23.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
@@ -15130,6 +15455,325 @@ var init_screenshot_manager = __esm({
           }
         }
       }
+    };
+  }
+});
+
+// src/native/bridge.ts
+var bridge_exports = {};
+__export(bridge_exports, {
+  correlateToSource: () => correlateToSource,
+  formatBridgeResult: () => formatBridgeResult
+});
+function findSwiftFiles(dir, rootDir) {
+  const SKIP_DIRS = /* @__PURE__ */ new Set([
+    "node_modules",
+    ".build",
+    "DerivedData",
+    "Pods",
+    ".git",
+    "build",
+    "Build",
+    ".swiftpm"
+  ]);
+  const results = [];
+  function walk(currentDir) {
+    let entries;
+    try {
+      entries = (0, import_fs14.readdirSync)(currentDir);
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (SKIP_DIRS.has(entry)) continue;
+      const fullPath = (0, import_path24.join)(currentDir, entry);
+      let stat5;
+      try {
+        stat5 = (0, import_fs14.statSync)(fullPath);
+      } catch {
+        continue;
+      }
+      if (stat5.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.endsWith(".swift")) {
+        results.push((0, import_path24.relative)(rootDir, fullPath));
+      }
+    }
+  }
+  walk(dir);
+  return results;
+}
+function scanSwiftSources(projectRoot, swiftFiles) {
+  const matches = [];
+  const IDENTIFIER_RE = /\.accessibilityIdentifier\(\s*"([^"]+)"\s*\)/g;
+  const LABEL_RE = /\.accessibilityLabel\(\s*"([^"]+)"\s*\)/g;
+  const BUTTON_TEXT_RE = /Button\(\s*"([^"]+)"/g;
+  const LABEL_TEXT_RE = /Label\(\s*"([^"]+)"/g;
+  const TEXT_RE = /Text\(\s*"([^"]+)"/g;
+  const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
+  for (const filePath of swiftFiles) {
+    const fullPath = (0, import_path24.join)(projectRoot, filePath);
+    let content;
+    try {
+      content = (0, import_fs14.readFileSync)(fullPath, "utf-8");
+    } catch {
+      continue;
+    }
+    const lines = content.split("\n");
+    let currentViewName = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineNum = i + 1;
+      const viewMatch = VIEW_STRUCT_RE.exec(line);
+      if (viewMatch) {
+        currentViewName = viewMatch[1];
+        VIEW_STRUCT_RE.lastIndex = 0;
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "view-name",
+          value: currentViewName,
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      IDENTIFIER_RE.lastIndex = 0;
+      LABEL_RE.lastIndex = 0;
+      BUTTON_TEXT_RE.lastIndex = 0;
+      LABEL_TEXT_RE.lastIndex = 0;
+      TEXT_RE.lastIndex = 0;
+      let m;
+      while ((m = IDENTIFIER_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "identifier",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = LABEL_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "label",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = BUTTON_TEXT_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "text",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = LABEL_TEXT_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "text",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+      while ((m = TEXT_RE.exec(line)) !== null) {
+        matches.push({
+          file: filePath,
+          line: lineNum,
+          type: "text",
+          value: m[1],
+          snippet: line.trim(),
+          viewName: currentViewName
+        });
+      }
+    }
+  }
+  return matches;
+}
+function loadNavGatorFileMap(projectRoot) {
+  for (const navPath of NAVGATOR_PATHS) {
+    const fileMapPath = (0, import_path24.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs14.existsSync)(fileMapPath)) continue;
+    try {
+      const content = (0, import_fs14.readFileSync)(fileMapPath, "utf-8");
+      const parsed = JSON.parse(content);
+      return parsed.files || null;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+function correlateToSource(elements, projectRoot) {
+  const navFileMap = loadNavGatorFileMap(projectRoot);
+  const navgatorAvailable = navFileMap !== null;
+  let swiftFiles;
+  if (navFileMap) {
+    swiftFiles = Object.keys(navFileMap).filter((f) => f.endsWith(".swift"));
+    const globbed = findSwiftFiles(projectRoot, projectRoot);
+    const fileSet = new Set(swiftFiles);
+    for (const f of globbed) {
+      if (!fileSet.has(f)) swiftFiles.push(f);
+    }
+  } else {
+    swiftFiles = findSwiftFiles(projectRoot, projectRoot);
+  }
+  const sourceMatches = scanSwiftSources(projectRoot, swiftFiles);
+  const byIdentifier = /* @__PURE__ */ new Map();
+  const byLabel = /* @__PURE__ */ new Map();
+  const byText = /* @__PURE__ */ new Map();
+  const byViewName = /* @__PURE__ */ new Map();
+  for (const match of sourceMatches) {
+    const key = match.value.toLowerCase();
+    switch (match.type) {
+      case "identifier": {
+        if (!byIdentifier.has(key)) byIdentifier.set(key, []);
+        byIdentifier.get(key).push(match);
+        break;
+      }
+      case "label": {
+        if (!byLabel.has(key)) byLabel.set(key, []);
+        byLabel.get(key).push(match);
+        break;
+      }
+      case "text": {
+        if (!byText.has(key)) byText.set(key, []);
+        byText.get(key).push(match);
+        break;
+      }
+      case "view-name": {
+        if (!byViewName.has(key)) byViewName.set(key, []);
+        byViewName.get(key).push(match);
+        break;
+      }
+    }
+  }
+  const correlations = [];
+  const unmatchedElements = [];
+  const matchedIds = /* @__PURE__ */ new Set();
+  for (const el of elements) {
+    const elId = el.selector || el.id || "";
+    const elLabel = el.a11y?.ariaLabel || "";
+    const elText = el.text || "";
+    const elRole = el.a11y?.role || "";
+    if (matchedIds.has(elId) && elId) continue;
+    let bestMatch = null;
+    const testId = el.sourceHint?.dataTestId;
+    if (testId) {
+      const idMatches = byIdentifier.get(testId.toLowerCase());
+      if (idMatches && idMatches.length > 0) {
+        bestMatch = { source: idMatches[0], type: "identifier" };
+      }
+    }
+    if (!bestMatch && el.id) {
+      const idMatches = byIdentifier.get(el.id.toLowerCase());
+      if (idMatches && idMatches.length > 0) {
+        bestMatch = { source: idMatches[0], type: "identifier" };
+      }
+    }
+    if (!bestMatch && elLabel) {
+      const labelMatches = byLabel.get(elLabel.toLowerCase());
+      if (labelMatches && labelMatches.length > 0) {
+        bestMatch = { source: labelMatches[0], type: "label" };
+      }
+    }
+    if (!bestMatch && elText && elText.length >= 2 && elText.length <= 100) {
+      const textMatches = byText.get(elText.toLowerCase());
+      if (textMatches && textMatches.length > 0) {
+        bestMatch = { source: textMatches[0], type: "text" };
+      }
+    }
+    if (!bestMatch && elId) {
+      const elIdLower = elId.toLowerCase();
+      for (const [viewKey, viewMatches] of byViewName) {
+        if (elIdLower.includes(viewKey) && viewMatches.length > 0) {
+          bestMatch = { source: viewMatches[0], type: "view-name" };
+          break;
+        }
+      }
+    }
+    if (bestMatch) {
+      if (elId) matchedIds.add(elId);
+      correlations.push({
+        elementSelector: elId || elLabel || elText || "(unknown)",
+        elementLabel: elLabel || elText || elRole || elId || "",
+        sourceFile: bestMatch.source.file,
+        sourceLine: bestMatch.source.line,
+        viewName: bestMatch.source.viewName,
+        matchedSnippet: bestMatch.source.snippet,
+        matchType: bestMatch.type,
+        confidence: CONFIDENCE[bestMatch.type]
+      });
+    } else {
+      const desc = elLabel || elText || elId;
+      if (desc && desc.length > 1) {
+        unmatchedElements.push(desc);
+      }
+    }
+  }
+  correlations.sort((a, b) => b.confidence - a.confidence || a.sourceFile.localeCompare(b.sourceFile));
+  return {
+    projectRoot,
+    navgatorAvailable,
+    swiftFilesScanned: swiftFiles.length,
+    correlations,
+    unmatchedElements
+  };
+}
+function formatBridgeResult(result) {
+  const lines = [];
+  lines.push(`Source Bridge: ${result.projectRoot}`);
+  lines.push(`NavGator data: ${result.navgatorAvailable ? "available" : "not found (used file glob)"}`);
+  lines.push(`Swift files scanned: ${result.swiftFilesScanned}`);
+  lines.push(`Correlations: ${result.correlations.length}`);
+  lines.push(`Unmatched elements: ${result.unmatchedElements.length}`);
+  if (result.correlations.length > 0) {
+    lines.push("");
+    lines.push("Matched elements:");
+    for (const c of result.correlations) {
+      const conf = `${Math.round(c.confidence * 100)}%`;
+      const view = c.viewName ? ` (in ${c.viewName})` : "";
+      lines.push(`- ${c.elementSelector}`);
+      lines.push(`  \u2192 ${c.sourceFile}:${c.sourceLine}${view} [${c.matchType}, ${conf}]`);
+      lines.push(`  snippet: ${c.matchedSnippet.slice(0, 120)}`);
+    }
+  }
+  if (result.unmatchedElements.length > 0) {
+    lines.push("");
+    const maxUnmatched = Math.min(result.unmatchedElements.length, 15);
+    lines.push(`Unmatched (${result.unmatchedElements.length}):`);
+    for (let i = 0; i < maxUnmatched; i++) {
+      lines.push(`- ${result.unmatchedElements[i]}`);
+    }
+    if (result.unmatchedElements.length > 15) {
+      lines.push(`  ... and ${result.unmatchedElements.length - 15} more`);
+    }
+  }
+  return lines.join("\n");
+}
+var import_fs14, import_path24, NAVGATOR_PATHS, CONFIDENCE;
+var init_bridge = __esm({
+  "src/native/bridge.ts"() {
+    "use strict";
+    import_fs14 = require("fs");
+    import_path24 = require("path");
+    NAVGATOR_PATHS = [
+      (0, import_path24.join)(".navgator", "architecture"),
+      (0, import_path24.join)(".claude", "architecture")
+      // legacy — NavGator < 0.3
+    ];
+    CONFIDENCE = {
+      "identifier": 1,
+      "label": 0.8,
+      "text": 0.6,
+      "view-name": 0.5
     };
   }
 });
@@ -15182,7 +15826,7 @@ async function executeStep(driver3, step, url, outputDir) {
           return;
         }
         if (action.type === "scroll") {
-          const delta = action.value ? parseInt(action.value, 10) : 300;
+          const delta = action.value ? parseInt(action.value, 10) || 300 : 300;
           await driver3.scroll(delta);
           return;
         }
@@ -15205,7 +15849,7 @@ async function executeStep(driver3, step, url, outputDir) {
           await driver3.pressKey(action.value ?? "Enter");
           break;
         case "scroll": {
-          const delta = action.value ? parseInt(action.value, 10) : 300;
+          const delta = action.value ? parseInt(action.value, 10) || 300 : 300;
           await driver3.scroll(delta);
           break;
         }
@@ -15297,7 +15941,7 @@ async function executeStep(driver3, step, url, outputDir) {
     if (expectation.screenshot !== void 0) {
       try {
         await (0, import_promises24.mkdir)(outputDir, { recursive: true });
-        const screenshotPath = (0, import_path24.join)(outputDir, `${expectation.screenshot}.png`);
+        const screenshotPath = (0, import_path25.join)(outputDir, `${expectation.screenshot}.png`);
         await (0, import_promises24.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
@@ -15444,12 +16088,12 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises24, import_path24;
+var import_promises24, import_path25;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
     import_promises24 = require("fs/promises");
-    import_path24 = require("path");
+    import_path25 = require("path");
     init_driver();
   }
 });
@@ -15507,6 +16151,9 @@ function windowSSIM(winX, winY) {
 }
 function computeSSIM(img1, img2, options = {}) {
   const windowSize = options.windowSize ?? 8;
+  if (img1.width === 0 || img1.height === 0 || img2.width === 0 || img2.height === 0) {
+    return { score: 1, verdict: "pass" };
+  }
   if (img1.width !== img2.width || img1.height !== img2.height) {
     throw new Error(
       `SSIM requires equal dimensions. img1: ${img1.width}x${img1.height}, img2: ${img2.width}x${img2.height}`
@@ -15562,11 +16209,11 @@ __export(mockup_match_exports, {
 });
 async function readPng(filePath) {
   const buffer = await (0, import_promises25.readFile)(filePath);
-  const png = import_pngjs3.PNG.sync.read(buffer);
+  const png = import_pngjs4.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function decodePng(buffer) {
-  const png = import_pngjs3.PNG.sync.read(buffer);
+  const png = import_pngjs4.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function resizeNearest(src, srcW, srcH, dstW, dstH) {
@@ -15609,7 +16256,7 @@ async function matchMockup(options) {
     maskDynamic = false,
     headless = true
   } = options;
-  const mockup = await readPng(mockupPath);
+  let mockup = await readPng(mockupPath);
   const viewport = {
     width: options.viewport?.width ?? mockup.width,
     height: options.viewport?.height ?? mockup.height,
@@ -15671,7 +16318,7 @@ async function matchMockup(options) {
           maskedRegions.push(region.label);
         }
         live = { data: liveData, width: live.width, height: live.height };
-        mockup.data = mockupData;
+        mockup = { data: mockupData, width: mockup.width, height: mockup.height };
       }
     }
     let compareData1 = mockup.data;
@@ -15685,7 +16332,7 @@ async function matchMockup(options) {
       { data: compareData1, width: compareWidth, height: compareHeight },
       { data: compareData2, width: compareWidth, height: compareHeight }
     );
-    const diffPng = new import_pngjs3.PNG({ width: compareWidth, height: compareHeight });
+    const diffPng = new import_pngjs4.PNG({ width: compareWidth, height: compareHeight });
     const diffPixelCount = (0, import_pixelmatch3.default)(
       compareData1,
       compareData2,
@@ -15700,7 +16347,7 @@ async function matchMockup(options) {
       }
     );
     const totalPixels = compareWidth * compareHeight;
-    const diffImage = import_pngjs3.PNG.sync.write(diffPng);
+    const diffImage = import_pngjs4.PNG.sync.write(diffPng);
     return {
       ssim: ssimResult,
       pixelDiff: {
@@ -15771,12 +16418,12 @@ async function findDynamicRegions(driver3) {
 async function saveDiffImage(diffImage, outputPath) {
   await (0, import_promises25.writeFile)(outputPath, diffImage);
 }
-var import_promises25, import_pngjs3, import_pixelmatch3;
+var import_promises25, import_pngjs4, import_pixelmatch3;
 var init_mockup_match = __esm({
   "src/mockup-match.ts"() {
     "use strict";
     import_promises25 = require("fs/promises");
-    import_pngjs3 = require("pngjs");
+    import_pngjs4 = require("pngjs");
     import_pixelmatch3 = __toESM(require("pixelmatch"));
     init_driver();
     init_ssim();
@@ -15856,7 +16503,7 @@ function applyOperator(actual, operator, expected) {
 }
 async function getComputedProperty(driver3, elementQuery, property) {
   try {
-    const isSelector = /^[.#\[a-z]/i.test(elementQuery) && !/\s/.test(elementQuery.slice(1));
+    const isSelector = /^[.#\[]/.test(elementQuery) || /[>+~]/.test(elementQuery);
     let jsExpression;
     if (isSelector) {
       jsExpression = `
@@ -15869,8 +16516,8 @@ async function getComputedProperty(driver3, elementQuery, property) {
     } else {
       jsExpression = `
         (function() {
-          // Try aria-label match
-          const byAria = document.querySelector('[aria-label=${JSON.stringify(elementQuery)}]');
+          // Try aria-label match (CSS.escape prevents injection)
+          const byAria = document.querySelector('[aria-label="' + CSS.escape(${JSON.stringify(elementQuery)}) + '"]');
           if (byAria) return getComputedStyle(byAria)[${JSON.stringify(property)}] || null;
           // Try text content match (first element with matching text)
           const all = document.querySelectorAll('*');
@@ -16035,8 +16682,8 @@ function formatReconciliationMatrix(matrix) {
   return lines.join("\n");
 }
 async function loadChanges(outputDir) {
-  const filePath = (0, import_path25.join)(outputDir, CHANGES_FILE);
-  if (!(0, import_fs13.existsSync)(filePath)) return [];
+  const filePath = (0, import_path26.join)(outputDir, CHANGES_FILE);
+  if (!(0, import_fs15.existsSync)(filePath)) return [];
   try {
     const raw = await (0, import_promises26.readFile)(filePath, "utf-8");
     const parsed = JSON.parse(raw);
@@ -16050,16 +16697,16 @@ async function saveChange(outputDir, change) {
   await (0, import_promises26.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
-  const filePath = (0, import_path25.join)(outputDir, CHANGES_FILE);
+  const filePath = (0, import_path26.join)(outputDir, CHANGES_FILE);
   await (0, import_promises26.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises26, import_fs13, import_path25, CHANGES_FILE;
+var import_promises26, import_fs15, import_path26, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
     import_promises26 = require("fs/promises");
-    import_fs13 = require("fs");
-    import_path25 = require("path");
+    import_fs15 = require("fs");
+    import_path26 = require("path");
     CHANGES_FILE = "design-changes.json";
   }
 });
@@ -16126,7 +16773,7 @@ async function generateTest(options) {
   const suite = {
     [pageName]: { url, tests }
   };
-  const dir = (0, import_path26.dirname)(outputPath);
+  const dir = (0, import_path27.dirname)(outputPath);
   if (dir && dir !== ".") {
     await (0, import_promises27.mkdir)(dir, { recursive: true });
   }
@@ -16185,12 +16832,12 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises27, import_path26, INPUT_SAMPLE_VALUES;
+var import_promises27, import_path27, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
     import_promises27 = require("fs/promises");
-    import_path26 = require("path");
+    import_path27 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
       email: "test@example.com",
@@ -16221,7 +16868,7 @@ async function runTests(options = {}) {
     headless = true,
     viewport
   } = options;
-  const raw = await (0, import_promises28.readFile)((0, import_path27.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises28.readFile)((0, import_path28.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
   await (0, import_promises28.mkdir)(outputDir, { recursive: true });
   const allResults = [];
@@ -16266,7 +16913,7 @@ async function runTests(options = {}) {
         duration: Date.now() - runStart
       };
       allResults.push(runResult);
-      const resultPath = (0, import_path27.join)(outputDir, `${pageName}-results.json`);
+      const resultPath = (0, import_path28.join)(outputDir, `${pageName}-results.json`);
       await (0, import_promises28.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
@@ -16296,7 +16943,7 @@ async function executeStep2(driver3, step, outputDir) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
       await (0, import_promises28.mkdir)(outputDir, { recursive: true });
-      const screenshotPath = (0, import_path27.join)(outputDir, `${step.screenshot}.png`);
+      const screenshotPath = (0, import_path28.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
       await (0, import_promises28.writeFile)(screenshotPath, buf);
       return {
@@ -16395,12 +17042,12 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises28, import_path27;
+var import_promises28, import_path28;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
     import_promises28 = require("fs/promises");
-    import_path27 = require("path");
+    import_path28 = require("path");
     init_driver();
   }
 });
@@ -16447,10 +17094,10 @@ async function runScript(options) {
     env = {}
   } = options;
   const tmpId = (0, import_crypto2.randomBytes)(8).toString("hex");
-  const tmpDir = (0, import_path28.join)((0, import_os4.tmpdir)(), `ibr-script-${tmpId}`);
+  const tmpDir = (0, import_path29.join)((0, import_os4.tmpdir)(), `ibr-script-${tmpId}`);
   await (0, import_promises29.mkdir)(tmpDir, { recursive: true });
-  const copiedScript = (0, import_path28.join)(tmpDir, "user_script.py");
-  const wrapperPath = (0, import_path28.join)(tmpDir, "wrapper.py");
+  const copiedScript = (0, import_path29.join)(tmpDir, "user_script.py");
+  const wrapperPath = (0, import_path29.join)(tmpDir, "wrapper.py");
   try {
     await (0, import_promises29.copyFile)(scriptPath, copiedScript);
     await (0, import_promises29.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
@@ -16530,13 +17177,13 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process8, import_promises29, import_path28, import_os4, import_crypto2;
+var import_child_process8, import_promises29, import_path29, import_os4, import_crypto2;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
     import_child_process8 = require("child_process");
     import_promises29 = require("fs/promises");
-    import_path28 = require("path");
+    import_path29 = require("path");
     import_os4 = require("os");
     import_crypto2 = require("crypto");
   }
@@ -16557,7 +17204,7 @@ async function loadState(statePath) {
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises30.mkdir)((0, import_path29.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises30.mkdir)((0, import_path30.resolve)(statePath, ".."), { recursive: true });
   await (0, import_promises30.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
@@ -16615,7 +17262,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     try {
       const results = await runTests({
         filePath: testFile,
-        outputDir: (0, import_path29.join)(outputDir, `iter-${iterationNumber}`)
+        outputDir: (0, import_path30.join)(outputDir, `iter-${iterationNumber}`)
       });
       fingerprints = testRunFingerprints(results);
       issueCount = fingerprints.length;
@@ -16629,7 +17276,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     }
   } else {
     try {
-      const result = await scan(url, { outputDir: (0, import_path29.join)(outputDir, `iter-${iterationNumber}`) });
+      const result = await scan(url, { outputDir: (0, import_path30.join)(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
       approachHint = `verdict=${result.verdict} issues=${issueCount}`;
@@ -16659,7 +17306,7 @@ async function iterate(options) {
     outputDir = ".ibr/iterate",
     autoApprove = false
   } = options;
-  const statePath = (0, import_path29.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path30.join)(outputDir, "iterate-state.json");
   await (0, import_promises30.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url) {
@@ -16698,7 +17345,7 @@ async function iterate(options) {
     console.log(`[iterate] ${finalState}: ${result.summary}`);
     return result;
   }
-  return buildResult(allIterations, "budget_exceeded");
+  return buildResult(allIterations, "in_progress");
 }
 function buildResult(iterations, finalState) {
   const last = iterations[iterations.length - 1];
@@ -16720,21 +17367,24 @@ function buildResult(iterations, finalState) {
     case "budget_exceeded":
       summary = `Reached ${iterations.length} iteration(s). ${last?.issueCount ?? 0} issue(s) remaining. Approach: ${last?.approachHint ?? "unknown"}.`;
       break;
+    case "in_progress":
+      summary = `Iteration ${iterations.length} complete. ${last?.issueCount ?? 0} issue(s) remaining. Ready for next iteration.`;
+      break;
   }
   return { iterations, finalState, summary };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
-  const statePath = (0, import_path29.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path30.join)(outputDir, "iterate-state.json");
   await (0, import_promises30.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto3, import_promises30, import_path29, CHECKPOINT_ITERATIONS;
+var import_crypto3, import_promises30, import_path30, CHECKPOINT_ITERATIONS;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
     import_crypto3 = require("crypto");
     import_promises30 = require("fs/promises");
-    import_path29 = require("path");
+    import_path30 = require("path");
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
@@ -16744,16 +17394,72 @@ var init_iterate = __esm({
 // src/bin/ibr.ts
 var import_commander = require("commander");
 var import_promises31 = require("fs/promises");
-var import_path30 = require("path");
-var import_fs14 = require("fs");
+var import_path31 = require("path");
+var import_fs16 = require("fs");
 init_driver();
 init_compat();
 init_index();
 init_operation_tracker();
+function formatFixGuide(guide) {
+  const lines = [];
+  const count = guide.issues.length;
+  const files = new Set(guide.issues.map((i) => i.source?.file).filter(Boolean));
+  const fileCount = files.size;
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push(`  IBR FIX GUIDE \u2014 ${count} ${count === 1 ? "issue" : "issues"}${fileCount > 0 ? ` in ${fileCount} ${fileCount === 1 ? "file" : "files"}` : ""}`);
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  if (guide.screenshot) {
+    lines.push("");
+    lines.push(`  Annotated: ${guide.screenshot}`);
+  }
+  const CIRCLED = [
+    "\u2460",
+    "\u2461",
+    "\u2462",
+    "\u2463",
+    "\u2464",
+    "\u2465",
+    "\u2466",
+    "\u2467",
+    "\u2468",
+    "\u2469",
+    "\u246A",
+    "\u246B",
+    "\u246C",
+    "\u246D",
+    "\u246E",
+    "\u246F",
+    "\u2470",
+    "\u2471",
+    "\u2472",
+    "\u2473"
+  ];
+  for (let idx = 0; idx < guide.issues.length; idx++) {
+    const i = guide.issues[idx];
+    const num = idx < CIRCLED.length ? CIRCLED[idx] : `(${idx + 1})`;
+    lines.push("");
+    lines.push(`  ${num} [${i.severity}] ${i.what} (${i.where.screenRegion})`);
+    lines.push(`     Element: ${i.where.element} \u2014 ${i.current}`);
+    if (i.source) {
+      const conf = Math.round(i.source.confidence * 10) / 10;
+      lines.push(`     Source:  ${i.source.file}${i.source.line != null ? `:${i.source.line}` : ""} (${conf})`);
+      if (i.source.searchPattern) {
+        lines.push(`     Search:  ${i.source.searchPattern}`);
+      }
+    }
+    lines.push(`     Fix:     ${i.suggestedFix}`);
+  }
+  if (count === 0) {
+    lines.push("");
+    lines.push("  No issues found.");
+  }
+  lines.push("");
+  return lines.join("\n");
+}
 var program = new import_commander.Command();
 async function loadConfig() {
-  const configPath = (0, import_path30.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs14.existsSync)(configPath)) {
+  const configPath = (0, import_path31.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs16.existsSync)(configPath)) {
     try {
       const content = await (0, import_promises31.readFile)(configPath, "utf-8");
       return JSON.parse(content);
@@ -16804,7 +17510,7 @@ async function createDriver(browser) {
   }
   return new EngineDriver();
 }
-program.name("ibr").description("Design validation for Claude Code").version("0.4.1");
+program.name("ibr").description("Design validation for Claude Code").version("0.7.0");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
@@ -16996,7 +17702,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { mkdir: mkdir26, access: access4 } = await import("fs/promises");
-      const { join: join27 } = await import("path");
+      const { join: join28 } = await import("path");
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -17004,7 +17710,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir26(join27(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir26(join28(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -17035,7 +17741,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { readFile: readFile22 } = await import("fs/promises");
-      const { join: join27 } = await import("path");
+      const { join: join28 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
@@ -17060,7 +17766,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join27(process.cwd(), "CLAUDE.md");
+          const claudeMdPath = join28(process.cwd(), "CLAUDE.md");
           const content = await readFile22(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
@@ -17378,20 +18084,20 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn: spawn4 } = await import("child_process");
   const { resolve: resolve5 } = await import("path");
   const packageRoot = resolve5(process.cwd());
-  let webUiDir = (0, import_path30.join)(packageRoot, "web-ui");
-  if (!(0, import_fs14.existsSync)(webUiDir)) {
+  let webUiDir = (0, import_path31.join)(packageRoot, "web-ui");
+  if (!(0, import_fs16.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path30.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path30.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path31.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path31.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs14.existsSync)(p)) {
+      if ((0, import_fs16.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs14.existsSync)(webUiDir)) {
+  if (!(0, import_fs16.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -18178,9 +18884,9 @@ program.command("screenshots:view <path>").description("View a screenshot with m
     if (metadata.query) console.log(`  Query: ${metadata.query}`);
     if (metadata.userIntent) console.log(`  Intent: ${metadata.userIntent}`);
     console.log("");
-    const { exec: exec2 } = await import("child_process");
+    const { exec: exec3 } = await import("child_process");
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
-    exec2(`${cmd} "${path2}"`, (err) => {
+    exec3(`${cmd} "${path2}"`, (err) => {
       if (err) {
         console.log("Could not open image viewer. File path above.");
       }
@@ -18206,7 +18912,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path30.join)(outputDir, "sessions", `search-${Date.now()}`);
+    const sessionDir = (0, import_path31.join)(outputDir, "sessions", `search-${Date.now()}`);
     await mkdir26(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
@@ -18470,13 +19176,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join27 } = await import("path");
+    const { join: join28 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join27(outputDir, "diagnose", "test.png"),
+      outputPath: join28(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -18594,10 +19300,10 @@ async function resolveBaseUrl(providedUrl) {
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
   const { writeFile: writeFile20, readFile: readFile22, mkdir: mkdir26 } = await import("fs/promises");
-  const configPath = (0, import_path30.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path30.join)(process.cwd(), ".claude", "settings.json");
+  const configPath = (0, import_path31.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path31.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs14.existsSync)(configPath)) {
+  if (!(0, import_fs16.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -18651,8 +19357,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs14.existsSync)((0, import_path30.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs14.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs16.existsSync)((0, import_path31.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs16.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -18661,7 +19367,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs14.existsSync)((0, import_path30.join)(process.cwd(), p))) {
+    if ((0, import_fs16.existsSync)((0, import_path31.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -18740,7 +19446,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir26((0, import_path30.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir26((0, import_path31.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
@@ -18883,7 +19589,7 @@ program.command("native:devices").description("List available iOS/watchOS simula
     process.exit(1);
   }
 });
-program.command("native:scan [device]").description("Scan a running simulator for accessibility and design issues").option("--no-screenshot", "Skip screenshot capture").option("--json", "Output as JSON").action(async (device, options) => {
+program.command("native:scan [device]").description("Scan a running simulator for accessibility and design issues").option("--no-screenshot", "Skip screenshot capture").option("--json", "Output as JSON").option("--fix-guide", "Generate actionable fix instructions with source mapping").action(async (device, options) => {
   try {
     const { scanNative: scanNative2, formatNativeScanResult: formatNativeScanResult2 } = await Promise.resolve().then(() => (init_native(), native_exports));
     const globalOpts = program.opts();
@@ -18893,7 +19599,29 @@ program.command("native:scan [device]").description("Scan a running simulator fo
       screenshot: options.screenshot !== false,
       outputDir
     });
-    if (options.json) {
+    if (options.fixGuide) {
+      const { correlateToSource: correlateToSource2 } = await Promise.resolve().then(() => (init_bridge(), bridge_exports));
+      const { generateFixGuide: generateFixGuide2 } = await Promise.resolve().then(() => (init_fix_guide(), fix_guide_exports));
+      const { annotateScreenshot: annotateScreenshot2 } = await Promise.resolve().then(() => (init_annotate(), annotate_exports));
+      const bridgeResult = correlateToSource2(result.elements.all, process.cwd());
+      const fixGuide = generateFixGuide2(result, bridgeResult, null);
+      if (result.screenshotPath && fixGuide.issues.length > 0) {
+        const annotated = await annotateScreenshot2(
+          result.screenshotPath,
+          fixGuide.issues.map((i) => ({ id: i.id, bounds: i.where.bounds }))
+        );
+        if (annotated) fixGuide.screenshot = annotated;
+      }
+      const { mkdirSync, writeFileSync: writeFileSync2 } = await import("fs");
+      const guidePath = (0, import_path31.join)(outputDir, "native", "fix-guide.json");
+      mkdirSync((0, import_path31.join)(outputDir, "native"), { recursive: true });
+      writeFileSync2(guidePath, JSON.stringify(fixGuide, null, 2));
+      if (options.json) {
+        console.log(JSON.stringify(fixGuide, null, 2));
+      } else {
+        console.log(formatFixGuide(fixGuide));
+      }
+    } else if (options.json) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       console.log(formatNativeScanResult2(result));
@@ -19220,7 +19948,7 @@ program.command("interact <url>").description("Run interaction assertions: click
       url: resolvedUrl,
       steps,
       viewport,
-      outputDir: (0, import_path30.join)(outputDir, "interactions"),
+      outputDir: (0, import_path31.join)(outputDir, "interactions"),
       headless: !options.sandbox
     });
     if (options.json) {
@@ -19409,17 +20137,17 @@ program.command("verify-changes <url>").description("Verify all recorded design 
     process.exit(1);
   }
 });
-program.command("generate-test <url>").description("Generate a declarative .ibr-test.json file from page observation").option("--scenario <text>", "Natural language scenario description").option("--output <path>", "Output path for test file", ".ibr-test.json").action(async (url, options) => {
+program.command("generate-test <url>").description("Generate a declarative .ibr-test.json file from page observation").option("--scenario <text>", "Natural language scenario description").option("--test-file <path>", "Output path for test file", ".ibr-test.json").action(async (url, options) => {
   try {
     const { generateTest: generateTest2 } = await Promise.resolve().then(() => (init_test_generator(), test_generator_exports));
     const suite = await generateTest2({
       url,
       scenario: options.scenario,
-      outputPath: options.output
+      outputPath: options.testFile
     });
     const pageNames = Object.keys(suite);
     const total = pageNames.reduce((s, k) => s + suite[k].tests.length, 0);
-    console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) \u2192 ${options.output}`);
+    console.log(`Generated ${total} test(s) for ${pageNames.length} page(s) \u2192 ${options.testFile}`);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
@@ -19570,13 +20298,13 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
   let diffSaved = false;
   if (chromeScreenshot && safariScreenshot) {
     try {
-      const { PNG: PNG4 } = await import("pngjs");
+      const { PNG: PNG5 } = await import("pngjs");
       const pixelmatch4 = (await import("pixelmatch")).default;
-      const chromePng = PNG4.sync.read(chromeScreenshot);
-      const safariPng = PNG4.sync.read(safariScreenshot);
+      const chromePng = PNG5.sync.read(chromeScreenshot);
+      const safariPng = PNG5.sync.read(safariScreenshot);
       const w = Math.min(chromePng.width, safariPng.width);
       const h = Math.min(chromePng.height, safariPng.height);
-      const diff = new PNG4({ width: w, height: h });
+      const diff = new PNG5({ width: w, height: h });
       const chromeData = cropPngData(chromePng.data, chromePng.width, w, h);
       const safariData = cropPngData(safariPng.data, safariPng.width, w, h);
       pixelDiff = pixelmatch4(chromeData, safariData, diff.data, w, h, {
@@ -19588,7 +20316,7 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
         const { writeFile: writeFile20, mkdir: mkdirFs } = await import("fs/promises");
         const { dirname: dirname10 } = await import("path");
         await mkdirFs(dirname10(options.saveDiff), { recursive: true });
-        await writeFile20(options.saveDiff, PNG4.sync.write(diff));
+        await writeFile20(options.saveDiff, PNG5.sync.write(diff));
         diffSaved = true;
       }
     } catch {
