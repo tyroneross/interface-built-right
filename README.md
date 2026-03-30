@@ -7,8 +7,8 @@
 <h1 align="center">Interface Built Right</h1>
 
 <p align="center">
-  Design validation for AI coding agents.<br>
-  Verify UI matches what was described — with data, not pixels.
+  Visual testing platform for AI coding agents.<br>
+  Scan, interact, match mockups, verify design intent, generate tests — Chrome + Safari.
 </p>
 
 <p align="center">
@@ -19,9 +19,9 @@
 
 ---
 
-IBR is a Claude Code plugin that validates your UI implementation against what the user described. IBR scans the live page and returns structured data — computed CSS, element bounds, handler wiring, accessibility attributes, page classification — so you know *exactly* whether the build matches the intent. Screenshots show you what the page looks like; IBR tells you what the page *is*. Best results come from using both.
+IBR is a visual testing platform for AI coding agents. It scans live pages, runs interaction assertions (click X → verify Y), matches mockups against reality (SSIM), captures design intent and verifies it, auto-generates tests from page observation, and works across Chrome and Safari.
 
-It works from the terminal, from Claude Code slash commands, or from code. Zero config required.
+Built on a custom CDP engine — no Playwright. Works from terminal, Claude Code slash commands, or code. Zero config.
 
 ## Architecture
 
@@ -37,6 +37,25 @@ IBR runs on a custom **CDP browser engine** — direct Chrome DevTools Protocol 
 | **Resolution cache** | Caches intent→element mappings. Same query twice = instant. Clears on navigation |
 | **observe()** | Preview available actions without executing. Returns serializable descriptors |
 | **extract()** | Pull structured data from AX tree using schemas |
+
+## What's New in v0.7.0
+
+| Feature | Command | What it does |
+|---------|---------|-------------|
+| **Interaction assertions** | `ibr interact` | Click, type, verify — act→verify→screenshot pipeline |
+| **Mockup matching** | `ibr match` | Compare design mockup PNG against live page (SSIM) |
+| **Design verification** | `ibr record-change` / `ibr verify-changes` | Capture design intent, verify against reality |
+| **Test generation** | `ibr generate-test` | Auto-generate .ibr-test.json from page observation |
+| **Test runner** | `ibr test` | Run declarative test files |
+| **Python scripting** | `ibr run-script` | Execute Python test scripts with sandboxed resources |
+| **Fix-and-iterate** | `ibr iterate` | Convergence detection for test-fix cycles |
+| **Safari support** | `--browser safari` | Cross-browser via safaridriver + macOS AX API |
+| **Cross-browser diff** | `ibr compare-browsers` | Side-by-side Chrome vs Safari comparison |
+| **AX tree coverage** | Built into `ibr scan` | Reports AX tree capture %, shadow DOM piercing |
+| **Flow testing** | `ibr test-search/form/login` | Built-in flows exposed as CLI commands |
+| **Playwright removed** | -- | Zero Playwright dependency, custom CDP engine only |
+
+See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 
 ## The Problem
 

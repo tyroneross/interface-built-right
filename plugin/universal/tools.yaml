@@ -9,8 +9,8 @@
 
 meta:
   name: ibr
-  version: "0.4.9"
-  description: Design validation for AI coding agents — verify UI matches intent
+  version: "0.7.0"
+  description: Visual testing platform — interaction assertions, mockup matching, design verification, test generation, Chrome + Safari
   repository: https://github.com/tyroneross/interface-built-right
 
 # Tool definitions
@@ -242,6 +242,252 @@ tools:
         required: true
         description: Session ID or "all" to stop browser server
     cli: "npx ibr session:close {sessionId}"
+
+  # ============================================
+  # Interaction Testing Tools (v0.7.0)
+  # ============================================
+
+  - id: ibr_interact
+    name: Interaction Assertions
+    description: Click, type, or interact with an element, then verify the result (act→verify→screenshot)
+    category: interaction-testing
+    params:
+      - name: url
+        type: string
+        required: true
+      - name: action
+        type: string
+        required: true
+        description: "Action spec: 'click:button:Submit', 'type:textbox:Search:query'"
+      - name: expect
+        type: string
+        required: false
+        description: "Assertion: 'visible:Success', 'hidden:Modal', 'text:Saved', 'count:3'"
+      - name: expectScreenshot
+        type: string
+        required: false
+        description: Name for screenshot capture after action
+    cli: "npx ibr interact {url} --action '{action}' --expect '{expect}' --expect-screenshot {expectScreenshot}"
+    example: |
+      npx ibr interact http://localhost:3000 --action 'click:button:Submit' --expect 'visible:Success'
+
+  - id: ibr_test_search
+    name: Test Search Flow
+    description: Test search functionality using the built-in search flow
+    category: interaction-testing
+    params:
+      - name: url
+        type: string
+        required: false
+      - name: query
+        type: string
+        required: false
+        default: test
+      - name: expectCount
+        type: number
+        required: false
+    cli: "npx ibr test-search {url} --query '{query}' --expect-count {expectCount}"
+
+  - id: ibr_test_form
+    name: Test Form Flow
+    description: Test form submission using the built-in form flow
+    category: interaction-testing
+    params:
+      - name: url
+        type: string
+        required: false
+      - name: fill
+        type: string
+        required: true
+        description: JSON object of field name→value pairs
+      - name: submitButton
+        type: string
+        required: false
+    cli: "npx ibr test-form {url} --fill '{fill}' --submit-button '{submitButton}'"
+
+  - id: ibr_test_login
+    name: Test Login Flow
+    description: Test login using the built-in login flow
+    category: interaction-testing
+    params:
+      - name: url
+        type: string
+        required: false
+      - name: email
+        type: string
+        required: true
+      - name: password
+        type: string
+        required: true
+    cli: "npx ibr test-login {url} --email {email} --password {password}"
+
+  # ============================================
+  # Mockup Matching Tools (v0.7.0)
+  # ============================================
+
+  - id: ibr_match
+    name: Mockup Match
+    description: Compare a design mockup PNG against a live page using SSIM + pixelmatch
+    category: mockup-matching
+    params:
+      - name: mockup
+        type: string
+        required: true
+        description: Path to mockup PNG file
+      - name: url
+        type: string
+        required: true
+      - name: selector
+        type: string
+        required: false
+        description: CSS selector to crop live page to
+      - name: maskDynamic
+        type: boolean
+        required: false
+        description: Auto-mask timestamps, ads, dynamic content
+      - name: saveDiff
+        type: string
+        required: false
+        description: Path to save the diff image
+    cli: "npx ibr match {mockup} {url} --selector '{selector}' {maskDynamic ? '--mask-dynamic' : ''} --save-diff {saveDiff}"
+    returns:
+      - ssim: number  # 0.0–1.0
+      - verdict: string  # pass, review, fail
+      - pixelDiff: number
+    example: |
+      npx ibr match hero-mockup.png http://localhost:3000 --selector '.hero' --mask-dynamic
+
+  # ============================================
+  # Design Verification Tools (v0.7.0)
+  # ============================================
+
+  - id: ibr_record_change
+    name: Record Design Change
+    description: Record a design change specification for later verification
+    category: design-verification
+    params:
+      - name: url
+        type: string
+        required: false
+      - name: element
+        type: string
+        required: true
+        description: Accessible name or CSS selector of the element
+      - name: description
+        type: string
+        required: true
+      - name: checks
+        type: string
+        required: true
+        description: JSON array of property checks
+    cli: "npx ibr record-change {url} --element '{element}' --description '{description}' --checks '{checks}'"
+
+  - id: ibr_verify_changes
+    name: Verify Design Changes
+    description: Verify all recorded design changes against the live page
+    category: design-verification
+    params:
+      - name: url
+        type: string
+        required: false
+    cli: "npx ibr verify-changes {url}"
+    returns:
+      - passed: number
+      - failed: number
+      - ambiguous: number
+
+  # ============================================
+  # Test Automation Tools (v0.7.0)
+  # ============================================
+
+  - id: ibr_generate_test
+    name: Generate Test
+    description: Auto-generate a .ibr-test.json test file from page observation
+    category: test-automation
+    params:
+      - name: url
+        type: string
+        required: true
+      - name: scenario
+        type: string
+        required: false
+        description: Natural language scenario description
+      - name: testFile
+        type: string
+        required: false
+        default: .ibr-test.json
+    cli: "npx ibr generate-test {url} --scenario '{scenario}' --test-file {testFile}"
+
+  - id: ibr_test
+    name: Run Tests
+    description: Run declarative .ibr-test.json test file
+    category: test-automation
+    params:
+      - name: file
+        type: string
+        required: false
+        default: .ibr-test.json
+    cli: "npx ibr test --file {file}"
+    returns:
+      - total: number
+      - passed: number
+      - failed: number
+
+  - id: ibr_run_script
+    name: Run Python Script
+    description: Execute a Python test script with sandboxed resource limits
+    category: test-automation
+    params:
+      - name: script
+        type: string
+        required: true
+      - name: url
+        type: string
+        required: false
+      - name: timeout
+        type: number
+        required: false
+        default: 60000
+    cli: "npx ibr run-script {script} --url {url} --timeout {timeout}"
+
+  - id: ibr_iterate
+    name: Iterate
+    description: Run one iteration of the test-fix loop and report convergence state
+    category: test-automation
+    params:
+      - name: url
+        type: string
+        required: true
+      - name: test
+        type: string
+        required: false
+        default: .ibr-test.json
+      - name: maxIterations
+        type: number
+        required: false
+        default: 7
+    cli: "npx ibr iterate {url} --test {test} --max-iterations {maxIterations}"
+    returns:
+      - finalState: string  # resolved, stagnant, oscillating, regressing, in_progress, budget_exceeded
+      - issueCount: number
+
+  # ============================================
+  # Cross-Browser Tools (v0.7.0)
+  # ============================================
+
+  - id: ibr_compare_browsers
+    name: Compare Browsers
+    description: Scan in Chrome and Safari, diff screenshots and element counts
+    category: cross-browser
+    params:
+      - name: url
+        type: string
+        required: true
+    cli: "npx ibr compare-browsers {url}"
+    returns:
+      - chromeElements: number
+      - safariElements: number
+      - pixelDiff: number
 
 # Prompt templates (referenced by commands/skills)
 prompts:

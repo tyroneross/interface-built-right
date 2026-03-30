@@ -1,14 +1,14 @@
 {
   "name": "ibr",
-  "version": "0.4.9",
-  "description": "UI planning and validation — takes user intent, measures live UI, and verifies implementation matches spec through scanning, comparison, accessibility auditing, and native simulator checks",
+  "version": "0.7.0",
+  "description": "Visual testing platform — interaction assertions, mockup matching (SSIM), design verification, test generation, cross-browser (Chrome + Safari), and native iOS/macOS scanning",
   "author": {
     "name": "Tyrone Ross"
   },
   "homepage": "https://github.com/tyroneross/interface-built-right",
   "repository": "https://github.com/tyroneross/interface-built-right",
   "license": "MIT",
-  "keywords": ["design-validation", "ui-testing", "css-audit", "accessibility", "playwright", "claude-code"],
+  "keywords": ["visual-testing", "ui-testing", "interaction-testing", "mockup-matching", "accessibility", "cdp", "safari", "claude-code"],
   "hooks": "../hooks/hooks.json",
   "mcpServers": "../../.mcp.json",
   "skills": "../../skills"
