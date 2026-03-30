@@ -11,6 +11,33 @@ Visual testing platform for Claude Code. Scans live pages via CDP (Chrome DevToo
 
 **Node.js 22+** required (built-in WebSocket for CDP).
 
+## Fix Guide (v0.5.0+)
+
+`ibr native:scan --fix-guide` generates actionable fix instructions for Claude Code:
+
+```bash
+ibr native:scan --fix-guide              # formatted text output
+ibr native:scan --fix-guide --json       # structured JSON for programmatic use
+```
+
+**What it produces:**
+- **SoM-annotated screenshot** — numbered red labels on each problematic element
+- **Per-issue fix instructions** — what's wrong, where (screen region + pixel bounds), which source file, and suggested SwiftUI code fix
+- **Source mapping** — uses NavGator bridge to correlate AX elements to Swift source files with confidence scores
+
+**Output saved to:** `.ibr/native/fix-guide.json`
+
+**Example output:**
+```
+① [error] Touch target too small (bottom-left)
+   Element: [role="AXButton"][label=""] — 16×16pt (need ≥44×44pt)
+   Source:  Shared/Views/ContentView.swift:142 (0.8)
+   Search:  Button { Image(systemName: "play.fill") }
+   Fix:     Add .frame(minWidth: 44, minHeight: 44)
+```
+
+**For best source mapping:** Run NavGator first (`navgator scan`) to populate `.navgator/architecture/file_map.json`. IBR reads this for higher-confidence file correlations.
+
 ## Development
 
 ```bash

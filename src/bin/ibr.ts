@@ -149,7 +149,7 @@ async function createDriver(browser?: string): Promise<BrowserDriver> {
 program
   .name('ibr')
   .description('Design validation for Claude Code')
-  .version('0.4.1');
+  .version('0.7.0');
 
 // Global options
 program
