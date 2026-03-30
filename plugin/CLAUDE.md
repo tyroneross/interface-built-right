@@ -13,13 +13,31 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 - **Tracking changes** — capture a reference point with `start`, then `check` after changes
 - **Skip for** — backend-only changes, config, docs, type-only changes
 
+## MCP Tools (preferred for Claude Code)
+
+| Tool | Use For |
+|------|---------|
+| `observe` | See all clickable/fillable elements before interacting |
+| `interact` | Click, type, fill elements by accessible name (e.g. `interact` → action: click, target: "Submit") |
+| `extract` | Read page headings, buttons, inputs, links after interactions |
+| `interact_and_verify` | Act + capture before/after element diff (elements added/removed) |
+| `scan` | Full page analysis — CSS, handlers, a11y, console errors |
+| `snapshot` | Capture visual baseline |
+| `compare` | Compare current vs baseline |
+| `screenshot` | Capture screenshot of any URL |
+
 ## Core Workflow
 
 ```bash
 npx ibr scan <url> --json                    # read live UI data
 npx ibr start <url> --name "feature-name"    # reference point before changes
 npx ibr check                                # compare after changes
-npx ibr memory add "<spec>" --property X --value Y  # store persistent design spec
+
+# Interaction (by accessible name, not CSS selectors)
+npx ibr observe <url>                        # see interactive elements
+npx ibr interact <url> --action click --target "Submit"
+npx ibr interact <url> --action type --target "Search" --value "query"
+npx ibr extract <url>                        # verify page state
 ```
 
 Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
