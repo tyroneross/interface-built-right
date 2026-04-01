@@ -131,6 +131,8 @@ export interface MacOSAXElement {
   position: { x: number; y: number } | null;
   size: { width: number; height: number } | null;
   children: MacOSAXElement[];
+  /** Index path from the window root — e.g. [0, 2, 1] — used for action targeting */
+  path: number[];
 }
 
 /**

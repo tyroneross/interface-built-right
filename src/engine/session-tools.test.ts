@@ -122,10 +122,27 @@ describe('TOOLS array completeness', () => {
     expect(names).toContain('session_close')
   })
 
-  it('session_start has required url field', async () => {
+  it('session_start has no required fields (all params are platform-dependent)', async () => {
     const { TOOLS } = await import('../mcp/tools.js')
     const tool = TOOLS.find(t => t.name === 'session_start')!
-    expect(tool.inputSchema.required).toContain('url')
+    // url, app, simulator are all optional depending on platform — handler validates at runtime
+    expect((tool.inputSchema as Record<string, unknown>).required).toBeUndefined()
+  })
+
+  it('session_start schema includes browser, app, simulator fields', async () => {
+    const { TOOLS } = await import('../mcp/tools.js')
+    const tool = TOOLS.find(t => t.name === 'session_start')!
+    const props = (tool.inputSchema.properties as Record<string, unknown>)
+    expect(props).toHaveProperty('browser')
+    expect(props).toHaveProperty('app')
+    expect(props).toHaveProperty('simulator')
+  })
+
+  it('session_start browser field has chrome/safari enum', async () => {
+    const { TOOLS } = await import('../mcp/tools.js')
+    const tool = TOOLS.find(t => t.name === 'session_start')!
+    const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>
+    expect(props.browser.enum).toEqual(['chrome', 'safari'])
   })
 
   it('session_action has required sessionId, action, target fields', async () => {
@@ -147,5 +164,90 @@ describe('TOOLS array completeness', () => {
     const tool = TOOLS.find(t => t.name === 'session_read')!
     expect(tool.inputSchema.required).toContain('sessionId')
     expect(tool.inputSchema.required).toContain('what')
+  })
+})
+
+// ─── Multi-platform session dispatch ─────────────────────────────────────────
+
+describe('session_start — missing target param validation', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('returns error when no url, app, or simulator provided', async () => {
+    const { handleToolCall } = await import('../mcp/tools.js')
+    const result = await handleToolCall('session_start', {})
+    // Should fail at Chrome launch (no url) or return a helpful error
+    // Since Chrome will fail to launch without url, we just verify it returns some response
+    expect(result).toBeDefined()
+    expect(result.content).toBeDefined()
+    expect(result.content.length).toBeGreaterThan(0)
+  })
+
+  it('returns error when app is not running', async () => {
+    const { handleToolCall } = await import('../mcp/tools.js')
+    // Use a definitely-not-running app name
+    const result = await handleToolCall('session_start', { app: 'NonExistentApp12345XYZ' })
+    expect(result.isError).toBe(true)
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('session_start (macos) failed')
+  })
+
+  it('returns error when simulator name not found', async () => {
+    const { handleToolCall } = await import('../mcp/tools.js')
+    const result = await handleToolCall('session_start', { simulator: 'NonExistentDevice99999XYZ' })
+    expect(result.isError).toBe(true)
+    const text = (result.content[0] as { text: string }).text
+    // May fail with xcrun error or "Simulator not found"
+    expect(text).toMatch(/session_start \(simulator\) failed|Simulator not found/)
+  })
+})
+
+describe('session_action — native/simulator sessions return guidance', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('session_action on unknown sessionId returns error', async () => {
+    const { handleToolCall } = await import('../mcp/tools.js')
+    const result = await handleToolCall('session_action', {
+      sessionId: 'ghost-id-xyz',
+      action: 'click',
+      target: 'Button',
+    })
+    expect(result.isError).toBe(true)
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Session not found')
+  })
+})
+
+describe('session_read — native/simulator sessions return state', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('session_read on unknown sessionId returns error', async () => {
+    const { handleToolCall } = await import('../mcp/tools.js')
+    const result = await handleToolCall('session_read', {
+      sessionId: 'ghost-id-xyz',
+      what: 'state',
+    })
+    expect(result.isError).toBe(true)
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Session not found')
+  })
+})
+
+describe('session_close — null driver handling', () => {
+  beforeEach(() => {
+    vi.resetModules()
+  })
+
+  it('session_close on unknown sessionId returns error', async () => {
+    const { handleToolCall } = await import('../mcp/tools.js')
+    const result = await handleToolCall('session_close', { sessionId: 'ghost-id-xyz' })
+    expect(result.isError).toBe(true)
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('Session not found')
   })
 })

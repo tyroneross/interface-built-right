@@ -37,9 +37,27 @@ import { searchFlow } from '../flows/search.js';
 import { formFlow } from '../flows/form.js';
 import { loginFlow } from '../flows/login.js';
 import { CompatPage } from '../engine/compat.js';
+import {
+  idbTap,
+  idbType,
+  idbSwipe,
+  idbButton,
+  idbOpenUrl,
+  isIdbCliAvailable,
+} from '../native/idb.js';
+import { elementCenter, findElementByLabel } from '../native/actions.js';
 
-// Session store — persistent browser instances
-const sessions = new Map<string, { driver: EngineDriver; url: string; createdAt: number }>()
+// Session store — persistent browser instances (Chrome, Safari, macOS native, iOS/watchOS simulator)
+const sessions = new Map<string, {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  driver: any  // EngineDriver | SafariDriver | null (null for native/simulator sessions)
+  type: 'chrome' | 'safari' | 'macos' | 'simulator'
+  url?: string
+  app?: string
+  device?: { udid: string; name: string }
+  pid?: number
+  createdAt: number
+}>()
 
 // --- Content types ---
 
@@ -685,12 +703,12 @@ export const TOOLS = [
   // --- Persistent session tools ---
   {
     name: "session_start",
-    description: "Start a persistent browser session. The browser stays alive across tool calls — use for multi-step interactions, form filling, login flows. Use session_action to interact, session_read to observe/extract, session_close when done.",
+    description: "Start a persistent session for web (Chrome/Safari), macOS native app, or iOS/watchOS simulator. Chrome is default for web. Use 'app' for native macOS apps, 'simulator' for iOS/watchOS. Session stays alive across tool calls — use session_action to interact, session_read to observe/extract, session_close when done.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        url: { type: "string", description: "URL to navigate to" },
-        headless: { type: "boolean", description: "Run headless (default: true)" },
+        url: { type: "string", description: "URL to navigate to (web sessions)" },
+        headless: { type: "boolean", description: "Run headless (default: true, web only)" },
         viewport: {
           type: "object" as const,
           properties: {
@@ -698,8 +716,20 @@ export const TOOLS = [
             height: { type: "number" as const },
           },
         },
+        browser: {
+          type: "string",
+          enum: ["chrome", "safari"],
+          description: "Browser for web sessions (default: chrome)",
+        },
+        app: {
+          type: "string",
+          description: "macOS app name for native sessions (e.g. 'Finder', 'Secrets Vault')",
+        },
+        simulator: {
+          type: "string",
+          description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro')",
+        },
       },
-      required: ["url"],
     },
     annotations: {
       title: "Start Persistent Session",
@@ -773,6 +803,53 @@ export const TOOLS = [
       title: "Close Persistent Session",
       readOnlyHint: false,
       destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  // --- iOS/watchOS simulator interaction ---
+  {
+    name: "sim_action",
+    description:
+      "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. " +
+      "For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. " +
+      "For tap with coordinates: taps directly at x,y. " +
+      "Requires IDB for typing and swipe (install: brew install idb-companion && pip install fb-idb). " +
+      "Tap and openUrl fall back to simctl when IDB is unavailable.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        device: {
+          type: "string",
+          description: "Device name fragment or UDID. Uses first booted device if omitted.",
+        },
+        action: {
+          type: "string",
+          enum: ["tap", "type", "scroll", "swipe", "home", "openUrl"],
+          description: "Interaction to perform",
+        },
+        target: {
+          type: "string",
+          description:
+            "For tap: element accessibility label to resolve (e.g. 'Submit') or 'x,y' coordinates. " +
+            "For type: the text to input. " +
+            "For scroll/swipe: direction ('up', 'down', 'left', 'right'). " +
+            "For openUrl: the URL to open (e.g. 'myapp://route'). " +
+            "For home: ignored.",
+        },
+        value: {
+          type: "string",
+          description:
+            "Optional extra value. For tap by label: overrides auto-resolved coordinates if provided as 'x,y'. " +
+            "For scroll: starting x,y as 'x,y' (default: screen center).",
+        },
+      },
+      required: ["action", "target"],
+    },
+    annotations: {
+      title: "Simulator Action",
+      readOnlyHint: false,
+      destructiveHint: false,
       idempotentHint: false,
       openWorldHint: false,
     },
@@ -1191,12 +1268,95 @@ export async function handleToolCall(
       }
 
       case "session_start": {
-        const { url, headless = true, viewport } = args as {
-          url: string
+        const { url, headless = true, viewport, browser, app, simulator } = args as {
+          url?: string
           headless?: boolean
           viewport?: { width: number; height: number }
+          browser?: 'chrome' | 'safari'
+          app?: string
+          simulator?: string
         }
 
+        const sessionId = crypto.randomUUID()
+
+        // ── macOS native session ──────────────────────────────────────────
+        if (app) {
+          try {
+            const { execFile } = await import('child_process')
+            const { promisify } = await import('util')
+            const execFileAsync = promisify(execFile)
+            const { stdout } = await execFileAsync('pgrep', ['-x', app])
+            const pid = parseInt(stdout.trim(), 10)
+            if (isNaN(pid)) throw new Error(`App "${app}" is not running`)
+
+            sessions.set(sessionId, { driver: null, type: 'macos', app, pid, createdAt: Date.now() })
+
+            return textResponse(JSON.stringify({
+              sessionId,
+              type: 'macos',
+              app,
+              pid,
+              timestamp: new Date().toISOString(),
+            }, null, 2))
+          } catch (err) {
+            return errorResponse(`session_start (macos) failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
+
+        // ── iOS/watchOS simulator session ─────────────────────────────────
+        if (simulator) {
+          try {
+            const { listDevices, bootDevice } = await import('../native/simulator.js')
+            const devices = await listDevices()
+            const device = devices.find(d => d.name.includes(simulator) || d.udid === simulator)
+            if (!device) throw new Error(`Simulator not found: ${simulator}`)
+            if (device.state !== 'Booted') await bootDevice(device.udid)
+
+            sessions.set(sessionId, {
+              driver: null,
+              type: 'simulator',
+              device: { udid: device.udid, name: device.name },
+              createdAt: Date.now(),
+            })
+
+            return textResponse(JSON.stringify({
+              sessionId,
+              type: 'simulator',
+              device: { udid: device.udid, name: device.name },
+              timestamp: new Date().toISOString(),
+            }, null, 2))
+          } catch (err) {
+            return errorResponse(`session_start (simulator) failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
+
+        // ── Web sessions (Chrome or Safari) ──────────────────────────────
+        if (!url) {
+          return errorResponse(`session_start requires 'url' for web sessions, 'app' for macOS native, or 'simulator' for iOS/watchOS`)
+        }
+
+        // Safari session (on request)
+        if (browser === 'safari') {
+          try {
+            const { SafariDriver } = await import('../engine/safari/driver.js')
+            const safariDriver = new SafariDriver()
+            await safariDriver.launch({})
+            await safariDriver.navigate(url)
+
+            sessions.set(sessionId, { driver: safariDriver, type: 'safari', url, createdAt: Date.now() })
+
+            return textResponse(JSON.stringify({
+              sessionId,
+              type: 'safari',
+              url,
+              timestamp: new Date().toISOString(),
+            }, null, 2))
+          } catch (err) {
+            return errorResponse(`session_start (safari) failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
+
+        // Chrome session (default)
         const driver = new EngineDriver()
         try {
           await driver.launch({
@@ -1208,11 +1368,11 @@ export async function handleToolCall(
           const elements = await driver.getSnapshot()
           const elementCount = elements.filter(e => e.actions.length > 0).length
 
-          const sessionId = crypto.randomUUID()
-          sessions.set(sessionId, { driver, url: driver.url || url, createdAt: Date.now() })
+          sessions.set(sessionId, { driver, type: 'chrome', url: driver.url || url, createdAt: Date.now() })
 
           return textResponse(JSON.stringify({
             sessionId,
+            type: 'chrome',
             url: driver.url || url,
             elementCount,
             timestamp: new Date().toISOString(),
@@ -1240,6 +1400,24 @@ export async function handleToolCall(
         if (!entry) {
           return errorResponse('Session not found. Use session_start first.')
         }
+
+        // ── macOS native session ──────────────────────────────────────────
+        if (entry.type === 'macos') {
+          const msg = `macOS native session for "${entry.app}". `
+            + `Native interactions require the ibr-ax-extract binary with --action support. `
+            + `Use session_read to observe the app's accessibility tree.`
+          return textResponse(msg)
+        }
+
+        // ── Simulator session ─────────────────────────────────────────────
+        if (entry.type === 'simulator') {
+          const msg = `Simulator session for "${entry.device?.name}". `
+            + `Simulator tap requires coordinates. Use native_scan to find element positions, `
+            + `then sim_action to interact.`
+          return textResponse(msg)
+        }
+
+        // ── Browser session (Chrome or Safari) ───────────────────────────
         const driver = entry.driver
 
         try {
@@ -1312,6 +1490,57 @@ export async function handleToolCall(
         if (!entry) {
           return errorResponse('Session not found. Use session_start first.')
         }
+
+        // ── macOS native session ──────────────────────────────────────────
+        if (entry.type === 'macos') {
+          try {
+            switch (what) {
+              case 'observe':
+              case 'extract': {
+                const { extractNativeElements } = await import('../native/extract.js')
+                const elements = await extractNativeElements({
+                  name: entry.app!, udid: '', state: 'Booted', runtime: '', platform: 'ios', isAvailable: true,
+                })
+                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2))
+              }
+              case 'screenshot':
+                return textResponse('macOS screenshot: use native_scan with screenshot option')
+              case 'state':
+                return textResponse(JSON.stringify({ type: 'macos', app: entry.app, pid: entry.pid }))
+              default:
+                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`)
+            }
+          } catch (err) {
+            return errorResponse(`session_read (macos) failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
+
+        // ── Simulator session ─────────────────────────────────────────────
+        if (entry.type === 'simulator') {
+          try {
+            switch (what) {
+              case 'observe':
+              case 'extract': {
+                const { extractNativeElements } = await import('../native/extract.js')
+                const dev = entry.device!
+                const elements = await extractNativeElements({
+                  name: dev.name, udid: dev.udid, state: 'Booted', runtime: '', platform: 'ios', isAvailable: true,
+                })
+                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2))
+              }
+              case 'screenshot':
+                return textResponse('Simulator screenshot: use native_scan with screenshot option')
+              case 'state':
+                return textResponse(JSON.stringify({ type: 'simulator', device: entry.device }))
+              default:
+                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`)
+            }
+          } catch (err) {
+            return errorResponse(`session_read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
+
+        // ── Browser session (Chrome or Safari) ───────────────────────────
         const driver = entry.driver
 
         try {
@@ -1378,7 +1607,10 @@ export async function handleToolCall(
         }
 
         try {
-          await entry.driver.close()
+          // Native sessions (macos/simulator) have no driver to close
+          if (entry.driver) {
+            await entry.driver.close()
+          }
           sessions.delete(sessionId)
           return textResponse(`Session ${sessionId} closed.`)
         } catch (err) {
@@ -1386,6 +1618,9 @@ export async function handleToolCall(
           return errorResponse(`session_close error: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
+
+      case "sim_action":
+        return await handleSimAction(args);
 
       default:
         return errorResponse(`Unknown tool: ${name}`);
@@ -2285,4 +2520,193 @@ async function handleBridgeToSource(args: Record<string, unknown>): Promise<McpR
   ];
 
   return textResponse(lines.join('\n'));
+}
+
+// --- iOS/watchOS simulator interaction handler ---
+
+async function handleSimAction(args: Record<string, unknown>): Promise<McpResponse> {
+  const action = args.action as string;
+  const target = args.target as string | undefined;
+  const value = args.value as string | undefined;
+  const deviceQuery = args.device as string | undefined;
+
+  if (!action) {
+    return errorResponse("The 'action' parameter is required.");
+  }
+
+  // Resolve device UDID
+  let udid: string;
+  try {
+    if (deviceQuery) {
+      const device = await findDevice(deviceQuery);
+      if (!device) {
+        return errorResponse(
+          `No simulator found matching "${deviceQuery}". Run \`xcrun simctl list devices available\` to see available devices.`
+        );
+      }
+      udid = device.udid;
+    } else {
+      const { getBootedDevices } = await import('../native/simulator.js');
+      const booted = await getBootedDevices();
+      if (booted.length === 0) {
+        return errorResponse('No booted simulators found. Boot one with: xcrun simctl boot <device-name>');
+      }
+      udid = booted[0].udid;
+    }
+  } catch (err) {
+    return errorResponse(`Failed to resolve device: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  switch (action) {
+    case 'tap': {
+      if (!target) {
+        return errorResponse("'target' is required for tap (element label or 'x,y' coordinates).");
+      }
+
+      // Check if target looks like coordinates: "x,y"
+      const coordMatch = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(target);
+      if (coordMatch) {
+        const x = parseFloat(coordMatch[1]);
+        const y = parseFloat(coordMatch[2]);
+        const tapResult = await idbTap(udid, x, y);
+        if (!tapResult.success) {
+          return errorResponse(`tap failed: ${tapResult.error}`);
+        }
+        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)}`);
+      }
+
+      // Resolve by label: extract AX tree, find element, get center
+      try {
+        const { extractNativeElements, isExtractorAvailable } = await import('../native/extract.js');
+        const { findDevice: fd } = await import('../native/simulator.js');
+
+        if (!isExtractorAvailable()) {
+          return errorResponse(
+            'AX element extraction unavailable. Cannot resolve element by label. ' +
+            'Provide coordinates as "x,y" instead, or install Xcode Command Line Tools.'
+          );
+        }
+
+        // Re-resolve full device object for extractNativeElements
+        const device = await fd(udid);
+        if (!device) {
+          return errorResponse('Device not found after UDID resolution');
+        }
+
+        const nativeElements = await extractNativeElements(device);
+
+        // Flatten tree into list for label search
+        const flat: Array<{ label: string; identifier: string; frame: { x: number; y: number; width: number; height: number } }> = [];
+        function flattenElements(elements: typeof nativeElements): void {
+          for (const el of elements) {
+            flat.push({ label: el.label, identifier: el.identifier, frame: el.frame });
+            if (el.children.length > 0) flattenElements(el.children);
+          }
+        }
+        flattenElements(nativeElements);
+
+        const found = findElementByLabel(flat, target);
+        if (!found) {
+          const labels = flat
+            .filter(e => e.label)
+            .slice(0, 10)
+            .map(e => `"${e.label}"`)
+            .join(', ');
+          return errorResponse(
+            `Element "${target}" not found in AX tree. ` +
+            `Available labels (first 10): ${labels || 'none'}. ` +
+            'Try providing "x,y" coordinates directly.'
+          );
+        }
+
+        const center = elementCenter(found);
+        if (!center) {
+          return errorResponse(`Element "${target}" found but has no frame data. Cannot compute tap coordinates.`);
+        }
+
+        // Allow value to override coordinates
+        if (value) {
+          const override = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(value);
+          if (override) {
+            const ox = parseFloat(override[1]);
+            const oy = parseFloat(override[2]);
+            const overrideResult = await idbTap(udid, ox, oy);
+            if (!overrideResult.success) return errorResponse(`tap failed: ${overrideResult.error}`);
+            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override]`);
+          }
+        }
+
+        const tapResult = await idbTap(udid, center.x, center.y);
+        if (!tapResult.success) return errorResponse(`tap failed: ${tapResult.error}`);
+        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y})`);
+      } catch (err) {
+        return errorResponse(`tap by label failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    case 'type': {
+      if (!target) {
+        return errorResponse("'target' is required for type (text to input).");
+      }
+      if (!(await isIdbCliAvailable())) {
+        return errorResponse(
+          'IDB not available. Install with: brew install idb-companion && pip install fb-idb'
+        );
+      }
+      const typeResult = await idbType(udid, target);
+      if (!typeResult.success) return errorResponse(`type failed: ${typeResult.error}`);
+      return textResponse(`Typed "${target}" into focused field`);
+    }
+
+    case 'scroll':
+    case 'swipe': {
+      const direction = (target as 'up' | 'down' | 'left' | 'right') ?? 'down';
+      const validDirs = ['up', 'down', 'left', 'right'];
+      if (!validDirs.includes(direction)) {
+        return errorResponse(`Invalid direction "${direction}". Use: up, down, left, right`);
+      }
+
+      // Parse optional starting point from value
+      let cx = 187;
+      let cy = 400;
+      if (value) {
+        const startMatch = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(value);
+        if (startMatch) {
+          cx = parseFloat(startMatch[1]);
+          cy = parseFloat(startMatch[2]);
+        }
+      }
+
+      const distance = 300;
+      let x2 = cx, y2 = cy;
+      switch (direction) {
+        case 'up': y2 = cy + distance; break;
+        case 'down': y2 = cy - distance; break;
+        case 'left': x2 = cx + distance; break;
+        case 'right': x2 = cx - distance; break;
+      }
+
+      const swipeResult = await idbSwipe(udid, cx, cy, x2, y2, 0.5);
+      if (!swipeResult.success) return errorResponse(`${action} failed: ${swipeResult.error}`);
+      return textResponse(`Scrolled ${direction} from (${cx}, ${cy})`);
+    }
+
+    case 'home': {
+      const homeResult = await idbButton(udid, 'HOME');
+      if (!homeResult.success) return errorResponse(`home button failed: ${homeResult.error}`);
+      return textResponse('Pressed HOME button');
+    }
+
+    case 'openUrl': {
+      if (!target) {
+        return errorResponse("'target' is required for openUrl (the URL to open, e.g. 'myapp://route').");
+      }
+      const urlResult = await idbOpenUrl(udid, target);
+      if (!urlResult.success) return errorResponse(`openUrl failed: ${urlResult.error}`);
+      return textResponse(`Opened URL: ${target}`);
+    }
+
+    default:
+      return errorResponse(`Unknown action: ${action}. Use: tap, type, scroll, swipe, home, openUrl`);
+  }
 }

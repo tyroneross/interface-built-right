@@ -16,6 +16,7 @@ struct AXExtractedElement: Codable {
     let position: Position?
     let size: Size?
     let children: [AXExtractedElement]
+    let path: [Int]  // Index path from app root: [0, 2, 1] = 1st child → 3rd child → 2nd child
 
     struct Position: Codable {
         let x: Double
@@ -107,8 +108,8 @@ func getFrame(_ element: AXUIElement) -> LegacyElement.Frame {
 
 // MARK: - AX Tree Walkers
 
-/// Walk element tree — new format with full AX attributes
-func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15) -> AXExtractedElement? {
+/// Walk element tree — new format with full AX attributes, tracking index path
+func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = []) -> AXExtractedElement? {
     guard depth < maxDepth else { return nil }
 
     let role = getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown"
@@ -130,8 +131,9 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15)
 
     let axChildren = getChildren(element)
     var childElements: [AXExtractedElement] = []
-    for child in axChildren {
-        if let childEl = walkElementFull(child, depth: depth + 1, maxDepth: maxDepth) {
+    for (index, child) in axChildren.enumerated() {
+        let childPath = currentPath + [index]
+        if let childEl = walkElementFull(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath) {
             childElements.append(childEl)
         }
     }
@@ -148,7 +150,8 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15)
         actions: actions,
         position: position,
         size: size,
-        children: childElements
+        children: childElements,
+        path: currentPath
     )
 }
 
@@ -275,6 +278,56 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
             size: CGSize(width: sz.width, height: sz.height))
 }
 
+// MARK: - Action Execution
+
+/// Traverse the AX tree by numeric index path from the app root
+func navigateToElement(app: AXUIElement, path: [Int]) -> AXUIElement? {
+    var current = app
+    for index in path {
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(current, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement],
+              index < children.count else { return nil }
+        current = children[index]
+    }
+    return current
+}
+
+/// Execute an accessibility action on the element at the given path
+func performAction(pid: pid_t, elementPath: [Int], action: String, value: String?) -> Bool {
+    let app = AXUIElementCreateApplication(pid)
+    guard let element = navigateToElement(app: app, path: elementPath) else {
+        fputs("{\"error\":\"Element not found at path\"}\n", stderr)
+        return false
+    }
+
+    switch action {
+    case "press":
+        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+    case "setValue":
+        guard let value = value else {
+            fputs("{\"error\":\"setValue requires --value\"}\n", stderr)
+            return false
+        }
+        return AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFTypeRef) == .success
+    case "increment":
+        return AXUIElementPerformAction(element, kAXIncrementAction as CFString) == .success
+    case "decrement":
+        return AXUIElementPerformAction(element, kAXDecrementAction as CFString) == .success
+    case "showMenu":
+        return AXUIElementPerformAction(element, kAXShowMenuAction as CFString) == .success
+    case "confirm":
+        return AXUIElementPerformAction(element, kAXConfirmAction as CFString) == .success
+    case "cancel":
+        return AXUIElementPerformAction(element, kAXCancelAction as CFString) == .success
+    case "focus":
+        return AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, true as CFTypeRef) == .success
+    default:
+        fputs("{\"error\":\"Unknown action: \(action)\"}\n", stderr)
+        return false
+    }
+}
+
 // MARK: - Main
 
 let args = CommandLine.arguments
@@ -284,6 +337,9 @@ var deviceName: String? = nil
 var targetPid: pid_t? = nil
 var targetApp: String? = nil
 var outputMode: String = "auto" // "auto", "legacy", "full"
+var actionName: String? = nil
+var elementPathStr: String? = nil
+var actionValue: String? = nil
 
 var i = 1
 while i < args.count {
@@ -300,6 +356,15 @@ while i < args.count {
     case "--format":
         i += 1
         if i < args.count { outputMode = args[i] }
+    case "--action":
+        i += 1
+        if i < args.count { actionName = args[i] }
+    case "--element-path":
+        i += 1
+        if i < args.count { elementPathStr = args[i] }  // comma-separated: "0,2,1"
+    case "--value":
+        i += 1
+        if i < args.count { actionValue = args[i] }
     default:
         break
     }
@@ -315,6 +380,22 @@ guard AXIsProcessTrustedWithOptions(checkOpts) else {
 
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+// --- Mode: Action execution (--action --pid --element-path) ---
+if let actionName = actionName, let pathStr = elementPathStr {
+    guard let pid = targetPid else {
+        fputs("{\"error\":\"--pid is required for action mode\"}\n", stderr)
+        exit(1)
+    }
+    let path = pathStr.split(separator: ",").compactMap { Int($0) }
+    let success = performAction(pid: pid, elementPath: path, action: actionName, value: actionValue)
+    let result: [String: Any] = ["success": success, "action": actionName]
+    if let data = try? JSONSerialization.data(withJSONObject: result),
+       let str = String(data: data, encoding: .utf8) {
+        print(str)
+    }
+    exit(success ? 0 : 1)
+}
 
 // --- Mode 1: macOS app scanning (--pid or --app) ---
 if targetPid != nil || targetApp != nil {
@@ -348,12 +429,13 @@ if targetPid != nil || targetApp != nil {
     let heightInt = Int(windowInfo.size.height)
     print("WINDOW:\(windowInfo.id):\(widthInt)x\(heightInt):\(windowInfo.title)")
 
-    // Walk the accessibility tree with full format
-    guard let rootElement = walkElementFull(windowInfo.window) else {
+    // Walk the accessibility tree with full format, tracking paths from the window root
+    guard let rootElement = walkElementFull(windowInfo.window, currentPath: []) else {
         fputs("Error: Failed to walk accessibility tree\n", stderr)
         exit(1)
     }
 
+    // Output children (each child already has its path embedded)
     let output = rootElement.children
     let data = try encoder.encode(output)
     if let json = String(data: data, encoding: .utf8) {
