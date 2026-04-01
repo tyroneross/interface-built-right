@@ -3,6 +3,25 @@ import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
 
+// ── simctl capability cache ────────────────────────────────────────────────────
+
+let simctlCapabilities: Set<string> | null = null
+
+async function getSimctlCapabilities(): Promise<Set<string>> {
+  if (simctlCapabilities) return simctlCapabilities
+  try {
+    const { stdout } = await execFileAsync('xcrun', ['simctl', 'io', '--help'], { timeout: 5000 })
+    const caps = new Set<string>()
+    if (stdout.includes('swipe')) caps.add('swipe')
+    if (stdout.includes('tap')) caps.add('tap')
+    simctlCapabilities = caps
+    return caps
+  } catch {
+    simctlCapabilities = new Set()
+    return simctlCapabilities
+  }
+}
+
 /**
  * Check if IDB companion is available
  */
@@ -61,8 +80,22 @@ export async function idbType(udid: string, text: string): Promise<IdbActionResu
       await execFileAsync('idb', ['ui', 'text', text, '--udid', udid], { timeout: 10000 })
       return { success: true, action: 'type' }
     }
-    // No simctl fallback for typing — simctl doesn't support this
-    return { success: false, action: 'type', error: 'IDB not available. Install with: brew install idb-companion && pip install fb-idb' }
+
+    // Fallback: AppleScript keystroke injection via Simulator.app
+    try {
+      const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      await execFileAsync('osascript', [
+        '-e', 'tell application "Simulator" to activate',
+        '-e', `tell application "System Events" to keystroke "${escaped}"`,
+      ], { timeout: 10000 })
+      return { success: true, action: 'type' }
+    } catch (err: any) {
+      return {
+        success: false,
+        action: 'type',
+        error: `Typing failed. IDB not available, AppleScript fallback failed: ${err.message}. Install IDB: brew install idb-companion && pip install fb-idb`,
+      }
+    }
   } catch (err: any) {
     return { success: false, action: 'type', error: err.message }
   }
@@ -73,14 +106,29 @@ export async function idbType(udid: string, text: string): Promise<IdbActionResu
  */
 export async function idbSwipe(udid: string, x1: number, y1: number, x2: number, y2: number, duration?: number): Promise<IdbActionResult> {
   try {
-    const args = ['ui', 'swipe', String(x1), String(y1), String(x2), String(y2), '--udid', udid]
-    if (duration) args.push('--duration', String(duration))
-
     if (await isIdbCliAvailable()) {
+      const args = ['ui', 'swipe', String(x1), String(y1), String(x2), String(y2), '--udid', udid]
+      if (duration) args.push('--duration', String(duration))
       await execFileAsync('idb', args, { timeout: 10000 })
       return { success: true, action: 'swipe' }
     }
-    return { success: false, action: 'swipe', error: 'IDB not available for swipe' }
+
+    // Fallback: simctl swipe (Xcode 15+)
+    try {
+      await execFileAsync('xcrun', [
+        'simctl', 'io', udid, 'swipe',
+        String(x1), String(y1), String(x2), String(y2),
+      ], { timeout: 10000 })
+      return { success: true, action: 'swipe' }
+    } catch {
+      // simctl swipe not supported on this Xcode version
+    }
+
+    return {
+      success: false,
+      action: 'swipe',
+      error: 'Swipe requires IDB (brew install idb-companion) or Xcode 15+ with simctl swipe support.',
+    }
   } catch (err: any) {
     return { success: false, action: 'swipe', error: err.message }
   }

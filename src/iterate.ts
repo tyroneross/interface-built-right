@@ -12,7 +12,7 @@ import { createHash } from 'crypto'
 import { readFile, writeFile, mkdir } from 'fs/promises'
 import { join, resolve } from 'path'
 import { runTests, type TestRunResult } from './test-runner.js'
-import { scan, type ScanResult } from './scan.js'
+import { scan, type ScanResult, type ScanIssue } from './scan.js'
 
 // ─── Public Types ─────────────────────────────────────────
 
@@ -28,6 +28,8 @@ export interface IterationState {
   durationMs: number
   converged: boolean
   reason?: string
+  /** Raw issues captured this iteration (for analysis) */
+  issues?: ScanIssue[]
 }
 
 export interface IterateOptions {
@@ -41,12 +43,33 @@ export interface IterateOptions {
   autoApprove?: boolean
 }
 
-export type FinalState = 'resolved' | 'stagnant' | 'oscillating' | 'regressing' | 'budget_exceeded' | 'in_progress'
+export type FinalState =
+  | 'resolved'
+  | 'false_positive'
+  | 'stagnant'
+  | 'oscillating'
+  | 'regressing'
+  | 'budget_exceeded'
+  | 'in_progress'
+
+// ─── Analysis Types ────────────────────────────────────────
+
+export interface IterationAnalysis {
+  repeatedCategories: string[]
+  suggestedApproaches: string[]
+  shouldEscalate: boolean
+  escalationReason?: string
+  affectedElements: Array<{ id?: string; issue: string }>
+}
 
 export interface IterateResult {
   iterations: IterationState[]
   finalState: FinalState
   summary: string
+  /** true only if re-scan confirmed 0 issues (Anthropic harness pattern) */
+  verificationPassed?: boolean
+  /** Structured analysis for stagnant/oscillating/regressing states */
+  analysis?: IterationAnalysis
 }
 
 // ─── Checkpoint iterations ────────────────────────────────
@@ -140,6 +163,100 @@ function detectConvergence(states: IterationState[]): { converged: boolean; reas
   return { converged: false }
 }
 
+// ─── Issue Classification ─────────────────────────────────
+
+/**
+ * Classify an issue into a broad category based on description/message text.
+ * Used when the issue doesn't have a mapped category or for cross-referencing.
+ */
+export function classifyIssue(issue: unknown): string {
+  const text = (
+    (issue as { description?: string })?.description ||
+    (issue as { message?: string })?.message ||
+    ''
+  ).toLowerCase()
+  if (/margin|padding|gap|spacing|indent/.test(text)) return 'spacing'
+  if (/color|contrast|background|foreground|hue|saturation/.test(text)) return 'color'
+  if (/font|text|typography|letter-spacing|line-height/.test(text)) return 'typography'
+  if (/aria|label|role|accessible|screen.?reader|tab.?index/.test(text)) return 'accessibility'
+  if (/click|handler|event|disabled|interactive|focus/.test(text)) return 'interactivity'
+  if (/display.?none|visibility.?hidden/.test(text)) return 'visibility'
+  // Check layout-specific patterns before broad "hidden" so "overflow hidden" stays layout
+  if (/flex|grid|display|position|float|overflow|z-index/.test(text)) return 'layout'
+  if (/hidden|visible|opacity/.test(text)) return 'visibility'
+  if (/width|height|size|min|max|resize/.test(text)) return 'size'
+  return 'other'
+}
+
+// ─── Approach Suggestions Map ─────────────────────────────
+
+const APPROACH_MAP: Record<string, string> = {
+  spacing: 'Check CSS layout properties (flex, grid, gap, margin, padding). Look for hardcoded values that should use design tokens.',
+  color: 'Check design tokens or theme variables. Verify contrast ratios meet WCAG requirements.',
+  typography: 'Check font-family, font-size, line-height, font-weight declarations. Look for CSS specificity conflicts.',
+  accessibility: 'Add aria-label, role, tabindex attributes. Ensure interactive elements have accessible names.',
+  interactivity: 'Check event handlers (onClick, onChange) and disabled state logic. Verify form submission handlers.',
+  layout: 'Check CSS display, position, flex/grid properties. Look for overflow, z-index, and stacking context issues.',
+  visibility: 'Check display:none, visibility:hidden, opacity:0, and conditional rendering logic.',
+  size: 'Check width, height, min/max constraints. Verify responsive breakpoints.',
+}
+
+// ─── Analysis Generator ───────────────────────────────────
+
+export function analyzeIssues(iterations: IterationState[]): IterationAnalysis {
+  const latest = iterations[iterations.length - 1]
+  if (!latest?.issues) {
+    return { repeatedCategories: [], suggestedApproaches: [], shouldEscalate: false, affectedElements: [] }
+  }
+
+  // Group issues in the latest iteration by category
+  const categories = new Map<string, number>()
+  const elements: Array<{ id?: string; issue: string }> = []
+
+  for (const issue of latest.issues) {
+    // Always classify by description text — the ScanIssue.category field uses a different
+    // taxonomy (interactivity/accessibility/semantic/console/structure) that doesn't map
+    // to the visual fix categories we want to suggest approaches for.
+    const cat = classifyIssue(issue)
+    categories.set(cat, (categories.get(cat) ?? 0) + 1)
+    elements.push({
+      id: issue.element,
+      issue: issue.description ?? String(issue),
+    })
+  }
+
+  // Find categories that appeared in 2+ iterations
+  const repeatedCategories: string[] = []
+  for (const [cat] of categories) {
+    const appearedIn = iterations.filter(it =>
+      it.issues?.some(i => classifyIssue(i) === cat)
+    ).length
+    if (appearedIn >= 2) repeatedCategories.push(cat)
+  }
+
+  // Build approach suggestions from repeated categories
+  const suggestedApproaches: string[] = []
+  for (const cat of repeatedCategories) {
+    if (APPROACH_MAP[cat]) {
+      suggestedApproaches.push(APPROACH_MAP[cat])
+    }
+  }
+
+  // Escalate when repeated categories persist across 3+ iterations
+  const shouldEscalate = repeatedCategories.length > 0 && iterations.length >= 3
+  const escalationReason = shouldEscalate
+    ? `${repeatedCategories.join(', ')} issues persist after ${iterations.length} iterations. Consider a different approach or manual review.`
+    : undefined
+
+  return {
+    repeatedCategories,
+    suggestedApproaches,
+    shouldEscalate,
+    escalationReason,
+    affectedElements: elements.slice(0, 20), // Cap at 20
+  }
+}
+
 // ─── Single Iteration ─────────────────────────────────────
 
 async function runOneIteration(
@@ -153,6 +270,7 @@ async function runOneIteration(
   let fingerprints: string[] = []
   let issueCount = 0
   let approachHint = ''
+  let issues: ScanIssue[] | undefined
 
   if (testFile) {
     // Run declarative tests
@@ -177,6 +295,7 @@ async function runOneIteration(
       const result: ScanResult = await scan(url, { outputDir: join(outputDir, `iter-${iterationNumber}`) })
       fingerprints = extractIssueFingerprints(result)
       issueCount = result.issues.length
+      issues = result.issues
       approachHint = `verdict=${result.verdict} issues=${issueCount}`
     } catch (err) {
       fingerprints = [`scan-error:${err instanceof Error ? err.message.slice(0, 60) : String(err)}`]
@@ -196,6 +315,29 @@ async function runOneIteration(
     approachHint,
     durationMs: Date.now() - start,
     converged: false,
+    issues,
+  }
+}
+
+// ─── Verification Pass ────────────────────────────────────
+
+/**
+ * Re-scan to verify a claimed zero-issue result.
+ * Anthropic harness pattern: never claim success without a second confirmation.
+ */
+async function verifyResolved(
+  url: string,
+  outputDir: string,
+  iterationNumber: number,
+): Promise<{ confirmed: boolean; verifyIssueCount: number }> {
+  try {
+    const verifyResult: ScanResult = await scan(url, {
+      outputDir: join(outputDir, `iter-${iterationNumber}-verify`),
+    })
+    return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length }
+  } catch {
+    // If verification scan errors, treat as unconfirmed — don't falsely claim resolved
+    return { confirmed: false, verifyIssueCount: -1 }
   }
 }
 
@@ -245,11 +387,34 @@ export async function iterate(options: IterateOptions): Promise<IterateResult> {
   const { converged, reason } = detectConvergence(allIterations)
 
   let finalState: FinalState | null = null
+  let verificationPassed: boolean | undefined
 
   if (converged && reason) {
     state.converged = true
     state.reason = reason
-    finalState = reason as FinalState
+
+    if (reason === 'resolved' && !testFile) {
+      // Verification pass — re-scan to confirm (Anthropic harness pattern: never claim success without verification)
+      console.log(`[iterate] issueCount=0 detected, running verification pass...`)
+      const { confirmed, verifyIssueCount } = await verifyResolved(url, outputDir, iterationNumber)
+
+      if (confirmed) {
+        // Truly resolved
+        finalState = 'resolved'
+        verificationPassed = true
+        console.log(`[iterate] verification passed — 0 issues confirmed`)
+      } else {
+        // False positive — scan missed issues on first pass
+        finalState = 'false_positive'
+        verificationPassed = false
+        state.converged = false
+        state.reason = undefined
+        // Log the discrepancy
+        console.log(`[iterate] false positive — verification found ${verifyIssueCount} issue(s). Continuing iteration.`)
+      }
+    } else {
+      finalState = reason as FinalState
+    }
   } else if (allIterations.length >= maxIterations) {
     finalState = 'budget_exceeded'
   } else if (!autoApprove && CHECKPOINT_ITERATIONS.has(iterationNumber)) {
@@ -263,19 +428,39 @@ export async function iterate(options: IterateOptions): Promise<IterateResult> {
   persisted.updatedAt = new Date().toISOString()
   await saveState(statePath, persisted)
 
+  // Generate analysis for convergence states (not resolved/false_positive — those don't need approach suggestions)
+  let analysis: IterationAnalysis | undefined
+  const analysisStates: FinalState[] = ['stagnant', 'oscillating', 'regressing', 'budget_exceeded', 'false_positive', 'in_progress']
+  const targetState = finalState ?? 'in_progress'
+  if (analysisStates.includes(targetState) && !testFile) {
+    analysis = analyzeIssues(allIterations)
+    // Persist analysis to disk for agent consumption
+    const analysisDir = join(outputDir)
+    await mkdir(analysisDir, { recursive: true }).catch(() => {})
+    await writeFile(
+      join(analysisDir, 'analysis.json'),
+      JSON.stringify(analysis, null, 2),
+    ).catch(() => {})
+  }
+
   if (finalState) {
-    const result = buildResult(allIterations, finalState)
+    const result = buildResult(allIterations, finalState, verificationPassed, analysis)
     console.log(`[iterate] ${finalState}: ${result.summary}`)
     return result
   }
 
   // Not yet converged — return intermediate state for next iteration
-  return buildResult(allIterations, 'in_progress')
+  return buildResult(allIterations, 'in_progress', undefined, analysis)
 }
 
 // ─── Result Builder ───────────────────────────────────────
 
-function buildResult(iterations: IterationState[], finalState: FinalState): IterateResult {
+function buildResult(
+  iterations: IterationState[],
+  finalState: FinalState,
+  verificationPassed?: boolean,
+  analysis?: IterationAnalysis,
+): IterateResult {
   const last = iterations[iterations.length - 1]
   const totalMs = iterations.reduce((s, i) => s + i.durationMs, 0)
 
@@ -283,6 +468,9 @@ function buildResult(iterations: IterationState[], finalState: FinalState): Iter
   switch (finalState) {
     case 'resolved':
       summary = `All issues resolved after ${iterations.length} iteration(s) (${totalMs}ms total)`
+      break
+    case 'false_positive':
+      summary = `Scan reported 0 issues but verification found more — false positive detected after ${iterations.length} iteration(s). Continuing.`
       break
     case 'stagnant':
       summary = `No change detected after ${iterations.length} iteration(s) — same ${last?.issueCount ?? 0} issue(s). Try a different approach.`
@@ -301,7 +489,7 @@ function buildResult(iterations: IterationState[], finalState: FinalState): Iter
       break
   }
 
-  return { iterations, finalState, summary }
+  return { iterations, finalState, summary, verificationPassed, analysis }
 }
 
 // ─── State Reset ──────────────────────────────────────────

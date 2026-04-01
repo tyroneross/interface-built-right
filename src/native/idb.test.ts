@@ -144,14 +144,43 @@ describe('idbType', () => {
     )
   })
 
-  it('returns failure with install hint when IDB not available', async () => {
-    mockExecFile.mockRejectedValueOnce(new Error('not found'))
+  it('returns failure with install hint when IDB and AppleScript both fail', async () => {
+    mockExecFile
+      .mockRejectedValueOnce(new Error('not found'))           // which idb
+      .mockRejectedValueOnce(new Error('osascript failed'))    // osascript
 
     const result = await idbType(UDID, 'some text')
 
     expect(result.success).toBe(false)
     expect(result.action).toBe('type')
     expect(result.error).toContain('brew install idb-companion')
+  })
+
+  it('succeeds via AppleScript when IDB not available', async () => {
+    mockExecFile
+      .mockRejectedValueOnce(new Error('not found'))          // which idb
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })      // osascript
+
+    const result = await idbType(UDID, 'hello')
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('type')
+    const osascriptCall = mockExecFile.mock.calls[1]
+    expect(osascriptCall[0]).toBe('osascript')
+  })
+
+  it('escapes double quotes in text for AppleScript', async () => {
+    mockExecFile
+      .mockRejectedValueOnce(new Error('not found'))          // which idb
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })      // osascript
+
+    await idbType(UDID, 'say "hello"')
+
+    const osascriptCall = mockExecFile.mock.calls[1]
+    expect(osascriptCall[0]).toBe('osascript')
+    // The keystroke argument should contain escaped quotes
+    const keystrokeArg = (osascriptCall[1] as string[]).find((a: string) => a.includes('keystroke'))
+    expect(keystrokeArg).toContain('\\"')
   })
 
   it('returns failure when idb command throws', async () => {
@@ -237,6 +266,17 @@ describe('simulatorAction', () => {
     expect(y2).toBeLessThan(y1)
   })
 
+  it('dispatches type to AppleScript fallback when IDB unavailable', async () => {
+    mockExecFile
+      .mockRejectedValueOnce(new Error('no idb'))              // which idb
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })       // osascript
+
+    const result = await simulatorAction({ udid: UDID, action: 'type', text: 'hello' })
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('type')
+  })
+
   it('returns error for unknown action', async () => {
     // @ts-expect-error intentional bad action for test
     const result = await simulatorAction({ udid: UDID, action: 'unknown' })
@@ -273,13 +313,29 @@ describe('idbSwipe', () => {
     expect(args).not.toContain('--duration')
   })
 
-  it('returns failure when IDB not available', async () => {
-    mockExecFile.mockRejectedValueOnce(new Error('not found'))
+  it('returns failure when IDB and simctl both not available', async () => {
+    mockExecFile
+      .mockRejectedValueOnce(new Error('not found'))              // which idb
+      .mockRejectedValueOnce(new Error('simctl swipe unknown'))   // xcrun simctl io swipe
 
     const result = await idbSwipe(UDID, 0, 0, 100, 100)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/IDB not available/)
+    expect(result.error).toMatch(/IDB|simctl/)
+  })
+
+  it('succeeds via simctl swipe when IDB not available', async () => {
+    mockExecFile
+      .mockRejectedValueOnce(new Error('not found'))              // which idb
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })          // xcrun simctl io swipe
+
+    const result = await idbSwipe(UDID, 10, 20, 10, 300)
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('swipe')
+    const simctlCall = mockExecFile.mock.calls[1]
+    expect(simctlCall[0]).toBe('xcrun')
+    expect((simctlCall[1] as string[])).toContain('swipe')
   })
 })
 

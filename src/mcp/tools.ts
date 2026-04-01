@@ -45,7 +45,8 @@ import {
   idbOpenUrl,
   isIdbCliAvailable,
 } from '../native/idb.js';
-import { elementCenter, findElementByLabel } from '../native/actions.js';
+import { elementCenter, findElementByLabel } from '../native/actions.js'
+import { compressSnapshot, formatCompressed } from '../engine/compress.js';
 
 // Session store — persistent browser instances (Chrome, Safari, macOS native, iOS/watchOS simulator)
 const sessions = new Map<string, {
@@ -908,11 +909,18 @@ export async function handleToolCall(
           const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined)
           if (!diag.elementId) {
             const altNames = diag.alternatives.map(a => `"${a.name}" (${a.role}, score: ${a.score.toFixed(2)})`).join(', ')
-            return errorResponse(
-              `Element "${target}" not found (${diag.totalInteractive} interactive elements on page). ` +
-              `Best matches: ${altNames || 'none'}. ` +
-              `Hint: Use 'observe' to see all interactive elements, or try one of the alternatives.`
-            )
+            const notFoundContent: McpContent[] = [
+              {
+                type: 'text',
+                text: `Element "${target}" not found (${diag.totalInteractive} interactive elements on page). ` +
+                  `Best matches: ${altNames || 'none'}. ` +
+                  `Hint: Use 'observe' to see all interactive elements, or try one of the alternatives.`,
+              },
+            ]
+            if (diag.screenshot) {
+              notFoundContent.push({ type: 'image', data: diag.screenshot, mimeType: 'image/png' })
+            }
+            return { content: notFoundContent, isError: true }
           }
 
           // Resolve element object from id
@@ -968,6 +976,16 @@ export async function handleToolCall(
 
           if (actions.length === 0) {
             return textResponse('No interactive elements found on this page.')
+          }
+
+          if (actions.length > 80) {
+            const compressed = compressSnapshot(actions.map(a => ({
+              id: a.elementId ?? '',
+              role: a.role ?? '',
+              label: a.description ?? a.label ?? '',
+              actions: a.action ? [a.action] : [],
+            })))
+            return textResponse(formatCompressed(compressed))
           }
 
           const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" — ${a.actions.join(', ')}`)
@@ -1423,14 +1441,19 @@ export async function handleToolCall(
         try {
           const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined)
           if (!diag.elementId) {
-            return textResponse(JSON.stringify({
+            const notFoundPayload = JSON.stringify({
               success: false,
               error: `Element "${target}" not found`,
               alternatives: diag.alternatives,
               hint: diag.alternatives.length > 0
                 ? `Try one of these: ${diag.alternatives.map(a => `"${a.name}" (${a.role})`).join(', ')}`
                 : 'Use session_read with what="observe" to see all interactive elements',
-            }, null, 2))
+            }, null, 2)
+            const notFoundContent: McpContent[] = [{ type: 'text', text: notFoundPayload }]
+            if (diag.screenshot) {
+              notFoundContent.push({ type: 'image', data: diag.screenshot, mimeType: 'image/png' })
+            }
+            return { content: notFoundContent }
           }
 
           const allElements = await driver.getSnapshot()
@@ -1547,12 +1570,23 @@ export async function handleToolCall(
           switch (what) {
             case 'observe': {
               const actions = await driver.observe()
+
+              if (actions.length === 0) {
+                return textResponse('No interactive elements found on this page.')
+              }
+
+              if (actions.length > 80) {
+                const compressed = compressSnapshot(actions.map(a => ({
+                  id: a.elementId ?? '',
+                  role: a.role ?? '',
+                  label: a.description ?? a.label ?? '',
+                  actions: a.action ? [a.action] : [],
+                })))
+                return textResponse(formatCompressed(compressed))
+              }
+
               const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" — ${a.actions.join(', ')}`)
-              return textResponse(
-                actions.length > 0
-                  ? `Found ${actions.length} interactive elements:\n\n${lines.join('\n')}`
-                  : 'No interactive elements found on this page.'
-              )
+              return textResponse(`Found ${actions.length} interactive elements:\n\n${lines.join('\n')}`)
             }
 
             case 'extract': {

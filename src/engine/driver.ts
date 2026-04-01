@@ -83,6 +83,7 @@ export interface FindDiagnostics {
     score: number
   }>
   totalInteractive: number     // how many interactive elements on page
+  screenshot?: string          // base64 PNG, auto-captured when element not found
 }
 
 export interface CaptureStateOptions {
@@ -347,6 +348,15 @@ export class EngineDriver implements BrowserDriver {
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
 
+    // Auto-capture screenshot when element not found for visual fallback
+    let screenshot: string | undefined
+    try {
+      const buf = await this.screenshot()
+      screenshot = buf.toString('base64')
+    } catch {
+      // Screenshot capture can fail (e.g., page not loaded) — non-critical
+    }
+
     return {
       elementId: null,
       confidence: 0,
@@ -354,6 +364,7 @@ export class EngineDriver implements BrowserDriver {
       tierName: 'vision',
       alternatives: scored,
       totalInteractive: interactive.length,
+      screenshot,
     }
   }
 

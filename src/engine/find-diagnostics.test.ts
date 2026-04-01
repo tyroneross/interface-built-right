@@ -245,4 +245,58 @@ describe('findWithDiagnostics', () => {
 
     expect(diag.alternatives.length).toBeLessThanOrEqual(5)
   })
+
+  // ── Test 10: screenshot populated on tier 4 (element not found) ──
+
+  it('populates screenshot as base64 string when element not found (tier 4)', async () => {
+    const elements = [makeElement('e1', 'Submit')]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    // Mock screenshot() on the driver instance
+    const fakeScreenshotBuf = Buffer.from('fake-png-data')
+    vi.spyOn(driver, 'screenshot').mockResolvedValue(fakeScreenshotBuf)
+
+    const diag = await driver.findWithDiagnostics('ZxqvWrong')
+
+    expect(diag.tier).toBe(4)
+    expect(diag.elementId).toBeNull()
+    expect(diag.screenshot).toBe(fakeScreenshotBuf.toString('base64'))
+  })
+
+  // ── Test 11: no screenshot when element IS found (tier 1–3) ──
+
+  it('does not include screenshot when element is found', async () => {
+    const el = makeElement('e1', 'Submit')
+    axQueryAXTree.mockResolvedValue([el])
+    axGetSnapshot.mockResolvedValue([el])
+
+    const screenshotSpy = vi.spyOn(driver, 'screenshot').mockResolvedValue(Buffer.from('fake'))
+
+    const diag = await driver.findWithDiagnostics('Submit')
+
+    expect(diag.elementId).toBe('e1')
+    expect(diag.screenshot).toBeUndefined()
+    // screenshot() should not have been called for a successful resolution
+    expect(screenshotSpy).not.toHaveBeenCalled()
+  })
+
+  // ── Test 12: screenshot failure is non-fatal ──
+
+  it('returns diagnostics without screenshot when screenshot() throws', async () => {
+    const elements = [makeElement('e1', 'Submit')]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    // Mock screenshot() to throw
+    vi.spyOn(driver, 'screenshot').mockRejectedValue(new Error('Page not loaded'))
+
+    const diag = await driver.findWithDiagnostics('ZxqvWrong')
+
+    expect(diag.tier).toBe(4)
+    expect(diag.elementId).toBeNull()
+    expect(diag.screenshot).toBeUndefined()
+    // Should still return alternatives and totalInteractive
+    expect(diag.totalInteractive).toBeGreaterThan(0)
+  })
 })
