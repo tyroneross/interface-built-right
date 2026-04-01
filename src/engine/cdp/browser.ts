@@ -4,9 +4,9 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 export const CHROME_PATHS = [
@@ -55,7 +55,15 @@ export class BrowserManager {
   async launch(options: BrowserOptions = {}): Promise<string> {
     const headless = options.headless ?? true
     this._port = options.port ?? randomPort()
-    const userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
+    let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
+
+    // If default profile is locked by another Chrome, use temp profile
+    if (!options.userDataDir) {
+      const lockPath = join(userDataDir, 'SingletonLock')
+      if (existsSync(lockPath)) {
+        userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
+      }
+    }
 
     const chromePath = options.chromePath ?? findChrome()
     if (!chromePath) {

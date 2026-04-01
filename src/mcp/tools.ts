@@ -33,6 +33,13 @@ import { VIEWPORTS } from "../schemas.js";
 import { loadTokenSpec, validateAgainstTokens } from '../tokens.js';
 import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
 import { EngineDriver } from '../engine/driver.js';
+import { searchFlow } from '../flows/search.js';
+import { formFlow } from '../flows/form.js';
+import { loginFlow } from '../flows/login.js';
+import { CompatPage } from '../engine/compat.js';
+
+// Session store — persistent browser instances
+const sessions = new Map<string, { driver: EngineDriver; url: string; createdAt: number }>()
 
 // --- Content types ---
 
@@ -586,6 +593,190 @@ export const TOOLS = [
       openWorldHint: true,
     },
   },
+  // --- Flow tools ---
+  {
+    name: "flow_search",
+    description: "Execute a full search flow — finds the search box, enters query, submits, and returns results. Use for testing search functionality end-to-end.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "URL of the page with search" },
+        query: { type: "string", description: "Search query to enter" },
+        sessionId: { type: "string", description: "Optional: use existing session instead of launching new browser" },
+      },
+      required: ["url", "query"],
+    },
+    annotations: {
+      title: "Search Flow",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "flow_form",
+    description: "Fill and optionally submit a form. Detects form fields semantically and fills them with provided values. Use for testing form submission flows.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "URL of the page with the form" },
+        fields: {
+          type: "object",
+          description: 'Field name to value pairs, e.g., {"Email": "test@example.com", "Password": "secret"}',
+        },
+        submit: { type: "boolean", description: "Submit the form after filling (default: true)" },
+        sessionId: { type: "string", description: "Optional: use existing session" },
+      },
+      required: ["url", "fields"],
+    },
+    annotations: {
+      title: "Form Fill Flow",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "flow_login",
+    description: "Execute a login flow — finds username/email and password fields, fills them, clicks submit, and verifies login success. Use for testing authentication flows.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "URL of the login page" },
+        username: { type: "string", description: "Username or email" },
+        password: { type: "string", description: "Password" },
+        sessionId: { type: "string", description: "Optional: use existing session" },
+      },
+      required: ["url", "username", "password"],
+    },
+    annotations: {
+      title: "Login Flow",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "plan_test",
+    description: "Auto-generate a test plan by observing the current page. Returns suggested interaction steps, assertions, and detected flows (search, form, login). Use as the first step before running tests.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "URL to observe for test planning" },
+        intent: {
+          type: "string",
+          description: "Optional: what to test, e.g., 'login flow', 'search functionality'",
+        },
+        sessionId: { type: "string", description: "Optional: use existing session" },
+      },
+      required: ["url"],
+    },
+    annotations: {
+      title: "Plan Test",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  // --- Persistent session tools ---
+  {
+    name: "session_start",
+    description: "Start a persistent browser session. The browser stays alive across tool calls — use for multi-step interactions, form filling, login flows. Use session_action to interact, session_read to observe/extract, session_close when done.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", description: "URL to navigate to" },
+        headless: { type: "boolean", description: "Run headless (default: true)" },
+        viewport: {
+          type: "object" as const,
+          properties: {
+            width: { type: "number" as const },
+            height: { type: "number" as const },
+          },
+        },
+      },
+      required: ["url"],
+    },
+    annotations: {
+      title: "Start Persistent Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "session_action",
+    description: "Execute an interaction in a persistent session (click, type, fill, hover, press, scroll, select, check). Elements resolved by accessible name. Returns rich diagnostics: confidence score, resolution tier, alternatives if not found.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by session_start" },
+        action: {
+          type: "string",
+          enum: ["click", "type", "fill", "hover", "press", "scroll", "select", "check"],
+          description: "Interaction to perform",
+        },
+        target: { type: "string", description: "Accessible name of element (e.g., 'Submit', 'Email')" },
+        value: { type: "string", description: "Text to type/fill, key to press, or scroll direction" },
+        role: { type: "string", description: "Filter by role (button, link, textbox, etc.)" },
+        screenshot: { type: "boolean", description: "Capture screenshot after action (default: true)" },
+      },
+      required: ["sessionId", "action", "target"],
+    },
+    annotations: {
+      title: "Session Action",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "session_read",
+    description: "Read page state from a persistent session without interacting. Modes: 'observe' (list interactive elements), 'extract' (headings, buttons, inputs, links), 'screenshot' (capture current view), 'state' (URL, element count, console errors).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by session_start" },
+        what: {
+          type: "string",
+          enum: ["observe", "extract", "screenshot", "state"],
+          description: "What to read from the session",
+        },
+      },
+      required: ["sessionId", "what"],
+    },
+    annotations: {
+      title: "Session Read",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "session_close",
+    description: "Close a persistent browser session and release resources.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by session_start" },
+      },
+      required: ["sessionId"],
+    },
+    annotations: {
+      title: "Close Persistent Session",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
 ];
 
 // --- Tool handlers ---
@@ -636,10 +827,22 @@ export async function handleToolCall(
           await driver.launch()
           await driver.navigate(url)
 
-          // Find element
-          const element = await driver.find(target, role ? { role } : undefined)
+          // Find element with diagnostics
+          const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined)
+          if (!diag.elementId) {
+            const altNames = diag.alternatives.map(a => `"${a.name}" (${a.role}, score: ${a.score.toFixed(2)})`).join(', ')
+            return errorResponse(
+              `Element "${target}" not found (${diag.totalInteractive} interactive elements on page). ` +
+              `Best matches: ${altNames || 'none'}. ` +
+              `Hint: Use 'observe' to see all interactive elements, or try one of the alternatives.`
+            )
+          }
+
+          // Resolve element object from id
+          const allElements = await driver.getSnapshot()
+          const element = allElements.find(e => e.id === diag.elementId)
           if (!element) {
-            return errorResponse(`Element not found: "${target}"${role ? ` (role: ${role})` : ''}. Use 'observe' to see available elements.`)
+            return errorResponse(`Element "${target}" was resolved but disappeared from AX tree. Try again.`)
           }
 
           // Execute action
@@ -660,14 +863,16 @@ export async function handleToolCall(
           // Wait for UI to settle
           await new Promise(r => setTimeout(r, 500))
 
+          const resolutionInfo = `(resolved via ${diag.tierName}, confidence: ${diag.confidence.toFixed(2)})`
+
           // Capture screenshot if requested
           if (wantScreenshot) {
             const buf = await driver.screenshot()
             const base64 = buf.toString('base64')
-            return imageResponse(base64, `✓ ${action} on "${target}" succeeded`)
+            return imageResponse(base64, `✓ ${action} on "${target}" succeeded ${resolutionInfo}`)
           }
 
-          return textResponse(`✓ ${action} on "${target}" succeeded`)
+          return textResponse(`✓ ${action} on "${target}" succeeded ${resolutionInfo}`)
         } catch (err) {
           return errorResponse(`Interaction failed: ${err instanceof Error ? err.message : String(err)}`)
         } finally {
@@ -780,6 +985,405 @@ export async function handleToolCall(
           return errorResponse(`Interact and verify failed: ${err instanceof Error ? err.message : String(err)}`)
         } finally {
           await driver.close().catch(() => {})
+        }
+      }
+
+      case "flow_search": {
+        const { url, query } = args as { url: string; query: string }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+
+          const page = new CompatPage(driver)
+          const result = await searchFlow(page, { query })
+
+          const lines = [
+            result.success ? `Search flow succeeded` : `Search flow failed`,
+            `Query: "${query}"`,
+            `Results found: ${result.resultCount}`,
+            `Has results: ${result.hasResults}`,
+          ]
+          if (result.error) {
+            lines.push(`Error: ${result.error}`)
+          }
+          lines.push(``, `Steps:`)
+          result.steps.forEach(s => {
+            lines.push(`  ${s.success ? '✓' : '✗'} ${s.action}${s.error ? ` (${s.error})` : ''}`)
+          })
+
+          return textResponse(lines.join('\n'))
+        } catch (err) {
+          return errorResponse(`flow_search failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
+      case "flow_form": {
+        const { url, fields, submit = true } = args as {
+          url: string;
+          fields: Record<string, string>;
+          submit?: boolean;
+        }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+
+          const page = new CompatPage(driver)
+          const formFields = Object.entries(fields).map(([name, value]) => ({ name, value }))
+          const result = await formFlow(page, {
+            fields: formFields,
+            submitButton: submit ? undefined : '__NO_SUBMIT__',
+          })
+
+          const lines = [
+            result.success ? `Form flow succeeded` : `Form flow failed`,
+            `Filled: ${result.filledFields.join(', ') || 'none'}`,
+            `Failed: ${result.failedFields.join(', ') || 'none'}`,
+          ]
+          if (result.error) {
+            lines.push(`Error: ${result.error}`)
+          }
+
+          return textResponse(lines.join('\n'))
+        } catch (err) {
+          return errorResponse(`flow_form failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
+      case "flow_login": {
+        const { url, username, password } = args as { url: string; username: string; password: string }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+
+          const page = new CompatPage(driver)
+          const result = await loginFlow(page, { email: username, password })
+
+          const redirectUrl = driver.currentUrl !== url ? driver.currentUrl : undefined
+
+          const lines = [
+            result.success ? `Login flow succeeded` : `Login flow failed`,
+            `Logged in: ${result.authenticated}`,
+          ]
+          if (redirectUrl) {
+            lines.push(`Redirect URL: ${redirectUrl}`)
+          }
+          if (result.username) {
+            lines.push(`Username detected: ${result.username}`)
+          }
+          if (result.error) {
+            lines.push(`Error: ${result.error}`)
+          }
+          lines.push(``, `Steps:`)
+          result.steps.forEach(s => {
+            lines.push(`  ${s.success ? '✓' : '✗'} ${s.action}${s.error ? ` (${s.error})` : ''}`)
+          })
+
+          return textResponse(lines.join('\n'))
+        } catch (err) {
+          return errorResponse(`flow_login failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
+      case "plan_test": {
+        const { url, intent } = args as { url: string; intent?: string }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch()
+          await driver.navigate(url)
+
+          const [actions, meta] = await Promise.all([
+            driver.observe({ limit: 100 }),
+            driver.extractMeta(),
+          ])
+
+          // Detect available flows
+          const suggestedFlows: string[] = []
+          const hasSearchInput = actions.some(a =>
+            a.role === 'searchbox' ||
+            (a.role === 'textbox' && /search|query/i.test(a.label))
+          )
+          const hasPasswordField = meta.inputs.some(i => /password/i.test(i.label))
+          const hasEmailField = meta.inputs.some(i => /email|username|login/i.test(i.label))
+          const hasFormFields = meta.inputs.length > 0
+
+          if (hasSearchInput) suggestedFlows.push('search')
+          if (hasEmailField && hasPasswordField) suggestedFlows.push('login')
+          else if (hasFormFields) suggestedFlows.push('form')
+
+          // Build suggested steps
+          const steps: Array<{ action: string; target: string; role?: string; value?: string; expect?: string }> = []
+
+          if (hasEmailField && hasPasswordField) {
+            const emailInput = meta.inputs.find(i => /email|username|login/i.test(i.label))
+            const passInput = meta.inputs.find(i => /password/i.test(i.label))
+            const submitBtn = meta.buttons.find(b => /login|sign in|submit/i.test(b.label))
+
+            if (emailInput) steps.push({ action: 'fill', target: emailInput.label, value: '<test email>' })
+            if (passInput) steps.push({ action: 'fill', target: passInput.label, value: '<test password>' })
+            if (submitBtn) steps.push({ action: 'click', target: submitBtn.label, role: 'button' })
+            steps.push({ action: 'verify', target: 'authenticated state', expect: 'Dashboard visible' })
+          } else if (hasSearchInput) {
+            const searchAction = actions.find(a => a.role === 'searchbox' || /search/i.test(a.label))
+            if (searchAction) {
+              steps.push({ action: 'fill', target: searchAction.label, value: '<search query>' })
+              steps.push({ action: 'verify', target: 'results', expect: 'Results visible' })
+            }
+          } else {
+            // Generic: click first few buttons
+            meta.buttons.slice(0, 3).forEach(b => {
+              steps.push({ action: 'click', target: b.label, role: 'button' })
+            })
+            meta.inputs.slice(0, 3).forEach(inp => {
+              steps.push({ action: 'fill', target: inp.label, value: '<test value>' })
+            })
+          }
+
+          const interactiveCount = actions.length
+          const totalElements = meta.buttons.length + meta.inputs.length + meta.links.length
+          const coverage = {
+            interactive: interactiveCount,
+            total: totalElements,
+            percentage: totalElements > 0 ? Math.round((interactiveCount / totalElements) * 100) : 0,
+          }
+
+          const plan = {
+            suggestedFlows,
+            interactiveElements: interactiveCount,
+            steps,
+            coverage,
+          }
+
+          const lines = [
+            `Test plan for: ${url}`,
+            intent ? `Intent: ${intent}` : '',
+            ``,
+            `Suggested flows: ${suggestedFlows.length > 0 ? suggestedFlows.join(', ') : 'none detected'}`,
+            `Interactive elements: ${interactiveCount}`,
+            `Coverage: ${coverage.percentage}%`,
+            ``,
+            `Steps:`,
+            ...steps.map((s, i) => {
+              if (s.action === 'verify') return `  ${i + 1}. verify: ${s.expect}`
+              if (s.action === 'fill') return `  ${i + 1}. fill "${s.target}" with ${s.value}`
+              return `  ${i + 1}. ${s.action} "${s.target}"${s.role ? ` [${s.role}]` : ''}`
+            }),
+          ].filter(l => l !== '')
+
+          return textResponse(JSON.stringify(plan, null, 2) + '\n\n' + lines.join('\n'))
+        } catch (err) {
+          return errorResponse(`plan_test failed: ${err instanceof Error ? err.message : String(err)}`)
+        } finally {
+          await driver.close().catch(() => {})
+        }
+      }
+
+      case "session_start": {
+        const { url, headless = true, viewport } = args as {
+          url: string
+          headless?: boolean
+          viewport?: { width: number; height: number }
+        }
+
+        const driver = new EngineDriver()
+        try {
+          await driver.launch({
+            headless,
+            viewport: viewport ? { width: viewport.width, height: viewport.height } : undefined,
+          })
+          await driver.navigate(url)
+
+          const elements = await driver.getSnapshot()
+          const elementCount = elements.filter(e => e.actions.length > 0).length
+
+          const sessionId = crypto.randomUUID()
+          sessions.set(sessionId, { driver, url: driver.url || url, createdAt: Date.now() })
+
+          return textResponse(JSON.stringify({
+            sessionId,
+            url: driver.url || url,
+            elementCount,
+            timestamp: new Date().toISOString(),
+          }, null, 2))
+        } catch (err) {
+          await driver.close().catch(() => {})
+          return errorResponse(`session_start failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      case "session_action": {
+        const {
+          sessionId, action, target, value, role,
+          screenshot: wantScreenshot = true,
+        } = args as {
+          sessionId: string
+          action: string
+          target: string
+          value?: string
+          role?: string
+          screenshot?: boolean
+        }
+
+        const entry = sessions.get(sessionId)
+        if (!entry) {
+          return errorResponse('Session not found. Use session_start first.')
+        }
+        const driver = entry.driver
+
+        try {
+          const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined)
+          if (!diag.elementId) {
+            return textResponse(JSON.stringify({
+              success: false,
+              error: `Element "${target}" not found`,
+              alternatives: diag.alternatives,
+              hint: diag.alternatives.length > 0
+                ? `Try one of these: ${diag.alternatives.map(a => `"${a.name}" (${a.role})`).join(', ')}`
+                : 'Use session_read with what="observe" to see all interactive elements',
+            }, null, 2))
+          }
+
+          const allElements = await driver.getSnapshot()
+          const element = allElements.find(e => e.id === diag.elementId)
+
+          switch (action) {
+            case 'click': await driver.click(diag.elementId); break
+            case 'type': await driver.type(diag.elementId, value || ''); break
+            case 'fill': await driver.fill(diag.elementId, value || ''); break
+            case 'hover': await driver.hover(diag.elementId); break
+            case 'press': await driver.pressKey(value || 'Enter'); break
+            case 'scroll': await driver.scroll(Number(value) || 300); break
+            case 'select': await driver.select(diag.elementId, value || ''); break
+            case 'check': await driver.check(diag.elementId); break
+            default: return errorResponse(`Unknown action: ${action}`)
+          }
+
+          await new Promise(r => setTimeout(r, 500))
+
+          const afterElements = await driver.getSnapshot()
+          const afterCount = afterElements.filter(e => e.actions.length > 0).length
+          entry.url = driver.url
+
+          const actionResult: Record<string, unknown> = {
+            success: true,
+            elementFound: {
+              id: diag.elementId,
+              role: element?.role ?? 'unknown',
+              label: element?.label ?? target,
+              confidence: diag.confidence,
+              tier: diag.tierName,
+            },
+            pageState: { url: driver.url, elementCount: afterCount },
+          }
+
+          if (wantScreenshot) {
+            const buf = await driver.screenshot()
+            const base64 = buf.toString('base64')
+            return {
+              content: [
+                { type: 'image' as const, data: base64, mimeType: 'image/png' },
+                { type: 'text' as const, text: JSON.stringify(actionResult, null, 2) },
+              ],
+            }
+          }
+
+          return textResponse(JSON.stringify(actionResult, null, 2))
+        } catch (err) {
+          return errorResponse(`session_action failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      case "session_read": {
+        const { sessionId, what } = args as { sessionId: string; what: string }
+
+        const entry = sessions.get(sessionId)
+        if (!entry) {
+          return errorResponse('Session not found. Use session_start first.')
+        }
+        const driver = entry.driver
+
+        try {
+          switch (what) {
+            case 'observe': {
+              const actions = await driver.observe()
+              const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" — ${a.actions.join(', ')}`)
+              return textResponse(
+                actions.length > 0
+                  ? `Found ${actions.length} interactive elements:\n\n${lines.join('\n')}`
+                  : 'No interactive elements found on this page.'
+              )
+            }
+
+            case 'extract': {
+              const meta = await driver.extractMeta()
+              const sections: string[] = []
+              if (meta.headings.length > 0) {
+                sections.push(`Headings:\n${meta.headings.map(h => `  ${h}`).join('\n')}`)
+              }
+              if (meta.buttons.length > 0) {
+                sections.push(`Buttons (${meta.buttons.length}):\n${meta.buttons.map(b => `  • ${b.label}${b.enabled === false ? ' (disabled)' : ''}`).join('\n')}`)
+              }
+              if (meta.inputs.length > 0) {
+                sections.push(`Inputs (${meta.inputs.length}):\n${meta.inputs.map(inp => `  • ${inp.label}${inp.value ? ` = "${inp.value}"` : ''}`).join('\n')}`)
+              }
+              if (meta.links.length > 0) {
+                sections.push(`Links (${meta.links.length}):\n${meta.links.slice(0, 20).map(l => `  • ${l.label}`).join('\n')}${meta.links.length > 20 ? `\n  ... and ${meta.links.length - 20} more` : ''}`)
+              }
+              return textResponse(sections.join('\n\n') || 'No structured data found on page.')
+            }
+
+            case 'screenshot': {
+              const buf = await driver.screenshot()
+              const base64 = buf.toString('base64')
+              return imageResponse(base64, `Screenshot of ${driver.url}`)
+            }
+
+            case 'state': {
+              const elements = await driver.getSnapshot()
+              const elementCount = elements.filter(e => e.actions.length > 0).length
+              const consoleErrors = driver.getConsoleErrors().map(m => m.text)
+              return textResponse(JSON.stringify({
+                url: driver.url,
+                elementCount,
+                consoleErrors,
+              }, null, 2))
+            }
+
+            default:
+              return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`)
+          }
+        } catch (err) {
+          return errorResponse(`session_read failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
+
+      case "session_close": {
+        const { sessionId } = args as { sessionId: string }
+
+        const entry = sessions.get(sessionId)
+        if (!entry) {
+          return errorResponse('Session not found.')
+        }
+
+        try {
+          await entry.driver.close()
+          sessions.delete(sessionId)
+          return textResponse(`Session ${sessionId} closed.`)
+        } catch (err) {
+          sessions.delete(sessionId)
+          return errorResponse(`session_close error: ${err instanceof Error ? err.message : String(err)}`)
         }
       }
 

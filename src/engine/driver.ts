@@ -72,6 +72,19 @@ export interface FindOptions {
   role?: string
 }
 
+export interface FindDiagnostics {
+  elementId: string | null
+  confidence: number           // 0.0–1.0
+  tier: number                 // 1–4: which resolution strategy succeeded
+  tierName: string             // "cache" | "queryAXTree" | "jaro-winkler" | "vision"
+  alternatives: Array<{        // top 5 fuzzy matches when not found
+    name: string
+    role: string
+    score: number
+  }>
+  totalInteractive: number     // how many interactive elements on page
+}
+
 export interface CaptureStateOptions {
   computedStyles?: string[]
   includeAXTree?: boolean
@@ -237,23 +250,46 @@ export class EngineDriver implements BrowserDriver {
 
   /**
    * 3-tier element resolution with auto-caching:
-   * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
+   * Tier 1: Check cache → Tier 2: queryAXTree → Tier 3: Jaro-Winkler → Tier 4: vision fallback.
+   * Delegates to findWithDiagnostics() and returns the matched element or null.
    */
   async find(name: string, options: FindOptions = {}): Promise<Element | null> {
+    const diag = await this.findWithDiagnostics(name, options)
+    if (!diag.elementId) return null
+
+    const elements = await this.ax.getSnapshot()
+    return elements.find((e) => e.id === diag.elementId) ?? null
+  }
+
+  /**
+   * Like find(), but returns rich diagnostics for agent error feedback.
+   * Includes confidence, resolution tier, and fuzzy alternatives when not found.
+   */
+  async findWithDiagnostics(name: string, options: FindOptions = {}): Promise<FindDiagnostics> {
+    const { jaroWinkler } = await import('./resolve.js')
     const cacheKey = options.role ? `${name}:${options.role}` : name
 
-    // Tier 0: Check resolution cache
+    // Tier 1: Check resolution cache
     const cached = this.resolutionCache.get(cacheKey)
     if (cached) {
-      // Verify the cached element still exists
       const elements = await this.ax.getSnapshot()
       const match = elements.find((e) => e.id === cached.elementId)
-      if (match) return match
-      // Element gone — invalidate and re-resolve
+      if (match) {
+        const interactive = elements.filter((e) => e.actions.length > 0)
+        return {
+          elementId: cached.elementId,
+          confidence: cached.confidence,
+          tier: 1,
+          tierName: 'cache',
+          alternatives: [],
+          totalInteractive: interactive.length,
+        }
+      }
+      // Element gone — invalidate and fall through
       this.resolutionCache.invalidate(cacheKey)
     }
 
-    // Tier 1: CDP-native queryAXTree (exact/prefix match)
+    // Tier 2: CDP-native queryAXTree (exact/prefix match)
     const queryResult = await this.ax.queryAXTree({
       accessibleName: name,
       role: options.role,
@@ -263,12 +299,22 @@ export class EngineDriver implements BrowserDriver {
       this.resolutionCache.set(cacheKey, el.id, {
         role: el.role, label: el.label, confidence: 1.0,
       })
-      return el
+      const allElements = await this.ax.getSnapshot()
+      const interactive = allElements.filter((e) => e.actions.length > 0)
+      return {
+        elementId: el.id,
+        confidence: 0.95,
+        tier: 2,
+        tierName: 'queryAXTree',
+        alternatives: [],
+        totalInteractive: interactive.length,
+      }
     }
 
-    // Tier 2: Fuzzy matching on full AX tree (Jaro-Winkler)
+    // Tier 3: Fuzzy matching on full AX tree (Jaro-Winkler)
     const { resolve } = await import('./resolve.js')
     const allElements = await this.ax.getSnapshot()
+    const interactive = allElements.filter((e) => e.actions.length > 0)
     const result = resolve({
       intent: options.role ? `${name} ${options.role}` : name,
       elements: allElements,
@@ -279,11 +325,36 @@ export class EngineDriver implements BrowserDriver {
       this.resolutionCache.set(cacheKey, result.element.id, {
         role: result.element.role, label: result.element.label, confidence: result.confidence,
       })
-      return result.element
+      return {
+        elementId: result.element.id,
+        confidence: result.confidence,
+        tier: 3,
+        tierName: 'jaro-winkler',
+        alternatives: [],
+        totalInteractive: interactive.length,
+      }
     }
 
-    // Tier 3: Signal vision fallback needed
-    return null
+    // Tier 4: Not found — compute alternatives from interactive elements
+    const nameLower = name.toLowerCase()
+    const scored = interactive
+      .filter((e) => e.label)
+      .map((e) => ({
+        name: e.label,
+        role: e.role,
+        score: jaroWinkler(nameLower, e.label.toLowerCase()),
+      }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5)
+
+    return {
+      elementId: null,
+      confidence: 0,
+      tier: 4,
+      tierName: 'vision',
+      alternatives: scored,
+      totalInteractive: interactive.length,
+    }
   }
 
   // ─── Interactions ───────────────────────────────────────

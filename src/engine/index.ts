@@ -10,6 +10,7 @@ export type {
   NavigateOptions,
   DiscoverOptions,
   FindOptions,
+  FindDiagnostics,
   CaptureStateOptions,
   CapturedState,
   WaitStrategy,

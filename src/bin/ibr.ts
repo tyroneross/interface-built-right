@@ -146,6 +146,17 @@ async function createDriver(browser?: string): Promise<BrowserDriver> {
   return new EngineDriver();
 }
 
+/**
+ * Merge global --chrome-path into launch options for EngineDriver.
+ */
+function withChromePath<T extends Record<string, unknown>>(opts: T): T & { chromePath?: string } {
+  const globalOpts = program.opts();
+  if (globalOpts.chromePath) {
+    return { ...opts, chromePath: globalOpts.chromePath as string };
+  }
+  return opts;
+}
+
 program
   .name('ibr')
   .description('Design validation for Claude Code')
@@ -157,7 +168,8 @@ program
   .option('-o, --output <dir>', 'Output directory', './.ibr')
   .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet', 'desktop')
   .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0')
-  .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome');
+  .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome')
+  .option('--chrome-path <path>', 'Path to Chrome/Chromium executable');
 
 // Start command
 program
@@ -407,7 +419,7 @@ program
       // Launch browser for audit
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
       const driver = new EngineDriver();
-      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -1134,6 +1146,127 @@ program
       const outputDir = globalOpts.output || './.ibr';
 
       await clearAuthState(outputDir);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// ============================================================
+// FLOW COMMANDS - Pre-built interaction flows
+// ============================================================
+
+const flowCmd = program.command('flow').description('Execute pre-built interaction flows');
+
+flowCmd.command('search <url>')
+  .description('Execute search flow')
+  .requiredOption('--query <text>', 'Search query')
+  .option('--session <id>', 'Use existing session')
+  .action(async (url: string, options: { query: string; session?: string }) => {
+    try {
+      const { EngineDriver } = await import('../engine/driver.js');
+      const { CompatPage } = await import('../engine/compat.js');
+      const { searchFlow } = await import('../flows/search.js');
+
+      const driver = new EngineDriver();
+      await driver.launch(withChromePath({}));
+      await driver.navigate(url);
+
+      const page = new CompatPage(driver);
+      const result = await searchFlow(page, { query: options.query });
+
+      console.log(result.success ? 'Search flow succeeded' : 'Search flow failed');
+      console.log(`Query: "${options.query}"`);
+      console.log(`Results found: ${result.resultCount}`);
+      if (result.error) console.log(`Error: ${result.error}`);
+
+      result.steps.forEach(s => {
+        console.log(`  ${s.success ? '✓' : '✗'} ${s.action}`);
+      });
+
+      await driver.close().catch(() => {});
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+flowCmd.command('form <url>')
+  .description('Fill and submit a form')
+  .requiredOption('--fields <json>', 'Field values as JSON, e.g. \'{"Email":"test@example.com"}\'')
+  .option('--no-submit', 'Fill without submitting')
+  .option('--session <id>', 'Use existing session')
+  .action(async (url: string, options: { fields: string; submit: boolean; session?: string }) => {
+    try {
+      const { EngineDriver } = await import('../engine/driver.js');
+      const { CompatPage } = await import('../engine/compat.js');
+      const { formFlow } = await import('../flows/form.js');
+
+      let fieldMap: Record<string, string>;
+      try {
+        fieldMap = JSON.parse(options.fields);
+      } catch {
+        console.error('--fields must be valid JSON, e.g. \'{"Email":"test@example.com"}\'');
+        process.exit(1);
+        return;
+      }
+
+      const driver = new EngineDriver();
+      await driver.launch(withChromePath({}));
+      await driver.navigate(url);
+
+      const page = new CompatPage(driver);
+      const formFields = Object.entries(fieldMap).map(([name, value]) => ({ name, value }));
+      const result = await formFlow(page, {
+        fields: formFields,
+        submitButton: options.submit ? undefined : '__NO_SUBMIT__',
+      });
+
+      console.log(result.success ? 'Form flow succeeded' : 'Form flow failed');
+      console.log(`Filled: ${result.filledFields.join(', ') || 'none'}`);
+      if (result.failedFields.length > 0) {
+        console.log(`Failed: ${result.failedFields.join(', ')}`);
+      }
+      if (result.error) console.log(`Error: ${result.error}`);
+
+      await driver.close().catch(() => {});
+      if (!result.success) process.exit(1);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+flowCmd.command('login <url>')
+  .description('Execute login flow')
+  .requiredOption('--username <text>', 'Username or email')
+  .requiredOption('--password <text>', 'Password')
+  .option('--session <id>', 'Use existing session')
+  .action(async (url: string, options: { username: string; password: string; session?: string }) => {
+    try {
+      const { EngineDriver } = await import('../engine/driver.js');
+      const { CompatPage } = await import('../engine/compat.js');
+      const { loginFlow } = await import('../flows/login.js');
+
+      const driver = new EngineDriver();
+      await driver.launch(withChromePath({}));
+      await driver.navigate(url);
+
+      const page = new CompatPage(driver);
+      const result = await loginFlow(page, { email: options.username, password: options.password });
+
+      console.log(result.success ? 'Login flow succeeded' : 'Login flow failed');
+      console.log(`Logged in: ${result.authenticated}`);
+      if (result.username) console.log(`Username detected: ${result.username}`);
+      if (result.error) console.log(`Error: ${result.error}`);
+
+      result.steps.forEach(s => {
+        console.log(`  ${s.success ? '✓' : '✗'} ${s.action}`);
+      });
+
+      await driver.close().catch(() => {});
+      if (!result.success) process.exit(1);
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
@@ -2132,7 +2265,7 @@ program
       // Launch browser
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
       const driver = new EngineDriver();
-      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3318,7 +3451,7 @@ program
 
       const { searchFlow } = await import('../flows/search.js');
 
-      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3382,7 +3515,7 @@ program
         }
       }
 
-      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3439,7 +3572,7 @@ program
         process.exit(1);
       }
 
-      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3807,7 +3940,7 @@ program
       console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
       console.log('');
 
-      await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       await driver.navigate(resolvedUrl);
 
       // Small wait for hydration
@@ -4186,7 +4319,7 @@ program
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
-      await driver.launch({ headless: true })
+      await driver.launch(withChromePath({ headless: true }))
       await driver.navigate(url)
 
       const element = await driver.find(opts.target, opts.role ? { role: opts.role } : undefined)
@@ -4240,7 +4373,7 @@ program
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
-      await driver.launch({ headless: true })
+      await driver.launch(withChromePath({ headless: true }))
       await driver.navigate(url)
       const actions = await driver.observe({ role: opts.role, limit: Number(opts.limit) })
 
@@ -4268,7 +4401,7 @@ program
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
-      await driver.launch({ headless: true })
+      await driver.launch(withChromePath({ headless: true }))
       await driver.navigate(url)
       const meta = await driver.extractMeta()
 
