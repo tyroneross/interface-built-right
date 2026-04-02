@@ -25,10 +25,15 @@
   },
   "files": [
     "dist",
-    "plugin",
+    ".claude-plugin",
     ".mcp.json",
+    "adapters",
+    "agents",
+    "commands",
+    "hooks",
     "scripts",
-    "skills"
+    "skills",
+    "universal"
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js || true",
