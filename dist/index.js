@@ -1444,7 +1444,13 @@ var BrowserManager = class {
   async launch(options = {}) {
     const headless = options.headless ?? true;
     this._port = options.port ?? randomPort();
-    const userDataDir = options.userDataDir ?? path.join(os.homedir(), ".ibr", "chromium-profile");
+    let userDataDir = options.userDataDir ?? path.join(os.homedir(), ".ibr", "chromium-profile");
+    if (!options.userDataDir) {
+      const lockPath = path.join(userDataDir, "SingletonLock");
+      if (fs$1.existsSync(lockPath)) {
+        userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
+      }
+    }
     const chromePath = options.chromePath ?? findChrome();
     if (!chromePath) {
       throw new Error(
@@ -2921,15 +2927,37 @@ var EngineDriver = class {
   }
   /**
    * 3-tier element resolution with auto-caching:
-   * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
+   * Tier 1: Check cache → Tier 2: queryAXTree → Tier 3: Jaro-Winkler → Tier 4: vision fallback.
+   * Delegates to findWithDiagnostics() and returns the matched element or null.
    */
   async find(name, options = {}) {
+    const diag = await this.findWithDiagnostics(name, options);
+    if (!diag.elementId) return null;
+    const elements = await this.ax.getSnapshot();
+    return elements.find((e) => e.id === diag.elementId) ?? null;
+  }
+  /**
+   * Like find(), but returns rich diagnostics for agent error feedback.
+   * Includes confidence, resolution tier, and fuzzy alternatives when not found.
+   */
+  async findWithDiagnostics(name, options = {}) {
+    const { jaroWinkler: jaroWinkler2 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
     const cacheKey = options.role ? `${name}:${options.role}` : name;
     const cached = this.resolutionCache.get(cacheKey);
     if (cached) {
       const elements = await this.ax.getSnapshot();
       const match = elements.find((e) => e.id === cached.elementId);
-      if (match) return match;
+      if (match) {
+        const interactive2 = elements.filter((e) => e.actions.length > 0);
+        return {
+          elementId: cached.elementId,
+          confidence: cached.confidence,
+          tier: 1,
+          tierName: "cache",
+          alternatives: [],
+          totalInteractive: interactive2.length
+        };
+      }
       this.resolutionCache.invalidate(cacheKey);
     }
     const queryResult = await this.ax.queryAXTree({
@@ -2943,10 +2971,20 @@ var EngineDriver = class {
         label: el.label,
         confidence: 1
       });
-      return el;
+      const allElements2 = await this.ax.getSnapshot();
+      const interactive2 = allElements2.filter((e) => e.actions.length > 0);
+      return {
+        elementId: el.id,
+        confidence: 0.95,
+        tier: 2,
+        tierName: "queryAXTree",
+        alternatives: [],
+        totalInteractive: interactive2.length
+      };
     }
     const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
     const allElements = await this.ax.getSnapshot();
+    const interactive = allElements.filter((e) => e.actions.length > 0);
     const result = resolve3({
       intent: options.role ? `${name} ${options.role}` : name,
       elements: allElements,
@@ -2958,9 +2996,36 @@ var EngineDriver = class {
         label: result.element.label,
         confidence: result.confidence
       });
-      return result.element;
+      return {
+        elementId: result.element.id,
+        confidence: result.confidence,
+        tier: 3,
+        tierName: "jaro-winkler",
+        alternatives: [],
+        totalInteractive: interactive.length
+      };
     }
-    return null;
+    const nameLower = name.toLowerCase();
+    const scored = interactive.filter((e) => e.label).map((e) => ({
+      name: e.label,
+      role: e.role,
+      score: jaroWinkler2(nameLower, e.label.toLowerCase())
+    })).sort((a, b) => b.score - a.score).slice(0, 5);
+    let screenshot;
+    try {
+      const buf = await this.screenshot();
+      screenshot = buf.toString("base64");
+    } catch {
+    }
+    return {
+      elementId: null,
+      confidence: 0,
+      tier: 4,
+      tierName: "vision",
+      alternatives: scored,
+      totalInteractive: interactive.length,
+      screenshot
+    };
   }
   // ─── Interactions ───────────────────────────────────────
   async click(elementId) {
@@ -5062,6 +5127,39 @@ async function detectAuthState(page) {
       '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
     );
     const hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
+    const socialProviderPatterns = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const socialProviders = [];
+    const socialElements = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialElements) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderPatterns) {
+        if (!socialProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const isTriggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || t === `sign in with ${provider}` || t === `continue with ${provider}` || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (isTriggered) socialProviders.push(provider);
+          }
+        }
+      }
+    }
+    const forgotPasswordPatterns = ["forgot", "reset password", "can't sign in", "trouble signing in", "lost password"];
+    const forgotEl = findByText(["a", "button"], forgotPasswordPatterns) || doc.querySelector('[href*="forgot"], [href*="reset-password"], [href*="password-reset"]');
+    const toggleEl = doc.querySelector(
+      '[aria-label*="show password" i], [aria-label*="hide password" i], [aria-label*="toggle password" i], [class*="eye"], [class*="visibility"], [class*="toggle-password"]'
+    );
+    let hasPasswordToggle = !!toggleEl;
+    if (!hasPasswordToggle) {
+      const passwordInput = doc.querySelector('input[type="password"]');
+      if (passwordInput) {
+        const parent = passwordInput.parentElement;
+        const sibling = passwordInput.nextElementSibling;
+        if (parent?.querySelector("button")) hasPasswordToggle = true;
+        if (sibling?.tagName === "BUTTON") hasPasswordToggle = true;
+      }
+    }
     return {
       hasLogoutButton: !!logoutButton,
       hasUserMenu: !!userMenu,
@@ -5072,7 +5170,10 @@ async function detectAuthState(page) {
       hasLoginLink: !!loginLink,
       hasSignupLink: !!signupLink,
       hasAuthRequired: !!authRequired,
-      hasAuthCookie
+      hasAuthCookie,
+      socialLoginProviders: socialProviders,
+      hasForgotPassword: !!forgotEl,
+      hasPasswordToggle
     };
   });
   if (checks.hasLogoutButton) {
@@ -5116,6 +5217,15 @@ async function detectAuthState(page) {
     confidence += 25;
     signals.push("auth-required message");
   }
+  if (checks.socialLoginProviders.length > 0) {
+    signals.push(`social login: ${checks.socialLoginProviders.join(", ")}`);
+  }
+  if (checks.hasForgotPassword) {
+    signals.push("forgot password link present");
+  }
+  if (checks.hasPasswordToggle) {
+    signals.push("password visibility toggle present");
+  }
   confidence = Math.min(confidence / 100, 1);
   if (confidence < 0.3) {
     authenticated = null;
@@ -5124,7 +5234,11 @@ async function detectAuthState(page) {
     authenticated,
     confidence,
     signals,
-    username
+    username,
+    socialLoginProviders: checks.socialLoginProviders,
+    hasForgotPassword: checks.hasForgotPassword,
+    hasSignupLink: checks.hasSignupLink,
+    hasPasswordToggle: checks.hasPasswordToggle
   };
 }
 async function detectLoadingState(page) {
@@ -5297,7 +5411,7 @@ async function getSemanticOutput(page) {
     detectPageState(page)
   ]);
   const availableActions = await detectAvailableActions(page, pageIntent.intent);
-  const issues = collectIssues(state, pageIntent);
+  const issues = collectIssues(state, pageIntent, url);
   const verdict = determineVerdict(state, issues);
   const recovery = verdict === "FAIL" || verdict === "ERROR" ? generateRecoveryHint(state, pageIntent.intent) : void 0;
   const summary = generateSummary(pageIntent, state, verdict, issues.length);
@@ -5339,6 +5453,24 @@ async function detectAvailableActions(page, intent) {
     const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
     const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
     const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
+    const socialProviderNames = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const detectedProviders = [];
+    const socialEls = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialEls) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderNames) {
+        if (!detectedProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const triggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (triggered) detectedProviders.push(provider);
+          }
+        }
+      }
+    }
     return {
       hasSubmit: !!submitButton,
       submitSelector: submitButton ? getSelector(submitButton) : null,
@@ -5353,7 +5485,9 @@ async function detectAvailableActions(page, intent) {
       hasDelete: !!deleteButton,
       hasFilter: !!filterSelect,
       hasSort: !!sortSelect,
-      hasPagination: !!pagination
+      hasPagination: !!pagination,
+      hasSocialLogin: detectedProviders.length > 0,
+      socialProviders: detectedProviders
     };
     function getSelector(el) {
       if (el.id) return `#${el.id}`;
@@ -5368,6 +5502,15 @@ async function detectAvailableActions(page, intent) {
       selector: "form",
       description: "Submit login credentials"
     });
+  }
+  if (intent === "auth" && checks.hasSocialLogin) {
+    for (const provider of checks.socialProviders) {
+      actions.push({
+        action: `login-with-${provider}`,
+        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
+      });
+    }
   }
   if (checks.hasSearch) {
     actions.push({
@@ -5418,7 +5561,7 @@ async function detectAvailableActions(page, intent) {
   }
   return actions;
 }
-function collectIssues(state, intent) {
+function collectIssues(state, intent, url = "") {
   const issues = [];
   for (const error of state.errors.errors) {
     issues.push({
@@ -5443,6 +5586,45 @@ function collectIssues(state, intent) {
       problem: "Dashboard requires authentication",
       fix: "Login first before accessing this page"
     });
+  }
+  if (intent.intent === "auth") {
+    const socialProviders = state.auth.socialLoginProviders ?? [];
+    if (socialProviders.length === 0) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-social-login",
+        problem: "Auth page has no social login options (Google, GitHub, etc.)",
+        fix: "Add OAuth/social login buttons to reduce friction"
+      });
+    }
+    const signals = state.auth.signals;
+    const hasSignupLinkSignal = signals.includes("signup link visible") || (state.auth.hasSignupLink ?? false);
+    const hasLoginLinkSignal = signals.includes("login link visible");
+    const urlPath = (() => {
+      try {
+        return new URL(url).pathname.toLowerCase();
+      } catch {
+        return url.toLowerCase();
+      }
+    })();
+    const isSignUp = hasLoginLinkSignal || urlPath.includes("sign-up") || urlPath.includes("signup") || urlPath.includes("register");
+    const isSignIn = hasSignupLinkSignal || urlPath.includes("sign-in") || urlPath.includes("signin") || urlPath.includes("login");
+    if (!state.auth.hasForgotPassword && (isSignIn || !isSignIn && !isSignUp)) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-forgot-password",
+        problem: "Sign-in page has no forgot password option",
+        fix: 'Add a "Forgot your password?" link'
+      });
+    }
+    if (!state.auth.hasPasswordToggle) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-password-toggle",
+        problem: "Password field has no show/hide toggle",
+        fix: "Add a visibility toggle for the password field"
+      });
+    }
   }
   return issues;
 }
@@ -9477,7 +9659,11 @@ function buildNativeSemantic(elements, window2) {
       auth: {
         authenticated: isAuthScreen ? false : null,
         confidence: isAuthScreen ? 0.8 : 0.3,
-        signals: authSignals
+        signals: authSignals,
+        socialLoginProviders: [],
+        hasForgotPassword: false,
+        hasSignupLink: false,
+        hasPasswordToggle: false
       },
       loading: {
         loading: false,

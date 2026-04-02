@@ -77,7 +77,7 @@ export async function getSemanticOutput(page: Page): Promise<SemanticResult> {
   const availableActions = await detectAvailableActions(page, pageIntent.intent);
 
   // Collect issues
-  const issues = collectIssues(state, pageIntent);
+  const issues = collectIssues(state, pageIntent, url);
 
   // Determine verdict
   const verdict = determineVerdict(state, issues);
@@ -147,6 +147,27 @@ async function detectAvailableActions(
     const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
     const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
 
+    // Social login provider detection (for actions)
+    const socialProviderNames = ['google', 'github', 'apple', 'microsoft', 'facebook', 'discord'];
+    const socialTriggerPhrases = ['sign in with', 'continue with'];
+    const detectedProviders: string[] = [];
+    const socialEls = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialEls) {
+      const t = el.textContent?.trim().toLowerCase() || '';
+      const cls = el.className?.toLowerCase() || '';
+      for (const provider of socialProviderNames) {
+        if (!detectedProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const triggered = socialTriggerPhrases.some(ph => t.includes(ph)) ||
+              t === provider || cls.includes('social') || cls.includes('oauth') || cls.includes('provider');
+            if (triggered) detectedProviders.push(provider);
+          }
+        }
+      }
+    }
+
     return {
       hasSubmit: !!submitButton,
       submitSelector: submitButton ? getSelector(submitButton) : null,
@@ -162,6 +183,8 @@ async function detectAvailableActions(
       hasFilter: !!filterSelect,
       hasSort: !!sortSelect,
       hasPagination: !!pagination,
+      hasSocialLogin: detectedProviders.length > 0,
+      socialProviders: detectedProviders,
     };
 
     function getSelector(el: Element): string {
@@ -179,6 +202,17 @@ async function detectAvailableActions(
       selector: 'form',
       description: 'Submit login credentials',
     });
+  }
+
+  // Social login actions (auth pages only)
+  if (intent === 'auth' && checks.hasSocialLogin) {
+    for (const provider of checks.socialProviders) {
+      actions.push({
+        action: `login-with-${provider}`,
+        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
+      });
+    }
   }
 
   if (checks.hasSearch) {
@@ -239,7 +273,7 @@ async function detectAvailableActions(
 /**
  * Collect issues from page state
  */
-function collectIssues(state: PageState, intent: PageIntentResult): SemanticIssue[] {
+function collectIssues(state: PageState, intent: PageIntentResult, url = ''): SemanticIssue[] {
   const issues: SemanticIssue[] = [];
 
   // Add error-based issues
@@ -270,6 +304,56 @@ function collectIssues(state: PageState, intent: PageIntentResult): SemanticIssu
       problem: 'Dashboard requires authentication',
       fix: 'Login first before accessing this page',
     });
+  }
+
+  // Auth page heuristic checks
+  if (intent.intent === 'auth') {
+    const socialProviders = state.auth.socialLoginProviders ?? [];
+
+    // No social login options
+    if (socialProviders.length === 0) {
+      issues.push({
+        severity: 'minor',
+        type: 'auth-no-social-login',
+        problem: 'Auth page has no social login options (Google, GitHub, etc.)',
+        fix: 'Add OAuth/social login buttons to reduce friction',
+      });
+    }
+
+    // Determine sign-in vs sign-up: login link present = sign-up page; signup link present = sign-in page
+    // Also check URL path as a fallback
+    const signals = state.auth.signals;
+    const hasSignupLinkSignal = signals.includes('signup link visible') || (state.auth.hasSignupLink ?? false);
+    const hasLoginLinkSignal = signals.includes('login link visible');
+    const urlPath = (() => { try { return new URL(url).pathname.toLowerCase(); } catch { return url.toLowerCase(); } })();
+    const isSignUp = hasLoginLinkSignal ||
+      urlPath.includes('sign-up') ||
+      urlPath.includes('signup') ||
+      urlPath.includes('register');
+    const isSignIn = hasSignupLinkSignal ||
+      urlPath.includes('sign-in') ||
+      urlPath.includes('signin') ||
+      urlPath.includes('login');
+
+    // No forgot password on sign-in pages (not sign-up)
+    if (!state.auth.hasForgotPassword && (isSignIn || (!isSignIn && !isSignUp))) {
+      issues.push({
+        severity: 'minor',
+        type: 'auth-no-forgot-password',
+        problem: 'Sign-in page has no forgot password option',
+        fix: 'Add a "Forgot your password?" link',
+      });
+    }
+
+    // No password visibility toggle
+    if (!state.auth.hasPasswordToggle) {
+      issues.push({
+        severity: 'minor',
+        type: 'auth-no-password-toggle',
+        problem: 'Password field has no show/hide toggle',
+        fix: 'Add a visibility toggle for the password field',
+      });
+    }
   }
 
   return issues;

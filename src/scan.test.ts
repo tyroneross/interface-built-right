@@ -38,7 +38,7 @@ function makeScanResult(overrides: Partial<ScanResult> = {}): ScanResult {
       confidence: 0.85,
       pageIntent: { intent: 'dashboard', confidence: 0.85, signals: ['charts present'] },
       state: {
-        auth: { authenticated: false, confidence: 0.5, signals: [] },
+        auth: { authenticated: false, confidence: 0.5, signals: [], socialLoginProviders: [], hasForgotPassword: false, hasSignupLink: false, hasPasswordToggle: false },
         loading: { loading: false, type: 'none', elements: 0 },
         errors: { hasErrors: false, errors: [], severity: 'none' },
         ready: true,
@@ -214,7 +214,7 @@ describe('formatScanResult', () => {
         ...makeScanResult().semantic,
         state: {
           ...makeScanResult().semantic.state,
-          auth: { authenticated: true, username: 'john', confidence: 0.9, signals: [] },
+          auth: { authenticated: true, username: 'john', confidence: 0.9, signals: [], socialLoginProviders: [], hasForgotPassword: false, hasSignupLink: false, hasPasswordToggle: false },
         },
       },
     });

@@ -12,6 +12,11 @@ export interface AuthState {
   confidence: number;
   signals: string[];
   username?: string; // If we can extract it
+  // Auth page heuristic signals (populated when page intent is auth)
+  socialLoginProviders: string[];   // e.g. ['google', 'github']
+  hasForgotPassword: boolean;
+  hasSignupLink: boolean;            // already partially detected
+  hasPasswordToggle: boolean;
 }
 
 export interface LoadingState {
@@ -92,6 +97,53 @@ export async function detectAuthState(page: Page): Promise<AuthState> {
       document.cookie.includes('session') ||
       document.cookie.includes('token');
 
+    // Social login providers
+    const socialProviderPatterns = ['google', 'github', 'apple', 'microsoft', 'facebook', 'discord'];
+    const socialTriggerPhrases = ['sign in with', 'continue with'];
+    const socialProviders: string[] = [];
+    const socialElements = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialElements) {
+      const t = el.textContent?.trim().toLowerCase() || '';
+      const cls = el.className?.toLowerCase() || '';
+      for (const provider of socialProviderPatterns) {
+        if (!socialProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            // Make sure it looks like a login trigger (not just a footer link mentioning the name)
+            const isTriggered = socialTriggerPhrases.some(ph => t.includes(ph)) ||
+              t === provider ||
+              t === `sign in with ${provider}` ||
+              t === `continue with ${provider}` ||
+              cls.includes('social') || cls.includes('oauth') || cls.includes('provider');
+            if (isTriggered) socialProviders.push(provider);
+          }
+        }
+      }
+    }
+
+    // Forgot password link
+    const forgotPasswordPatterns = ['forgot', 'reset password', "can't sign in", 'trouble signing in', 'lost password'];
+    const forgotEl = findByText(['a', 'button'], forgotPasswordPatterns) ||
+      doc.querySelector('[href*="forgot"], [href*="reset-password"], [href*="password-reset"]');
+
+    // Password visibility toggle
+    const toggleEl = doc.querySelector(
+      '[aria-label*="show password" i], [aria-label*="hide password" i], [aria-label*="toggle password" i], ' +
+      '[class*="eye"], [class*="visibility"], [class*="toggle-password"]'
+    );
+    // Also check for a button inside or adjacent to a password input container
+    let hasPasswordToggle = !!toggleEl;
+    if (!hasPasswordToggle) {
+      const passwordInput = doc.querySelector('input[type="password"]');
+      if (passwordInput) {
+        const parent = passwordInput.parentElement;
+        const sibling = passwordInput.nextElementSibling;
+        if (parent?.querySelector('button')) hasPasswordToggle = true;
+        if (sibling?.tagName === 'BUTTON') hasPasswordToggle = true;
+      }
+    }
+
     return {
       hasLogoutButton: !!logoutButton,
       hasUserMenu: !!userMenu,
@@ -103,6 +155,9 @@ export async function detectAuthState(page: Page): Promise<AuthState> {
       hasSignupLink: !!signupLink,
       hasAuthRequired: !!authRequired,
       hasAuthCookie,
+      socialLoginProviders: socialProviders,
+      hasForgotPassword: !!forgotEl,
+      hasPasswordToggle,
     };
   });
 
@@ -151,6 +206,17 @@ export async function detectAuthState(page: Page): Promise<AuthState> {
     signals.push('auth-required message');
   }
 
+  // Auth page heuristic signals
+  if (checks.socialLoginProviders.length > 0) {
+    signals.push(`social login: ${checks.socialLoginProviders.join(', ')}`);
+  }
+  if (checks.hasForgotPassword) {
+    signals.push('forgot password link present');
+  }
+  if (checks.hasPasswordToggle) {
+    signals.push('password visibility toggle present');
+  }
+
   // Normalize confidence
   confidence = Math.min(confidence / 100, 1);
 
@@ -164,6 +230,10 @@ export async function detectAuthState(page: Page): Promise<AuthState> {
     confidence,
     signals,
     username,
+    socialLoginProviders: checks.socialLoginProviders,
+    hasForgotPassword: checks.hasForgotPassword,
+    hasSignupLink: checks.hasSignupLink,
+    hasPasswordToggle: checks.hasPasswordToggle,
   };
 }
 

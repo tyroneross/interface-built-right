@@ -2621,6 +2621,10 @@ interface AuthState {
     confidence: number;
     signals: string[];
     username?: string;
+    socialLoginProviders: string[];
+    hasForgotPassword: boolean;
+    hasSignupLink: boolean;
+    hasPasswordToggle: boolean;
 }
 interface LoadingState {
     loading: boolean;
@@ -3735,6 +3739,19 @@ interface DiscoverOptions {
 interface FindOptions {
     role?: string;
 }
+interface FindDiagnostics {
+    elementId: string | null;
+    confidence: number;
+    tier: number;
+    tierName: string;
+    alternatives: Array<{
+        name: string;
+        role: string;
+        score: number;
+    }>;
+    totalInteractive: number;
+    screenshot?: string;
+}
 interface CaptureStateOptions {
     computedStyles?: string[];
     includeAXTree?: boolean;
@@ -3780,9 +3797,15 @@ declare class EngineDriver implements BrowserDriver {
     discover(options?: DiscoverOptions): Promise<Element[] | string>;
     /**
      * 3-tier element resolution with auto-caching:
-     * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
+     * Tier 1: Check cache → Tier 2: queryAXTree → Tier 3: Jaro-Winkler → Tier 4: vision fallback.
+     * Delegates to findWithDiagnostics() and returns the matched element or null.
      */
     find(name: string, options?: FindOptions): Promise<Element | null>;
+    /**
+     * Like find(), but returns rich diagnostics for agent error feedback.
+     * Includes confidence, resolution tier, and fuzzy alternatives when not found.
+     */
+    findWithDiagnostics(name: string, options?: FindOptions): Promise<FindDiagnostics>;
     click(elementId: string): Promise<void>;
     type(elementId: string, text: string): Promise<void>;
     fill(elementId: string, value: string): Promise<void>;
@@ -5654,6 +5677,8 @@ interface MacOSAXElement {
         height: number;
     } | null;
     children: MacOSAXElement[];
+    /** Index path from the window root — e.g. [0, 2, 1] — used for action targeting */
+    path: number[];
 }
 /**
  * Window info parsed from the WINDOW: header line

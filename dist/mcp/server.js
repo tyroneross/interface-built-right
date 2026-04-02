@@ -30,6 +30,44 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/engine/serialize.ts
+function serializeSnapshot(snapshot) {
+  const target = snapshot.url ?? snapshot.appName ?? "unknown";
+  const lines = [
+    `# Page: ${target}`,
+    `# Platform: ${snapshot.platform} | Elements: ${snapshot.elements.length}`,
+    ""
+  ];
+  for (const el of snapshot.elements) {
+    lines.push(serializeElement(el));
+  }
+  return lines.join("\n");
+}
+function serializeElement(el) {
+  let line = `[${el.id}] ${el.role} "${el.label}"`;
+  const props = [];
+  if (el.role === "textfield") {
+    if (el.value !== null && el.value !== "") {
+      props.push(`value="${el.value}"`);
+    } else {
+      props.push("empty");
+    }
+  } else if (el.value !== null && el.value !== "") {
+    props.push(`value="${el.value}"`);
+  }
+  if (el.focused) props.push("focused");
+  if (el.role === "button") {
+    props.push(el.enabled ? "enabled" : "disabled");
+  }
+  if (props.length > 0) line += " " + props.join(", ");
+  return line;
+}
+var init_serialize = __esm({
+  "src/engine/serialize.ts"() {
+    "use strict";
+  }
+});
+
 // src/engine/resolve.ts
 var resolve_exports = {};
 __export(resolve_exports, {
@@ -1037,16 +1075,16 @@ async function listSessions(outputDir) {
   const sessionsDir = (0, import_path6.join)(outputDir, "sessions");
   try {
     const entries = await (0, import_promises7.readdir)(sessionsDir, { withFileTypes: true });
-    const sessions = [];
+    const sessions2 = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
         const session = await getSession(outputDir, entry.name);
         if (session) {
-          sessions.push(session);
+          sessions2.push(session);
         }
       }
     }
-    return sessions.sort(
+    return sessions2.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   } catch {
@@ -1054,8 +1092,8 @@ async function listSessions(outputDir) {
   }
 }
 async function getMostRecentSession(outputDir) {
-  const sessions = await listSessions(outputDir);
-  return sessions[0] || null;
+  const sessions2 = await listSessions(outputDir);
+  return sessions2[0] || null;
 }
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
@@ -1088,12 +1126,12 @@ function parseDuration(duration) {
 }
 async function cleanSessions(outputDir, options = {}) {
   const { olderThan, keepLast = 0, dryRun = false } = options;
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   const deleted = [];
   const kept = [];
-  const keepIds = new Set(sessions.slice(0, keepLast).map((s) => s.id));
+  const keepIds = new Set(sessions2.slice(0, keepLast).map((s) => s.id));
   const cutoffTime = olderThan ? Date.now() - parseDuration(olderThan) : 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const shouldDelete = !keepIds.has(session.id) && (olderThan ? sessionTime < cutoffTime : true);
     if (shouldDelete && !keepIds.has(session.id)) {
@@ -1151,8 +1189,8 @@ async function findSessions(outputDir, query = {}) {
   return filtered.slice(0, validatedQuery.limit);
 }
 async function getTimeline(outputDir, route, limit = 10) {
-  const sessions = await findSessions(outputDir, { route, limit });
-  return sessions.reverse();
+  const sessions2 = await findSessions(outputDir, { route, limit });
+  return sessions2.reverse();
 }
 async function getSessionsByRoute(outputDir) {
   const allSessions = await listSessions(outputDir);
@@ -1172,11 +1210,11 @@ async function getSessionsByRoute(outputDir) {
   return byRoute;
 }
 async function getSessionStats(outputDir) {
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   const byStatus = {};
   const byViewport = {};
   const byVerdict = {};
-  for (const session of sessions) {
+  for (const session of sessions2) {
     byStatus[session.status] = (byStatus[session.status] || 0) + 1;
     const viewportName = session.viewport.name;
     byViewport[viewportName] = (byViewport[viewportName] || 0) + 1;
@@ -1185,7 +1223,7 @@ async function getSessionStats(outputDir) {
     }
   }
   return {
-    total: sessions.length,
+    total: sessions2.length,
     byStatus,
     byViewport,
     byVerdict
@@ -1757,6 +1795,840 @@ var init_simulator = __esm({
   }
 });
 
+// src/native/role-map.ts
+function mapRoleToTag(role) {
+  return TAG_MAP[role] || role.replace(/^AX/, "").toLowerCase();
+}
+function mapRoleToAriaRole(role) {
+  return ARIA_MAP[role] || null;
+}
+function isInteractiveRole(role) {
+  return INTERACTIVE_ROLES.has(role);
+}
+var TAG_MAP, ARIA_MAP, INTERACTIVE_ROLES;
+var init_role_map = __esm({
+  "src/native/role-map.ts"() {
+    "use strict";
+    TAG_MAP = {
+      "AXButton": "button",
+      "AXLink": "a",
+      "AXTextField": "input",
+      "AXTextArea": "textarea",
+      "AXSecureTextField": "input",
+      "AXStaticText": "span",
+      "AXImage": "img",
+      "AXGroup": "div",
+      "AXSplitGroup": "div",
+      "AXList": "ul",
+      "AXCell": "li",
+      "AXTable": "table",
+      "AXScrollArea": "div",
+      "AXToolbar": "nav",
+      "AXMenuBar": "nav",
+      "AXMenu": "nav",
+      "AXMenuItem": "li",
+      "AXCheckBox": "input",
+      "AXRadioButton": "input",
+      "AXSlider": "input",
+      "AXSwitch": "input",
+      "AXPopUpButton": "select",
+      "AXComboBox": "select",
+      "AXTabGroup": "div",
+      "AXTab": "button",
+      "AXNavigationBar": "nav",
+      "AXHeader": "header",
+      "AXWindow": "main"
+    };
+    ARIA_MAP = {
+      "AXButton": "button",
+      "AXLink": "link",
+      "AXTextField": "textbox",
+      "AXTextArea": "textbox",
+      "AXSecureTextField": "textbox",
+      "AXStaticText": "text",
+      "AXImage": "img",
+      "AXGroup": "group",
+      "AXList": "list",
+      "AXCell": "listitem",
+      "AXTable": "table",
+      "AXCheckBox": "checkbox",
+      "AXRadioButton": "radio",
+      "AXSlider": "slider",
+      "AXSwitch": "switch",
+      "AXTab": "tab",
+      "AXTabGroup": "tablist",
+      "AXNavigationBar": "navigation",
+      "AXToolbar": "toolbar",
+      "AXMenuItem": "menuitem",
+      "AXMenu": "menu",
+      "AXScrollArea": "scrollbar",
+      "AXWindow": "main"
+    };
+    INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+      "AXButton",
+      "AXLink",
+      "AXTextField",
+      "AXTextArea",
+      "AXSecureTextField",
+      "AXCheckBox",
+      "AXRadioButton",
+      "AXSlider",
+      "AXSwitch",
+      "AXPopUpButton",
+      "AXComboBox",
+      "AXMenuItem",
+      "AXTab"
+    ]);
+  }
+});
+
+// src/native/extract.ts
+var extract_exports = {};
+__export(extract_exports, {
+  ensureExtractor: () => ensureExtractor,
+  extractNativeElements: () => extractNativeElements,
+  isExtractorAvailable: () => isExtractorAvailable,
+  mapToEnhancedElements: () => mapToEnhancedElements
+});
+async function ensureExtractor() {
+  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) {
+    return EXTRACTOR_PATH;
+  }
+  await (0, import_promises10.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  try {
+    await execFileAsync3("swift", ["build", "-c", "release"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+      // 2 minutes for first compile
+    });
+    const buildPath = (0, import_path9.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    if (!(0, import_fs2.existsSync)(buildPath)) {
+      throw new Error("Swift build succeeded but binary not found at expected path");
+    }
+    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
+    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
+    return EXTRACTOR_PATH;
+  } catch (err) {
+    throw new Error(
+      `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
+    );
+  }
+}
+function isExtractorAvailable() {
+  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs2.existsSync)((0, import_path9.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+}
+async function extractNativeElements(device) {
+  const extractorPath = await ensureExtractor();
+  try {
+    const { stdout } = await execFileAsync3(extractorPath, [
+      "--device-name",
+      device.name
+    ], {
+      timeout: 3e4
+    });
+    const elements = JSON.parse(stdout);
+    return elements;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    if (message.includes("permission") || message.includes("accessibility")) {
+      throw new Error(
+        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
+      );
+    }
+    throw new Error(`Element extraction failed: ${message}`);
+  }
+}
+function mapToEnhancedElements(nativeElements) {
+  const enhanced = [];
+  function flatten(elements, depth = 0) {
+    for (const el of elements) {
+      const tagName = mapRoleToTag(el.role);
+      const isInteractive = isInteractiveRole(el.role) && el.isEnabled;
+      enhanced.push({
+        selector: el.identifier || `[role="${el.role}"][label="${el.label}"]`,
+        tagName,
+        text: el.label || void 0,
+        bounds: {
+          x: el.frame.x,
+          y: el.frame.y,
+          width: el.frame.width,
+          height: el.frame.height
+        },
+        interactive: {
+          hasOnClick: isInteractive,
+          hasHref: false,
+          isDisabled: !el.isEnabled,
+          tabIndex: isInteractive ? 0 : -1,
+          cursor: isInteractive ? "pointer" : "default"
+        },
+        a11y: {
+          role: mapRoleToAriaRole(el.role),
+          ariaLabel: el.label || null,
+          ariaDescribedBy: null
+        }
+      });
+      if (el.children.length > 0) {
+        flatten(el.children, depth + 1);
+      }
+    }
+  }
+  flatten(nativeElements);
+  return enhanced;
+}
+var import_child_process4, import_util3, import_fs2, import_promises10, import_path9, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var init_extract = __esm({
+  "src/native/extract.ts"() {
+    "use strict";
+    import_child_process4 = require("child_process");
+    import_util3 = require("util");
+    import_fs2 = require("fs");
+    import_promises10 = require("fs/promises");
+    import_path9 = require("path");
+    init_role_map();
+    execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
+    EXTRACTOR_DIR = (0, import_path9.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path9.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = (0, import_path9.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+  }
+});
+
+// src/engine/safari/webdriver.ts
+var WebDriverClient;
+var init_webdriver = __esm({
+  "src/engine/safari/webdriver.ts"() {
+    "use strict";
+    WebDriverClient = class {
+      baseUrl;
+      sessionId = null;
+      constructor(port) {
+        this.baseUrl = `http://localhost:${port}`;
+      }
+      // ─── Internal HTTP helpers ───────────────────────────────
+      async post(path, body) {
+        const res = await fetch(`${this.baseUrl}${path}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "(no body)");
+          throw new Error(`WebDriver POST ${path} failed: HTTP ${res.status} \u2014 ${text}`);
+        }
+        const json = await res.json();
+        return json.value;
+      }
+      async get(path) {
+        const res = await fetch(`${this.baseUrl}${path}`);
+        if (!res.ok) {
+          const text = await res.text().catch(() => "(no body)");
+          throw new Error(`WebDriver GET ${path} failed: HTTP ${res.status} \u2014 ${text}`);
+        }
+        const json = await res.json();
+        return json.value;
+      }
+      async delete(path) {
+        const res = await fetch(`${this.baseUrl}${path}`, { method: "DELETE" });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "(no body)");
+          throw new Error(`WebDriver DELETE ${path} failed: HTTP ${res.status} \u2014 ${text}`);
+        }
+        const json = await res.json();
+        return json.value;
+      }
+      session(path = "") {
+        if (!this.sessionId) throw new Error("No active WebDriver session");
+        return `/session/${this.sessionId}${path}`;
+      }
+      // ─── Session management ──────────────────────────────────
+      /**
+       * Create a new WebDriver session.
+       * Returns the session ID.
+       */
+      async createSession(capabilities = {}) {
+        const body = {
+          capabilities: {
+            alwaysMatch: {
+              browserName: "safari",
+              ...capabilities
+            }
+          }
+        };
+        const value = await this.post("/session", body);
+        if (typeof value === "string") {
+          this.sessionId = value;
+        } else if (value && typeof value === "object" && "sessionId" in value) {
+          this.sessionId = value.sessionId;
+        } else {
+          throw new Error(`Unexpected createSession response: ${JSON.stringify(value)}`);
+        }
+        return this.sessionId;
+      }
+      /** Delete the current WebDriver session. */
+      async deleteSession() {
+        if (!this.sessionId) return;
+        await this.delete(this.session()).catch(() => {
+        });
+        this.sessionId = null;
+      }
+      get activeSessionId() {
+        return this.sessionId;
+      }
+      // ─── Navigation ──────────────────────────────────────────
+      async navigateTo(url) {
+        await this.post(this.session("/url"), { url });
+      }
+      async getCurrentUrl() {
+        return this.get(this.session("/url"));
+      }
+      // ─── Screenshots ─────────────────────────────────────────
+      /**
+       * Take a full-page screenshot.
+       * Returns a PNG buffer decoded from the base64 response.
+       */
+      async takeScreenshot() {
+        const b64 = await this.get(this.session("/screenshot"));
+        return Buffer.from(b64, "base64");
+      }
+      // ─── Element interaction ─────────────────────────────────
+      /**
+       * Find a single element using the given strategy and value.
+       * Returns the WebDriver element ID string.
+       */
+      async findElement(strategy, value) {
+        const result = await this.post(
+          this.session("/element"),
+          { using: strategy, value }
+        );
+        const W3C_KEY = "element-6066-11e4-a52e-4f735466cecf";
+        const elementId = result[W3C_KEY] ?? result["ELEMENT"];
+        if (!elementId) {
+          throw new Error(`findElement: no element ID in response: ${JSON.stringify(result)}`);
+        }
+        return elementId;
+      }
+      async clickElement(elementId) {
+        await this.post(this.session(`/element/${elementId}/click`), {});
+      }
+      async sendKeys(elementId, text) {
+        await this.post(this.session(`/element/${elementId}/value`), { text });
+      }
+      async clearElement(elementId) {
+        await this.post(this.session(`/element/${elementId}/clear`), {});
+      }
+      async getElementRect(elementId) {
+        return this.get(this.session(`/element/${elementId}/rect`));
+      }
+      async getElementText(elementId) {
+        return this.get(this.session(`/element/${elementId}/text`));
+      }
+      // ─── JavaScript execution ────────────────────────────────
+      async executeScript(script, args = []) {
+        return this.post(this.session("/execute/sync"), { script, args });
+      }
+      // ─── Window management ───────────────────────────────────
+      async setWindowRect(rect) {
+        await this.post(this.session("/window/rect"), rect);
+      }
+      // ─── Health check ────────────────────────────────────────
+      async status() {
+        try {
+          await this.get("/status");
+          return true;
+        } catch {
+          return false;
+        }
+      }
+    };
+  }
+});
+
+// src/engine/safari/session.ts
+var import_child_process8, import_util7, execFileAsync7, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var init_session2 = __esm({
+  "src/engine/safari/session.ts"() {
+    "use strict";
+    import_child_process8 = require("child_process");
+    import_util7 = require("util");
+    execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
+    PORT_RANGE_START = 9500;
+    PORT_RANGE_END = 9599;
+    READY_POLL_INTERVAL_MS = 200;
+    READY_TIMEOUT_MS = 15e3;
+    SafariSession = class {
+      process = null;
+      port = PORT_RANGE_START;
+      // ─── Start ──────────────────────────────────────────────
+      /**
+       * Start safaridriver on the given port (or auto-find a free one).
+       * Returns the port it's listening on.
+       */
+      async start(port) {
+        if (this.process) {
+          return this.port;
+        }
+        this.port = port ?? await this.findFreePort();
+        this.process = (0, import_child_process8.spawn)("safaridriver", ["--port", String(this.port)], {
+          stdio: ["ignore", "pipe", "pipe"]
+        });
+        this.process.on("exit", (code) => {
+          if (code !== null && code !== 0) {
+            console.error(`[SafariSession] safaridriver exited with code ${code}`);
+          }
+          this.process = null;
+        });
+        await this.waitUntilReady();
+        return this.port;
+      }
+      // ─── Stop ───────────────────────────────────────────────
+      async stop() {
+        if (!this.process) return;
+        this.process.kill("SIGTERM");
+        await new Promise((resolve3) => {
+          const timeout = setTimeout(() => {
+            this.process?.kill("SIGKILL");
+            resolve3();
+          }, 2e3);
+          this.process.once("exit", () => {
+            clearTimeout(timeout);
+            resolve3();
+          });
+        });
+        this.process = null;
+      }
+      isRunning() {
+        return this.process !== null && !this.process.killed;
+      }
+      // ─── Static: capability check ────────────────────────────
+      /**
+       * Returns true if safaridriver is enabled (one-time sudo setup was done).
+       * Tests by trying to get safaridriver version — fails if not enabled.
+       */
+      static async isEnabled() {
+        try {
+          await execFileAsync7("safaridriver", ["--version"], { timeout: 5e3 });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      // ─── Internals ───────────────────────────────────────────
+      async waitUntilReady() {
+        const deadline = Date.now() + READY_TIMEOUT_MS;
+        const url = `http://localhost:${this.port}/status`;
+        while (Date.now() < deadline) {
+          try {
+            const res = await fetch(url);
+            if (res.ok) return;
+          } catch {
+          }
+          await new Promise((r) => setTimeout(r, READY_POLL_INTERVAL_MS));
+        }
+        throw new Error(
+          `safaridriver did not become ready on port ${this.port} within ${READY_TIMEOUT_MS}ms. Ensure "sudo safaridriver --enable" has been run.`
+        );
+      }
+      async findFreePort() {
+        const { createServer } = await import("net");
+        for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
+          const available = await new Promise((resolve3) => {
+            const server = createServer();
+            server.once("error", () => resolve3(false));
+            server.once("listening", () => {
+              server.close();
+              resolve3(true);
+            });
+            server.listen(p, "127.0.0.1");
+          });
+          if (available) return p;
+        }
+        throw new Error(
+          `No free port found in range ${PORT_RANGE_START}-${PORT_RANGE_END} for safaridriver`
+        );
+      }
+    };
+  }
+});
+
+// src/engine/safari/driver.ts
+var driver_exports = {};
+__export(driver_exports, {
+  SafariDriver: () => SafariDriver
+});
+var import_child_process9, import_util8, execFileAsync8, SafariDriver;
+var init_driver = __esm({
+  "src/engine/safari/driver.ts"() {
+    "use strict";
+    import_child_process9 = require("child_process");
+    import_util8 = require("util");
+    init_webdriver();
+    init_session2();
+    init_extract();
+    init_serialize();
+    execFileAsync8 = (0, import_util8.promisify)(import_child_process9.execFile);
+    SafariDriver = class {
+      client = null;
+      session = null;
+      _currentUrl = "";
+      _axElements = [];
+      // ─── Lifecycle ──────────────────────────────────────────
+      async launch(options = {}) {
+        this.session = new SafariSession();
+        const port = await this.session.start();
+        this.client = new WebDriverClient(port);
+        await this.client.createSession();
+        const vp = options.viewport ?? { width: 1920, height: 1080 };
+        await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
+        (0, import_child_process9.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        });
+      }
+      async close() {
+        if (this.client) {
+          await this.client.deleteSession().catch(() => {
+          });
+          this.client = null;
+        }
+        if (this.session) {
+          await this.session.stop();
+          this.session = null;
+        }
+        this._currentUrl = "";
+        this._axElements = [];
+      }
+      // ─── Navigation ─────────────────────────────────────────
+      async navigate(url, options = {}) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this.client.navigateTo(url);
+        const strategy = options.waitFor ?? "load";
+        const timeout = options.timeout ?? 1e4;
+        if (strategy !== "none") {
+          const deadline = Date.now() + timeout;
+          while (Date.now() < deadline) {
+            try {
+              const state = await this.client.executeScript(
+                "return document.readyState"
+              );
+              if (state === "complete") break;
+            } catch {
+            }
+            await new Promise((r) => setTimeout(r, 200));
+          }
+          if (strategy === "stable") {
+            await new Promise((r) => setTimeout(r, 500));
+          }
+        }
+        this._currentUrl = await this.client.getCurrentUrl().catch(() => url);
+        this._axElements = await this._fetchAXElements().catch(() => []);
+      }
+      get currentUrl() {
+        return this._currentUrl;
+      }
+      // ─── Screenshots ─────────────────────────────────────────
+      async screenshot(options) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        const buf = await this.client.takeScreenshot();
+        if (options?.clip) {
+          return this._cropScreenshot(buf, options.clip);
+        }
+        return buf;
+      }
+      // ─── Element discovery ───────────────────────────────────
+      /**
+       * Discover elements via macOS AX API.
+       * Falls back to WebDriver JS query if AX extraction unavailable.
+       */
+      async discover(options = {}) {
+        const filter = options.filter ?? "interactive";
+        this._axElements = await this._fetchAXElements();
+        let filtered;
+        switch (filter) {
+          case "interactive":
+            filtered = this._axElements.filter((e) => e.actions.length > 0);
+            break;
+          case "leaf":
+            filtered = this._axElements.filter((e) => e.label && e.role !== "group");
+            break;
+          case "all":
+          default:
+            filtered = this._axElements;
+        }
+        if (options.serialize) {
+          const snap = {
+            url: this._currentUrl,
+            platform: "web",
+            elements: filtered,
+            timestamp: Date.now()
+          };
+          return serializeSnapshot(snap);
+        }
+        return filtered;
+      }
+      /**
+       * Find an element by name + optional role in the AX tree.
+       */
+      async find(name, options = {}) {
+        if (this._axElements.length === 0) {
+          this._axElements = await this._fetchAXElements().catch(() => []);
+        }
+        const nameLower = name.toLowerCase();
+        const match = this._axElements.find((e) => {
+          const nameMatch = e.label?.toLowerCase().includes(nameLower) || e.value?.toString().toLowerCase().includes(nameLower);
+          const roleMatch = !options.role || e.role === options.role;
+          return nameMatch && roleMatch;
+        });
+        return match ?? null;
+      }
+      // ─── Interactions ────────────────────────────────────────
+      /**
+       * Click an element. The elementId is either:
+       * - An AX element ID (from discover/find) — resolved via JS querySelector by label
+       * - A CSS selector passed directly
+       */
+      async click(elementId) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "click");
+      }
+      async type(elementId, text) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "focus");
+        await this.client.executeScript(
+          `(function(text) {
+        const el = document.activeElement;
+        if (el) {
+          el.value = (el.value || '') + text;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })(arguments[0])`,
+          [text]
+        );
+      }
+      async fill(elementId, value) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "focus");
+        await this.client.executeScript(
+          `(function(value) {
+        const el = document.activeElement;
+        if (el) {
+          el.value = value;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      })(arguments[0])`,
+          [value]
+        );
+      }
+      async hover(elementId) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this._executeElementAction(elementId, "mouseover");
+      }
+      async pressKey(key) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        try {
+          const activeElId = await this.client.executeScript(
+            `return document.activeElement ? document.activeElement.tagName : ''`
+          );
+          if (activeElId) {
+            await this.client.executeScript(
+              `(function(key) {
+            document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: key, bubbles: true }));
+            document.activeElement.dispatchEvent(new KeyboardEvent('keyup', { key: key, bubbles: true }));
+          })(arguments[0])`,
+              [key]
+            );
+          }
+        } catch {
+        }
+      }
+      async scroll(deltaY, _x = 0, _y = 0) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        await this.client.executeScript(
+          `window.scrollBy(0, arguments[0])`,
+          [deltaY]
+        );
+      }
+      // ─── Evaluation ─────────────────────────────────────────
+      async evaluate(expression) {
+        if (!this.client) throw new Error("SafariDriver not launched");
+        return this.client.executeScript(`return (${expression})`);
+      }
+      // ─── Internals ───────────────────────────────────────────
+      /**
+       * Fetch the AX element tree for the running Safari window.
+       * Uses the Swift ibr-ax-extract binary with Safari's PID.
+       */
+      async _fetchAXElements() {
+        try {
+          const extractorPath = await ensureExtractor();
+          const { stdout } = await execFileAsync8(
+            extractorPath,
+            ["--app", "Safari"],
+            { timeout: 15e3 }
+          );
+          const lines = stdout.split("\n");
+          const jsonStr = lines.slice(1).join("\n").trim();
+          if (!jsonStr) return [];
+          const raw = JSON.parse(jsonStr);
+          return this._mapAXToElements(raw);
+        } catch {
+          return [];
+        }
+      }
+      /**
+       * Map raw macOS AX JSON output to IBR Element format.
+       */
+      _mapAXToElements(rawElements, parentId = null) {
+        const elements = [];
+        let idx = 0;
+        for (const raw of rawElements) {
+          const id = `safari-ax-${parentId ? parentId + "-" : ""}${idx++}`;
+          const role = this._mapAXRole(raw.role ?? "AXUnknown");
+          const label = raw.title ?? raw.description ?? raw.value ?? "";
+          const actions = (raw.actions ?? []).map(
+            (a) => a.replace(/^AX/, "").toLowerCase()
+          );
+          elements.push({
+            id,
+            role,
+            label,
+            value: raw.value ?? null,
+            enabled: raw.enabled ?? true,
+            focused: raw.focused ?? false,
+            actions,
+            bounds: [
+              raw.position?.x ?? 0,
+              raw.position?.y ?? 0,
+              raw.size?.width ?? 0,
+              raw.size?.height ?? 0
+            ],
+            parent: parentId
+          });
+          if (raw.children && raw.children.length > 0) {
+            const children = this._mapAXToElements(raw.children, id);
+            elements.push(...children);
+          }
+        }
+        return elements;
+      }
+      /** Map macOS AX role names to ARIA-style roles */
+      _mapAXRole(axRole) {
+        const map = {
+          AXButton: "button",
+          AXLink: "link",
+          AXTextField: "textbox",
+          AXTextArea: "textbox",
+          AXCheckBox: "checkbox",
+          AXRadioButton: "radio",
+          AXComboBox: "combobox",
+          AXPopUpButton: "combobox",
+          AXSlider: "slider",
+          AXImage: "img",
+          AXStaticText: "text",
+          AXHeading: "heading",
+          AXList: "list",
+          AXListItem: "listitem",
+          AXTable: "table",
+          AXRow: "row",
+          AXCell: "cell",
+          AXGroup: "group",
+          AXScrollArea: "scrollbar",
+          AXWebArea: "main",
+          AXWindow: "dialog",
+          AXMenuBar: "menubar",
+          AXMenu: "menu",
+          AXMenuItem: "menuitem",
+          AXToolbar: "toolbar"
+        };
+        return map[axRole] ?? axRole.replace(/^AX/, "").toLowerCase();
+      }
+      /**
+       * Execute a DOM action on an element.
+       * Resolution order:
+       *   1. CSS selector (if elementId looks like one: starts with . # [ or is a tag)
+       *   2. ARIA label match via querySelector [aria-label="..."]
+       *   3. Text content match via TreeWalker
+       */
+      async _executeElementAction(elementId, action) {
+        const script = `
+      (function(eid, action) {
+        let el = null;
+
+        // Strategy 1: treat as CSS selector
+        const looksLikeCss = /^[.#\\[a-zA-Z]/.test(eid);
+        if (looksLikeCss) {
+          try { el = document.querySelector(eid); } catch(e) {}
+        }
+
+        // Strategy 2: aria-label match (use CSS.escape to prevent selector injection)
+        if (!el) {
+          try { el = document.querySelector('[aria-label="' + CSS.escape(eid) + '"]'); } catch(e) {}
+        }
+
+        // Strategy 3: button/link text content
+        if (!el) {
+          const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_ELEMENT,
+            null
+          );
+          let node;
+          while ((node = walker.nextNode())) {
+            if (node.textContent && node.textContent.trim() === eid) {
+              if (['BUTTON','A','INPUT','SELECT','TEXTAREA'].includes(node.tagName)) {
+                el = node;
+                break;
+              }
+            }
+          }
+        }
+
+        if (!el) return false;
+
+        if (action === 'click') {
+          el.click();
+        } else if (action === 'focus') {
+          el.focus();
+        } else if (action === 'mouseover') {
+          el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+          el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+        }
+
+        return true;
+      })(arguments[0], arguments[1])
+    `;
+        const found = await this.client.executeScript(script, [elementId, action]);
+        if (!found) {
+          throw new Error(`SafariDriver: element not found for action "${action}": ${elementId}`);
+        }
+      }
+      /**
+       * Crop a PNG buffer to a clip region using pngjs.
+       * Gracefully returns the full buffer if pngjs unavailable or clip fails.
+       */
+      async _cropScreenshot(buf, clip) {
+        try {
+          const { PNG: PNG4 } = await import("pngjs");
+          const src = PNG4.sync.read(buf);
+          const dst = new PNG4({ width: clip.width, height: clip.height });
+          for (let y = 0; y < clip.height; y++) {
+            for (let x = 0; x < clip.width; x++) {
+              const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
+              const dstIdx = (y * clip.width + x) * 4;
+              dst.data[dstIdx] = src.data[srcIdx];
+              dst.data[dstIdx + 1] = src.data[srcIdx + 1];
+              dst.data[dstIdx + 2] = src.data[srcIdx + 2];
+              dst.data[dstIdx + 3] = src.data[srcIdx + 3];
+            }
+          }
+          return PNG4.sync.write(dst);
+        } catch {
+          return buf;
+        }
+      }
+    };
+  }
+});
+
 // src/static/parser.ts
 function parseStaticHTML(html) {
   const elements = [];
@@ -2235,7 +3107,13 @@ var BrowserManager = class {
   async launch(options = {}) {
     const headless = options.headless ?? true;
     this._port = options.port ?? randomPort();
-    const userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+    let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+    if (!options.userDataDir) {
+      const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
+      if ((0, import_node_fs.existsSync)(lockPath)) {
+        userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+      }
+    }
     const chromePath = options.chromePath ?? findChrome();
     if (!chromePath) {
       throw new Error(
@@ -3258,41 +4136,10 @@ async function waitForStable(conn, getSnapshot, options) {
 // src/engine/driver.ts
 var import_pixelmatch = __toESM(require("pixelmatch"));
 var import_pngjs = require("pngjs");
-
-// src/engine/serialize.ts
-function serializeSnapshot(snapshot) {
-  const target = snapshot.url ?? snapshot.appName ?? "unknown";
-  const lines = [
-    `# Page: ${target}`,
-    `# Platform: ${snapshot.platform} | Elements: ${snapshot.elements.length}`,
-    ""
-  ];
-  for (const el of snapshot.elements) {
-    lines.push(serializeElement(el));
-  }
-  return lines.join("\n");
-}
-function serializeElement(el) {
-  let line = `[${el.id}] ${el.role} "${el.label}"`;
-  const props = [];
-  if (el.role === "textfield") {
-    if (el.value !== null && el.value !== "") {
-      props.push(`value="${el.value}"`);
-    } else {
-      props.push("empty");
-    }
-  } else if (el.value !== null && el.value !== "") {
-    props.push(`value="${el.value}"`);
-  }
-  if (el.focused) props.push("focused");
-  if (el.role === "button") {
-    props.push(el.enabled ? "enabled" : "disabled");
-  }
-  if (props.length > 0) line += " " + props.join(", ");
-  return line;
-}
+init_serialize();
 
 // src/engine/observe.ts
+init_serialize();
 function observe(elements, options = {}) {
   let filtered = elements.filter((e) => e.actions.length > 0);
   if (options.role) {
@@ -3745,15 +4592,37 @@ var EngineDriver = class {
   }
   /**
    * 3-tier element resolution with auto-caching:
-   * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
+   * Tier 1: Check cache → Tier 2: queryAXTree → Tier 3: Jaro-Winkler → Tier 4: vision fallback.
+   * Delegates to findWithDiagnostics() and returns the matched element or null.
    */
   async find(name, options = {}) {
+    const diag = await this.findWithDiagnostics(name, options);
+    if (!diag.elementId) return null;
+    const elements = await this.ax.getSnapshot();
+    return elements.find((e) => e.id === diag.elementId) ?? null;
+  }
+  /**
+   * Like find(), but returns rich diagnostics for agent error feedback.
+   * Includes confidence, resolution tier, and fuzzy alternatives when not found.
+   */
+  async findWithDiagnostics(name, options = {}) {
+    const { jaroWinkler: jaroWinkler2 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
     const cacheKey = options.role ? `${name}:${options.role}` : name;
     const cached = this.resolutionCache.get(cacheKey);
     if (cached) {
       const elements = await this.ax.getSnapshot();
       const match = elements.find((e) => e.id === cached.elementId);
-      if (match) return match;
+      if (match) {
+        const interactive2 = elements.filter((e) => e.actions.length > 0);
+        return {
+          elementId: cached.elementId,
+          confidence: cached.confidence,
+          tier: 1,
+          tierName: "cache",
+          alternatives: [],
+          totalInteractive: interactive2.length
+        };
+      }
       this.resolutionCache.invalidate(cacheKey);
     }
     const queryResult = await this.ax.queryAXTree({
@@ -3767,10 +4636,20 @@ var EngineDriver = class {
         label: el.label,
         confidence: 1
       });
-      return el;
+      const allElements2 = await this.ax.getSnapshot();
+      const interactive2 = allElements2.filter((e) => e.actions.length > 0);
+      return {
+        elementId: el.id,
+        confidence: 0.95,
+        tier: 2,
+        tierName: "queryAXTree",
+        alternatives: [],
+        totalInteractive: interactive2.length
+      };
     }
     const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
     const allElements = await this.ax.getSnapshot();
+    const interactive = allElements.filter((e) => e.actions.length > 0);
     const result = resolve3({
       intent: options.role ? `${name} ${options.role}` : name,
       elements: allElements,
@@ -3782,9 +4661,36 @@ var EngineDriver = class {
         label: result.element.label,
         confidence: result.confidence
       });
-      return result.element;
+      return {
+        elementId: result.element.id,
+        confidence: result.confidence,
+        tier: 3,
+        tierName: "jaro-winkler",
+        alternatives: [],
+        totalInteractive: interactive.length
+      };
     }
-    return null;
+    const nameLower = name.toLowerCase();
+    const scored = interactive.filter((e) => e.label).map((e) => ({
+      name: e.label,
+      role: e.role,
+      score: jaroWinkler2(nameLower, e.label.toLowerCase())
+    })).sort((a, b) => b.score - a.score).slice(0, 5);
+    let screenshot;
+    try {
+      const buf = await this.screenshot();
+      screenshot = buf.toString("base64");
+    } catch {
+    }
+    return {
+      elementId: null,
+      confidence: 0,
+      tier: 4,
+      tierName: "vision",
+      alternatives: scored,
+      totalInteractive: interactive.length,
+      screenshot
+    };
   }
   // ─── Interactions ───────────────────────────────────────
   async click(elementId) {
@@ -5029,6 +5935,39 @@ async function detectAuthState(page) {
       '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
     );
     const hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
+    const socialProviderPatterns = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const socialProviders = [];
+    const socialElements = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialElements) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderPatterns) {
+        if (!socialProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const isTriggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || t === `sign in with ${provider}` || t === `continue with ${provider}` || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (isTriggered) socialProviders.push(provider);
+          }
+        }
+      }
+    }
+    const forgotPasswordPatterns = ["forgot", "reset password", "can't sign in", "trouble signing in", "lost password"];
+    const forgotEl = findByText(["a", "button"], forgotPasswordPatterns) || doc.querySelector('[href*="forgot"], [href*="reset-password"], [href*="password-reset"]');
+    const toggleEl = doc.querySelector(
+      '[aria-label*="show password" i], [aria-label*="hide password" i], [aria-label*="toggle password" i], [class*="eye"], [class*="visibility"], [class*="toggle-password"]'
+    );
+    let hasPasswordToggle = !!toggleEl;
+    if (!hasPasswordToggle) {
+      const passwordInput = doc.querySelector('input[type="password"]');
+      if (passwordInput) {
+        const parent = passwordInput.parentElement;
+        const sibling = passwordInput.nextElementSibling;
+        if (parent?.querySelector("button")) hasPasswordToggle = true;
+        if (sibling?.tagName === "BUTTON") hasPasswordToggle = true;
+      }
+    }
     return {
       hasLogoutButton: !!logoutButton,
       hasUserMenu: !!userMenu,
@@ -5039,7 +5978,10 @@ async function detectAuthState(page) {
       hasLoginLink: !!loginLink,
       hasSignupLink: !!signupLink,
       hasAuthRequired: !!authRequired,
-      hasAuthCookie
+      hasAuthCookie,
+      socialLoginProviders: socialProviders,
+      hasForgotPassword: !!forgotEl,
+      hasPasswordToggle
     };
   });
   if (checks.hasLogoutButton) {
@@ -5083,6 +6025,15 @@ async function detectAuthState(page) {
     confidence += 25;
     signals.push("auth-required message");
   }
+  if (checks.socialLoginProviders.length > 0) {
+    signals.push(`social login: ${checks.socialLoginProviders.join(", ")}`);
+  }
+  if (checks.hasForgotPassword) {
+    signals.push("forgot password link present");
+  }
+  if (checks.hasPasswordToggle) {
+    signals.push("password visibility toggle present");
+  }
   confidence = Math.min(confidence / 100, 1);
   if (confidence < 0.3) {
     authenticated = null;
@@ -5091,7 +6042,11 @@ async function detectAuthState(page) {
     authenticated,
     confidence,
     signals,
-    username
+    username,
+    socialLoginProviders: checks.socialLoginProviders,
+    hasForgotPassword: checks.hasForgotPassword,
+    hasSignupLink: checks.hasSignupLink,
+    hasPasswordToggle: checks.hasPasswordToggle
   };
 }
 async function detectLoadingState(page) {
@@ -5250,7 +6205,7 @@ async function getSemanticOutput(page) {
     detectPageState(page)
   ]);
   const availableActions = await detectAvailableActions(page, pageIntent.intent);
-  const issues = collectIssues(state, pageIntent);
+  const issues = collectIssues(state, pageIntent, url);
   const verdict = determineVerdict(state, issues);
   const recovery = verdict === "FAIL" || verdict === "ERROR" ? generateRecoveryHint(state, pageIntent.intent) : void 0;
   const summary = generateSummary(pageIntent, state, verdict, issues.length);
@@ -5292,6 +6247,24 @@ async function detectAvailableActions(page, intent) {
     const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
     const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
     const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
+    const socialProviderNames = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const detectedProviders = [];
+    const socialEls = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialEls) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderNames) {
+        if (!detectedProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const triggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (triggered) detectedProviders.push(provider);
+          }
+        }
+      }
+    }
     return {
       hasSubmit: !!submitButton,
       submitSelector: submitButton ? getSelector(submitButton) : null,
@@ -5306,7 +6279,9 @@ async function detectAvailableActions(page, intent) {
       hasDelete: !!deleteButton,
       hasFilter: !!filterSelect,
       hasSort: !!sortSelect,
-      hasPagination: !!pagination
+      hasPagination: !!pagination,
+      hasSocialLogin: detectedProviders.length > 0,
+      socialProviders: detectedProviders
     };
     function getSelector(el) {
       if (el.id) return `#${el.id}`;
@@ -5321,6 +6296,15 @@ async function detectAvailableActions(page, intent) {
       selector: "form",
       description: "Submit login credentials"
     });
+  }
+  if (intent === "auth" && checks.hasSocialLogin) {
+    for (const provider of checks.socialProviders) {
+      actions.push({
+        action: `login-with-${provider}`,
+        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
+      });
+    }
   }
   if (checks.hasSearch) {
     actions.push({
@@ -5371,7 +6355,7 @@ async function detectAvailableActions(page, intent) {
   }
   return actions;
 }
-function collectIssues(state, intent) {
+function collectIssues(state, intent, url = "") {
   const issues = [];
   for (const error of state.errors.errors) {
     issues.push({
@@ -5396,6 +6380,45 @@ function collectIssues(state, intent) {
       problem: "Dashboard requires authentication",
       fix: "Login first before accessing this page"
     });
+  }
+  if (intent.intent === "auth") {
+    const socialProviders = state.auth.socialLoginProviders ?? [];
+    if (socialProviders.length === 0) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-social-login",
+        problem: "Auth page has no social login options (Google, GitHub, etc.)",
+        fix: "Add OAuth/social login buttons to reduce friction"
+      });
+    }
+    const signals = state.auth.signals;
+    const hasSignupLinkSignal = signals.includes("signup link visible") || (state.auth.hasSignupLink ?? false);
+    const hasLoginLinkSignal = signals.includes("login link visible");
+    const urlPath = (() => {
+      try {
+        return new URL(url).pathname.toLowerCase();
+      } catch {
+        return url.toLowerCase();
+      }
+    })();
+    const isSignUp = hasLoginLinkSignal || urlPath.includes("sign-up") || urlPath.includes("signup") || urlPath.includes("register");
+    const isSignIn = hasSignupLinkSignal || urlPath.includes("sign-in") || urlPath.includes("signin") || urlPath.includes("login");
+    if (!state.auth.hasForgotPassword && (isSignIn || !isSignIn && !isSignUp)) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-forgot-password",
+        problem: "Sign-in page has no forgot password option",
+        fix: 'Add a "Forgot your password?" link'
+      });
+    }
+    if (!state.auth.hasPasswordToggle) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-password-toggle",
+        problem: "Password field has no show/hide toggle",
+        fix: "Add a visibility toggle for the password field"
+      });
+    }
   }
   return issues;
 }
@@ -6569,23 +7592,23 @@ function isFailedSession(session) {
 async function enforceRetentionPolicy(outputDir, config) {
   const retentionConfig = config || await loadRetentionConfig(outputDir);
   if (!retentionConfig.maxSessions && !retentionConfig.maxAgeDays) {
-    const sessions2 = await listSessions(outputDir);
+    const sessions3 = await listSessions(outputDir);
     return {
       deleted: [],
-      kept: sessions2.map((s) => s.id),
+      kept: sessions3.map((s) => s.id),
       keptFailed: [],
-      totalBefore: sessions2.length,
-      totalAfter: sessions2.length
+      totalBefore: sessions3.length,
+      totalAfter: sessions3.length
     };
   }
-  const sessions = await listSessions(outputDir);
-  const totalBefore = sessions.length;
+  const sessions2 = await listSessions(outputDir);
+  const totalBefore = sessions2.length;
   const deleted = [];
   const kept = [];
   const keptFailed = [];
   const cutoffTime = retentionConfig.maxAgeDays ? Date.now() - retentionConfig.maxAgeDays * 24 * 60 * 60 * 1e3 : 0;
   let keptCount = 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const isTooOld = retentionConfig.maxAgeDays && sessionTime < cutoffTime;
     const isOverLimit = retentionConfig.maxSessions && keptCount >= retentionConfig.maxSessions;
@@ -6945,185 +7968,8 @@ async function captureNativeScreenshot(options) {
   }
 }
 
-// src/native/extract.ts
-var import_child_process4 = require("child_process");
-var import_util3 = require("util");
-var import_fs2 = require("fs");
-var import_promises10 = require("fs/promises");
-var import_path9 = require("path");
-
-// src/native/role-map.ts
-var TAG_MAP = {
-  "AXButton": "button",
-  "AXLink": "a",
-  "AXTextField": "input",
-  "AXTextArea": "textarea",
-  "AXSecureTextField": "input",
-  "AXStaticText": "span",
-  "AXImage": "img",
-  "AXGroup": "div",
-  "AXSplitGroup": "div",
-  "AXList": "ul",
-  "AXCell": "li",
-  "AXTable": "table",
-  "AXScrollArea": "div",
-  "AXToolbar": "nav",
-  "AXMenuBar": "nav",
-  "AXMenu": "nav",
-  "AXMenuItem": "li",
-  "AXCheckBox": "input",
-  "AXRadioButton": "input",
-  "AXSlider": "input",
-  "AXSwitch": "input",
-  "AXPopUpButton": "select",
-  "AXComboBox": "select",
-  "AXTabGroup": "div",
-  "AXTab": "button",
-  "AXNavigationBar": "nav",
-  "AXHeader": "header",
-  "AXWindow": "main"
-};
-var ARIA_MAP = {
-  "AXButton": "button",
-  "AXLink": "link",
-  "AXTextField": "textbox",
-  "AXTextArea": "textbox",
-  "AXSecureTextField": "textbox",
-  "AXStaticText": "text",
-  "AXImage": "img",
-  "AXGroup": "group",
-  "AXList": "list",
-  "AXCell": "listitem",
-  "AXTable": "table",
-  "AXCheckBox": "checkbox",
-  "AXRadioButton": "radio",
-  "AXSlider": "slider",
-  "AXSwitch": "switch",
-  "AXTab": "tab",
-  "AXTabGroup": "tablist",
-  "AXNavigationBar": "navigation",
-  "AXToolbar": "toolbar",
-  "AXMenuItem": "menuitem",
-  "AXMenu": "menu",
-  "AXScrollArea": "scrollbar",
-  "AXWindow": "main"
-};
-var INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
-  "AXButton",
-  "AXLink",
-  "AXTextField",
-  "AXTextArea",
-  "AXSecureTextField",
-  "AXCheckBox",
-  "AXRadioButton",
-  "AXSlider",
-  "AXSwitch",
-  "AXPopUpButton",
-  "AXComboBox",
-  "AXMenuItem",
-  "AXTab"
-]);
-function mapRoleToTag(role) {
-  return TAG_MAP[role] || role.replace(/^AX/, "").toLowerCase();
-}
-function mapRoleToAriaRole(role) {
-  return ARIA_MAP[role] || null;
-}
-function isInteractiveRole(role) {
-  return INTERACTIVE_ROLES.has(role);
-}
-
-// src/native/extract.ts
-var execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-var EXTRACTOR_DIR = (0, import_path9.join)(process.cwd(), ".ibr", "bin");
-var EXTRACTOR_PATH = (0, import_path9.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-var SWIFT_SOURCE_DIR = (0, import_path9.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
-async function ensureExtractor() {
-  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) {
-    return EXTRACTOR_PATH;
-  }
-  await (0, import_promises10.mkdir)(EXTRACTOR_DIR, { recursive: true });
-  try {
-    await execFileAsync3("swift", ["build", "-c", "release"], {
-      cwd: SWIFT_SOURCE_DIR,
-      timeout: 12e4
-      // 2 minutes for first compile
-    });
-    const buildPath = (0, import_path9.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs2.existsSync)(buildPath)) {
-      throw new Error("Swift build succeeded but binary not found at expected path");
-    }
-    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
-    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
-    return EXTRACTOR_PATH;
-  } catch (err) {
-    throw new Error(
-      `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
-    );
-  }
-}
-function isExtractorAvailable() {
-  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs2.existsSync)((0, import_path9.join)(SWIFT_SOURCE_DIR, "Package.swift"));
-}
-async function extractNativeElements(device) {
-  const extractorPath = await ensureExtractor();
-  try {
-    const { stdout } = await execFileAsync3(extractorPath, [
-      "--device-name",
-      device.name
-    ], {
-      timeout: 3e4
-    });
-    const elements = JSON.parse(stdout);
-    return elements;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("permission") || message.includes("accessibility")) {
-      throw new Error(
-        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
-      );
-    }
-    throw new Error(`Element extraction failed: ${message}`);
-  }
-}
-function mapToEnhancedElements(nativeElements) {
-  const enhanced = [];
-  function flatten(elements, depth = 0) {
-    for (const el of elements) {
-      const tagName = mapRoleToTag(el.role);
-      const isInteractive = isInteractiveRole(el.role) && el.isEnabled;
-      enhanced.push({
-        selector: el.identifier || `[role="${el.role}"][label="${el.label}"]`,
-        tagName,
-        text: el.label || void 0,
-        bounds: {
-          x: el.frame.x,
-          y: el.frame.y,
-          width: el.frame.width,
-          height: el.frame.height
-        },
-        interactive: {
-          hasOnClick: isInteractive,
-          hasHref: false,
-          isDisabled: !el.isEnabled,
-          tabIndex: isInteractive ? 0 : -1,
-          cursor: isInteractive ? "pointer" : "default"
-        },
-        a11y: {
-          role: mapRoleToAriaRole(el.role),
-          ariaLabel: el.label || null,
-          ariaDescribedBy: null
-        }
-      });
-      if (el.children.length > 0) {
-        flatten(el.children, depth + 1);
-      }
-    }
-  }
-  flatten(nativeElements);
-  return enhanced;
-}
+// src/native/index.ts
+init_extract();
 
 // src/native/rules.ts
 function auditNativeElements(elements, platform, viewport) {
@@ -7177,12 +8023,15 @@ function auditNativeElements(elements, platform, viewport) {
 // src/native/scan.ts
 var import_path11 = require("path");
 init_simulator();
+init_extract();
 
 // src/native/macos.ts
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
 var import_promises11 = require("fs/promises");
 var import_path10 = require("path");
+init_extract();
+init_role_map();
 var execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
 var execAsync = (0, import_util4.promisify)(import_child_process5.exec);
 async function findProcess(appNameOrBundleId) {
@@ -7481,7 +8330,11 @@ function buildNativeSemantic(elements, window2) {
       auth: {
         authenticated: isAuthScreen ? false : null,
         confidence: isAuthScreen ? 0.8 : 0.3,
-        signals: authSignals
+        signals: authSignals,
+        socialLoginProviders: [],
+        hasForgotPassword: false,
+        hasSignupLink: false,
+        hasPasswordToggle: false
       },
       loading: {
         loading: false,
@@ -8447,7 +9300,200 @@ function formatBridgeResult(result) {
   return lines.join("\n");
 }
 
+// src/native/idb.ts
+var import_child_process6 = require("child_process");
+var import_util5 = require("util");
+var execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
+async function isIdbCliAvailable() {
+  try {
+    await execFileAsync5("which", ["idb"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function idbTap(udid, x, y) {
+  try {
+    if (await isIdbCliAvailable()) {
+      await execFileAsync5("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+      return { success: true, action: "tap" };
+    }
+    await execFileAsync5("xcrun", ["simctl", "io", udid, "tap", String(x), String(y)], { timeout: 1e4 });
+    return { success: true, action: "tap" };
+  } catch (err) {
+    return { success: false, action: "tap", error: err.message };
+  }
+}
+async function idbType(udid, text) {
+  try {
+    if (await isIdbCliAvailable()) {
+      await execFileAsync5("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+      return { success: true, action: "type" };
+    }
+    try {
+      const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      await execFileAsync5("osascript", [
+        "-e",
+        'tell application "Simulator" to activate',
+        "-e",
+        `tell application "System Events" to keystroke "${escaped}"`
+      ], { timeout: 1e4 });
+      return { success: true, action: "type" };
+    } catch (err) {
+      return {
+        success: false,
+        action: "type",
+        error: `Typing failed. IDB not available, AppleScript fallback failed: ${err.message}. Install IDB: brew install idb-companion && pip install fb-idb`
+      };
+    }
+  } catch (err) {
+    return { success: false, action: "type", error: err.message };
+  }
+}
+async function idbSwipe(udid, x1, y1, x2, y2, duration) {
+  try {
+    if (await isIdbCliAvailable()) {
+      const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
+      if (duration) args.push("--duration", String(duration));
+      await execFileAsync5("idb", args, { timeout: 1e4 });
+      return { success: true, action: "swipe" };
+    }
+    try {
+      await execFileAsync5("xcrun", [
+        "simctl",
+        "io",
+        udid,
+        "swipe",
+        String(x1),
+        String(y1),
+        String(x2),
+        String(y2)
+      ], { timeout: 1e4 });
+      return { success: true, action: "swipe" };
+    } catch {
+    }
+    return {
+      success: false,
+      action: "swipe",
+      error: "Swipe requires IDB (brew install idb-companion) or Xcode 15+ with simctl swipe support."
+    };
+  } catch (err) {
+    return { success: false, action: "swipe", error: err.message };
+  }
+}
+async function idbButton(udid, button) {
+  try {
+    if (await isIdbCliAvailable()) {
+      await execFileAsync5("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+      return { success: true, action: `button:${button}` };
+    }
+    if (button === "HOME") {
+      await execFileAsync5("xcrun", ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"], { timeout: 1e4 });
+      return { success: true, action: "button:HOME" };
+    }
+    return { success: false, action: `button:${button}`, error: "IDB not available" };
+  } catch (err) {
+    return { success: false, action: `button:${button}`, error: err.message };
+  }
+}
+async function idbOpenUrl(udid, url) {
+  try {
+    await execFileAsync5("xcrun", ["simctl", "openurl", udid, url], { timeout: 1e4 });
+    return { success: true, action: "openUrl" };
+  } catch (err) {
+    return { success: false, action: "openUrl", error: err.message };
+  }
+}
+
+// src/native/actions.ts
+var import_child_process7 = require("child_process");
+var import_util6 = require("util");
+init_extract();
+var execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+function elementCenter(element) {
+  if (!element.frame) return null;
+  return {
+    x: Math.round(element.frame.x + element.frame.width / 2),
+    y: Math.round(element.frame.y + element.frame.height / 2)
+  };
+}
+function findElementByLabel(elements, label) {
+  const needle = label.toLowerCase();
+  return elements.find(
+    (el) => el.label && el.label.toLowerCase().includes(needle) || el.identifier && el.identifier.toLowerCase().includes(needle)
+  ) ?? null;
+}
+
+// src/engine/compress.ts
+var INTERACTIVE_ROLES2 = /* @__PURE__ */ new Set([
+  "button",
+  "link",
+  "textbox",
+  "checkbox",
+  "tab",
+  "menuitem",
+  "select",
+  "slider",
+  "switch"
+]);
+function compressSnapshot(elements, threshold = 80) {
+  if (elements.length <= threshold) {
+    return {
+      interactive: elements.map((e) => ({
+        id: e.id,
+        role: e.role,
+        label: e.label,
+        actions: e.actions ?? []
+      })),
+      collapsed: {},
+      totalElements: elements.length,
+      interactiveCount: elements.length,
+      compressed: false
+    };
+  }
+  const interactive = [];
+  const collapsed = {};
+  for (const el of elements) {
+    const isInteractive = el.actions && el.actions.length > 0 || INTERACTIVE_ROLES2.has(el.role);
+    if (isInteractive) {
+      interactive.push({
+        id: el.id,
+        role: el.role,
+        label: el.label,
+        actions: el.actions ?? []
+      });
+    } else {
+      collapsed[el.role] = (collapsed[el.role] || 0) + 1;
+    }
+  }
+  return {
+    interactive,
+    collapsed,
+    totalElements: elements.length,
+    interactiveCount: interactive.length,
+    compressed: true
+  };
+}
+function formatCompressed(snapshot) {
+  if (!snapshot.compressed) {
+    return snapshot.interactive.map((e) => `[${e.id}] ${e.role} "${e.label}"${e.actions.length ? ` actions:[${e.actions.join(",")}]` : ""}`).join("\n");
+  }
+  const lines = [
+    `[${snapshot.interactiveCount} interactive elements of ${snapshot.totalElements} total]`,
+    ""
+  ];
+  for (const el of snapshot.interactive) {
+    lines.push(`[${el.id}] ${el.role} "${el.label}"${el.actions.length ? ` actions:[${el.actions.join(",")}]` : ""}`);
+  }
+  if (Object.keys(snapshot.collapsed).length > 0) {
+    const summary = Object.entries(snapshot.collapsed).sort((a, b) => b[1] - a[1]).map(([role, count]) => `${count} ${role}`).join(", ");
+    lines.push("", `[collapsed: ${summary}]`);
+  }
+  return lines.join("\n");
+}
+
 // src/mcp/tools.ts
+var sessions = /* @__PURE__ */ new Map();
 function textResponse(text) {
   return { content: [{ type: "text", text }] };
 }
@@ -8960,6 +10006,237 @@ var TOOLS = [
       idempotentHint: false,
       openWorldHint: true
     }
+  },
+  // --- Flow tools ---
+  {
+    name: "flow_search",
+    description: "Execute a full search flow \u2014 finds the search box, enters query, submits, and returns results. Use for testing search functionality end-to-end.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL of the page with search" },
+        query: { type: "string", description: "Search query to enter" },
+        sessionId: { type: "string", description: "Optional: use existing session instead of launching new browser" }
+      },
+      required: ["url", "query"]
+    },
+    annotations: {
+      title: "Search Flow",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "flow_form",
+    description: "Fill and optionally submit a form. Detects form fields semantically and fills them with provided values. Use for testing form submission flows.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL of the page with the form" },
+        fields: {
+          type: "object",
+          description: 'Field name to value pairs, e.g., {"Email": "test@example.com", "Password": "secret"}'
+        },
+        submit: { type: "boolean", description: "Submit the form after filling (default: true)" },
+        sessionId: { type: "string", description: "Optional: use existing session" }
+      },
+      required: ["url", "fields"]
+    },
+    annotations: {
+      title: "Form Fill Flow",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "flow_login",
+    description: "Execute a login flow \u2014 finds username/email and password fields, fills them, clicks submit, and verifies login success. Use for testing authentication flows.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL of the login page" },
+        username: { type: "string", description: "Username or email" },
+        password: { type: "string", description: "Password" },
+        sessionId: { type: "string", description: "Optional: use existing session" }
+      },
+      required: ["url", "username", "password"]
+    },
+    annotations: {
+      title: "Login Flow",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "plan_test",
+    description: "Auto-generate a test plan by observing the current page. Returns suggested interaction steps, assertions, and detected flows (search, form, login). Use as the first step before running tests.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to observe for test planning" },
+        intent: {
+          type: "string",
+          description: "Optional: what to test, e.g., 'login flow', 'search functionality'"
+        },
+        sessionId: { type: "string", description: "Optional: use existing session" }
+      },
+      required: ["url"]
+    },
+    annotations: {
+      title: "Plan Test",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  },
+  // --- Persistent session tools ---
+  {
+    name: "session_start",
+    description: "Start a persistent session for web (Chrome/Safari), macOS native app, or iOS/watchOS simulator. Chrome is default for web. Use 'app' for native macOS apps, 'simulator' for iOS/watchOS. Session stays alive across tool calls \u2014 use session_action to interact, session_read to observe/extract, session_close when done.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: { type: "string", description: "URL to navigate to (web sessions)" },
+        headless: { type: "boolean", description: "Run headless (default: true, web only)" },
+        viewport: {
+          type: "object",
+          properties: {
+            width: { type: "number" },
+            height: { type: "number" }
+          }
+        },
+        browser: {
+          type: "string",
+          enum: ["chrome", "safari"],
+          description: "Browser for web sessions (default: chrome)"
+        },
+        app: {
+          type: "string",
+          description: "macOS app name for native sessions (e.g. 'Finder', 'Secrets Vault')"
+        },
+        simulator: {
+          type: "string",
+          description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro')"
+        }
+      }
+    },
+    annotations: {
+      title: "Start Persistent Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "session_action",
+    description: "Execute an interaction in a persistent session (click, type, fill, hover, press, scroll, select, check). Elements resolved by accessible name. Returns rich diagnostics: confidence score, resolution tier, alternatives if not found.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by session_start" },
+        action: {
+          type: "string",
+          enum: ["click", "type", "fill", "hover", "press", "scroll", "select", "check"],
+          description: "Interaction to perform"
+        },
+        target: { type: "string", description: "Accessible name of element (e.g., 'Submit', 'Email')" },
+        value: { type: "string", description: "Text to type/fill, key to press, or scroll direction" },
+        role: { type: "string", description: "Filter by role (button, link, textbox, etc.)" },
+        screenshot: { type: "boolean", description: "Capture screenshot after action (default: true)" }
+      },
+      required: ["sessionId", "action", "target"]
+    },
+    annotations: {
+      title: "Session Action",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "session_read",
+    description: "Read page state from a persistent session without interacting. Modes: 'observe' (list interactive elements), 'extract' (headings, buttons, inputs, links), 'screenshot' (capture current view), 'state' (URL, element count, console errors).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by session_start" },
+        what: {
+          type: "string",
+          enum: ["observe", "extract", "screenshot", "state"],
+          description: "What to read from the session"
+        }
+      },
+      required: ["sessionId", "what"]
+    },
+    annotations: {
+      title: "Session Read",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "session_close",
+    description: "Close a persistent browser session and release resources.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by session_start" }
+      },
+      required: ["sessionId"]
+    },
+    annotations: {
+      title: "Close Persistent Session",
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: false
+    }
+  },
+  // --- iOS/watchOS simulator interaction ---
+  {
+    name: "sim_action",
+    description: "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. For tap with coordinates: taps directly at x,y. Requires IDB for typing and swipe (install: brew install idb-companion && pip install fb-idb). Tap and openUrl fall back to simctl when IDB is unavailable.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        device: {
+          type: "string",
+          description: "Device name fragment or UDID. Uses first booted device if omitted."
+        },
+        action: {
+          type: "string",
+          enum: ["tap", "type", "scroll", "swipe", "home", "openUrl"],
+          description: "Interaction to perform"
+        },
+        target: {
+          type: "string",
+          description: "For tap: element accessibility label to resolve (e.g. 'Submit') or 'x,y' coordinates. For type: the text to input. For scroll/swipe: direction ('up', 'down', 'left', 'right'). For openUrl: the URL to open (e.g. 'myapp://route'). For home: ignored."
+        },
+        value: {
+          type: "string",
+          description: "Optional extra value. For tap by label: overrides auto-resolved coordinates if provided as 'x,y'. For scroll: starting x,y as 'x,y' (default: screen center)."
+        }
+      },
+      required: ["action", "target"]
+    },
+    annotations: {
+      title: "Simulator Action",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false
+    }
   }
 ];
 var DEFAULT_OUTPUT_DIR = ".ibr";
@@ -9000,9 +10277,24 @@ async function handleToolCall(name, args) {
         try {
           await driver2.launch();
           await driver2.navigate(url);
-          const element = await driver2.find(target, role ? { role } : void 0);
+          const diag = await driver2.findWithDiagnostics(target, role ? { role } : void 0);
+          if (!diag.elementId) {
+            const altNames = diag.alternatives.map((a) => `"${a.name}" (${a.role}, score: ${a.score.toFixed(2)})`).join(", ");
+            const notFoundContent = [
+              {
+                type: "text",
+                text: `Element "${target}" not found (${diag.totalInteractive} interactive elements on page). Best matches: ${altNames || "none"}. Hint: Use 'observe' to see all interactive elements, or try one of the alternatives.`
+              }
+            ];
+            if (diag.screenshot) {
+              notFoundContent.push({ type: "image", data: diag.screenshot, mimeType: "image/png" });
+            }
+            return { content: notFoundContent, isError: true };
+          }
+          const allElements = await driver2.getSnapshot();
+          const element = allElements.find((e) => e.id === diag.elementId);
           if (!element) {
-            return errorResponse(`Element not found: "${target}"${role ? ` (role: ${role})` : ""}. Use 'observe' to see available elements.`);
+            return errorResponse(`Element "${target}" was resolved but disappeared from AX tree. Try again.`);
           }
           switch (action) {
             case "click":
@@ -9039,12 +10331,13 @@ async function handleToolCall(name, args) {
               return errorResponse(`Unknown action: ${action}`);
           }
           await new Promise((r) => setTimeout(r, 500));
+          const resolutionInfo = `(resolved via ${diag.tierName}, confidence: ${diag.confidence.toFixed(2)})`;
           if (wantScreenshot) {
             const buf = await driver2.screenshot();
             const base64 = buf.toString("base64");
-            return imageResponse(base64, `\u2713 ${action} on "${target}" succeeded`);
+            return imageResponse(base64, `\u2713 ${action} on "${target}" succeeded ${resolutionInfo}`);
           }
-          return textResponse(`\u2713 ${action} on "${target}" succeeded`);
+          return textResponse(`\u2713 ${action} on "${target}" succeeded ${resolutionInfo}`);
         } catch (err) {
           return errorResponse(`Interaction failed: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
@@ -9061,6 +10354,15 @@ async function handleToolCall(name, args) {
           const actions = await driver2.observe({ role: roleFilter, limit });
           if (actions.length === 0) {
             return textResponse("No interactive elements found on this page.");
+          }
+          if (actions.length > 80) {
+            const compressed = compressSnapshot(actions.map((a) => ({
+              id: a.elementId ?? "",
+              role: a.role ?? "",
+              label: a.description ?? a.label ?? "",
+              actions: a.action ? [a.action] : []
+            })));
+            return textResponse(formatCompressed(compressed));
           }
           const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" \u2014 ${a.actions.join(", ")}`);
           return textResponse(`Found ${actions.length} interactive elements:
@@ -9165,6 +10467,508 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
           });
         }
       }
+      case "flow_search": {
+        const { url, query } = args;
+        const driver2 = new EngineDriver();
+        try {
+          await driver2.launch();
+          await driver2.navigate(url);
+          const page = new CompatPage(driver2);
+          const result = await searchFlow(page, { query });
+          const lines = [
+            result.success ? `Search flow succeeded` : `Search flow failed`,
+            `Query: "${query}"`,
+            `Results found: ${result.resultCount}`,
+            `Has results: ${result.hasResults}`
+          ];
+          if (result.error) {
+            lines.push(`Error: ${result.error}`);
+          }
+          lines.push(``, `Steps:`);
+          result.steps.forEach((s) => {
+            lines.push(`  ${s.success ? "\u2713" : "\u2717"} ${s.action}${s.error ? ` (${s.error})` : ""}`);
+          });
+          return textResponse(lines.join("\n"));
+        } catch (err) {
+          return errorResponse(`flow_search failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver2.close().catch(() => {
+          });
+        }
+      }
+      case "flow_form": {
+        const { url, fields, submit = true } = args;
+        const driver2 = new EngineDriver();
+        try {
+          await driver2.launch();
+          await driver2.navigate(url);
+          const page = new CompatPage(driver2);
+          const formFields = Object.entries(fields).map(([name2, value]) => ({ name: name2, value }));
+          const result = await formFlow(page, {
+            fields: formFields,
+            submitButton: submit ? void 0 : "__NO_SUBMIT__"
+          });
+          const lines = [
+            result.success ? `Form flow succeeded` : `Form flow failed`,
+            `Filled: ${result.filledFields.join(", ") || "none"}`,
+            `Failed: ${result.failedFields.join(", ") || "none"}`
+          ];
+          if (result.error) {
+            lines.push(`Error: ${result.error}`);
+          }
+          return textResponse(lines.join("\n"));
+        } catch (err) {
+          return errorResponse(`flow_form failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver2.close().catch(() => {
+          });
+        }
+      }
+      case "flow_login": {
+        const { url, username, password } = args;
+        const driver2 = new EngineDriver();
+        try {
+          await driver2.launch();
+          await driver2.navigate(url);
+          const page = new CompatPage(driver2);
+          const result = await loginFlow(page, { email: username, password });
+          const redirectUrl = driver2.currentUrl !== url ? driver2.currentUrl : void 0;
+          const lines = [
+            result.success ? `Login flow succeeded` : `Login flow failed`,
+            `Logged in: ${result.authenticated}`
+          ];
+          if (redirectUrl) {
+            lines.push(`Redirect URL: ${redirectUrl}`);
+          }
+          if (result.username) {
+            lines.push(`Username detected: ${result.username}`);
+          }
+          if (result.error) {
+            lines.push(`Error: ${result.error}`);
+          }
+          lines.push(``, `Steps:`);
+          result.steps.forEach((s) => {
+            lines.push(`  ${s.success ? "\u2713" : "\u2717"} ${s.action}${s.error ? ` (${s.error})` : ""}`);
+          });
+          return textResponse(lines.join("\n"));
+        } catch (err) {
+          return errorResponse(`flow_login failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver2.close().catch(() => {
+          });
+        }
+      }
+      case "plan_test": {
+        const { url, intent } = args;
+        const driver2 = new EngineDriver();
+        try {
+          await driver2.launch();
+          await driver2.navigate(url);
+          const [actions, meta] = await Promise.all([
+            driver2.observe({ limit: 100 }),
+            driver2.extractMeta()
+          ]);
+          const suggestedFlows = [];
+          const hasSearchInput = actions.some(
+            (a) => a.role === "searchbox" || a.role === "textbox" && /search|query/i.test(a.label)
+          );
+          const hasPasswordField = meta.inputs.some((i) => /password/i.test(i.label));
+          const hasEmailField = meta.inputs.some((i) => /email|username|login/i.test(i.label));
+          const hasFormFields = meta.inputs.length > 0;
+          if (hasSearchInput) suggestedFlows.push("search");
+          if (hasEmailField && hasPasswordField) suggestedFlows.push("login");
+          else if (hasFormFields) suggestedFlows.push("form");
+          const steps = [];
+          if (hasEmailField && hasPasswordField) {
+            const emailInput = meta.inputs.find((i) => /email|username|login/i.test(i.label));
+            const passInput = meta.inputs.find((i) => /password/i.test(i.label));
+            const submitBtn = meta.buttons.find((b) => /login|sign in|submit/i.test(b.label));
+            if (emailInput) steps.push({ action: "fill", target: emailInput.label, value: "<test email>" });
+            if (passInput) steps.push({ action: "fill", target: passInput.label, value: "<test password>" });
+            if (submitBtn) steps.push({ action: "click", target: submitBtn.label, role: "button" });
+            steps.push({ action: "verify", target: "authenticated state", expect: "Dashboard visible" });
+          } else if (hasSearchInput) {
+            const searchAction = actions.find((a) => a.role === "searchbox" || /search/i.test(a.label));
+            if (searchAction) {
+              steps.push({ action: "fill", target: searchAction.label, value: "<search query>" });
+              steps.push({ action: "verify", target: "results", expect: "Results visible" });
+            }
+          } else {
+            meta.buttons.slice(0, 3).forEach((b) => {
+              steps.push({ action: "click", target: b.label, role: "button" });
+            });
+            meta.inputs.slice(0, 3).forEach((inp) => {
+              steps.push({ action: "fill", target: inp.label, value: "<test value>" });
+            });
+          }
+          const interactiveCount = actions.length;
+          const totalElements = meta.buttons.length + meta.inputs.length + meta.links.length;
+          const coverage = {
+            interactive: interactiveCount,
+            total: totalElements,
+            percentage: totalElements > 0 ? Math.round(interactiveCount / totalElements * 100) : 0
+          };
+          const plan = {
+            suggestedFlows,
+            interactiveElements: interactiveCount,
+            steps,
+            coverage
+          };
+          const lines = [
+            `Test plan for: ${url}`,
+            intent ? `Intent: ${intent}` : "",
+            ``,
+            `Suggested flows: ${suggestedFlows.length > 0 ? suggestedFlows.join(", ") : "none detected"}`,
+            `Interactive elements: ${interactiveCount}`,
+            `Coverage: ${coverage.percentage}%`,
+            ``,
+            `Steps:`,
+            ...steps.map((s, i) => {
+              if (s.action === "verify") return `  ${i + 1}. verify: ${s.expect}`;
+              if (s.action === "fill") return `  ${i + 1}. fill "${s.target}" with ${s.value}`;
+              return `  ${i + 1}. ${s.action} "${s.target}"${s.role ? ` [${s.role}]` : ""}`;
+            })
+          ].filter((l) => l !== "");
+          return textResponse(JSON.stringify(plan, null, 2) + "\n\n" + lines.join("\n"));
+        } catch (err) {
+          return errorResponse(`plan_test failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver2.close().catch(() => {
+          });
+        }
+      }
+      case "session_start": {
+        const { url, headless = true, viewport, browser, app, simulator } = args;
+        const sessionId = crypto.randomUUID();
+        if (app) {
+          try {
+            const { execFile: execFile9 } = await import("child_process");
+            const { promisify: promisify9 } = await import("util");
+            const execFileAsync9 = promisify9(execFile9);
+            const { stdout } = await execFileAsync9("pgrep", ["-x", app]);
+            const pid = parseInt(stdout.trim(), 10);
+            if (isNaN(pid)) throw new Error(`App "${app}" is not running`);
+            sessions.set(sessionId, { driver: null, type: "macos", app, pid, createdAt: Date.now() });
+            return textResponse(JSON.stringify({
+              sessionId,
+              type: "macos",
+              app,
+              pid,
+              timestamp: (/* @__PURE__ */ new Date()).toISOString()
+            }, null, 2));
+          } catch (err) {
+            return errorResponse(`session_start (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        if (simulator) {
+          try {
+            const { listDevices: listDevices2, bootDevice: bootDevice2 } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
+            const devices = await listDevices2();
+            const device = devices.find((d) => d.name.includes(simulator) || d.udid === simulator);
+            if (!device) throw new Error(`Simulator not found: ${simulator}`);
+            if (device.state !== "Booted") await bootDevice2(device.udid);
+            sessions.set(sessionId, {
+              driver: null,
+              type: "simulator",
+              device: { udid: device.udid, name: device.name },
+              createdAt: Date.now()
+            });
+            return textResponse(JSON.stringify({
+              sessionId,
+              type: "simulator",
+              device: { udid: device.udid, name: device.name },
+              timestamp: (/* @__PURE__ */ new Date()).toISOString()
+            }, null, 2));
+          } catch (err) {
+            return errorResponse(`session_start (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        if (!url) {
+          return errorResponse(`session_start requires 'url' for web sessions, 'app' for macOS native, or 'simulator' for iOS/watchOS`);
+        }
+        if (browser === "safari") {
+          try {
+            const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+            const safariDriver = new SafariDriver2();
+            await safariDriver.launch({});
+            await safariDriver.navigate(url);
+            sessions.set(sessionId, { driver: safariDriver, type: "safari", url, createdAt: Date.now() });
+            return textResponse(JSON.stringify({
+              sessionId,
+              type: "safari",
+              url,
+              timestamp: (/* @__PURE__ */ new Date()).toISOString()
+            }, null, 2));
+          } catch (err) {
+            return errorResponse(`session_start (safari) failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        const driver2 = new EngineDriver();
+        try {
+          await driver2.launch({
+            headless,
+            viewport: viewport ? { width: viewport.width, height: viewport.height } : void 0
+          });
+          await driver2.navigate(url);
+          const elements = await driver2.getSnapshot();
+          const elementCount = elements.filter((e) => e.actions.length > 0).length;
+          sessions.set(sessionId, { driver: driver2, type: "chrome", url: driver2.url || url, createdAt: Date.now() });
+          return textResponse(JSON.stringify({
+            sessionId,
+            type: "chrome",
+            url: driver2.url || url,
+            elementCount,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }, null, 2));
+        } catch (err) {
+          await driver2.close().catch(() => {
+          });
+          return errorResponse(`session_start failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "session_action": {
+        const {
+          sessionId,
+          action,
+          target,
+          value,
+          role,
+          screenshot: wantScreenshot = true
+        } = args;
+        const entry = sessions.get(sessionId);
+        if (!entry) {
+          return errorResponse("Session not found. Use session_start first.");
+        }
+        if (entry.type === "macos") {
+          const msg = `macOS native session for "${entry.app}". Native interactions require the ibr-ax-extract binary with --action support. Use session_read to observe the app's accessibility tree.`;
+          return textResponse(msg);
+        }
+        if (entry.type === "simulator") {
+          const msg = `Simulator session for "${entry.device?.name}". Simulator tap requires coordinates. Use native_scan to find element positions, then sim_action to interact.`;
+          return textResponse(msg);
+        }
+        const driver2 = entry.driver;
+        try {
+          const diag = await driver2.findWithDiagnostics(target, role ? { role } : void 0);
+          if (!diag.elementId) {
+            const notFoundPayload = JSON.stringify({
+              success: false,
+              error: `Element "${target}" not found`,
+              alternatives: diag.alternatives,
+              hint: diag.alternatives.length > 0 ? `Try one of these: ${diag.alternatives.map((a) => `"${a.name}" (${a.role})`).join(", ")}` : 'Use session_read with what="observe" to see all interactive elements'
+            }, null, 2);
+            const notFoundContent = [{ type: "text", text: notFoundPayload }];
+            if (diag.screenshot) {
+              notFoundContent.push({ type: "image", data: diag.screenshot, mimeType: "image/png" });
+            }
+            return { content: notFoundContent };
+          }
+          const allElements = await driver2.getSnapshot();
+          const element = allElements.find((e) => e.id === diag.elementId);
+          switch (action) {
+            case "click":
+              await driver2.click(diag.elementId);
+              break;
+            case "type":
+              await driver2.type(diag.elementId, value || "");
+              break;
+            case "fill":
+              await driver2.fill(diag.elementId, value || "");
+              break;
+            case "hover":
+              await driver2.hover(diag.elementId);
+              break;
+            case "press":
+              await driver2.pressKey(value || "Enter");
+              break;
+            case "scroll":
+              await driver2.scroll(Number(value) || 300);
+              break;
+            case "select":
+              await driver2.select(diag.elementId, value || "");
+              break;
+            case "check":
+              await driver2.check(diag.elementId);
+              break;
+            default:
+              return errorResponse(`Unknown action: ${action}`);
+          }
+          await new Promise((r) => setTimeout(r, 500));
+          const afterElements = await driver2.getSnapshot();
+          const afterCount = afterElements.filter((e) => e.actions.length > 0).length;
+          entry.url = driver2.url;
+          const actionResult = {
+            success: true,
+            elementFound: {
+              id: diag.elementId,
+              role: element?.role ?? "unknown",
+              label: element?.label ?? target,
+              confidence: diag.confidence,
+              tier: diag.tierName
+            },
+            pageState: { url: driver2.url, elementCount: afterCount }
+          };
+          if (wantScreenshot) {
+            const buf = await driver2.screenshot();
+            const base64 = buf.toString("base64");
+            return {
+              content: [
+                { type: "image", data: base64, mimeType: "image/png" },
+                { type: "text", text: JSON.stringify(actionResult, null, 2) }
+              ]
+            };
+          }
+          return textResponse(JSON.stringify(actionResult, null, 2));
+        } catch (err) {
+          return errorResponse(`session_action failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "session_read": {
+        const { sessionId, what } = args;
+        const entry = sessions.get(sessionId);
+        if (!entry) {
+          return errorResponse("Session not found. Use session_start first.");
+        }
+        if (entry.type === "macos") {
+          try {
+            switch (what) {
+              case "observe":
+              case "extract": {
+                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
+                const elements = await extractNativeElements2({
+                  name: entry.app,
+                  udid: "",
+                  state: "Booted",
+                  runtime: "",
+                  platform: "ios",
+                  isAvailable: true
+                });
+                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2));
+              }
+              case "screenshot":
+                return textResponse("macOS screenshot: use native_scan with screenshot option");
+              case "state":
+                return textResponse(JSON.stringify({ type: "macos", app: entry.app, pid: entry.pid }));
+              default:
+                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+            }
+          } catch (err) {
+            return errorResponse(`session_read (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        if (entry.type === "simulator") {
+          try {
+            switch (what) {
+              case "observe":
+              case "extract": {
+                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
+                const dev = entry.device;
+                const elements = await extractNativeElements2({
+                  name: dev.name,
+                  udid: dev.udid,
+                  state: "Booted",
+                  runtime: "",
+                  platform: "ios",
+                  isAvailable: true
+                });
+                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2));
+              }
+              case "screenshot":
+                return textResponse("Simulator screenshot: use native_scan with screenshot option");
+              case "state":
+                return textResponse(JSON.stringify({ type: "simulator", device: entry.device }));
+              default:
+                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+            }
+          } catch (err) {
+            return errorResponse(`session_read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        const driver2 = entry.driver;
+        try {
+          switch (what) {
+            case "observe": {
+              const actions = await driver2.observe();
+              if (actions.length === 0) {
+                return textResponse("No interactive elements found on this page.");
+              }
+              if (actions.length > 80) {
+                const compressed = compressSnapshot(actions.map((a) => ({
+                  id: a.elementId ?? "",
+                  role: a.role ?? "",
+                  label: a.description ?? a.label ?? "",
+                  actions: a.action ? [a.action] : []
+                })));
+                return textResponse(formatCompressed(compressed));
+              }
+              const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" \u2014 ${a.actions.join(", ")}`);
+              return textResponse(`Found ${actions.length} interactive elements:
+
+${lines.join("\n")}`);
+            }
+            case "extract": {
+              const meta = await driver2.extractMeta();
+              const sections = [];
+              if (meta.headings.length > 0) {
+                sections.push(`Headings:
+${meta.headings.map((h) => `  ${h}`).join("\n")}`);
+              }
+              if (meta.buttons.length > 0) {
+                sections.push(`Buttons (${meta.buttons.length}):
+${meta.buttons.map((b) => `  \u2022 ${b.label}${b.enabled === false ? " (disabled)" : ""}`).join("\n")}`);
+              }
+              if (meta.inputs.length > 0) {
+                sections.push(`Inputs (${meta.inputs.length}):
+${meta.inputs.map((inp) => `  \u2022 ${inp.label}${inp.value ? ` = "${inp.value}"` : ""}`).join("\n")}`);
+              }
+              if (meta.links.length > 0) {
+                sections.push(`Links (${meta.links.length}):
+${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.links.length > 20 ? `
+  ... and ${meta.links.length - 20} more` : ""}`);
+              }
+              return textResponse(sections.join("\n\n") || "No structured data found on page.");
+            }
+            case "screenshot": {
+              const buf = await driver2.screenshot();
+              const base64 = buf.toString("base64");
+              return imageResponse(base64, `Screenshot of ${driver2.url}`);
+            }
+            case "state": {
+              const elements = await driver2.getSnapshot();
+              const elementCount = elements.filter((e) => e.actions.length > 0).length;
+              const consoleErrors = driver2.getConsoleErrors().map((m) => m.text);
+              return textResponse(JSON.stringify({
+                url: driver2.url,
+                elementCount,
+                consoleErrors
+              }, null, 2));
+            }
+            default:
+              return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+          }
+        } catch (err) {
+          return errorResponse(`session_read failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "session_close": {
+        const { sessionId } = args;
+        const entry = sessions.get(sessionId);
+        if (!entry) {
+          return errorResponse("Session not found.");
+        }
+        try {
+          if (entry.driver) {
+            await entry.driver.close();
+          }
+          sessions.delete(sessionId);
+          return textResponse(`Session ${sessionId} closed.`);
+        } catch (err) {
+          sessions.delete(sessionId);
+          return errorResponse(`session_close error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "sim_action":
+        return await handleSimAction(args);
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }
@@ -9293,14 +11097,14 @@ async function handleCompare(args) {
   return textResponse(lines.join("\n"));
 }
 async function handleListSessions() {
-  const sessions = await listSessions(DEFAULT_OUTPUT_DIR);
-  if (sessions.length === 0) {
+  const sessions2 = await listSessions(DEFAULT_OUTPUT_DIR);
+  if (sessions2.length === 0) {
     return textResponse(
       "No sessions found. Capture a baseline with the 'snapshot' tool."
     );
   }
-  const lines = [`Sessions (${sessions.length}):`];
-  for (const s of sessions.slice(0, 20)) {
+  const lines = [`Sessions (${sessions2.length}):`];
+  for (const s of sessions2.slice(0, 20)) {
     const date = new Date(s.createdAt).toISOString().replace("T", " ").slice(0, 19);
     const viewport = `${s.viewport.name} (${s.viewport.width}x${s.viewport.height})`;
     const verdict = s.analysis && s.analysis.verdict ? ` | ${s.analysis.verdict}` : "";
@@ -9308,8 +11112,8 @@ async function handleListSessions() {
       `- ${s.id} | ${s.name} | ${date} | ${viewport} | ${s.status}${verdict}`
     );
   }
-  if (sessions.length > 20) {
-    lines.push(`  ... and ${sessions.length - 20} more`);
+  if (sessions2.length > 20) {
+    lines.push(`  ... and ${sessions2.length - 20} more`);
   }
   const stats = await getSessionStats(DEFAULT_OUTPUT_DIR);
   lines.push("");
@@ -9603,8 +11407,8 @@ async function handleNativeCompare(args) {
       return errorResponse(`Session "${sessionId}" not found.`);
     }
   } else {
-    const sessions = await listSessions(DEFAULT_OUTPUT_DIR);
-    session = sessions.find((s) => s.platform === "ios" || s.platform === "watchos");
+    const sessions2 = await listSessions(DEFAULT_OUTPUT_DIR);
+    session = sessions2.find((s) => s.platform === "ios" || s.platform === "watchos");
     if (!session) {
       return errorResponse(
         "No native sessions found. Capture a baseline first with 'native_snapshot'."
@@ -9842,6 +11646,166 @@ async function handleBridgeToSource(args) {
     formatBridgeResult(result)
   ];
   return textResponse(lines.join("\n"));
+}
+async function handleSimAction(args) {
+  const action = args.action;
+  const target = args.target;
+  const value = args.value;
+  const deviceQuery = args.device;
+  if (!action) {
+    return errorResponse("The 'action' parameter is required.");
+  }
+  let udid;
+  try {
+    if (deviceQuery) {
+      const device = await findDevice(deviceQuery);
+      if (!device) {
+        return errorResponse(
+          `No simulator found matching "${deviceQuery}". Run \`xcrun simctl list devices available\` to see available devices.`
+        );
+      }
+      udid = device.udid;
+    } else {
+      const { getBootedDevices: getBootedDevices2 } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
+      const booted = await getBootedDevices2();
+      if (booted.length === 0) {
+        return errorResponse("No booted simulators found. Boot one with: xcrun simctl boot <device-name>");
+      }
+      udid = booted[0].udid;
+    }
+  } catch (err) {
+    return errorResponse(`Failed to resolve device: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  switch (action) {
+    case "tap": {
+      if (!target) {
+        return errorResponse("'target' is required for tap (element label or 'x,y' coordinates).");
+      }
+      const coordMatch = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(target);
+      if (coordMatch) {
+        const x = parseFloat(coordMatch[1]);
+        const y = parseFloat(coordMatch[2]);
+        const tapResult = await idbTap(udid, x, y);
+        if (!tapResult.success) {
+          return errorResponse(`tap failed: ${tapResult.error}`);
+        }
+        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)}`);
+      }
+      try {
+        let flattenElements2 = function(elements) {
+          for (const el of elements) {
+            flat.push({ label: el.label, identifier: el.identifier, frame: el.frame });
+            if (el.children.length > 0) flattenElements2(el.children);
+          }
+        };
+        var flattenElements = flattenElements2;
+        const { extractNativeElements: extractNativeElements2, isExtractorAvailable: isExtractorAvailable2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
+        const { findDevice: fd } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
+        if (!isExtractorAvailable2()) {
+          return errorResponse(
+            'AX element extraction unavailable. Cannot resolve element by label. Provide coordinates as "x,y" instead, or install Xcode Command Line Tools.'
+          );
+        }
+        const device = await fd(udid);
+        if (!device) {
+          return errorResponse("Device not found after UDID resolution");
+        }
+        const nativeElements = await extractNativeElements2(device);
+        const flat = [];
+        flattenElements2(nativeElements);
+        const found = findElementByLabel(flat, target);
+        if (!found) {
+          const labels = flat.filter((e) => e.label).slice(0, 10).map((e) => `"${e.label}"`).join(", ");
+          return errorResponse(
+            `Element "${target}" not found in AX tree. Available labels (first 10): ${labels || "none"}. Try providing "x,y" coordinates directly.`
+          );
+        }
+        const center = elementCenter(found);
+        if (!center) {
+          return errorResponse(`Element "${target}" found but has no frame data. Cannot compute tap coordinates.`);
+        }
+        if (value) {
+          const override = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(value);
+          if (override) {
+            const ox = parseFloat(override[1]);
+            const oy = parseFloat(override[2]);
+            const overrideResult = await idbTap(udid, ox, oy);
+            if (!overrideResult.success) return errorResponse(`tap failed: ${overrideResult.error}`);
+            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override]`);
+          }
+        }
+        const tapResult = await idbTap(udid, center.x, center.y);
+        if (!tapResult.success) return errorResponse(`tap failed: ${tapResult.error}`);
+        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y})`);
+      } catch (err) {
+        return errorResponse(`tap by label failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    case "type": {
+      if (!target) {
+        return errorResponse("'target' is required for type (text to input).");
+      }
+      if (!await isIdbCliAvailable()) {
+        return errorResponse(
+          "IDB not available. Install with: brew install idb-companion && pip install fb-idb"
+        );
+      }
+      const typeResult = await idbType(udid, target);
+      if (!typeResult.success) return errorResponse(`type failed: ${typeResult.error}`);
+      return textResponse(`Typed "${target}" into focused field`);
+    }
+    case "scroll":
+    case "swipe": {
+      const direction = target ?? "down";
+      const validDirs = ["up", "down", "left", "right"];
+      if (!validDirs.includes(direction)) {
+        return errorResponse(`Invalid direction "${direction}". Use: up, down, left, right`);
+      }
+      let cx = 187;
+      let cy = 400;
+      if (value) {
+        const startMatch = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(value);
+        if (startMatch) {
+          cx = parseFloat(startMatch[1]);
+          cy = parseFloat(startMatch[2]);
+        }
+      }
+      const distance = 300;
+      let x2 = cx, y2 = cy;
+      switch (direction) {
+        case "up":
+          y2 = cy + distance;
+          break;
+        case "down":
+          y2 = cy - distance;
+          break;
+        case "left":
+          x2 = cx + distance;
+          break;
+        case "right":
+          x2 = cx - distance;
+          break;
+      }
+      const swipeResult = await idbSwipe(udid, cx, cy, x2, y2, 0.5);
+      if (!swipeResult.success) return errorResponse(`${action} failed: ${swipeResult.error}`);
+      return textResponse(`Scrolled ${direction} from (${cx}, ${cy})`);
+    }
+    case "home": {
+      const homeResult = await idbButton(udid, "HOME");
+      if (!homeResult.success) return errorResponse(`home button failed: ${homeResult.error}`);
+      return textResponse("Pressed HOME button");
+    }
+    case "openUrl": {
+      if (!target) {
+        return errorResponse("'target' is required for openUrl (the URL to open, e.g. 'myapp://route').");
+      }
+      const urlResult = await idbOpenUrl(udid, target);
+      if (!urlResult.success) return errorResponse(`openUrl failed: ${urlResult.error}`);
+      return textResponse(`Opened URL: ${target}`);
+    }
+    default:
+      return errorResponse(`Unknown action: ${action}. Use: tap, type, scroll, swipe, home, openUrl`);
+  }
 }
 
 // src/mcp/server.ts

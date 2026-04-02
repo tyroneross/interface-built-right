@@ -92,6 +92,10 @@ export function buildNativeSemantic(
         authenticated: isAuthScreen ? false : null,
         confidence: isAuthScreen ? 0.8 : 0.3,
         signals: authSignals,
+        socialLoginProviders: [],
+        hasForgotPassword: false,
+        hasSignupLink: false,
+        hasPasswordToggle: false,
       },
       loading: {
         loading: false,

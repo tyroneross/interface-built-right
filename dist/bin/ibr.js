@@ -190,7 +190,13 @@ var init_browser = __esm({
       async launch(options = {}) {
         const headless = options.headless ?? true;
         this._port = options.port ?? randomPort();
-        const userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+        let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+        if (!options.userDataDir) {
+          const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
+          if ((0, import_node_fs.existsSync)(lockPath)) {
+            userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+          }
+        }
         const chromePath = options.chromePath ?? findChrome();
         if (!chromePath) {
           throw new Error(
@@ -2097,15 +2103,37 @@ var init_driver = __esm({
       }
       /**
        * 3-tier element resolution with auto-caching:
-       * Tier 0: Check cache → Tier 1: queryAXTree → Tier 2: Jaro-Winkler → Tier 3: vision fallback.
+       * Tier 1: Check cache → Tier 2: queryAXTree → Tier 3: Jaro-Winkler → Tier 4: vision fallback.
+       * Delegates to findWithDiagnostics() and returns the matched element or null.
        */
       async find(name, options = {}) {
+        const diag = await this.findWithDiagnostics(name, options);
+        if (!diag.elementId) return null;
+        const elements = await this.ax.getSnapshot();
+        return elements.find((e) => e.id === diag.elementId) ?? null;
+      }
+      /**
+       * Like find(), but returns rich diagnostics for agent error feedback.
+       * Includes confidence, resolution tier, and fuzzy alternatives when not found.
+       */
+      async findWithDiagnostics(name, options = {}) {
+        const { jaroWinkler: jaroWinkler2 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
         const cacheKey = options.role ? `${name}:${options.role}` : name;
         const cached = this.resolutionCache.get(cacheKey);
         if (cached) {
           const elements = await this.ax.getSnapshot();
           const match = elements.find((e) => e.id === cached.elementId);
-          if (match) return match;
+          if (match) {
+            const interactive2 = elements.filter((e) => e.actions.length > 0);
+            return {
+              elementId: cached.elementId,
+              confidence: cached.confidence,
+              tier: 1,
+              tierName: "cache",
+              alternatives: [],
+              totalInteractive: interactive2.length
+            };
+          }
           this.resolutionCache.invalidate(cacheKey);
         }
         const queryResult = await this.ax.queryAXTree({
@@ -2119,10 +2147,20 @@ var init_driver = __esm({
             label: el.label,
             confidence: 1
           });
-          return el;
+          const allElements2 = await this.ax.getSnapshot();
+          const interactive2 = allElements2.filter((e) => e.actions.length > 0);
+          return {
+            elementId: el.id,
+            confidence: 0.95,
+            tier: 2,
+            tierName: "queryAXTree",
+            alternatives: [],
+            totalInteractive: interactive2.length
+          };
         }
         const { resolve: resolve5 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
         const allElements = await this.ax.getSnapshot();
+        const interactive = allElements.filter((e) => e.actions.length > 0);
         const result = resolve5({
           intent: options.role ? `${name} ${options.role}` : name,
           elements: allElements,
@@ -2134,9 +2172,36 @@ var init_driver = __esm({
             label: result.element.label,
             confidence: result.confidence
           });
-          return result.element;
+          return {
+            elementId: result.element.id,
+            confidence: result.confidence,
+            tier: 3,
+            tierName: "jaro-winkler",
+            alternatives: [],
+            totalInteractive: interactive.length
+          };
         }
-        return null;
+        const nameLower = name.toLowerCase();
+        const scored = interactive.filter((e) => e.label).map((e) => ({
+          name: e.label,
+          role: e.role,
+          score: jaroWinkler2(nameLower, e.label.toLowerCase())
+        })).sort((a, b) => b.score - a.score).slice(0, 5);
+        let screenshot;
+        try {
+          const buf = await this.screenshot();
+          screenshot = buf.toString("base64");
+        } catch {
+        }
+        return {
+          elementId: null,
+          confidence: 0,
+          tier: 4,
+          tierName: "vision",
+          alternatives: scored,
+          totalInteractive: interactive.length,
+          screenshot
+        };
       }
       // ─── Interactions ───────────────────────────────────────
       async click(elementId) {
@@ -2613,6 +2678,12 @@ var init_driver = __esm({
 });
 
 // src/engine/compat.ts
+var compat_exports = {};
+__export(compat_exports, {
+  CompatElementHandle: () => CompatElementHandle,
+  CompatLocator: () => CompatLocator,
+  CompatPage: () => CompatPage
+});
 var import_promises2, import_path, CompatElementHandle, CompatLocator, CompatPage;
 var init_compat = __esm({
   "src/engine/compat.ts"() {
@@ -4950,6 +5021,39 @@ async function detectAuthState(page) {
       '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
     );
     const hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
+    const socialProviderPatterns = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const socialProviders = [];
+    const socialElements = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialElements) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderPatterns) {
+        if (!socialProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const isTriggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || t === `sign in with ${provider}` || t === `continue with ${provider}` || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (isTriggered) socialProviders.push(provider);
+          }
+        }
+      }
+    }
+    const forgotPasswordPatterns = ["forgot", "reset password", "can't sign in", "trouble signing in", "lost password"];
+    const forgotEl = findByText(["a", "button"], forgotPasswordPatterns) || doc.querySelector('[href*="forgot"], [href*="reset-password"], [href*="password-reset"]');
+    const toggleEl = doc.querySelector(
+      '[aria-label*="show password" i], [aria-label*="hide password" i], [aria-label*="toggle password" i], [class*="eye"], [class*="visibility"], [class*="toggle-password"]'
+    );
+    let hasPasswordToggle = !!toggleEl;
+    if (!hasPasswordToggle) {
+      const passwordInput = doc.querySelector('input[type="password"]');
+      if (passwordInput) {
+        const parent = passwordInput.parentElement;
+        const sibling = passwordInput.nextElementSibling;
+        if (parent?.querySelector("button")) hasPasswordToggle = true;
+        if (sibling?.tagName === "BUTTON") hasPasswordToggle = true;
+      }
+    }
     return {
       hasLogoutButton: !!logoutButton,
       hasUserMenu: !!userMenu,
@@ -4960,7 +5064,10 @@ async function detectAuthState(page) {
       hasLoginLink: !!loginLink,
       hasSignupLink: !!signupLink,
       hasAuthRequired: !!authRequired,
-      hasAuthCookie
+      hasAuthCookie,
+      socialLoginProviders: socialProviders,
+      hasForgotPassword: !!forgotEl,
+      hasPasswordToggle
     };
   });
   if (checks.hasLogoutButton) {
@@ -5004,6 +5111,15 @@ async function detectAuthState(page) {
     confidence += 25;
     signals.push("auth-required message");
   }
+  if (checks.socialLoginProviders.length > 0) {
+    signals.push(`social login: ${checks.socialLoginProviders.join(", ")}`);
+  }
+  if (checks.hasForgotPassword) {
+    signals.push("forgot password link present");
+  }
+  if (checks.hasPasswordToggle) {
+    signals.push("password visibility toggle present");
+  }
   confidence = Math.min(confidence / 100, 1);
   if (confidence < 0.3) {
     authenticated = null;
@@ -5012,7 +5128,11 @@ async function detectAuthState(page) {
     authenticated,
     confidence,
     signals,
-    username
+    username,
+    socialLoginProviders: checks.socialLoginProviders,
+    hasForgotPassword: checks.hasForgotPassword,
+    hasSignupLink: checks.hasSignupLink,
+    hasPasswordToggle: checks.hasPasswordToggle
   };
 }
 async function detectLoadingState(page) {
@@ -5190,7 +5310,7 @@ async function getSemanticOutput(page) {
     detectPageState(page)
   ]);
   const availableActions = await detectAvailableActions(page, pageIntent.intent);
-  const issues = collectIssues(state, pageIntent);
+  const issues = collectIssues(state, pageIntent, url);
   const verdict = determineVerdict(state, issues);
   const recovery = verdict === "FAIL" || verdict === "ERROR" ? generateRecoveryHint(state, pageIntent.intent) : void 0;
   const summary = generateSummary(pageIntent, state, verdict, issues.length);
@@ -5232,6 +5352,24 @@ async function detectAvailableActions(page, intent) {
     const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
     const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
     const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
+    const socialProviderNames = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const detectedProviders = [];
+    const socialEls = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialEls) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderNames) {
+        if (!detectedProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const triggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (triggered) detectedProviders.push(provider);
+          }
+        }
+      }
+    }
     return {
       hasSubmit: !!submitButton,
       submitSelector: submitButton ? getSelector(submitButton) : null,
@@ -5246,7 +5384,9 @@ async function detectAvailableActions(page, intent) {
       hasDelete: !!deleteButton,
       hasFilter: !!filterSelect,
       hasSort: !!sortSelect,
-      hasPagination: !!pagination
+      hasPagination: !!pagination,
+      hasSocialLogin: detectedProviders.length > 0,
+      socialProviders: detectedProviders
     };
     function getSelector(el) {
       if (el.id) return `#${el.id}`;
@@ -5261,6 +5401,15 @@ async function detectAvailableActions(page, intent) {
       selector: "form",
       description: "Submit login credentials"
     });
+  }
+  if (intent === "auth" && checks.hasSocialLogin) {
+    for (const provider of checks.socialProviders) {
+      actions.push({
+        action: `login-with-${provider}`,
+        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
+      });
+    }
   }
   if (checks.hasSearch) {
     actions.push({
@@ -5311,7 +5460,7 @@ async function detectAvailableActions(page, intent) {
   }
   return actions;
 }
-function collectIssues(state, intent) {
+function collectIssues(state, intent, url = "") {
   const issues = [];
   for (const error of state.errors.errors) {
     issues.push({
@@ -5336,6 +5485,45 @@ function collectIssues(state, intent) {
       problem: "Dashboard requires authentication",
       fix: "Login first before accessing this page"
     });
+  }
+  if (intent.intent === "auth") {
+    const socialProviders = state.auth.socialLoginProviders ?? [];
+    if (socialProviders.length === 0) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-social-login",
+        problem: "Auth page has no social login options (Google, GitHub, etc.)",
+        fix: "Add OAuth/social login buttons to reduce friction"
+      });
+    }
+    const signals = state.auth.signals;
+    const hasSignupLinkSignal = signals.includes("signup link visible") || (state.auth.hasSignupLink ?? false);
+    const hasLoginLinkSignal = signals.includes("login link visible");
+    const urlPath = (() => {
+      try {
+        return new URL(url).pathname.toLowerCase();
+      } catch {
+        return url.toLowerCase();
+      }
+    })();
+    const isSignUp = hasLoginLinkSignal || urlPath.includes("sign-up") || urlPath.includes("signup") || urlPath.includes("register");
+    const isSignIn = hasSignupLinkSignal || urlPath.includes("sign-in") || urlPath.includes("signin") || urlPath.includes("login");
+    if (!state.auth.hasForgotPassword && (isSignIn || !isSignIn && !isSignUp)) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-forgot-password",
+        problem: "Sign-in page has no forgot password option",
+        fix: 'Add a "Forgot your password?" link'
+      });
+    }
+    if (!state.auth.hasPasswordToggle) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-password-toggle",
+        problem: "Password field has no show/hide toggle",
+        fix: "Add a visibility toggle for the password field"
+      });
+    }
   }
   return issues;
 }
@@ -10735,7 +10923,11 @@ function buildNativeSemantic(elements, window2) {
       auth: {
         authenticated: isAuthScreen ? false : null,
         confidence: isAuthScreen ? 0.8 : 0.3,
-        signals: authSignals
+        signals: authSignals,
+        socialLoginProviders: [],
+        hasForgotPassword: false,
+        hasSignupLink: false,
+        hasPasswordToggle: false
       },
       loading: {
         loading: false,
@@ -17196,6 +17388,8 @@ var init_script_runner = __esm({
 // src/iterate.ts
 var iterate_exports = {};
 __export(iterate_exports, {
+  analyzeIssues: () => analyzeIssues,
+  classifyIssue: () => classifyIssue,
   iterate: () => iterate,
   resetIterateState: () => resetIterateState
 });
@@ -17257,11 +17451,64 @@ function detectConvergence(states) {
   }
   return { converged: false };
 }
+function classifyIssue(issue) {
+  const text = (issue?.description || issue?.message || "").toLowerCase();
+  if (/margin|padding|gap|spacing|indent/.test(text)) return "spacing";
+  if (/color|contrast|background|foreground|hue|saturation/.test(text)) return "color";
+  if (/font|text|typography|letter-spacing|line-height/.test(text)) return "typography";
+  if (/aria|label|role|accessible|screen.?reader|tab.?index/.test(text)) return "accessibility";
+  if (/click|handler|event|disabled|interactive|focus/.test(text)) return "interactivity";
+  if (/display.?none|visibility.?hidden/.test(text)) return "visibility";
+  if (/flex|grid|display|position|float|overflow|z-index/.test(text)) return "layout";
+  if (/hidden|visible|opacity/.test(text)) return "visibility";
+  if (/width|height|size|min|max|resize/.test(text)) return "size";
+  return "other";
+}
+function analyzeIssues(iterations) {
+  const latest = iterations[iterations.length - 1];
+  if (!latest?.issues) {
+    return { repeatedCategories: [], suggestedApproaches: [], shouldEscalate: false, affectedElements: [] };
+  }
+  const categories = /* @__PURE__ */ new Map();
+  const elements = [];
+  for (const issue of latest.issues) {
+    const cat = classifyIssue(issue);
+    categories.set(cat, (categories.get(cat) ?? 0) + 1);
+    elements.push({
+      id: issue.element,
+      issue: issue.description ?? String(issue)
+    });
+  }
+  const repeatedCategories = [];
+  for (const [cat] of categories) {
+    const appearedIn = iterations.filter(
+      (it) => it.issues?.some((i) => classifyIssue(i) === cat)
+    ).length;
+    if (appearedIn >= 2) repeatedCategories.push(cat);
+  }
+  const suggestedApproaches = [];
+  for (const cat of repeatedCategories) {
+    if (APPROACH_MAP[cat]) {
+      suggestedApproaches.push(APPROACH_MAP[cat]);
+    }
+  }
+  const shouldEscalate = repeatedCategories.length > 0 && iterations.length >= 3;
+  const escalationReason = shouldEscalate ? `${repeatedCategories.join(", ")} issues persist after ${iterations.length} iterations. Consider a different approach or manual review.` : void 0;
+  return {
+    repeatedCategories,
+    suggestedApproaches,
+    shouldEscalate,
+    escalationReason,
+    affectedElements: elements.slice(0, 20)
+    // Cap at 20
+  };
+}
 async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIssueCount) {
   const start = Date.now();
   let fingerprints = [];
   let issueCount = 0;
   let approachHint = "";
+  let issues;
   if (testFile) {
     try {
       const results = await runTests({
@@ -17283,6 +17530,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
       const result = await scan(url, { outputDir: (0, import_path30.join)(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
+      issues = result.issues;
       approachHint = `verdict=${result.verdict} issues=${issueCount}`;
     } catch (err) {
       fingerprints = [`scan-error:${err instanceof Error ? err.message.slice(0, 60) : String(err)}`];
@@ -17299,8 +17547,19 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     netDelta,
     approachHint,
     durationMs: Date.now() - start,
-    converged: false
+    converged: false,
+    issues
   };
+}
+async function verifyResolved(url, outputDir, iterationNumber) {
+  try {
+    const verifyResult = await scan(url, {
+      outputDir: (0, import_path30.join)(outputDir, `iter-${iterationNumber}-verify`)
+    });
+    return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length };
+  } catch {
+    return { confirmed: false, verifyIssueCount: -1 };
+  }
 }
 async function iterate(options) {
   const {
@@ -17332,10 +17591,27 @@ async function iterate(options) {
   allIterations.push(state);
   const { converged, reason } = detectConvergence(allIterations);
   let finalState = null;
+  let verificationPassed;
   if (converged && reason) {
     state.converged = true;
     state.reason = reason;
-    finalState = reason;
+    if (reason === "resolved" && !testFile) {
+      console.log(`[iterate] issueCount=0 detected, running verification pass...`);
+      const { confirmed, verifyIssueCount } = await verifyResolved(url, outputDir, iterationNumber);
+      if (confirmed) {
+        finalState = "resolved";
+        verificationPassed = true;
+        console.log(`[iterate] verification passed \u2014 0 issues confirmed`);
+      } else {
+        finalState = "false_positive";
+        verificationPassed = false;
+        state.converged = false;
+        state.reason = void 0;
+        console.log(`[iterate] false positive \u2014 verification found ${verifyIssueCount} issue(s). Continuing iteration.`);
+      }
+    } else {
+      finalState = reason;
+    }
   } else if (allIterations.length >= maxIterations) {
     finalState = "budget_exceeded";
   } else if (!autoApprove && CHECKPOINT_ITERATIONS.has(iterationNumber)) {
@@ -17344,20 +17620,37 @@ async function iterate(options) {
   persisted.iterations = allIterations;
   persisted.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
   await saveState(statePath, persisted);
+  let analysis;
+  const analysisStates = ["stagnant", "oscillating", "regressing", "budget_exceeded", "false_positive", "in_progress"];
+  const targetState = finalState ?? "in_progress";
+  if (analysisStates.includes(targetState) && !testFile) {
+    analysis = analyzeIssues(allIterations);
+    const analysisDir = (0, import_path30.join)(outputDir);
+    await (0, import_promises30.mkdir)(analysisDir, { recursive: true }).catch(() => {
+    });
+    await (0, import_promises30.writeFile)(
+      (0, import_path30.join)(analysisDir, "analysis.json"),
+      JSON.stringify(analysis, null, 2)
+    ).catch(() => {
+    });
+  }
   if (finalState) {
-    const result = buildResult(allIterations, finalState);
+    const result = buildResult(allIterations, finalState, verificationPassed, analysis);
     console.log(`[iterate] ${finalState}: ${result.summary}`);
     return result;
   }
-  return buildResult(allIterations, "in_progress");
+  return buildResult(allIterations, "in_progress", void 0, analysis);
 }
-function buildResult(iterations, finalState) {
+function buildResult(iterations, finalState, verificationPassed, analysis) {
   const last = iterations[iterations.length - 1];
   const totalMs = iterations.reduce((s, i) => s + i.durationMs, 0);
   let summary;
   switch (finalState) {
     case "resolved":
       summary = `All issues resolved after ${iterations.length} iteration(s) (${totalMs}ms total)`;
+      break;
+    case "false_positive":
+      summary = `Scan reported 0 issues but verification found more \u2014 false positive detected after ${iterations.length} iteration(s). Continuing.`;
       break;
     case "stagnant":
       summary = `No change detected after ${iterations.length} iteration(s) \u2014 same ${last?.issueCount ?? 0} issue(s). Try a different approach.`;
@@ -17375,14 +17668,14 @@ function buildResult(iterations, finalState) {
       summary = `Iteration ${iterations.length} complete. ${last?.issueCount ?? 0} issue(s) remaining. Ready for next iteration.`;
       break;
   }
-  return { iterations, finalState, summary };
+  return { iterations, finalState, summary, verificationPassed, analysis };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
   const statePath = (0, import_path30.join)(outputDir, "iterate-state.json");
   await (0, import_promises30.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto3, import_promises30, import_path30, CHECKPOINT_ITERATIONS;
+var import_crypto3, import_promises30, import_path30, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
@@ -17392,6 +17685,16 @@ var init_iterate = __esm({
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
+    APPROACH_MAP = {
+      spacing: "Check CSS layout properties (flex, grid, gap, margin, padding). Look for hardcoded values that should use design tokens.",
+      color: "Check design tokens or theme variables. Verify contrast ratios meet WCAG requirements.",
+      typography: "Check font-family, font-size, line-height, font-weight declarations. Look for CSS specificity conflicts.",
+      accessibility: "Add aria-label, role, tabindex attributes. Ensure interactive elements have accessible names.",
+      interactivity: "Check event handlers (onClick, onChange) and disabled state logic. Verify form submission handlers.",
+      layout: "Check CSS display, position, flex/grid properties. Look for overflow, z-index, and stacking context issues.",
+      visibility: "Check display:none, visibility:hidden, opacity:0, and conditional rendering logic.",
+      size: "Check width, height, min/max constraints. Verify responsive breakpoints."
+    };
   }
 });
 
@@ -17514,8 +17817,15 @@ async function createDriver(browser) {
   }
   return new EngineDriver();
 }
+function withChromePath(opts) {
+  const globalOpts = program.opts();
+  if (globalOpts.chromePath) {
+    return { ...opts, chromePath: globalOpts.chromePath };
+  }
+  return opts;
+}
 program.name("ibr").description("Design validation for Claude Code").version("0.7.0");
-program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome");
+program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
@@ -17685,7 +17995,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     console.log("");
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const driver3 = new EngineDriver();
-    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     await page.waitForTimeout(1e3);
@@ -18185,6 +18495,93 @@ program.command("logout").description("Clear saved authentication state").action
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     await clearAuthState2(outputDir);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+var flowCmd = program.command("flow").description("Execute pre-built interaction flows");
+flowCmd.command("search <url>").description("Execute search flow").requiredOption("--query <text>", "Search query").option("--session <id>", "Use existing session").action(async (url, options) => {
+  try {
+    const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+    const { CompatPage: CompatPage2 } = await Promise.resolve().then(() => (init_compat(), compat_exports));
+    const { searchFlow: searchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
+    const driver3 = new EngineDriver2();
+    await driver3.launch(withChromePath({}));
+    await driver3.navigate(url);
+    const page = new CompatPage2(driver3);
+    const result = await searchFlow2(page, { query: options.query });
+    console.log(result.success ? "Search flow succeeded" : "Search flow failed");
+    console.log(`Query: "${options.query}"`);
+    console.log(`Results found: ${result.resultCount}`);
+    if (result.error) console.log(`Error: ${result.error}`);
+    result.steps.forEach((s) => {
+      console.log(`  ${s.success ? "\u2713" : "\u2717"} ${s.action}`);
+    });
+    await driver3.close().catch(() => {
+    });
+    if (!result.success) process.exit(1);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+flowCmd.command("form <url>").description("Fill and submit a form").requiredOption("--fields <json>", `Field values as JSON, e.g. '{"Email":"test@example.com"}'`).option("--no-submit", "Fill without submitting").option("--session <id>", "Use existing session").action(async (url, options) => {
+  try {
+    const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+    const { CompatPage: CompatPage2 } = await Promise.resolve().then(() => (init_compat(), compat_exports));
+    const { formFlow: formFlow2 } = await Promise.resolve().then(() => (init_form(), form_exports));
+    let fieldMap;
+    try {
+      fieldMap = JSON.parse(options.fields);
+    } catch {
+      console.error(`--fields must be valid JSON, e.g. '{"Email":"test@example.com"}'`);
+      process.exit(1);
+      return;
+    }
+    const driver3 = new EngineDriver2();
+    await driver3.launch(withChromePath({}));
+    await driver3.navigate(url);
+    const page = new CompatPage2(driver3);
+    const formFields = Object.entries(fieldMap).map(([name, value]) => ({ name, value }));
+    const result = await formFlow2(page, {
+      fields: formFields,
+      submitButton: options.submit ? void 0 : "__NO_SUBMIT__"
+    });
+    console.log(result.success ? "Form flow succeeded" : "Form flow failed");
+    console.log(`Filled: ${result.filledFields.join(", ") || "none"}`);
+    if (result.failedFields.length > 0) {
+      console.log(`Failed: ${result.failedFields.join(", ")}`);
+    }
+    if (result.error) console.log(`Error: ${result.error}`);
+    await driver3.close().catch(() => {
+    });
+    if (!result.success) process.exit(1);
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+flowCmd.command("login <url>").description("Execute login flow").requiredOption("--username <text>", "Username or email").requiredOption("--password <text>", "Password").option("--session <id>", "Use existing session").action(async (url, options) => {
+  try {
+    const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+    const { CompatPage: CompatPage2 } = await Promise.resolve().then(() => (init_compat(), compat_exports));
+    const { loginFlow: loginFlow2 } = await Promise.resolve().then(() => (init_login(), login_exports));
+    const driver3 = new EngineDriver2();
+    await driver3.launch(withChromePath({}));
+    await driver3.navigate(url);
+    const page = new CompatPage2(driver3);
+    const result = await loginFlow2(page, { email: options.username, password: options.password });
+    console.log(result.success ? "Login flow succeeded" : "Login flow failed");
+    console.log(`Logged in: ${result.authenticated}`);
+    if (result.username) console.log(`Username detected: ${result.username}`);
+    if (result.error) console.log(`Error: ${result.error}`);
+    result.steps.forEach((s) => {
+      console.log(`  ${s.success ? "\u2713" : "\u2717"} ${s.action}`);
+    });
+    await driver3.close().catch(() => {
+    });
+    if (!result.success) process.exit(1);
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
@@ -18913,7 +19310,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     console.log("");
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const driver3 = new EngineDriver();
-    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
     const sessionDir = (0, import_path31.join)(outputDir, "sessions", `search-${Date.now()}`);
@@ -19784,7 +20181,7 @@ program.command("test-search <url>").description("Test search functionality on a
     const globalOpts = program.opts();
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const { searchFlow: searchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
-    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await searchFlow2(page, {
@@ -19829,7 +20226,7 @@ program.command("test-form <url>").description("Test form submission on a page u
         process.exit(1);
       }
     }
-    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await formFlow2(page, {
@@ -19866,7 +20263,7 @@ program.command("test-login <url>").description("Test login flow on a page using
       console.error("Error: --email and --password are required");
       process.exit(1);
     }
-    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await loginFlow2(page, {
@@ -20115,7 +20512,7 @@ program.command("verify-changes <url>").description("Verify all recorded design 
     }
     console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
     console.log("");
-    await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     await driver3.navigate(resolvedUrl);
     await new Promise((r) => setTimeout(r, 500));
     const results = await verifyAllChanges2(changes, driver3);
@@ -20382,7 +20779,7 @@ program.command("interact <url>").description("Click, type, fill, or interact wi
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
-    await driver3.launch({ headless: true });
+    await driver3.launch(withChromePath({ headless: true }));
     await driver3.navigate(url);
     const element = await driver3.find(opts.target, opts.role ? { role: opts.role } : void 0);
     if (!element) {
@@ -20445,7 +20842,7 @@ program.command("observe <url>").description("Preview available actions on a pag
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
-    await driver3.launch({ headless: true });
+    await driver3.launch(withChromePath({ headless: true }));
     await driver3.navigate(url);
     const actions = await driver3.observe({ role: opts.role, limit: Number(opts.limit) });
     if (actions.length === 0) {
@@ -20469,7 +20866,7 @@ program.command("extract <url>").description("Extract structured data from a pag
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
-    await driver3.launch({ headless: true });
+    await driver3.launch(withChromePath({ headless: true }));
     await driver3.navigate(url);
     const meta = await driver3.extractMeta();
     if (meta.headings.length > 0) {

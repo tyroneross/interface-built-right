@@ -9,7 +9,7 @@
   "repository": "https://github.com/tyroneross/interface-built-right",
   "license": "MIT",
   "keywords": ["visual-testing", "ui-testing", "interaction-testing", "mockup-matching", "accessibility", "cdp", "safari", "claude-code"],
-  "hooks": "../hooks/hooks.json",
-  "mcpServers": "../../.mcp.json",
-  "skills": "../../skills"
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json",
+  "skills": "./skills"
 }
