@@ -11,9 +11,9 @@
   "plugins": [
     {
       "name": "ibr",
-      "source": "./plugin",
-      "description": "Design validation for Claude Code. Verify your UI matches what was described — exact CSS, handler wiring, accessibility, page structure.",
-      "version": "0.4.9",
+      "source": "./",
+      "description": "Visual testing platform for Claude Code — interaction assertions, mockup matching, design verification, test generation, cross-browser (Chrome + Safari), native iOS/macOS scanning.",
+      "version": "0.7.0",
       "author": {
         "name": "Tyrone Ross"
       },
@@ -25,9 +25,10 @@
         "ui-testing",
         "css-audit",
         "accessibility",
-        "playwright",
+        "cdp",
+        "safari",
         "claude-code",
-        "component-testing",
+        "interaction-testing",
         "visual-regression"
       ],
       "category": "testing",
