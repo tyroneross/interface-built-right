@@ -6553,6 +6553,111 @@ function formatRetentionStatus(status) {
 }
 
 // src/consistency.ts
+function parseColor(color) {
+  if (!color || color === "transparent") return null;
+  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return { r: Number(rgbMatch[1]), g: Number(rgbMatch[2]), b: Number(rgbMatch[3]) };
+  }
+  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (hex.length === 3) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16)
+      };
+    }
+    if (hex.length >= 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+      };
+    }
+  }
+  const named = {
+    white: { r: 255, g: 255, b: 255 },
+    black: { r: 0, g: 0, b: 0 },
+    red: { r: 255, g: 0, b: 0 },
+    green: { r: 0, g: 128, b: 0 },
+    blue: { r: 0, g: 0, b: 255 },
+    gray: { r: 128, g: 128, b: 128 },
+    grey: { r: 128, g: 128, b: 128 }
+  };
+  return named[color.toLowerCase()] ?? null;
+}
+function relativeLuminance(r, g, b) {
+  const linearize = (c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+}
+async function analyzeThemeConsistency(page) {
+  const data = await page.evaluate(() => {
+    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
+    const pageBg = bodyBg && bodyBg !== "rgba(0, 0, 0, 0)" && bodyBg !== "transparent" ? bodyBg : htmlBg;
+    const containerSelectors = [
+      '[class*="card"]',
+      '[class*="form"]',
+      '[class*="dialog"]',
+      '[class*="modal"]',
+      '[class*="panel"]',
+      "main > *",
+      "form"
+    ];
+    const cards = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const sel of containerSelectors) {
+      let elements;
+      try {
+        elements = Array.from(document.querySelectorAll(sel));
+      } catch {
+        continue;
+      }
+      for (const el of elements) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        const bg = window.getComputedStyle(el).backgroundColor;
+        if (!bg || bg === "rgba(0, 0, 0, 0)" || bg === "transparent") continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 50 || rect.height < 50) continue;
+        cards.push({ selector: sel, color: bg });
+        if (cards.length >= 10) break;
+      }
+      if (cards.length >= 10) break;
+    }
+    return { pageBg, cards };
+  });
+  const pageParsed = parseColor(data.pageBg);
+  const pageLuminance = pageParsed ? relativeLuminance(pageParsed.r, pageParsed.g, pageParsed.b) : 0.5;
+  const pageBackground = { color: data.pageBg, luminance: pageLuminance };
+  const contentCards = data.cards.map((c) => {
+    const parsed = parseColor(c.color);
+    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    return { selector: c.selector, color: c.color, luminance };
+  });
+  let themeMismatch = false;
+  let mismatchDetails;
+  const darkPage = pageLuminance < 0.2;
+  const lightPage = pageLuminance > 0.7;
+  for (const card of contentCards) {
+    if (darkPage && card.luminance > 0.7) {
+      themeMismatch = true;
+      mismatchDetails = `Page background is dark (luminance ${pageLuminance.toFixed(3)}) but a content container matched by "${card.selector}" has a light background (luminance ${card.luminance.toFixed(3)})`;
+      break;
+    }
+    if (lightPage && card.luminance < 0.2) {
+      themeMismatch = true;
+      mismatchDetails = `Page background is light (luminance ${pageLuminance.toFixed(3)}) but a content container matched by "${card.selector}" has a dark background (luminance ${card.luminance.toFixed(3)})`;
+      break;
+    }
+  }
+  return { pageBackground, contentCards, themeMismatch, mismatchDetails };
+}
 async function extractMetrics(page, url) {
   const parsedUrl = new URL(url);
   const metrics = await page.evaluate(() => {
@@ -8611,6 +8716,58 @@ function analyzeElements(elements, isMobile = false) {
 
 // src/scan.ts
 init_interactivity();
+
+// src/layout-collision.ts
+function detectLayoutCollisions(elements) {
+  const textElements = elements.filter(
+    (el) => el.text && el.text.trim().length > 0 && el.bounds.width > 0 && el.bounds.height > 0
+  );
+  textElements.sort((a, b) => a.bounds.y !== b.bounds.y ? a.bounds.y - b.bounds.y : a.bounds.x - b.bounds.x);
+  const collisions = [];
+  for (let i = 0; i < textElements.length; i++) {
+    const a = textElements[i];
+    const aBottom = a.bounds.y + a.bounds.height;
+    for (let j = i + 1; j < textElements.length; j++) {
+      const b = textElements[j];
+      if (b.bounds.y > aBottom + 2) break;
+      if (b.selector.startsWith(a.selector) || a.selector.startsWith(b.selector)) continue;
+      const ix = Math.max(a.bounds.x, b.bounds.x);
+      const iy = Math.max(a.bounds.y, b.bounds.y);
+      const ix2 = Math.min(a.bounds.x + a.bounds.width, b.bounds.x + b.bounds.width);
+      const iy2 = Math.min(a.bounds.y + a.bounds.height, b.bounds.y + b.bounds.height);
+      const overlapW = ix2 - ix;
+      const overlapH = iy2 - iy;
+      if (overlapW <= 0 || overlapH <= 0) continue;
+      const overlapArea = overlapW * overlapH;
+      if (overlapW < 4 || overlapH < 4) continue;
+      const areaA = a.bounds.width * a.bounds.height;
+      const areaB = b.bounds.width * b.bounds.height;
+      const smallerArea = Math.min(areaA, areaB);
+      const overlapPercent = smallerArea > 0 ? overlapArea / smallerArea * 100 : 0;
+      if (overlapPercent < 5) continue;
+      collisions.push({
+        element1: {
+          selector: a.selector,
+          text: a.text,
+          bounds: { x: a.bounds.x, y: a.bounds.y, width: a.bounds.width, height: a.bounds.height }
+        },
+        element2: {
+          selector: b.selector,
+          text: b.text,
+          bounds: { x: b.bounds.x, y: b.bounds.y, width: b.bounds.width, height: b.bounds.height }
+        },
+        overlapArea,
+        overlapPercent
+      });
+    }
+  }
+  return {
+    collisions,
+    hasCollisions: collisions.length > 0
+  };
+}
+
+// src/scan.ts
 async function scan(url, options = {}) {
   const {
     viewport: viewportOpt = "desktop",
@@ -8645,11 +8802,12 @@ async function scan(url, options = {}) {
       await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
       });
     }
-    const [elements, interactivity, semantic, coverage] = await Promise.all([
+    const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
       testInteractivity(page),
       getSemanticOutput(page),
-      driver2.getCoverage().catch(() => void 0)
+      driver2.getCoverage().catch(() => void 0),
+      analyzeThemeConsistency(page).catch(() => void 0)
     ]);
     if (screenshot) {
       await page.screenshot({
@@ -8663,7 +8821,8 @@ async function scan(url, options = {}) {
     } catch {
       route = url;
     }
-    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors);
+    const layoutCollisions = detectLayoutCollisions(elements.all);
+    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     return {
@@ -8679,6 +8838,8 @@ async function scan(url, options = {}) {
         warnings: consoleWarnings
       },
       coverage,
+      layoutCollisions,
+      themeAnalysis,
       verdict,
       issues,
       summary
@@ -8693,7 +8854,7 @@ async function extractAndAudit(page, viewport) {
   const audit = analyzeElements(elements, isMobile);
   return { all: elements, audit };
 }
-function aggregateIssues(audit, interactivity, semantic, consoleErrors) {
+function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAnalysis) {
   const issues = [];
   for (const issue of audit.issues) {
     issues.push({
@@ -8719,6 +8880,14 @@ function aggregateIssues(audit, interactivity, semantic, consoleErrors) {
       category: "semantic",
       severity: issue.severity,
       description: issue.problem
+    });
+  }
+  if (themeAnalysis?.themeMismatch) {
+    issues.push({
+      category: "semantic",
+      severity: "warning",
+      description: themeAnalysis.mismatchDetails ?? "Content card has different theme than page background",
+      fix: "Ensure content containers match the page theme (dark/light)"
     });
   }
   for (const error of consoleErrors) {
@@ -8843,6 +9012,20 @@ function formatScanResult(result) {
     }
     if (result.console.warnings.length > 0) {
       lines.push(`  Warnings: ${result.console.warnings.length}`);
+    }
+    lines.push("");
+  }
+  if (result.layoutCollisions?.hasCollisions) {
+    const { collisions } = result.layoutCollisions;
+    lines.push("  LAYOUT");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
+    lines.push(`  Collisions: ${collisions.length}`);
+    for (const c of collisions) {
+      const overlapPx = Math.round(Math.sqrt(c.overlapArea));
+      const pct = Math.round(c.overlapPercent);
+      const t1 = c.element1.text.slice(0, 30);
+      const t2 = c.element2.text.slice(0, 30);
+      lines.push(`    \x1B[31m\u2717\x1B[0m "${t1}" overlaps "${t2}" by ${pct}% (${overlapPx}px overlap)`);
     }
     lines.push("");
   }

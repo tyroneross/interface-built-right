@@ -2,6 +2,166 @@ import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
 import type { PageLike } from './engine/page-like.js';
 
+// ─── Theme Analysis ──────────────────────────────────────────────────────────
+
+export interface ThemeAnalysis {
+  pageBackground: { color: string; luminance: number };
+  contentCards: Array<{ selector: string; color: string; luminance: number }>;
+  themeMismatch: boolean;
+  mismatchDetails?: string;
+}
+
+/**
+ * Parse a CSS color string to { r, g, b } in 0-255 range.
+ * Handles: rgb(r,g,b), rgba(r,g,b,a), #rrggbb, #rgb, named colors (white, black).
+ */
+function parseColor(color: string): { r: number; g: number; b: number } | null {
+  if (!color || color === 'transparent') return null;
+
+  // rgb / rgba
+  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return { r: Number(rgbMatch[1]), g: Number(rgbMatch[2]), b: Number(rgbMatch[3]) };
+  }
+
+  // hex #rrggbb or #rgb
+  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (hex.length === 3) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16),
+      };
+    }
+    if (hex.length >= 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+      };
+    }
+  }
+
+  // Named colors
+  const named: Record<string, { r: number; g: number; b: number }> = {
+    white: { r: 255, g: 255, b: 255 },
+    black: { r: 0, g: 0, b: 0 },
+    red: { r: 255, g: 0, b: 0 },
+    green: { r: 0, g: 128, b: 0 },
+    blue: { r: 0, g: 0, b: 255 },
+    gray: { r: 128, g: 128, b: 128 },
+    grey: { r: 128, g: 128, b: 128 },
+  };
+  return named[color.toLowerCase()] ?? null;
+}
+
+/**
+ * Calculate WCAG relative luminance from an RGB value (0-255 per channel).
+ * L = 0.2126 * R + 0.7152 * G + 0.0722 * B, linearized from sRGB.
+ */
+function relativeLuminance(r: number, g: number, b: number): number {
+  const linearize = (c: number): number => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+}
+
+/**
+ * Detect light-on-dark or dark-on-light theme mismatch between the page background
+ * and primary content containers (cards, forms, modals, panels, dialogs).
+ */
+export async function analyzeThemeConsistency(page: PageLike): Promise<ThemeAnalysis> {
+  const data = await page.evaluate(() => {
+    // Page background
+    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
+    const pageBg = (bodyBg && bodyBg !== 'rgba(0, 0, 0, 0)' && bodyBg !== 'transparent')
+      ? bodyBg
+      : htmlBg;
+
+    // Content container selectors
+    const containerSelectors = [
+      '[class*="card"]',
+      '[class*="form"]',
+      '[class*="dialog"]',
+      '[class*="modal"]',
+      '[class*="panel"]',
+      'main > *',
+      'form',
+    ];
+
+    const cards: Array<{ selector: string; color: string }> = [];
+    const seen = new Set<Element>();
+
+    for (const sel of containerSelectors) {
+      let elements: Element[];
+      try {
+        elements = Array.from(document.querySelectorAll(sel));
+      } catch {
+        continue;
+      }
+      for (const el of elements) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        const bg = window.getComputedStyle(el as HTMLElement).backgroundColor;
+        if (!bg || bg === 'rgba(0, 0, 0, 0)' || bg === 'transparent') continue;
+        // Only count elements with meaningful size (> 50x50px)
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 50 || rect.height < 50) continue;
+        cards.push({ selector: sel, color: bg });
+        if (cards.length >= 10) break;
+      }
+      if (cards.length >= 10) break;
+    }
+
+    return { pageBg, cards };
+  });
+
+  // Compute page background luminance
+  const pageParsed = parseColor(data.pageBg);
+  const pageLuminance = pageParsed
+    ? relativeLuminance(pageParsed.r, pageParsed.g, pageParsed.b)
+    : 0.5; // unknown — assume mid
+
+  const pageBackground = { color: data.pageBg, luminance: pageLuminance };
+
+  // Compute content card luminances
+  const contentCards = data.cards.map((c: { selector: string; color: string }) => {
+    const parsed = parseColor(c.color);
+    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    return { selector: c.selector, color: c.color, luminance };
+  });
+
+  // Detect mismatch
+  let themeMismatch = false;
+  let mismatchDetails: string | undefined;
+
+  const darkPage = pageLuminance < 0.2;
+  const lightPage = pageLuminance > 0.7;
+
+  for (const card of contentCards) {
+    if (darkPage && card.luminance > 0.7) {
+      themeMismatch = true;
+      mismatchDetails =
+        `Page background is dark (luminance ${pageLuminance.toFixed(3)}) but a content container ` +
+        `matched by "${card.selector}" has a light background (luminance ${card.luminance.toFixed(3)})`;
+      break;
+    }
+    if (lightPage && card.luminance < 0.2) {
+      themeMismatch = true;
+      mismatchDetails =
+        `Page background is light (luminance ${pageLuminance.toFixed(3)}) but a content container ` +
+        `matched by "${card.selector}" has a dark background (luminance ${card.luminance.toFixed(3)})`;
+      break;
+    }
+  }
+
+  return { pageBackground, contentCards, themeMismatch, mismatchDetails };
+}
+
 /**
  * UI metrics extracted from a page for consistency checking
  */

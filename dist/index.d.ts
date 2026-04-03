@@ -4132,6 +4132,19 @@ declare function captureWithDiagnostics(options: CaptureOptions & {
     outputDir?: string;
 }): Promise<CaptureResult>;
 
+interface ThemeAnalysis {
+    pageBackground: {
+        color: string;
+        luminance: number;
+    };
+    contentCards: Array<{
+        selector: string;
+        color: string;
+        luminance: number;
+    }>;
+    themeMismatch: boolean;
+    mismatchDetails?: string;
+}
 /**
  * UI metrics extracted from a page for consistency checking
  */
@@ -5445,6 +5458,35 @@ declare function addKnownIssue(outputDir: string, issue: string): Promise<Compac
  */
 declare function isCompactContextOversize(outputDir: string): Promise<boolean>;
 
+interface LayoutCollision {
+    element1: {
+        selector: string;
+        text: string;
+        bounds: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+    };
+    element2: {
+        selector: string;
+        text: string;
+        bounds: {
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+        };
+    };
+    overlapArea: number;
+    overlapPercent: number;
+}
+interface LayoutCollisionResult {
+    collisions: LayoutCollision[];
+    hasCollisions: boolean;
+}
+
 /**
  * Comprehensive UI scan result combining all IBR analysis capabilities
  */
@@ -5469,6 +5511,10 @@ interface ScanResult {
     };
     /** AX tree coverage report — gaps like canvas, iframes, shadow DOM */
     coverage?: CoverageReport;
+    /** Layout collision detection — overlapping text elements */
+    layoutCollisions?: LayoutCollisionResult;
+    /** Theme consistency — detects light content on dark page (and vice versa) */
+    themeAnalysis?: ThemeAnalysis;
     /** Overall scan verdict */
     verdict: 'PASS' | 'ISSUES' | 'FAIL';
     issues: ScanIssue[];

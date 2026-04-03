@@ -6,6 +6,8 @@ import { VIEWPORTS } from './schemas.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
 import { testInteractivity, type InteractivityResult } from './interactivity.js';
 import { getSemanticOutput, type SemanticResult } from './semantic/index.js';
+import { detectLayoutCollisions, type LayoutCollisionResult } from './layout-collision.js';
+import { analyzeThemeConsistency, type ThemeAnalysis } from './consistency.js';
 
 
 /**
@@ -37,6 +39,12 @@ export interface ScanResult {
 
   /** AX tree coverage report — gaps like canvas, iframes, shadow DOM */
   coverage?: CoverageReport;
+
+  /** Layout collision detection — overlapping text elements */
+  layoutCollisions?: LayoutCollisionResult;
+
+  /** Theme consistency — detects light content on dark page (and vice versa) */
+  themeAnalysis?: ThemeAnalysis;
 
   /** Overall scan verdict */
   verdict: 'PASS' | 'ISSUES' | 'FAIL';
@@ -131,11 +139,12 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     }
 
     // Run all analyses in parallel where possible
-    const [elements, interactivity, semantic, coverage] = await Promise.all([
+    const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
       testInteractivity(page),
       getSemanticOutput(page),
       driver.getCoverage().catch(() => undefined),
+      analyzeThemeConsistency(page).catch(() => undefined),
     ]);
 
     // Capture screenshot if requested
@@ -154,8 +163,11 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       route = url;
     }
 
+    // Detect layout collisions in extracted elements
+    const layoutCollisions = detectLayoutCollisions(elements.all);
+
     // Aggregate issues
-    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors);
+    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
     const verdict = determineVerdict(issues);
     const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
 
@@ -172,6 +184,8 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
         warnings: consoleWarnings,
       },
       coverage,
+      layoutCollisions,
+      themeAnalysis,
       verdict,
       issues,
       summary,
@@ -203,7 +217,8 @@ export function aggregateIssues(
   audit: AuditResult,
   interactivity: InteractivityResult,
   semantic: SemanticResult,
-  consoleErrors: string[]
+  consoleErrors: string[],
+  themeAnalysis?: ThemeAnalysis
 ): ScanIssue[] {
   const issues: ScanIssue[] = [];
 
@@ -236,6 +251,16 @@ export function aggregateIssues(
       category: 'semantic',
       severity: issue.severity as 'error' | 'warning' | 'info',
       description: issue.problem,
+    });
+  }
+
+  // Theme mismatch
+  if (themeAnalysis?.themeMismatch) {
+    issues.push({
+      category: 'semantic',
+      severity: 'warning',
+      description: themeAnalysis.mismatchDetails ?? 'Content card has different theme than page background',
+      fix: 'Ensure content containers match the page theme (dark/light)',
     });
   }
 
@@ -423,6 +448,22 @@ export function formatScanResult(result: ScanResult): string {
     }
     if (result.console.warnings.length > 0) {
       lines.push(`  Warnings: ${result.console.warnings.length}`);
+    }
+    lines.push('');
+  }
+
+  // Layout collisions
+  if (result.layoutCollisions?.hasCollisions) {
+    const { collisions } = result.layoutCollisions;
+    lines.push('  LAYOUT');
+    lines.push('  ──────');
+    lines.push(`  Collisions: ${collisions.length}`);
+    for (const c of collisions) {
+      const overlapPx = Math.round(Math.sqrt(c.overlapArea));
+      const pct = Math.round(c.overlapPercent);
+      const t1 = c.element1.text.slice(0, 30);
+      const t2 = c.element2.text.slice(0, 30);
+      lines.push(`    \x1b[31m✗\x1b[0m "${t1}" overlaps "${t2}" by ${pct}% (${overlapPx}px overlap)`);
     }
     lines.push('');
   }
