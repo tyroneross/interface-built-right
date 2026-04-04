@@ -93,9 +93,14 @@ export async function detectAuthState(page: Page): Promise<AuthState> {
     );
 
     // Check cookies/localStorage hints (careful - limited access)
-    const hasAuthCookie = document.cookie.includes('auth') ||
-      document.cookie.includes('session') ||
-      document.cookie.includes('token');
+    let hasAuthCookie = false;
+    try {
+      hasAuthCookie = document.cookie.includes('auth') ||
+        document.cookie.includes('session') ||
+        document.cookie.includes('token');
+    } catch {
+      // SecurityError: httpOnly or __Secure- cookies can't be read via JS
+    }
 
     // Social login providers
     const socialProviderPatterns = ['google', 'github', 'apple', 'microsoft', 'facebook', 'discord'];

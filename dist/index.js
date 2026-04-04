@@ -5126,7 +5126,11 @@ async function detectAuthState(page) {
     const authRequired = doc.querySelector(
       '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
     );
-    const hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
+    let hasAuthCookie = false;
+    try {
+      hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
+    } catch {
+    }
     const socialProviderPatterns = ["google", "github", "apple", "microsoft", "facebook", "discord"];
     const socialTriggerPhrases = ["sign in with", "continue with"];
     const socialProviders = [];
