@@ -45,3 +45,4 @@ CLAUDE.md
 *.tgz
 .worktrees/
 .bookmark/
+.mockup-gallery/
