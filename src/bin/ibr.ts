@@ -74,6 +74,33 @@ function formatFixGuide(guide: FixGuide): string {
 
 const program = new Command();
 
+// ─────────────────────────────────────────────────────────────────────────
+// Session-command hang fix
+//
+// Every session:* subcommand (click, type, wait, scan, screenshot, capture,
+// html, text, eval, actions, navigate, modal, etc.) calls
+// `connectToBrowserServer` which opens a fresh CDP WebSocket to the shared
+// browser-server Chrome. When the action resolves, that WebSocket is still
+// open — node's event loop cannot exit, and the CLI hangs indefinitely.
+//
+// `session:start` is the exception: its action intentionally blocks on a
+// SIGINT-waiting Promise because it hosts the browser-server for its whole
+// lifetime. When that Promise resolves (on Ctrl+C), postAction fires and
+// force-exit is correct.
+//
+// `session:list`, `session:pending`, and `session:close` do not open a
+// session WebSocket, so they already exit cleanly — but the postAction hook
+// is idempotent and safe to run after them anyway.
+//
+// The setImmediate lets any pending stdout writes flush before the exit.
+// ─────────────────────────────────────────────────────────────────────────
+program.hook('postAction', (_thisCommand, actionCommand) => {
+  const name = actionCommand.name();
+  if (!name.startsWith('session:')) return;
+  const code = typeof process.exitCode === 'number' ? process.exitCode : 0;
+  setImmediate(() => process.exit(code));
+});
+
 // Load config from .ibrrc.json if it exists
 async function loadConfig(): Promise<Partial<Config>> {
   const configPath = join(process.cwd(), '.ibrrc.json');

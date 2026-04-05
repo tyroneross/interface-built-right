@@ -1,11 +1,51 @@
-#!/usr/bin/env node
-"use strict";
-var __create = Object.create;
+'use strict';
+
+var child_process = require('child_process');
+var fs = require('fs');
+var fs$1 = require('fs/promises');
+var os = require('os');
+var path = require('path');
+var pixelmatch = require('pixelmatch');
+var pngjs = require('pngjs');
+var zod = require('zod');
+var crypto = require('crypto');
+var nanoid = require('nanoid');
+var url = require('url');
+var util = require('util');
+var commander = require('commander');
+
+function _interopDefault (e) { return e && e.__esModule ? e : { default: e }; }
+
+function _interopNamespace(e) {
+  if (e && e.__esModule) return e;
+  var n = Object.create(null);
+  if (e) {
+    Object.keys(e).forEach(function (k) {
+      if (k !== 'default') {
+        var d = Object.getOwnPropertyDescriptor(e, k);
+        Object.defineProperty(n, k, d.get ? d : {
+          enumerable: true,
+          get: function () { return e[k]; }
+        });
+      }
+    });
+  }
+  n.default = e;
+  return Object.freeze(n);
+}
+
+var fs__namespace = /*#__PURE__*/_interopNamespace(fs$1);
+var path__namespace = /*#__PURE__*/_interopNamespace(path);
+var pixelmatch__default = /*#__PURE__*/_interopDefault(pixelmatch);
+
 var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
 var __esm = (fn, res) => function __init() {
   return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
 };
@@ -13,28 +53,11 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
 
 // src/engine/cdp/connection.ts
 var DEFAULT_TIMEOUT_MS, CdpConnection;
 var init_connection = __esm({
   "src/engine/cdp/connection.ts"() {
-    "use strict";
     DEFAULT_TIMEOUT_MS = 3e4;
     CdpConnection = class {
       ws = null;
@@ -151,26 +174,18 @@ var init_connection = __esm({
     };
   }
 });
-
-// src/engine/cdp/browser.ts
 function findChrome() {
   for (const p of CHROME_PATHS) {
-    if ((0, import_node_fs.existsSync)(p)) return p;
+    if (fs.existsSync(p)) return p;
   }
   return null;
 }
 function randomPort() {
   return 49152 + Math.floor(Math.random() * (65535 - 49152));
 }
-var import_node_child_process, import_node_fs, import_promises, import_node_os, import_node_path, CHROME_PATHS, BrowserManager;
+var CHROME_PATHS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
-    "use strict";
-    import_node_child_process = require("child_process");
-    import_node_fs = require("fs");
-    import_promises = require("fs/promises");
-    import_node_os = require("os");
-    import_node_path = require("path");
     CHROME_PATHS = [
       // macOS
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -190,11 +205,11 @@ var init_browser = __esm({
       async launch(options = {}) {
         const headless = options.headless ?? true;
         this._port = options.port ?? randomPort();
-        let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+        let userDataDir = options.userDataDir ?? path.join(os.homedir(), ".ibr", "chromium-profile");
         if (!options.userDataDir) {
-          const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
-          if ((0, import_node_fs.existsSync)(lockPath)) {
-            userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+          const lockPath = path.join(userDataDir, "SingletonLock");
+          if (fs.existsSync(lockPath)) {
+            userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
           }
         }
         const chromePath = options.chromePath ?? findChrome();
@@ -204,7 +219,7 @@ var init_browser = __esm({
 Checked: ${CHROME_PATHS.join(", ")}`
           );
         }
-        await (0, import_promises.mkdir)(userDataDir, { recursive: true });
+        await fs$1.mkdir(userDataDir, { recursive: true });
         const args = [
           `--remote-debugging-port=${this._port}`,
           `--user-data-dir=${userDataDir}`,
@@ -220,7 +235,7 @@ Checked: ${CHROME_PATHS.join(", ")}`
           args.push("--disable-lcd-text");
           args.push("--force-device-scale-factor=1");
         }
-        this.process = (0, import_node_child_process.spawn)(chromePath, args, { stdio: "pipe" });
+        this.process = child_process.spawn(chromePath, args, { stdio: "pipe" });
         this.process.on("error", (err) => {
           console.error(`Chrome process error: ${err.message}`);
         });
@@ -274,7 +289,6 @@ Checked: ${CHROME_PATHS.join(", ")}`
 var TargetDomain;
 var init_target = __esm({
   "src/engine/cdp/target.ts"() {
-    "use strict";
     TargetDomain = class {
       constructor(conn) {
         this.conn = conn;
@@ -308,7 +322,6 @@ var init_target = __esm({
 var PageDomain;
 var init_page = __esm({
   "src/engine/cdp/page.ts"() {
-    "use strict";
     PageDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -416,13 +429,11 @@ var init_page = __esm({
 
 // src/engine/normalize.ts
 function normalizeRole(rawRole, platform) {
-  if (platform === "web") return WEB_ROLES[rawRole] ?? "group";
-  return MACOS_ROLES[rawRole] ?? "group";
+  return WEB_ROLES[rawRole] ?? "group";
 }
-var WEB_ROLES, MACOS_ROLES;
+var WEB_ROLES;
 var init_normalize = __esm({
   "src/engine/normalize.ts"() {
-    "use strict";
     WEB_ROLES = {
       button: "button",
       textbox: "textfield",
@@ -451,32 +462,6 @@ var init_normalize = __esm({
       section: "group",
       complementary: "group"
     };
-    MACOS_ROLES = {
-      AXButton: "button",
-      AXTextField: "textfield",
-      AXTextArea: "textfield",
-      AXLink: "link",
-      AXCheckBox: "checkbox",
-      AXSwitch: "switch",
-      AXSlider: "slider",
-      AXTab: "tab",
-      AXRadioButton: "tab",
-      AXPopUpButton: "select",
-      AXComboBox: "select",
-      AXStaticText: "text",
-      AXImage: "image",
-      AXGroup: "group",
-      AXWindow: "group",
-      AXScrollArea: "group",
-      AXToolbar: "group",
-      AXSplitGroup: "group",
-      AXList: "group",
-      AXOutline: "group",
-      AXTable: "group",
-      AXRow: "group",
-      AXColumn: "group",
-      AXCell: "group"
-    };
   }
 });
 
@@ -484,7 +469,6 @@ var init_normalize = __esm({
 var SKIP_ROLES, AccessibilityDomain;
 var init_accessibility = __esm({
   "src/engine/cdp/accessibility.ts"() {
-    "use strict";
     init_normalize();
     SKIP_ROLES = /* @__PURE__ */ new Set(["WebArea", "RootWebArea", "GenericContainer", "none", "IgnoredRole"]);
     AccessibilityDomain = class {
@@ -593,7 +577,7 @@ var init_accessibility = __esm({
         }
         for (const node of nodes) {
           if (SKIP_ROLES.has(node.role.value)) continue;
-          const role = normalizeRole(node.role.value, "web");
+          const role = normalizeRole(node.role.value);
           const label = node.name?.value ?? "";
           if (role === "group" && !label) continue;
           const id = node.backendDOMNodeId ? `e${node.backendDOMNodeId}` : `ex${Math.random().toString(36).slice(2, 8)}`;
@@ -644,7 +628,6 @@ var init_accessibility = __esm({
 var DomDomain;
 var init_dom = __esm({
   "src/engine/cdp/dom.ts"() {
-    "use strict";
     DomDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -739,7 +722,6 @@ function charToCode(char) {
 var InputDomain, SPECIAL_KEYS, SPECIAL_CODES;
 var init_input = __esm({
   "src/engine/cdp/input.ts"() {
-    "use strict";
     InputDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -884,7 +866,6 @@ var init_input = __esm({
 var RuntimeDomain;
 var init_runtime = __esm({
   "src/engine/cdp/runtime.ts"() {
-    "use strict";
     RuntimeDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -954,7 +935,6 @@ var init_runtime = __esm({
 var CssDomain;
 var init_css = __esm({
   "src/engine/cdp/css.ts"() {
-    "use strict";
     CssDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -1004,7 +984,6 @@ var init_css = __esm({
 var SnapshotDomain;
 var init_snapshot = __esm({
   "src/engine/cdp/snapshot.ts"() {
-    "use strict";
     SnapshotDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -1065,7 +1044,6 @@ var init_snapshot = __esm({
 var EmulationDomain;
 var init_emulation = __esm({
   "src/engine/cdp/emulation.ts"() {
-    "use strict";
     EmulationDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -1110,7 +1088,6 @@ var init_emulation = __esm({
 var NetworkDomain;
 var init_network = __esm({
   "src/engine/cdp/network.ts"() {
-    "use strict";
     NetworkDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -1171,7 +1148,6 @@ var init_network = __esm({
 var ConsoleDomain;
 var init_console = __esm({
   "src/engine/cdp/console.ts"() {
-    "use strict";
     ConsoleDomain = class {
       constructor(conn, sessionId) {
         this.conn = conn;
@@ -1256,7 +1232,7 @@ async function waitForStableTree(getSnapshot, options) {
   return { elements, timedOut: true };
 }
 async function waitForStable(conn, getSnapshot, options) {
-  const eventName = options?.eventName ?? "Accessibility.nodesUpdated";
+  const eventName = options?.eventName;
   const timeout = options?.timeout ?? 1e4;
   const stableTime = options?.stableTime ?? 300;
   const deadline = Date.now() + timeout;
@@ -1292,7 +1268,6 @@ async function waitForStable(conn, getSnapshot, options) {
 }
 var init_wait = __esm({
   "src/engine/cdp/wait.ts"() {
-    "use strict";
   }
 });
 
@@ -1330,7 +1305,6 @@ function serializeElement(el) {
 }
 var init_serialize = __esm({
   "src/engine/serialize.ts"() {
-    "use strict";
   }
 });
 
@@ -1370,7 +1344,6 @@ function describeAction(el) {
 }
 var init_observe = __esm({
   "src/engine/observe.ts"() {
-    "use strict";
     init_serialize();
   }
 });
@@ -1438,7 +1411,6 @@ function findMatchingElement(elements, field) {
 }
 var init_extract = __esm({
   "src/engine/extract.ts"() {
-    "use strict";
   }
 });
 
@@ -1446,7 +1418,6 @@ var init_extract = __esm({
 var ResolutionCache;
 var init_cache = __esm({
   "src/engine/cache.ts"() {
-    "use strict";
     ResolutionCache = class {
       cache = /* @__PURE__ */ new Map();
       maxEntries;
@@ -1638,7 +1609,6 @@ function buildReasoning(score, threshold, dims) {
 }
 var init_modality = __esm({
   "src/engine/modality.ts"() {
-    "use strict";
   }
 });
 
@@ -1689,7 +1659,6 @@ async function extractShadowElements(runtime) {
 }
 var init_shadow_dom = __esm({
   "src/engine/shadow-dom.ts"() {
-    "use strict";
   }
 });
 
@@ -1942,7 +1911,6 @@ function jaroDistance(s1, s2) {
 }
 var init_resolve = __esm({
   "src/engine/resolve.ts"() {
-    "use strict";
   }
 });
 
@@ -1957,10 +1925,9 @@ function chunkElements(elements, maxTokens) {
   const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
   return elements.slice(0, maxElements);
 }
-var import_pixelmatch, import_pngjs, EngineDriver;
+var EngineDriver;
 var init_driver = __esm({
   "src/engine/driver.ts"() {
-    "use strict";
     init_connection();
     init_browser();
     init_target();
@@ -1975,8 +1942,6 @@ var init_driver = __esm({
     init_network();
     init_console();
     init_wait();
-    import_pixelmatch = __toESM(require("pixelmatch"));
-    import_pngjs = require("pngjs");
     init_serialize();
     init_observe();
     init_extract();
@@ -2038,6 +2003,27 @@ var init_driver = __esm({
         await this.browser.close();
         this.launched = false;
       }
+      /**
+       * Release the CDP WebSocket for this driver without terminating the browser.
+       * Used by one-shot CLI commands that attach to a shared browser-server via
+       * connectExisting() — they must drop their WebSocket at the end of the
+       * command so the node process can exit, but the browser-server's Chrome
+       * process must keep running for subsequent commands.
+       *
+       * Closes the per-command tab that was spawned in connectExisting(), then
+       * closes the WebSocket. Does NOT call this.browser.close() (which would
+       * terminate the whole browser-server process).
+       */
+      async disconnect() {
+        if (this.targetId) {
+          await this.target.close(this.targetId).catch(() => {
+          });
+          this.targetId = null;
+        }
+        await this.conn.close().catch(() => {
+        });
+        this.launched = false;
+      }
       get isLaunched() {
         return this.launched;
       }
@@ -2094,9 +2080,7 @@ var init_driver = __esm({
           const snap = {
             url: this._currentUrl,
             platform: "web",
-            elements: filtered,
-            timestamp: Date.now()
-          };
+            elements: filtered};
           return serializeSnapshot(snap);
         }
         return filtered;
@@ -2280,12 +2264,12 @@ var init_driver = __esm({
         const removedElements = beforeElements.filter((e) => !afterIds.has(e.id));
         let pixelDiff = 0;
         try {
-          const beforePng = import_pngjs.PNG.sync.read(beforeScreenshot);
-          const afterPng = import_pngjs.PNG.sync.read(afterScreenshot);
+          const beforePng = pngjs.PNG.sync.read(beforeScreenshot);
+          const afterPng = pngjs.PNG.sync.read(afterScreenshot);
           if (beforePng.width === afterPng.width && beforePng.height === afterPng.height) {
             const { width, height } = beforePng;
-            const diffPng = new import_pngjs.PNG({ width, height });
-            pixelDiff = (0, import_pixelmatch.default)(beforePng.data, afterPng.data, diffPng.data, width, height, {
+            const diffPng = new pngjs.PNG({ width, height });
+            pixelDiff = pixelmatch__default.default(beforePng.data, afterPng.data, diffPng.data, width, height, {
               threshold: 0.1,
               includeAA: false
             });
@@ -2684,12 +2668,9 @@ __export(compat_exports, {
   CompatLocator: () => CompatLocator,
   CompatPage: () => CompatPage
 });
-var import_promises2, import_path, CompatElementHandle, CompatLocator, CompatPage;
+var CompatElementHandle, CompatLocator, CompatPage;
 var init_compat = __esm({
   "src/engine/compat.ts"() {
-    "use strict";
-    import_promises2 = require("fs/promises");
-    import_path = require("path");
     CompatElementHandle = class {
       constructor(driver3, nodeId) {
         this.driver = driver3;
@@ -2704,8 +2685,8 @@ var init_compat = __esm({
           clip: { x, y, width: model.width, height: model.height }
         });
         if (options?.path) {
-          await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
-          await (0, import_promises2.writeFile)(options.path, buf);
+          await fs$1.mkdir(path.dirname(options.path), { recursive: true });
+          await fs$1.writeFile(options.path, buf);
         }
         return buf;
       }
@@ -2850,8 +2831,8 @@ var init_compat = __esm({
           fullPage: options?.fullPage
         });
         if (options?.path) {
-          await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
-          await (0, import_promises2.writeFile)(options.path, buf);
+          await fs$1.mkdir(path.dirname(options.path), { recursive: true });
+          await fs$1.writeFile(options.path, buf);
         }
         return buf;
       }
@@ -2987,17 +2968,13 @@ var init_compat = __esm({
     };
   }
 });
-
-// src/schemas.ts
-var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema;
+var ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema;
 var init_schemas = __esm({
   "src/schemas.ts"() {
-    "use strict";
-    import_zod = require("zod");
-    ViewportSchema = import_zod.z.object({
-      name: import_zod.z.string().min(1).max(50),
-      width: import_zod.z.number().min(100).max(3840),
-      height: import_zod.z.number().min(100).max(2160)
+    ViewportSchema = zod.z.object({
+      name: zod.z.string().min(1).max(50),
+      width: zod.z.number().min(100).max(3840),
+      height: zod.z.number().min(100).max(2160)
     });
     VIEWPORTS = {
       desktop: { name: "desktop", width: 1920, height: 1080 },
@@ -3019,143 +2996,143 @@ var init_schemas = __esm({
       "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
       "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
     };
-    ConfigSchema = import_zod.z.object({
-      baseUrl: import_zod.z.string().url("Must be a valid URL"),
-      outputDir: import_zod.z.string().default("./.ibr"),
+    ConfigSchema = zod.z.object({
+      baseUrl: zod.z.string().url("Must be a valid URL"),
+      outputDir: zod.z.string().default("./.ibr"),
       viewport: ViewportSchema.default(VIEWPORTS.desktop),
-      viewports: import_zod.z.array(ViewportSchema).optional(),
+      viewports: zod.z.array(ViewportSchema).optional(),
       // Multi-viewport support
-      threshold: import_zod.z.number().min(0).max(100).default(1),
-      fullPage: import_zod.z.boolean().default(true),
-      waitForNetworkIdle: import_zod.z.boolean().default(true),
-      timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4)
+      threshold: zod.z.number().min(0).max(100).default(1),
+      fullPage: zod.z.boolean().default(true),
+      waitForNetworkIdle: zod.z.boolean().default(true),
+      timeout: zod.z.number().min(1e3).max(12e4).default(3e4)
     });
-    SessionQuerySchema = import_zod.z.object({
-      route: import_zod.z.string().optional(),
-      url: import_zod.z.string().optional(),
-      status: import_zod.z.enum(["baseline", "compared", "pending"]).optional(),
-      name: import_zod.z.string().optional(),
-      createdAfter: import_zod.z.date().optional(),
-      createdBefore: import_zod.z.date().optional(),
-      viewport: import_zod.z.string().optional(),
-      limit: import_zod.z.number().min(1).max(100).default(50)
+    SessionQuerySchema = zod.z.object({
+      route: zod.z.string().optional(),
+      url: zod.z.string().optional(),
+      status: zod.z.enum(["baseline", "compared", "pending"]).optional(),
+      name: zod.z.string().optional(),
+      createdAfter: zod.z.date().optional(),
+      createdBefore: zod.z.date().optional(),
+      viewport: zod.z.string().optional(),
+      limit: zod.z.number().min(1).max(100).default(50)
     });
-    ComparisonResultSchema = import_zod.z.object({
-      match: import_zod.z.boolean(),
-      diffPercent: import_zod.z.number(),
-      diffPixels: import_zod.z.number(),
-      totalPixels: import_zod.z.number(),
-      threshold: import_zod.z.number()
+    ComparisonResultSchema = zod.z.object({
+      match: zod.z.boolean(),
+      diffPercent: zod.z.number(),
+      diffPixels: zod.z.number(),
+      totalPixels: zod.z.number(),
+      threshold: zod.z.number()
     });
-    ChangedRegionSchema = import_zod.z.object({
-      location: import_zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
-      bounds: import_zod.z.object({
-        x: import_zod.z.number(),
-        y: import_zod.z.number(),
-        width: import_zod.z.number(),
-        height: import_zod.z.number()
+    ChangedRegionSchema = zod.z.object({
+      location: zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
+      bounds: zod.z.object({
+        x: zod.z.number(),
+        y: zod.z.number(),
+        width: zod.z.number(),
+        height: zod.z.number()
       }),
-      description: import_zod.z.string(),
-      severity: import_zod.z.enum(["expected", "unexpected", "critical"])
+      description: zod.z.string(),
+      severity: zod.z.enum(["expected", "unexpected", "critical"])
     });
-    VerdictSchema = import_zod.z.enum([
+    VerdictSchema = zod.z.enum([
       "MATCH",
       "EXPECTED_CHANGE",
       "UNEXPECTED_CHANGE",
       "LAYOUT_BROKEN"
     ]);
-    AnalysisSchema = import_zod.z.object({
+    AnalysisSchema = zod.z.object({
       verdict: VerdictSchema,
-      summary: import_zod.z.string(),
-      changedRegions: import_zod.z.array(ChangedRegionSchema),
-      unexpectedChanges: import_zod.z.array(ChangedRegionSchema),
-      recommendation: import_zod.z.string().nullable()
+      summary: zod.z.string(),
+      changedRegions: zod.z.array(ChangedRegionSchema),
+      unexpectedChanges: zod.z.array(ChangedRegionSchema),
+      recommendation: zod.z.string().nullable()
     });
-    SessionStatusSchema = import_zod.z.enum(["baseline", "compared", "pending"]);
-    BoundsSchema = import_zod.z.object({
-      x: import_zod.z.number(),
-      y: import_zod.z.number(),
-      width: import_zod.z.number(),
-      height: import_zod.z.number()
+    SessionStatusSchema = zod.z.enum(["baseline", "compared", "pending"]);
+    BoundsSchema = zod.z.object({
+      x: zod.z.number(),
+      y: zod.z.number(),
+      width: zod.z.number(),
+      height: zod.z.number()
     });
-    LandmarkElementSchema = import_zod.z.object({
-      name: import_zod.z.string(),
+    LandmarkElementSchema = zod.z.object({
+      name: zod.z.string(),
       // e.g., 'logo', 'header', 'nav'
-      selector: import_zod.z.string(),
+      selector: zod.z.string(),
       // CSS selector used to find it
-      found: import_zod.z.boolean(),
+      found: zod.z.boolean(),
       bounds: BoundsSchema.optional()
     });
-    SessionSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      name: import_zod.z.string(),
-      url: import_zod.z.string().min(1),
+    SessionSchema = zod.z.object({
+      id: zod.z.string(),
+      name: zod.z.string(),
+      url: zod.z.string().min(1),
       viewport: ViewportSchema,
       status: SessionStatusSchema,
-      platform: import_zod.z.enum(["web", "ios", "watchos"]).optional(),
-      createdAt: import_zod.z.string().datetime(),
-      updatedAt: import_zod.z.string().datetime(),
+      platform: zod.z.enum(["web", "ios", "watchos"]).optional(),
+      createdAt: zod.z.string().datetime(),
+      updatedAt: zod.z.string().datetime(),
       comparison: ComparisonResultSchema.optional(),
       analysis: AnalysisSchema.optional(),
       // Landmark elements detected at baseline capture
-      landmarkElements: import_zod.z.array(LandmarkElementSchema).optional(),
+      landmarkElements: zod.z.array(LandmarkElementSchema).optional(),
       // Page intent detected at baseline
-      pageIntent: import_zod.z.string().optional()
+      pageIntent: zod.z.string().optional()
     });
-    ComparisonReportSchema = import_zod.z.object({
-      sessionId: import_zod.z.string(),
-      sessionName: import_zod.z.string(),
-      url: import_zod.z.string(),
-      timestamp: import_zod.z.string().datetime(),
+    ComparisonReportSchema = zod.z.object({
+      sessionId: zod.z.string(),
+      sessionName: zod.z.string(),
+      url: zod.z.string(),
+      timestamp: zod.z.string().datetime(),
       viewport: ViewportSchema,
       comparison: ComparisonResultSchema,
       analysis: AnalysisSchema,
-      files: import_zod.z.object({
-        baseline: import_zod.z.string(),
-        current: import_zod.z.string(),
-        diff: import_zod.z.string()
+      files: zod.z.object({
+        baseline: zod.z.string(),
+        current: zod.z.string(),
+        diff: zod.z.string()
       }),
-      webViewUrl: import_zod.z.string().optional()
+      webViewUrl: zod.z.string().optional()
     });
-    InteractiveStateSchema = import_zod.z.object({
-      hasOnClick: import_zod.z.boolean(),
-      hasHref: import_zod.z.boolean(),
-      isDisabled: import_zod.z.boolean(),
-      tabIndex: import_zod.z.number(),
-      cursor: import_zod.z.string(),
+    InteractiveStateSchema = zod.z.object({
+      hasOnClick: zod.z.boolean(),
+      hasHref: zod.z.boolean(),
+      isDisabled: zod.z.boolean(),
+      tabIndex: zod.z.number(),
+      cursor: zod.z.string(),
       // Framework-specific detection
-      hasReactHandler: import_zod.z.boolean().optional(),
-      hasVueHandler: import_zod.z.boolean().optional(),
-      hasAngularHandler: import_zod.z.boolean().optional()
+      hasReactHandler: zod.z.boolean().optional(),
+      hasVueHandler: zod.z.boolean().optional(),
+      hasAngularHandler: zod.z.boolean().optional()
     });
-    A11yAttributesSchema = import_zod.z.object({
-      role: import_zod.z.string().nullable(),
-      ariaLabel: import_zod.z.string().nullable(),
-      ariaDescribedBy: import_zod.z.string().nullable(),
-      ariaHidden: import_zod.z.boolean().optional()
+    A11yAttributesSchema = zod.z.object({
+      role: zod.z.string().nullable(),
+      ariaLabel: zod.z.string().nullable(),
+      ariaDescribedBy: zod.z.string().nullable(),
+      ariaHidden: zod.z.boolean().optional()
     });
-    EnhancedElementSchema = import_zod.z.object({
+    EnhancedElementSchema = zod.z.object({
       // Identity
-      selector: import_zod.z.string(),
-      tagName: import_zod.z.string(),
-      id: import_zod.z.string().optional(),
-      className: import_zod.z.string().optional(),
-      text: import_zod.z.string().optional(),
+      selector: zod.z.string(),
+      tagName: zod.z.string(),
+      id: zod.z.string().optional(),
+      className: zod.z.string().optional(),
+      text: zod.z.string().optional(),
       // Position
       bounds: BoundsSchema,
       // Styles (subset)
-      computedStyles: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+      computedStyles: zod.z.record(zod.z.string(), zod.z.string()).optional(),
       // Interactivity
       interactive: InteractiveStateSchema,
       // Accessibility
       a11y: A11yAttributesSchema,
       // Source hints for debugging
-      sourceHint: import_zod.z.object({
-        dataTestId: import_zod.z.string().nullable()
+      sourceHint: zod.z.object({
+        dataTestId: zod.z.string().nullable()
       }).optional()
     });
-    ElementIssueSchema = import_zod.z.object({
-      type: import_zod.z.enum([
+    ElementIssueSchema = zod.z.object({
+      type: zod.z.enum([
         "NO_HANDLER",
         // Interactive-looking but no handler
         "PLACEHOLDER_LINK",
@@ -3167,49 +3144,49 @@ var init_schemas = __esm({
         "DISABLED_NO_VISUAL"
         // Disabled but no visual indication
       ]),
-      severity: import_zod.z.enum(["error", "warning", "info"]),
-      message: import_zod.z.string()
+      severity: zod.z.enum(["error", "warning", "info"]),
+      message: zod.z.string()
     });
-    AuditResultSchema = import_zod.z.object({
-      totalElements: import_zod.z.number(),
-      interactiveCount: import_zod.z.number(),
-      withHandlers: import_zod.z.number(),
-      withoutHandlers: import_zod.z.number(),
-      issues: import_zod.z.array(ElementIssueSchema)
+    AuditResultSchema = zod.z.object({
+      totalElements: zod.z.number(),
+      interactiveCount: zod.z.number(),
+      withHandlers: zod.z.number(),
+      withoutHandlers: zod.z.number(),
+      issues: zod.z.array(ElementIssueSchema)
     });
-    RuleSeveritySchema = import_zod.z.enum(["off", "warn", "error"]);
-    RuleSettingSchema = import_zod.z.union([
+    RuleSeveritySchema = zod.z.enum(["off", "warn", "error"]);
+    RuleSettingSchema = zod.z.union([
       RuleSeveritySchema,
-      import_zod.z.tuple([RuleSeveritySchema, import_zod.z.record(import_zod.z.string(), import_zod.z.unknown())])
+      zod.z.tuple([RuleSeveritySchema, zod.z.record(zod.z.string(), zod.z.unknown())])
     ]);
-    RulesConfigSchema = import_zod.z.object({
-      extends: import_zod.z.array(import_zod.z.string()).optional(),
-      rules: import_zod.z.record(import_zod.z.string(), RuleSettingSchema).optional()
+    RulesConfigSchema = zod.z.object({
+      extends: zod.z.array(zod.z.string()).optional(),
+      rules: zod.z.record(zod.z.string(), RuleSettingSchema).optional()
     });
-    ViolationSchema = import_zod.z.object({
-      ruleId: import_zod.z.string(),
-      ruleName: import_zod.z.string(),
-      severity: import_zod.z.enum(["warn", "error"]),
-      message: import_zod.z.string(),
-      element: import_zod.z.string().optional(),
+    ViolationSchema = zod.z.object({
+      ruleId: zod.z.string(),
+      ruleName: zod.z.string(),
+      severity: zod.z.enum(["warn", "error"]),
+      message: zod.z.string(),
+      element: zod.z.string().optional(),
       // Selector of violating element
       bounds: BoundsSchema.optional(),
-      fix: import_zod.z.string().optional()
+      fix: zod.z.string().optional()
       // Suggested fix
     });
-    RuleAuditResultSchema = import_zod.z.object({
-      url: import_zod.z.string(),
-      timestamp: import_zod.z.string(),
-      elementsScanned: import_zod.z.number(),
-      violations: import_zod.z.array(ViolationSchema),
-      summary: import_zod.z.object({
-        errors: import_zod.z.number(),
-        warnings: import_zod.z.number(),
-        passed: import_zod.z.number()
+    RuleAuditResultSchema = zod.z.object({
+      url: zod.z.string(),
+      timestamp: zod.z.string(),
+      elementsScanned: zod.z.number(),
+      violations: zod.z.array(ViolationSchema),
+      summary: zod.z.object({
+        errors: zod.z.number(),
+        warnings: zod.z.number(),
+        passed: zod.z.number()
       })
     });
-    MemorySourceSchema = import_zod.z.enum(["user", "learned", "framework"]);
-    PreferenceCategorySchema = import_zod.z.enum([
+    MemorySourceSchema = zod.z.enum(["user", "learned", "framework"]);
+    PreferenceCategorySchema = zod.z.enum([
       "color",
       "layout",
       "typography",
@@ -3219,60 +3196,60 @@ var init_schemas = __esm({
       "interaction",
       "content"
     ]);
-    ExpectationOperatorSchema = import_zod.z.enum(["equals", "contains", "matches", "gte", "lte"]);
-    ExpectationSchema = import_zod.z.object({
-      property: import_zod.z.string(),
+    ExpectationOperatorSchema = zod.z.enum(["equals", "contains", "matches", "gte", "lte"]);
+    ExpectationSchema = zod.z.object({
+      property: zod.z.string(),
       operator: ExpectationOperatorSchema,
-      value: import_zod.z.string()
+      value: zod.z.string()
     });
-    PreferenceSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      description: import_zod.z.string(),
+    PreferenceSchema = zod.z.object({
+      id: zod.z.string(),
+      description: zod.z.string(),
       category: PreferenceCategorySchema,
       source: MemorySourceSchema,
-      route: import_zod.z.string().optional(),
-      componentType: import_zod.z.string().optional(),
+      route: zod.z.string().optional(),
+      componentType: zod.z.string().optional(),
       expectation: ExpectationSchema,
-      confidence: import_zod.z.number().min(0).max(1).default(1),
-      createdAt: import_zod.z.string().datetime(),
-      updatedAt: import_zod.z.string().datetime(),
-      sessionIds: import_zod.z.array(import_zod.z.string()).optional()
+      confidence: zod.z.number().min(0).max(1).default(1),
+      createdAt: zod.z.string().datetime(),
+      updatedAt: zod.z.string().datetime(),
+      sessionIds: zod.z.array(zod.z.string()).optional()
     });
-    ObservationSchema = import_zod.z.object({
-      description: import_zod.z.string(),
+    ObservationSchema = zod.z.object({
+      description: zod.z.string(),
       category: PreferenceCategorySchema,
-      property: import_zod.z.string(),
-      value: import_zod.z.string()
+      property: zod.z.string(),
+      value: zod.z.string()
     });
-    LearnedExpectationSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      sessionId: import_zod.z.string(),
-      route: import_zod.z.string(),
-      observations: import_zod.z.array(ObservationSchema),
-      approved: import_zod.z.boolean(),
-      createdAt: import_zod.z.string().datetime()
+    LearnedExpectationSchema = zod.z.object({
+      id: zod.z.string(),
+      sessionId: zod.z.string(),
+      route: zod.z.string(),
+      observations: zod.z.array(ObservationSchema),
+      approved: zod.z.boolean(),
+      createdAt: zod.z.string().datetime()
     });
-    ActivePreferenceSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      description: import_zod.z.string(),
+    ActivePreferenceSchema = zod.z.object({
+      id: zod.z.string(),
+      description: zod.z.string(),
       category: PreferenceCategorySchema,
-      route: import_zod.z.string().optional(),
-      componentType: import_zod.z.string().optional(),
-      property: import_zod.z.string(),
+      route: zod.z.string().optional(),
+      componentType: zod.z.string().optional(),
+      property: zod.z.string(),
       operator: ExpectationOperatorSchema,
-      value: import_zod.z.string(),
-      confidence: import_zod.z.number()
+      value: zod.z.string(),
+      confidence: zod.z.number()
     });
-    MemorySummarySchema = import_zod.z.object({
-      version: import_zod.z.literal(1),
-      updatedAt: import_zod.z.string().datetime(),
-      stats: import_zod.z.object({
-        totalPreferences: import_zod.z.number(),
-        totalLearned: import_zod.z.number(),
-        byCategory: import_zod.z.record(import_zod.z.string(), import_zod.z.number()),
-        bySource: import_zod.z.record(import_zod.z.string(), import_zod.z.number())
+    MemorySummarySchema = zod.z.object({
+      version: zod.z.literal(1),
+      updatedAt: zod.z.string().datetime(),
+      stats: zod.z.object({
+        totalPreferences: zod.z.number(),
+        totalLearned: zod.z.number(),
+        byCategory: zod.z.record(zod.z.string(), zod.z.number()),
+        bySource: zod.z.record(zod.z.string(), zod.z.number())
       }),
-      activePreferences: import_zod.z.array(ActivePreferenceSchema)
+      activePreferences: zod.z.array(ActivePreferenceSchema)
     });
   }
 });
@@ -3281,7 +3258,6 @@ var init_schemas = __esm({
 var DEFAULT_DYNAMIC_SELECTORS;
 var init_types = __esm({
   "src/types.ts"() {
-    "use strict";
     DEFAULT_DYNAMIC_SELECTORS = [
       // Timestamps and dates
       '[data-testid*="timestamp"]',
@@ -3326,14 +3302,14 @@ function isDeployedEnvironment() {
   return !!(process.env.VERCEL || process.env.NETLIFY || process.env.CI || process.env.GITHUB_ACTIONS || process.env.GITLAB_CI || process.env.CIRCLECI || process.env.JENKINS_URL || process.env.TRAVIS || process.env.HEROKU || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.AZURE_FUNCTIONS_ENVIRONMENT);
 }
 function getAuthStatePath(outputDir) {
-  const username = (0, import_os.userInfo)().username;
-  return (0, import_path2.join)(outputDir, `auth.${username}.json`);
+  const username = os.userInfo().username;
+  return path.join(outputDir, `auth.${username}.json`);
 }
 function getSecureAuthPath(projectPath) {
-  const username = (0, import_os.userInfo)().username;
-  const projectHash = (0, import_crypto.createHash)("sha256").update((0, import_path2.resolve)(projectPath)).digest("hex").substring(0, 16);
-  return (0, import_path2.join)(
-    (0, import_os.homedir)(),
+  const username = os.userInfo().username;
+  const projectHash = crypto.createHash("sha256").update(path.resolve(projectPath)).digest("hex").substring(0, 16);
+  return path.join(
+    os.homedir(),
     ".config",
     "ibr",
     "auth",
@@ -3341,9 +3317,9 @@ function getSecureAuthPath(projectPath) {
   );
 }
 function validateGitignore(projectDir) {
-  const gitignorePath = (0, import_path2.join)(projectDir, ".gitignore");
-  if ((0, import_fs.existsSync)(gitignorePath)) {
-    const gitignore = (0, import_fs.readFileSync)(gitignorePath, "utf-8");
+  const gitignorePath = path.join(projectDir, ".gitignore");
+  if (fs.existsSync(gitignorePath)) {
+    const gitignore = fs.readFileSync(gitignorePath, "utf-8");
     const lines = gitignore.split("\n").map((l) => l.trim());
     const hasIbrIgnore = lines.some(
       (line) => line === ".ibr/" || line === ".ibr" || line === "**/.ibr/" || line === "**/.ibr"
@@ -3358,7 +3334,7 @@ function validateGitignore(projectDir) {
 }
 async function hasAuthState(outputDir) {
   try {
-    await (0, import_promises3.access)(getAuthStatePath(outputDir));
+    await fs$1.access(getAuthStatePath(outputDir));
     return true;
   } catch {
     return false;
@@ -3371,13 +3347,13 @@ async function loadAuthState(outputDir) {
   }
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises3.readFile)(authPath, "utf-8");
+    const content = await fs$1.readFile(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       console.warn("\u26A0\uFE0F  Legacy auth format detected. Please re-authenticate with `ibr login`.");
       return null;
     }
-    const currentUser = (0, import_os.userInfo)().username;
+    const currentUser = os.userInfo().username;
     if (stored.metadata.username !== currentUser) {
       console.warn(`\u26A0\uFE0F  Auth state belongs to different user (${stored.metadata.username}).`);
       return null;
@@ -3404,13 +3380,13 @@ async function performLogin(options) {
     );
   }
   validateGitignore(process.cwd());
-  await (0, import_promises3.mkdir)(outputDir, { recursive: true, mode: 448 });
+  await fs$1.mkdir(outputDir, { recursive: true, mode: 448 });
   try {
-    await (0, import_promises3.chmod)(outputDir, 448);
+    await fs$1.chmod(outputDir, 448);
   } catch {
   }
   const authStatePath = getAuthStatePath(outputDir);
-  const currentUser = (0, import_os.userInfo)().username;
+  const currentUser = os.userInfo().username;
   console.log("\n\u{1F510} Opening browser for login...");
   console.log(`   User: ${currentUser}`);
   console.log("   Navigate to your login page and complete authentication.");
@@ -3434,7 +3410,7 @@ async function performLogin(options) {
     ]);
   } catch (error) {
     if (driver3.isLaunched) {
-      await saveAuthState(driver3, authStatePath, outputDir);
+      await saveAuthState(driver3, authStatePath);
       await driver3.close();
     }
     if (error instanceof Error && error.message.includes("timeout")) {
@@ -3442,7 +3418,7 @@ async function performLogin(options) {
     }
   }
   if (driver3.isLaunched) {
-    await saveAuthState(driver3, authStatePath, outputDir);
+    await saveAuthState(driver3, authStatePath);
     await driver3.close();
   }
   console.log(`
@@ -3455,7 +3431,7 @@ async function performLogin(options) {
 async function saveAuthState(driver3, authStatePath, _outputDir) {
   const cookies = await driver3.getCookies();
   const state = { cookies, origins: [] };
-  const currentUser = (0, import_os.userInfo)().username;
+  const currentUser = os.userInfo().username;
   const storedState = {
     state,
     metadata: {
@@ -3463,27 +3439,27 @@ async function saveAuthState(driver3, authStatePath, _outputDir) {
       expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1e3,
       // 7 days
       username: currentUser,
-      projectPath: (0, import_path2.resolve)(process.cwd())
+      projectPath: path.resolve(process.cwd())
     }
   };
-  await (0, import_promises3.writeFile)(
+  await fs$1.writeFile(
     authStatePath,
     JSON.stringify(storedState, null, 2),
     { mode: 384 }
     // rw-------
   );
   try {
-    await (0, import_promises3.chmod)(authStatePath, 384);
+    await fs$1.chmod(authStatePath, 384);
   } catch {
   }
 }
 async function clearAuthState(outputDir) {
   const authPath = getAuthStatePath(outputDir);
   try {
-    const stats = await (0, import_promises3.stat)(authPath);
-    const randomData = (0, import_crypto.randomBytes)(stats.size);
-    await (0, import_promises3.writeFile)(authPath, randomData, { mode: 384 });
-    await (0, import_promises3.unlink)(authPath);
+    const stats = await fs$1.stat(authPath);
+    const randomData = crypto.randomBytes(stats.size);
+    await fs$1.writeFile(authPath, randomData, { mode: 384 });
+    await fs$1.unlink(authPath);
     console.log("\u2705 Auth state securely cleared");
   } catch {
     console.log("\u2139\uFE0F  No auth state to clear");
@@ -3492,7 +3468,7 @@ async function clearAuthState(outputDir) {
 async function getAuthStateInfo(outputDir) {
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises3.readFile)(authPath, "utf-8");
+    const content = await fs$1.readFile(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       return { exists: true };
@@ -3508,17 +3484,10 @@ async function getAuthStateInfo(outputDir) {
     return null;
   }
 }
-var import_promises3, import_path2, import_fs, import_os, import_crypto;
 var init_auth = __esm({
   "src/auth.ts"() {
-    "use strict";
     init_driver();
     init_compat();
-    import_promises3 = require("fs/promises");
-    import_path2 = require("path");
-    import_fs = require("fs");
-    import_os = require("os");
-    import_crypto = require("crypto");
   }
 });
 
@@ -3639,7 +3608,6 @@ function formatLandmarkComparison(comparison) {
 var LANDMARK_SELECTORS;
 var init_landmarks = __esm({
   "src/semantic/landmarks.ts"() {
-    "use strict";
     LANDMARK_SELECTORS = {
       logo: 'img[src*="logo"], img[alt*="logo" i], [class*="logo"], [id*="logo"], svg[class*="logo"]',
       header: 'header, [role="banner"], [class*="header"]:not([class*="subheader"])',
@@ -3908,7 +3876,6 @@ function getIntentDescription(intent) {
 }
 var init_page_intent = __esm({
   "src/semantic/page-intent.ts"() {
-    "use strict";
   }
 });
 
@@ -4006,7 +3973,7 @@ async function captureScreenshot(options) {
     waitFor,
     delay
   } = options;
-  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+  await fs$1.mkdir(path.dirname(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -4062,7 +4029,7 @@ async function captureWithLandmarks(options) {
     selector,
     waitFor
   } = options;
-  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+  await fs$1.mkdir(path.dirname(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -4149,7 +4116,7 @@ async function captureWithDiagnostics(options) {
   const suggestions = [];
   let httpStatus;
   try {
-    await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+    await fs$1.mkdir(path.dirname(outputPath), { recursive: true });
     if (outputDir && !isDeployedEnvironment()) {
       await loadAuthState(outputDir);
     }
@@ -4282,14 +4249,11 @@ async function captureWithDiagnostics(options) {
     };
   }
 }
-var import_promises4, import_path3, driver;
+var driver;
 var init_capture = __esm({
   "src/capture.ts"() {
-    "use strict";
     init_driver();
     init_compat();
-    import_promises4 = require("fs/promises");
-    import_path3 = require("path");
     init_schemas();
     init_types();
     init_auth();
@@ -4362,20 +4326,20 @@ async function compareImages(options) {
     // pixelmatch threshold (0-1), lower = stricter
   } = options;
   const [baselineBuffer, currentBuffer] = await Promise.all([
-    (0, import_promises5.readFile)(baselinePath),
-    (0, import_promises5.readFile)(currentPath)
+    fs$1.readFile(baselinePath),
+    fs$1.readFile(currentPath)
   ]);
-  const baseline = import_pngjs2.PNG.sync.read(baselineBuffer);
-  const current = import_pngjs2.PNG.sync.read(currentBuffer);
+  const baseline = pngjs.PNG.sync.read(baselineBuffer);
+  const current = pngjs.PNG.sync.read(currentBuffer);
   if (baseline.width !== current.width || baseline.height !== current.height) {
     throw new Error(
       `Image dimensions mismatch: baseline (${baseline.width}x${baseline.height}) vs current (${current.width}x${current.height})`
     );
   }
   const { width, height } = baseline;
-  const diff = new import_pngjs2.PNG({ width, height });
+  const diff = new pngjs.PNG({ width, height });
   const totalPixels = width * height;
-  const diffPixels = (0, import_pixelmatch2.default)(
+  const diffPixels = pixelmatch__default.default(
     baseline.data,
     current.data,
     diff.data,
@@ -4392,8 +4356,8 @@ async function compareImages(options) {
       // Green for anti-aliased differences
     }
   );
-  await (0, import_promises5.mkdir)((0, import_path4.dirname)(diffPath), { recursive: true });
-  await (0, import_promises5.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
+  await fs$1.mkdir(path.dirname(diffPath), { recursive: true });
+  await fs$1.writeFile(diffPath, pngjs.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
   return {
     match: diffPixels === 0,
@@ -4484,14 +4448,9 @@ function getVerdictDescription(verdict) {
       return "Unknown verdict";
   }
 }
-var import_pixelmatch2, import_pngjs2, import_promises5, import_path4, DEFAULT_REGIONS;
+var DEFAULT_REGIONS;
 var init_compare = __esm({
   "src/compare.ts"() {
-    "use strict";
-    import_pixelmatch2 = __toESM(require("pixelmatch"));
-    import_pngjs2 = require("pngjs");
-    import_promises5 = require("fs/promises");
-    import_path4 = require("path");
     DEFAULT_REGIONS = [
       { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
       { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
@@ -4511,7 +4470,7 @@ __export(git_context_exports, {
 });
 async function parseGitConfig(configPath) {
   try {
-    const content = await (0, import_promises6.readFile)(configPath, "utf-8");
+    const content = await fs$1.readFile(configPath, "utf-8");
     const lines = content.split("\n");
     let currentRemote = null;
     let remoteUrl = null;
@@ -4550,7 +4509,7 @@ function extractRepoName(remoteUrl) {
 }
 function getCurrentBranch(dir) {
   try {
-    const branch = (0, import_child_process.execSync)("git branch --show-current", {
+    const branch = child_process.execSync("git branch --show-current", {
       cwd: dir,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"]
@@ -4561,7 +4520,7 @@ function getCurrentBranch(dir) {
   }
 }
 async function getGitContext(dir) {
-  const gitConfigPath = (0, import_path5.join)(dir, ".git", "config");
+  const gitConfigPath = path.join(dir, ".git", "config");
   const { remote, remoteUrl } = await parseGitConfig(gitConfigPath);
   const repoName = remoteUrl ? extractRepoName(remoteUrl) : null;
   const branch = getCurrentBranch(dir);
@@ -4574,8 +4533,8 @@ async function getGitContext(dir) {
 }
 async function getAppName(dir) {
   try {
-    const packageJsonPath = (0, import_path5.join)(dir, "package.json");
-    const content = await (0, import_promises6.readFile)(packageJsonPath, "utf-8");
+    const packageJsonPath = path.join(dir, "package.json");
+    const content = await fs$1.readFile(packageJsonPath, "utf-8");
     const packageJson = JSON.parse(content);
     if (packageJson.name) {
       const name = packageJson.name;
@@ -4584,7 +4543,7 @@ async function getAppName(dir) {
     }
   } catch {
   }
-  return (0, import_path5.basename)(dir);
+  return path.basename(dir);
 }
 async function getAppContext(dir) {
   const [gitContext, appName] = await Promise.all([
@@ -4598,17 +4557,12 @@ async function getAppContext(dir) {
 }
 function getSessionBasePath(outputDir, context) {
   if (context.repoName && context.branch) {
-    return (0, import_path5.join)(outputDir, "apps", context.appName, context.branch, "sessions");
+    return path.join(outputDir, "apps", context.appName, context.branch, "sessions");
   }
-  return (0, import_path5.join)(outputDir, "sessions");
+  return path.join(outputDir, "sessions");
 }
-var import_promises6, import_path5, import_child_process;
 var init_git_context = __esm({
   "src/git-context.ts"() {
-    "use strict";
-    import_promises6 = require("fs/promises");
-    import_path5 = require("path");
-    import_child_process = require("child_process");
   }
 });
 
@@ -4633,27 +4587,27 @@ __export(session_exports, {
   updateSession: () => updateSession
 });
 function generateSessionId() {
-  return `${SESSION_PREFIX}${(0, import_nanoid.nanoid)(10)}`;
+  return `${SESSION_PREFIX}${nanoid.nanoid(10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path6.join)(outputDir, "sessions", sessionId);
+  const root = path.join(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path6.join)(root, "session.json"),
-    baseline: (0, import_path6.join)(root, "baseline.png"),
-    current: (0, import_path6.join)(root, "current.png"),
-    diff: (0, import_path6.join)(root, "diff.png")
+    sessionJson: path.join(root, "session.json"),
+    baseline: path.join(root, "baseline.png"),
+    current: path.join(root, "current.png"),
+    diff: path.join(root, "diff.png")
   };
 }
 function getSessionPathsWithContext(outputDir, sessionId, context) {
-  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path6.join)(outputDir, "sessions");
-  const root = (0, import_path6.join)(basePath, sessionId);
+  const basePath = context ? getSessionBasePath(outputDir, context) : path.join(outputDir, "sessions");
+  const root = path.join(basePath, sessionId);
   return {
     root,
-    sessionJson: (0, import_path6.join)(root, "session.json"),
-    baseline: (0, import_path6.join)(root, "baseline.png"),
-    current: (0, import_path6.join)(root, "current.png"),
-    diff: (0, import_path6.join)(root, "diff.png")
+    sessionJson: path.join(root, "session.json"),
+    baseline: path.join(root, "baseline.png"),
+    current: path.join(root, "current.png"),
+    diff: path.join(root, "diff.png")
   };
 }
 async function getCachedAppContext(projectDir) {
@@ -4684,14 +4638,14 @@ async function createSession(outputDir, url, name, viewport, platform) {
     createdAt: now,
     updatedAt: now
   };
-  await (0, import_promises7.mkdir)(paths.root, { recursive: true });
-  await (0, import_promises7.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
+  await fs$1.mkdir(paths.root, { recursive: true });
+  await fs$1.writeFile(paths.sessionJson, JSON.stringify(session, null, 2));
   return session;
 }
 async function getSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    const content = await (0, import_promises7.readFile)(paths.sessionJson, "utf-8");
+    const content = await fs$1.readFile(paths.sessionJson, "utf-8");
     const data = JSON.parse(content);
     return SessionSchema.parse(data);
   } catch {
@@ -4709,7 +4663,7 @@ async function updateSession(outputDir, sessionId, updates) {
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const paths = getSessionPaths(outputDir, sessionId);
-  await (0, import_promises7.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
+  await fs$1.writeFile(paths.sessionJson, JSON.stringify(updated, null, 2));
   return updated;
 }
 async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
@@ -4720,9 +4674,9 @@ async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
   });
 }
 async function listSessions(outputDir) {
-  const sessionsDir = (0, import_path6.join)(outputDir, "sessions");
+  const sessionsDir = path.join(outputDir, "sessions");
   try {
-    const entries = await (0, import_promises7.readdir)(sessionsDir, { withFileTypes: true });
+    const entries = await fs$1.readdir(sessionsDir, { withFileTypes: true });
     const sessions = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
@@ -4746,7 +4700,7 @@ async function getMostRecentSession(outputDir) {
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    await (0, import_promises7.rm)(paths.root, { recursive: true, force: true });
+    await fs$1.rm(paths.root, { recursive: true, force: true });
     return true;
   } catch {
     return false;
@@ -4877,13 +4831,9 @@ async function getSessionStats(outputDir) {
     byVerdict
   };
 }
-var import_nanoid, import_promises7, import_path6, SESSION_PREFIX, cachedContext, contextCacheDir;
+var SESSION_PREFIX, cachedContext, contextCacheDir;
 var init_session = __esm({
   "src/session.ts"() {
-    "use strict";
-    import_nanoid = require("nanoid");
-    import_promises7 = require("fs/promises");
-    import_path6 = require("path");
     init_schemas();
     init_git_context();
     SESSION_PREFIX = "sess_";
@@ -4984,7 +4934,6 @@ function formatSessionSummary(session) {
 }
 var init_report = __esm({
   "src/report.ts"() {
-    "use strict";
     init_session();
   }
 });
@@ -5300,7 +5249,6 @@ async function waitForPageReady(page, options = {}) {
 }
 var init_state_detector = __esm({
   "src/semantic/state-detector.ts"() {
-    "use strict";
   }
 });
 
@@ -5639,7 +5587,6 @@ function formatSemanticJson(result) {
 }
 var init_output = __esm({
   "src/semantic/output.ts"() {
-    "use strict";
     init_page_intent();
     init_state_detector();
   }
@@ -5667,7 +5614,6 @@ __export(semantic_exports, {
 });
 var init_semantic = __esm({
   "src/semantic/index.ts"() {
-    "use strict";
     init_page_intent();
     init_state_detector();
     init_output();
@@ -5720,7 +5666,6 @@ async function waitForNavigation(page, timeout = 1e4) {
 }
 var init_types2 = __esm({
   "src/flows/types.ts"() {
-    "use strict";
   }
 });
 
@@ -5825,7 +5770,6 @@ async function loginFlow(page, options) {
 }
 var init_login = __esm({
   "src/flows/login.ts"() {
-    "use strict";
     init_types2();
     init_state_detector();
   }
@@ -5907,7 +5851,7 @@ async function captureStepScreenshot(page, step, artifactDir, startTime) {
   const timing = Date.now() - startTime;
   const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
   const filename = `${stepNum}-${step}.png`;
-  const path2 = (0, import_path7.join)(artifactDir, filename);
+  const path2 = path.join(artifactDir, filename);
   await page.addStyleTag({
     content: `
       *, *::before, *::after {
@@ -5973,8 +5917,8 @@ async function aiSearchFlow(page, options) {
   };
   let artifactDir;
   if (captureSteps && options.sessionDir) {
-    artifactDir = (0, import_path7.join)(options.sessionDir, `search-${Date.now()}`);
-    await (0, import_promises8.mkdir)(artifactDir, { recursive: true });
+    artifactDir = path.join(options.sessionDir, `search-${Date.now()}`);
+    await fs$1.mkdir(artifactDir, { recursive: true });
   }
   try {
     if (captureSteps && artifactDir) {
@@ -6050,8 +5994,8 @@ async function aiSearchFlow(page, options) {
         timing,
         extractedResults
       };
-      await (0, import_promises8.writeFile)(
-        (0, import_path7.join)(artifactDir, "results.json"),
+      await fs$1.writeFile(
+        path.join(artifactDir, "results.json"),
         JSON.stringify(resultsData, null, 2)
       );
     }
@@ -6090,12 +6034,8 @@ async function aiSearchFlow(page, options) {
     };
   }
 }
-var import_promises8, import_path7;
 var init_search = __esm({
   "src/flows/search.ts"() {
-    "use strict";
-    import_promises8 = require("fs/promises");
-    import_path7 = require("path");
     init_types2();
   }
 });
@@ -6217,7 +6157,6 @@ async function formFlow(page, options) {
 }
 var init_form = __esm({
   "src/flows/form.ts"() {
-    "use strict";
     init_types2();
   }
 });
@@ -6422,7 +6361,6 @@ function generateDevModePrompt(context, issues) {
 }
 var init_search_validation = __esm({
   "src/flows/search-validation.ts"() {
-    "use strict";
   }
 });
 
@@ -6430,7 +6368,6 @@ var init_search_validation = __esm({
 var flows;
 var init_flows = __esm({
   "src/flows/index.ts"() {
-    "use strict";
     init_login();
     init_search();
     init_form();
@@ -6447,13 +6384,11 @@ var init_flows = __esm({
     };
   }
 });
-
-// src/cleanup.ts
 async function loadRetentionConfig(outputDir) {
-  const configPath = (0, import_path8.join)(outputDir, "..", ".ibrrc.json");
+  const configPath = path.join(outputDir, "..", ".ibrrc.json");
   try {
-    await (0, import_promises9.access)(configPath);
-    const content = await (0, import_promises9.readFile)(configPath, "utf-8");
+    await fs$1.access(configPath);
+    const content = await fs$1.readFile(configPath, "utf-8");
     const config = JSON.parse(content);
     return {
       ...DEFAULT_RETENTION,
@@ -6581,12 +6516,9 @@ function formatRetentionStatus(status) {
   }
   return lines.join("\n");
 }
-var import_promises9, import_path8, DEFAULT_RETENTION;
+var DEFAULT_RETENTION;
 var init_cleanup = __esm({
   "src/cleanup.ts"() {
-    "use strict";
-    import_promises9 = require("fs/promises");
-    import_path8 = require("path");
     init_session();
     DEFAULT_RETENTION = {
       maxSessions: void 0,
@@ -6926,7 +6858,6 @@ function formatConsistencyReport(result) {
 }
 var init_consistency = __esm({
   "src/consistency.ts"() {
-    "use strict";
     init_driver();
     init_compat();
   }
@@ -6940,19 +6871,19 @@ __export(crawl_exports, {
 });
 async function discoverPages(options) {
   const {
-    url,
+    url: url$1,
     maxPages = 5,
     pathPrefix,
     timeout = 1e4,
     includeExternal = false
   } = options;
   const startTime = Date.now();
-  const startUrl = new import_url.URL(url);
+  const startUrl = new url.URL(url$1);
   const origin = startUrl.origin;
   const discovered = /* @__PURE__ */ new Map();
   const visited = /* @__PURE__ */ new Set();
   const queue = [
-    { url, depth: 0 }
+    { url: url$1, depth: 0 }
   ];
   let driver3 = null;
   let totalLinks = 0;
@@ -6972,7 +6903,7 @@ async function discoverPages(options) {
           timeout
         });
         const title = await page.title();
-        const parsedUrl = new import_url.URL(current.url);
+        const parsedUrl = new url.URL(current.url);
         discovered.set(currentUrl, {
           url: current.url,
           path: parsedUrl.pathname,
@@ -6992,7 +6923,7 @@ async function discoverPages(options) {
         for (const link of links) {
           if (discovered.size >= maxPages) break;
           try {
-            const absoluteUrl = new import_url.URL(link.href, current.url);
+            const absoluteUrl = new url.URL(link.href, current.url);
             const normalizedUrl = normalizeUrl(absoluteUrl.href);
             if (visited.has(normalizedUrl)) continue;
             if (!includeExternal && absoluteUrl.origin !== origin) continue;
@@ -7026,16 +6957,16 @@ async function discoverPages(options) {
     crawlTime
   };
 }
-function normalizeUrl(url) {
+function normalizeUrl(url$1) {
   try {
-    const parsed = new import_url.URL(url);
+    const parsed = new url.URL(url$1);
     let normalized = `${parsed.origin}${parsed.pathname}`;
     if (normalized.endsWith("/") && normalized.length > 1) {
       normalized = normalized.slice(0, -1);
     }
     return normalized;
   } catch {
-    return url;
+    return url$1;
   }
 }
 function shouldSkipUrl(url) {
@@ -7079,17 +7010,17 @@ function shouldSkipUrl(url) {
   if (url.hash && url.pathname === "/") return true;
   return false;
 }
-async function getNavigationLinks(url) {
+async function getNavigationLinks(url$1) {
   let driver3 = null;
   try {
     driver3 = new EngineDriver();
     await driver3.launch({ headless: true });
     const page = new CompatPage(driver3);
-    await page.goto(url, {
+    await page.goto(url$1, {
       waitUntil: "domcontentloaded",
       timeout: 15e3
     });
-    const origin = new import_url.URL(url).origin;
+    const origin = new url.URL(url$1).origin;
     const navLinks = await page.evaluate(() => {
       const selectors = [
         "nav a[href]",
@@ -7119,7 +7050,7 @@ async function getNavigationLinks(url) {
     const pages = [];
     for (const link of navLinks) {
       try {
-        const absoluteUrl = new import_url.URL(link.href, url);
+        const absoluteUrl = new url.URL(link.href, url$1);
         if (absoluteUrl.origin !== origin) continue;
         if (shouldSkipUrl(absoluteUrl)) continue;
         pages.push({
@@ -7144,13 +7075,10 @@ async function getNavigationLinks(url) {
     throw error;
   }
 }
-var import_url;
 var init_crawl = __esm({
   "src/crawl.ts"() {
-    "use strict";
     init_driver();
     init_compat();
-    import_url = require("url");
   }
 });
 
@@ -7317,7 +7245,7 @@ function extractFromContent(content, sourceFile) {
 }
 async function extractApiCalls(filePath) {
   try {
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = await fs__namespace.readFile(filePath, "utf-8");
     return extractFromContent(content, filePath);
   } catch (error) {
     console.error(`Error reading file ${filePath}:`, error);
@@ -7328,16 +7256,16 @@ async function scanDirectoryForApiCalls(dir, _pattern = "**/*.{ts,tsx,js,jsx}") 
   const allCalls = [];
   async function scanDir(currentDir) {
     try {
-      const entries = await fs.readdir(currentDir, { withFileTypes: true });
+      const entries = await fs__namespace.readdir(currentDir, { withFileTypes: true });
       for (const entry of entries) {
-        const fullPath = path.join(currentDir, entry.name);
+        const fullPath = path__namespace.join(currentDir, entry.name);
         if (entry.isDirectory()) {
           const skipDirs = ["node_modules", "dist", "build", ".git", "coverage", ".next", "__tests__", "__mocks__"];
           if (!skipDirs.includes(entry.name)) {
             await scanDir(fullPath);
           }
         } else if (entry.isFile()) {
-          const ext = path.extname(entry.name);
+          const ext = path__namespace.extname(entry.name);
           if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
             const isTestFile = entry.name.includes(".test.") || entry.name.includes(".spec.") || entry.name.includes(".mock.") || entry.name === "integration.ts";
             if (!isTestFile) {
@@ -7389,22 +7317,22 @@ function filterByEndpoint(calls, endpointPattern) {
 async function discoverApiRoutes(projectDir) {
   const routes = [];
   async function discoverInDir(dir) {
-    const appApiDir = path.join(dir, "app", "api");
+    const appApiDir = path__namespace.join(dir, "app", "api");
     if (await directoryExists(appApiDir)) {
       const appRoutes = await discoverAppRouterRoutes(appApiDir, dir);
       routes.push(...appRoutes);
     }
-    const pagesApiDir = path.join(dir, "pages", "api");
+    const pagesApiDir = path__namespace.join(dir, "pages", "api");
     if (await directoryExists(pagesApiDir)) {
       const pagesRoutes = await discoverPagesRouterRoutes(pagesApiDir, dir);
       routes.push(...pagesRoutes);
     }
-    const srcAppApiDir = path.join(dir, "src", "app", "api");
+    const srcAppApiDir = path__namespace.join(dir, "src", "app", "api");
     if (await directoryExists(srcAppApiDir)) {
       const srcAppRoutes = await discoverAppRouterRoutes(srcAppApiDir, dir);
       routes.push(...srcAppRoutes);
     }
-    const srcPagesApiDir = path.join(dir, "src", "pages", "api");
+    const srcPagesApiDir = path__namespace.join(dir, "src", "pages", "api");
     if (await directoryExists(srcPagesApiDir)) {
       const srcPagesRoutes = await discoverPagesRouterRoutes(srcPagesApiDir, dir);
       routes.push(...srcPagesRoutes);
@@ -7412,12 +7340,12 @@ async function discoverApiRoutes(projectDir) {
   }
   await discoverInDir(projectDir);
   try {
-    const entries = await fs.readdir(projectDir, { withFileTypes: true });
+    const entries = await fs__namespace.readdir(projectDir, { withFileTypes: true });
     const skipDirs = ["node_modules", "dist", "build", ".git", "coverage", ".next"];
     for (const entry of entries) {
       if (entry.isDirectory() && !skipDirs.includes(entry.name)) {
-        const subDir = path.join(projectDir, entry.name);
-        const hasPackageJson = await fileExists(path.join(subDir, "package.json"));
+        const subDir = path__namespace.join(projectDir, entry.name);
+        const hasPackageJson = await fileExists(path__namespace.join(subDir, "package.json"));
         if (hasPackageJson) {
           await discoverInDir(subDir);
         }
@@ -7429,16 +7357,16 @@ async function discoverApiRoutes(projectDir) {
 }
 async function fileExists(filePath) {
   try {
-    const stat5 = await fs.stat(filePath);
+    const stat5 = await fs__namespace.stat(filePath);
     return stat5.isFile();
   } catch {
     return false;
   }
 }
 function filePathToRoute(filePath, projectDir) {
-  const normalizedFilePath = path.normalize(filePath);
-  const normalizedProjectDir = path.normalize(projectDir);
-  const relativePath = path.relative(normalizedProjectDir, normalizedFilePath);
+  const normalizedFilePath = path__namespace.normalize(filePath);
+  const normalizedProjectDir = path__namespace.normalize(projectDir);
+  const relativePath = path__namespace.relative(normalizedProjectDir, normalizedFilePath);
   let routePath = relativePath.replace(/\.(ts|tsx|js|jsx)$/, "");
   routePath = routePath.replace(/\/route$/, "");
   routePath = routePath.replace(/\\route$/, "");
@@ -7522,7 +7450,7 @@ async function discoverAppRouterRoutes(apiDir, projectDir) {
   try {
     const files = await findRouteFiles(apiDir, "route");
     for (const file of files) {
-      const content = await fs.readFile(file, "utf-8");
+      const content = await fs__namespace.readFile(file, "utf-8");
       const methods = extractHttpMethods(content);
       const route = filePathToRoute(file, projectDir);
       const isDynamic = route.includes("[") && route.includes("]");
@@ -7544,7 +7472,7 @@ async function discoverPagesRouterRoutes(apiDir, projectDir) {
   try {
     const files = await findRouteFiles(apiDir);
     for (const file of files) {
-      const content = await fs.readFile(file, "utf-8");
+      const content = await fs__namespace.readFile(file, "utf-8");
       const methods = extractHttpMethods(content);
       const route = filePathToRoute(file, projectDir);
       const isDynamic = route.includes("[") && route.includes("]");
@@ -7564,15 +7492,15 @@ async function discoverPagesRouterRoutes(apiDir, projectDir) {
 async function findRouteFiles(dir, filename) {
   const files = [];
   try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
+    const entries = await fs__namespace.readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
+      const fullPath = path__namespace.join(dir, entry.name);
       if (entry.isDirectory()) {
         const subFiles = await findRouteFiles(fullPath, filename);
         files.push(...subFiles);
       } else if (entry.isFile()) {
-        const ext = path.extname(entry.name);
-        const baseName = path.basename(entry.name, ext);
+        const ext = path__namespace.extname(entry.name);
+        const baseName = path__namespace.basename(entry.name, ext);
         if ([".ts", ".tsx", ".js", ".jsx"].includes(ext)) {
           if (filename) {
             if (baseName === filename) {
@@ -7601,29 +7529,23 @@ function extractHttpMethods(content) {
 }
 async function directoryExists(dir) {
   try {
-    const stat5 = await fs.stat(dir);
+    const stat5 = await fs__namespace.stat(dir);
     return stat5.isDirectory();
   } catch {
     return false;
   }
 }
-var fs, path;
 var init_integration = __esm({
   "src/integration.ts"() {
-    "use strict";
-    fs = __toESM(require("fs/promises"));
-    path = __toESM(require("path"));
   }
 });
-
-// src/operation-tracker.ts
 function getOperationsPath(outputDir) {
-  return (0, import_path9.join)(outputDir, "operations.json");
+  return path.join(outputDir, "operations.json");
 }
 async function readState(outputDir) {
   const path2 = getOperationsPath(outputDir);
   try {
-    const content = await (0, import_promises10.readFile)(path2, "utf-8");
+    const content = await fs$1.readFile(path2, "utf-8");
     return JSON.parse(content);
   } catch {
     return { pending: [], lastUpdated: (/* @__PURE__ */ new Date()).toISOString() };
@@ -7631,15 +7553,15 @@ async function readState(outputDir) {
 }
 async function writeState(outputDir, state) {
   const path2 = getOperationsPath(outputDir);
-  await (0, import_promises10.mkdir)((0, import_path9.dirname)(path2), { recursive: true });
+  await fs$1.mkdir(path.dirname(path2), { recursive: true });
   state.lastUpdated = (/* @__PURE__ */ new Date()).toISOString();
-  await (0, import_promises10.writeFile)(path2, JSON.stringify(state, null, 2));
+  await fs$1.writeFile(path2, JSON.stringify(state, null, 2));
 }
 async function registerOperation(outputDir, options) {
   const state = await readState(outputDir);
   state.pending = await cleanupStaleOperations(state.pending);
   const operation = {
-    id: `${OPERATION_PREFIX}${(0, import_nanoid2.nanoid)(8)}`,
+    id: `${OPERATION_PREFIX}${nanoid.nanoid(8)}`,
     type: options.type,
     sessionId: options.sessionId,
     startedAt: (/* @__PURE__ */ new Date()).toISOString(),
@@ -7715,13 +7637,9 @@ function withOperationTracking(outputDir, options) {
     }
   };
 }
-var import_nanoid2, import_promises10, import_path9, OPERATION_PREFIX;
+var OPERATION_PREFIX;
 var init_operation_tracker = __esm({
   "src/operation-tracker.ts"() {
-    "use strict";
-    import_nanoid2 = require("nanoid");
-    import_promises10 = require("fs/promises");
-    import_path9 = require("path");
     OPERATION_PREFIX = "op_";
   }
 });
@@ -7903,7 +7821,6 @@ function formatPerformanceResult(result) {
 var PERFORMANCE_THRESHOLDS;
 var init_performance = __esm({
   "src/performance.ts"() {
-    "use strict";
     PERFORMANCE_THRESHOLDS = {
       LCP: { good: 2500, poor: 4e3 },
       FID: { good: 100, poor: 300 },
@@ -8059,8 +7976,7 @@ async function testInteractivity(page) {
         description: `Button "${btn.text || btn.selector}" has no click handler`
       });
     }
-    if (btn.isDisabled && btn.isVisible) {
-    }
+    if (btn.isDisabled && btn.isVisible) ;
     if (!btn.a11y.ariaLabel && !btn.text) {
       issues.push({
         type: "MISSING_LABEL",
@@ -8161,7 +8077,6 @@ function formatInteractivityResult(result) {
 }
 var init_interactivity = __esm({
   "src/interactivity.ts"() {
-    "use strict";
   }
 });
 
@@ -8448,7 +8363,6 @@ function truncateUrl(url, maxLength = 60) {
 }
 var init_api_timing = __esm({
   "src/api-timing.ts"() {
-    "use strict";
   }
 });
 
@@ -8490,7 +8404,7 @@ async function testResponsive(url, options = {}) {
         minFontSize
       });
       if (captureScreenshots) {
-        const { mkdir: mkdir26 } = await import("fs/promises");
+        const { mkdir: mkdir26 } = await import('fs/promises');
         await mkdir26(outputDir, { recursive: true });
         const screenshotPath = `${outputDir}/${viewportName}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
@@ -8677,7 +8591,6 @@ function formatResponsiveResult(result) {
 }
 var init_responsive = __esm({
   "src/responsive.ts"() {
-    "use strict";
     init_driver();
     init_compat();
     init_schemas();
@@ -8706,21 +8619,21 @@ __export(memory_exports, {
   saveSummary: () => saveSummary
 });
 async function initMemory(outputDir) {
-  const memoryDir = (0, import_path10.join)(outputDir, MEMORY_DIR);
-  await (0, import_promises11.mkdir)((0, import_path10.join)(memoryDir, PREFERENCES_DIR), { recursive: true });
-  await (0, import_promises11.mkdir)((0, import_path10.join)(memoryDir, LEARNED_DIR), { recursive: true });
-  await (0, import_promises11.mkdir)((0, import_path10.join)(memoryDir, ARCHIVE_DIR), { recursive: true });
+  const memoryDir = path.join(outputDir, MEMORY_DIR);
+  await fs$1.mkdir(path.join(memoryDir, PREFERENCES_DIR), { recursive: true });
+  await fs$1.mkdir(path.join(memoryDir, LEARNED_DIR), { recursive: true });
+  await fs$1.mkdir(path.join(memoryDir, ARCHIVE_DIR), { recursive: true });
 }
 function getMemoryPath(outputDir, ...segments) {
-  return (0, import_path10.join)(outputDir, MEMORY_DIR, ...segments);
+  return path.join(outputDir, MEMORY_DIR, ...segments);
 }
 async function loadSummary(outputDir) {
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  if (!(0, import_fs2.existsSync)(summaryPath)) {
+  if (!fs.existsSync(summaryPath)) {
     return createEmptySummary();
   }
   try {
-    const content = await (0, import_promises11.readFile)(summaryPath, "utf-8");
+    const content = await fs$1.readFile(summaryPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return createEmptySummary();
@@ -8729,7 +8642,7 @@ async function loadSummary(outputDir) {
 async function saveSummary(outputDir, summary) {
   await initMemory(outputDir);
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  await (0, import_promises11.writeFile)(summaryPath, JSON.stringify(summary, null, 2));
+  await fs$1.writeFile(summaryPath, JSON.stringify(summary, null, 2));
 }
 function createEmptySummary() {
   return {
@@ -8748,7 +8661,7 @@ async function addPreference(outputDir, input) {
   await initMemory(outputDir);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const pref = {
-    id: `${PREF_PREFIX}${(0, import_nanoid3.nanoid)(8)}`,
+    id: `${PREF_PREFIX}${nanoid.nanoid(8)}`,
     description: input.description,
     category: input.category,
     source: input.source ?? "user",
@@ -8765,15 +8678,15 @@ async function addPreference(outputDir, input) {
     sessionIds: input.sessionIds
   };
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${pref.id}.json`);
-  await (0, import_promises11.writeFile)(prefPath, JSON.stringify(pref, null, 2));
+  await fs$1.writeFile(prefPath, JSON.stringify(pref, null, 2));
   await rebuildSummary(outputDir);
   return pref;
 }
 async function getPreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
-  if (!(0, import_fs2.existsSync)(prefPath)) return null;
+  if (!fs.existsSync(prefPath)) return null;
   try {
-    const content = await (0, import_promises11.readFile)(prefPath, "utf-8");
+    const content = await fs$1.readFile(prefPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return null;
@@ -8781,20 +8694,20 @@ async function getPreference(outputDir, prefId) {
 }
 async function removePreference(outputDir, prefId) {
   const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
-  if (!(0, import_fs2.existsSync)(prefPath)) return false;
-  await (0, import_promises11.unlink)(prefPath);
+  if (!fs.existsSync(prefPath)) return false;
+  await fs$1.unlink(prefPath);
   await rebuildSummary(outputDir);
   return true;
 }
 async function listPreferences(outputDir, filter) {
   const prefsDir = getMemoryPath(outputDir, PREFERENCES_DIR);
-  if (!(0, import_fs2.existsSync)(prefsDir)) return [];
-  const files = await (0, import_promises11.readdir)(prefsDir);
+  if (!fs.existsSync(prefsDir)) return [];
+  const files = await fs$1.readdir(prefsDir);
   const prefs = [];
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises11.readFile)((0, import_path10.join)(prefsDir, file), "utf-8");
+      const content = await fs$1.readFile(path.join(prefsDir, file), "utf-8");
       const pref = JSON.parse(content);
       if (filter?.category && pref.category !== filter.category) continue;
       if (filter?.route && pref.route !== filter.route) continue;
@@ -8809,7 +8722,7 @@ async function learnFromSession(outputDir, session, observations) {
   await initMemory(outputDir);
   const route = new URL(session.url).pathname;
   const learned = {
-    id: `${LEARN_PREFIX}${(0, import_nanoid3.nanoid)(8)}`,
+    id: `${LEARN_PREFIX}${nanoid.nanoid(8)}`,
     sessionId: session.id,
     route,
     observations,
@@ -8817,18 +8730,18 @@ async function learnFromSession(outputDir, session, observations) {
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const learnPath = getMemoryPath(outputDir, LEARNED_DIR, `${learned.id}.json`);
-  await (0, import_promises11.writeFile)(learnPath, JSON.stringify(learned, null, 2));
+  await fs$1.writeFile(learnPath, JSON.stringify(learned, null, 2));
   return learned;
 }
 async function listLearned(outputDir) {
   const learnedDir = getMemoryPath(outputDir, LEARNED_DIR);
-  if (!(0, import_fs2.existsSync)(learnedDir)) return [];
-  const files = await (0, import_promises11.readdir)(learnedDir);
+  if (!fs.existsSync(learnedDir)) return [];
+  const files = await fs$1.readdir(learnedDir);
   const items = [];
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
     try {
-      const content = await (0, import_promises11.readFile)((0, import_path10.join)(learnedDir, file), "utf-8");
+      const content = await fs$1.readFile(path.join(learnedDir, file), "utf-8");
       items.push(JSON.parse(content));
     } catch {
     }
@@ -8837,8 +8750,8 @@ async function listLearned(outputDir) {
 }
 async function promoteToPreference(outputDir, learnedId) {
   const learnedPath = getMemoryPath(outputDir, LEARNED_DIR, `${learnedId}.json`);
-  if (!(0, import_fs2.existsSync)(learnedPath)) return null;
-  const content = await (0, import_promises11.readFile)(learnedPath, "utf-8");
+  if (!fs.existsSync(learnedPath)) return null;
+  const content = await fs$1.readFile(learnedPath, "utf-8");
   const learned = JSON.parse(content);
   if (learned.observations.length === 0) return null;
   const obs = learned.observations[0];
@@ -8891,11 +8804,11 @@ async function rebuildSummary(outputDir) {
 }
 async function archiveSummary(outputDir) {
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  if (!(0, import_fs2.existsSync)(summaryPath)) return;
+  if (!fs.existsSync(summaryPath)) return;
   const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
   const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp}.json`);
   try {
-    await (0, import_promises11.copyFile)(summaryPath, archivePath);
+    await fs$1.copyFile(summaryPath, archivePath);
   } catch {
   }
 }
@@ -9011,14 +8924,9 @@ function formatPreference(pref) {
   lines.push(`Updated: ${pref.updatedAt}`);
   return lines.join("\n");
 }
-var import_promises11, import_fs2, import_path10, import_nanoid3, MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES;
+var MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES;
 var init_memory = __esm({
   "src/memory.ts"() {
-    "use strict";
-    import_promises11 = require("fs/promises");
-    import_fs2 = require("fs");
-    import_path10 = require("path");
-    import_nanoid3 = require("nanoid");
     MEMORY_DIR = "memory";
     SUMMARY_FILE = "summary.json";
     PREFERENCES_DIR = "preferences";
@@ -9046,12 +8954,10 @@ __export(types_exports, {
   DesignCheckOperatorSchema: () => DesignCheckOperatorSchema,
   DesignCheckSchema: () => DesignCheckSchema
 });
-var import_zod2, DecisionTypeSchema, DecisionStateSchema, DecisionEntrySchema, DecisionSummarySchema, CurrentUIStateSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignChangeSchema, DecisionEntryWithChecksSchema;
+var DecisionTypeSchema, DecisionStateSchema, DecisionEntrySchema, DecisionSummarySchema, CurrentUIStateSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignChangeSchema, DecisionEntryWithChecksSchema;
 var init_types3 = __esm({
   "src/context/types.ts"() {
-    "use strict";
-    import_zod2 = require("zod");
-    DecisionTypeSchema = import_zod2.z.enum([
+    DecisionTypeSchema = zod.z.enum([
       "css_change",
       "layout_change",
       "color_change",
@@ -9061,56 +8967,56 @@ var init_types3 = __esm({
       "component_modify",
       "content_change"
     ]);
-    DecisionStateSchema = import_zod2.z.object({
-      css: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
-      html_snippet: import_zod2.z.string().optional(),
-      screenshot_ref: import_zod2.z.string().optional()
+    DecisionStateSchema = zod.z.object({
+      css: zod.z.record(zod.z.string(), zod.z.string()).optional(),
+      html_snippet: zod.z.string().optional(),
+      screenshot_ref: zod.z.string().optional()
     });
-    DecisionEntrySchema = import_zod2.z.object({
-      id: import_zod2.z.string(),
-      timestamp: import_zod2.z.string().datetime(),
-      route: import_zod2.z.string(),
-      component: import_zod2.z.string().optional(),
+    DecisionEntrySchema = zod.z.object({
+      id: zod.z.string(),
+      timestamp: zod.z.string().datetime(),
+      route: zod.z.string(),
+      component: zod.z.string().optional(),
       type: DecisionTypeSchema,
-      description: import_zod2.z.string(),
-      rationale: import_zod2.z.string().optional(),
+      description: zod.z.string(),
+      rationale: zod.z.string().optional(),
       before: DecisionStateSchema.optional(),
       after: DecisionStateSchema.optional(),
-      files_changed: import_zod2.z.array(import_zod2.z.string()),
-      session_id: import_zod2.z.string().optional()
+      files_changed: zod.z.array(zod.z.string()),
+      session_id: zod.z.string().optional()
     });
-    DecisionSummarySchema = import_zod2.z.object({
-      route: import_zod2.z.string(),
-      component: import_zod2.z.string().optional(),
-      latest_change: import_zod2.z.string(),
-      decision_count: import_zod2.z.number(),
-      full_log_ref: import_zod2.z.string()
+    DecisionSummarySchema = zod.z.object({
+      route: zod.z.string(),
+      component: zod.z.string().optional(),
+      latest_change: zod.z.string(),
+      decision_count: zod.z.number(),
+      full_log_ref: zod.z.string()
     });
-    CurrentUIStateSchema = import_zod2.z.object({
-      last_snapshot_ref: import_zod2.z.string().optional(),
-      pending_verifications: import_zod2.z.number(),
-      known_issues: import_zod2.z.array(import_zod2.z.string())
+    CurrentUIStateSchema = zod.z.object({
+      last_snapshot_ref: zod.z.string().optional(),
+      pending_verifications: zod.z.number(),
+      known_issues: zod.z.array(zod.z.string())
     });
-    CompactContextSchema = import_zod2.z.object({
-      version: import_zod2.z.literal(1),
-      session_id: import_zod2.z.string(),
-      updated_at: import_zod2.z.string().datetime(),
-      active_route: import_zod2.z.string().optional(),
-      decisions_summary: import_zod2.z.array(DecisionSummarySchema),
+    CompactContextSchema = zod.z.object({
+      version: zod.z.literal(1),
+      session_id: zod.z.string(),
+      updated_at: zod.z.string().datetime(),
+      active_route: zod.z.string().optional(),
+      decisions_summary: zod.z.array(DecisionSummarySchema),
       current_ui_state: CurrentUIStateSchema,
-      preferences_active: import_zod2.z.number()
+      preferences_active: zod.z.number()
     });
-    CompactionRequestSchema = import_zod2.z.object({
-      reason: import_zod2.z.enum(["session_ending", "context_limit", "manual"]),
-      preserve_decisions: import_zod2.z.array(import_zod2.z.string()).optional()
+    CompactionRequestSchema = zod.z.object({
+      reason: zod.z.enum(["session_ending", "context_limit", "manual"]),
+      preserve_decisions: zod.z.array(zod.z.string()).optional()
     });
-    CompactionResultSchema = import_zod2.z.object({
+    CompactionResultSchema = zod.z.object({
       compact_context: CompactContextSchema,
-      archived_to: import_zod2.z.string(),
-      decisions_compacted: import_zod2.z.number(),
-      decisions_preserved: import_zod2.z.number()
+      archived_to: zod.z.string(),
+      decisions_compacted: zod.z.number(),
+      decisions_preserved: zod.z.number()
     });
-    DesignCheckOperatorSchema = import_zod2.z.enum([
+    DesignCheckOperatorSchema = zod.z.enum([
       "eq",
       // exact equality
       "gt",
@@ -9126,44 +9032,42 @@ var init_types3 = __esm({
       "truthy"
       // value is non-empty / non-zero
     ]);
-    DesignCheckSchema = import_zod2.z.object({
-      property: import_zod2.z.string(),
+    DesignCheckSchema = zod.z.object({
+      property: zod.z.string(),
       operator: DesignCheckOperatorSchema,
-      value: import_zod2.z.union([import_zod2.z.string(), import_zod2.z.number()]),
-      confidence: import_zod2.z.number().min(0).max(1)
+      value: zod.z.union([zod.z.string(), zod.z.number()]),
+      confidence: zod.z.number().min(0).max(1)
     });
-    DesignChangeSchema = import_zod2.z.object({
-      description: import_zod2.z.string(),
-      element: import_zod2.z.string(),
-      checks: import_zod2.z.array(DesignCheckSchema),
-      source: import_zod2.z.enum(["structured", "parsed"]),
-      platform: import_zod2.z.enum(["web", "ios", "macos"]).optional(),
-      timestamp: import_zod2.z.string()
+    DesignChangeSchema = zod.z.object({
+      description: zod.z.string(),
+      element: zod.z.string(),
+      checks: zod.z.array(DesignCheckSchema),
+      source: zod.z.enum(["structured", "parsed"]),
+      platform: zod.z.enum(["web", "ios", "macos"]).optional(),
+      timestamp: zod.z.string()
     });
     DecisionEntryWithChecksSchema = DecisionEntrySchema.extend({
-      checks: import_zod2.z.array(DesignCheckSchema).optional()
+      checks: zod.z.array(DesignCheckSchema).optional()
     });
   }
 });
-
-// src/decision-tracker.ts
 function getDecisionsDir(outputDir) {
-  return (0, import_path11.join)(outputDir, CONTEXT_DIR, DECISIONS_DIR);
+  return path.join(outputDir, CONTEXT_DIR, DECISIONS_DIR);
 }
 function routeToFilename(route) {
   return route.replace(/^\/+/, "").replace(/\//g, "_").replace(/[^a-zA-Z0-9_-]/g, "") || "_root";
 }
 function getRouteLogPath(outputDir, route) {
   const filename = `${routeToFilename(route)}.jsonl`;
-  return (0, import_path11.join)(getDecisionsDir(outputDir), filename);
+  return path.join(getDecisionsDir(outputDir), filename);
 }
 async function ensureContextDirs(outputDir) {
-  await (0, import_promises12.mkdir)(getDecisionsDir(outputDir), { recursive: true });
+  await fs$1.mkdir(getDecisionsDir(outputDir), { recursive: true });
 }
 async function recordDecision(outputDir, options) {
   await ensureContextDirs(outputDir);
   const entry = {
-    id: `dec_${(0, import_nanoid4.nanoid)(10)}`,
+    id: `dec_${nanoid.nanoid(10)}`,
     timestamp: (/* @__PURE__ */ new Date()).toISOString(),
     route: options.route,
     component: options.component,
@@ -9177,15 +9081,15 @@ async function recordDecision(outputDir, options) {
   };
   DecisionEntrySchema.parse(entry);
   const logPath = getRouteLogPath(outputDir, options.route);
-  await (0, import_promises12.appendFile)(logPath, JSON.stringify(entry) + "\n");
+  await fs$1.appendFile(logPath, JSON.stringify(entry) + "\n");
   return entry;
 }
 async function getDecisionsByRoute(outputDir, route) {
   const logPath = getRouteLogPath(outputDir, route);
-  if (!(0, import_fs3.existsSync)(logPath)) {
+  if (!fs.existsSync(logPath)) {
     return [];
   }
-  const content = await (0, import_promises12.readFile)(logPath, "utf-8");
+  const content = await fs$1.readFile(logPath, "utf-8");
   const lines = content.trim().split("\n").filter(Boolean);
   return lines.map((line) => DecisionEntrySchema.parse(JSON.parse(line)));
 }
@@ -9196,14 +9100,14 @@ async function queryDecisions(outputDir, options = {}) {
     decisions = await getDecisionsByRoute(outputDir, route);
   } else {
     const decisionsDir = getDecisionsDir(outputDir);
-    if (!(0, import_fs3.existsSync)(decisionsDir)) {
+    if (!fs.existsSync(decisionsDir)) {
       return [];
     }
-    const files = await (0, import_promises12.readdir)(decisionsDir);
+    const files = await fs$1.readdir(decisionsDir);
     for (const file of files) {
       if (!file.endsWith(".jsonl")) continue;
-      const filePath = (0, import_path11.join)(decisionsDir, file);
-      const content = await (0, import_promises12.readFile)(filePath, "utf-8");
+      const filePath = path.join(decisionsDir, file);
+      const content = await fs$1.readFile(filePath, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       for (const line of lines) {
         decisions.push(DecisionEntrySchema.parse(JSON.parse(line)));
@@ -9227,14 +9131,14 @@ async function queryDecisions(outputDir, options = {}) {
 }
 async function getDecision(outputDir, decisionId) {
   const decisionsDir = getDecisionsDir(outputDir);
-  if (!(0, import_fs3.existsSync)(decisionsDir)) {
+  if (!fs.existsSync(decisionsDir)) {
     return null;
   }
-  const files = await (0, import_promises12.readdir)(decisionsDir);
+  const files = await fs$1.readdir(decisionsDir);
   for (const file of files) {
     if (!file.endsWith(".jsonl")) continue;
-    const filePath = (0, import_path11.join)(decisionsDir, file);
-    const content = await (0, import_promises12.readFile)(filePath, "utf-8");
+    const filePath = path.join(decisionsDir, file);
+    const content = await fs$1.readFile(filePath, "utf-8");
     const lines = content.trim().split("\n").filter(Boolean);
     for (const line of lines) {
       const entry = DecisionEntrySchema.parse(JSON.parse(line));
@@ -9247,10 +9151,10 @@ async function getDecision(outputDir, decisionId) {
 }
 async function getTrackedRoutes(outputDir) {
   const decisionsDir = getDecisionsDir(outputDir);
-  if (!(0, import_fs3.existsSync)(decisionsDir)) {
+  if (!fs.existsSync(decisionsDir)) {
     return [];
   }
-  const files = await (0, import_promises12.readdir)(decisionsDir);
+  const files = await fs$1.readdir(decisionsDir);
   return files.filter((f) => f.endsWith(".jsonl")).map((f) => f.replace(".jsonl", "").replace(/_/g, "/").replace(/^\/?/, "/"));
 }
 async function getDecisionStats(outputDir) {
@@ -9265,48 +9169,41 @@ async function getDecisionStats(outputDir) {
 }
 async function getDecisionsSize(outputDir) {
   const decisionsDir = getDecisionsDir(outputDir);
-  if (!(0, import_fs3.existsSync)(decisionsDir)) {
+  if (!fs.existsSync(decisionsDir)) {
     return 0;
   }
-  const files = await (0, import_promises12.readdir)(decisionsDir);
+  const files = await fs$1.readdir(decisionsDir);
   let total = 0;
   for (const file of files) {
     if (!file.endsWith(".jsonl")) continue;
-    const s = await (0, import_promises12.stat)((0, import_path11.join)(decisionsDir, file));
+    const s = await fs$1.stat(path.join(decisionsDir, file));
     total += s.size;
   }
   return total;
 }
-var import_nanoid4, import_promises12, import_path11, import_fs3, CONTEXT_DIR, DECISIONS_DIR;
+var CONTEXT_DIR, DECISIONS_DIR;
 var init_decision_tracker = __esm({
   "src/decision-tracker.ts"() {
-    "use strict";
-    import_nanoid4 = require("nanoid");
-    import_promises12 = require("fs/promises");
-    import_path11 = require("path");
-    import_fs3 = require("fs");
     init_types3();
     CONTEXT_DIR = "context";
     DECISIONS_DIR = "decisions";
   }
 });
-
-// src/context/compact.ts
 function getCompactPath(outputDir) {
-  return (0, import_path12.join)(outputDir, CONTEXT_DIR2, COMPACT_FILE);
+  return path.join(outputDir, CONTEXT_DIR2, COMPACT_FILE);
 }
 function getArchiveDir(outputDir) {
-  return (0, import_path12.join)(outputDir, CONTEXT_DIR2, ARCHIVE_DIR2);
+  return path.join(outputDir, CONTEXT_DIR2, ARCHIVE_DIR2);
 }
 async function loadCompactContext(outputDir, sessionId) {
   const compactPath = getCompactPath(outputDir);
-  if ((0, import_fs4.existsSync)(compactPath)) {
-    const content = await (0, import_promises13.readFile)(compactPath, "utf-8");
+  if (fs.existsSync(compactPath)) {
+    const content = await fs$1.readFile(compactPath, "utf-8");
     return CompactContextSchema.parse(JSON.parse(content));
   }
   return {
     version: 1,
-    session_id: sessionId || `ctx_${(0, import_nanoid5.nanoid)(8)}`,
+    session_id: sessionId || `ctx_${nanoid.nanoid(8)}`,
     updated_at: (/* @__PURE__ */ new Date()).toISOString(),
     active_route: void 0,
     decisions_summary: [],
@@ -9319,10 +9216,10 @@ async function loadCompactContext(outputDir, sessionId) {
   };
 }
 async function saveCompactContext(outputDir, context) {
-  const contextDir = (0, import_path12.join)(outputDir, CONTEXT_DIR2);
-  await (0, import_promises13.mkdir)(contextDir, { recursive: true });
+  const contextDir = path.join(outputDir, CONTEXT_DIR2);
+  await fs$1.mkdir(contextDir, { recursive: true });
   const compactPath = getCompactPath(outputDir);
-  await (0, import_promises13.writeFile)(compactPath, JSON.stringify(context, null, 2));
+  await fs$1.writeFile(compactPath, JSON.stringify(context, null, 2));
 }
 async function updateCompactContext(outputDir, sessionId) {
   const current = await loadCompactContext(outputDir, sessionId);
@@ -9363,10 +9260,10 @@ async function updateCompactContext(outputDir, sessionId) {
 async function compactContext(outputDir, request) {
   const current = await loadCompactContext(outputDir);
   const archiveDir = getArchiveDir(outputDir);
-  await (0, import_promises13.mkdir)(archiveDir, { recursive: true });
+  await fs$1.mkdir(archiveDir, { recursive: true });
   const archiveFilename = `compact_${Date.now()}.json`;
-  const archivePath = (0, import_path12.join)(archiveDir, archiveFilename);
-  await (0, import_promises13.writeFile)(archivePath, JSON.stringify(current, null, 2));
+  const archivePath = path.join(archiveDir, archiveFilename);
+  await fs$1.writeFile(archivePath, JSON.stringify(current, null, 2));
   const decisionsCompacted = current.decisions_summary.reduce(
     (sum, s) => sum + s.decision_count,
     0
@@ -9420,18 +9317,13 @@ async function addKnownIssue(outputDir, issue) {
 }
 async function isCompactContextOversize(outputDir) {
   const compactPath = getCompactPath(outputDir);
-  if (!(0, import_fs4.existsSync)(compactPath)) return false;
-  const content = await (0, import_promises13.readFile)(compactPath, "utf-8");
+  if (!fs.existsSync(compactPath)) return false;
+  const content = await fs$1.readFile(compactPath, "utf-8");
   return Buffer.byteLength(content, "utf-8") > 4096;
 }
-var import_promises13, import_path12, import_fs4, import_nanoid5, CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
+var CONTEXT_DIR2, COMPACT_FILE, ARCHIVE_DIR2;
 var init_compact = __esm({
   "src/context/compact.ts"() {
-    "use strict";
-    import_promises13 = require("fs/promises");
-    import_path12 = require("path");
-    import_fs4 = require("fs");
-    import_nanoid5 = require("nanoid");
     init_types3();
     init_decision_tracker();
     CONTEXT_DIR2 = "context";
@@ -9456,16 +9348,16 @@ async function closeBrowser2() {
   }
 }
 async function checkLock(outputDir) {
-  const lockPath = (0, import_path13.join)(outputDir, LOCK_FILE);
-  if (!(0, import_fs5.existsSync)(lockPath)) {
+  const lockPath = path.join(outputDir, LOCK_FILE);
+  if (!fs.existsSync(lockPath)) {
     return false;
   }
   try {
-    const content = await (0, import_promises14.readFile)(lockPath, "utf-8");
+    const content = await fs$1.readFile(lockPath, "utf-8");
     const timestamp = parseInt(content, 10);
     const age = Date.now() - timestamp;
     if (age > LOCK_TIMEOUT_MS) {
-      await (0, import_promises14.unlink)(lockPath);
+      await fs$1.unlink(lockPath);
       return false;
     }
     return true;
@@ -9474,13 +9366,13 @@ async function checkLock(outputDir) {
   }
 }
 async function createLock(outputDir) {
-  const lockPath = (0, import_path13.join)(outputDir, LOCK_FILE);
-  await (0, import_promises14.writeFile)(lockPath, Date.now().toString());
+  const lockPath = path.join(outputDir, LOCK_FILE);
+  await fs$1.writeFile(lockPath, Date.now().toString());
 }
 async function releaseLock(outputDir) {
-  const lockPath = (0, import_path13.join)(outputDir, LOCK_FILE);
+  const lockPath = path.join(outputDir, LOCK_FILE);
   try {
-    await (0, import_promises14.unlink)(lockPath);
+    await fs$1.unlink(lockPath);
   } catch {
   }
 }
@@ -9747,8 +9639,8 @@ async function extractFromURL(options) {
   if (await checkLock(outputDir)) {
     throw new Error("Another extraction is in progress. Please wait.");
   }
-  const sessionDir = (0, import_path13.join)(outputDir, "sessions", sessionId);
-  await (0, import_promises14.mkdir)(sessionDir, { recursive: true });
+  const sessionDir = path.join(outputDir, "sessions", sessionId);
+  await fs$1.mkdir(sessionDir, { recursive: true });
   await createLock(outputDir);
   let timeoutHandle = null;
   try {
@@ -9787,7 +9679,7 @@ async function extractFromURL(options) {
           elements.push(...extracted);
         }
         const cssVariables = await extractCSSVariables(page);
-        const screenshotPath = (0, import_path13.join)(sessionDir, "reference.png");
+        const screenshotPath = path.join(sessionDir, "reference.png");
         await page.screenshot({
           path: screenshotPath,
           fullPage: true,
@@ -9802,11 +9694,11 @@ async function extractFromURL(options) {
           cssVariables,
           screenshotPath
         };
-        await (0, import_promises14.writeFile)(
-          (0, import_path13.join)(sessionDir, "reference.json"),
+        await fs$1.writeFile(
+          path.join(sessionDir, "reference.json"),
           JSON.stringify(result2, null, 2)
         );
-        await (0, import_promises14.writeFile)((0, import_path13.join)(sessionDir, "reference.html"), html);
+        await fs$1.writeFile(path.join(sessionDir, "reference.html"), html);
         return result2;
       } finally {
         await driverInstance.close();
@@ -9822,26 +9714,22 @@ async function extractFromURL(options) {
   }
 }
 function getReferenceSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path13.join)(outputDir, "sessions", sessionId);
+  const root = path.join(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path13.join)(root, "session.json"),
-    reference: (0, import_path13.join)(root, "reference.png"),
-    referenceHtml: (0, import_path13.join)(root, "reference.html"),
-    referenceData: (0, import_path13.join)(root, "reference.json"),
-    current: (0, import_path13.join)(root, "current.png"),
-    diff: (0, import_path13.join)(root, "diff.png")
+    sessionJson: path.join(root, "session.json"),
+    reference: path.join(root, "reference.png"),
+    referenceHtml: path.join(root, "reference.html"),
+    referenceData: path.join(root, "reference.json"),
+    current: path.join(root, "current.png"),
+    diff: path.join(root, "diff.png")
   };
 }
-var import_promises14, import_fs5, import_path13, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS;
+var LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
-    "use strict";
     init_driver();
     init_compat();
-    import_promises14 = require("fs/promises");
-    import_fs5 = require("fs");
-    import_path13 = require("path");
     init_schemas();
     LOCK_FILE = ".extracting";
     LOCK_TIMEOUT_MS = 18e4;
@@ -9959,7 +9847,6 @@ function detectLayoutCollisions(elements) {
 }
 var init_layout_collision = __esm({
   "src/layout-collision.ts"() {
-    "use strict";
   }
 });
 
@@ -9978,7 +9865,9 @@ async function scan(url, options = {}) {
     viewport: viewportOpt = "desktop",
     timeout = 3e4,
     waitFor,
-    screenshot
+    screenshot,
+    networkIdleTimeout,
+    patience
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
   const driver3 = new EngineDriver();
@@ -10001,10 +9890,14 @@ async function scan(url, options = {}) {
       waitUntil: "domcontentloaded",
       timeout
     });
-    await page.waitForLoadState?.("networkidle", { timeout: 1e4 }).catch(() => {
+    let networkIdleTimedOut = false;
+    await page.waitForLoadState?.("networkidle", { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+      networkIdleTimedOut = true;
     });
+    let waitForTimedOut = false;
     if (waitFor) {
-      await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
+      await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+        waitForTimedOut = true;
       });
     }
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
@@ -10030,7 +9923,7 @@ async function scan(url, options = {}) {
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
-    return {
+    const baseResult = {
       url,
       route,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -10049,6 +9942,14 @@ async function scan(url, options = {}) {
       issues,
       summary
     };
+    if (patience && (networkIdleTimedOut || waitForTimedOut)) {
+      return {
+        ...baseResult,
+        verdict: "PARTIAL",
+        partialReason: `Page still loading after ${patience}ms \u2014 ${networkIdleTimedOut ? "network still active" : "selector not found"}. Re-scan when content has loaded.`
+      };
+    }
+    return baseResult;
   } finally {
     await driver3.close();
   }
@@ -10169,7 +10070,7 @@ function getFixSuggestion(type) {
 }
 function formatScanResult(result) {
   const lines = [];
-  const verdictIcon2 = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  const verdictIcon2 = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : result.verdict === "PARTIAL" ? "\x1B[33m~\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   lines.push("  IBR UI SCAN");
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
@@ -10247,13 +10148,19 @@ function formatScanResult(result) {
   } else {
     lines.push("  No issues detected.");
   }
+  if (result.verdict === "PARTIAL" && result.partialReason) {
+    lines.push("");
+    lines.push("  PARTIAL SCAN");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    lines.push(`  \x1B[33m!\x1B[0m ${result.partialReason}`);
+    lines.push("  Re-scan when the page has finished loading.");
+  }
   lines.push("");
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
 var init_scan = __esm({
   "src/scan.ts"() {
-    "use strict";
     init_driver();
     init_compat();
     init_schemas();
@@ -10264,15 +10171,13 @@ var init_scan = __esm({
     init_consistency();
   }
 });
-
-// src/tokens.ts
 function loadTokenSpec(specPath) {
-  if (!(0, import_fs6.existsSync)(specPath)) {
+  if (!fs.existsSync(specPath)) {
     throw new Error(`Token spec not found: ${specPath}`);
   }
   let spec;
   try {
-    const content = (0, import_fs6.readFileSync)(specPath, "utf-8");
+    const content = fs.readFileSync(specPath, "utf-8");
     spec = JSON.parse(content);
   } catch (err) {
     throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
@@ -10392,11 +10297,8 @@ function validateAgainstTokens(elements, spec) {
   }
   return violations;
 }
-var import_fs6;
 var init_tokens = __esm({
   "src/tokens.ts"() {
-    "use strict";
-    import_fs6 = require("fs");
   }
 });
 
@@ -10415,7 +10317,6 @@ function getDeviceViewport(device) {
 var NATIVE_VIEWPORTS, DEVICE_NAME_PATTERNS;
 var init_viewports = __esm({
   "src/native/viewports.ts"() {
-    "use strict";
     NATIVE_VIEWPORTS = {
       // iPhone 16 series
       "iphone-16": { name: "iphone-16", width: 393, height: 852 },
@@ -10443,8 +10344,6 @@ var init_viewports = __esm({
     ];
   }
 });
-
-// src/native/simulator.ts
 function parseRuntime(runtime) {
   if (/watchOS/i.test(runtime)) return "watchos";
   return "ios";
@@ -10501,22 +10400,17 @@ function formatDevice(device) {
   const stateIcon = device.state === "Booted" ? "\x1B[32m\u25CF\x1B[0m" : "\x1B[90m\u25CB\x1B[0m";
   return `${stateIcon} ${device.name} (${runtimeVersion}) [${device.udid.slice(0, 8)}...]`;
 }
-var import_child_process2, import_util, execFileAsync;
+var execFileAsync;
 var init_simulator = __esm({
   "src/native/simulator.ts"() {
-    "use strict";
-    import_child_process2 = require("child_process");
-    import_util = require("util");
-    execFileAsync = (0, import_util.promisify)(import_child_process2.execFile);
+    execFileAsync = util.promisify(child_process.execFile);
   }
 });
-
-// src/native/capture.ts
 async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises15.mkdir)((0, import_path14.dirname)(outputPath), { recursive: true });
+    await fs$1.mkdir(path.dirname(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -10542,16 +10436,11 @@ async function captureNativeScreenshot(options) {
     };
   }
 }
-var import_child_process3, import_util2, import_promises15, import_path14, execFileAsync2;
+var execFileAsync2;
 var init_capture2 = __esm({
   "src/native/capture.ts"() {
-    "use strict";
-    import_child_process3 = require("child_process");
-    import_util2 = require("util");
-    import_promises15 = require("fs/promises");
-    import_path14 = require("path");
     init_viewports();
-    execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
+    execFileAsync2 = util.promisify(child_process.execFile);
   }
 });
 
@@ -10568,7 +10457,6 @@ function isInteractiveRole(role) {
 var TAG_MAP, ARIA_MAP, INTERACTIVE_ROLES;
 var init_role_map = __esm({
   "src/native/role-map.ts"() {
-    "use strict";
     TAG_MAP = {
       "AXButton": "button",
       "AXLink": "a",
@@ -10641,21 +10529,19 @@ var init_role_map = __esm({
     ]);
   }
 });
-
-// src/native/extract.ts
 async function ensureExtractor() {
-  if ((0, import_fs7.existsSync)(EXTRACTOR_PATH)) {
+  if (fs.existsSync(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
-  await (0, import_promises16.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  await fs$1.mkdir(EXTRACTOR_DIR, { recursive: true });
   try {
     await execFileAsync3("swift", ["build", "-c", "release"], {
       cwd: SWIFT_SOURCE_DIR,
       timeout: 12e4
       // 2 minutes for first compile
     });
-    const buildPath = (0, import_path15.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs7.existsSync)(buildPath)) {
+    const buildPath = path.join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    if (!fs.existsSync(buildPath)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
     await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
@@ -10668,8 +10554,8 @@ async function ensureExtractor() {
   }
 }
 function isExtractorAvailable() {
-  if ((0, import_fs7.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs7.existsSync)((0, import_path15.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  if (fs.existsSync(EXTRACTOR_PATH)) return true;
+  return fs.existsSync(path.join(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -10729,20 +10615,14 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs7, import_promises16, import_path15, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
-    "use strict";
-    import_child_process4 = require("child_process");
-    import_util3 = require("util");
-    import_fs7 = require("fs");
-    import_promises16 = require("fs/promises");
-    import_path15 = require("path");
     init_role_map();
-    execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path15.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path15.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = (0, import_path15.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    execFileAsync3 = util.promisify(child_process.execFile);
+    EXTRACTOR_DIR = path.join(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = path.join(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = path.join(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
   }
 });
 
@@ -10796,11 +10676,8 @@ function auditNativeElements(elements, platform, viewport) {
 }
 var init_rules = __esm({
   "src/native/rules.ts"() {
-    "use strict";
   }
 });
-
-// src/native/macos.ts
 async function findProcess(appNameOrBundleId) {
   try {
     const { stdout } = await execAsync(
@@ -10923,23 +10800,18 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises17.mkdir)((0, import_path16.dirname)(outputPath), { recursive: true });
+  await fs$1.mkdir(path.dirname(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
 }
-var import_child_process5, import_util4, import_promises17, import_path16, execFileAsync4, execAsync;
+var execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
-    "use strict";
-    import_child_process5 = require("child_process");
-    import_util4 = require("util");
-    import_promises17 = require("fs/promises");
-    import_path16 = require("path");
     init_extract3();
     init_role_map();
-    execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
-    execAsync = (0, import_util4.promisify)(import_child_process5.exec);
+    execFileAsync4 = util.promisify(child_process.execFile);
+    execAsync = util.promisify(child_process.exec);
   }
 });
 
@@ -11060,7 +10932,6 @@ function buildNativeInteractivity(elements) {
 }
 var init_interactivity2 = __esm({
   "src/native/interactivity.ts"() {
-    "use strict";
   }
 });
 
@@ -11179,11 +11050,8 @@ function classifyNativeIntent(elements, windowTitle) {
 }
 var init_semantic2 = __esm({
   "src/native/semantic.ts"() {
-    "use strict";
   }
 });
-
-// src/native/scan.ts
 async function scanNative(options = {}) {
   const { device: deviceQuery, screenshot = true, outputDir = ".ibr" } = options;
   let device;
@@ -11213,7 +11081,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp = Date.now();
-    const ssPath = (0, import_path17.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const ssPath = path.join(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -11326,7 +11194,7 @@ async function scanMacOS(options) {
   const issues = aggregateIssues(audit, interactivity, semantic, []);
   const verdict = determineVerdict2(issues);
   const summary = generateSummary2(
-    { all: elements, audit },
+    { audit },
     interactivity,
     semantic,
     issues,
@@ -11425,11 +11293,8 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_path17;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
-    "use strict";
-    import_path17 = require("path");
     init_scan();
     init_extract2();
     init_simulator();
@@ -11504,8 +11369,8 @@ function drawLabel(png, cx, cy, id) {
 async function annotateScreenshot(screenshotPath, issues) {
   let png;
   try {
-    const buf = (0, import_fs8.readFileSync)(screenshotPath);
-    png = import_pngjs3.PNG.sync.read(buf);
+    const buf = fs.readFileSync(screenshotPath);
+    png = pngjs.PNG.sync.read(buf);
   } catch {
     return null;
   }
@@ -11516,18 +11381,15 @@ async function annotateScreenshot(screenshotPath, issues) {
   }
   const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
   try {
-    (0, import_fs8.writeFileSync)(outPath, import_pngjs3.PNG.sync.write(png));
+    fs.writeFileSync(outPath, pngjs.PNG.sync.write(png));
   } catch {
     return null;
   }
   return outPath;
 }
-var import_pngjs3, import_fs8, DIGITS;
+var DIGITS;
 var init_annotate = __esm({
   "src/native/annotate.ts"() {
-    "use strict";
-    import_pngjs3 = require("pngjs");
-    import_fs8 = require("fs");
     DIGITS = [
       [31, 17, 17, 17, 17, 17, 31],
       // 0
@@ -11731,7 +11593,6 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
 var SIMULATOR_CHROME_PATTERNS;
 var init_fix_guide = __esm({
   "src/native/fix-guide.ts"() {
-    "use strict";
     SIMULATOR_CHROME_PATTERNS = [
       "Save Screen",
       "Rotate",
@@ -11776,7 +11637,6 @@ __export(native_exports, {
 });
 var init_native = __esm({
   "src/native/index.ts"() {
-    "use strict";
     init_viewports();
     init_simulator();
     init_capture2();
@@ -12004,7 +11864,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path18.join)((0, import_os2.tmpdir)(), "ibr-compare"),
+    outputDir = path.join(os.tmpdir(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -12014,11 +11874,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises18.mkdir)(outputDir, { recursive: true });
+  await fs$1.mkdir(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path18.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path18.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path18.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || path.join(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || path.join(outputDir, `current-${timestamp}.png`);
+  const diffPath = path.join(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -12040,12 +11900,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises18.access)(actualBaselinePath);
+    await fs$1.access(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises18.access)(actualCurrentPath);
+    await fs$1.access(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -12094,7 +11954,7 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path18.dirname)(paths.diff),
+      outputDir: path.dirname(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
@@ -12112,7 +11972,7 @@ async function compareAll(options = {}) {
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path18.dirname)(paths.diff),
+          outputDir: path.dirname(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -12124,10 +11984,9 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises18, import_path18, import_os2, InterfaceBuiltRight, IBRSession;
+var InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
-    "use strict";
     init_schemas();
     init_capture();
     init_compare();
@@ -12137,9 +11996,6 @@ var init_index = __esm({
     init_flows();
     init_driver();
     init_compat();
-    import_promises18 = require("fs/promises");
-    import_path18 = require("path");
-    import_os2 = require("os");
     init_cleanup();
     init_schemas();
     init_types();
@@ -12517,7 +12373,6 @@ var init_index = __esm({
 var WebDriverClient;
 var init_webdriver = __esm({
   "src/engine/safari/webdriver.ts"() {
-    "use strict";
     WebDriverClient = class {
       baseUrl;
       sessionId = null;
@@ -12668,13 +12523,10 @@ var session_exports2 = {};
 __export(session_exports2, {
   SafariSession: () => SafariSession
 });
-var import_child_process6, import_util5, execFileAsync5, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var execFileAsync5, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
-    "use strict";
-    import_child_process6 = require("child_process");
-    import_util5 = require("util");
-    execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
+    execFileAsync5 = util.promisify(child_process.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -12692,7 +12544,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process6.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = child_process.spawn("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -12753,7 +12605,7 @@ var init_session2 = __esm({
         );
       }
       async findFreePort() {
-        const { createServer } = await import("net");
+        const { createServer } = await import('net');
         for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
           const available = await new Promise((resolve5) => {
             const server = createServer();
@@ -12779,17 +12631,14 @@ var driver_exports2 = {};
 __export(driver_exports2, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process7, import_util6, execFileAsync6, SafariDriver;
+var execFileAsync6, SafariDriver;
 var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
-    "use strict";
-    import_child_process7 = require("child_process");
-    import_util6 = require("util");
     init_webdriver();
     init_session2();
     init_extract3();
     init_serialize();
-    execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+    execFileAsync6 = util.promisify(child_process.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -12803,7 +12652,7 @@ var init_driver2 = __esm({
         await this.client.createSession();
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process7.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        child_process.exec(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -12880,9 +12729,7 @@ var init_driver2 = __esm({
           const snap = {
             url: this._currentUrl,
             platform: "web",
-            elements: filtered,
-            timestamp: Date.now()
-          };
+            elements: filtered};
           return serializeSnapshot(snap);
         }
         return filtered;
@@ -13131,7 +12978,7 @@ var init_driver2 = __esm({
        */
       async _cropScreenshot(buf, clip) {
         try {
-          const { PNG: PNG5 } = await import("pngjs");
+          const { PNG: PNG5 } = await import('pngjs');
           const src = PNG5.sync.read(buf);
           const dst = new PNG5({ width: clip.width, height: clip.height });
           for (let y = 0; y < clip.height; y++) {
@@ -13165,7 +13012,6 @@ function register() {
 var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
 var init_minimal = __esm({
   "src/rules/presets/minimal.ts"() {
-    "use strict";
     init_engine();
     noHandlerRule = {
       id: "no-handler",
@@ -13336,12 +13182,12 @@ function listPresets() {
   return Array.from(presets.keys());
 }
 async function loadRulesConfig(projectDir) {
-  const configPath = (0, import_path19.join)(projectDir, ".ibr", "rules.json");
-  if (!(0, import_fs9.existsSync)(configPath)) {
+  const configPath = path.join(projectDir, ".ibr", "rules.json");
+  if (!fs.existsSync(configPath)) {
     return { extends: [], rules: {} };
   }
   try {
-    const content = await (0, import_promises19.readFile)(configPath, "utf-8");
+    const content = await fs$1.readFile(configPath, "utf-8");
     return JSON.parse(content);
   } catch (error) {
     console.warn(`Failed to parse rules.json: ${error}`);
@@ -13451,13 +13297,9 @@ async function loadMemoryPreset(outputDir) {
   } catch {
   }
 }
-var import_promises19, import_fs9, import_path19, presets;
+var presets;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
-    "use strict";
-    import_promises19 = require("fs/promises");
-    import_fs9 = require("fs");
-    import_path19 = require("path");
     presets = /* @__PURE__ */ new Map();
     Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
     });
@@ -13618,7 +13460,6 @@ function extractImplementationRules(body) {
 var FRAMEWORK_PATTERNS, PRINCIPLES_SECTION_PATTERNS;
 var init_framework_parser = __esm({
   "src/framework-parser.ts"() {
-    "use strict";
     FRAMEWORK_PATTERNS = [
       /^#\s*(.+?)\s*(\d+\.?\d*)?$/m,
       // "# CALM PRECISION 6.1"
@@ -13644,19 +13485,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path20.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = path.join(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path20.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = path.join(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path20.join)((0, import_os3.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = path.join(os.homedir(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -13665,10 +13506,10 @@ async function discoverUserContext(projectDir) {
   const config = await loadIBRConfig(projectDir);
   let memory;
   const outputDir = config.outputDir || "./.ibr";
-  const memoryPath = (0, import_path20.join)(outputDir, "memory", "summary.json");
-  if ((0, import_fs10.existsSync)(memoryPath)) {
+  const memoryPath = path.join(outputDir, "memory", "summary.json");
+  if (fs.existsSync(memoryPath)) {
     try {
-      const memContent = await (0, import_promises20.readFile)(memoryPath, "utf-8");
+      const memContent = await fs$1.readFile(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
     } catch {
     }
@@ -13688,12 +13529,12 @@ async function tryLoadFramework(filePath, type) {
     found: false,
     hasFramework: false
   };
-  if (!(0, import_fs10.existsSync)(filePath)) {
+  if (!fs.existsSync(filePath)) {
     return { source };
   }
   source.found = true;
   try {
-    const content = await (0, import_promises20.readFile)(filePath, "utf-8");
+    const content = await fs$1.readFile(filePath, "utf-8");
     const framework = parseDesignFramework(content, filePath);
     if (framework) {
       source.hasFramework = true;
@@ -13704,12 +13545,12 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path20.join)(projectDir, ".ibrrc.json");
-  if (!(0, import_fs10.existsSync)(configPath)) {
+  const configPath = path.join(projectDir, ".ibrrc.json");
+  if (!fs.existsSync(configPath)) {
     return {};
   }
   try {
-    const content = await (0, import_promises20.readFile)(configPath, "utf-8");
+    const content = await fs$1.readFile(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -13739,14 +13580,8 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs10, import_promises20, import_path20, import_os3;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
-    "use strict";
-    import_fs10 = require("fs");
-    import_promises20 = require("fs/promises");
-    import_path20 = require("path");
-    import_os3 = require("os");
     init_framework_parser();
   }
 });
@@ -13996,7 +13831,6 @@ function getRulesSummary(rules2) {
 }
 var init_dynamic_rules = __esm({
   "src/rules/dynamic-rules.ts"() {
-    "use strict";
   }
 });
 
@@ -14012,18 +13846,18 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path21.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path21.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path21.join)(outputDir, "sessions")
+    stateFile: path.join(outputDir, SERVER_STATE_FILE),
+    profileDir: path.join(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: path.join(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs11.existsSync)(stateFile)) {
+  if (!fs.existsSync(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises21.readFile)(stateFile, "utf-8");
+    const content = await fs$1.readFile(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (!state.cdpUrl) {
       return false;
@@ -14040,7 +13874,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises21.unlink)(stateFile);
+    await fs$1.unlink(stateFile);
   } catch {
   }
 }
@@ -14056,38 +13890,11 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises21.mkdir)(outputDir, { recursive: true });
+  await fs$1.mkdir(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises21.mkdir)(profileDir, { recursive: true });
+    await fs$1.mkdir(profileDir, { recursive: true });
   }
-  const extraArgs = [];
-  if (options.lowMemory) {
-    extraArgs.push(
-      "--disable-gpu",
-      // Disable GPU acceleration
-      "--disable-dev-shm-usage",
-      // Use /tmp instead of /dev/shm
-      "--disable-extensions",
-      // No extensions
-      "--disable-background-networking",
-      // Reduce background activity
-      "--disable-default-apps",
-      // No default Chrome apps
-      "--disable-sync",
-      // No Chrome sync
-      "--no-first-run",
-      // Skip first run tasks
-      "--disable-background-timer-throttling",
-      "--disable-backgrounding-occluded-windows",
-      "--disable-renderer-backgrounding",
-      "--disable-features=TranslateUI",
-      "--disable-ipc-flooding-protection",
-      "--memory-pressure-off",
-      // Don't respond to memory pressure
-      "--js-flags=--max-old-space-size=256"
-      // Limit V8 heap to 256MB
-    );
-  }
+  if (options.lowMemory) ;
   const driver3 = new EngineDriver();
   await driver3.launch({
     headless,
@@ -14105,16 +13912,16 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises21.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await fs$1.writeFile(stateFile, JSON.stringify(state, null, 2));
   return { driver: driver3, wsEndpoint };
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs11.existsSync)(stateFile)) {
+  if (!fs.existsSync(stateFile)) {
     return null;
   }
   try {
-    const content = await (0, import_promises21.readFile)(stateFile, "utf-8");
+    const content = await fs$1.readFile(stateFile, "utf-8");
     const state = JSON.parse(content);
     let wsUrl;
     if (state.cdpUrl) {
@@ -14131,18 +13938,18 @@ async function connectToBrowserServer(outputDir) {
   }
 }
 async function stopBrowserServer(outputDir) {
-  const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs11.existsSync)(stateFile)) {
+  const { stateFile} = getPaths(outputDir);
+  if (!fs.existsSync(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises21.readFile)(stateFile, "utf-8");
+    const content = await fs$1.readFile(stateFile, "utf-8");
     const state = JSON.parse(content);
     const wsUrl = state.cdpUrl ? await resolveWsEndpoint(state.cdpUrl) : state.wsEndpoint;
     const driver3 = new EngineDriver();
     await driver3.connectExisting(wsUrl);
     await driver3.close();
-    await (0, import_promises21.unlink)(stateFile);
+    await fs$1.unlink(stateFile);
     return true;
   } catch {
     await cleanupServerState(outputDir);
@@ -14151,32 +13958,27 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs11.existsSync)(sessionsDir)) {
+  if (!fs.existsSync(sessionsDir)) {
     return [];
   }
-  const { readdir: readdir6 } = await import("fs/promises");
+  const { readdir: readdir6 } = await import('fs/promises');
   const entries = await readdir6(sessionsDir, { withFileTypes: true });
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path21.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs11.existsSync)(statePath)) {
+      const statePath = path.join(sessionsDir, entry.name, "live-session.json");
+      if (fs.existsSync(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_promises21, import_fs11, import_path21, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
-    "use strict";
     init_driver();
     init_compat();
-    import_promises21 = require("fs/promises");
-    import_fs11 = require("fs");
-    import_path21 = require("path");
-    import_nanoid6 = require("nanoid");
     init_schemas();
     init_extract2();
     init_scan();
@@ -14206,10 +14008,10 @@ var init_browser_server = __esm({
             "No browser server running.\nStart one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
           );
         }
-        const sessionId = `live_${(0, import_nanoid6.nanoid)(10)}`;
-        const sessionsDir = (0, import_path21.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path21.join)(sessionsDir, sessionId);
-        await (0, import_promises21.mkdir)(sessionDir, { recursive: true });
+        const sessionId = `live_${nanoid.nanoid(10)}`;
+        const sessionsDir = path.join(outputDir, "sessions");
+        const sessionDir = path.join(sessionsDir, sessionId);
+        await fs$1.mkdir(sessionDir, { recursive: true });
         await driver3.setViewport({
           width: viewport.width,
           height: viewport.height
@@ -14240,12 +14042,12 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises21.writeFile)(
-          (0, import_path21.join)(sessionDir, "live-session.json"),
+        await fs$1.writeFile(
+          path.join(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path21.join)(sessionDir, "baseline.png"),
+          path: path.join(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(driver3, page, state, sessionDir);
@@ -14254,16 +14056,16 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path21.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path21.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs11.existsSync)(statePath)) {
+        const sessionDir = path.join(outputDir, "sessions", sessionId);
+        const statePath = path.join(sessionDir, "live-session.json");
+        if (!fs.existsSync(statePath)) {
           return null;
         }
         const driver3 = await connectToBrowserServer(outputDir);
         if (!driver3) {
           return null;
         }
-        const content = await (0, import_promises21.readFile)(statePath, "utf-8");
+        const content = await fs$1.readFile(statePath, "utf-8");
         const state = JSON.parse(content);
         const page = new CompatPage(driver3);
         await driver3.setViewport({
@@ -14287,8 +14089,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises21.writeFile)(
-          (0, import_path21.join)(this.sessionDir, "live-session.json"),
+        await fs$1.writeFile(
+          path.join(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -14430,7 +14232,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path21.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = path.join(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -14693,7 +14495,7 @@ var init_browser_server = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path21.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = path.join(this.sessionDir, screenshotFile);
         try {
           await this.page.addStyleTag({
             content: `*, *::before, *::after {
@@ -14786,14 +14588,14 @@ var init_browser_server = __esm({
         if (this.state.captures && this.state.captures.length > 0) {
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
-            const archiveDir = (0, import_path21.join)(this.sessionDir, "archive");
-            await (0, import_promises21.mkdir)(archiveDir, { recursive: true });
-            const { rename: rename2 } = await import("fs/promises");
+            const archiveDir = path.join(this.sessionDir, "archive");
+            await fs$1.mkdir(archiveDir, { recursive: true });
+            const { rename: rename2 } = await import('fs/promises');
             for (const cap of ephemeral) {
-              const src = (0, import_path21.join)(this.sessionDir, cap.screenshot);
-              const dest = (0, import_path21.join)(archiveDir, cap.screenshot);
+              const src = path.join(this.sessionDir, cap.screenshot);
+              const dest = path.join(archiveDir, cap.screenshot);
               try {
-                if ((0, import_fs11.existsSync)(src)) {
+                if (fs.existsSync(src)) {
                   await rename2(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
@@ -14804,6 +14606,22 @@ var init_browser_server = __esm({
           }
         }
         await this.driver.close();
+      }
+      /**
+       * Release the driver's WebSocket and spawned tab without terminating the
+       * shared browser-server Chrome process.
+       *
+       * Every one-shot CLI command (session:click, session:wait, session:scan,
+       * session:screenshot, etc.) creates a new PersistentSession via get(), which
+       * in turn spawns a fresh tab via connectExisting() and opens a new CDP
+       * WebSocket. If we don't release those at the end of the command, the node
+       * process hangs on the open socket and the shared Chrome accumulates tabs.
+       *
+       * Safe to call multiple times; no-op if driver is already disconnected.
+       */
+      async disconnect() {
+        await this.driver.disconnect().catch(() => {
+        });
       }
       /**
        * Get raw CompatPage (engine-backed page adapter)
@@ -14821,16 +14639,11 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises22, import_fs12, import_path22, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
-    "use strict";
     init_driver();
     init_compat();
-    import_promises22 = require("fs/promises");
-    import_fs12 = require("fs");
-    import_path22 = require("path");
-    import_nanoid7 = require("nanoid");
     init_schemas();
     init_scan();
     init_interactivity();
@@ -14847,7 +14660,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, driver3, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path22.join)(outputDir, "sessions", state.id);
+        this.sessionDir = path.join(outputDir, "sessions", state.id);
         this.driver = driver3;
         this.page = page;
         page.on("console", (msg) => {
@@ -14871,9 +14684,9 @@ var init_live_session = __esm({
           timeout = 3e4,
           autoCapture = false
         } = options;
-        const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
-        const sessionDir = (0, import_path22.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises22.mkdir)(sessionDir, { recursive: true });
+        const sessionId = `live_${nanoid.nanoid(10)}`;
+        const sessionDir = path.join(outputDir, "sessions", sessionId);
+        await fs$1.mkdir(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
           headless: !sandbox && !debug,
@@ -14906,12 +14719,12 @@ var init_live_session = __esm({
           }],
           captures: []
         };
-        await (0, import_promises22.writeFile)(
-          (0, import_path22.join)(sessionDir, "live-session.json"),
+        await fs$1.writeFile(
+          path.join(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path22.join)(sessionDir, "baseline.png"),
+          path: path.join(sessionDir, "baseline.png"),
           fullPage: false
         });
         const session = new _LiveSession(state, outputDir, driver3, page);
@@ -14925,12 +14738,12 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path22.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path22.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs12.existsSync)(statePath)) {
+        const sessionDir = path.join(outputDir, "sessions", sessionId);
+        const statePath = path.join(sessionDir, "live-session.json");
+        if (!fs.existsSync(statePath)) {
           return null;
         }
-        const content = await (0, import_promises22.readFile)(statePath, "utf-8");
+        const content = await fs$1.readFile(statePath, "utf-8");
         const state = JSON.parse(content);
         const driver3 = new EngineDriver();
         await driver3.launch({
@@ -15045,7 +14858,7 @@ var init_live_session = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path22.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = path.join(this.sessionDir, screenshotFile);
         try {
           await page.addStyleTag({
             content: `
@@ -15388,7 +15201,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path22.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = path.join(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -15502,14 +15315,14 @@ var init_live_session = __esm({
       async archiveEphemeralScreenshots() {
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
-        const archiveDir = (0, import_path22.join)(this.sessionDir, "archive");
-        await (0, import_promises22.mkdir)(archiveDir, { recursive: true });
+        const archiveDir = path.join(this.sessionDir, "archive");
+        await fs$1.mkdir(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
-          const src = (0, import_path22.join)(this.sessionDir, cap.screenshot);
-          const dest = (0, import_path22.join)(archiveDir, cap.screenshot);
+          const src = path.join(this.sessionDir, cap.screenshot);
+          const dest = path.join(archiveDir, cap.screenshot);
           try {
-            if ((0, import_fs12.existsSync)(src)) {
-              await (0, import_promises22.rename)(src, dest);
+            if (fs.existsSync(src)) {
+              await fs$1.rename(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
           } catch {
@@ -15524,8 +15337,8 @@ var init_live_session = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises22.writeFile)(
-          (0, import_path22.join)(this.sessionDir, "live-session.json"),
+        await fs$1.writeFile(
+          path.join(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -15593,13 +15406,9 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises23, import_fs13, import_path23, DEFAULT_CONFIG, ScreenshotManager;
+var DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
-    "use strict";
-    import_promises23 = require("fs/promises");
-    import_fs13 = require("fs");
-    import_path23 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
       maxSizeBytes: 500 * 1024 * 1024,
@@ -15620,12 +15429,12 @@ var init_screenshot_manager = __esm({
         const { sessionId, fullPage = false, selector } = options;
         let outputPath;
         if (sessionId) {
-          const sessionDir = (0, import_path23.join)(this.outputDir, "sessions", sessionId);
-          await (0, import_promises23.mkdir)(sessionDir, { recursive: true });
-          outputPath = (0, import_path23.join)(sessionDir, `${name}.png`);
+          const sessionDir = path.join(this.outputDir, "sessions", sessionId);
+          await fs$1.mkdir(sessionDir, { recursive: true });
+          outputPath = path.join(sessionDir, `${name}.png`);
         } else {
-          await (0, import_promises23.mkdir)(this.outputDir, { recursive: true });
-          outputPath = (0, import_path23.join)(this.outputDir, `${name}.png`);
+          await fs$1.mkdir(this.outputDir, { recursive: true });
+          outputPath = path.join(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
           content: `
@@ -15656,8 +15465,8 @@ var init_screenshot_manager = __esm({
        * List all screenshots for a session
        */
       async list(sessionId) {
-        const sessionDir = (0, import_path23.join)(this.outputDir, "sessions", sessionId);
-        if (!(0, import_fs13.existsSync)(sessionDir)) {
+        const sessionDir = path.join(this.outputDir, "sessions", sessionId);
+        if (!fs.existsSync(sessionDir)) {
           return [];
         }
         const screenshots = [];
@@ -15669,15 +15478,15 @@ var init_screenshot_manager = __esm({
        * List all screenshots across all sessions
        */
       async listAll() {
-        const sessionsDir = (0, import_path23.join)(this.outputDir, "sessions");
-        if (!(0, import_fs13.existsSync)(sessionsDir)) {
+        const sessionsDir = path.join(this.outputDir, "sessions");
+        if (!fs.existsSync(sessionsDir)) {
           return [];
         }
         const screenshots = [];
-        const sessions = await (0, import_promises23.readdir)(sessionsDir);
+        const sessions = await fs$1.readdir(sessionsDir);
         for (const sessionId of sessions) {
-          const sessionDir = (0, import_path23.join)(sessionsDir, sessionId);
-          const stats = await (0, import_promises23.stat)(sessionDir);
+          const sessionDir = path.join(sessionsDir, sessionId);
+          const stats = await fs$1.stat(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
           }
@@ -15689,13 +15498,13 @@ var init_screenshot_manager = __esm({
        * Scan a directory for PNG files
        */
       async scanDirectory(dir, sessionId, results) {
-        const entries = await (0, import_promises23.readdir)(dir, { withFileTypes: true });
+        const entries = await fs$1.readdir(dir, { withFileTypes: true });
         for (const entry of entries) {
-          const fullPath = (0, import_path23.join)(dir, entry.name);
+          const fullPath = path.join(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
-            const stats = await (0, import_promises23.stat)(fullPath);
+            const stats = await fs$1.stat(fullPath);
             const now = Date.now();
             const stepMatch = entry.name.match(/^\d+-(.+)\.png$/);
             const step = stepMatch ? stepMatch[1] : void 0;
@@ -15715,22 +15524,22 @@ var init_screenshot_manager = __esm({
        * Get metadata for a specific screenshot
        */
       async getMetadata(path2) {
-        if (!(0, import_fs13.existsSync)(path2)) {
+        if (!fs.existsSync(path2)) {
           return null;
         }
-        const stats = await (0, import_promises23.stat)(path2);
-        const name = (0, import_path23.basename)(path2);
-        const dir = (0, import_path23.dirname)(path2);
+        const stats = await fs$1.stat(path2);
+        const name = path.basename(path2);
+        const dir = path.dirname(path2);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
         const step = stepMatch ? stepMatch[1] : void 0;
         const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
         const sessionId = sessionMatch ? sessionMatch[1] : void 0;
         let query;
         let userIntent;
-        const resultsPath = (0, import_path23.join)(dir, "results.json");
-        if ((0, import_fs13.existsSync)(resultsPath)) {
+        const resultsPath = path.join(dir, "results.json");
+        if (fs.existsSync(resultsPath)) {
           try {
-            const resultsContent = await (0, import_promises23.readFile)(resultsPath, "utf-8");
+            const resultsContent = await fs$1.readFile(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
             query = results.query;
             userIntent = results.userIntent;
@@ -15789,7 +15598,7 @@ var init_screenshot_manager = __esm({
         for (const shot of toDelete) {
           try {
             if (!dryRun) {
-              await (0, import_promises23.unlink)(shot.path);
+              await fs$1.unlink(shot.path);
             }
             report.deleted++;
             report.bytesFreed += shot.size;
@@ -15827,17 +15636,17 @@ var init_screenshot_manager = __esm({
        * Save configuration to file
        */
       async saveConfig() {
-        const configPath = (0, import_path23.join)(this.outputDir, "screenshot-config.json");
-        await (0, import_promises23.writeFile)(configPath, JSON.stringify(this.config, null, 2));
+        const configPath = path.join(this.outputDir, "screenshot-config.json");
+        await fs$1.writeFile(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
        */
       async loadConfig() {
-        const configPath = (0, import_path23.join)(this.outputDir, "screenshot-config.json");
-        if ((0, import_fs13.existsSync)(configPath)) {
+        const configPath = path.join(this.outputDir, "screenshot-config.json");
+        if (fs.existsSync(configPath)) {
           try {
-            const content = await (0, import_promises23.readFile)(configPath, "utf-8");
+            const content = await fs$1.readFile(configPath, "utf-8");
             const loaded = JSON.parse(content);
             this.config = { ...DEFAULT_CONFIG, ...loaded };
           } catch {
@@ -15869,23 +15678,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs14.readdirSync)(currentDir);
+      entries = fs.readdirSync(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path24.join)(currentDir, entry);
+      const fullPath = path.join(currentDir, entry);
       let stat5;
       try {
-        stat5 = (0, import_fs14.statSync)(fullPath);
+        stat5 = fs.statSync(fullPath);
       } catch {
         continue;
       }
       if (stat5.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path24.relative)(rootDir, fullPath));
+        results.push(path.relative(rootDir, fullPath));
       }
     }
   }
@@ -15901,10 +15710,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path24.join)(projectRoot, filePath);
+    const fullPath = path.join(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs14.readFileSync)(fullPath, "utf-8");
+      content = fs.readFileSync(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -15988,10 +15797,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
 }
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path24.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs14.existsSync)(fileMapPath)) continue;
+    const fileMapPath = path.join(projectRoot, navPath, "file_map.json");
+    if (!fs.existsSync(fileMapPath)) continue;
     try {
-      const content = (0, import_fs14.readFileSync)(fileMapPath, "utf-8");
+      const content = fs.readFileSync(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -16147,15 +15956,12 @@ function formatBridgeResult(result) {
   }
   return lines.join("\n");
 }
-var import_fs14, import_path24, NAVGATOR_PATHS, CONFIDENCE;
+var NAVGATOR_PATHS, CONFIDENCE;
 var init_bridge = __esm({
   "src/native/bridge.ts"() {
-    "use strict";
-    import_fs14 = require("fs");
-    import_path24 = require("path");
     NAVGATOR_PATHS = [
-      (0, import_path24.join)(".navgator", "architecture"),
-      (0, import_path24.join)(".claude", "architecture")
+      path.join(".navgator", "architecture"),
+      path.join(".claude", "architecture")
       // legacy — NavGator < 0.3
     ];
     CONFIDENCE = {
@@ -16329,9 +16135,9 @@ async function executeStep(driver3, step, url, outputDir) {
     }
     if (expectation.screenshot !== void 0) {
       try {
-        await (0, import_promises24.mkdir)(outputDir, { recursive: true });
-        const screenshotPath = (0, import_path25.join)(outputDir, `${expectation.screenshot}.png`);
-        await (0, import_promises24.writeFile)(screenshotPath, captureResult.after.screenshot);
+        await fs$1.mkdir(outputDir, { recursive: true });
+        const screenshotPath = path.join(outputDir, `${expectation.screenshot}.png`);
+        await fs$1.writeFile(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
           passed: true,
@@ -16477,12 +16283,8 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises24, import_path25;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
-    "use strict";
-    import_promises24 = require("fs/promises");
-    import_path25 = require("path");
     init_driver();
   }
 });
@@ -16584,7 +16386,6 @@ function scoreToVerdict(score) {
 var C1, C2;
 var init_ssim = __esm({
   "src/ssim.ts"() {
-    "use strict";
     C1 = (0.01 * 255) ** 2;
     C2 = (0.03 * 255) ** 2;
   }
@@ -16597,12 +16398,12 @@ __export(mockup_match_exports, {
   saveDiffImage: () => saveDiffImage
 });
 async function readPng(filePath) {
-  const buffer = await (0, import_promises25.readFile)(filePath);
-  const png = import_pngjs4.PNG.sync.read(buffer);
+  const buffer = await fs$1.readFile(filePath);
+  const png = pngjs.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function decodePng(buffer) {
-  const png = import_pngjs4.PNG.sync.read(buffer);
+  const png = pngjs.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function resizeNearest(src, srcW, srcH, dstW, dstH) {
@@ -16721,8 +16522,8 @@ async function matchMockup(options) {
       { data: compareData1, width: compareWidth, height: compareHeight },
       { data: compareData2, width: compareWidth, height: compareHeight }
     );
-    const diffPng = new import_pngjs4.PNG({ width: compareWidth, height: compareHeight });
-    const diffPixelCount = (0, import_pixelmatch3.default)(
+    const diffPng = new pngjs.PNG({ width: compareWidth, height: compareHeight });
+    const diffPixelCount = pixelmatch__default.default(
       compareData1,
       compareData2,
       diffPng.data,
@@ -16736,7 +16537,7 @@ async function matchMockup(options) {
       }
     );
     const totalPixels = compareWidth * compareHeight;
-    const diffImage = import_pngjs4.PNG.sync.write(diffPng);
+    const diffImage = pngjs.PNG.sync.write(diffPng);
     return {
       ssim: ssimResult,
       pixelDiff: {
@@ -16805,15 +16606,10 @@ async function findDynamicRegions(driver3) {
   return regions;
 }
 async function saveDiffImage(diffImage, outputPath) {
-  await (0, import_promises25.writeFile)(outputPath, diffImage);
+  await fs$1.writeFile(outputPath, diffImage);
 }
-var import_promises25, import_pngjs4, import_pixelmatch3;
 var init_mockup_match = __esm({
   "src/mockup-match.ts"() {
-    "use strict";
-    import_promises25 = require("fs/promises");
-    import_pngjs4 = require("pngjs");
-    import_pixelmatch3 = __toESM(require("pixelmatch"));
     init_driver();
     init_ssim();
   }
@@ -17071,10 +16867,10 @@ function formatReconciliationMatrix(matrix) {
   return lines.join("\n");
 }
 async function loadChanges(outputDir) {
-  const filePath = (0, import_path26.join)(outputDir, CHANGES_FILE);
-  if (!(0, import_fs15.existsSync)(filePath)) return [];
+  const filePath = path.join(outputDir, CHANGES_FILE);
+  if (!fs.existsSync(filePath)) return [];
   try {
-    const raw = await (0, import_promises26.readFile)(filePath, "utf-8");
+    const raw = await fs$1.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed;
@@ -17083,19 +16879,15 @@ async function loadChanges(outputDir) {
   }
 }
 async function saveChange(outputDir, change) {
-  await (0, import_promises26.mkdir)(outputDir, { recursive: true });
+  await fs$1.mkdir(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
-  const filePath = (0, import_path26.join)(outputDir, CHANGES_FILE);
-  await (0, import_promises26.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
+  const filePath = path.join(outputDir, CHANGES_FILE);
+  await fs$1.writeFile(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises26, import_fs15, import_path26, CHANGES_FILE;
+var CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
-    "use strict";
-    import_promises26 = require("fs/promises");
-    import_fs15 = require("fs");
-    import_path26 = require("path");
     CHANGES_FILE = "design-changes.json";
   }
 });
@@ -17157,16 +16949,16 @@ async function generateTest(options) {
   if (scenario) {
     tests.push(buildScenarioTest(scenario, elements));
   } else {
-    tests.push(buildSmokeTest(elements, url));
+    tests.push(buildSmokeTest(elements));
   }
   const suite = {
     [pageName]: { url, tests }
   };
-  const dir = (0, import_path27.dirname)(outputPath);
+  const dir = path.dirname(outputPath);
   if (dir && dir !== ".") {
-    await (0, import_promises27.mkdir)(dir, { recursive: true });
+    await fs$1.mkdir(dir, { recursive: true });
   }
-  await (0, import_promises27.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
+  await fs$1.writeFile(outputPath, JSON.stringify(suite, null, 2), "utf-8");
   console.log(`[test-generator] wrote ${outputPath}`);
   return suite;
 }
@@ -17221,12 +17013,9 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises27, import_path27, INPUT_SAMPLE_VALUES;
+var INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
-    "use strict";
-    import_promises27 = require("fs/promises");
-    import_path27 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
       email: "test@example.com",
@@ -17257,9 +17046,9 @@ async function runTests(options = {}) {
     headless = true,
     viewport
   } = options;
-  const raw = await (0, import_promises28.readFile)((0, import_path28.resolve)(filePath), "utf-8");
+  const raw = await fs$1.readFile(path.resolve(filePath), "utf-8");
   const suite = JSON.parse(raw);
-  await (0, import_promises28.mkdir)(outputDir, { recursive: true });
+  await fs$1.mkdir(outputDir, { recursive: true });
   const allResults = [];
   const runStart = Date.now();
   for (const [pageName, pageSuite] of Object.entries(suite)) {
@@ -17302,8 +17091,8 @@ async function runTests(options = {}) {
         duration: Date.now() - runStart
       };
       allResults.push(runResult);
-      const resultPath = (0, import_path28.join)(outputDir, `${pageName}-results.json`);
-      await (0, import_promises28.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
+      const resultPath = path.join(outputDir, `${pageName}-results.json`);
+      await fs$1.writeFile(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
       await driver3.close();
@@ -17331,10 +17120,10 @@ async function executeStep2(driver3, step, outputDir) {
     } else if ("assert" in step) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
-      await (0, import_promises28.mkdir)(outputDir, { recursive: true });
-      const screenshotPath = (0, import_path28.join)(outputDir, `${step.screenshot}.png`);
+      await fs$1.mkdir(outputDir, { recursive: true });
+      const screenshotPath = path.join(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
-      await (0, import_promises28.writeFile)(screenshotPath, buf);
+      await fs$1.writeFile(screenshotPath, buf);
       return {
         step: stepDesc,
         passed: true,
@@ -17431,12 +17220,8 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises28, import_path28;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
-    "use strict";
-    import_promises28 = require("fs/promises");
-    import_path28 = require("path");
     init_driver();
   }
 });
@@ -17482,21 +17267,21 @@ async function runScript(options) {
     cpuSeconds = 30,
     env = {}
   } = options;
-  const tmpId = (0, import_crypto2.randomBytes)(8).toString("hex");
-  const tmpDir = (0, import_path29.join)((0, import_os4.tmpdir)(), `ibr-script-${tmpId}`);
-  await (0, import_promises29.mkdir)(tmpDir, { recursive: true });
-  const copiedScript = (0, import_path29.join)(tmpDir, "user_script.py");
-  const wrapperPath = (0, import_path29.join)(tmpDir, "wrapper.py");
+  const tmpId = crypto.randomBytes(8).toString("hex");
+  const tmpDir = path.join(os.tmpdir(), `ibr-script-${tmpId}`);
+  await fs$1.mkdir(tmpDir, { recursive: true });
+  const copiedScript = path.join(tmpDir, "user_script.py");
+  const wrapperPath = path.join(tmpDir, "wrapper.py");
   try {
-    await (0, import_promises29.copyFile)(scriptPath, copiedScript);
-    await (0, import_promises29.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
+    await fs$1.copyFile(scriptPath, copiedScript);
+    await fs$1.writeFile(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
     const start = Date.now();
     let timedOut = false;
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
     await new Promise((resolvePromise) => {
-      const child = (0, import_child_process8.spawn)("python3", [wrapperPath], {
+      const child = child_process.spawn("python3", [wrapperPath], {
         cwd: tmpDir,
         detached: true,
         shell: false,
@@ -17548,7 +17333,7 @@ Process error: ${err.message}`;
     }
     return { exitCode, stdout, stderr, output, duration, timedOut };
   } finally {
-    await (0, import_promises29.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
+    await fs$1.rm(tmpDir, { recursive: true, force: true }).catch(() => {
     });
   }
 }
@@ -17566,15 +17351,8 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process8, import_promises29, import_path29, import_os4, import_crypto2;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
-    "use strict";
-    import_child_process8 = require("child_process");
-    import_promises29 = require("fs/promises");
-    import_path29 = require("path");
-    import_os4 = require("os");
-    import_crypto2 = require("crypto");
   }
 });
 
@@ -17588,19 +17366,19 @@ __export(iterate_exports, {
 });
 async function loadState(statePath) {
   try {
-    const raw = await (0, import_promises30.readFile)(statePath, "utf-8");
+    const raw = await fs$1.readFile(statePath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises30.mkdir)((0, import_path30.resolve)(statePath, ".."), { recursive: true });
-  await (0, import_promises30.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
+  await fs$1.mkdir(path.resolve(statePath, ".."), { recursive: true });
+  await fs$1.writeFile(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
   const sorted = [...issues].sort();
-  return (0, import_crypto3.createHash)("sha256").update(sorted.join("\n")).digest("hex").slice(0, 16);
+  return crypto.createHash("sha256").update(sorted.join("\n")).digest("hex").slice(0, 16);
 }
 function extractIssueFingerprints(scanResult) {
   return scanResult.issues.map((i) => `${i.category}:${i.severity}:${i.description.slice(0, 80)}`);
@@ -17706,7 +17484,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     try {
       const results = await runTests({
         filePath: testFile,
-        outputDir: (0, import_path30.join)(outputDir, `iter-${iterationNumber}`)
+        outputDir: path.join(outputDir, `iter-${iterationNumber}`)
       });
       fingerprints = testRunFingerprints(results);
       issueCount = fingerprints.length;
@@ -17720,7 +17498,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     }
   } else {
     try {
-      const result = await scan(url, { outputDir: (0, import_path30.join)(outputDir, `iter-${iterationNumber}`) });
+      const result = await scan(url, { outputDir: path.join(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
       issues = result.issues;
@@ -17747,7 +17525,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
 async function verifyResolved(url, outputDir, iterationNumber) {
   try {
     const verifyResult = await scan(url, {
-      outputDir: (0, import_path30.join)(outputDir, `iter-${iterationNumber}-verify`)
+      outputDir: path.join(outputDir, `iter-${iterationNumber}-verify`)
     });
     return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length };
   } catch {
@@ -17762,8 +17540,8 @@ async function iterate(options) {
     outputDir = ".ibr/iterate",
     autoApprove = false
   } = options;
-  const statePath = (0, import_path30.join)(outputDir, "iterate-state.json");
-  await (0, import_promises30.mkdir)(outputDir, { recursive: true });
+  const statePath = path.join(outputDir, "iterate-state.json");
+  await fs$1.mkdir(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url) {
     persisted = {
@@ -17818,11 +17596,11 @@ async function iterate(options) {
   const targetState = finalState ?? "in_progress";
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
-    const analysisDir = (0, import_path30.join)(outputDir);
-    await (0, import_promises30.mkdir)(analysisDir, { recursive: true }).catch(() => {
+    const analysisDir = path.join(outputDir);
+    await fs$1.mkdir(analysisDir, { recursive: true }).catch(() => {
     });
-    await (0, import_promises30.writeFile)(
-      (0, import_path30.join)(analysisDir, "analysis.json"),
+    await fs$1.writeFile(
+      path.join(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
     });
@@ -17864,17 +17642,13 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
   return { iterations, finalState, summary, verificationPassed, analysis };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
-  const statePath = (0, import_path30.join)(outputDir, "iterate-state.json");
-  await (0, import_promises30.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
+  const statePath = path.join(outputDir, "iterate-state.json");
+  await fs$1.writeFile(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto3, import_promises30, import_path30, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
-    "use strict";
-    import_crypto3 = require("crypto");
-    import_promises30 = require("fs/promises");
-    import_path30 = require("path");
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
@@ -17892,10 +17666,6 @@ var init_iterate = __esm({
 });
 
 // src/bin/ibr.ts
-var import_commander = require("commander");
-var import_promises31 = require("fs/promises");
-var import_path31 = require("path");
-var import_fs16 = require("fs");
 init_driver();
 init_compat();
 init_index();
@@ -17956,12 +17726,18 @@ function formatFixGuide(guide) {
   lines.push("");
   return lines.join("\n");
 }
-var program = new import_commander.Command();
+var program = new commander.Command();
+program.hook("postAction", (_thisCommand, actionCommand) => {
+  const name = actionCommand.name();
+  if (!name.startsWith("session:")) return;
+  const code = typeof process.exitCode === "number" ? process.exitCode : 0;
+  setImmediate(() => process.exit(code));
+});
 async function loadConfig() {
-  const configPath = (0, import_path31.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs16.existsSync)(configPath)) {
+  const configPath = path.join(process.cwd(), ".ibrrc.json");
+  if (fs.existsSync(configPath)) {
     try {
-      const content = await (0, import_promises31.readFile)(configPath, "utf-8");
+      const content = await fs$1.readFile(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -17971,7 +17747,7 @@ async function loadConfig() {
 var IBR_DEFAULT_PORT = 4200;
 async function isPortAvailable(port) {
   return new Promise((resolve5) => {
-    import("net").then(({ createServer }) => {
+    import('net').then(({ createServer }) => {
       const server = createServer();
       server.once("error", () => resolve5(false));
       server.once("listening", () => {
@@ -18100,7 +17876,7 @@ program.command("auto").description("Zero-config: detect server, scan pages, ope
     if (options.open !== false && captured > 0) {
       console.log("");
       console.log("Opening viewer...");
-      const { spawn: spawn4 } = await import("child_process");
+      const { spawn: spawn4 } = await import('child_process');
       spawn4("npx", ["ibr", "serve"], {
         stdio: "inherit",
         shell: true,
@@ -18208,8 +17984,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runVisual) {
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { mkdir: mkdir26, access: access4 } = await import("fs/promises");
-      const { join: join28 } = await import("path");
+      const { mkdir: mkdir26, access: access4 } = await import('fs/promises');
+      const { join: join28 } = await import('path');
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -18247,8 +18023,8 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runSemantic) {
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { readFile: readFile22 } = await import("fs/promises");
-      const { join: join28 } = await import("path");
+      const { readFile: readFile22 } = await import('fs/promises');
+      const { join: join28 } = await import('path');
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
@@ -18425,7 +18201,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     process.exit(1);
   }
 });
-program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").action(async (url, options) => {
+program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").action(async (url, options) => {
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url);
@@ -18434,6 +18210,8 @@ program.command("scan <url>").description("Full UI scan: elements + interactivit
       viewport: options.viewport,
       waitFor: options.waitFor,
       timeout: parseInt(options.timeout, 10),
+      patience: options.patience ? parseInt(options.patience, 10) : void 0,
+      networkIdleTimeout: options.networkIdleTimeout ? parseInt(options.networkIdleTimeout, 10) : void 0,
       screenshot: options.screenshot ? { path: options.screenshot } : void 0
     });
     if (options.json) {
@@ -18588,23 +18366,23 @@ program.command("delete <sessionId>").description("Delete a specific session").a
   }
 });
 program.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
-  const { spawn: spawn4 } = await import("child_process");
-  const { resolve: resolve5 } = await import("path");
+  const { spawn: spawn4 } = await import('child_process');
+  const { resolve: resolve5 } = await import('path');
   const packageRoot = resolve5(process.cwd());
-  let webUiDir = (0, import_path31.join)(packageRoot, "web-ui");
-  if (!(0, import_fs16.existsSync)(webUiDir)) {
+  let webUiDir = path.join(packageRoot, "web-ui");
+  if (!fs.existsSync(webUiDir)) {
     const possiblePaths = [
-      (0, import_path31.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path31.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      path.join(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      path.join(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs16.existsSync)(p)) {
+      if (fs.existsSync(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs16.existsSync)(webUiDir)) {
+  if (!fs.existsSync(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -18655,7 +18433,7 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   });
   if (options.open !== false) {
     setTimeout(async () => {
-      const open = (await import("child_process")).exec;
+      const open = (await import('child_process')).exec;
       const url = `http://localhost:${port}`;
       const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
       open(`${cmd} ${url}`);
@@ -19478,7 +19256,7 @@ program.command("screenshots:view <path>").description("View a screenshot with m
     if (metadata.query) console.log(`  Query: ${metadata.query}`);
     if (metadata.userIntent) console.log(`  Intent: ${metadata.userIntent}`);
     console.log("");
-    const { exec: exec3 } = await import("child_process");
+    const { exec: exec3 } = await import('child_process');
     const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "start" : "xdg-open";
     exec3(`${cmd} "${path2}"`, (err) => {
       if (err) {
@@ -19496,7 +19274,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
-    const { mkdir: mkdir26 } = await import("fs/promises");
+    const { mkdir: mkdir26 } = await import('fs/promises');
     console.log(`Testing search on ${url}...`);
     console.log(`Query: "${options.query}"`);
     if (options.intent) console.log(`Intent: ${options.intent}`);
@@ -19506,7 +19284,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path31.join)(outputDir, "sessions", `search-${Date.now()}`);
+    const sessionDir = path.join(outputDir, "sessions", `search-${Date.now()}`);
     await mkdir26(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
@@ -19770,7 +19548,7 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join28 } = await import("path");
+    const { join: join28 } = await import('path');
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
@@ -19839,7 +19617,7 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
 });
 async function isPortInUse(port) {
   return new Promise((resolve5) => {
-    const net = require("net");
+    const net = __require("net");
     const server = net.createServer();
     server.once("error", () => resolve5(true));
     server.once("listening", () => {
@@ -19893,11 +19671,11 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile20, readFile: readFile22, mkdir: mkdir26 } = await import("fs/promises");
-  const configPath = (0, import_path31.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path31.join)(process.cwd(), ".claude", "settings.json");
+  const { writeFile: writeFile20, readFile: readFile22, mkdir: mkdir26 } = await import('fs/promises');
+  const configPath = path.join(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = path.join(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs16.existsSync)(configPath)) {
+  if (!fs.existsSync(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -19951,8 +19729,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs16.existsSync)((0, import_path31.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs16.existsSync)(claudeSettingsPath);
+  const claudeDirExists = fs.existsSync(path.join(process.cwd(), ".claude"));
+  const hasClaudeSettings = fs.existsSync(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -19961,7 +19739,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs16.existsSync)((0, import_path31.join)(process.cwd(), p))) {
+    if (fs.existsSync(path.join(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -20015,7 +19793,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   console.log("  \u2022 AI understands page semantics (intent, state, landmarks)");
   console.log("  \u2022 Automatic suggestions when UI files change");
   console.log("");
-  const readline = await import("readline");
+  const readline = await import('readline');
   const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
@@ -20040,7 +19818,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir26((0, import_path31.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir26(path.join(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
@@ -20206,9 +19984,9 @@ program.command("native:scan [device]").description("Scan a running simulator fo
         );
         if (annotated) fixGuide.screenshot = annotated;
       }
-      const { mkdirSync, writeFileSync: writeFileSync2 } = await import("fs");
-      const guidePath = (0, import_path31.join)(outputDir, "native", "fix-guide.json");
-      mkdirSync((0, import_path31.join)(outputDir, "native"), { recursive: true });
+      const { mkdirSync, writeFileSync: writeFileSync2 } = await import('fs');
+      const guidePath = path.join(outputDir, "native", "fix-guide.json");
+      mkdirSync(path.join(outputDir, "native"), { recursive: true });
       writeFileSync2(guidePath, JSON.stringify(fixGuide, null, 2));
       if (options.json) {
         console.log(JSON.stringify(fixGuide, null, 2));
@@ -20542,7 +20320,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
       url: resolvedUrl,
       steps,
       viewport,
-      outputDir: (0, import_path31.join)(outputDir, "interactions"),
+      outputDir: path.join(outputDir, "interactions"),
       headless: !options.sandbox
     });
     if (options.json) {
@@ -20576,7 +20354,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
 program.command("match <mockup> <url>").description("Compare a design mockup PNG against a live rendered page (SSIM + pixelmatch)").option("-s, --selector <css>", "Crop live page to this CSS selector before comparison").option("-m, --mask-dynamic", "Auto-mask dynamic content (timestamps, ads, live regions)").option("--json", "Output results as JSON").option("--save-diff <path>", "Save the pixel diff image to this file path").option("--headless", "Run browser headless (default: true)", true).action(async (mockup, url, options) => {
   try {
     const { matchMockup: matchMockup2, saveDiffImage: saveDiffImage2 } = await Promise.resolve().then(() => (init_mockup_match(), mockup_match_exports));
-    const { basename: basename4 } = await import("path");
+    const { basename: basename4 } = await import('path');
     const globalOpts = program.opts();
     const viewportName = globalOpts.viewport || "desktop";
     const viewportPreset = VIEWPORTS[viewportName];
@@ -20892,8 +20670,8 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
   let diffSaved = false;
   if (chromeScreenshot && safariScreenshot) {
     try {
-      const { PNG: PNG5 } = await import("pngjs");
-      const pixelmatch4 = (await import("pixelmatch")).default;
+      const { PNG: PNG5 } = await import('pngjs');
+      const pixelmatch4 = (await import('pixelmatch')).default;
       const chromePng = PNG5.sync.read(chromeScreenshot);
       const safariPng = PNG5.sync.read(safariScreenshot);
       const w = Math.min(chromePng.width, safariPng.width);
@@ -20907,8 +20685,8 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
       });
       diffPercent = Math.round(pixelDiff / (w * h) * 1e4) / 100;
       if (options.saveDiff) {
-        const { writeFile: writeFile20, mkdir: mkdirFs } = await import("fs/promises");
-        const { dirname: dirname10 } = await import("path");
+        const { writeFile: writeFile20, mkdir: mkdirFs } = await import('fs/promises');
+        const { dirname: dirname10 } = await import('path');
         await mkdirFs(dirname10(options.saveDiff), { recursive: true });
         await writeFile20(options.saveDiff, PNG5.sync.write(diff));
         diffSaved = true;
@@ -21013,8 +20791,8 @@ program.command("interact <url>").description("Click, type, fill, or interact wi
     await new Promise((r) => setTimeout(r, 500));
     console.log(`\u2713 ${action} on "${opts.target}" succeeded`);
     if (opts.screenshot !== false) {
-      const fs2 = await import("fs");
-      const path2 = await import("path");
+      const fs2 = await import('fs');
+      const path2 = await import('path');
       const buf = await driver3.screenshot();
       const globalOpts = program.opts();
       const outDir = globalOpts.output || "./.ibr";
@@ -21091,4 +20869,5 @@ program.command("extract <url>").description("Extract structured data from a pag
   }
 });
 program.parse();
+//# sourceMappingURL=ibr.js.map
 //# sourceMappingURL=ibr.js.map

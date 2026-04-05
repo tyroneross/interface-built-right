@@ -167,6 +167,26 @@ export class EngineDriver implements BrowserDriver {
     this.launched = false
   }
 
+  /**
+   * Release the CDP WebSocket for this driver without terminating the browser.
+   * Used by one-shot CLI commands that attach to a shared browser-server via
+   * connectExisting() — they must drop their WebSocket at the end of the
+   * command so the node process can exit, but the browser-server's Chrome
+   * process must keep running for subsequent commands.
+   *
+   * Closes the per-command tab that was spawned in connectExisting(), then
+   * closes the WebSocket. Does NOT call this.browser.close() (which would
+   * terminate the whole browser-server process).
+   */
+  async disconnect(): Promise<void> {
+    if (this.targetId) {
+      await this.target.close(this.targetId).catch(() => {})
+      this.targetId = null
+    }
+    await this.conn.close().catch(() => {})
+    this.launched = false
+  }
+
   get isLaunched(): boolean {
     return this.launched
   }

@@ -1078,6 +1078,22 @@ export class PersistentSession {
   }
 
   /**
+   * Release the driver's WebSocket and spawned tab without terminating the
+   * shared browser-server Chrome process.
+   *
+   * Every one-shot CLI command (session:click, session:wait, session:scan,
+   * session:screenshot, etc.) creates a new PersistentSession via get(), which
+   * in turn spawns a fresh tab via connectExisting() and opens a new CDP
+   * WebSocket. If we don't release those at the end of the command, the node
+   * process hangs on the open socket and the shared Chrome accumulates tabs.
+   *
+   * Safe to call multiple times; no-op if driver is already disconnected.
+   */
+  async disconnect(): Promise<void> {
+    await this.driver.disconnect().catch(() => {});
+  }
+
+  /**
    * Get raw CompatPage (engine-backed page adapter)
    */
   getPage(): CompatPage {
