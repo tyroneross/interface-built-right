@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Local Smartz — CLI Flows (Calm Precision Mockup)</title>
+<style>
+  :root {
+    --bg: #1a1a2e;
+    --terminal-bg: #0d1117;
+    --terminal-border: #30363d;
+    --text: #e6edf3;
+    --muted: #7d8590;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --cyan: #79c0ff;
+    --purple: #bc8cff;
+    --dim: #484f58;
+    --surface: #161b22;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    padding: 48px 24px;
+    line-height: 1.6;
+  }
+
+  /* L1 Anchor — one per page */
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 48px;
+  }
+
+  /* L2 Section headers */
+  .section-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+
+  .section-desc {
+    font-size: 13px;
+    color: var(--dim);
+    margin-bottom: 16px;
+    max-width: 600px;
+  }
+
+  /* Terminal window */
+  .terminal {
+    background: var(--terminal-bg);
+    border: 1px solid var(--terminal-border);
+    border-radius: 10px;
+    margin-bottom: 40px;
+    overflow: hidden;
+    max-width: 720px;
+  }
+
+  .terminal-bar {
+    background: var(--surface);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-bottom: 1px solid var(--terminal-border);
+  }
+
+  .dot { width: 12px; height: 12px; border-radius: 50%; }
+  .dot-red { background: #ff5f57; }
+  .dot-yellow { background: #febc2e; }
+  .dot-green { background: #28c840; }
+
+  .terminal-title {
+    font-size: 12px;
+    color: var(--muted);
+    margin-left: 8px;
+    font-weight: 500;
+  }
+
+  .terminal-body {
+    padding: 20px 24px;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    font-size: 13px;
+    line-height: 1.7;
+    white-space: pre;
+    overflow-x: auto;
+  }
+
+  /* Terminal text colors */
+  .b { font-weight: 700; color: var(--text); }
+  .m { color: var(--muted); }
+  .a { color: var(--accent); }
+  .g { color: var(--green); }
+  .y { color: var(--yellow); }
+  .r { color: var(--red); }
+  .c { color: var(--cyan); }
+  .p { color: var(--purple); }
+  .d { color: var(--dim); }
+  .u { text-decoration: underline; }
+
+  /* Cursor blink */
+  .cursor {
+    display: inline-block;
+    width: 8px;
+    height: 16px;
+    background: var(--accent);
+    animation: blink 1s step-end infinite;
+    vertical-align: text-bottom;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Flow grid */
+  .flow-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 40px;
+    margin-bottom: 56px;
+  }
+
+  /* Annotation */
+  .annotation {
+    display: flex;
+    gap: 12px;
+    margin-top: 12px;
+    padding: 12px 16px;
+    background: var(--surface);
+    border-radius: 8px;
+    border-left: 3px solid var(--accent);
+    max-width: 720px;
+  }
+
+  .annotation-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  .annotation-text {
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  /* Divider */
+  .divider {
+    border: none;
+    border-top: 1px solid var(--terminal-border);
+    margin: 48px 0;
+    max-width: 720px;
+  }
+
+  /* Principle tags */
+  .principles {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    max-width: 720px;
+  }
+  .tag {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--accent);
+    font-weight: 500;
+    letter-spacing: 0.3px;
+  }
+</style>
+</head>
+<body>
+
+<h1>Local Smartz CLI Flows</h1>
+<p class="subtitle">Calm Precision applied to terminal UX — hierarchy, disclosure, signal, error strategy</p>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLOW 1: INSTALL -->
+<!-- ═══════════════════════════════════════════ -->
+
+<p class="section-label">Flow 1 — Install</p>
+<p class="section-desc">Clone and run one script. Progressive output: each step confirms before moving to next.</p>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Terminal — install.sh</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">git clone https://github.com/tyroneross/local-smartz.git</span>
+<span class="m">$</span> <span class="b">cd local-smartz && bash install.sh</span>
+
+<span class="b">Local Smartz Installer</span>
+<span class="d">══════════════════════</span>
+
+<span class="g">Python 3.12:</span> OK
+<span class="g">Ollama:</span> installed
+
+Detected: running inside cloned repo
+Installing in editable mode...
+<span class="g">Installed:</span> localsmartz 0.1.0
+
+Setting up Ollama and downloading models...
+<span class="g">Ollama:</span> running (v0.15.2)
+Profile: full
+  qwen3:8b-q4_K_M: <span class="g">ready</span>
+  gpt-oss:120b: <span class="g">ready</span>
+
+<span class="g">Done!</span> Run <span class="a">localsmartz</span> to pick your model and start researching.</div>
+</div>
+
+<div class="annotation">
+  <span class="annotation-label">Design</span>
+  <span class="annotation-text">Three-line hierarchy: bold title, status lines (color-only, no badges), final CTA. Each step confirms with green before advancing. Errors halt immediately with what-why-fix.</span>
+</div>
+
+<div class="principles">
+  <span class="tag">Hierarchy</span>
+  <span class="tag">Signal &gt; Noise</span>
+  <span class="tag">Progressive Disclosure</span>
+  <span class="tag">Natural Language</span>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLOW 2: FIRST RUN — MODEL PICKER -->
+<!-- ═══════════════════════════════════════════ -->
+
+<p class="section-label">Flow 2 — First Run (Model Picker)</p>
+<p class="section-desc">No config exists. Before running the query, guide user to pick their model. One decision, then go.</p>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Terminal — first run</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">localsmartz "What is quantum computing?"</span>
+
+  <span class="b">Local Smartz</span> <span class="d">v0.1.0</span>
+  <span class="d">First-run setup</span>
+
+  <span class="g">Ollama:</span> running (v0.15.2)
+  <span class="m">Hardware:</span> 128 GB RAM <span class="d">·</span> full profile
+
+  <span class="m">Available models:</span>
+    <span class="d">1.</span> qwen3:8b-q4_K_M         <span class="d">5.2 GB</span>
+    <span class="d">2.</span> gpt-oss:20b              <span class="d">13.8 GB</span>
+    <span class="d">3.</span> gpt-oss:120b             <span class="d">65.3 GB</span>  <span class="a">&lt;- recommended</span>
+
+  Select model <span class="d">[3]:</span> <span class="cursor"></span></div>
+</div>
+
+<div class="annotation">
+  <span class="annotation-label">Design</span>
+  <span class="annotation-text">Minimal chrome. Model list is a clean table — no borders on individual items, just whitespace alignment. Recommendation is inline text color (accent), not a badge. Default in brackets = one-key confirmation. Sizes are muted metadata.</span>
+</div>
+
+<div class="principles">
+  <span class="tag">Hick's Law</span>
+  <span class="tag">Grouping</span>
+  <span class="tag">Text &gt; Decoration</span>
+  <span class="tag">Size = Importance</span>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLOW 2B: AFTER SELECTION -->
+<!-- ═══════════════════════════════════════════ -->
+
+<p class="section-label">Flow 2b — After Selection</p>
+<p class="section-desc">User presses Enter (accepts default). Config saved, query executes immediately.</p>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Terminal — running research</span>
+  </div>
+  <div class="terminal-body">  Select model <span class="d">[3]:</span> <span class="g">3</span>
+  <span class="g">Saved</span> <span class="d">-></span> .localsmartz/config.json
+
+  <span class="m">Profile:</span> full <span class="d">|</span> <span class="m">Model:</span> gpt-oss:120b
+  <span class="m">Query:</span> What is quantum computing?
+  <span class="d">---</span>
+  <span class="p">  &#x25b8;</span> write_todos(<span class="d">plan research steps</span>)
+  <span class="p">  &#x25b8;</span> web_search(<span class="d">query=quantum computing overview 2026</span>)
+  <span class="p">  &#x25b8;</span> scrape_url(<span class="d">url=https://en.wikipedia.org/wiki/Q...</span>)
+  <span class="p">  &#x25b8;</span> create_report(<span class="d">title=Quantum Computing Overview</span>)
+  <span class="d">---</span>
+  <span class="m">Tools used:</span> create_report, scrape_url, web_search, write_todos
+
+<span class="b">Quantum computing</span> uses quantum mechanical phenomena — superposition
+and entanglement — to process information in ways that classical
+computers cannot efficiently replicate...
+
+<span class="d">[Report saved to .localsmartz/reports/quantum-computing.md]</span></div>
+</div>
+
+<div class="annotation">
+  <span class="annotation-label">Design</span>
+  <span class="annotation-text">Streaming progress to stderr (tool calls with purple markers). Clean separation: metadata above the line, tool progress between lines, final answer below. Tool previews show just enough args to be useful without clutter.</span>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLOW 3: SUBSEQUENT RUN (CONFIG EXISTS) -->
+<!-- ═══════════════════════════════════════════ -->
+
+<p class="section-label">Flow 3 — Subsequent Run (Config Exists)</p>
+<p class="section-desc">Config exists. No picker, no setup. Straight to research.</p>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Terminal — normal run</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">localsmartz "Compare Python and Rust for web servers"</span>
+
+  <span class="m">Profile:</span> full <span class="d">|</span> <span class="m">Model:</span> gpt-oss:120b
+  <span class="m">Query:</span> Compare Python and Rust for web servers
+  <span class="d">---</span>
+  <span class="p">  &#x25b8;</span> write_todos(<span class="d">plan comparison research</span>)
+  <span class="p">  &#x25b8;</span> web_search(<span class="d">query=Python web server benchmarks 2026</span>)
+  <span class="p">  &#x25b8;</span> scrape_url(<span class="d">url=https://www.techempower.com/...</span>)
+  <span class="p">  &#x25b8;</span> web_search(<span class="d">query=Rust web server benchmarks 2026</span>)
+  <span class="p">  &#x25b8;</span> scrape_url(<span class="d">url=https://actix.rs/docs/bench...</span>)
+  <span class="p">  &#x25b8;</span> python_exec(<span class="d">code=# Calculate throughput comparison...</span>)
+  <span class="p">  &#x25b8;</span> create_report(<span class="d">title=Python vs Rust Web Servers</span>)
+  <span class="d">---</span>
+  <span class="m">Tools used:</span> create_report, python_exec, scrape_url, web_search, write_todos
+
+<span class="b">Python vs Rust for Web Servers</span>
+
+Rust consistently outperforms Python by 5-10x in raw throughput...</div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLOW 4: INTERACTIVE REPL -->
+<!-- ═══════════════════════════════════════════ -->
+
+<p class="section-label">Flow 4 — Interactive REPL</p>
+<p class="section-desc">No query argument. Enters REPL mode with model info, thread tracking, and slash commands.</p>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Terminal — interactive mode</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">localsmartz</span>
+
+  <span class="b">Local Smartz</span> <span class="d">v0.1.0</span>
+  full <span class="d">·</span> gpt-oss:120b
+  Thread: cli_20260317_142305
+
+  Type <span class="a">/help</span> for commands
+
+<span class="b">&gt;</span> What are the latest trends in renewable energy?
+
+  <span class="m">Profile:</span> full <span class="d">|</span> <span class="m">Model:</span> gpt-oss:120b
+  <span class="m">Query:</span> What are the latest trends in renewable energy?
+  <span class="d">---</span>
+  <span class="p">  &#x25b8;</span> write_todos(<span class="d">plan research</span>)
+  <span class="p">  &#x25b8;</span> web_search(<span class="d">query=renewable energy trends 2026</span>)
+  <span class="p">  &#x25b8;</span> scrape_url(<span class="d">url=https://www.irena.org/...</span>)
+  <span class="d">---</span>
+
+Solar and wind capacity additions reached record levels in 2025...
+
+<span class="b">&gt;</span> <span class="a">/model</span>
+
+  Available models:
+    1. qwen3:8b-q4_K_M       <span class="d">5.2 GB</span>
+    2. gpt-oss:20b            <span class="d">13.8 GB</span>
+    3. gpt-oss:120b           <span class="d">65.3 GB</span> <span class="d">*</span>
+
+  Select model <span class="d">[3]:</span> 2
+  Model <span class="d">-></span> gpt-oss:20b  <span class="g">Saved</span>
+
+<span class="b">&gt;</span> <span class="cursor"></span></div>
+</div>
+
+<div class="annotation">
+  <span class="annotation-label">Design</span>
+  <span class="annotation-text">REPL banner is 4 lines max. Current model marked with * in picker. /model saves to config (indicated by green "Saved"). Thread ID auto-generated but shown for continuity awareness. Bold prompt character signals input readiness.</span>
+</div>
+
+<div class="principles">
+  <span class="tag">Progressive Disclosure</span>
+  <span class="tag">Functional Integrity</span>
+  <span class="tag">Voice Calibration</span>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLOW 5: ERROR STATES -->
+<!-- ═══════════════════════════════════════════ -->
+
+<p class="section-label">Flow 5 — Error States</p>
+<p class="section-desc">What-why-fix pattern. Each error is self-contained with a recovery action.</p>
+
+<div class="flow-grid">
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Ollama not running</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">localsmartz "What is AI?"</span>
+
+  <span class="r">Ollama is not running.</span>
+  Start it with: <span class="a">ollama serve</span>
+  Or open the Ollama app.</div>
+</div>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">No models available</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">localsmartz "What is AI?"</span>
+
+  <span class="g">Ollama:</span> running (v0.15.2)
+
+  <span class="r">No models found in Ollama.</span>
+  Pull a model first:
+    <span class="a">ollama pull qwen3:8b-q4_K_M</span>    <span class="d">(5 GB, fast)</span>
+    <span class="a">ollama pull llama3.1:70b</span>        <span class="d">(40 GB, powerful)</span></div>
+</div>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Saved model removed</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">localsmartz "What is AI?"</span>
+
+  <span class="y">Saved model 'gpt-oss:120b' is no longer available.</span>
+
+  Available models:
+    <span class="d">1.</span> qwen3:8b-q4_K_M         <span class="d">5.2 GB</span>
+    <span class="d">2.</span> gpt-oss:20b              <span class="d">13.8 GB</span>  <span class="a">&lt;- recommended</span>
+
+  Select model <span class="d">[2]:</span> <span class="cursor"></span></div>
+</div>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Tool error during research</span>
+  </div>
+  <div class="terminal-body">  <span class="p">  &#x25b8;</span> web_search(<span class="d">query=quantum computing</span>)
+  <span class="r">  &#x2717;</span> <span class="r">Error: DuckDuckGo rate limited (429)</span>
+  <span class="p">  &#x25b8;</span> scrape_url(<span class="d">url=https://en.wikipedia.org/...</span>)
+  <span class="d">---</span>
+  <span class="m">Tools used:</span> scrape_url, web_search, write_todos
+  <span class="y">Drift events: 1</span>
+  <span class="y">  &#x26a1; error_burst [low] web_search: 1 error in 1 calls</span></div>
+</div>
+
+</div>
+
+<div class="annotation">
+  <span class="annotation-label">Error Pattern</span>
+  <span class="annotation-text">Every error follows what-why-fix. Red = stop (blocking error). Yellow = warning (recoverable). Green preceding = what worked. No stack traces — user-facing copy only. Recovery actions are copy-pasteable commands.</span>
+</div>
+
+<div class="principles">
+  <span class="tag">Error: What-Why-Fix</span>
+  <span class="tag">Signal &gt; Noise</span>
+  <span class="tag">Natural Language</span>
+  <span class="tag">Functional Integrity</span>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- FLOW 6: LITE PROFILE GUARDRAILS -->
+<!-- ═══════════════════════════════════════════ -->
+
+<p class="section-label">Flow 6 — Lite Profile Guardrails</p>
+<p class="section-desc">Smaller models get tighter constraints. Drift detection and loop breaking surface visually.</p>
+
+<div class="terminal">
+  <div class="terminal-bar">
+    <div class="dot dot-red"></div>
+    <div class="dot dot-yellow"></div>
+    <div class="dot dot-green"></div>
+    <span class="terminal-title">Terminal — lite profile with loop detection</span>
+  </div>
+  <div class="terminal-body"><span class="m">$</span> <span class="b">localsmartz --profile lite "Analyze Tesla stock performance"</span>
+
+  <span class="m">Profile:</span> lite <span class="d">|</span> <span class="m">Model:</span> qwen3:8b-q4_K_M
+  <span class="m">Query:</span> Analyze Tesla stock performance
+  <span class="d">---</span>
+  <span class="p">  &#x25b8;</span> write_todos(<span class="d">plan stock analysis</span>)
+  <span class="p">  &#x25b8;</span> web_search(<span class="d">query=Tesla stock price 2026</span>)
+  <span class="p">  &#x25b8;</span> scrape_url(<span class="d">url=https://finance.yahoo.com/...</span>)
+  <span class="p">  &#x25b8;</span> web_search(<span class="d">query=Tesla stock price 2026</span>)
+  <span class="y">  &#x26a0;</span> <span class="y">Loop detected: web_search called 3x with same args — breaking</span>
+  <span class="d">---</span>
+  <span class="m">Tools used:</span> scrape_url, web_search, write_todos
+  <span class="y">Drift events: 1</span>
+  <span class="y">  &#x26a1; stale_search [medium] web_search: repeated identical query</span>
+
+Based on available data, Tesla's stock has shown...</div>
+</div>
+
+<div class="annotation">
+  <span class="annotation-label">Design</span>
+  <span class="annotation-text">Guardrails are visible but not alarming. Yellow warning icon for loop break — the system handled it, not a crash. Drift events summarized at end for transparency. User sees the research still completed despite the loop.</span>
+</div>
+
+</body>
+</html>
