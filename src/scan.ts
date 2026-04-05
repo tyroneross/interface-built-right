@@ -47,7 +47,9 @@ export interface ScanResult {
   themeAnalysis?: ThemeAnalysis;
 
   /** Overall scan verdict */
-  verdict: 'PASS' | 'ISSUES' | 'FAIL';
+  verdict: 'PASS' | 'ISSUES' | 'FAIL' | 'PARTIAL';
+  /** If verdict is PARTIAL, explains why the scan is incomplete */
+  partialReason?: string;
   issues: ScanIssue[];
   summary: string;
 }
@@ -80,6 +82,10 @@ export interface ScanOptions {
     path: string;
     fullPage?: boolean;
   };
+  /** Network idle timeout in ms (default: 10000). Set higher for slow async pages */
+  networkIdleTimeout?: number;
+  /** Patience mode: extends all wait timeouts. Use for AI search / LLM result pages */
+  patience?: number;
 }
 
 /**
@@ -98,6 +104,8 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     timeout = 30000,
     waitFor,
     screenshot,
+    networkIdleTimeout,
+    patience,
   } = options;
 
   const resolvedViewport: Viewport = typeof viewportOpt === 'string'
@@ -131,11 +139,13 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     });
 
     // Wait for network idle
-    await page.waitForLoadState?.('networkidle', { timeout: 10000 }).catch(() => {});
+    let networkIdleTimedOut = false;
+    await page.waitForLoadState?.('networkidle', { timeout: patience ?? networkIdleTimeout ?? 10000 }).catch(() => { networkIdleTimedOut = true; });
 
     // Wait for specific selector if provided
+    let waitForTimedOut = false;
     if (waitFor) {
-      await page.waitForSelector(waitFor, { timeout: 10000 }).catch(() => {});
+      await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 10000 }).catch(() => { waitForTimedOut = true; });
     }
 
     // Run all analyses in parallel where possible
@@ -171,7 +181,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     const verdict = determineVerdict(issues);
     const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
 
-    return {
+    const baseResult = {
       url,
       route,
       timestamp: new Date().toISOString(),
@@ -190,6 +200,16 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       issues,
       summary,
     };
+
+    if (patience && (networkIdleTimedOut || waitForTimedOut)) {
+      return {
+        ...baseResult,
+        verdict: 'PARTIAL' as const,
+        partialReason: `Page still loading after ${patience}ms — ${networkIdleTimedOut ? 'network still active' : 'selector not found'}. Re-scan when content has loaded.`,
+      };
+    }
+
+    return baseResult;
   } finally {
     await driver.close();
   }
@@ -388,6 +408,7 @@ export function formatScanResult(result: ScanResult): string {
 
   const verdictIcon = result.verdict === 'PASS' ? '\x1b[32m✓\x1b[0m' :
                       result.verdict === 'ISSUES' ? '\x1b[33m!\x1b[0m' :
+                      result.verdict === 'PARTIAL' ? '\x1b[33m~\x1b[0m' :
                       '\x1b[31m✗\x1b[0m';
 
   lines.push('═══════════════════════════════════════════════════════');
@@ -482,6 +503,14 @@ export function formatScanResult(result: ScanResult): string {
     }
   } else {
     lines.push('  No issues detected.');
+  }
+
+  if (result.verdict === 'PARTIAL' && result.partialReason) {
+    lines.push('');
+    lines.push('  PARTIAL SCAN');
+    lines.push('  ────────────');
+    lines.push(`  \x1b[33m!\x1b[0m ${result.partialReason}`);
+    lines.push('  Re-scan when the page has finished loading.');
   }
 
   lines.push('');

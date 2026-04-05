@@ -779,7 +779,9 @@ program
   .option('--screenshot <path>', 'Save screenshot to path')
   .option('--json', 'Output as JSON')
   .option('--timeout <ms>', 'Page load timeout in ms', '30000')
-  .action(async (url: string, options: { viewport: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string }) => {
+  .option('--patience <ms>', 'Wait longer for slow async content (AI search, LLM results)')
+  .option('--network-idle-timeout <ms>', 'Network idle timeout in ms (default: 10000)')
+  .action(async (url: string, options: { viewport: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
@@ -790,6 +792,8 @@ program
         viewport: options.viewport as 'desktop' | 'mobile' | 'tablet',
         waitFor: options.waitFor,
         timeout: parseInt(options.timeout, 10),
+        patience: options.patience ? parseInt(options.patience, 10) : undefined,
+        networkIdleTimeout: options.networkIdleTimeout ? parseInt(options.networkIdleTimeout, 10) : undefined,
         screenshot: options.screenshot ? { path: options.screenshot } : undefined,
       });
 

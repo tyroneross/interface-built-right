@@ -107,6 +107,14 @@ export const TOOLS = [
           enum: ["desktop", "mobile", "tablet"],
           description: "Viewport preset (default: 'desktop')",
         },
+        patience: {
+          type: "number",
+          description: "Wait longer for slow async content in ms (AI search, LLM results). Overrides network idle timeout.",
+        },
+        networkIdleTimeout: {
+          type: "number",
+          description: "Network idle timeout in ms (default: 10000)",
+        },
       },
       required: ["url"],
     },
@@ -1678,6 +1686,8 @@ async function handleScan(
 
   const result = await scan(url, {
     viewport: viewport as ScanOptions["viewport"],
+    patience: args.patience as number | undefined,
+    networkIdleTimeout: args.networkIdleTimeout as number | undefined,
   });
 
   // Format for LLM consumption — concise structured text
@@ -1740,6 +1750,12 @@ async function handleScan(
         lines.push(`- ${a.message || a}`);
       }
     }
+  }
+
+  if (result.verdict === 'PARTIAL') {
+    lines.push("");
+    lines.push(`⚠️ ${result.partialReason}`);
+    lines.push("Ask the user if the page has finished loading, then re-scan.");
   }
 
   return textResponse(lines.join("\n"));
