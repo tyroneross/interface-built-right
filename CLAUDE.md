@@ -1,3 +1,6 @@
+<!-- Plugin: ibr · Version: 0.7.0 · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
+<!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
+
 # IBR — Design Implementation Partner
 
 IBR reads live UI and returns structured data — computed CSS, bounds, handler wiring, accessibility, page structure. Scan output is ground truth for what is actually rendered. Use this data to inform implementation decisions during the build and confirm results after. Screenshots complement scans for visual coherence, rendering bugs, and canvas/SVG content.
