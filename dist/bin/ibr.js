@@ -17727,9 +17727,20 @@ function formatFixGuide(guide) {
   return lines.join("\n");
 }
 var program = new commander.Command();
-program.hook("postAction", (_thisCommand, actionCommand) => {
+var activeSession = null;
+function setActiveSession(session) {
+  activeSession = session;
+}
+program.hook("postAction", async (_thisCommand, actionCommand) => {
   const name = actionCommand.name();
   if (!name.startsWith("session:")) return;
+  if (activeSession) {
+    try {
+      await activeSession.disconnect();
+    } catch {
+    }
+    activeSession = null;
+  }
   const code = typeof process.exitCode === "number" ? process.exitCode : 0;
   setImmediate(() => process.exit(code));
 });
@@ -18670,6 +18681,7 @@ program.command("session:click <sessionId> <selector>").description("Click an el
   });
   try {
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     await session.click(selector, { force: options.force });
     console.log(`Clicked: ${selector}${options.force ? " (forced)" : ""}`);
   } catch (error) {
@@ -18702,6 +18714,7 @@ program.command("session:type <sessionId> <selector> <text>").description("Type 
   });
   try {
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     await session.type(selector, text, {
       delay: parseInt(options.delay, 10),
       submit: options.submit,
@@ -18733,6 +18746,7 @@ program.command("session:press <sessionId> <key>").description("Press a keyboard
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     await session.press(key);
     console.log(`Pressed: ${key}`);
   } catch (error) {
@@ -18753,6 +18767,7 @@ program.command("session:scroll <sessionId> <direction> [amount]").description("
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     const pixels = amount ? parseInt(amount, 10) : 500;
     const position = await session.scroll(direction, pixels, { selector: options?.selector });
     if (options?.selector) {
@@ -18781,6 +18796,7 @@ program.command("session:screenshot <sessionId>").description("Take a screenshot
   });
   try {
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     const fullPage = options.viewportOnly ? false : options.fullPage;
     const { path: path2, elements, audit } = await session.screenshot({
       name: options.name,
@@ -18822,6 +18838,7 @@ program.command("session:scan <sessionId>").description("Run full IBR scan again
   const outputDir = globalOpts.output || "./.ibr";
   try {
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     const result = await session.scanPage();
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -18838,6 +18855,7 @@ program.command("session:capture <sessionId>").description("Combined screenshot 
   const outputDir = globalOpts.output || "./.ibr";
   try {
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     const result = await session.capture({
       label: options.label,
       keep: options.keep || false
@@ -18880,6 +18898,7 @@ program.command("session:wait <sessionId> <selectorOrMs>").description("Wait for
   });
   try {
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     const isNumber = /^\d+$/.test(selectorOrMs);
     if (isNumber) {
       await session.waitFor(parseInt(selectorOrMs, 10));
@@ -18906,6 +18925,7 @@ program.command("session:navigate <sessionId> <url>").description("Navigate to a
   });
   try {
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     await session.navigate(url, { waitFor: options.waitFor });
     console.log(`Navigated to: ${url}`);
   } catch (error) {
@@ -19026,6 +19046,7 @@ program.command("session:html <sessionId>").description("Get the full page HTML/
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     if (options.selector) {
       const escapedSelector = options.selector.replace(/'/g, "\\'");
       const html = await session.evaluate(`(() => {
@@ -19052,6 +19073,7 @@ program.command("session:text <sessionId> <selector>").description("Get text con
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     if (options.all) {
       const texts = await session.allTextContent(selector);
       if (texts.length === 0) {
@@ -19079,6 +19101,7 @@ program.command("session:eval <sessionId> <script>").description("Execute JavaSc
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     const result = await session.evaluate(script);
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -19135,6 +19158,7 @@ program.command("session:modal <sessionId>").description("Detect and optionally 
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
     const modal = await session.detectModal();
     if (!modal.hasModal) {
       console.log("No modal detected");

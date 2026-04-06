@@ -75,28 +75,49 @@ function formatFixGuide(guide: FixGuide): string {
 const program = new Command();
 
 // ─────────────────────────────────────────────────────────────────────────
-// Session-command hang fix
+// Session lifecycle: disconnect + exit
 //
 // Every session:* subcommand (click, type, wait, scan, screenshot, capture,
-// html, text, eval, actions, navigate, modal, etc.) calls
-// `connectToBrowserServer` which opens a fresh CDP WebSocket to the shared
-// browser-server Chrome. When the action resolves, that WebSocket is still
-// open — node's event loop cannot exit, and the CLI hangs indefinitely.
+// html, text, eval, actions, navigate, modal, etc.) calls getSession() →
+// connectToBrowserServer() which opens a fresh CDP WebSocket AND spawns a
+// new Chrome tab. When the action resolves:
+//   1. The tab must be closed (otherwise tabs accumulate on the shared Chrome).
+//   2. The WebSocket must be released (otherwise node's event loop hangs).
 //
-// `session:start` is the exception: its action intentionally blocks on a
-// SIGINT-waiting Promise because it hosts the browser-server for its whole
-// lifetime. When that Promise resolves (on Ctrl+C), postAction fires and
-// force-exit is correct.
+// We solve both with a single pattern:
+//   - Each session command registers its PersistentSession via
+//     `setActiveSession(session)` after getSession() returns.
+//   - The postAction hook calls `session.disconnect()` (closes tab + WS)
+//     then `process.exit()`.
 //
-// `session:list`, `session:pending`, and `session:close` do not open a
-// session WebSocket, so they already exit cleanly — but the postAction hook
-// is idempotent and safe to run after them anyway.
+// `session:start` is safe because its action blocks on a SIGINT-waiting
+// Promise — postAction only fires on Ctrl+C when exiting is correct.
 //
-// The setImmediate lets any pending stdout writes flush before the exit.
+// `session:list`, `session:pending`, `session:close`, and `session:actions`
+// don't always call getSession, so activeSession may be null — that's fine,
+// disconnect() is a no-op on null.
 // ─────────────────────────────────────────────────────────────────────────
-program.hook('postAction', (_thisCommand, actionCommand) => {
+
+/** Module-level ref so the postAction hook can reach the session opened by any command. */
+let activeSession: { disconnect(): Promise<void> } | null = null;
+
+/** Called by each session:* command after getSession() succeeds. */
+function setActiveSession(session: { disconnect(): Promise<void> }): void {
+  activeSession = session;
+}
+
+program.hook('postAction', async (_thisCommand, actionCommand) => {
   const name = actionCommand.name();
   if (!name.startsWith('session:')) return;
+  // Gracefully close the per-command tab + WebSocket before exit.
+  if (activeSession) {
+    try {
+      await activeSession.disconnect();
+    } catch {
+      // Non-fatal — process.exit below will tear down remaining handles anyway.
+    }
+    activeSession = null;
+  }
   const code = typeof process.exitCode === 'number' ? process.exitCode : 0;
   setImmediate(() => process.exit(code));
 });
@@ -1457,6 +1478,7 @@ program
 
     try {
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       await session.click(selector, { force: options.force });
       console.log(`Clicked: ${selector}${options.force ? ' (forced)' : ''}`);
@@ -1500,6 +1522,7 @@ program
 
     try {
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       await session.type(selector, text, {
         delay: parseInt(options.delay, 10),
@@ -1539,6 +1562,7 @@ program
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       await session.press(key);
       console.log(`Pressed: ${key}`);
@@ -1567,6 +1591,7 @@ program
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       const pixels = amount ? parseInt(amount, 10) : 500;
       const position = await session.scroll(direction as 'up' | 'down' | 'left' | 'right', pixels, { selector: options?.selector });
@@ -1608,6 +1633,7 @@ program
 
     try {
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       // Handle --viewport-only as alias for --no-full-page
       const fullPage = options.viewportOnly ? false : options.fullPage;
@@ -1661,6 +1687,7 @@ program
 
     try {
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
       const result = await session.scanPage();
 
       if (options.json) {
@@ -1687,6 +1714,7 @@ program
 
     try {
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
       const result = await session.capture({
         label: options.label,
         keep: options.keep || false,
@@ -1738,6 +1766,7 @@ program
 
     try {
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       const isNumber = /^\d+$/.test(selectorOrMs);
       if (isNumber) {
@@ -1772,6 +1801,7 @@ program
 
     try {
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       await session.navigate(url, { waitFor: options.waitFor });
       console.log(`Navigated to: ${url}`);
@@ -1936,6 +1966,7 @@ program
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       if (options.selector) {
         // Get outer HTML of specific element
@@ -1970,6 +2001,7 @@ program
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       if (options.all) {
         const texts = await session.allTextContent(selector);
@@ -2004,6 +2036,7 @@ program
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       const result = await session.evaluate(script);
 
@@ -2078,6 +2111,7 @@ program
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
 
       const modal = await session.detectModal();
 
