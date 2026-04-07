@@ -962,5 +962,15 @@ export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
 export { loadTokenSpec, validateAgainstTokens, normalizeColor } from './tokens.js';
 export type { DesignTokenSpec, TokenViolation } from './tokens.js';
 
+// Design system exports
+export { loadDesignSystemConfig, runDesignSystemCheck } from './design-system/index.js';
+export type { DesignSystemConfig } from './design-system/config.js';
+export type { DesignSystemResult, DesignSystemViolation } from './schemas.js';
+export { validateExtendedTokens, calculateComplianceScore } from './design-system/tokens/index.js';
+export { allCalmPrecisionRules, corePrincipleIds, stylisticPrincipleIds } from './design-system/principles/index.js';
+
+// Global memory exports
+export { promoteToGlobal, seedFromGlobal, listGlobalPreferences, removeGlobalPreference, formatGlobalMemory } from './memory.js';
+
 // Native iOS/watchOS simulator support
 export * from './native/index.js';

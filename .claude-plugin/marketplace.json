@@ -13,7 +13,7 @@
       "name": "ibr",
       "source": "./",
       "description": "Visual testing platform for Claude Code — interaction assertions, mockup matching, design verification, test generation, cross-browser (Chrome + Safari), native iOS/macOS scanning.",
-      "version": "0.7.0",
+      "version": "0.8.0",
       "author": {
         "name": "Tyrone Ross"
       },

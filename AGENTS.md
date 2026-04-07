@@ -8,7 +8,7 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 IBR is a visual testing platform for Claude Code. It verifies that UI implementations match intent by scanning live pages and returning structured data — computed CSS, bounds, handler wiring, accessibility attributes, page structure, and console errors.
 
-- **Package:** `@tyroneross/interface-built-right` v0.7.0
+- **Package:** `@tyroneross/interface-built-right` v0.8.0
 - **Runtime:** Node.js >= 22, TypeScript
 - **Dual distribution:** npm package + Claude Code plugin (`.claude-plugin/plugin.json`)
 - **License:** MIT

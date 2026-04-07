@@ -8210,8 +8210,145 @@ function formatPreference(pref) {
   return lines.join("\n");
 }
 var GLOBAL_DIR = join(homedir(), ".ibr", "global-memory");
-join(GLOBAL_DIR, "preferences");
-join(GLOBAL_DIR, "summary.json");
+var GLOBAL_PREFS_DIR = join(GLOBAL_DIR, "preferences");
+var GLOBAL_SUMMARY = join(GLOBAL_DIR, "summary.json");
+var GLOBAL_PROMOTION_THRESHOLD = 0.9;
+async function initGlobalMemory() {
+  await mkdir(GLOBAL_PREFS_DIR, { recursive: true });
+}
+async function promoteToGlobal(outputDir) {
+  await initGlobalMemory();
+  const localPrefs = await listPreferences(outputDir);
+  const globalPrefs = await listGlobalPreferences();
+  const globalIndex = new Set(
+    globalPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+  const promoted = [];
+  let skipped = 0;
+  let alreadyGlobal = 0;
+  for (const pref of localPrefs) {
+    if (pref.route) {
+      skipped++;
+      continue;
+    }
+    if (pref.confidence < GLOBAL_PROMOTION_THRESHOLD) {
+      skipped++;
+      continue;
+    }
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (globalIndex.has(key)) {
+      alreadyGlobal++;
+      continue;
+    }
+    const globalPref = {
+      ...pref,
+      id: `global_${nanoid(8)}`,
+      source: "learned",
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const globalPath = join(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
+    await writeFile(globalPath, JSON.stringify(globalPref, null, 2));
+    globalIndex.add(key);
+    promoted.push(`${pref.category}: ${pref.description}`);
+  }
+  await rebuildGlobalSummary();
+  return { promoted, skipped, alreadyGlobal };
+}
+async function listGlobalPreferences() {
+  if (!existsSync(GLOBAL_PREFS_DIR)) return [];
+  const files = await readdir(GLOBAL_PREFS_DIR);
+  const prefs = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = await readFile(join(GLOBAL_PREFS_DIR, file), "utf-8");
+      prefs.push(JSON.parse(content));
+    } catch {
+    }
+  }
+  return prefs.sort((a, b) => b.confidence - a.confidence);
+}
+async function seedFromGlobal(outputDir) {
+  await initMemory(outputDir);
+  const globalPrefs = await listGlobalPreferences();
+  const localPrefs = await listPreferences(outputDir);
+  const localIndex = new Set(
+    localPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+  const seeded = [];
+  let skipped = 0;
+  for (const pref of globalPrefs) {
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (localIndex.has(key)) {
+      skipped++;
+      continue;
+    }
+    await addPreference(outputDir, {
+      description: pref.description,
+      category: pref.category,
+      source: "learned",
+      componentType: pref.componentType,
+      property: pref.expectation.property,
+      operator: pref.expectation.operator,
+      value: pref.expectation.value,
+      confidence: 0.7
+      // Lower than locally-learned (0.8)
+    });
+    seeded.push(`${pref.category}: ${pref.description}`);
+  }
+  return { seeded, skipped };
+}
+async function rebuildGlobalSummary() {
+  const prefs = await listGlobalPreferences();
+  const byCategory = {};
+  for (const pref of prefs) {
+    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
+  }
+  const summary = {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    totalPreferences: prefs.length,
+    byCategory,
+    preferences: prefs.slice(0, MAX_ACTIVE_PREFERENCES).map((p) => ({
+      id: p.id,
+      description: p.description,
+      category: p.category,
+      property: p.expectation.property,
+      operator: p.expectation.operator,
+      value: p.expectation.value,
+      confidence: p.confidence
+    }))
+  };
+  await writeFile(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
+}
+async function removeGlobalPreference(prefId) {
+  const prefPath = join(GLOBAL_PREFS_DIR, `${prefId}.json`);
+  if (!existsSync(prefPath)) return false;
+  await unlink(prefPath);
+  await rebuildGlobalSummary();
+  return true;
+}
+function formatGlobalMemory(prefs) {
+  if (prefs.length === 0) return "No global preferences. Run `memory:promote` to promote local patterns.";
+  const lines = [
+    `Global Memory: ${prefs.length} preferences`,
+    `Location: ${GLOBAL_DIR}`,
+    ""
+  ];
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const p of prefs) {
+    const arr = byCategory.get(p.category) || [];
+    arr.push(p);
+    byCategory.set(p.category, arr);
+  }
+  for (const [cat, catPrefs] of byCategory) {
+    lines.push(`  ${cat} (${catPrefs.length}):`);
+    for (const p of catPrefs) {
+      lines.push(`    ${p.id}: ${p.description} [${Math.round(p.confidence * 100)}%]`);
+    }
+  }
+  return lines.join("\n");
+}
 var DecisionTypeSchema = z.enum([
   "css_change",
   "layout_change",
@@ -9373,6 +9510,8 @@ var allCalmPrecisionRules = [
   ...contentChromeRules,
   ...cognitiveLoadRules
 ];
+var corePrincipleIds = ["gestalt", "signal-noise", "content-chrome", "cognitive-load"];
+var stylisticPrincipleIds = ["fitts", "hick"];
 var principleToRules = {
   "gestalt": gestaltRules.map((r) => r.id),
   "signal-noise": signalNoiseRules.map((r) => r.id),
@@ -11551,6 +11690,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

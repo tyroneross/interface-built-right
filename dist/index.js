@@ -8234,8 +8234,145 @@ function formatPreference(pref) {
   return lines.join("\n");
 }
 var GLOBAL_DIR = path.join(os.homedir(), ".ibr", "global-memory");
-path.join(GLOBAL_DIR, "preferences");
-path.join(GLOBAL_DIR, "summary.json");
+var GLOBAL_PREFS_DIR = path.join(GLOBAL_DIR, "preferences");
+var GLOBAL_SUMMARY = path.join(GLOBAL_DIR, "summary.json");
+var GLOBAL_PROMOTION_THRESHOLD = 0.9;
+async function initGlobalMemory() {
+  await fs.mkdir(GLOBAL_PREFS_DIR, { recursive: true });
+}
+async function promoteToGlobal(outputDir) {
+  await initGlobalMemory();
+  const localPrefs = await listPreferences(outputDir);
+  const globalPrefs = await listGlobalPreferences();
+  const globalIndex = new Set(
+    globalPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+  const promoted = [];
+  let skipped = 0;
+  let alreadyGlobal = 0;
+  for (const pref of localPrefs) {
+    if (pref.route) {
+      skipped++;
+      continue;
+    }
+    if (pref.confidence < GLOBAL_PROMOTION_THRESHOLD) {
+      skipped++;
+      continue;
+    }
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (globalIndex.has(key)) {
+      alreadyGlobal++;
+      continue;
+    }
+    const globalPref = {
+      ...pref,
+      id: `global_${nanoid.nanoid(8)}`,
+      source: "learned",
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const globalPath = path.join(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
+    await fs.writeFile(globalPath, JSON.stringify(globalPref, null, 2));
+    globalIndex.add(key);
+    promoted.push(`${pref.category}: ${pref.description}`);
+  }
+  await rebuildGlobalSummary();
+  return { promoted, skipped, alreadyGlobal };
+}
+async function listGlobalPreferences() {
+  if (!fs$1.existsSync(GLOBAL_PREFS_DIR)) return [];
+  const files = await fs.readdir(GLOBAL_PREFS_DIR);
+  const prefs = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = await fs.readFile(path.join(GLOBAL_PREFS_DIR, file), "utf-8");
+      prefs.push(JSON.parse(content));
+    } catch {
+    }
+  }
+  return prefs.sort((a, b) => b.confidence - a.confidence);
+}
+async function seedFromGlobal(outputDir) {
+  await initMemory(outputDir);
+  const globalPrefs = await listGlobalPreferences();
+  const localPrefs = await listPreferences(outputDir);
+  const localIndex = new Set(
+    localPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+  const seeded = [];
+  let skipped = 0;
+  for (const pref of globalPrefs) {
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (localIndex.has(key)) {
+      skipped++;
+      continue;
+    }
+    await addPreference(outputDir, {
+      description: pref.description,
+      category: pref.category,
+      source: "learned",
+      componentType: pref.componentType,
+      property: pref.expectation.property,
+      operator: pref.expectation.operator,
+      value: pref.expectation.value,
+      confidence: 0.7
+      // Lower than locally-learned (0.8)
+    });
+    seeded.push(`${pref.category}: ${pref.description}`);
+  }
+  return { seeded, skipped };
+}
+async function rebuildGlobalSummary() {
+  const prefs = await listGlobalPreferences();
+  const byCategory = {};
+  for (const pref of prefs) {
+    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
+  }
+  const summary = {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    totalPreferences: prefs.length,
+    byCategory,
+    preferences: prefs.slice(0, MAX_ACTIVE_PREFERENCES).map((p) => ({
+      id: p.id,
+      description: p.description,
+      category: p.category,
+      property: p.expectation.property,
+      operator: p.expectation.operator,
+      value: p.expectation.value,
+      confidence: p.confidence
+    }))
+  };
+  await fs.writeFile(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
+}
+async function removeGlobalPreference(prefId) {
+  const prefPath = path.join(GLOBAL_PREFS_DIR, `${prefId}.json`);
+  if (!fs$1.existsSync(prefPath)) return false;
+  await fs.unlink(prefPath);
+  await rebuildGlobalSummary();
+  return true;
+}
+function formatGlobalMemory(prefs) {
+  if (prefs.length === 0) return "No global preferences. Run `memory:promote` to promote local patterns.";
+  const lines = [
+    `Global Memory: ${prefs.length} preferences`,
+    `Location: ${GLOBAL_DIR}`,
+    ""
+  ];
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const p of prefs) {
+    const arr = byCategory.get(p.category) || [];
+    arr.push(p);
+    byCategory.set(p.category, arr);
+  }
+  for (const [cat, catPrefs] of byCategory) {
+    lines.push(`  ${cat} (${catPrefs.length}):`);
+    for (const p of catPrefs) {
+      lines.push(`    ${p.id}: ${p.description} [${Math.round(p.confidence * 100)}%]`);
+    }
+  }
+  return lines.join("\n");
+}
 var DecisionTypeSchema = zod.z.enum([
   "css_change",
   "layout_change",
@@ -9397,6 +9534,8 @@ var allCalmPrecisionRules = [
   ...contentChromeRules,
   ...cognitiveLoadRules
 ];
+var corePrincipleIds = ["gestalt", "signal-noise", "content-chrome", "cognitive-load"];
+var stylisticPrincipleIds = ["fitts", "hick"];
 var principleToRules = {
   "gestalt": gestaltRules.map((r) => r.id),
   "signal-noise": signalNoiseRules.map((r) => r.id),
@@ -11630,6 +11769,7 @@ exports.ViolationSchema = ViolationSchema;
 exports.addKnownIssue = addKnownIssue;
 exports.addPreference = addPreference;
 exports.aiSearchFlow = aiSearchFlow;
+exports.allCalmPrecisionRules = allCalmPrecisionRules;
 exports.analyzeComparison = analyzeComparison;
 exports.analyzeForObviousIssues = analyzeForObviousIssues;
 exports.annotateScreenshot = annotateScreenshot;
@@ -11638,6 +11778,7 @@ exports.auditNativeElements = auditNativeElements;
 exports.bootDevice = bootDevice;
 exports.buildNativeInteractivity = buildNativeInteractivity;
 exports.buildNativeSemantic = buildNativeSemantic;
+exports.calculateComplianceScore = calculateComplianceScore;
 exports.captureMacOSScreenshot = captureMacOSScreenshot;
 exports.captureNativeScreenshot = captureNativeScreenshot;
 exports.captureScreenshot = captureScreenshot;
@@ -11652,6 +11793,7 @@ exports.compareAll = compareAll;
 exports.compareImages = compareImages;
 exports.compareLandmarks = compareLandmarks;
 exports.completeOperation = completeOperation;
+exports.corePrincipleIds = corePrincipleIds;
 exports.createApiTracker = createApiTracker;
 exports.createMemoryPreset = createMemoryPreset;
 exports.createSession = createSession;
@@ -11683,6 +11825,7 @@ exports.formFlow = formFlow;
 exports.formatApiTimingResult = formatApiTimingResult;
 exports.formatConsistencyReport = formatConsistencyReport;
 exports.formatDevice = formatDevice;
+exports.formatGlobalMemory = formatGlobalMemory;
 exports.formatInteractivityResult = formatInteractivityResult;
 exports.formatLandmarkComparison = formatLandmarkComparison;
 exports.formatMacOSScanResult = formatMacOSScanResult;
@@ -11738,10 +11881,12 @@ exports.isCompactContextOversize = isCompactContextOversize;
 exports.isExtractorAvailable = isExtractorAvailable;
 exports.learnFromSession = learnFromSession;
 exports.listDevices = listDevices;
+exports.listGlobalPreferences = listGlobalPreferences;
 exports.listLearned = listLearned;
 exports.listPreferences = listPreferences;
 exports.listSessions = listSessions;
 exports.loadCompactContext = loadCompactContext;
+exports.loadDesignSystemConfig = loadDesignSystemConfig;
 exports.loadRetentionConfig = loadRetentionConfig;
 exports.loadSummary = loadSummary;
 exports.loadTokenSpec = loadTokenSpec;
@@ -11755,13 +11900,16 @@ exports.measurePerformance = measurePerformance;
 exports.measureWebVitals = measureWebVitals;
 exports.normalizeColor = normalizeColor;
 exports.preferencesToRules = preferencesToRules;
+exports.promoteToGlobal = promoteToGlobal;
 exports.promoteToPreference = promoteToPreference;
 exports.queryDecisions = queryDecisions;
 exports.queryMemory = queryMemory;
 exports.rebuildSummary = rebuildSummary;
 exports.recordDecision = recordDecision;
 exports.registerOperation = registerOperation;
+exports.removeGlobalPreference = removeGlobalPreference;
 exports.removePreference = removePreference;
+exports.runDesignSystemCheck = runDesignSystemCheck;
 exports.saveCompactContext = saveCompactContext;
 exports.saveSummary = saveSummary;
 exports.scan = scan;
@@ -11769,12 +11917,15 @@ exports.scanDirectoryForApiCalls = scanDirectoryForApiCalls;
 exports.scanMacOS = scanMacOS;
 exports.scanNative = scanNative;
 exports.searchFlow = searchFlow;
+exports.seedFromGlobal = seedFromGlobal;
 exports.setActiveRoute = setActiveRoute;
+exports.stylisticPrincipleIds = stylisticPrincipleIds;
 exports.testInteractivity = testInteractivity;
 exports.testResponsive = testResponsive;
 exports.updateCompactContext = updateCompactContext;
 exports.updateSession = updateSession;
 exports.validateAgainstTokens = validateAgainstTokens;
+exports.validateExtendedTokens = validateExtendedTokens;
 exports.waitForCompletion = waitForCompletion;
 exports.waitForNavigation = waitForNavigation;
 exports.waitForPageReady = waitForPageReady;

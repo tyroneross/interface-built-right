@@ -10782,7 +10782,7 @@ var init_cognitive_load = __esm({
 });
 
 // src/design-system/principles/calm-precision.ts
-var allCalmPrecisionRules, corePrincipleIds, principleToRules;
+var allCalmPrecisionRules, corePrincipleIds, stylisticPrincipleIds, principleToRules;
 var init_calm_precision = __esm({
   "src/design-system/principles/calm-precision.ts"() {
     "use strict";
@@ -10801,6 +10801,7 @@ var init_calm_precision = __esm({
       ...cognitiveLoadRules
     ];
     corePrincipleIds = ["gestalt", "signal-noise", "content-chrome", "cognitive-load"];
+    stylisticPrincipleIds = ["fitts", "hick"];
     principleToRules = {
       "gestalt": gestaltRules.map((r) => r.id),
       "signal-noise": signalNoiseRules.map((r) => r.id),
@@ -11312,6 +11313,20 @@ var init_scan = __esm({
         return [...this.issues];
       }
     };
+  }
+});
+
+// src/design-system/principles/index.ts
+var init_principles = __esm({
+  "src/design-system/principles/index.ts"() {
+    "use strict";
+    init_calm_precision();
+    init_gestalt();
+    init_signal_noise();
+    init_fitts();
+    init_hick();
+    init_content_chrome();
+    init_cognitive_load();
   }
 });
 
@@ -12765,6 +12780,7 @@ __export(index_exports, {
   addKnownIssue: () => addKnownIssue,
   addPreference: () => addPreference,
   aiSearchFlow: () => aiSearchFlow,
+  allCalmPrecisionRules: () => allCalmPrecisionRules,
   analyzeComparison: () => analyzeComparison,
   analyzeForObviousIssues: () => analyzeForObviousIssues,
   annotateScreenshot: () => annotateScreenshot,
@@ -12773,6 +12789,7 @@ __export(index_exports, {
   bootDevice: () => bootDevice,
   buildNativeInteractivity: () => buildNativeInteractivity,
   buildNativeSemantic: () => buildNativeSemantic,
+  calculateComplianceScore: () => calculateComplianceScore,
   captureMacOSScreenshot: () => captureMacOSScreenshot,
   captureNativeScreenshot: () => captureNativeScreenshot,
   captureScreenshot: () => captureScreenshot,
@@ -12787,6 +12804,7 @@ __export(index_exports, {
   compareImages: () => compareImages,
   compareLandmarks: () => compareLandmarks,
   completeOperation: () => completeOperation,
+  corePrincipleIds: () => corePrincipleIds,
   createApiTracker: () => createApiTracker,
   createMemoryPreset: () => createMemoryPreset,
   createSession: () => createSession,
@@ -12818,6 +12836,7 @@ __export(index_exports, {
   formatApiTimingResult: () => formatApiTimingResult,
   formatConsistencyReport: () => formatConsistencyReport,
   formatDevice: () => formatDevice,
+  formatGlobalMemory: () => formatGlobalMemory,
   formatInteractivityResult: () => formatInteractivityResult,
   formatLandmarkComparison: () => formatLandmarkComparison,
   formatMacOSScanResult: () => formatMacOSScanResult,
@@ -12873,10 +12892,12 @@ __export(index_exports, {
   isExtractorAvailable: () => isExtractorAvailable,
   learnFromSession: () => learnFromSession,
   listDevices: () => listDevices,
+  listGlobalPreferences: () => listGlobalPreferences,
   listLearned: () => listLearned,
   listPreferences: () => listPreferences,
   listSessions: () => listSessions,
   loadCompactContext: () => loadCompactContext,
+  loadDesignSystemConfig: () => loadDesignSystemConfig,
   loadRetentionConfig: () => loadRetentionConfig,
   loadSummary: () => loadSummary,
   loadTokenSpec: () => loadTokenSpec,
@@ -12890,13 +12911,16 @@ __export(index_exports, {
   measureWebVitals: () => measureWebVitals,
   normalizeColor: () => normalizeColor,
   preferencesToRules: () => preferencesToRules,
+  promoteToGlobal: () => promoteToGlobal,
   promoteToPreference: () => promoteToPreference,
   queryDecisions: () => queryDecisions,
   queryMemory: () => queryMemory,
   rebuildSummary: () => rebuildSummary,
   recordDecision: () => recordDecision,
   registerOperation: () => registerOperation,
+  removeGlobalPreference: () => removeGlobalPreference,
   removePreference: () => removePreference,
+  runDesignSystemCheck: () => runDesignSystemCheck,
   saveCompactContext: () => saveCompactContext,
   saveSummary: () => saveSummary,
   scan: () => scan,
@@ -12904,12 +12928,15 @@ __export(index_exports, {
   scanMacOS: () => scanMacOS,
   scanNative: () => scanNative,
   searchFlow: () => searchFlow,
+  seedFromGlobal: () => seedFromGlobal,
   setActiveRoute: () => setActiveRoute,
+  stylisticPrincipleIds: () => stylisticPrincipleIds,
   testInteractivity: () => testInteractivity,
   testResponsive: () => testResponsive,
   updateCompactContext: () => updateCompactContext,
   updateSession: () => updateSession,
   validateAgainstTokens: () => validateAgainstTokens,
+  validateExtendedTokens: () => validateExtendedTokens,
   waitForCompletion: () => waitForCompletion,
   waitForNavigation: () => waitForNavigation,
   waitForPageReady: () => waitForPageReady,
@@ -13082,6 +13109,10 @@ var init_index = __esm({
     init_types3();
     init_scan();
     init_tokens();
+    init_design_system();
+    init_tokens2();
+    init_principles();
+    init_memory();
     init_native();
     InterfaceBuiltRight = class {
       config;
@@ -18946,7 +18977,7 @@ function withChromePath(opts) {
   }
   return opts;
 }
-program.name("ibr").description("Design validation for Claude Code").version("0.7.0");
+program.name("ibr").description("Design validation for Claude Code").version("0.8.0");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {

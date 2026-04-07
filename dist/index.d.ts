@@ -5091,6 +5091,41 @@ declare function formatMemorySummary(summary: MemorySummary): string;
  * Format a single preference for display
  */
 declare function formatPreference(pref: Preference): string;
+/**
+ * Promote high-confidence local preferences to global memory.
+ * Call periodically (e.g., after session approval or on explicit command).
+ *
+ * Only promotes preferences that:
+ * - Have confidence >= GLOBAL_PROMOTION_THRESHOLD
+ * - Are NOT route-scoped (global = route-agnostic patterns)
+ * - Don't already exist globally (deduplicated by property+operator+value)
+ */
+declare function promoteToGlobal(outputDir: string): Promise<{
+    promoted: string[];
+    skipped: number;
+    alreadyGlobal: number;
+}>;
+/**
+ * List all global preferences
+ */
+declare function listGlobalPreferences(): Promise<Preference[]>;
+/**
+ * Seed a project's local memory from global preferences.
+ * Only adds preferences that don't already exist locally (by property+operator+value).
+ * Seeded preferences get confidence 0.7 (lower than locally-learned 0.8).
+ */
+declare function seedFromGlobal(outputDir: string): Promise<{
+    seeded: string[];
+    skipped: number;
+}>;
+/**
+ * Remove a global preference
+ */
+declare function removeGlobalPreference(prefId: string): Promise<boolean>;
+/**
+ * Format global memory status
+ */
+declare function formatGlobalMemory(prefs: Preference[]): string;
 
 /**
  * Types of UI decisions that can be tracked
@@ -5886,6 +5921,336 @@ declare function normalizeColor(color: string): string;
  */
 declare function validateAgainstTokens(elements: EnhancedElement[], spec: DesignTokenSpec): TokenViolation[];
 
+declare const DesignSystemConfigSchema: z.ZodObject<{
+    version: z.ZodLiteral<1>;
+    name: z.ZodString;
+    principles: z.ZodDefault<z.ZodObject<{
+        calmPrecision: z.ZodDefault<z.ZodObject<{
+            core: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+            stylistic: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
+            severity: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodEnum<["error", "warn", "off"]>>>;
+        }, "strip", z.ZodTypeAny, {
+            severity: Record<string, "error" | "off" | "warn">;
+            core: string[];
+            stylistic: string[];
+        }, {
+            severity?: Record<string, "error" | "off" | "warn"> | undefined;
+            core?: string[] | undefined;
+            stylistic?: string[] | undefined;
+        }>>;
+        custom: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            name: z.ZodString;
+            description: z.ZodString;
+            category: z.ZodString;
+            severity: z.ZodEnum<["error", "warn", "off"]>;
+            checks: z.ZodArray<z.ZodObject<{
+                property: z.ZodString;
+                operator: z.ZodEnum<["equals", "in-set", "not-in-set", "gte", "lte", "contains"]>;
+                values: z.ZodArray<z.ZodUnion<[z.ZodString, z.ZodNumber]>, "many">;
+            }, "strip", z.ZodTypeAny, {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }, {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }>, "many">;
+        }, "strip", z.ZodTypeAny, {
+            name: string;
+            description: string;
+            severity: "error" | "off" | "warn";
+            id: string;
+            category: string;
+            checks: {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }[];
+        }, {
+            name: string;
+            description: string;
+            severity: "error" | "off" | "warn";
+            id: string;
+            category: string;
+            checks: {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }[];
+        }>, "many">>;
+    }, "strip", z.ZodTypeAny, {
+        custom: {
+            name: string;
+            description: string;
+            severity: "error" | "off" | "warn";
+            id: string;
+            category: string;
+            checks: {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }[];
+        }[];
+        calmPrecision: {
+            severity: Record<string, "error" | "off" | "warn">;
+            core: string[];
+            stylistic: string[];
+        };
+    }, {
+        custom?: {
+            name: string;
+            description: string;
+            severity: "error" | "off" | "warn";
+            id: string;
+            category: string;
+            checks: {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }[];
+        }[] | undefined;
+        calmPrecision?: {
+            severity?: Record<string, "error" | "off" | "warn"> | undefined;
+            core?: string[] | undefined;
+            stylistic?: string[] | undefined;
+        } | undefined;
+    }>>;
+    tokens: z.ZodDefault<z.ZodObject<{
+        colors: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        typography: z.ZodOptional<z.ZodObject<{
+            fontFamilies: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+            fontSizes: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+            fontWeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+            lineHeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+        }, "strip", z.ZodTypeAny, {
+            fontFamilies?: Record<string, string> | undefined;
+            fontSizes?: Record<string, number> | undefined;
+            fontWeights?: Record<string, number> | undefined;
+            lineHeights?: Record<string, number> | undefined;
+        }, {
+            fontFamilies?: Record<string, string> | undefined;
+            fontSizes?: Record<string, number> | undefined;
+            fontWeights?: Record<string, number> | undefined;
+            lineHeights?: Record<string, number> | undefined;
+        }>>;
+        spacing: z.ZodOptional<z.ZodArray<z.ZodNumber, "many">>;
+        borderRadius: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+        shadows: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        transitions: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        touchTargets: z.ZodOptional<z.ZodObject<{
+            min: z.ZodNumber;
+        }, "strip", z.ZodTypeAny, {
+            min: number;
+        }, {
+            min: number;
+        }>>;
+    }, "strip", z.ZodTypeAny, {
+        typography?: {
+            fontFamilies?: Record<string, string> | undefined;
+            fontSizes?: Record<string, number> | undefined;
+            fontWeights?: Record<string, number> | undefined;
+            lineHeights?: Record<string, number> | undefined;
+        } | undefined;
+        spacing?: number[] | undefined;
+        colors?: Record<string, string> | undefined;
+        touchTargets?: {
+            min: number;
+        } | undefined;
+        borderRadius?: Record<string, number> | undefined;
+        shadows?: Record<string, string> | undefined;
+        transitions?: Record<string, string> | undefined;
+    }, {
+        typography?: {
+            fontFamilies?: Record<string, string> | undefined;
+            fontSizes?: Record<string, number> | undefined;
+            fontWeights?: Record<string, number> | undefined;
+            lineHeights?: Record<string, number> | undefined;
+        } | undefined;
+        spacing?: number[] | undefined;
+        colors?: Record<string, string> | undefined;
+        touchTargets?: {
+            min: number;
+        } | undefined;
+        borderRadius?: Record<string, number> | undefined;
+        shadows?: Record<string, string> | undefined;
+        transitions?: Record<string, string> | undefined;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    name: string;
+    version: 1;
+    principles: {
+        custom: {
+            name: string;
+            description: string;
+            severity: "error" | "off" | "warn";
+            id: string;
+            category: string;
+            checks: {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }[];
+        }[];
+        calmPrecision: {
+            severity: Record<string, "error" | "off" | "warn">;
+            core: string[];
+            stylistic: string[];
+        };
+    };
+    tokens: {
+        typography?: {
+            fontFamilies?: Record<string, string> | undefined;
+            fontSizes?: Record<string, number> | undefined;
+            fontWeights?: Record<string, number> | undefined;
+            lineHeights?: Record<string, number> | undefined;
+        } | undefined;
+        spacing?: number[] | undefined;
+        colors?: Record<string, string> | undefined;
+        touchTargets?: {
+            min: number;
+        } | undefined;
+        borderRadius?: Record<string, number> | undefined;
+        shadows?: Record<string, string> | undefined;
+        transitions?: Record<string, string> | undefined;
+    };
+}, {
+    name: string;
+    version: 1;
+    principles?: {
+        custom?: {
+            name: string;
+            description: string;
+            severity: "error" | "off" | "warn";
+            id: string;
+            category: string;
+            checks: {
+                values: (string | number)[];
+                property: string;
+                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
+            }[];
+        }[] | undefined;
+        calmPrecision?: {
+            severity?: Record<string, "error" | "off" | "warn"> | undefined;
+            core?: string[] | undefined;
+            stylistic?: string[] | undefined;
+        } | undefined;
+    } | undefined;
+    tokens?: {
+        typography?: {
+            fontFamilies?: Record<string, string> | undefined;
+            fontSizes?: Record<string, number> | undefined;
+            fontWeights?: Record<string, number> | undefined;
+            lineHeights?: Record<string, number> | undefined;
+        } | undefined;
+        spacing?: number[] | undefined;
+        colors?: Record<string, string> | undefined;
+        touchTargets?: {
+            min: number;
+        } | undefined;
+        borderRadius?: Record<string, number> | undefined;
+        shadows?: Record<string, string> | undefined;
+        transitions?: Record<string, string> | undefined;
+    } | undefined;
+}>;
+type DesignSystemConfig = z.infer<typeof DesignSystemConfigSchema>;
+/**
+ * Load design system config from .ibr/design-system.json
+ * Returns undefined if no config exists (backward compatible)
+ */
+declare function loadDesignSystemConfig(projectDir: string): Promise<DesignSystemConfig | undefined>;
+
+/**
+ * Run all design system checks against extracted elements.
+ * Returns undefined if no design system config exists (backward compatible).
+ */
+declare function runDesignSystemCheck(elements: EnhancedElement[], context: RuleContext, projectDir: string): Promise<DesignSystemResult | undefined>;
+
+/**
+ * Extended design token specification schema
+ * Superset of the old DesignTokenSpec — adds typography sub-fields, spacing as array, shadows, transitions
+ */
+declare const ExtendedTokenSpecSchema: z.ZodObject<{
+    colors: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    typography: z.ZodOptional<z.ZodObject<{
+        fontFamilies: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+        fontSizes: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+        fontWeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+        lineHeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+    }, "strip", z.ZodTypeAny, {
+        fontFamilies?: Record<string, string> | undefined;
+        fontSizes?: Record<string, number> | undefined;
+        fontWeights?: Record<string, number> | undefined;
+        lineHeights?: Record<string, number> | undefined;
+    }, {
+        fontFamilies?: Record<string, string> | undefined;
+        fontSizes?: Record<string, number> | undefined;
+        fontWeights?: Record<string, number> | undefined;
+        lineHeights?: Record<string, number> | undefined;
+    }>>;
+    spacing: z.ZodOptional<z.ZodArray<z.ZodNumber, "many">>;
+    borderRadius: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
+    shadows: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    transitions: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    touchTargets: z.ZodOptional<z.ZodObject<{
+        min: z.ZodNumber;
+    }, "strip", z.ZodTypeAny, {
+        min: number;
+    }, {
+        min: number;
+    }>>;
+}, "strip", z.ZodTypeAny, {
+    typography?: {
+        fontFamilies?: Record<string, string> | undefined;
+        fontSizes?: Record<string, number> | undefined;
+        fontWeights?: Record<string, number> | undefined;
+        lineHeights?: Record<string, number> | undefined;
+    } | undefined;
+    spacing?: number[] | undefined;
+    colors?: Record<string, string> | undefined;
+    touchTargets?: {
+        min: number;
+    } | undefined;
+    borderRadius?: Record<string, number> | undefined;
+    shadows?: Record<string, string> | undefined;
+    transitions?: Record<string, string> | undefined;
+}, {
+    typography?: {
+        fontFamilies?: Record<string, string> | undefined;
+        fontSizes?: Record<string, number> | undefined;
+        fontWeights?: Record<string, number> | undefined;
+        lineHeights?: Record<string, number> | undefined;
+    } | undefined;
+    spacing?: number[] | undefined;
+    colors?: Record<string, string> | undefined;
+    touchTargets?: {
+        min: number;
+    } | undefined;
+    borderRadius?: Record<string, number> | undefined;
+    shadows?: Record<string, string> | undefined;
+    transitions?: Record<string, string> | undefined;
+}>;
+type ExtendedTokenSpec = z.infer<typeof ExtendedTokenSpecSchema>;
+
+/**
+ * Validate elements against the full extended token spec.
+ * Uses the old validator registry for existing categories + new validators for extended categories.
+ */
+declare function validateExtendedTokens(elements: EnhancedElement[], tokens: ExtendedTokenSpec, systemName: string): TokenViolation[];
+/**
+ * Calculate compliance score (0-100).
+ * Percentage of checked properties that match tokens.
+ */
+declare function calculateComplianceScore(totalChecked: number, violationCount: number): number;
+
+/** All Calm Precision rules */
+declare const allCalmPrecisionRules: Rule[];
+/** Core principles — cognitive science fundamentals, default to error */
+declare const corePrincipleIds: string[];
+/** Stylistic principles — have valid exceptions, default to warn */
+declare const stylisticPrincipleIds: string[];
+
 /**
  * Simulator device from `xcrun simctl list devices --json`
  */
@@ -6623,4 +6988,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

@@ -208,7 +208,7 @@ function withChromePath<T extends Record<string, unknown>>(opts: T): T & { chrom
 program
   .name('ibr')
   .description('Design validation for Claude Code')
-  .version('0.7.0');
+  .version('0.8.0');
 
 // Global options
 program

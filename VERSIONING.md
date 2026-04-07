@@ -2,22 +2,26 @@
 
 ## Current
 
-- **Version:** 0.7.0
+- **Version:** 0.8.0
 - **Source of truth:** Local dev (`~/Desktop/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npm: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/0.7.0/`
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/0.8.0/`
 
-## Key changes in 0.7.0
+## Key changes in 0.8.0
 
-- Context optimization: CLAUDE.md slimmed 74% (229 lines removed, content moved to on-demand skills)
-- Auto-verify hooks (`ibr-pre-change.sh` + `ibr-post-change.sh`) — opt-in via `.ibr/config.json { autoVerify: true }`; 5-gate design (UI ext, opt-in, project boundary, 10s rate limit, dev-server probe); condensed one-line output on clean passes
-- Scan patience mode + `PARTIAL` verdict for async pages (AI search, LLM results) — CLI flags `--patience <ms>`, `--network-idle-timeout <ms>`; MCP scan tool exposes both
-- New skills: `native-testing` (iOS/watchOS/macOS + Fix Guide), `auto-verify` (config + troubleshooting)
-- All 382 tests pass; typecheck clean
+- **Design system extension:** Full front-end design workflow — Calm Precision principle enforcement, configurable design tokens, component patterns
+- 6 Calm Precision rules (gestalt, signal-noise, fitts, hick, content-chrome, cognitive-load) with core/stylistic severity split
+- Extended token validation (fontWeights, lineHeights, spacing arrays) via validator registry
+- `design_system` MCP tool (init/status/validate) + `.ibr/design-system.json` config
+- 3 new skills (design-guidance, design-system, component-patterns) + 2 modified (design-implementation, design-validation)
+- 7 component pattern templates (card, nav, form, dashboard, modal, table, list)
+- Refactored `aggregateIssues()` → IssueCollector, `tokens.ts` → validator registry
+- Global memory: `promoteToGlobal()` / `seedFromGlobal()` for cross-project preference flow
+- All 421 tests pass (39 new); typecheck clean
 
-See commit `07e0a82` for full diff.
+See commit `80653a6` for full diff.
 
 ## Where to look for the latest version
 
@@ -44,5 +48,6 @@ When "latest" is ambiguous, trust **local dev** first, then cross-check the regi
 
 ## Version history
 
+- **0.8.0** (2026-04-07): Design system extension — Calm Precision enforcement, tokens, patterns, global memory. Commit `80653a6`.
 - **0.7.0** (2026-04-04): Context optimization, auto-verify hooks, patience mode, new skills. Commit `07e0a82`.
 - **0.4.9** (prior): Pre-optimization baseline. Cached directory deleted 2026-04-04 during drift cleanup.

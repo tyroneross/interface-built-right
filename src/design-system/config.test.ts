@@ -1,20 +1,22 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { writeFileSync, mkdirSync, rmSync } from 'fs';
+import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { loadDesignSystemConfig, getDefaultSeverity } from './config.js';
 
-const TEST_DIR = join(import.meta.dirname || __dirname, '../../.test-ds-config');
-const IBR_DIR = join(TEST_DIR, '.ibr');
+let TEST_DIR: string;
+let IBR_DIR: string;
 
 describe('Design System Config', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    TEST_DIR = await mkdtemp(join(tmpdir(), 'ibr-ds-config-'));
+    IBR_DIR = join(TEST_DIR, '.ibr');
     mkdirSync(IBR_DIR, { recursive: true });
   });
 
-  afterEach(() => {
-    if (existsSync(TEST_DIR)) {
-      rmSync(TEST_DIR, { recursive: true, force: true });
-    }
+  afterEach(async () => {
+    await rm(TEST_DIR, { recursive: true, force: true });
   });
 
   it('returns undefined when no config exists', async () => {
