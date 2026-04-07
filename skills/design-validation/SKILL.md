@@ -144,6 +144,38 @@ A complete post-build validation pass:
 
 Do not close the audit until all high-severity issues are resolved or explicitly accepted with documented rationale.
 
+## Principle Enforcement
+
+When `.ibr/design-system.json` is active, the scan automatically enforces Calm Precision principles:
+
+| Principle | What it checks | Default severity |
+|-----------|---------------|-----------------|
+| Gestalt | Individual borders on list items, ungrouped related elements | error |
+| Signal-to-Noise | Status elements with heavy background colors instead of text color | error |
+| Content-Chrome | Content area ratio below 70% | warn |
+| Cognitive Load | More than 7 interactive elements in a visual group | warn |
+| Fitts | Primary action buttons below 120px width | warn |
+| Hick | More than 5 visible choices without progressive disclosure | warn |
+
+Principle violations appear in the `designSystem.principleViolations` array of the scan result. Each violation includes the rule ID, element selector, and a fix suggestion.
+
+To adjust severity: edit `.ibr/design-system.json` → `principles.calmPrecision.severity`. Set any principle to `"off"` to disable it.
+
+## Token Compliance
+
+When design tokens are configured, the scan checks all rendered elements against the token specification:
+
+- **Colors**: text color and background-color against `tokens.colors`
+- **Font sizes**: computed font-size against `tokens.typography.fontSizes`
+- **Font weights**: computed font-weight against `tokens.typography.fontWeights`
+- **Spacing**: gap, padding, margin against `tokens.spacing` array
+- **Border radius**: computed border-radius against `tokens.borderRadius`
+- **Touch targets**: interactive element size against `tokens.touchTargets.min`
+
+Token violations appear in `designSystem.tokenViolations`. Each reports the element, property, expected token value, and actual value.
+
+The `designSystem.complianceScore` (0-100) reflects the percentage of checked properties that match tokens. A score of 100 means every rendered value matches the design system.
+
 ## Change Tracking in CI Context
 
 When auditing after a PR or deployment:

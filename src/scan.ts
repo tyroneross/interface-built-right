@@ -8,6 +8,8 @@ import { testInteractivity, type InteractivityResult } from './interactivity.js'
 import { getSemanticOutput, type SemanticResult } from './semantic/index.js';
 import { detectLayoutCollisions, type LayoutCollisionResult } from './layout-collision.js';
 import { analyzeThemeConsistency, type ThemeAnalysis } from './consistency.js';
+import { runDesignSystemCheck } from './design-system/index.js';
+import type { DesignSystemResult } from './schemas.js';
 
 
 /**
@@ -46,6 +48,9 @@ export interface ScanResult {
   /** Theme consistency — detects light content on dark page (and vice versa) */
   themeAnalysis?: ThemeAnalysis;
 
+  /** Design system check results — principle violations, token compliance */
+  designSystem?: DesignSystemResult;
+
   /** Overall scan verdict */
   verdict: 'PASS' | 'ISSUES' | 'FAIL' | 'PARTIAL';
   /** If verdict is PARTIAL, explains why the scan is incomplete */
@@ -58,11 +63,99 @@ export interface ScanResult {
  * Individual issue found during scan
  */
 export interface ScanIssue {
-  category: 'interactivity' | 'accessibility' | 'semantic' | 'console' | 'structure';
+  category: 'interactivity' | 'accessibility' | 'semantic' | 'console' | 'structure' | 'design-system';
   severity: 'error' | 'warning' | 'info';
   element?: string;
   description: string;
   fix?: string;
+}
+
+/**
+ * Collects and deduplicates scan issues from multiple analysis sources.
+ * Use directly when composing issues incrementally (e.g. design system checks).
+ * The legacy aggregateIssues() function wraps this for backward compatibility.
+ */
+export class IssueCollector {
+  private issues: ScanIssue[] = [];
+
+  add(issue: ScanIssue): void {
+    this.issues.push(issue);
+  }
+
+  /**
+   * Add issues from a source array with varying shapes.
+   * Handles the different field names used across audit, interactivity, and semantic results.
+   */
+  addFrom(
+    category: ScanIssue['category'],
+    items: Array<{
+      severity?: string;
+      message?: string;
+      description?: string;
+      problem?: string;
+      element?: string;
+      type?: string;
+      fix?: string;
+    }>,
+    overrideCategory?: (item: { type?: string }) => ScanIssue['category']
+  ): void {
+    for (const item of items) {
+      const description = item.message ?? item.description ?? item.problem ?? '';
+      const severity = (item.severity ?? 'info') as ScanIssue['severity'];
+      const resolvedCategory = overrideCategory ? overrideCategory(item) : category;
+      this.issues.push({
+        category: resolvedCategory,
+        severity,
+        element: item.element,
+        description,
+        fix: item.fix,
+      });
+    }
+  }
+
+  /**
+   * Add console errors, skipping favicon/manifest noise.
+   */
+  addConsoleErrors(errors: string[]): void {
+    for (const error of errors) {
+      if (error.includes('favicon') || error.includes('manifest')) continue;
+      this.issues.push({
+        category: 'console',
+        severity: 'error',
+        description: `Console error: ${error.slice(0, 200)}`,
+      });
+    }
+  }
+
+  /**
+   * Add theme mismatch issue if present.
+   */
+  addThemeAnalysis(analysis?: ThemeAnalysis): void {
+    if (analysis?.themeMismatch) {
+      this.issues.push({
+        category: 'semantic',
+        severity: 'warning',
+        description: analysis.mismatchDetails ?? 'Content card has different theme than page background',
+        fix: 'Ensure content containers match the page theme (dark/light)',
+      });
+    }
+  }
+
+  /**
+   * Remove issues with identical descriptions, preserving first occurrence.
+   */
+  deduplicate(): void {
+    const seen = new Set<string>();
+    this.issues = this.issues.filter(issue => {
+      if (seen.has(issue.description)) return false;
+      seen.add(issue.description);
+      return true;
+    });
+  }
+
+  getIssues(): ScanIssue[] {
+    return [...this.issues];
+  }
 }
 
 /**
@@ -176,8 +269,52 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // Detect layout collisions in extracted elements
     const layoutCollisions = detectLayoutCollisions(elements.all);
 
+    // Run design system check (needs extracted elements — cannot parallelize with extraction)
+    const designSystem = await runDesignSystemCheck(
+      elements.all,
+      {
+        isMobile: resolvedViewport.width < 768,
+        viewportWidth: resolvedViewport.width,
+        viewportHeight: resolvedViewport.height,
+        url,
+        allElements: elements.all,
+      },
+      options.outputDir || process.cwd()
+    ).catch(() => undefined);
+
     // Aggregate issues
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
+
+    // Add design system issues
+    if (designSystem) {
+      for (const v of designSystem.principleViolations) {
+        issues.push({
+          category: 'design-system' as const,
+          severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
+          element: v.element,
+          description: v.message,
+          fix: v.fix,
+        });
+      }
+      for (const v of designSystem.tokenViolations) {
+        issues.push({
+          category: 'design-system' as const,
+          severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
+          element: v.element,
+          description: v.message,
+        });
+      }
+      for (const v of designSystem.customViolations) {
+        issues.push({
+          category: 'design-system' as const,
+          severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
+          element: v.element,
+          description: v.message,
+          fix: v.fix,
+        });
+      }
+    }
+
     const verdict = determineVerdict(issues);
     const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
 
@@ -196,6 +333,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       coverage,
       layoutCollisions,
       themeAnalysis,
+      designSystem,
       verdict,
       issues,
       summary,
@@ -240,62 +378,39 @@ export function aggregateIssues(
   consoleErrors: string[],
   themeAnalysis?: ThemeAnalysis
 ): ScanIssue[] {
-  const issues: ScanIssue[] = [];
+  const collector = new IssueCollector();
 
   // Element audit issues
-  for (const issue of audit.issues) {
-    issues.push({
-      category: issue.type === 'MISSING_ARIA_LABEL' ? 'accessibility' : 'interactivity',
-      severity: issue.severity,
-      element: issue.type === 'TOUCH_TARGET_SMALL' ? undefined : undefined,
-      description: issue.message,
-    });
-  }
+  collector.addFrom('interactivity', audit.issues.map(i => ({
+    severity: i.severity,
+    message: i.message,
+    type: i.type,
+  })), item => item.type === 'MISSING_ARIA_LABEL' ? 'accessibility' : 'interactivity');
 
   // Interactivity issues (deduplicate with audit)
   const auditMessages = new Set(audit.issues.map(i => i.message));
-  for (const issue of interactivity.issues) {
-    if (auditMessages.has(issue.description)) continue;
-    issues.push({
-      category: issue.type === 'MISSING_LABEL' ? 'accessibility' : 'interactivity',
-      severity: issue.severity,
-      element: issue.element,
-      description: issue.description,
-      fix: getFixSuggestion(issue.type),
-    });
-  }
+  const interactivityFiltered = interactivity.issues.filter(i => !auditMessages.has(i.description));
+  collector.addFrom('interactivity', interactivityFiltered.map(i => ({
+    severity: i.severity,
+    description: i.description,
+    element: i.element,
+    type: i.type,
+    fix: getFixSuggestion(i.type),
+  })), item => item.type === 'MISSING_LABEL' ? 'accessibility' : 'interactivity');
 
   // Semantic issues
-  for (const issue of semantic.issues) {
-    issues.push({
-      category: 'semantic',
-      severity: issue.severity as 'error' | 'warning' | 'info',
-      description: issue.problem,
-    });
-  }
+  collector.addFrom('semantic', semantic.issues.map(i => ({
+    severity: i.severity,
+    problem: i.problem,
+  })));
 
   // Theme mismatch
-  if (themeAnalysis?.themeMismatch) {
-    issues.push({
-      category: 'semantic',
-      severity: 'warning',
-      description: themeAnalysis.mismatchDetails ?? 'Content card has different theme than page background',
-      fix: 'Ensure content containers match the page theme (dark/light)',
-    });
-  }
+  collector.addThemeAnalysis(themeAnalysis);
 
   // Console errors
-  for (const error of consoleErrors) {
-    // Skip common noise
-    if (error.includes('favicon') || error.includes('manifest')) continue;
-    issues.push({
-      category: 'console',
-      severity: 'error',
-      description: `Console error: ${error.slice(0, 200)}`,
-    });
-  }
+  collector.addConsoleErrors(consoleErrors);
 
-  return issues;
+  return collector.getIssues();
 }
 
 /**

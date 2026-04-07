@@ -11,6 +11,7 @@
 import { readFile, writeFile, mkdir, readdir, unlink, copyFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { homedir } from 'os';
 import { nanoid } from 'nanoid';
 import type {
   MemorySummary,
@@ -542,6 +543,233 @@ export function formatPreference(pref: Preference): string {
 
   lines.push(`Created: ${pref.createdAt}`);
   lines.push(`Updated: ${pref.updatedAt}`);
+
+  return lines.join('\n');
+}
+
+// ============================================================================
+// GLOBAL MEMORY — Cross-project preference promotion
+// ============================================================================
+
+const GLOBAL_DIR = join(homedir(), '.ibr', 'global-memory');
+const GLOBAL_PREFS_DIR = join(GLOBAL_DIR, 'preferences');
+const GLOBAL_SUMMARY = join(GLOBAL_DIR, 'summary.json');
+
+/** Confidence threshold for auto-promotion to global */
+const GLOBAL_PROMOTION_THRESHOLD = 0.9;
+
+
+/**
+ * Ensure global memory directory exists
+ */
+async function initGlobalMemory(): Promise<void> {
+  await mkdir(GLOBAL_PREFS_DIR, { recursive: true });
+}
+
+/**
+ * Promote high-confidence local preferences to global memory.
+ * Call periodically (e.g., after session approval or on explicit command).
+ *
+ * Only promotes preferences that:
+ * - Have confidence >= GLOBAL_PROMOTION_THRESHOLD
+ * - Are NOT route-scoped (global = route-agnostic patterns)
+ * - Don't already exist globally (deduplicated by property+operator+value)
+ */
+export async function promoteToGlobal(outputDir: string): Promise<{
+  promoted: string[];
+  skipped: number;
+  alreadyGlobal: number;
+}> {
+  await initGlobalMemory();
+
+  const localPrefs = await listPreferences(outputDir);
+  const globalPrefs = await listGlobalPreferences();
+
+  // Index global by property+operator+value for dedup
+  const globalIndex = new Set(
+    globalPrefs.map(p => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+
+  const promoted: string[] = [];
+  let skipped = 0;
+  let alreadyGlobal = 0;
+
+  for (const pref of localPrefs) {
+    // Skip route-scoped preferences (they're project-specific)
+    if (pref.route) {
+      skipped++;
+      continue;
+    }
+
+    // Skip low-confidence
+    if (pref.confidence < GLOBAL_PROMOTION_THRESHOLD) {
+      skipped++;
+      continue;
+    }
+
+    // Check if already global
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (globalIndex.has(key)) {
+      alreadyGlobal++;
+      continue;
+    }
+
+    // Promote: write to global
+    const globalPref: Preference = {
+      ...pref,
+      id: `global_${nanoid(8)}`,
+      source: 'learned',
+      updatedAt: new Date().toISOString(),
+    };
+
+    const globalPath = join(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
+    await writeFile(globalPath, JSON.stringify(globalPref, null, 2));
+    globalIndex.add(key);
+    promoted.push(`${pref.category}: ${pref.description}`);
+  }
+
+  // Rebuild global summary
+  await rebuildGlobalSummary();
+
+  return { promoted, skipped, alreadyGlobal };
+}
+
+/**
+ * List all global preferences
+ */
+export async function listGlobalPreferences(): Promise<Preference[]> {
+  if (!existsSync(GLOBAL_PREFS_DIR)) return [];
+
+  const files = await readdir(GLOBAL_PREFS_DIR);
+  const prefs: Preference[] = [];
+
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    try {
+      const content = await readFile(join(GLOBAL_PREFS_DIR, file), 'utf-8');
+      prefs.push(JSON.parse(content) as Preference);
+    } catch {
+      // Skip malformed
+    }
+  }
+
+  return prefs.sort((a, b) => b.confidence - a.confidence);
+}
+
+/**
+ * Seed a project's local memory from global preferences.
+ * Only adds preferences that don't already exist locally (by property+operator+value).
+ * Seeded preferences get confidence 0.7 (lower than locally-learned 0.8).
+ */
+export async function seedFromGlobal(outputDir: string): Promise<{
+  seeded: string[];
+  skipped: number;
+}> {
+  await initMemory(outputDir);
+
+  const globalPrefs = await listGlobalPreferences();
+  const localPrefs = await listPreferences(outputDir);
+
+  // Index local by property+operator+value
+  const localIndex = new Set(
+    localPrefs.map(p => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+
+  const seeded: string[] = [];
+  let skipped = 0;
+
+  for (const pref of globalPrefs) {
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (localIndex.has(key)) {
+      skipped++;
+      continue;
+    }
+
+    // Seed locally with reduced confidence
+    await addPreference(outputDir, {
+      description: pref.description,
+      category: pref.category,
+      source: 'learned',
+      componentType: pref.componentType,
+      property: pref.expectation.property,
+      operator: pref.expectation.operator,
+      value: pref.expectation.value,
+      confidence: 0.7, // Lower than locally-learned (0.8)
+    });
+
+    seeded.push(`${pref.category}: ${pref.description}`);
+  }
+
+  return { seeded, skipped };
+}
+
+/**
+ * Rebuild global summary
+ */
+async function rebuildGlobalSummary(): Promise<void> {
+  const prefs = await listGlobalPreferences();
+
+  const byCategory: Record<string, number> = {};
+  for (const pref of prefs) {
+    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
+  }
+
+  const summary = {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    totalPreferences: prefs.length,
+    byCategory,
+    preferences: prefs.slice(0, MAX_ACTIVE_PREFERENCES).map(p => ({
+      id: p.id,
+      description: p.description,
+      category: p.category,
+      property: p.expectation.property,
+      operator: p.expectation.operator,
+      value: p.expectation.value,
+      confidence: p.confidence,
+    })),
+  };
+
+  await writeFile(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
+}
+
+/**
+ * Remove a global preference
+ */
+export async function removeGlobalPreference(prefId: string): Promise<boolean> {
+  const prefPath = join(GLOBAL_PREFS_DIR, `${prefId}.json`);
+  if (!existsSync(prefPath)) return false;
+
+  await unlink(prefPath);
+  await rebuildGlobalSummary();
+  return true;
+}
+
+/**
+ * Format global memory status
+ */
+export function formatGlobalMemory(prefs: Preference[]): string {
+  if (prefs.length === 0) return 'No global preferences. Run `memory:promote` to promote local patterns.';
+
+  const lines = [
+    `Global Memory: ${prefs.length} preferences`,
+    `Location: ${GLOBAL_DIR}`,
+    '',
+  ];
+
+  const byCategory = new Map<string, Preference[]>();
+  for (const p of prefs) {
+    const arr = byCategory.get(p.category) || [];
+    arr.push(p);
+    byCategory.set(p.category, arr);
+  }
+
+  for (const [cat, catPrefs] of byCategory) {
+    lines.push(`  ${cat} (${catPrefs.length}):`);
+    for (const p of catPrefs) {
+      lines.push(`    ${p.id}: ${p.description} [${Math.round(p.confidence * 100)}%]`);
+    }
+  }
 
   return lines.join('\n');
 }

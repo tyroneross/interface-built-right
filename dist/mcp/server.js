@@ -322,15 +322,15 @@ var init_resolve = __esm({
 });
 
 // src/schemas.ts
-var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema;
+var import_zod3, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema, DesignSystemViolationSchema, DesignSystemResultSchema;
 var init_schemas = __esm({
   "src/schemas.ts"() {
     "use strict";
-    import_zod = require("zod");
-    ViewportSchema = import_zod.z.object({
-      name: import_zod.z.string().min(1).max(50),
-      width: import_zod.z.number().min(100).max(3840),
-      height: import_zod.z.number().min(100).max(2160)
+    import_zod3 = require("zod");
+    ViewportSchema = import_zod3.z.object({
+      name: import_zod3.z.string().min(1).max(50),
+      width: import_zod3.z.number().min(100).max(3840),
+      height: import_zod3.z.number().min(100).max(2160)
     });
     VIEWPORTS = {
       desktop: { name: "desktop", width: 1920, height: 1080 },
@@ -352,143 +352,143 @@ var init_schemas = __esm({
       "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
       "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
     };
-    ConfigSchema = import_zod.z.object({
-      baseUrl: import_zod.z.string().url("Must be a valid URL"),
-      outputDir: import_zod.z.string().default("./.ibr"),
+    ConfigSchema = import_zod3.z.object({
+      baseUrl: import_zod3.z.string().url("Must be a valid URL"),
+      outputDir: import_zod3.z.string().default("./.ibr"),
       viewport: ViewportSchema.default(VIEWPORTS.desktop),
-      viewports: import_zod.z.array(ViewportSchema).optional(),
+      viewports: import_zod3.z.array(ViewportSchema).optional(),
       // Multi-viewport support
-      threshold: import_zod.z.number().min(0).max(100).default(1),
-      fullPage: import_zod.z.boolean().default(true),
-      waitForNetworkIdle: import_zod.z.boolean().default(true),
-      timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4)
+      threshold: import_zod3.z.number().min(0).max(100).default(1),
+      fullPage: import_zod3.z.boolean().default(true),
+      waitForNetworkIdle: import_zod3.z.boolean().default(true),
+      timeout: import_zod3.z.number().min(1e3).max(12e4).default(3e4)
     });
-    SessionQuerySchema = import_zod.z.object({
-      route: import_zod.z.string().optional(),
-      url: import_zod.z.string().optional(),
-      status: import_zod.z.enum(["baseline", "compared", "pending"]).optional(),
-      name: import_zod.z.string().optional(),
-      createdAfter: import_zod.z.date().optional(),
-      createdBefore: import_zod.z.date().optional(),
-      viewport: import_zod.z.string().optional(),
-      limit: import_zod.z.number().min(1).max(100).default(50)
+    SessionQuerySchema = import_zod3.z.object({
+      route: import_zod3.z.string().optional(),
+      url: import_zod3.z.string().optional(),
+      status: import_zod3.z.enum(["baseline", "compared", "pending"]).optional(),
+      name: import_zod3.z.string().optional(),
+      createdAfter: import_zod3.z.date().optional(),
+      createdBefore: import_zod3.z.date().optional(),
+      viewport: import_zod3.z.string().optional(),
+      limit: import_zod3.z.number().min(1).max(100).default(50)
     });
-    ComparisonResultSchema = import_zod.z.object({
-      match: import_zod.z.boolean(),
-      diffPercent: import_zod.z.number(),
-      diffPixels: import_zod.z.number(),
-      totalPixels: import_zod.z.number(),
-      threshold: import_zod.z.number()
+    ComparisonResultSchema = import_zod3.z.object({
+      match: import_zod3.z.boolean(),
+      diffPercent: import_zod3.z.number(),
+      diffPixels: import_zod3.z.number(),
+      totalPixels: import_zod3.z.number(),
+      threshold: import_zod3.z.number()
     });
-    ChangedRegionSchema = import_zod.z.object({
-      location: import_zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
-      bounds: import_zod.z.object({
-        x: import_zod.z.number(),
-        y: import_zod.z.number(),
-        width: import_zod.z.number(),
-        height: import_zod.z.number()
+    ChangedRegionSchema = import_zod3.z.object({
+      location: import_zod3.z.enum(["top", "bottom", "left", "right", "center", "full"]),
+      bounds: import_zod3.z.object({
+        x: import_zod3.z.number(),
+        y: import_zod3.z.number(),
+        width: import_zod3.z.number(),
+        height: import_zod3.z.number()
       }),
-      description: import_zod.z.string(),
-      severity: import_zod.z.enum(["expected", "unexpected", "critical"])
+      description: import_zod3.z.string(),
+      severity: import_zod3.z.enum(["expected", "unexpected", "critical"])
     });
-    VerdictSchema = import_zod.z.enum([
+    VerdictSchema = import_zod3.z.enum([
       "MATCH",
       "EXPECTED_CHANGE",
       "UNEXPECTED_CHANGE",
       "LAYOUT_BROKEN"
     ]);
-    AnalysisSchema = import_zod.z.object({
+    AnalysisSchema = import_zod3.z.object({
       verdict: VerdictSchema,
-      summary: import_zod.z.string(),
-      changedRegions: import_zod.z.array(ChangedRegionSchema),
-      unexpectedChanges: import_zod.z.array(ChangedRegionSchema),
-      recommendation: import_zod.z.string().nullable()
+      summary: import_zod3.z.string(),
+      changedRegions: import_zod3.z.array(ChangedRegionSchema),
+      unexpectedChanges: import_zod3.z.array(ChangedRegionSchema),
+      recommendation: import_zod3.z.string().nullable()
     });
-    SessionStatusSchema = import_zod.z.enum(["baseline", "compared", "pending"]);
-    BoundsSchema = import_zod.z.object({
-      x: import_zod.z.number(),
-      y: import_zod.z.number(),
-      width: import_zod.z.number(),
-      height: import_zod.z.number()
+    SessionStatusSchema = import_zod3.z.enum(["baseline", "compared", "pending"]);
+    BoundsSchema = import_zod3.z.object({
+      x: import_zod3.z.number(),
+      y: import_zod3.z.number(),
+      width: import_zod3.z.number(),
+      height: import_zod3.z.number()
     });
-    LandmarkElementSchema = import_zod.z.object({
-      name: import_zod.z.string(),
+    LandmarkElementSchema = import_zod3.z.object({
+      name: import_zod3.z.string(),
       // e.g., 'logo', 'header', 'nav'
-      selector: import_zod.z.string(),
+      selector: import_zod3.z.string(),
       // CSS selector used to find it
-      found: import_zod.z.boolean(),
+      found: import_zod3.z.boolean(),
       bounds: BoundsSchema.optional()
     });
-    SessionSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      name: import_zod.z.string(),
-      url: import_zod.z.string().min(1),
+    SessionSchema = import_zod3.z.object({
+      id: import_zod3.z.string(),
+      name: import_zod3.z.string(),
+      url: import_zod3.z.string().min(1),
       viewport: ViewportSchema,
       status: SessionStatusSchema,
-      platform: import_zod.z.enum(["web", "ios", "watchos"]).optional(),
-      createdAt: import_zod.z.string().datetime(),
-      updatedAt: import_zod.z.string().datetime(),
+      platform: import_zod3.z.enum(["web", "ios", "watchos"]).optional(),
+      createdAt: import_zod3.z.string().datetime(),
+      updatedAt: import_zod3.z.string().datetime(),
       comparison: ComparisonResultSchema.optional(),
       analysis: AnalysisSchema.optional(),
       // Landmark elements detected at baseline capture
-      landmarkElements: import_zod.z.array(LandmarkElementSchema).optional(),
+      landmarkElements: import_zod3.z.array(LandmarkElementSchema).optional(),
       // Page intent detected at baseline
-      pageIntent: import_zod.z.string().optional()
+      pageIntent: import_zod3.z.string().optional()
     });
-    ComparisonReportSchema = import_zod.z.object({
-      sessionId: import_zod.z.string(),
-      sessionName: import_zod.z.string(),
-      url: import_zod.z.string(),
-      timestamp: import_zod.z.string().datetime(),
+    ComparisonReportSchema = import_zod3.z.object({
+      sessionId: import_zod3.z.string(),
+      sessionName: import_zod3.z.string(),
+      url: import_zod3.z.string(),
+      timestamp: import_zod3.z.string().datetime(),
       viewport: ViewportSchema,
       comparison: ComparisonResultSchema,
       analysis: AnalysisSchema,
-      files: import_zod.z.object({
-        baseline: import_zod.z.string(),
-        current: import_zod.z.string(),
-        diff: import_zod.z.string()
+      files: import_zod3.z.object({
+        baseline: import_zod3.z.string(),
+        current: import_zod3.z.string(),
+        diff: import_zod3.z.string()
       }),
-      webViewUrl: import_zod.z.string().optional()
+      webViewUrl: import_zod3.z.string().optional()
     });
-    InteractiveStateSchema = import_zod.z.object({
-      hasOnClick: import_zod.z.boolean(),
-      hasHref: import_zod.z.boolean(),
-      isDisabled: import_zod.z.boolean(),
-      tabIndex: import_zod.z.number(),
-      cursor: import_zod.z.string(),
+    InteractiveStateSchema = import_zod3.z.object({
+      hasOnClick: import_zod3.z.boolean(),
+      hasHref: import_zod3.z.boolean(),
+      isDisabled: import_zod3.z.boolean(),
+      tabIndex: import_zod3.z.number(),
+      cursor: import_zod3.z.string(),
       // Framework-specific detection
-      hasReactHandler: import_zod.z.boolean().optional(),
-      hasVueHandler: import_zod.z.boolean().optional(),
-      hasAngularHandler: import_zod.z.boolean().optional()
+      hasReactHandler: import_zod3.z.boolean().optional(),
+      hasVueHandler: import_zod3.z.boolean().optional(),
+      hasAngularHandler: import_zod3.z.boolean().optional()
     });
-    A11yAttributesSchema = import_zod.z.object({
-      role: import_zod.z.string().nullable(),
-      ariaLabel: import_zod.z.string().nullable(),
-      ariaDescribedBy: import_zod.z.string().nullable(),
-      ariaHidden: import_zod.z.boolean().optional()
+    A11yAttributesSchema = import_zod3.z.object({
+      role: import_zod3.z.string().nullable(),
+      ariaLabel: import_zod3.z.string().nullable(),
+      ariaDescribedBy: import_zod3.z.string().nullable(),
+      ariaHidden: import_zod3.z.boolean().optional()
     });
-    EnhancedElementSchema = import_zod.z.object({
+    EnhancedElementSchema = import_zod3.z.object({
       // Identity
-      selector: import_zod.z.string(),
-      tagName: import_zod.z.string(),
-      id: import_zod.z.string().optional(),
-      className: import_zod.z.string().optional(),
-      text: import_zod.z.string().optional(),
+      selector: import_zod3.z.string(),
+      tagName: import_zod3.z.string(),
+      id: import_zod3.z.string().optional(),
+      className: import_zod3.z.string().optional(),
+      text: import_zod3.z.string().optional(),
       // Position
       bounds: BoundsSchema,
       // Styles (subset)
-      computedStyles: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+      computedStyles: import_zod3.z.record(import_zod3.z.string(), import_zod3.z.string()).optional(),
       // Interactivity
       interactive: InteractiveStateSchema,
       // Accessibility
       a11y: A11yAttributesSchema,
       // Source hints for debugging
-      sourceHint: import_zod.z.object({
-        dataTestId: import_zod.z.string().nullable()
+      sourceHint: import_zod3.z.object({
+        dataTestId: import_zod3.z.string().nullable()
       }).optional()
     });
-    ElementIssueSchema = import_zod.z.object({
-      type: import_zod.z.enum([
+    ElementIssueSchema = import_zod3.z.object({
+      type: import_zod3.z.enum([
         "NO_HANDLER",
         // Interactive-looking but no handler
         "PLACEHOLDER_LINK",
@@ -500,49 +500,49 @@ var init_schemas = __esm({
         "DISABLED_NO_VISUAL"
         // Disabled but no visual indication
       ]),
-      severity: import_zod.z.enum(["error", "warning", "info"]),
-      message: import_zod.z.string()
+      severity: import_zod3.z.enum(["error", "warning", "info"]),
+      message: import_zod3.z.string()
     });
-    AuditResultSchema = import_zod.z.object({
-      totalElements: import_zod.z.number(),
-      interactiveCount: import_zod.z.number(),
-      withHandlers: import_zod.z.number(),
-      withoutHandlers: import_zod.z.number(),
-      issues: import_zod.z.array(ElementIssueSchema)
+    AuditResultSchema = import_zod3.z.object({
+      totalElements: import_zod3.z.number(),
+      interactiveCount: import_zod3.z.number(),
+      withHandlers: import_zod3.z.number(),
+      withoutHandlers: import_zod3.z.number(),
+      issues: import_zod3.z.array(ElementIssueSchema)
     });
-    RuleSeveritySchema = import_zod.z.enum(["off", "warn", "error"]);
-    RuleSettingSchema = import_zod.z.union([
+    RuleSeveritySchema = import_zod3.z.enum(["off", "warn", "error"]);
+    RuleSettingSchema = import_zod3.z.union([
       RuleSeveritySchema,
-      import_zod.z.tuple([RuleSeveritySchema, import_zod.z.record(import_zod.z.string(), import_zod.z.unknown())])
+      import_zod3.z.tuple([RuleSeveritySchema, import_zod3.z.record(import_zod3.z.string(), import_zod3.z.unknown())])
     ]);
-    RulesConfigSchema = import_zod.z.object({
-      extends: import_zod.z.array(import_zod.z.string()).optional(),
-      rules: import_zod.z.record(import_zod.z.string(), RuleSettingSchema).optional()
+    RulesConfigSchema = import_zod3.z.object({
+      extends: import_zod3.z.array(import_zod3.z.string()).optional(),
+      rules: import_zod3.z.record(import_zod3.z.string(), RuleSettingSchema).optional()
     });
-    ViolationSchema = import_zod.z.object({
-      ruleId: import_zod.z.string(),
-      ruleName: import_zod.z.string(),
-      severity: import_zod.z.enum(["warn", "error"]),
-      message: import_zod.z.string(),
-      element: import_zod.z.string().optional(),
+    ViolationSchema = import_zod3.z.object({
+      ruleId: import_zod3.z.string(),
+      ruleName: import_zod3.z.string(),
+      severity: import_zod3.z.enum(["warn", "error"]),
+      message: import_zod3.z.string(),
+      element: import_zod3.z.string().optional(),
       // Selector of violating element
       bounds: BoundsSchema.optional(),
-      fix: import_zod.z.string().optional()
+      fix: import_zod3.z.string().optional()
       // Suggested fix
     });
-    RuleAuditResultSchema = import_zod.z.object({
-      url: import_zod.z.string(),
-      timestamp: import_zod.z.string(),
-      elementsScanned: import_zod.z.number(),
-      violations: import_zod.z.array(ViolationSchema),
-      summary: import_zod.z.object({
-        errors: import_zod.z.number(),
-        warnings: import_zod.z.number(),
-        passed: import_zod.z.number()
+    RuleAuditResultSchema = import_zod3.z.object({
+      url: import_zod3.z.string(),
+      timestamp: import_zod3.z.string(),
+      elementsScanned: import_zod3.z.number(),
+      violations: import_zod3.z.array(ViolationSchema),
+      summary: import_zod3.z.object({
+        errors: import_zod3.z.number(),
+        warnings: import_zod3.z.number(),
+        passed: import_zod3.z.number()
       })
     });
-    MemorySourceSchema = import_zod.z.enum(["user", "learned", "framework"]);
-    PreferenceCategorySchema = import_zod.z.enum([
+    MemorySourceSchema = import_zod3.z.enum(["user", "learned", "framework"]);
+    PreferenceCategorySchema = import_zod3.z.enum([
       "color",
       "layout",
       "typography",
@@ -552,60 +552,83 @@ var init_schemas = __esm({
       "interaction",
       "content"
     ]);
-    ExpectationOperatorSchema = import_zod.z.enum(["equals", "contains", "matches", "gte", "lte"]);
-    ExpectationSchema = import_zod.z.object({
-      property: import_zod.z.string(),
+    ExpectationOperatorSchema = import_zod3.z.enum(["equals", "contains", "matches", "gte", "lte"]);
+    ExpectationSchema = import_zod3.z.object({
+      property: import_zod3.z.string(),
       operator: ExpectationOperatorSchema,
-      value: import_zod.z.string()
+      value: import_zod3.z.string()
     });
-    PreferenceSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      description: import_zod.z.string(),
+    PreferenceSchema = import_zod3.z.object({
+      id: import_zod3.z.string(),
+      description: import_zod3.z.string(),
       category: PreferenceCategorySchema,
       source: MemorySourceSchema,
-      route: import_zod.z.string().optional(),
-      componentType: import_zod.z.string().optional(),
+      route: import_zod3.z.string().optional(),
+      componentType: import_zod3.z.string().optional(),
       expectation: ExpectationSchema,
-      confidence: import_zod.z.number().min(0).max(1).default(1),
-      createdAt: import_zod.z.string().datetime(),
-      updatedAt: import_zod.z.string().datetime(),
-      sessionIds: import_zod.z.array(import_zod.z.string()).optional()
+      confidence: import_zod3.z.number().min(0).max(1).default(1),
+      createdAt: import_zod3.z.string().datetime(),
+      updatedAt: import_zod3.z.string().datetime(),
+      sessionIds: import_zod3.z.array(import_zod3.z.string()).optional()
     });
-    ObservationSchema = import_zod.z.object({
-      description: import_zod.z.string(),
+    ObservationSchema = import_zod3.z.object({
+      description: import_zod3.z.string(),
       category: PreferenceCategorySchema,
-      property: import_zod.z.string(),
-      value: import_zod.z.string()
+      property: import_zod3.z.string(),
+      value: import_zod3.z.string()
     });
-    LearnedExpectationSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      sessionId: import_zod.z.string(),
-      route: import_zod.z.string(),
-      observations: import_zod.z.array(ObservationSchema),
-      approved: import_zod.z.boolean(),
-      createdAt: import_zod.z.string().datetime()
+    LearnedExpectationSchema = import_zod3.z.object({
+      id: import_zod3.z.string(),
+      sessionId: import_zod3.z.string(),
+      route: import_zod3.z.string(),
+      observations: import_zod3.z.array(ObservationSchema),
+      approved: import_zod3.z.boolean(),
+      createdAt: import_zod3.z.string().datetime()
     });
-    ActivePreferenceSchema = import_zod.z.object({
-      id: import_zod.z.string(),
-      description: import_zod.z.string(),
+    ActivePreferenceSchema = import_zod3.z.object({
+      id: import_zod3.z.string(),
+      description: import_zod3.z.string(),
       category: PreferenceCategorySchema,
-      route: import_zod.z.string().optional(),
-      componentType: import_zod.z.string().optional(),
-      property: import_zod.z.string(),
+      route: import_zod3.z.string().optional(),
+      componentType: import_zod3.z.string().optional(),
+      property: import_zod3.z.string(),
       operator: ExpectationOperatorSchema,
-      value: import_zod.z.string(),
-      confidence: import_zod.z.number()
+      value: import_zod3.z.string(),
+      confidence: import_zod3.z.number()
     });
-    MemorySummarySchema = import_zod.z.object({
-      version: import_zod.z.literal(1),
-      updatedAt: import_zod.z.string().datetime(),
-      stats: import_zod.z.object({
-        totalPreferences: import_zod.z.number(),
-        totalLearned: import_zod.z.number(),
-        byCategory: import_zod.z.record(import_zod.z.string(), import_zod.z.number()),
-        bySource: import_zod.z.record(import_zod.z.string(), import_zod.z.number())
+    MemorySummarySchema = import_zod3.z.object({
+      version: import_zod3.z.literal(1),
+      updatedAt: import_zod3.z.string().datetime(),
+      stats: import_zod3.z.object({
+        totalPreferences: import_zod3.z.number(),
+        totalLearned: import_zod3.z.number(),
+        byCategory: import_zod3.z.record(import_zod3.z.string(), import_zod3.z.number()),
+        bySource: import_zod3.z.record(import_zod3.z.string(), import_zod3.z.number())
       }),
-      activePreferences: import_zod.z.array(ActivePreferenceSchema)
+      activePreferences: import_zod3.z.array(ActivePreferenceSchema)
+    });
+    DesignSystemViolationSchema = import_zod3.z.object({
+      principleId: import_zod3.z.string(),
+      principleName: import_zod3.z.string(),
+      severity: import_zod3.z.enum(["error", "warn"]),
+      message: import_zod3.z.string(),
+      element: import_zod3.z.string().optional(),
+      bounds: BoundsSchema.optional(),
+      fix: import_zod3.z.string().optional()
+    });
+    DesignSystemResultSchema = import_zod3.z.object({
+      configName: import_zod3.z.string(),
+      principleViolations: import_zod3.z.array(DesignSystemViolationSchema),
+      tokenViolations: import_zod3.z.array(import_zod3.z.object({
+        element: import_zod3.z.string(),
+        property: import_zod3.z.string(),
+        expected: import_zod3.z.union([import_zod3.z.string(), import_zod3.z.number()]),
+        actual: import_zod3.z.union([import_zod3.z.string(), import_zod3.z.number()]),
+        severity: import_zod3.z.enum(["error", "warning"]),
+        message: import_zod3.z.string()
+      })),
+      customViolations: import_zod3.z.array(DesignSystemViolationSchema),
+      complianceScore: import_zod3.z.number().min(0).max(100)
     });
   }
 });
@@ -863,7 +886,7 @@ var init_interactivity = __esm({
 // src/git-context.ts
 async function parseGitConfig(configPath) {
   try {
-    const content = await (0, import_promises6.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises7.readFile)(configPath, "utf-8");
     const lines = content.split("\n");
     let currentRemote = null;
     let remoteUrl = null;
@@ -913,7 +936,7 @@ function getCurrentBranch(dir) {
   }
 }
 async function getGitContext(dir) {
-  const gitConfigPath = (0, import_path5.join)(dir, ".git", "config");
+  const gitConfigPath = (0, import_path6.join)(dir, ".git", "config");
   const { remote, remoteUrl } = await parseGitConfig(gitConfigPath);
   const repoName = remoteUrl ? extractRepoName(remoteUrl) : null;
   const branch = getCurrentBranch(dir);
@@ -926,8 +949,8 @@ async function getGitContext(dir) {
 }
 async function getAppName(dir) {
   try {
-    const packageJsonPath = (0, import_path5.join)(dir, "package.json");
-    const content = await (0, import_promises6.readFile)(packageJsonPath, "utf-8");
+    const packageJsonPath = (0, import_path6.join)(dir, "package.json");
+    const content = await (0, import_promises7.readFile)(packageJsonPath, "utf-8");
     const packageJson = JSON.parse(content);
     if (packageJson.name) {
       const name = packageJson.name;
@@ -936,7 +959,7 @@ async function getAppName(dir) {
     }
   } catch {
   }
-  return (0, import_path5.basename)(dir);
+  return (0, import_path6.basename)(dir);
 }
 async function getAppContext(dir) {
   const [gitContext, appName] = await Promise.all([
@@ -950,16 +973,16 @@ async function getAppContext(dir) {
 }
 function getSessionBasePath(outputDir, context) {
   if (context.repoName && context.branch) {
-    return (0, import_path5.join)(outputDir, "apps", context.appName, context.branch, "sessions");
+    return (0, import_path6.join)(outputDir, "apps", context.appName, context.branch, "sessions");
   }
-  return (0, import_path5.join)(outputDir, "sessions");
+  return (0, import_path6.join)(outputDir, "sessions");
 }
-var import_promises6, import_path5, import_child_process;
+var import_promises7, import_path6, import_child_process;
 var init_git_context = __esm({
   "src/git-context.ts"() {
     "use strict";
-    import_promises6 = require("fs/promises");
-    import_path5 = require("path");
+    import_promises7 = require("fs/promises");
+    import_path6 = require("path");
     import_child_process = require("child_process");
   }
 });
@@ -988,24 +1011,24 @@ function generateSessionId() {
   return `${SESSION_PREFIX}${(0, import_nanoid.nanoid)(10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path6.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path7.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path6.join)(root, "session.json"),
-    baseline: (0, import_path6.join)(root, "baseline.png"),
-    current: (0, import_path6.join)(root, "current.png"),
-    diff: (0, import_path6.join)(root, "diff.png")
+    sessionJson: (0, import_path7.join)(root, "session.json"),
+    baseline: (0, import_path7.join)(root, "baseline.png"),
+    current: (0, import_path7.join)(root, "current.png"),
+    diff: (0, import_path7.join)(root, "diff.png")
   };
 }
 function getSessionPathsWithContext(outputDir, sessionId, context) {
-  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path6.join)(outputDir, "sessions");
-  const root = (0, import_path6.join)(basePath, sessionId);
+  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path7.join)(outputDir, "sessions");
+  const root = (0, import_path7.join)(basePath, sessionId);
   return {
     root,
-    sessionJson: (0, import_path6.join)(root, "session.json"),
-    baseline: (0, import_path6.join)(root, "baseline.png"),
-    current: (0, import_path6.join)(root, "current.png"),
-    diff: (0, import_path6.join)(root, "diff.png")
+    sessionJson: (0, import_path7.join)(root, "session.json"),
+    baseline: (0, import_path7.join)(root, "baseline.png"),
+    current: (0, import_path7.join)(root, "current.png"),
+    diff: (0, import_path7.join)(root, "diff.png")
   };
 }
 async function getCachedAppContext(projectDir) {
@@ -1036,14 +1059,14 @@ async function createSession(outputDir, url, name, viewport, platform) {
     createdAt: now,
     updatedAt: now
   };
-  await (0, import_promises7.mkdir)(paths.root, { recursive: true });
-  await (0, import_promises7.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
+  await (0, import_promises8.mkdir)(paths.root, { recursive: true });
+  await (0, import_promises8.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
   return session;
 }
 async function getSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    const content = await (0, import_promises7.readFile)(paths.sessionJson, "utf-8");
+    const content = await (0, import_promises8.readFile)(paths.sessionJson, "utf-8");
     const data = JSON.parse(content);
     return SessionSchema.parse(data);
   } catch {
@@ -1061,7 +1084,7 @@ async function updateSession(outputDir, sessionId, updates) {
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const paths = getSessionPaths(outputDir, sessionId);
-  await (0, import_promises7.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
+  await (0, import_promises8.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
   return updated;
 }
 async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
@@ -1072,9 +1095,9 @@ async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
   });
 }
 async function listSessions(outputDir) {
-  const sessionsDir = (0, import_path6.join)(outputDir, "sessions");
+  const sessionsDir = (0, import_path7.join)(outputDir, "sessions");
   try {
-    const entries = await (0, import_promises7.readdir)(sessionsDir, { withFileTypes: true });
+    const entries = await (0, import_promises8.readdir)(sessionsDir, { withFileTypes: true });
     const sessions2 = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
@@ -1098,7 +1121,7 @@ async function getMostRecentSession(outputDir) {
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    await (0, import_promises7.rm)(paths.root, { recursive: true, force: true });
+    await (0, import_promises8.rm)(paths.root, { recursive: true, force: true });
     return true;
   } catch {
     return false;
@@ -1229,13 +1252,13 @@ async function getSessionStats(outputDir) {
     byVerdict
   };
 }
-var import_nanoid, import_promises7, import_path6, SESSION_PREFIX, cachedContext, contextCacheDir;
+var import_nanoid, import_promises8, import_path7, SESSION_PREFIX, cachedContext, contextCacheDir;
 var init_session = __esm({
   "src/session.ts"() {
     "use strict";
     import_nanoid = require("nanoid");
-    import_promises7 = require("fs/promises");
-    import_path6 = require("path");
+    import_promises8 = require("fs/promises");
+    import_path7 = require("path");
     init_schemas();
     init_git_context();
     SESSION_PREFIX = "sess_";
@@ -1891,18 +1914,18 @@ __export(extract_exports, {
   mapToEnhancedElements: () => mapToEnhancedElements
 });
 async function ensureExtractor() {
-  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) {
+  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
-  await (0, import_promises10.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  await (0, import_promises11.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
     await execFileAsync3("swift", ["build", "-c", "release"], {
       cwd: SWIFT_SOURCE_DIR,
       timeout: 12e4
       // 2 minutes for first compile
     });
-    const buildPath = (0, import_path9.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs2.existsSync)(buildPath)) {
+    const buildPath = (0, import_path11.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    if (!(0, import_fs3.existsSync)(buildPath)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
     await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
@@ -1915,8 +1938,8 @@ async function ensureExtractor() {
   }
 }
 function isExtractorAvailable() {
-  if ((0, import_fs2.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs2.existsSync)((0, import_path9.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs3.existsSync)((0, import_path11.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -1976,20 +1999,20 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs2, import_promises10, import_path9, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
 var init_extract = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util3 = require("util");
-    import_fs2 = require("fs");
-    import_promises10 = require("fs/promises");
-    import_path9 = require("path");
+    import_fs3 = require("fs");
+    import_promises11 = require("fs/promises");
+    import_path11 = require("path");
     init_role_map();
     execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path9.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path9.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = (0, import_path9.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    EXTRACTOR_DIR = (0, import_path11.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path11.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = (0, import_path11.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
   }
 });
 
@@ -2824,16 +2847,16 @@ __export(scan_exports, {
 });
 function scanStatic(options) {
   const { htmlPath, cssPath } = options;
-  if (!(0, import_fs4.existsSync)(htmlPath)) {
+  if (!(0, import_fs5.existsSync)(htmlPath)) {
     throw new Error(`HTML file not found: ${htmlPath}`);
   }
-  if (cssPath && !(0, import_fs4.existsSync)(cssPath)) {
+  if (cssPath && !(0, import_fs5.existsSync)(cssPath)) {
     throw new Error(`CSS file not found: ${cssPath}`);
   }
-  const html = (0, import_fs4.readFileSync)(htmlPath, "utf-8");
+  const html = (0, import_fs5.readFileSync)(htmlPath, "utf-8");
   let elements = parseStaticHTML(html);
   if (cssPath) {
-    const css = (0, import_fs4.readFileSync)(cssPath, "utf-8");
+    const css = (0, import_fs5.readFileSync)(cssPath, "utf-8");
     const rules = parseCSS(css);
     elements = applyStyles(elements, rules);
   }
@@ -2941,11 +2964,11 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   }
   return parts.join(", ") + ".";
 }
-var import_fs4;
+var import_fs5;
 var init_scan = __esm({
   "src/static/scan.ts"() {
     "use strict";
-    import_fs4 = require("fs");
+    import_fs5 = require("fs");
     init_parser();
   }
 });
@@ -2954,8 +2977,670 @@ var init_scan = __esm({
 var import_readline = require("readline");
 
 // src/mcp/tools.ts
-var import_fs5 = require("fs");
-var import_path14 = require("path");
+var import_fs6 = require("fs");
+var import_path16 = require("path");
+
+// src/design-system/config.ts
+var import_zod = require("zod");
+var import_promises = require("fs/promises");
+var import_fs = require("fs");
+var import_path = require("path");
+var CustomCheckSchema = import_zod.z.object({
+  property: import_zod.z.string(),
+  operator: import_zod.z.enum(["equals", "in-set", "not-in-set", "gte", "lte", "contains"]),
+  values: import_zod.z.array(import_zod.z.union([import_zod.z.string(), import_zod.z.number()]))
+});
+var CustomPrincipleSchema = import_zod.z.object({
+  id: import_zod.z.string(),
+  name: import_zod.z.string(),
+  description: import_zod.z.string(),
+  category: import_zod.z.string(),
+  severity: import_zod.z.enum(["error", "warn", "off"]),
+  checks: import_zod.z.array(CustomCheckSchema)
+});
+var CalmPrecisionConfigSchema = import_zod.z.object({
+  core: import_zod.z.array(import_zod.z.string()).default(["gestalt", "signal-noise", "content-chrome", "cognitive-load"]),
+  stylistic: import_zod.z.array(import_zod.z.string()).default(["fitts", "hick"]),
+  severity: import_zod.z.record(import_zod.z.string(), import_zod.z.enum(["error", "warn", "off"])).default({})
+});
+var TypographyTokensSchema = import_zod.z.object({
+  fontFamilies: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+  fontSizes: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
+  fontWeights: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
+  lineHeights: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional()
+});
+var DesignSystemConfigSchema = import_zod.z.object({
+  version: import_zod.z.literal(1),
+  name: import_zod.z.string(),
+  principles: import_zod.z.object({
+    calmPrecision: CalmPrecisionConfigSchema.default({}),
+    custom: import_zod.z.array(CustomPrincipleSchema).default([])
+  }).default({}),
+  tokens: import_zod.z.object({
+    colors: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+    typography: TypographyTokensSchema.optional(),
+    spacing: import_zod.z.array(import_zod.z.number()).optional(),
+    borderRadius: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
+    shadows: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+    transitions: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+    touchTargets: import_zod.z.object({ min: import_zod.z.number() }).optional()
+  }).default({})
+});
+async function loadDesignSystemConfig(projectDir) {
+  const configPath = (0, import_path.join)(projectDir, ".ibr", "design-system.json");
+  if (!(0, import_fs.existsSync)(configPath)) {
+    return void 0;
+  }
+  const content = await (0, import_promises.readFile)(configPath, "utf-8");
+  const raw = JSON.parse(content);
+  return DesignSystemConfigSchema.parse(raw);
+}
+function getDefaultSeverity(principleId, config) {
+  const explicit = config.principles.calmPrecision.severity[principleId];
+  if (explicit) return explicit;
+  if (config.principles.calmPrecision.core.includes(principleId)) return "error";
+  if (config.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
+  return "warn";
+}
+
+// src/design-system/tokens/schema.ts
+var import_zod2 = require("zod");
+var ExtendedTokenSpecSchema = import_zod2.z.object({
+  colors: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+  typography: import_zod2.z.object({
+    fontFamilies: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+    fontSizes: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
+    fontWeights: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
+    lineHeights: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional()
+  }).optional(),
+  spacing: import_zod2.z.array(import_zod2.z.number()).optional(),
+  borderRadius: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
+  shadows: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+  transitions: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+  touchTargets: import_zod2.z.object({ min: import_zod2.z.number() }).optional()
+});
+function toDesignTokenSpec(extended, name) {
+  return {
+    name,
+    tokens: {
+      colors: extended.colors,
+      spacing: extended.spacing ? Object.fromEntries(extended.spacing.map((v, i) => [`${i}`, v])) : void 0,
+      fontSizes: extended.typography?.fontSizes,
+      touchTargets: extended.touchTargets,
+      cornerRadius: extended.borderRadius
+    }
+  };
+}
+
+// src/tokens.ts
+var import_fs2 = require("fs");
+function loadTokenSpec(specPath) {
+  if (!(0, import_fs2.existsSync)(specPath)) {
+    throw new Error(`Token spec not found: ${specPath}`);
+  }
+  let spec;
+  try {
+    const content = (0, import_fs2.readFileSync)(specPath, "utf-8");
+    spec = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
+  }
+  const { tokens } = spec;
+  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
+  if (!hasAnyTokens) {
+    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
+  }
+  return spec;
+}
+function normalizeColor(color) {
+  if (!color) return "";
+  if (color.startsWith("#")) {
+    return color.toLowerCase();
+  }
+  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  return color.toLowerCase();
+}
+function parsePx(value) {
+  if (!value) return null;
+  const match = value.match(/^([\d.]+)px$/);
+  return match ? parseFloat(match[1]) : null;
+}
+var touchTargetValidator = {
+  name: "touchTargets",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.touchTargets) return violations;
+    const minSize = spec.tokens.touchTargets.min;
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
+      if (!isInteractive) continue;
+      const actualSize = Math.min(element.bounds.width, element.bounds.height);
+      if (actualSize < minSize) {
+        violations.push({
+          element: selector,
+          property: "touch-target",
+          expected: minSize,
+          actual: actualSize,
+          severity: "error",
+          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
+        });
+      }
+    }
+    return violations;
+  }
+};
+var fontSizeValidator = {
+  name: "fontSizes",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.fontSizes) return violations;
+    const tokenValues = Object.values(spec.tokens.fontSizes);
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      const fontSize = parsePx(element.computedStyles["font-size"]);
+      if (fontSize === null) continue;
+      if (!tokenValues.includes(fontSize)) {
+        violations.push({
+          element: selector,
+          property: "font-size",
+          expected: `one of ${tokenValues.join(", ")}px`,
+          actual: fontSize,
+          severity: "warning",
+          message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+        });
+      }
+    }
+    return violations;
+  }
+};
+var colorValidator = {
+  name: "colors",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.colors) return violations;
+    const tokenColors = new Set(
+      Object.values(spec.tokens.colors).map(normalizeColor)
+    );
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      const textColor = element.computedStyles["color"];
+      if (textColor) {
+        const normalized = normalizeColor(textColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: textColor,
+            severity: "warning",
+            message: `Non-token text color: ${textColor} (${selector})`
+          });
+        }
+      }
+      const bgColor = element.computedStyles["background-color"];
+      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
+        const normalized = normalizeColor(bgColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: bgColor,
+            severity: "warning",
+            message: `Non-token background color: ${bgColor} (${selector})`
+          });
+        }
+      }
+    }
+    return violations;
+  }
+};
+var cornerRadiusValidator = {
+  name: "cornerRadius",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.cornerRadius) return violations;
+    const tokenValues = Object.values(spec.tokens.cornerRadius);
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      const borderRadius = parsePx(element.computedStyles["border-radius"]);
+      if (borderRadius === null || borderRadius === 0) continue;
+      if (!tokenValues.includes(borderRadius)) {
+        violations.push({
+          element: selector,
+          property: "corner-radius",
+          expected: `one of ${tokenValues.join(", ")}px`,
+          actual: borderRadius,
+          severity: "warning",
+          message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+        });
+      }
+    }
+    return violations;
+  }
+};
+var spacingValidator = {
+  name: "spacing",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.spacing) return violations;
+    const tokenValues = Object.values(spec.tokens.spacing);
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      for (const prop of ["gap", "padding", "margin"]) {
+        const raw = element.computedStyles[prop];
+        const value = parsePx(raw);
+        if (value === null || value === 0) continue;
+        if (!tokenValues.includes(value)) {
+          violations.push({
+            element: selector,
+            property: "spacing",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: value,
+            severity: "warning",
+            message: `Non-token ${prop}: ${value}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+    return violations;
+  }
+};
+var tokenValidators = /* @__PURE__ */ new Map([
+  ["touchTargets", touchTargetValidator],
+  ["fontSizes", fontSizeValidator],
+  ["colors", colorValidator],
+  ["cornerRadius", cornerRadiusValidator],
+  ["spacing", spacingValidator]
+]);
+function validateAgainstTokens(elements, spec) {
+  const violations = [];
+  for (const [key, validator] of tokenValidators) {
+    if (spec.tokens[key]) {
+      violations.push(...validator.validate(elements, spec));
+    }
+  }
+  return violations;
+}
+
+// src/design-system/tokens/validator.ts
+function validateFontWeights(elements, weights) {
+  const violations = [];
+  const validWeights = new Set(Object.values(weights));
+  for (const element of elements) {
+    const style = element.computedStyles;
+    if (!style) continue;
+    const fw = style["font-weight"];
+    if (!fw) continue;
+    const weight = parseInt(fw, 10);
+    if (isNaN(weight)) continue;
+    if (!validWeights.has(weight)) {
+      violations.push({
+        element: element.selector || element.tagName || "unknown",
+        property: "font-weight",
+        expected: `one of ${Array.from(validWeights).join(", ")}`,
+        actual: weight,
+        severity: "warning",
+        message: `Non-token font weight: ${weight} (expected one of ${Array.from(validWeights).join(", ")}) (${element.selector || element.tagName})`
+      });
+    }
+  }
+  return violations;
+}
+function validateLineHeights(elements, lineHeights) {
+  const violations = [];
+  const validHeights = new Set(Object.values(lineHeights));
+  for (const element of elements) {
+    const style = element.computedStyles;
+    if (!style) continue;
+    const lh = style["line-height"];
+    if (!lh || lh === "normal") continue;
+    let value;
+    const pxVal = parsePx(lh);
+    if (pxVal !== null) {
+      const fontSize = parsePx(style["font-size"]);
+      if (fontSize && fontSize > 0) {
+        value = Math.round(pxVal / fontSize * 100) / 100;
+      } else {
+        continue;
+      }
+    } else {
+      value = parseFloat(lh);
+      if (isNaN(value)) continue;
+    }
+    const isValid = Array.from(validHeights).some((vh) => Math.abs(vh - value) < 0.05);
+    if (!isValid) {
+      violations.push({
+        element: element.selector || element.tagName || "unknown",
+        property: "line-height",
+        expected: `one of ${Array.from(validHeights).join(", ")}`,
+        actual: value,
+        severity: "warning",
+        message: `Non-token line height: ${value} (expected one of ${Array.from(validHeights).join(", ")}) (${element.selector || element.tagName})`
+      });
+    }
+  }
+  return violations;
+}
+function validateExtendedTokens(elements, tokens, systemName) {
+  const violations = [];
+  const oldSpec = toDesignTokenSpec(tokens, systemName);
+  violations.push(...validateAgainstTokens(elements, oldSpec));
+  if (tokens.typography?.fontWeights) {
+    violations.push(...validateFontWeights(elements, tokens.typography.fontWeights));
+  }
+  if (tokens.typography?.lineHeights) {
+    violations.push(...validateLineHeights(elements, tokens.typography.lineHeights));
+  }
+  return violations;
+}
+function calculateComplianceScore(totalChecked, violationCount) {
+  if (totalChecked === 0) return 100;
+  const passing = totalChecked - violationCount;
+  return Math.round(passing / totalChecked * 100);
+}
+
+// src/design-system/principles/gestalt.ts
+var gestaltRules = [
+  {
+    id: "calm-precision/gestalt-grouping",
+    name: "Gestalt: Border Grouping",
+    description: "Related items should be grouped with a single border, not individually bordered",
+    defaultSeverity: "error",
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const hasBorder = style.border && style.border !== "none" && style.border !== "0px";
+      const borderWidth = style["border-width"];
+      const hasBorderWidth = borderWidth && borderWidth !== "0px";
+      const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
+      if ((hasBorder || hasBorderWidth) && isListItem) {
+        return {
+          ruleId: "calm-precision/gestalt-grouping",
+          ruleName: "Gestalt: Border Grouping",
+          severity: "error",
+          message: `List item "${(element.text || "").slice(0, 40)}" has individual border. Group related items with a single container border.`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: "Use single border around the group container with dividers between items, not individual item borders."
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/signal-noise.ts
+var signalNoiseRules = [
+  {
+    id: "calm-precision/signal-noise-status",
+    name: "Signal-to-Noise: Status Indication",
+    description: "Status should use text color only, not background badges",
+    defaultSeverity: "error",
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const text = (element.text || "").toLowerCase();
+      const isStatus = /\b(success|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)\b/i.test(text);
+      if (!isStatus) return null;
+      const bg = style.backgroundColor || style["background-color"];
+      if (!bg || bg === "transparent" || bg === "rgba(0, 0, 0, 0)") return null;
+      const subtleMatch = bg.match(/rgba?\([^)]*,\s*(0\.(?:0[0-9]|1[0-4]))\)/);
+      if (subtleMatch) return null;
+      return {
+        ruleId: "calm-precision/signal-noise-status",
+        ruleName: "Signal-to-Noise: Status Indication",
+        severity: "error",
+        message: `Status element "${text.slice(0, 30)}" has heavy background (${bg}). Use text color only for status.`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: "Remove background color. Use text color (green for success, red for error, yellow for warning) instead of background badges."
+      };
+    }
+  }
+];
+
+// src/design-system/principles/fitts.ts
+var fittsRules = [
+  {
+    id: "calm-precision/fitts-button-sizing",
+    name: "Fitts' Law: Button Sizing",
+    description: "Primary action buttons should be prominently sized",
+    defaultSeverity: "warn",
+    check: (element, _context) => {
+      if (element.tagName !== "button" && element.a11y?.role !== "button") return null;
+      const text = (element.text || "").toLowerCase();
+      const isPrimary = /\b(submit|save|confirm|checkout|buy|sign.?up|log.?in|register|continue|create|publish|send)\b/i.test(text);
+      if (!isPrimary) return null;
+      const width = element.bounds?.width || 0;
+      if (width > 0 && width < 120) {
+        return {
+          ruleId: "calm-precision/fitts-button-sizing",
+          ruleName: "Fitts' Law: Button Sizing",
+          severity: "warn",
+          message: `Primary action "${text.slice(0, 30)}" is ${width}px wide. Primary actions should be more prominent.`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: "Increase button width. Primary actions should be the most prominent interactive element."
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/hick.ts
+var hickRules = [
+  {
+    id: "calm-precision/hick-choice-count",
+    name: "Hick's Law: Choice Count",
+    description: "Limit visible choices to reduce decision time",
+    defaultSeverity: "warn",
+    check: (element, context) => {
+      if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
+      const y = element.bounds?.y || 0;
+      const siblings = context.allElements.filter((el) => {
+        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+        const elY = el.bounds?.y || 0;
+        return Math.abs(elY - y) < 20;
+      });
+      if (siblings.length > 7 && siblings[0]?.selector === element.selector) {
+        return {
+          ruleId: "calm-precision/hick-choice-count",
+          ruleName: "Hick's Law: Choice Count",
+          severity: "warn",
+          message: `${siblings.length} interactive elements in one visual row. Consider progressive disclosure (max 5-7 visible).`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: 'Group less-used options behind a "More" menu or overflow. Show max 5-7 choices at once.'
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/content-chrome.ts
+var contentChromeRules = [
+  {
+    id: "calm-precision/content-chrome-ratio",
+    name: "Content >= Chrome",
+    description: "Content area should be at least 70% of the viewport",
+    defaultSeverity: "warn",
+    check: (element, context) => {
+      if (context.allElements[0]?.selector !== element.selector) return null;
+      const viewportArea = context.viewportWidth * context.viewportHeight;
+      if (viewportArea === 0) return null;
+      const chromeSelectors = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
+      let chromeArea = 0;
+      for (const el of context.allElements) {
+        const isChrome = chromeSelectors.test(el.tagName) || chromeSelectors.test(el.selector || "") || chromeSelectors.test(el.a11y?.role || "");
+        if (isChrome && el.bounds) {
+          chromeArea += el.bounds.width * el.bounds.height;
+        }
+      }
+      const chromePercent = chromeArea / viewportArea * 100;
+      if (chromePercent > 30) {
+        return {
+          ruleId: "calm-precision/content-chrome-ratio",
+          ruleName: "Content >= Chrome",
+          severity: "warn",
+          message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport. Content should be >= 70%.`,
+          fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/cognitive-load.ts
+var cognitiveLoadRules = [
+  {
+    id: "calm-precision/cognitive-load-elements",
+    name: "Cognitive Load: Element Count",
+    description: "Visual groups should have 5-7 items max to stay within working memory limits",
+    defaultSeverity: "warn",
+    check: (element, context) => {
+      if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
+      if (!element.bounds) return null;
+      const { x, y, width, height } = element.bounds;
+      const children = context.allElements.filter((el) => {
+        if (el.selector === element.selector) return false;
+        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+        if (!el.bounds) return false;
+        return el.bounds.x >= x && el.bounds.y >= y && el.bounds.x + el.bounds.width <= x + width && el.bounds.y + el.bounds.height <= y + height;
+      });
+      if (children.length > 10) {
+        return {
+          ruleId: "calm-precision/cognitive-load-elements",
+          ruleName: "Cognitive Load: Element Count",
+          severity: "warn",
+          message: `Container has ${children.length} interactive elements. Consider grouping or progressive disclosure (5-7 max per group).`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: 'Group related actions. Use sections, tabs, or "Show more" to reduce visible elements per group.'
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/calm-precision.ts
+var allCalmPrecisionRules = [
+  ...gestaltRules,
+  ...signalNoiseRules,
+  ...fittsRules,
+  ...hickRules,
+  ...contentChromeRules,
+  ...cognitiveLoadRules
+];
+var principleToRules = {
+  "gestalt": gestaltRules.map((r) => r.id),
+  "signal-noise": signalNoiseRules.map((r) => r.id),
+  "fitts": fittsRules.map((r) => r.id),
+  "hick": hickRules.map((r) => r.id),
+  "content-chrome": contentChromeRules.map((r) => r.id),
+  "cognitive-load": cognitiveLoadRules.map((r) => r.id)
+};
+
+// src/design-system/index.ts
+async function runDesignSystemCheck(elements, context, projectDir) {
+  const config = await loadDesignSystemConfig(projectDir);
+  if (!config) return void 0;
+  const principleViolations = [];
+  for (const rule of allCalmPrecisionRules) {
+    const principleId = Object.entries(principleToRules).find(
+      ([, ruleIds]) => ruleIds.includes(rule.id)
+    )?.[0];
+    if (!principleId) continue;
+    const severity = getDefaultSeverity(principleId, config);
+    if (severity === "off") continue;
+    for (const element of elements) {
+      const violation = rule.check(element, context);
+      if (violation) {
+        principleViolations.push({
+          principleId: rule.id,
+          principleName: rule.name,
+          severity: severity === "error" ? "error" : "warn",
+          message: violation.message,
+          element: violation.element,
+          bounds: violation.bounds,
+          fix: violation.fix
+        });
+      }
+    }
+  }
+  const customViolations = [];
+  for (const custom of config.principles.custom) {
+    if (custom.severity === "off") continue;
+    for (const element of elements) {
+      for (const check of custom.checks) {
+        const style = element.computedStyles;
+        if (!style) continue;
+        const actual = style[check.property];
+        if (!actual) continue;
+        let violated = false;
+        switch (check.operator) {
+          case "in-set":
+            violated = !check.values.map(String).includes(actual);
+            break;
+          case "not-in-set":
+            violated = check.values.map(String).includes(actual);
+            break;
+          case "equals":
+            violated = actual !== String(check.values[0]);
+            break;
+          case "gte":
+            violated = parseFloat(actual) < Number(check.values[0]);
+            break;
+          case "lte":
+            violated = parseFloat(actual) > Number(check.values[0]);
+            break;
+          case "contains":
+            violated = !String(check.values[0]).split(",").some((v) => actual.includes(v.trim()));
+            break;
+        }
+        if (violated) {
+          customViolations.push({
+            principleId: custom.id,
+            principleName: custom.name,
+            severity: custom.severity,
+            message: `${custom.name}: ${check.property} is "${actual}" (expected ${check.operator} ${check.values.join(", ")})`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: custom.description
+          });
+        }
+      }
+    }
+  }
+  const tokenViolations = config.tokens ? validateExtendedTokens(elements, config.tokens, config.name) : [];
+  const tokenCategories = Object.keys(config.tokens).filter(
+    (k) => config.tokens[k] !== void 0
+  ).length;
+  const totalChecked = elements.length * Math.max(tokenCategories, 1);
+  const complianceScore = calculateComplianceScore(totalChecked, tokenViolations.length);
+  return {
+    configName: config.name,
+    principleViolations,
+    tokenViolations,
+    customViolations,
+    complianceScore
+  };
+}
 
 // src/engine/cdp/connection.ts
 var DEFAULT_TIMEOUT_MS = 3e4;
@@ -3076,7 +3761,7 @@ var CdpConnection = class {
 // src/engine/cdp/browser.ts
 var import_node_child_process = require("child_process");
 var import_node_fs = require("fs");
-var import_promises = require("fs/promises");
+var import_promises2 = require("fs/promises");
 var import_node_os = require("os");
 var import_node_path = require("path");
 var CHROME_PATHS = [
@@ -3121,7 +3806,7 @@ var BrowserManager = class {
 Checked: ${CHROME_PATHS.join(", ")}`
       );
     }
-    await (0, import_promises.mkdir)(userDataDir, { recursive: true });
+    await (0, import_promises2.mkdir)(userDataDir, { recursive: true });
     const args = [
       `--remote-debugging-port=${this._port}`,
       `--user-data-dir=${userDataDir}`,
@@ -4527,6 +5212,27 @@ var EngineDriver = class {
     await this.browser.close();
     this.launched = false;
   }
+  /**
+   * Release the CDP WebSocket for this driver without terminating the browser.
+   * Used by one-shot CLI commands that attach to a shared browser-server via
+   * connectExisting() — they must drop their WebSocket at the end of the
+   * command so the node process can exit, but the browser-server's Chrome
+   * process must keep running for subsequent commands.
+   *
+   * Closes the per-command tab that was spawned in connectExisting(), then
+   * closes the WebSocket. Does NOT call this.browser.close() (which would
+   * terminate the whole browser-server process).
+   */
+  async disconnect() {
+    if (this.targetId) {
+      await this.target.close(this.targetId).catch(() => {
+      });
+      this.targetId = null;
+    }
+    await this.conn.close().catch(() => {
+    });
+    this.launched = false;
+  }
   get isLaunched() {
     return this.launched;
   }
@@ -5171,8 +5877,8 @@ function chunkElements(elements, maxTokens) {
 }
 
 // src/engine/compat.ts
-var import_promises2 = require("fs/promises");
-var import_path = require("path");
+var import_promises3 = require("fs/promises");
+var import_path2 = require("path");
 var CompatElementHandle = class {
   constructor(driver2, nodeId) {
     this.driver = driver2;
@@ -5187,8 +5893,8 @@ var CompatElementHandle = class {
       clip: { x, y, width: model.width, height: model.height }
     });
     if (options?.path) {
-      await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
-      await (0, import_promises2.writeFile)(options.path, buf);
+      await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
+      await (0, import_promises3.writeFile)(options.path, buf);
     }
     return buf;
   }
@@ -5333,8 +6039,8 @@ var CompatPage = class {
       fullPage: options?.fullPage
     });
     if (options?.path) {
-      await (0, import_promises2.mkdir)((0, import_path.dirname)(options.path), { recursive: true });
-      await (0, import_promises2.writeFile)(options.path, buf);
+      await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
+      await (0, import_promises3.writeFile)(options.path, buf);
     }
     return buf;
   }
@@ -6729,12 +7435,78 @@ async function analyzeThemeConsistency(page) {
 }
 
 // src/scan.ts
+var IssueCollector = class {
+  issues = [];
+  add(issue) {
+    this.issues.push(issue);
+  }
+  /**
+   * Add issues from a source array with varying shapes.
+   * Handles the different field names used across audit, interactivity, and semantic results.
+   */
+  addFrom(category, items, overrideCategory) {
+    for (const item of items) {
+      const description = item.message ?? item.description ?? item.problem ?? "";
+      const severity = item.severity ?? "info";
+      const resolvedCategory = overrideCategory ? overrideCategory(item) : category;
+      this.issues.push({
+        category: resolvedCategory,
+        severity,
+        element: item.element,
+        description,
+        fix: item.fix
+      });
+    }
+  }
+  /**
+   * Add console errors, skipping favicon/manifest noise.
+   */
+  addConsoleErrors(errors) {
+    for (const error of errors) {
+      if (error.includes("favicon") || error.includes("manifest")) continue;
+      this.issues.push({
+        category: "console",
+        severity: "error",
+        description: `Console error: ${error.slice(0, 200)}`
+      });
+    }
+  }
+  /**
+   * Add theme mismatch issue if present.
+   */
+  addThemeAnalysis(analysis) {
+    if (analysis?.themeMismatch) {
+      this.issues.push({
+        category: "semantic",
+        severity: "warning",
+        description: analysis.mismatchDetails ?? "Content card has different theme than page background",
+        fix: "Ensure content containers match the page theme (dark/light)"
+      });
+    }
+  }
+  /**
+   * Remove issues with identical descriptions, preserving first occurrence.
+   */
+  deduplicate() {
+    const seen = /* @__PURE__ */ new Set();
+    this.issues = this.issues.filter((issue) => {
+      if (seen.has(issue.description)) return false;
+      seen.add(issue.description);
+      return true;
+    });
+  }
+  getIssues() {
+    return [...this.issues];
+  }
+};
 async function scan(url, options = {}) {
   const {
     viewport: viewportOpt = "desktop",
     timeout = 3e4,
     waitFor,
-    screenshot
+    screenshot,
+    networkIdleTimeout,
+    patience
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
   const driver2 = new EngineDriver();
@@ -6757,10 +7529,14 @@ async function scan(url, options = {}) {
       waitUntil: "domcontentloaded",
       timeout
     });
-    await page.waitForLoadState?.("networkidle", { timeout: 1e4 }).catch(() => {
+    let networkIdleTimedOut = false;
+    await page.waitForLoadState?.("networkidle", { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+      networkIdleTimedOut = true;
     });
+    let waitForTimedOut = false;
     if (waitFor) {
-      await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
+      await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+        waitForTimedOut = true;
       });
     }
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
@@ -6783,10 +7559,49 @@ async function scan(url, options = {}) {
       route = url;
     }
     const layoutCollisions = detectLayoutCollisions(elements.all);
+    const designSystem = await runDesignSystemCheck(
+      elements.all,
+      {
+        isMobile: resolvedViewport.width < 768,
+        viewportWidth: resolvedViewport.width,
+        viewportHeight: resolvedViewport.height,
+        url,
+        allElements: elements.all
+      },
+      options.outputDir || process.cwd()
+    ).catch(() => void 0);
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
+    if (designSystem) {
+      for (const v of designSystem.principleViolations) {
+        issues.push({
+          category: "design-system",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: v.message,
+          fix: v.fix
+        });
+      }
+      for (const v of designSystem.tokenViolations) {
+        issues.push({
+          category: "design-system",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: v.message
+        });
+      }
+      for (const v of designSystem.customViolations) {
+        issues.push({
+          category: "design-system",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: v.message,
+          fix: v.fix
+        });
+      }
+    }
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
-    return {
+    const baseResult = {
       url,
       route,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -6801,10 +7616,19 @@ async function scan(url, options = {}) {
       coverage,
       layoutCollisions,
       themeAnalysis,
+      designSystem,
       verdict,
       issues,
       summary
     };
+    if (patience && (networkIdleTimedOut || waitForTimedOut)) {
+      return {
+        ...baseResult,
+        verdict: "PARTIAL",
+        partialReason: `Page still loading after ${patience}ms \u2014 ${networkIdleTimedOut ? "network still active" : "selector not found"}. Re-scan when content has loaded.`
+      };
+    }
+    return baseResult;
   } finally {
     await driver2.close();
   }
@@ -6816,50 +7640,28 @@ async function extractAndAudit(page, viewport) {
   return { all: elements, audit };
 }
 function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAnalysis) {
-  const issues = [];
-  for (const issue of audit.issues) {
-    issues.push({
-      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity",
-      severity: issue.severity,
-      element: issue.type === "TOUCH_TARGET_SMALL" ? void 0 : void 0,
-      description: issue.message
-    });
-  }
+  const collector = new IssueCollector();
+  collector.addFrom("interactivity", audit.issues.map((i) => ({
+    severity: i.severity,
+    message: i.message,
+    type: i.type
+  })), (item) => item.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity");
   const auditMessages = new Set(audit.issues.map((i) => i.message));
-  for (const issue of interactivity.issues) {
-    if (auditMessages.has(issue.description)) continue;
-    issues.push({
-      category: issue.type === "MISSING_LABEL" ? "accessibility" : "interactivity",
-      severity: issue.severity,
-      element: issue.element,
-      description: issue.description,
-      fix: getFixSuggestion(issue.type)
-    });
-  }
-  for (const issue of semantic.issues) {
-    issues.push({
-      category: "semantic",
-      severity: issue.severity,
-      description: issue.problem
-    });
-  }
-  if (themeAnalysis?.themeMismatch) {
-    issues.push({
-      category: "semantic",
-      severity: "warning",
-      description: themeAnalysis.mismatchDetails ?? "Content card has different theme than page background",
-      fix: "Ensure content containers match the page theme (dark/light)"
-    });
-  }
-  for (const error of consoleErrors) {
-    if (error.includes("favicon") || error.includes("manifest")) continue;
-    issues.push({
-      category: "console",
-      severity: "error",
-      description: `Console error: ${error.slice(0, 200)}`
-    });
-  }
-  return issues;
+  const interactivityFiltered = interactivity.issues.filter((i) => !auditMessages.has(i.description));
+  collector.addFrom("interactivity", interactivityFiltered.map((i) => ({
+    severity: i.severity,
+    description: i.description,
+    element: i.element,
+    type: i.type,
+    fix: getFixSuggestion(i.type)
+  })), (item) => item.type === "MISSING_LABEL" ? "accessibility" : "interactivity");
+  collector.addFrom("semantic", semantic.issues.map((i) => ({
+    severity: i.severity,
+    problem: i.problem
+  })));
+  collector.addThemeAnalysis(themeAnalysis);
+  collector.addConsoleErrors(consoleErrors);
+  return collector.getIssues();
 }
 function determineVerdict2(issues) {
   const errorCount = issues.filter((i) => i.severity === "error").length;
@@ -6928,8 +7730,8 @@ function getFixSuggestion(type) {
 init_schemas();
 
 // src/capture.ts
-var import_promises4 = require("fs/promises");
-var import_path3 = require("path");
+var import_promises5 = require("fs/promises");
+var import_path4 = require("path");
 init_schemas();
 
 // src/types.ts
@@ -6960,8 +7762,8 @@ var DEFAULT_DYNAMIC_SELECTORS = [
 ];
 
 // src/auth.ts
-var import_promises3 = require("fs/promises");
-var import_path2 = require("path");
+var import_promises4 = require("fs/promises");
+var import_path3 = require("path");
 var import_os = require("os");
 var import_crypto = require("crypto");
 function isDeployedEnvironment() {
@@ -6969,7 +7771,7 @@ function isDeployedEnvironment() {
 }
 function getAuthStatePath(outputDir) {
   const username = (0, import_os.userInfo)().username;
-  return (0, import_path2.join)(outputDir, `auth.${username}.json`);
+  return (0, import_path3.join)(outputDir, `auth.${username}.json`);
 }
 async function loadAuthState(outputDir) {
   if (isDeployedEnvironment()) {
@@ -6978,7 +7780,7 @@ async function loadAuthState(outputDir) {
   }
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises3.readFile)(authPath, "utf-8");
+    const content = await (0, import_promises4.readFile)(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       console.warn("\u26A0\uFE0F  Legacy auth format detected. Please re-authenticate with `ibr login`.");
@@ -7006,10 +7808,10 @@ async function loadAuthState(outputDir) {
 async function clearAuthState(outputDir) {
   const authPath = getAuthStatePath(outputDir);
   try {
-    const stats = await (0, import_promises3.stat)(authPath);
+    const stats = await (0, import_promises4.stat)(authPath);
     const randomData = (0, import_crypto.randomBytes)(stats.size);
-    await (0, import_promises3.writeFile)(authPath, randomData, { mode: 384 });
-    await (0, import_promises3.unlink)(authPath);
+    await (0, import_promises4.writeFile)(authPath, randomData, { mode: 384 });
+    await (0, import_promises4.unlink)(authPath);
     console.log("\u2705 Auth state securely cleared");
   } catch {
     console.log("\u2139\uFE0F  No auth state to clear");
@@ -7102,7 +7904,7 @@ async function captureScreenshot(options) {
     waitFor,
     delay
   } = options;
-  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+  await (0, import_promises5.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -7158,7 +7960,7 @@ async function captureWithLandmarks(options) {
     selector,
     waitFor
   } = options;
-  await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
+  await (0, import_promises5.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -7212,8 +8014,8 @@ async function captureWithLandmarks(options) {
 // src/compare.ts
 var import_pixelmatch2 = __toESM(require("pixelmatch"));
 var import_pngjs2 = require("pngjs");
-var import_promises5 = require("fs/promises");
-var import_path4 = require("path");
+var import_promises6 = require("fs/promises");
+var import_path5 = require("path");
 var DEFAULT_REGIONS = [
   { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
   { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
@@ -7275,8 +8077,8 @@ async function compareImages(options) {
     // pixelmatch threshold (0-1), lower = stricter
   } = options;
   const [baselineBuffer, currentBuffer] = await Promise.all([
-    (0, import_promises5.readFile)(baselinePath),
-    (0, import_promises5.readFile)(currentPath)
+    (0, import_promises6.readFile)(baselinePath),
+    (0, import_promises6.readFile)(currentPath)
   ]);
   const baseline = import_pngjs2.PNG.sync.read(baselineBuffer);
   const current = import_pngjs2.PNG.sync.read(currentBuffer);
@@ -7305,8 +8107,8 @@ async function compareImages(options) {
       // Green for anti-aliased differences
     }
   );
-  await (0, import_promises5.mkdir)((0, import_path4.dirname)(diffPath), { recursive: true });
-  await (0, import_promises5.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
+  await (0, import_promises6.mkdir)((0, import_path5.dirname)(diffPath), { recursive: true });
+  await (0, import_promises6.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
   return {
     match: diffPixels === 0,
@@ -7731,13 +8533,13 @@ async function formFlow(page, options) {
 }
 
 // src/index.ts
-var import_promises12 = require("fs/promises");
-var import_path12 = require("path");
-var import_os2 = require("os");
+var import_promises13 = require("fs/promises");
+var import_path14 = require("path");
+var import_os3 = require("os");
 
 // src/cleanup.ts
-var import_promises8 = require("fs/promises");
-var import_path7 = require("path");
+var import_promises9 = require("fs/promises");
+var import_path8 = require("path");
 init_session();
 var DEFAULT_RETENTION = {
   maxSessions: void 0,
@@ -7746,10 +8548,10 @@ var DEFAULT_RETENTION = {
   autoClean: false
 };
 async function loadRetentionConfig(outputDir) {
-  const configPath = (0, import_path7.join)(outputDir, "..", ".ibrrc.json");
+  const configPath = (0, import_path8.join)(outputDir, "..", ".ibrrc.json");
   try {
-    await (0, import_promises8.access)(configPath);
-    const content = await (0, import_promises8.readFile)(configPath, "utf-8");
+    await (0, import_promises9.access)(configPath);
+    const content = await (0, import_promises9.readFile)(configPath, "utf-8");
     const config = JSON.parse(content);
     return {
       ...DEFAULT_RETENTION,
@@ -7831,14 +8633,19 @@ init_api_timing();
 init_schemas();
 
 // src/memory.ts
+var import_path9 = require("path");
+var import_os2 = require("os");
 var import_nanoid3 = require("nanoid");
+var GLOBAL_DIR = (0, import_path9.join)((0, import_os2.homedir)(), ".ibr", "global-memory");
+var GLOBAL_PREFS_DIR = (0, import_path9.join)(GLOBAL_DIR, "preferences");
+var GLOBAL_SUMMARY = (0, import_path9.join)(GLOBAL_DIR, "summary.json");
 
 // src/decision-tracker.ts
 var import_nanoid4 = require("nanoid");
 
 // src/context/types.ts
-var import_zod2 = require("zod");
-var DecisionTypeSchema = import_zod2.z.enum([
+var import_zod4 = require("zod");
+var DecisionTypeSchema = import_zod4.z.enum([
   "css_change",
   "layout_change",
   "color_change",
@@ -7848,56 +8655,56 @@ var DecisionTypeSchema = import_zod2.z.enum([
   "component_modify",
   "content_change"
 ]);
-var DecisionStateSchema = import_zod2.z.object({
-  css: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
-  html_snippet: import_zod2.z.string().optional(),
-  screenshot_ref: import_zod2.z.string().optional()
+var DecisionStateSchema = import_zod4.z.object({
+  css: import_zod4.z.record(import_zod4.z.string(), import_zod4.z.string()).optional(),
+  html_snippet: import_zod4.z.string().optional(),
+  screenshot_ref: import_zod4.z.string().optional()
 });
-var DecisionEntrySchema = import_zod2.z.object({
-  id: import_zod2.z.string(),
-  timestamp: import_zod2.z.string().datetime(),
-  route: import_zod2.z.string(),
-  component: import_zod2.z.string().optional(),
+var DecisionEntrySchema = import_zod4.z.object({
+  id: import_zod4.z.string(),
+  timestamp: import_zod4.z.string().datetime(),
+  route: import_zod4.z.string(),
+  component: import_zod4.z.string().optional(),
   type: DecisionTypeSchema,
-  description: import_zod2.z.string(),
-  rationale: import_zod2.z.string().optional(),
+  description: import_zod4.z.string(),
+  rationale: import_zod4.z.string().optional(),
   before: DecisionStateSchema.optional(),
   after: DecisionStateSchema.optional(),
-  files_changed: import_zod2.z.array(import_zod2.z.string()),
-  session_id: import_zod2.z.string().optional()
+  files_changed: import_zod4.z.array(import_zod4.z.string()),
+  session_id: import_zod4.z.string().optional()
 });
-var DecisionSummarySchema = import_zod2.z.object({
-  route: import_zod2.z.string(),
-  component: import_zod2.z.string().optional(),
-  latest_change: import_zod2.z.string(),
-  decision_count: import_zod2.z.number(),
-  full_log_ref: import_zod2.z.string()
+var DecisionSummarySchema = import_zod4.z.object({
+  route: import_zod4.z.string(),
+  component: import_zod4.z.string().optional(),
+  latest_change: import_zod4.z.string(),
+  decision_count: import_zod4.z.number(),
+  full_log_ref: import_zod4.z.string()
 });
-var CurrentUIStateSchema = import_zod2.z.object({
-  last_snapshot_ref: import_zod2.z.string().optional(),
-  pending_verifications: import_zod2.z.number(),
-  known_issues: import_zod2.z.array(import_zod2.z.string())
+var CurrentUIStateSchema = import_zod4.z.object({
+  last_snapshot_ref: import_zod4.z.string().optional(),
+  pending_verifications: import_zod4.z.number(),
+  known_issues: import_zod4.z.array(import_zod4.z.string())
 });
-var CompactContextSchema = import_zod2.z.object({
-  version: import_zod2.z.literal(1),
-  session_id: import_zod2.z.string(),
-  updated_at: import_zod2.z.string().datetime(),
-  active_route: import_zod2.z.string().optional(),
-  decisions_summary: import_zod2.z.array(DecisionSummarySchema),
+var CompactContextSchema = import_zod4.z.object({
+  version: import_zod4.z.literal(1),
+  session_id: import_zod4.z.string(),
+  updated_at: import_zod4.z.string().datetime(),
+  active_route: import_zod4.z.string().optional(),
+  decisions_summary: import_zod4.z.array(DecisionSummarySchema),
   current_ui_state: CurrentUIStateSchema,
-  preferences_active: import_zod2.z.number()
+  preferences_active: import_zod4.z.number()
 });
-var CompactionRequestSchema = import_zod2.z.object({
-  reason: import_zod2.z.enum(["session_ending", "context_limit", "manual"]),
-  preserve_decisions: import_zod2.z.array(import_zod2.z.string()).optional()
+var CompactionRequestSchema = import_zod4.z.object({
+  reason: import_zod4.z.enum(["session_ending", "context_limit", "manual"]),
+  preserve_decisions: import_zod4.z.array(import_zod4.z.string()).optional()
 });
-var CompactionResultSchema = import_zod2.z.object({
+var CompactionResultSchema = import_zod4.z.object({
   compact_context: CompactContextSchema,
-  archived_to: import_zod2.z.string(),
-  decisions_compacted: import_zod2.z.number(),
-  decisions_preserved: import_zod2.z.number()
+  archived_to: import_zod4.z.string(),
+  decisions_compacted: import_zod4.z.number(),
+  decisions_preserved: import_zod4.z.number()
 });
-var DesignCheckOperatorSchema = import_zod2.z.enum([
+var DesignCheckOperatorSchema = import_zod4.z.enum([
   "eq",
   // exact equality
   "gt",
@@ -7913,155 +8720,26 @@ var DesignCheckOperatorSchema = import_zod2.z.enum([
   "truthy"
   // value is non-empty / non-zero
 ]);
-var DesignCheckSchema = import_zod2.z.object({
-  property: import_zod2.z.string(),
+var DesignCheckSchema = import_zod4.z.object({
+  property: import_zod4.z.string(),
   operator: DesignCheckOperatorSchema,
-  value: import_zod2.z.union([import_zod2.z.string(), import_zod2.z.number()]),
-  confidence: import_zod2.z.number().min(0).max(1)
+  value: import_zod4.z.union([import_zod4.z.string(), import_zod4.z.number()]),
+  confidence: import_zod4.z.number().min(0).max(1)
 });
-var DesignChangeSchema = import_zod2.z.object({
-  description: import_zod2.z.string(),
-  element: import_zod2.z.string(),
-  checks: import_zod2.z.array(DesignCheckSchema),
-  source: import_zod2.z.enum(["structured", "parsed"]),
-  platform: import_zod2.z.enum(["web", "ios", "macos"]).optional(),
-  timestamp: import_zod2.z.string()
+var DesignChangeSchema = import_zod4.z.object({
+  description: import_zod4.z.string(),
+  element: import_zod4.z.string(),
+  checks: import_zod4.z.array(DesignCheckSchema),
+  source: import_zod4.z.enum(["structured", "parsed"]),
+  platform: import_zod4.z.enum(["web", "ios", "macos"]).optional(),
+  timestamp: import_zod4.z.string()
 });
 var DecisionEntryWithChecksSchema = DecisionEntrySchema.extend({
-  checks: import_zod2.z.array(DesignCheckSchema).optional()
+  checks: import_zod4.z.array(DesignCheckSchema).optional()
 });
 
 // src/context/compact.ts
 var import_nanoid5 = require("nanoid");
-
-// src/tokens.ts
-var import_fs = require("fs");
-function loadTokenSpec(specPath) {
-  if (!(0, import_fs.existsSync)(specPath)) {
-    throw new Error(`Token spec not found: ${specPath}`);
-  }
-  let spec;
-  try {
-    const content = (0, import_fs.readFileSync)(specPath, "utf-8");
-    spec = JSON.parse(content);
-  } catch (err) {
-    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
-  }
-  const { tokens } = spec;
-  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
-  if (!hasAnyTokens) {
-    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
-  }
-  return spec;
-}
-function normalizeColor(color) {
-  if (!color) return "";
-  if (color.startsWith("#")) {
-    return color.toLowerCase();
-  }
-  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
-  if (rgbMatch) {
-    const r = parseInt(rgbMatch[1], 10);
-    const g = parseInt(rgbMatch[2], 10);
-    const b = parseInt(rgbMatch[3], 10);
-    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
-  }
-  return color.toLowerCase();
-}
-function parsePx(value) {
-  if (!value) return null;
-  const match = value.match(/^([\d.]+)px$/);
-  return match ? parseFloat(match[1]) : null;
-}
-function validateAgainstTokens(elements, spec) {
-  const violations = [];
-  for (const element of elements) {
-    const selector = element.selector || element.tagName || "unknown";
-    const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
-    if (spec.tokens.touchTargets && isInteractive) {
-      const minSize = spec.tokens.touchTargets.min;
-      const actualSize = Math.min(element.bounds.width, element.bounds.height);
-      if (actualSize < minSize) {
-        violations.push({
-          element: selector,
-          property: "touch-target",
-          expected: minSize,
-          actual: actualSize,
-          severity: "error",
-          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
-        });
-      }
-    }
-    if (spec.tokens.fontSizes && element.computedStyles) {
-      const fontSize = parsePx(element.computedStyles["font-size"]);
-      if (fontSize !== null) {
-        const tokenValues = Object.values(spec.tokens.fontSizes);
-        const isTokenValue = tokenValues.includes(fontSize);
-        if (!isTokenValue) {
-          violations.push({
-            element: selector,
-            property: "font-size",
-            expected: `one of ${tokenValues.join(", ")}px`,
-            actual: fontSize,
-            severity: "warning",
-            message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
-          });
-        }
-      }
-    }
-    if (spec.tokens.colors && element.computedStyles) {
-      const tokenColors = new Set(
-        Object.values(spec.tokens.colors).map(normalizeColor)
-      );
-      const textColor = element.computedStyles["color"];
-      if (textColor) {
-        const normalized = normalizeColor(textColor);
-        if (!tokenColors.has(normalized)) {
-          violations.push({
-            element: selector,
-            property: "color",
-            expected: "token color",
-            actual: textColor,
-            severity: "warning",
-            message: `Non-token text color: ${textColor} (${selector})`
-          });
-        }
-      }
-      const bgColor = element.computedStyles["background-color"];
-      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
-        const normalized = normalizeColor(bgColor);
-        if (!tokenColors.has(normalized)) {
-          violations.push({
-            element: selector,
-            property: "color",
-            expected: "token color",
-            actual: bgColor,
-            severity: "warning",
-            message: `Non-token background color: ${bgColor} (${selector})`
-          });
-        }
-      }
-    }
-    if (spec.tokens.cornerRadius && element.computedStyles) {
-      const borderRadius = parsePx(element.computedStyles["border-radius"]);
-      if (borderRadius !== null && borderRadius > 0) {
-        const tokenValues = Object.values(spec.tokens.cornerRadius);
-        const isTokenValue = tokenValues.includes(borderRadius);
-        if (!isTokenValue) {
-          violations.push({
-            element: selector,
-            property: "corner-radius",
-            expected: `one of ${tokenValues.join(", ")}px`,
-            actual: borderRadius,
-            severity: "warning",
-            message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
-          });
-        }
-      }
-    }
-  }
-  return violations;
-}
 
 // src/native/viewports.ts
 var NATIVE_VIEWPORTS = {
@@ -8107,14 +8785,14 @@ init_simulator();
 // src/native/capture.ts
 var import_child_process3 = require("child_process");
 var import_util2 = require("util");
-var import_promises9 = require("fs/promises");
-var import_path8 = require("path");
+var import_promises10 = require("fs/promises");
+var import_path10 = require("path");
 var execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
 async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises9.mkdir)((0, import_path8.dirname)(outputPath), { recursive: true });
+    await (0, import_promises10.mkdir)((0, import_path10.dirname)(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -8194,15 +8872,15 @@ function auditNativeElements(elements, platform, viewport) {
 }
 
 // src/native/scan.ts
-var import_path11 = require("path");
+var import_path13 = require("path");
 init_simulator();
 init_extract();
 
 // src/native/macos.ts
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
-var import_promises11 = require("fs/promises");
-var import_path10 = require("path");
+var import_promises12 = require("fs/promises");
+var import_path12 = require("path");
 init_extract();
 init_role_map();
 var execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
@@ -8329,7 +9007,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises11.mkdir)((0, import_path10.dirname)(outputPath), { recursive: true });
+  await (0, import_promises12.mkdir)((0, import_path12.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
@@ -8595,7 +9273,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp = Date.now();
-    const ssPath = (0, import_path11.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const ssPath = (0, import_path13.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -8744,7 +9422,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path12.join)((0, import_os2.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path14.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -8754,11 +9432,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises12.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises13.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path12.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path12.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path12.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path14.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path14.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path14.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -8780,12 +9458,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises12.access)(actualBaselinePath);
+    await (0, import_promises13.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises12.access)(actualCurrentPath);
+    await (0, import_promises13.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -9166,8 +9844,8 @@ init_session();
 init_schemas();
 
 // src/native/bridge.ts
-var import_fs3 = require("fs");
-var import_path13 = require("path");
+var import_fs4 = require("fs");
+var import_path15 = require("path");
 function findSwiftFiles(dir, rootDir) {
   const SKIP_DIRS = /* @__PURE__ */ new Set([
     "node_modules",
@@ -9183,23 +9861,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs3.readdirSync)(currentDir);
+      entries = (0, import_fs4.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path13.join)(currentDir, entry);
+      const fullPath = (0, import_path15.join)(currentDir, entry);
       let stat2;
       try {
-        stat2 = (0, import_fs3.statSync)(fullPath);
+        stat2 = (0, import_fs4.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat2.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path13.relative)(rootDir, fullPath));
+        results.push((0, import_path15.relative)(rootDir, fullPath));
       }
     }
   }
@@ -9215,10 +9893,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path13.join)(projectRoot, filePath);
+    const fullPath = (0, import_path15.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs3.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs4.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -9301,16 +9979,16 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   return matches;
 }
 var NAVGATOR_PATHS = [
-  (0, import_path13.join)(".navgator", "architecture"),
-  (0, import_path13.join)(".claude", "architecture")
+  (0, import_path15.join)(".navgator", "architecture"),
+  (0, import_path15.join)(".claude", "architecture")
   // legacy — NavGator < 0.3
 ];
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path13.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs3.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path15.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs4.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs3.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs4.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -9696,6 +10374,14 @@ var TOOLS = [
           type: "string",
           enum: ["desktop", "mobile", "tablet"],
           description: "Viewport preset (default: 'desktop')"
+        },
+        patience: {
+          type: "number",
+          description: "Wait longer for slow async content in ms (AI search, LLM results). Overrides network idle timeout."
+        },
+        networkIdleTimeout: {
+          type: "number",
+          description: "Network idle timeout in ms (default: 10000)"
         }
       },
       required: ["url"]
@@ -10377,6 +11063,32 @@ var TOOLS = [
     }
   },
   // --- iOS/watchOS simulator interaction ---
+  {
+    name: "design_system",
+    description: "Manage the project design system configuration. Initialize default config, view active configuration, or validate that tokens and principles are correctly set up.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["init", "status", "validate"],
+          description: "'init' copies the default config to .ibr/design-system.json, 'status' shows the active config, 'validate' reports which principles are active and their severities"
+        },
+        projectDir: {
+          type: "string",
+          description: "Project directory (default: current working directory)"
+        }
+      },
+      required: ["action"]
+    },
+    annotations: {
+      title: "Design System",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false
+    }
+  },
   {
     name: "sim_action",
     description: "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. For tap with coordinates: taps directly at x,y. Requires IDB for typing and swipe (install: brew install idb-companion && pip install fb-idb). Tap and openUrl fall back to simctl when IDB is unavailable.",
@@ -11142,6 +11854,8 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
       }
       case "sim_action":
         return await handleSimAction(args);
+      case "design_system":
+        return await handleDesignSystem(args);
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }
@@ -11158,7 +11872,9 @@ async function handleScan(args) {
   }
   const viewport = args.viewport || "desktop";
   const result = await scan(url, {
-    viewport
+    viewport,
+    patience: args.patience,
+    networkIdleTimeout: args.networkIdleTimeout
   });
   const lines = [
     `UI Scan: ${result.url}`,
@@ -11208,6 +11924,29 @@ async function handleScan(args) {
         lines.push(`- ${a.message || a}`);
       }
     }
+  }
+  if (result.designSystem) {
+    const ds = result.designSystem;
+    lines.push("");
+    lines.push(`Design system: ${ds.configName} (compliance: ${ds.complianceScore}%)`);
+    const dsViolations = ds.principleViolations.length + ds.tokenViolations.length + ds.customViolations.length;
+    if (dsViolations > 0) {
+      lines.push(`Design system violations: ${dsViolations}`);
+      for (const v of ds.principleViolations.slice(0, 5)) {
+        lines.push(`  - [${v.severity}] ${v.message}`);
+      }
+      for (const v of ds.tokenViolations.slice(0, 3)) {
+        lines.push(`  - [${v.severity}] ${v.message}`);
+      }
+      if (dsViolations > 8) {
+        lines.push(`  ... and ${dsViolations - 8} more`);
+      }
+    }
+  }
+  if (result.verdict === "PARTIAL") {
+    lines.push("");
+    lines.push(`\u26A0\uFE0F ${result.partialReason}`);
+    lines.push("Ask the user if the page has finished loading, then re-scan.");
   }
   return textResponse(lines.join("\n"));
 }
@@ -11295,17 +12034,17 @@ async function handleListSessions() {
   );
   return textResponse(lines.join("\n"));
 }
-var REFERENCES_DIR = (0, import_path14.join)(DEFAULT_OUTPUT_DIR, "references");
-var REFERENCES_INDEX = (0, import_path14.join)(REFERENCES_DIR, "index.json");
+var REFERENCES_DIR = (0, import_path16.join)(DEFAULT_OUTPUT_DIR, "references");
+var REFERENCES_INDEX = (0, import_path16.join)(REFERENCES_DIR, "index.json");
 function readReferencesIndex() {
-  if (!(0, import_fs5.existsSync)(REFERENCES_INDEX)) {
+  if (!(0, import_fs6.existsSync)(REFERENCES_INDEX)) {
     return { references: [] };
   }
-  return JSON.parse((0, import_fs5.readFileSync)(REFERENCES_INDEX, "utf-8"));
+  return JSON.parse((0, import_fs6.readFileSync)(REFERENCES_INDEX, "utf-8"));
 }
 function writeReferencesIndex(index) {
-  (0, import_fs5.mkdirSync)(REFERENCES_DIR, { recursive: true });
-  (0, import_fs5.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+  (0, import_fs6.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs6.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
 }
 async function handleScreenshot(args) {
   const url = args.url;
@@ -11321,9 +12060,9 @@ async function handleScreenshot(args) {
   const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp = Date.now();
-  const screenshotsDir = (0, import_path14.join)(DEFAULT_OUTPUT_DIR, "screenshots");
-  (0, import_fs5.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path14.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const screenshotsDir = (0, import_path16.join)(DEFAULT_OUTPUT_DIR, "screenshots");
+  (0, import_fs6.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path16.join)(screenshotsDir, `capture-${timestamp}.png`);
   await captureScreenshot({
     url,
     outputPath: tempPath,
@@ -11335,14 +12074,14 @@ async function handleScreenshot(args) {
     waitFor,
     delay
   });
-  const imageBuffer = (0, import_fs5.readFileSync)(tempPath);
+  const imageBuffer = (0, import_fs6.readFileSync)(tempPath);
   const base64 = imageBuffer.toString("base64");
   const fileSize = imageBuffer.length;
   let savedPath = "not saved";
   if (saveAs) {
-    (0, import_fs5.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path14.join)(REFERENCES_DIR, `${saveAs}.png`);
-    (0, import_fs5.writeFileSync)(refPath, imageBuffer);
+    (0, import_fs6.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path16.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs6.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
     index.references = index.references.filter((r) => r.name !== saveAs);
@@ -11397,11 +12136,11 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path14.join)(REFERENCES_DIR, ref.path);
-      if (!(0, import_fs5.existsSync)(refPath)) {
+      const refPath = (0, import_path16.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs6.existsSync)(refPath)) {
         return errorResponse(`Reference file missing: ${refPath}`);
       }
-      const imageBuffer = (0, import_fs5.readFileSync)(refPath);
+      const imageBuffer = (0, import_fs6.readFileSync)(refPath);
       const base64 = imageBuffer.toString("base64");
       const metadata = [
         `Reference: ${ref.name}`,
@@ -11423,9 +12162,9 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path14.join)(REFERENCES_DIR, ref.path);
-      if ((0, import_fs5.existsSync)(refPath)) {
-        (0, import_fs5.unlinkSync)(refPath);
+      const refPath = (0, import_path16.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs6.existsSync)(refPath)) {
+        (0, import_fs6.unlinkSync)(refPath);
       }
       index.references = index.references.filter((r) => r.name !== name);
       writeReferencesIndex(index);
@@ -11781,7 +12520,7 @@ async function handleBridgeToSource(args) {
   if (!projectRoot) {
     return errorResponse("The 'project_root' parameter is required.");
   }
-  if (!(0, import_fs5.existsSync)(projectRoot)) {
+  if (!(0, import_fs6.existsSync)(projectRoot)) {
     return errorResponse(`Project root not found: ${projectRoot}`);
   }
   const deviceQuery = args.device;
@@ -11978,6 +12717,104 @@ async function handleSimAction(args) {
     }
     default:
       return errorResponse(`Unknown action: ${action}. Use: tap, type, scroll, swipe, home, openUrl`);
+  }
+}
+async function handleDesignSystem(args) {
+  const action = args.action;
+  const projectDir = args.projectDir || process.cwd();
+  const ibrDir = (0, import_path16.join)(projectDir, ".ibr");
+  const configPath = (0, import_path16.join)(ibrDir, "design-system.json");
+  switch (action) {
+    case "init": {
+      const templateCandidates = [
+        (0, import_path16.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path16.join)(projectDir, "templates", "design-system.json"),
+        // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
+        (0, import_path16.join)(__dirname, "..", "..", "templates", "design-system.json")
+      ];
+      const templatePath = templateCandidates.find((p) => (0, import_fs6.existsSync)(p));
+      if (!templatePath) {
+        return errorResponse(
+          "Could not find design-system template. Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json"
+        );
+      }
+      if ((0, import_fs6.existsSync)(configPath)) {
+        return textResponse(
+          `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.
+Path: ${configPath}`
+        );
+      }
+      if (!(0, import_fs6.existsSync)(ibrDir)) {
+        (0, import_fs6.mkdirSync)(ibrDir, { recursive: true });
+      }
+      (0, import_fs6.copyFileSync)(templatePath, configPath);
+      return textResponse(
+        `Design system config created at .ibr/design-system.json
+Edit it to add your tokens and configure principle severities.
+Path: ${configPath}`
+      );
+    }
+    case "status": {
+      if (!(0, import_fs6.existsSync)(configPath)) {
+        return textResponse(
+          `No design system config found. Run design_system with action "init" to create one.
+Expected: ${configPath}`
+        );
+      }
+      const raw = (0, import_fs6.readFileSync)(configPath, "utf-8");
+      const config = JSON.parse(raw);
+      return textResponse(
+        `Design system config: ${configPath}
+
+${JSON.stringify(config, null, 2)}`
+      );
+    }
+    case "validate": {
+      const config = await loadDesignSystemConfig(projectDir);
+      if (!config) {
+        return textResponse(
+          `No design system config found. Run design_system with action "init" to create one.
+Expected: ${configPath}`
+        );
+      }
+      const lines = [
+        `Design system: ${config.name}`,
+        "",
+        "Calm Precision Principles:"
+      ];
+      const allPrincipleIds = [
+        ...config.principles.calmPrecision.core,
+        ...config.principles.calmPrecision.stylistic
+      ];
+      for (const principleId of allPrincipleIds) {
+        const explicit = config.principles.calmPrecision.severity[principleId];
+        const isCore = config.principles.calmPrecision.core.includes(principleId);
+        const defaultSev = explicit ?? (isCore ? "error" : "warn");
+        const source = explicit ? "explicit" : "default";
+        lines.push(`  ${principleId}: ${defaultSev} (${source})`);
+      }
+      if (config.principles.custom.length > 0) {
+        lines.push("", "Custom Principles:");
+        for (const custom of config.principles.custom) {
+          lines.push(`  ${custom.id} (${custom.name}): ${custom.severity}`);
+          lines.push(`    Checks: ${custom.checks.length}`);
+        }
+      }
+      lines.push("", "Token categories:");
+      const tokenKeys = Object.keys(config.tokens).filter(
+        (k) => config.tokens[k] !== void 0
+      );
+      if (tokenKeys.length === 0) {
+        lines.push("  (none configured)");
+      } else {
+        for (const k of tokenKeys) {
+          lines.push(`  ${k}: active`);
+        }
+      }
+      return textResponse(lines.join("\n"));
+    }
+    default:
+      return errorResponse(`Unknown action: ${action}. Use: init, status, validate`);
   }
 }
 

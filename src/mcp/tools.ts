@@ -5,8 +5,9 @@
  * Responses are formatted as concise text for LLM consumption.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, copyFileSync } from "fs";
 import { join } from "path";
+import { loadDesignSystemConfig } from '../design-system/index.js';
 import { scan } from "../scan.js";
 import {
   compare,
@@ -817,6 +818,33 @@ export const TOOLS = [
     },
   },
   // --- iOS/watchOS simulator interaction ---
+  {
+    name: "design_system",
+    description:
+      "Manage the project design system configuration. Initialize default config, view active configuration, or validate that tokens and principles are correctly set up.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        action: {
+          type: "string",
+          enum: ["init", "status", "validate"],
+          description: "'init' copies the default config to .ibr/design-system.json, 'status' shows the active config, 'validate' reports which principles are active and their severities",
+        },
+        projectDir: {
+          type: "string",
+          description: "Project directory (default: current working directory)",
+        },
+      },
+      required: ["action"],
+    },
+    annotations: {
+      title: "Design System",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
   {
     name: "sim_action",
     description:
@@ -1664,6 +1692,9 @@ export async function handleToolCall(
       case "sim_action":
         return await handleSimAction(args);
 
+      case "design_system":
+        return await handleDesignSystem(args);
+
       default:
         return errorResponse(`Unknown tool: ${name}`);
     }
@@ -1748,6 +1779,26 @@ async function handleScan(
       lines.push(`Audit issues (${audit.issues.length}):`);
       for (const a of audit.issues.slice(0, 5)) {
         lines.push(`- ${a.message || a}`);
+      }
+    }
+  }
+
+  // Design system results
+  if (result.designSystem) {
+    const ds = result.designSystem;
+    lines.push("");
+    lines.push(`Design system: ${ds.configName} (compliance: ${ds.complianceScore}%)`);
+    const dsViolations = ds.principleViolations.length + ds.tokenViolations.length + ds.customViolations.length;
+    if (dsViolations > 0) {
+      lines.push(`Design system violations: ${dsViolations}`);
+      for (const v of ds.principleViolations.slice(0, 5)) {
+        lines.push(`  - [${v.severity}] ${v.message}`);
+      }
+      for (const v of ds.tokenViolations.slice(0, 3)) {
+        lines.push(`  - [${v.severity}] ${v.message}`);
+      }
+      if (dsViolations > 8) {
+        lines.push(`  ... and ${dsViolations - 8} more`);
       }
     }
   }
@@ -2758,5 +2809,121 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
 
     default:
       return errorResponse(`Unknown action: ${action}. Use: tap, type, scroll, swipe, home, openUrl`);
+  }
+}
+
+async function handleDesignSystem(
+  args: Record<string, unknown>
+): Promise<McpResponse> {
+  const action = args.action as string;
+  const projectDir = (args.projectDir as string) || process.cwd();
+  const ibrDir = join(projectDir, '.ibr');
+  const configPath = join(ibrDir, 'design-system.json');
+
+  switch (action) {
+    case 'init': {
+      // Find the templates file relative to this package
+      // Walk up from the module to find templates/design-system.json
+      const templateCandidates = [
+        join(projectDir, 'node_modules', 'interface-built-right', 'templates', 'design-system.json'),
+        join(projectDir, 'templates', 'design-system.json'),
+        // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
+        join(__dirname, '..', '..', 'templates', 'design-system.json'),
+      ];
+
+      const templatePath = templateCandidates.find(p => existsSync(p));
+      if (!templatePath) {
+        return errorResponse(
+          'Could not find design-system template. ' +
+          'Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json'
+        );
+      }
+
+      if (existsSync(configPath)) {
+        return textResponse(
+          `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.\nPath: ${configPath}`
+        );
+      }
+
+      if (!existsSync(ibrDir)) {
+        mkdirSync(ibrDir, { recursive: true });
+      }
+
+      copyFileSync(templatePath, configPath);
+      return textResponse(
+        `Design system config created at .ibr/design-system.json\n` +
+        `Edit it to add your tokens and configure principle severities.\n` +
+        `Path: ${configPath}`
+      );
+    }
+
+    case 'status': {
+      if (!existsSync(configPath)) {
+        return textResponse(
+          'No design system config found. Run design_system with action "init" to create one.\n' +
+          `Expected: ${configPath}`
+        );
+      }
+
+      const raw = readFileSync(configPath, 'utf-8');
+      const config = JSON.parse(raw);
+      return textResponse(
+        `Design system config: ${configPath}\n\n${JSON.stringify(config, null, 2)}`
+      );
+    }
+
+    case 'validate': {
+      const config = await loadDesignSystemConfig(projectDir);
+      if (!config) {
+        return textResponse(
+          'No design system config found. Run design_system with action "init" to create one.\n' +
+          `Expected: ${configPath}`
+        );
+      }
+
+      const lines: string[] = [
+        `Design system: ${config.name}`,
+        '',
+        'Calm Precision Principles:',
+      ];
+
+      const allPrincipleIds = [
+        ...config.principles.calmPrecision.core,
+        ...config.principles.calmPrecision.stylistic,
+      ];
+
+      for (const principleId of allPrincipleIds) {
+        const explicit = config.principles.calmPrecision.severity[principleId];
+        const isCore = config.principles.calmPrecision.core.includes(principleId);
+        const defaultSev = explicit ?? (isCore ? 'error' : 'warn');
+        const source = explicit ? 'explicit' : 'default';
+        lines.push(`  ${principleId}: ${defaultSev} (${source})`);
+      }
+
+      if (config.principles.custom.length > 0) {
+        lines.push('', 'Custom Principles:');
+        for (const custom of config.principles.custom) {
+          lines.push(`  ${custom.id} (${custom.name}): ${custom.severity}`);
+          lines.push(`    Checks: ${custom.checks.length}`);
+        }
+      }
+
+      lines.push('', 'Token categories:');
+      const tokenKeys = Object.keys(config.tokens).filter(
+        k => config.tokens[k as keyof typeof config.tokens] !== undefined
+      );
+      if (tokenKeys.length === 0) {
+        lines.push('  (none configured)');
+      } else {
+        for (const k of tokenKeys) {
+          lines.push(`  ${k}: active`);
+        }
+      }
+
+      return textResponse(lines.join('\n'));
+    }
+
+    default:
+      return errorResponse(`Unknown action: ${action}. Use: init, status, validate`);
   }
 }

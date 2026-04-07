@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { normalizeColor, validateAgainstTokens, loadTokenSpec } from './tokens.js';
+import type { EnhancedElement } from './schemas.js';
 import { writeFileSync, unlinkSync, mkdirSync, existsSync } from 'fs';
 import { join } from 'path';
 
@@ -100,7 +101,7 @@ describe('validateAgainstTokens', () => {
       },
     ];
 
-    const violations = validateAgainstTokens(elements, spec);
+    const violations = validateAgainstTokens(elements as unknown as EnhancedElement[], spec);
 
     expect(violations).toHaveLength(1);
     expect(violations[0].element).toBe('button.small');
@@ -136,7 +137,7 @@ describe('validateAgainstTokens', () => {
       },
     ];
 
-    const violations = validateAgainstTokens(elements, spec);
+    const violations = validateAgainstTokens(elements as unknown as EnhancedElement[], spec);
 
     expect(violations).toHaveLength(1);
     expect(violations[0].element).toBe('p.invalid');
@@ -180,7 +181,7 @@ describe('validateAgainstTokens', () => {
       },
     ];
 
-    const violations = validateAgainstTokens(elements, spec);
+    const violations = validateAgainstTokens(elements as unknown as EnhancedElement[], spec);
 
     expect(violations).toHaveLength(2); // color + background-color
     expect(violations.every(v => v.element === 'div.invalid')).toBe(true);
@@ -214,7 +215,7 @@ describe('validateAgainstTokens', () => {
       },
     ];
 
-    const violations = validateAgainstTokens(elements, spec);
+    const violations = validateAgainstTokens(elements as unknown as EnhancedElement[], spec);
 
     expect(violations).toHaveLength(1);
     expect(violations[0].element).toBe('div.invalid');
@@ -240,7 +241,7 @@ describe('validateAgainstTokens', () => {
       },
     ];
 
-    const violations = validateAgainstTokens(elements, spec);
+    const violations = validateAgainstTokens(elements as unknown as EnhancedElement[], spec);
     expect(violations).toHaveLength(0);
   });
 });

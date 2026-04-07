@@ -444,3 +444,42 @@ export type Observation = z.infer<typeof ObservationSchema>;
 export type LearnedExpectation = z.infer<typeof LearnedExpectationSchema>;
 export type ActivePreference = z.infer<typeof ActivePreferenceSchema>;
 export type MemorySummary = z.infer<typeof MemorySummarySchema>;
+
+// ============================================================================
+// DESIGN SYSTEM SCHEMAS
+// ============================================================================
+
+/**
+ * Design system principle violation
+ */
+export const DesignSystemViolationSchema = z.object({
+  principleId: z.string(),
+  principleName: z.string(),
+  severity: z.enum(['error', 'warn']),
+  message: z.string(),
+  element: z.string().optional(),
+  bounds: BoundsSchema.optional(),
+  fix: z.string().optional(),
+});
+
+/**
+ * Design system check result (added to ScanResult)
+ */
+export const DesignSystemResultSchema = z.object({
+  configName: z.string(),
+  principleViolations: z.array(DesignSystemViolationSchema),
+  tokenViolations: z.array(z.object({
+    element: z.string(),
+    property: z.string(),
+    expected: z.union([z.string(), z.number()]),
+    actual: z.union([z.string(), z.number()]),
+    severity: z.enum(['error', 'warning']),
+    message: z.string(),
+  })),
+  customViolations: z.array(DesignSystemViolationSchema),
+  complianceScore: z.number().min(0).max(100),
+});
+
+// Design system type exports
+export type DesignSystemViolation = z.infer<typeof DesignSystemViolationSchema>;
+export type DesignSystemResult = z.infer<typeof DesignSystemResultSchema>;

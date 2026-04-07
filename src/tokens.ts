@@ -6,6 +6,7 @@
  */
 
 import { readFileSync, existsSync } from 'fs';
+import type { EnhancedElement } from './schemas.js';
 
 export interface DesignTokenSpec {
   name: string;
@@ -25,6 +26,11 @@ export interface TokenViolation {
   actual: string | number;
   severity: 'error' | 'warning';
   message: string;
+}
+
+interface TokenValidator {
+  name: string;
+  validate(elements: EnhancedElement[], spec: DesignTokenSpec): TokenViolation[];
 }
 
 /**
@@ -81,30 +87,29 @@ export function normalizeColor(color: string): string {
 /**
  * Parse px value from a CSS string
  */
-function parsePx(value: string | undefined): number | null {
+export function parsePx(value: string | undefined): number | null {
   if (!value) return null;
   const match = value.match(/^([\d.]+)px$/);
   return match ? parseFloat(match[1]) : null;
 }
 
-/**
- * Validate UI elements against a design token specification
- */
-export function validateAgainstTokens(
-  elements: any[],
-  spec: DesignTokenSpec
-): TokenViolation[] {
-  const violations: TokenViolation[] = [];
+// ---------------------------------------------------------------------------
+// Individual validators
+// ---------------------------------------------------------------------------
 
-  for (const element of elements) {
-    const selector = element.selector || element.tagName || 'unknown';
-    const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
+const touchTargetValidator: TokenValidator = {
+  name: 'touchTargets',
+  validate(elements, spec) {
+    const violations: TokenViolation[] = [];
+    if (!spec.tokens.touchTargets) return violations;
+    const minSize = spec.tokens.touchTargets.min;
 
-    // --- Touch targets ---
-    if (spec.tokens.touchTargets && isInteractive) {
-      const minSize = spec.tokens.touchTargets.min;
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || 'unknown';
+      const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
+      if (!isInteractive) continue;
+
       const actualSize = Math.min(element.bounds.width, element.bounds.height);
-
       if (actualSize < minSize) {
         violations.push({
           element: selector,
@@ -116,32 +121,52 @@ export function validateAgainstTokens(
         });
       }
     }
+    return violations;
+  },
+};
 
-    // --- Font sizes ---
-    if (spec.tokens.fontSizes && element.computedStyles) {
+const fontSizeValidator: TokenValidator = {
+  name: 'fontSizes',
+  validate(elements, spec) {
+    const violations: TokenViolation[] = [];
+    if (!spec.tokens.fontSizes) return violations;
+    const tokenValues = Object.values(spec.tokens.fontSizes);
+
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || 'unknown';
+      if (!element.computedStyles) continue;
+
       const fontSize = parsePx(element.computedStyles['font-size']);
-      if (fontSize !== null) {
-        const tokenValues = Object.values(spec.tokens.fontSizes);
-        const isTokenValue = tokenValues.includes(fontSize);
+      if (fontSize === null) continue;
 
-        if (!isTokenValue) {
-          violations.push({
-            element: selector,
-            property: 'font-size',
-            expected: `one of ${tokenValues.join(', ')}px`,
-            actual: fontSize,
-            severity: 'warning',
-            message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(', ')}px) (${selector})`,
-          });
-        }
+      if (!tokenValues.includes(fontSize)) {
+        violations.push({
+          element: selector,
+          property: 'font-size',
+          expected: `one of ${tokenValues.join(', ')}px`,
+          actual: fontSize,
+          severity: 'warning',
+          message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(', ')}px) (${selector})`,
+        });
       }
     }
+    return violations;
+  },
+};
 
-    // --- Colors ---
-    if (spec.tokens.colors && element.computedStyles) {
-      const tokenColors = new Set(
-        Object.values(spec.tokens.colors).map(normalizeColor)
-      );
+const colorValidator: TokenValidator = {
+  name: 'colors',
+  validate(elements, spec) {
+    const violations: TokenViolation[] = [];
+    if (!spec.tokens.colors) return violations;
+
+    const tokenColors = new Set(
+      Object.values(spec.tokens.colors).map(normalizeColor)
+    );
+
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || 'unknown';
+      if (!element.computedStyles) continue;
 
       // Check text color
       const textColor = element.computedStyles['color'];
@@ -175,29 +200,101 @@ export function validateAgainstTokens(
         }
       }
     }
+    return violations;
+  },
+};
 
-    // --- Corner radius ---
-    if (spec.tokens.cornerRadius && element.computedStyles) {
+const cornerRadiusValidator: TokenValidator = {
+  name: 'cornerRadius',
+  validate(elements, spec) {
+    const violations: TokenViolation[] = [];
+    if (!spec.tokens.cornerRadius) return violations;
+    const tokenValues = Object.values(spec.tokens.cornerRadius);
+
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || 'unknown';
+      if (!element.computedStyles) continue;
+
       const borderRadius = parsePx(element.computedStyles['border-radius']);
-      if (borderRadius !== null && borderRadius > 0) {
-        const tokenValues = Object.values(spec.tokens.cornerRadius);
-        const isTokenValue = tokenValues.includes(borderRadius);
+      if (borderRadius === null || borderRadius === 0) continue;
 
-        if (!isTokenValue) {
+      if (!tokenValues.includes(borderRadius)) {
+        violations.push({
+          element: selector,
+          property: 'corner-radius',
+          expected: `one of ${tokenValues.join(', ')}px`,
+          actual: borderRadius,
+          severity: 'warning',
+          message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(', ')}px) (${selector})`,
+        });
+      }
+    }
+    return violations;
+  },
+};
+
+const spacingValidator: TokenValidator = {
+  name: 'spacing',
+  validate(elements, spec) {
+    const violations: TokenViolation[] = [];
+    if (!spec.tokens.spacing) return violations;
+    const tokenValues = Object.values(spec.tokens.spacing);
+
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || 'unknown';
+      if (!element.computedStyles) continue;
+
+      for (const prop of ['gap', 'padding', 'margin'] as const) {
+        const raw = element.computedStyles[prop];
+        const value = parsePx(raw);
+        if (value === null || value === 0) continue;
+
+        if (!tokenValues.includes(value)) {
           violations.push({
             element: selector,
-            property: 'corner-radius',
+            property: 'spacing',
             expected: `one of ${tokenValues.join(', ')}px`,
-            actual: borderRadius,
+            actual: value,
             severity: 'warning',
-            message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(', ')}px) (${selector})`,
+            message: `Non-token ${prop}: ${value}px (expected one of ${tokenValues.join(', ')}px) (${selector})`,
           });
         }
       }
     }
+    return violations;
+  },
+};
 
-    // Note: Spacing (sibling gaps) validation is skipped for complexity
+// ---------------------------------------------------------------------------
+// Registry — exported so external design-system extensions can add validators
+// ---------------------------------------------------------------------------
+
+export const tokenValidators: Map<string, TokenValidator> = new Map([
+  ['touchTargets', touchTargetValidator],
+  ['fontSizes', fontSizeValidator],
+  ['colors', colorValidator],
+  ['cornerRadius', cornerRadiusValidator],
+  ['spacing', spacingValidator],
+]);
+
+export type { TokenValidator };
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate UI elements against a design token specification
+ */
+export function validateAgainstTokens(
+  elements: EnhancedElement[],
+  spec: DesignTokenSpec
+): TokenViolation[] {
+  const violations: TokenViolation[] = [];
+  for (const [key, validator] of tokenValidators) {
+    if (spec.tokens[key as keyof typeof spec.tokens]) {
+      violations.push(...validator.validate(elements, spec));
+    }
   }
-
   return violations;
 }

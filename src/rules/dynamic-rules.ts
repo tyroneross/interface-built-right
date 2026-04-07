@@ -82,24 +82,9 @@ function generateRulesForPrinciple(
     rules.push(createTouchTargetRule(principle, frameworkName, index));
   }
 
-  // Hierarchy rules
-  if (keywords.has('hierarchy') || keywords.has('title') || keywords.has('description') || keywords.has('metadata')) {
-    rules.push(createHierarchyRule(principle, frameworkName, index));
-  }
-
   // Status/Color rules
   if (keywords.has('status') || keywords.has('color') || keywords.has('background')) {
     rules.push(createStatusColorRule(principle, frameworkName, index));
-  }
-
-  // Content-chrome ratio
-  if (keywords.has('content') || keywords.has('chrome') || keywords.has('70%')) {
-    rules.push(createContentChromeRule(principle, frameworkName, index));
-  }
-
-  // If no specific rules were generated, create a generic principle reminder rule
-  if (rules.length === 0) {
-    rules.push(createGenericPrincipleRule(principle, frameworkName, index));
   }
 
   return rules;
@@ -244,30 +229,6 @@ function createTouchTargetRule(
 }
 
 /**
- * Create a hierarchy rule from a principle
- */
-function createHierarchyRule(
-  principle: DesignPrinciple,
-  frameworkName: string,
-  index: number
-): DynamicRule {
-  return {
-    id: `${principle.id}-hierarchy`,
-    name: `${principle.name}: Content Hierarchy`,
-    description: principle.description,
-    defaultSeverity: 'warn',
-    principleId: principle.id,
-    framework: frameworkName,
-    principleIndex: index,
-    check: (_element: EnhancedElement, _context: RuleContext): Violation | null => {
-      // Hierarchy checks are more complex and require analyzing multiple elements
-      // This is a placeholder for future implementation
-      return null;
-    },
-  };
-}
-
-/**
  * Create a status color rule from a principle
  */
 function createStatusColorRule(
@@ -308,54 +269,6 @@ function createStatusColorRule(
         }
       }
 
-      return null;
-    },
-  };
-}
-
-/**
- * Create a content-chrome ratio rule from a principle
- */
-function createContentChromeRule(
-  principle: DesignPrinciple,
-  frameworkName: string,
-  index: number
-): DynamicRule {
-  return {
-    id: `${principle.id}-content-chrome`,
-    name: `${principle.name}: Content Ratio`,
-    description: principle.description,
-    defaultSeverity: 'warn',
-    principleId: principle.id,
-    framework: frameworkName,
-    principleIndex: index,
-    check: (_element: EnhancedElement, _context: RuleContext): Violation | null => {
-      // Content-chrome ratio requires page-level analysis
-      // This is a placeholder for future implementation
-      return null;
-    },
-  };
-}
-
-/**
- * Create a generic principle reminder rule
- */
-function createGenericPrincipleRule(
-  principle: DesignPrinciple,
-  frameworkName: string,
-  index: number
-): DynamicRule {
-  return {
-    id: `${principle.id}-reminder`,
-    name: `${principle.name}`,
-    description: principle.description,
-    defaultSeverity: 'warn',
-    principleId: principle.id,
-    framework: frameworkName,
-    principleIndex: index,
-    check: (_element: EnhancedElement, _context: RuleContext): Violation | null => {
-      // Generic rules don't check anything - they're for documentation
-      // Could be used to remind about principles during manual review
       return null;
     },
   };

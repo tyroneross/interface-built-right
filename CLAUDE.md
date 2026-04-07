@@ -1,4 +1,4 @@
-<!-- Plugin: ibr · Version: 0.7.0 · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
+<!-- Plugin: ibr · Version: 0.8.0 · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
 # IBR — Design Implementation Partner
@@ -61,9 +61,29 @@ Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
 
 Use scan first for property verification, add screenshot when visual confirmation needed.
 
+## Design System (v0.8.0)
+
+IBR now enforces design principles and tokens. When `.ibr/design-system.json` exists, scans check Calm Precision rules and token compliance automatically.
+
+| Tool | Use For |
+|------|---------|
+| `design_system` (action: init) | Initialize `.ibr/design-system.json` from template |
+| `design_system` (action: status) | View active design system config |
+| `design_system` (action: validate) | Report active principles and severities |
+
+**Scan output with design system:**
+- `designSystem.principleViolations` — Calm Precision rule failures (Gestalt, signal-to-noise, Fitts, Hick, content-chrome, cognitive load)
+- `designSystem.tokenViolations` — Off-system values (wrong font size, non-token color, off-scale spacing)
+- `designSystem.complianceScore` — 0-100 token compliance percentage
+
+**Core principles** (error): gestalt, signal-noise, content-chrome, cognitive-load
+**Stylistic principles** (warn): fitts, hick
+
+Skills: `/ibr:design-system` (config management), `/ibr:component-patterns` (pattern library), design-guidance (auto-activates when building UI)
+
 ## Slash Commands
 
-`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit`
+`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:design-system` `/ibr:component-patterns`
 
 Use skill for details.
 

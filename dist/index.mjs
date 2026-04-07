@@ -3,7 +3,7 @@ import { execFile, exec, spawn } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'fs';
 import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, readdir, rm, access, unlink, copyFile, appendFile, stat } from 'fs/promises';
-import { tmpdir, userInfo, homedir } from 'os';
+import { homedir, tmpdir, userInfo } from 'os';
 import * as path from 'path';
 import { join, dirname } from 'path';
 import pixelmatch from 'pixelmatch';
@@ -1275,6 +1275,29 @@ var MemorySummarySchema = z.object({
     bySource: z.record(z.string(), z.number())
   }),
   activePreferences: z.array(ActivePreferenceSchema)
+});
+var DesignSystemViolationSchema = z.object({
+  principleId: z.string(),
+  principleName: z.string(),
+  severity: z.enum(["error", "warn"]),
+  message: z.string(),
+  element: z.string().optional(),
+  bounds: BoundsSchema.optional(),
+  fix: z.string().optional()
+});
+var DesignSystemResultSchema = z.object({
+  configName: z.string(),
+  principleViolations: z.array(DesignSystemViolationSchema),
+  tokenViolations: z.array(z.object({
+    element: z.string(),
+    property: z.string(),
+    expected: z.union([z.string(), z.number()]),
+    actual: z.union([z.string(), z.number()]),
+    severity: z.enum(["error", "warning"]),
+    message: z.string()
+  })),
+  customViolations: z.array(DesignSystemViolationSchema),
+  complianceScore: z.number().min(0).max(100)
 });
 
 // src/engine/cdp/connection.ts
@@ -2838,6 +2861,27 @@ var EngineDriver = class {
     }
     await this.conn.close();
     await this.browser.close();
+    this.launched = false;
+  }
+  /**
+   * Release the CDP WebSocket for this driver without terminating the browser.
+   * Used by one-shot CLI commands that attach to a shared browser-server via
+   * connectExisting() — they must drop their WebSocket at the end of the
+   * command so the node process can exit, but the browser-server's Chrome
+   * process must keep running for subsequent commands.
+   *
+   * Closes the per-command tab that was spawned in connectExisting(), then
+   * closes the WebSocket. Does NOT call this.browser.close() (which would
+   * terminate the whole browser-server process).
+   */
+  async disconnect() {
+    if (this.targetId) {
+      await this.target.close(this.targetId).catch(() => {
+      });
+      this.targetId = null;
+    }
+    await this.conn.close().catch(() => {
+    });
     this.launched = false;
   }
   get isLaunched() {
@@ -8165,6 +8209,9 @@ function formatPreference(pref) {
   lines.push(`Updated: ${pref.updatedAt}`);
   return lines.join("\n");
 }
+var GLOBAL_DIR = join(homedir(), ".ibr", "global-memory");
+join(GLOBAL_DIR, "preferences");
+join(GLOBAL_DIR, "summary.json");
 var DecisionTypeSchema = z.enum([
   "css_change",
   "layout_change",
@@ -8770,14 +8817,730 @@ function detectLayoutCollisions(elements) {
     hasCollisions: collisions.length > 0
   };
 }
+var CustomCheckSchema = z.object({
+  property: z.string(),
+  operator: z.enum(["equals", "in-set", "not-in-set", "gte", "lte", "contains"]),
+  values: z.array(z.union([z.string(), z.number()]))
+});
+var CustomPrincipleSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string(),
+  category: z.string(),
+  severity: z.enum(["error", "warn", "off"]),
+  checks: z.array(CustomCheckSchema)
+});
+var CalmPrecisionConfigSchema = z.object({
+  core: z.array(z.string()).default(["gestalt", "signal-noise", "content-chrome", "cognitive-load"]),
+  stylistic: z.array(z.string()).default(["fitts", "hick"]),
+  severity: z.record(z.string(), z.enum(["error", "warn", "off"])).default({})
+});
+var TypographyTokensSchema = z.object({
+  fontFamilies: z.record(z.string(), z.string()).optional(),
+  fontSizes: z.record(z.string(), z.number()).optional(),
+  fontWeights: z.record(z.string(), z.number()).optional(),
+  lineHeights: z.record(z.string(), z.number()).optional()
+});
+var DesignSystemConfigSchema = z.object({
+  version: z.literal(1),
+  name: z.string(),
+  principles: z.object({
+    calmPrecision: CalmPrecisionConfigSchema.default({}),
+    custom: z.array(CustomPrincipleSchema).default([])
+  }).default({}),
+  tokens: z.object({
+    colors: z.record(z.string(), z.string()).optional(),
+    typography: TypographyTokensSchema.optional(),
+    spacing: z.array(z.number()).optional(),
+    borderRadius: z.record(z.string(), z.number()).optional(),
+    shadows: z.record(z.string(), z.string()).optional(),
+    transitions: z.record(z.string(), z.string()).optional(),
+    touchTargets: z.object({ min: z.number() }).optional()
+  }).default({})
+});
+async function loadDesignSystemConfig(projectDir) {
+  const configPath = join(projectDir, ".ibr", "design-system.json");
+  if (!existsSync(configPath)) {
+    return void 0;
+  }
+  const content = await readFile(configPath, "utf-8");
+  const raw = JSON.parse(content);
+  return DesignSystemConfigSchema.parse(raw);
+}
+function getDefaultSeverity(principleId, config) {
+  const explicit = config.principles.calmPrecision.severity[principleId];
+  if (explicit) return explicit;
+  if (config.principles.calmPrecision.core.includes(principleId)) return "error";
+  if (config.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
+  return "warn";
+}
+z.object({
+  colors: z.record(z.string(), z.string()).optional(),
+  typography: z.object({
+    fontFamilies: z.record(z.string(), z.string()).optional(),
+    fontSizes: z.record(z.string(), z.number()).optional(),
+    fontWeights: z.record(z.string(), z.number()).optional(),
+    lineHeights: z.record(z.string(), z.number()).optional()
+  }).optional(),
+  spacing: z.array(z.number()).optional(),
+  borderRadius: z.record(z.string(), z.number()).optional(),
+  shadows: z.record(z.string(), z.string()).optional(),
+  transitions: z.record(z.string(), z.string()).optional(),
+  touchTargets: z.object({ min: z.number() }).optional()
+});
+function toDesignTokenSpec(extended, name) {
+  return {
+    name,
+    tokens: {
+      colors: extended.colors,
+      spacing: extended.spacing ? Object.fromEntries(extended.spacing.map((v, i) => [`${i}`, v])) : void 0,
+      fontSizes: extended.typography?.fontSizes,
+      touchTargets: extended.touchTargets,
+      cornerRadius: extended.borderRadius
+    }
+  };
+}
+function loadTokenSpec(specPath) {
+  if (!existsSync(specPath)) {
+    throw new Error(`Token spec not found: ${specPath}`);
+  }
+  let spec;
+  try {
+    const content = readFileSync(specPath, "utf-8");
+    spec = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
+  }
+  const { tokens } = spec;
+  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
+  if (!hasAnyTokens) {
+    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
+  }
+  return spec;
+}
+function normalizeColor(color) {
+  if (!color) return "";
+  if (color.startsWith("#")) {
+    return color.toLowerCase();
+  }
+  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  return color.toLowerCase();
+}
+function parsePx(value) {
+  if (!value) return null;
+  const match = value.match(/^([\d.]+)px$/);
+  return match ? parseFloat(match[1]) : null;
+}
+var touchTargetValidator = {
+  name: "touchTargets",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.touchTargets) return violations;
+    const minSize = spec.tokens.touchTargets.min;
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
+      if (!isInteractive) continue;
+      const actualSize = Math.min(element.bounds.width, element.bounds.height);
+      if (actualSize < minSize) {
+        violations.push({
+          element: selector,
+          property: "touch-target",
+          expected: minSize,
+          actual: actualSize,
+          severity: "error",
+          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
+        });
+      }
+    }
+    return violations;
+  }
+};
+var fontSizeValidator = {
+  name: "fontSizes",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.fontSizes) return violations;
+    const tokenValues = Object.values(spec.tokens.fontSizes);
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      const fontSize = parsePx(element.computedStyles["font-size"]);
+      if (fontSize === null) continue;
+      if (!tokenValues.includes(fontSize)) {
+        violations.push({
+          element: selector,
+          property: "font-size",
+          expected: `one of ${tokenValues.join(", ")}px`,
+          actual: fontSize,
+          severity: "warning",
+          message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+        });
+      }
+    }
+    return violations;
+  }
+};
+var colorValidator = {
+  name: "colors",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.colors) return violations;
+    const tokenColors = new Set(
+      Object.values(spec.tokens.colors).map(normalizeColor)
+    );
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      const textColor = element.computedStyles["color"];
+      if (textColor) {
+        const normalized = normalizeColor(textColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: textColor,
+            severity: "warning",
+            message: `Non-token text color: ${textColor} (${selector})`
+          });
+        }
+      }
+      const bgColor = element.computedStyles["background-color"];
+      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
+        const normalized = normalizeColor(bgColor);
+        if (!tokenColors.has(normalized)) {
+          violations.push({
+            element: selector,
+            property: "color",
+            expected: "token color",
+            actual: bgColor,
+            severity: "warning",
+            message: `Non-token background color: ${bgColor} (${selector})`
+          });
+        }
+      }
+    }
+    return violations;
+  }
+};
+var cornerRadiusValidator = {
+  name: "cornerRadius",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.cornerRadius) return violations;
+    const tokenValues = Object.values(spec.tokens.cornerRadius);
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      const borderRadius = parsePx(element.computedStyles["border-radius"]);
+      if (borderRadius === null || borderRadius === 0) continue;
+      if (!tokenValues.includes(borderRadius)) {
+        violations.push({
+          element: selector,
+          property: "corner-radius",
+          expected: `one of ${tokenValues.join(", ")}px`,
+          actual: borderRadius,
+          severity: "warning",
+          message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+        });
+      }
+    }
+    return violations;
+  }
+};
+var spacingValidator = {
+  name: "spacing",
+  validate(elements, spec) {
+    const violations = [];
+    if (!spec.tokens.spacing) return violations;
+    const tokenValues = Object.values(spec.tokens.spacing);
+    for (const element of elements) {
+      const selector = element.selector || element.tagName || "unknown";
+      if (!element.computedStyles) continue;
+      for (const prop of ["gap", "padding", "margin"]) {
+        const raw = element.computedStyles[prop];
+        const value = parsePx(raw);
+        if (value === null || value === 0) continue;
+        if (!tokenValues.includes(value)) {
+          violations.push({
+            element: selector,
+            property: "spacing",
+            expected: `one of ${tokenValues.join(", ")}px`,
+            actual: value,
+            severity: "warning",
+            message: `Non-token ${prop}: ${value}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+          });
+        }
+      }
+    }
+    return violations;
+  }
+};
+var tokenValidators = /* @__PURE__ */ new Map([
+  ["touchTargets", touchTargetValidator],
+  ["fontSizes", fontSizeValidator],
+  ["colors", colorValidator],
+  ["cornerRadius", cornerRadiusValidator],
+  ["spacing", spacingValidator]
+]);
+function validateAgainstTokens(elements, spec) {
+  const violations = [];
+  for (const [key, validator] of tokenValidators) {
+    if (spec.tokens[key]) {
+      violations.push(...validator.validate(elements, spec));
+    }
+  }
+  return violations;
+}
+
+// src/design-system/tokens/validator.ts
+function validateFontWeights(elements, weights) {
+  const violations = [];
+  const validWeights = new Set(Object.values(weights));
+  for (const element of elements) {
+    const style = element.computedStyles;
+    if (!style) continue;
+    const fw = style["font-weight"];
+    if (!fw) continue;
+    const weight = parseInt(fw, 10);
+    if (isNaN(weight)) continue;
+    if (!validWeights.has(weight)) {
+      violations.push({
+        element: element.selector || element.tagName || "unknown",
+        property: "font-weight",
+        expected: `one of ${Array.from(validWeights).join(", ")}`,
+        actual: weight,
+        severity: "warning",
+        message: `Non-token font weight: ${weight} (expected one of ${Array.from(validWeights).join(", ")}) (${element.selector || element.tagName})`
+      });
+    }
+  }
+  return violations;
+}
+function validateLineHeights(elements, lineHeights) {
+  const violations = [];
+  const validHeights = new Set(Object.values(lineHeights));
+  for (const element of elements) {
+    const style = element.computedStyles;
+    if (!style) continue;
+    const lh = style["line-height"];
+    if (!lh || lh === "normal") continue;
+    let value;
+    const pxVal = parsePx(lh);
+    if (pxVal !== null) {
+      const fontSize = parsePx(style["font-size"]);
+      if (fontSize && fontSize > 0) {
+        value = Math.round(pxVal / fontSize * 100) / 100;
+      } else {
+        continue;
+      }
+    } else {
+      value = parseFloat(lh);
+      if (isNaN(value)) continue;
+    }
+    const isValid = Array.from(validHeights).some((vh) => Math.abs(vh - value) < 0.05);
+    if (!isValid) {
+      violations.push({
+        element: element.selector || element.tagName || "unknown",
+        property: "line-height",
+        expected: `one of ${Array.from(validHeights).join(", ")}`,
+        actual: value,
+        severity: "warning",
+        message: `Non-token line height: ${value} (expected one of ${Array.from(validHeights).join(", ")}) (${element.selector || element.tagName})`
+      });
+    }
+  }
+  return violations;
+}
+function validateExtendedTokens(elements, tokens, systemName) {
+  const violations = [];
+  const oldSpec = toDesignTokenSpec(tokens, systemName);
+  violations.push(...validateAgainstTokens(elements, oldSpec));
+  if (tokens.typography?.fontWeights) {
+    violations.push(...validateFontWeights(elements, tokens.typography.fontWeights));
+  }
+  if (tokens.typography?.lineHeights) {
+    violations.push(...validateLineHeights(elements, tokens.typography.lineHeights));
+  }
+  return violations;
+}
+function calculateComplianceScore(totalChecked, violationCount) {
+  if (totalChecked === 0) return 100;
+  const passing = totalChecked - violationCount;
+  return Math.round(passing / totalChecked * 100);
+}
+
+// src/design-system/principles/gestalt.ts
+var gestaltRules = [
+  {
+    id: "calm-precision/gestalt-grouping",
+    name: "Gestalt: Border Grouping",
+    description: "Related items should be grouped with a single border, not individually bordered",
+    defaultSeverity: "error",
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const hasBorder = style.border && style.border !== "none" && style.border !== "0px";
+      const borderWidth = style["border-width"];
+      const hasBorderWidth = borderWidth && borderWidth !== "0px";
+      const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
+      if ((hasBorder || hasBorderWidth) && isListItem) {
+        return {
+          ruleId: "calm-precision/gestalt-grouping",
+          ruleName: "Gestalt: Border Grouping",
+          severity: "error",
+          message: `List item "${(element.text || "").slice(0, 40)}" has individual border. Group related items with a single container border.`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: "Use single border around the group container with dividers between items, not individual item borders."
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/signal-noise.ts
+var signalNoiseRules = [
+  {
+    id: "calm-precision/signal-noise-status",
+    name: "Signal-to-Noise: Status Indication",
+    description: "Status should use text color only, not background badges",
+    defaultSeverity: "error",
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const text = (element.text || "").toLowerCase();
+      const isStatus = /\b(success|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)\b/i.test(text);
+      if (!isStatus) return null;
+      const bg = style.backgroundColor || style["background-color"];
+      if (!bg || bg === "transparent" || bg === "rgba(0, 0, 0, 0)") return null;
+      const subtleMatch = bg.match(/rgba?\([^)]*,\s*(0\.(?:0[0-9]|1[0-4]))\)/);
+      if (subtleMatch) return null;
+      return {
+        ruleId: "calm-precision/signal-noise-status",
+        ruleName: "Signal-to-Noise: Status Indication",
+        severity: "error",
+        message: `Status element "${text.slice(0, 30)}" has heavy background (${bg}). Use text color only for status.`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: "Remove background color. Use text color (green for success, red for error, yellow for warning) instead of background badges."
+      };
+    }
+  }
+];
+
+// src/design-system/principles/fitts.ts
+var fittsRules = [
+  {
+    id: "calm-precision/fitts-button-sizing",
+    name: "Fitts' Law: Button Sizing",
+    description: "Primary action buttons should be prominently sized",
+    defaultSeverity: "warn",
+    check: (element, _context) => {
+      if (element.tagName !== "button" && element.a11y?.role !== "button") return null;
+      const text = (element.text || "").toLowerCase();
+      const isPrimary = /\b(submit|save|confirm|checkout|buy|sign.?up|log.?in|register|continue|create|publish|send)\b/i.test(text);
+      if (!isPrimary) return null;
+      const width = element.bounds?.width || 0;
+      if (width > 0 && width < 120) {
+        return {
+          ruleId: "calm-precision/fitts-button-sizing",
+          ruleName: "Fitts' Law: Button Sizing",
+          severity: "warn",
+          message: `Primary action "${text.slice(0, 30)}" is ${width}px wide. Primary actions should be more prominent.`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: "Increase button width. Primary actions should be the most prominent interactive element."
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/hick.ts
+var hickRules = [
+  {
+    id: "calm-precision/hick-choice-count",
+    name: "Hick's Law: Choice Count",
+    description: "Limit visible choices to reduce decision time",
+    defaultSeverity: "warn",
+    check: (element, context) => {
+      if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
+      const y = element.bounds?.y || 0;
+      const siblings = context.allElements.filter((el) => {
+        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+        const elY = el.bounds?.y || 0;
+        return Math.abs(elY - y) < 20;
+      });
+      if (siblings.length > 7 && siblings[0]?.selector === element.selector) {
+        return {
+          ruleId: "calm-precision/hick-choice-count",
+          ruleName: "Hick's Law: Choice Count",
+          severity: "warn",
+          message: `${siblings.length} interactive elements in one visual row. Consider progressive disclosure (max 5-7 visible).`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: 'Group less-used options behind a "More" menu or overflow. Show max 5-7 choices at once.'
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/content-chrome.ts
+var contentChromeRules = [
+  {
+    id: "calm-precision/content-chrome-ratio",
+    name: "Content >= Chrome",
+    description: "Content area should be at least 70% of the viewport",
+    defaultSeverity: "warn",
+    check: (element, context) => {
+      if (context.allElements[0]?.selector !== element.selector) return null;
+      const viewportArea = context.viewportWidth * context.viewportHeight;
+      if (viewportArea === 0) return null;
+      const chromeSelectors = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
+      let chromeArea = 0;
+      for (const el of context.allElements) {
+        const isChrome = chromeSelectors.test(el.tagName) || chromeSelectors.test(el.selector || "") || chromeSelectors.test(el.a11y?.role || "");
+        if (isChrome && el.bounds) {
+          chromeArea += el.bounds.width * el.bounds.height;
+        }
+      }
+      const chromePercent = chromeArea / viewportArea * 100;
+      if (chromePercent > 30) {
+        return {
+          ruleId: "calm-precision/content-chrome-ratio",
+          ruleName: "Content >= Chrome",
+          severity: "warn",
+          message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport. Content should be >= 70%.`,
+          fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/cognitive-load.ts
+var cognitiveLoadRules = [
+  {
+    id: "calm-precision/cognitive-load-elements",
+    name: "Cognitive Load: Element Count",
+    description: "Visual groups should have 5-7 items max to stay within working memory limits",
+    defaultSeverity: "warn",
+    check: (element, context) => {
+      if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
+      if (!element.bounds) return null;
+      const { x, y, width, height } = element.bounds;
+      const children = context.allElements.filter((el) => {
+        if (el.selector === element.selector) return false;
+        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+        if (!el.bounds) return false;
+        return el.bounds.x >= x && el.bounds.y >= y && el.bounds.x + el.bounds.width <= x + width && el.bounds.y + el.bounds.height <= y + height;
+      });
+      if (children.length > 10) {
+        return {
+          ruleId: "calm-precision/cognitive-load-elements",
+          ruleName: "Cognitive Load: Element Count",
+          severity: "warn",
+          message: `Container has ${children.length} interactive elements. Consider grouping or progressive disclosure (5-7 max per group).`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: 'Group related actions. Use sections, tabs, or "Show more" to reduce visible elements per group.'
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/design-system/principles/calm-precision.ts
+var allCalmPrecisionRules = [
+  ...gestaltRules,
+  ...signalNoiseRules,
+  ...fittsRules,
+  ...hickRules,
+  ...contentChromeRules,
+  ...cognitiveLoadRules
+];
+var principleToRules = {
+  "gestalt": gestaltRules.map((r) => r.id),
+  "signal-noise": signalNoiseRules.map((r) => r.id),
+  "fitts": fittsRules.map((r) => r.id),
+  "hick": hickRules.map((r) => r.id),
+  "content-chrome": contentChromeRules.map((r) => r.id),
+  "cognitive-load": cognitiveLoadRules.map((r) => r.id)
+};
+
+// src/design-system/index.ts
+async function runDesignSystemCheck(elements, context, projectDir) {
+  const config = await loadDesignSystemConfig(projectDir);
+  if (!config) return void 0;
+  const principleViolations = [];
+  for (const rule of allCalmPrecisionRules) {
+    const principleId = Object.entries(principleToRules).find(
+      ([, ruleIds]) => ruleIds.includes(rule.id)
+    )?.[0];
+    if (!principleId) continue;
+    const severity = getDefaultSeverity(principleId, config);
+    if (severity === "off") continue;
+    for (const element of elements) {
+      const violation = rule.check(element, context);
+      if (violation) {
+        principleViolations.push({
+          principleId: rule.id,
+          principleName: rule.name,
+          severity: severity === "error" ? "error" : "warn",
+          message: violation.message,
+          element: violation.element,
+          bounds: violation.bounds,
+          fix: violation.fix
+        });
+      }
+    }
+  }
+  const customViolations = [];
+  for (const custom of config.principles.custom) {
+    if (custom.severity === "off") continue;
+    for (const element of elements) {
+      for (const check of custom.checks) {
+        const style = element.computedStyles;
+        if (!style) continue;
+        const actual = style[check.property];
+        if (!actual) continue;
+        let violated = false;
+        switch (check.operator) {
+          case "in-set":
+            violated = !check.values.map(String).includes(actual);
+            break;
+          case "not-in-set":
+            violated = check.values.map(String).includes(actual);
+            break;
+          case "equals":
+            violated = actual !== String(check.values[0]);
+            break;
+          case "gte":
+            violated = parseFloat(actual) < Number(check.values[0]);
+            break;
+          case "lte":
+            violated = parseFloat(actual) > Number(check.values[0]);
+            break;
+          case "contains":
+            violated = !String(check.values[0]).split(",").some((v) => actual.includes(v.trim()));
+            break;
+        }
+        if (violated) {
+          customViolations.push({
+            principleId: custom.id,
+            principleName: custom.name,
+            severity: custom.severity,
+            message: `${custom.name}: ${check.property} is "${actual}" (expected ${check.operator} ${check.values.join(", ")})`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: custom.description
+          });
+        }
+      }
+    }
+  }
+  const tokenViolations = config.tokens ? validateExtendedTokens(elements, config.tokens, config.name) : [];
+  const tokenCategories = Object.keys(config.tokens).filter(
+    (k) => config.tokens[k] !== void 0
+  ).length;
+  const totalChecked = elements.length * Math.max(tokenCategories, 1);
+  const complianceScore = calculateComplianceScore(totalChecked, tokenViolations.length);
+  return {
+    configName: config.name,
+    principleViolations,
+    tokenViolations,
+    customViolations,
+    complianceScore
+  };
+}
 
 // src/scan.ts
+var IssueCollector = class {
+  issues = [];
+  add(issue) {
+    this.issues.push(issue);
+  }
+  /**
+   * Add issues from a source array with varying shapes.
+   * Handles the different field names used across audit, interactivity, and semantic results.
+   */
+  addFrom(category, items, overrideCategory) {
+    for (const item of items) {
+      const description = item.message ?? item.description ?? item.problem ?? "";
+      const severity = item.severity ?? "info";
+      const resolvedCategory = overrideCategory ? overrideCategory(item) : category;
+      this.issues.push({
+        category: resolvedCategory,
+        severity,
+        element: item.element,
+        description,
+        fix: item.fix
+      });
+    }
+  }
+  /**
+   * Add console errors, skipping favicon/manifest noise.
+   */
+  addConsoleErrors(errors) {
+    for (const error of errors) {
+      if (error.includes("favicon") || error.includes("manifest")) continue;
+      this.issues.push({
+        category: "console",
+        severity: "error",
+        description: `Console error: ${error.slice(0, 200)}`
+      });
+    }
+  }
+  /**
+   * Add theme mismatch issue if present.
+   */
+  addThemeAnalysis(analysis) {
+    if (analysis?.themeMismatch) {
+      this.issues.push({
+        category: "semantic",
+        severity: "warning",
+        description: analysis.mismatchDetails ?? "Content card has different theme than page background",
+        fix: "Ensure content containers match the page theme (dark/light)"
+      });
+    }
+  }
+  /**
+   * Remove issues with identical descriptions, preserving first occurrence.
+   */
+  deduplicate() {
+    const seen = /* @__PURE__ */ new Set();
+    this.issues = this.issues.filter((issue) => {
+      if (seen.has(issue.description)) return false;
+      seen.add(issue.description);
+      return true;
+    });
+  }
+  getIssues() {
+    return [...this.issues];
+  }
+};
 async function scan(url, options = {}) {
   const {
     viewport: viewportOpt = "desktop",
     timeout = 3e4,
     waitFor,
-    screenshot
+    screenshot,
+    networkIdleTimeout,
+    patience
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
   const driver2 = new EngineDriver();
@@ -8800,10 +9563,14 @@ async function scan(url, options = {}) {
       waitUntil: "domcontentloaded",
       timeout
     });
-    await page.waitForLoadState?.("networkidle", { timeout: 1e4 }).catch(() => {
+    let networkIdleTimedOut = false;
+    await page.waitForLoadState?.("networkidle", { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+      networkIdleTimedOut = true;
     });
+    let waitForTimedOut = false;
     if (waitFor) {
-      await page.waitForSelector(waitFor, { timeout: 1e4 }).catch(() => {
+      await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+        waitForTimedOut = true;
       });
     }
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
@@ -8826,10 +9593,49 @@ async function scan(url, options = {}) {
       route = url;
     }
     const layoutCollisions = detectLayoutCollisions(elements.all);
+    const designSystem = await runDesignSystemCheck(
+      elements.all,
+      {
+        isMobile: resolvedViewport.width < 768,
+        viewportWidth: resolvedViewport.width,
+        viewportHeight: resolvedViewport.height,
+        url,
+        allElements: elements.all
+      },
+      options.outputDir || process.cwd()
+    ).catch(() => void 0);
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
+    if (designSystem) {
+      for (const v of designSystem.principleViolations) {
+        issues.push({
+          category: "design-system",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: v.message,
+          fix: v.fix
+        });
+      }
+      for (const v of designSystem.tokenViolations) {
+        issues.push({
+          category: "design-system",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: v.message
+        });
+      }
+      for (const v of designSystem.customViolations) {
+        issues.push({
+          category: "design-system",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: v.message,
+          fix: v.fix
+        });
+      }
+    }
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
-    return {
+    const baseResult = {
       url,
       route,
       timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -8844,10 +9650,19 @@ async function scan(url, options = {}) {
       coverage,
       layoutCollisions,
       themeAnalysis,
+      designSystem,
       verdict,
       issues,
       summary
     };
+    if (patience && (networkIdleTimedOut || waitForTimedOut)) {
+      return {
+        ...baseResult,
+        verdict: "PARTIAL",
+        partialReason: `Page still loading after ${patience}ms \u2014 ${networkIdleTimedOut ? "network still active" : "selector not found"}. Re-scan when content has loaded.`
+      };
+    }
+    return baseResult;
   } finally {
     await driver2.close();
   }
@@ -8859,50 +9674,28 @@ async function extractAndAudit(page, viewport) {
   return { all: elements, audit };
 }
 function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAnalysis) {
-  const issues = [];
-  for (const issue of audit.issues) {
-    issues.push({
-      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity",
-      severity: issue.severity,
-      element: issue.type === "TOUCH_TARGET_SMALL" ? void 0 : void 0,
-      description: issue.message
-    });
-  }
+  const collector = new IssueCollector();
+  collector.addFrom("interactivity", audit.issues.map((i) => ({
+    severity: i.severity,
+    message: i.message,
+    type: i.type
+  })), (item) => item.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity");
   const auditMessages = new Set(audit.issues.map((i) => i.message));
-  for (const issue of interactivity.issues) {
-    if (auditMessages.has(issue.description)) continue;
-    issues.push({
-      category: issue.type === "MISSING_LABEL" ? "accessibility" : "interactivity",
-      severity: issue.severity,
-      element: issue.element,
-      description: issue.description,
-      fix: getFixSuggestion(issue.type)
-    });
-  }
-  for (const issue of semantic.issues) {
-    issues.push({
-      category: "semantic",
-      severity: issue.severity,
-      description: issue.problem
-    });
-  }
-  if (themeAnalysis?.themeMismatch) {
-    issues.push({
-      category: "semantic",
-      severity: "warning",
-      description: themeAnalysis.mismatchDetails ?? "Content card has different theme than page background",
-      fix: "Ensure content containers match the page theme (dark/light)"
-    });
-  }
-  for (const error of consoleErrors) {
-    if (error.includes("favicon") || error.includes("manifest")) continue;
-    issues.push({
-      category: "console",
-      severity: "error",
-      description: `Console error: ${error.slice(0, 200)}`
-    });
-  }
-  return issues;
+  const interactivityFiltered = interactivity.issues.filter((i) => !auditMessages.has(i.description));
+  collector.addFrom("interactivity", interactivityFiltered.map((i) => ({
+    severity: i.severity,
+    description: i.description,
+    element: i.element,
+    type: i.type,
+    fix: getFixSuggestion(i.type)
+  })), (item) => item.type === "MISSING_LABEL" ? "accessibility" : "interactivity");
+  collector.addFrom("semantic", semantic.issues.map((i) => ({
+    severity: i.severity,
+    problem: i.problem
+  })));
+  collector.addThemeAnalysis(themeAnalysis);
+  collector.addConsoleErrors(consoleErrors);
+  return collector.getIssues();
 }
 function determineVerdict2(issues) {
   const errorCount = issues.filter((i) => i.severity === "error").length;
@@ -8968,7 +9761,7 @@ function getFixSuggestion(type) {
 }
 function formatScanResult(result) {
   const lines = [];
-  const verdictIcon2 = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+  const verdictIcon2 = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : result.verdict === "PARTIAL" ? "\x1B[33m~\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   lines.push("  IBR UI SCAN");
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
@@ -9046,135 +9839,16 @@ function formatScanResult(result) {
   } else {
     lines.push("  No issues detected.");
   }
+  if (result.verdict === "PARTIAL" && result.partialReason) {
+    lines.push("");
+    lines.push("  PARTIAL SCAN");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+    lines.push(`  \x1B[33m!\x1B[0m ${result.partialReason}`);
+    lines.push("  Re-scan when the page has finished loading.");
+  }
   lines.push("");
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
-}
-function loadTokenSpec(specPath) {
-  if (!existsSync(specPath)) {
-    throw new Error(`Token spec not found: ${specPath}`);
-  }
-  let spec;
-  try {
-    const content = readFileSync(specPath, "utf-8");
-    spec = JSON.parse(content);
-  } catch (err) {
-    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
-  }
-  const { tokens } = spec;
-  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
-  if (!hasAnyTokens) {
-    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
-  }
-  return spec;
-}
-function normalizeColor(color) {
-  if (!color) return "";
-  if (color.startsWith("#")) {
-    return color.toLowerCase();
-  }
-  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
-  if (rgbMatch) {
-    const r = parseInt(rgbMatch[1], 10);
-    const g = parseInt(rgbMatch[2], 10);
-    const b = parseInt(rgbMatch[3], 10);
-    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
-  }
-  return color.toLowerCase();
-}
-function parsePx(value) {
-  if (!value) return null;
-  const match = value.match(/^([\d.]+)px$/);
-  return match ? parseFloat(match[1]) : null;
-}
-function validateAgainstTokens(elements, spec) {
-  const violations = [];
-  for (const element of elements) {
-    const selector = element.selector || element.tagName || "unknown";
-    const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
-    if (spec.tokens.touchTargets && isInteractive) {
-      const minSize = spec.tokens.touchTargets.min;
-      const actualSize = Math.min(element.bounds.width, element.bounds.height);
-      if (actualSize < minSize) {
-        violations.push({
-          element: selector,
-          property: "touch-target",
-          expected: minSize,
-          actual: actualSize,
-          severity: "error",
-          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
-        });
-      }
-    }
-    if (spec.tokens.fontSizes && element.computedStyles) {
-      const fontSize = parsePx(element.computedStyles["font-size"]);
-      if (fontSize !== null) {
-        const tokenValues = Object.values(spec.tokens.fontSizes);
-        const isTokenValue = tokenValues.includes(fontSize);
-        if (!isTokenValue) {
-          violations.push({
-            element: selector,
-            property: "font-size",
-            expected: `one of ${tokenValues.join(", ")}px`,
-            actual: fontSize,
-            severity: "warning",
-            message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
-          });
-        }
-      }
-    }
-    if (spec.tokens.colors && element.computedStyles) {
-      const tokenColors = new Set(
-        Object.values(spec.tokens.colors).map(normalizeColor)
-      );
-      const textColor = element.computedStyles["color"];
-      if (textColor) {
-        const normalized = normalizeColor(textColor);
-        if (!tokenColors.has(normalized)) {
-          violations.push({
-            element: selector,
-            property: "color",
-            expected: "token color",
-            actual: textColor,
-            severity: "warning",
-            message: `Non-token text color: ${textColor} (${selector})`
-          });
-        }
-      }
-      const bgColor = element.computedStyles["background-color"];
-      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
-        const normalized = normalizeColor(bgColor);
-        if (!tokenColors.has(normalized)) {
-          violations.push({
-            element: selector,
-            property: "color",
-            expected: "token color",
-            actual: bgColor,
-            severity: "warning",
-            message: `Non-token background color: ${bgColor} (${selector})`
-          });
-        }
-      }
-    }
-    if (spec.tokens.cornerRadius && element.computedStyles) {
-      const borderRadius = parsePx(element.computedStyles["border-radius"]);
-      if (borderRadius !== null && borderRadius > 0) {
-        const tokenValues = Object.values(spec.tokens.cornerRadius);
-        const isTokenValue = tokenValues.includes(borderRadius);
-        if (!isTokenValue) {
-          violations.push({
-            element: selector,
-            property: "corner-radius",
-            expected: `one of ${tokenValues.join(", ")}px`,
-            actual: borderRadius,
-            severity: "warning",
-            message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
-          });
-        }
-      }
-    }
-  }
-  return violations;
 }
 
 // src/native/viewports.ts
@@ -10877,6 +11551,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listLearned, listPreferences, listSessions, loadCompactContext, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removePreference, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, setActiveRoute, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

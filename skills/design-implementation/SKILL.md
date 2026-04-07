@@ -177,4 +177,19 @@ When the user provides a reference design (via `ibr screenshot` or an external U
 5. Fix gaps and re-scan
 6. Take a screenshot of the implementation and compare visually
 
+## Design System Integration
+
+When a project has `.ibr/design-system.json`, the design system is active during implementation:
+
+1. **Before building** — Load the design-guidance skill for aesthetic direction and component pattern selection
+2. **Token reference** — Use token values from the config instead of arbitrary values. Check `tokens.colors` for palette, `tokens.typography` for font scale, `tokens.spacing` for gaps/padding.
+3. **Principle enforcement** — The scan pipeline automatically checks Calm Precision principles when the design system is active. Core principles (Gestalt, signal-to-noise) surface as errors. Stylistic (Fitts, Hick) surface as warnings.
+4. **During scan** — The `designSystem` field in scan output reports:
+   - `principleViolations` — Calm Precision rule failures
+   - `tokenViolations` — Off-system values (wrong font size, non-token color)
+   - `complianceScore` — 0-100 score
+5. **Component patterns** — Load the component-patterns skill for opinionated blueprints
+
+If no design system config exists, scans work exactly as before — no design system checks run.
+
 *ibr — design implementation*

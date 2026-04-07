@@ -253,3 +253,4 @@ export async function loadMemoryPreset(outputDir: string): Promise<void> {
 
 // Auto-register presets on import
 import('./presets/minimal.js').then(m => m.register()).catch(() => {});
+import('./presets/calm-precision.js').then(m => m.register()).catch(() => {});
