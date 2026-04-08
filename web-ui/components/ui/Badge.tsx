@@ -1,6 +1,6 @@
 import React from 'react';
 
-export type BadgeVariant = 'match' | 'changed' | 'broken' | 'pending' | 'expected';
+export type BadgeVariant = 'match' | 'changed' | 'broken' | 'active' | 'pending' | 'expected';
 
 export interface BadgeProps {
   variant: BadgeVariant;
@@ -9,35 +9,20 @@ export interface BadgeProps {
 }
 
 /**
- * Badge component following Calm Precision guidelines:
- * - Text color only for status (no background boxes)
- * - Clear semantic meaning through color
- * - Contrast ratios meet WCAG AA standards (4.5:1 minimum)
+ * Aurora Deep Badge — text color only, no background.
+ * Status communicated through color weight alone.
  */
-export const Badge: React.FC<BadgeProps> = ({
-  variant,
-  children,
-  className = ''
-}) => {
-  // Text color only per Calm Precision - no background boxes
-  // Colors from design-3-updated.html status patterns
-  const variantClasses: Record<BadgeVariant, string> = {
-    match: 'text-green-600',      // Success state
-    changed: 'text-amber-600',    // Warning/attention state
-    broken: 'text-red-600',       // Error state
-    pending: 'text-gray-500',     // Neutral/inactive state
-    expected: 'text-blue-600'     // Info state
-  };
-
-  const classes = [
-    'text-xs font-medium',
-    variantClasses[variant],
-    className
-  ].join(' ');
-
-  return (
-    <span className={classes}>
-      {children}
-    </span>
-  );
+const variantClasses: Record<BadgeVariant, string> = {
+  match: 'text-[#34d399]',
+  changed: 'text-[#fbbf24]',
+  broken: 'text-[#fb7185]',
+  active: 'text-[#818cf8]',
+  pending: 'text-[#5a5a72]',
+  expected: 'text-[#818cf8]',
 };
+
+export const Badge: React.FC<BadgeProps> = ({ variant, children, className = '' }) => (
+  <span className={`text-xs font-medium ${variantClasses[variant]} ${className}`}>
+    {children}
+  </span>
+);

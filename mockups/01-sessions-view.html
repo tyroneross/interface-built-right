@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IBR — Sessions View (Wireframe)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #060611;
+      --surface: rgba(255,255,255,0.025);
+      --glass-border: rgba(255,255,255,0.06);
+      --primary: #f0f0f5;
+      --secondary: #9d9db5;
+      --muted: #5a5a72;
+      --indigo: #818cf8;
+      --indigo-glow: rgba(129,140,248,0.12);
+      --emerald: #34d399;
+      --rose: #fb7185;
+      --amber: #fbbf24;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--primary);
+      font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+      margin: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 56px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--glass-border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 12px 0;
+    }
+
+    .nav-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .nav-icon.active {
+      background: var(--indigo-glow);
+      border: 1px solid var(--indigo);
+    }
+
+    /* ── Library ── */
+    .library {
+      width: 220px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--glass-border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .search-input {
+      width: 100%;
+      padding: 7px 10px;
+      background: transparent;
+      border: 1px solid var(--glass-border);
+      border-radius: 4px;
+      color: var(--primary);
+      font-size: 12px;
+      outline: none;
+    }
+
+    .search-input::placeholder { color: var(--muted); }
+
+    .session-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      position: relative;
+      border-top: 1px solid var(--glass-border);
+    }
+
+    .session-item:first-child { border-top: none; }
+
+    .session-item.selected {
+      background: rgba(129,140,248,0.06);
+    }
+
+    .session-item.selected::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 2px;
+      background: var(--indigo);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    /* ── Canvas ── */
+    .canvas-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+
+    .view-tab {
+      padding: 3px 10px;
+      font-size: 12px;
+      color: var(--muted);
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+    }
+
+    .view-tab.active {
+      color: var(--indigo);
+      border-bottom-color: var(--indigo);
+    }
+
+    .img-placeholder {
+      border: 1px dashed var(--muted);
+      background: rgba(255,255,255,0.01);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    /* ── Details ── */
+    .details-panel {
+      width: 240px;
+      flex-shrink: 0;
+      border-left: 1px solid var(--glass-border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      border-radius: 4px;
+      border: 1px solid var(--glass-border);
+      background: transparent;
+      color: var(--secondary);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    .icon-btn:hover { border-color: var(--secondary); }
+
+    .wf-textarea {
+      width: 100%;
+      background: transparent;
+      border: 1px solid var(--glass-border);
+      border-radius: 4px;
+      color: var(--secondary);
+      font-size: 12px;
+      padding: 7px 10px;
+      resize: none;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .wf-textarea::placeholder { color: var(--muted); }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--glass-border);
+      margin: 0;
+    }
+
+    .scrollable {
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: var(--muted) transparent;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Prototype label -->
+<div style="position:fixed;top:8px;right:12px;z-index:50;font-size:10px;letter-spacing:0.1em;text-transform:uppercase;color:var(--muted);border:1px solid var(--muted);padding:2px 8px;border-radius:3px;">Wireframe</div>
+
+<div style="display:flex;height:100vh;width:100vw;overflow:hidden;">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+
+    <div style="width:28px;height:28px;background:var(--indigo-glow);border:1px solid var(--indigo);border-radius:4px;margin-bottom:20px;display:flex;align-items:center;justify-content:center;">
+      <span style="font-size:10px;font-weight:700;color:var(--indigo);">IBR</span>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px;align-items:center;flex:1;">
+
+      <!-- Sessions (active) -->
+      <div class="nav-icon active">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="1" y="1" width="5" height="5" rx="1" stroke="var(--indigo)" stroke-width="1.2"/>
+          <rect x="8" y="1" width="5" height="5" rx="1" stroke="var(--indigo)" stroke-width="1.2"/>
+          <rect x="1" y="8" width="5" height="5" rx="1" stroke="var(--indigo)" stroke-width="1.2"/>
+          <rect x="8" y="8" width="5" height="5" rx="1" stroke="var(--indigo)" stroke-width="1.2"/>
+        </svg>
+      </div>
+
+      <!-- Design System -->
+      <div class="nav-icon">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <circle cx="7" cy="7" r="5" stroke="var(--muted)" stroke-width="1.2"/>
+          <circle cx="7" cy="7" r="2" stroke="var(--muted)" stroke-width="1.2"/>
+        </svg>
+      </div>
+
+      <!-- Workflows -->
+      <div class="nav-icon">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M2 4h10M2 7h7M2 10h5" stroke="var(--muted)" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+      <!-- Native Testing -->
+      <div class="nav-icon">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <rect x="3" y="1" width="8" height="12" rx="1.5" stroke="var(--muted)" stroke-width="1.2"/>
+          <line x1="5" y1="10.5" x2="9" y2="10.5" stroke="var(--muted)" stroke-width="1.2" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+    </div>
+
+    <!-- Settings -->
+    <div class="nav-icon" style="margin-bottom:4px;">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <circle cx="7" cy="7" r="2" stroke="var(--muted)" stroke-width="1.2"/>
+        <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.8 2.8l1.06 1.06M10.14 10.14l1.06 1.06M2.8 11.2l1.06-1.06M10.14 3.86l1.06-1.06" stroke="var(--muted)" stroke-width="1.2" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+  </aside>
+
+  <!-- ── LIBRARY ── -->
+  <div class="library">
+
+    <div style="padding:12px 12px 10px;">
+      <input class="search-input" type="text" placeholder="Search..." />
+    </div>
+
+    <div class="scrollable" style="flex:1;">
+      <div style="border-top:1px solid var(--glass-border);">
+
+        <!-- Item 1 — selected, match -->
+        <div class="session-item selected">
+          <div style="flex:1;min-width:0;">
+            <span style="font-size:12px;color:var(--primary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">Homepage Hero</span>
+          </div>
+          <span style="font-size:11px;color:var(--emerald);flex-shrink:0;">0.0%</span>
+          <div class="status-dot" style="background:var(--emerald);"></div>
+        </div>
+
+        <!-- Item 2 — match -->
+        <div class="session-item">
+          <div style="flex:1;min-width:0;">
+            <span style="font-size:12px;color:var(--primary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">Pricing Table</span>
+          </div>
+          <span style="font-size:11px;color:var(--emerald);flex-shrink:0;">0.0%</span>
+          <div class="status-dot" style="background:var(--emerald);"></div>
+        </div>
+
+        <!-- Item 3 — changed -->
+        <div class="session-item">
+          <div style="flex:1;min-width:0;">
+            <span style="font-size:12px;color:var(--primary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">Nav · Mobile</span>
+          </div>
+          <span style="font-size:11px;color:var(--amber);flex-shrink:0;">3.2%</span>
+          <div class="status-dot" style="background:var(--amber);"></div>
+        </div>
+
+        <!-- Item 4 — changed -->
+        <div class="session-item">
+          <div style="flex:1;min-width:0;">
+            <span style="font-size:12px;color:var(--primary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">Dashboard Overview</span>
+          </div>
+          <span style="font-size:11px;color:var(--amber);flex-shrink:0;">1.8%</span>
+          <div class="status-dot" style="background:var(--amber);"></div>
+        </div>
+
+        <!-- Item 5 — broken -->
+        <div class="session-item">
+          <div style="flex:1;min-width:0;">
+            <span style="font-size:12px;color:var(--primary);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;">Checkout · Step 2</span>
+          </div>
+          <span style="font-size:11px;color:var(--rose);flex-shrink:0;">12.4%</span>
+          <div class="status-dot" style="background:var(--rose);"></div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── CANVAS ── -->
+  <div class="canvas-area">
+
+    <!-- Top bar: view tabs only -->
+    <div style="height:44px;border-bottom:1px solid var(--glass-border);display:flex;align-items:flex-end;justify-content:flex-end;padding:0 16px;flex-shrink:0;">
+      <div style="display:flex;gap:0;">
+        <button class="view-tab active">Split</button>
+        <button class="view-tab">Overlay</button>
+        <button class="view-tab">Diff</button>
+      </div>
+    </div>
+
+    <!-- Comparison area -->
+    <div style="flex:1;padding:16px;display:flex;gap:3px;min-height:0;overflow:hidden;">
+
+      <!-- Baseline -->
+      <div class="img-placeholder" style="flex:1;border-radius:4px 0 0 4px;">
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+          <rect x="2" y="2" width="28" height="28" rx="2" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <path d="M8 22l6-6 4 4 3-3 5 5" stroke="var(--muted)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="11" cy="13" r="2.5" stroke="var(--muted)" stroke-width="1.2"/>
+        </svg>
+        <span style="font-size:11px;color:var(--muted);">Baseline</span>
+      </div>
+
+      <!-- Current -->
+      <div class="img-placeholder" style="flex:1;border-radius:0 4px 4px 0;">
+        <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+          <rect x="2" y="2" width="28" height="28" rx="2" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="3 3"/>
+          <path d="M8 22l6-6 4 4 3-3 5 5" stroke="var(--muted)" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="11" cy="13" r="2.5" stroke="var(--muted)" stroke-width="1.2"/>
+        </svg>
+        <span style="font-size:11px;color:var(--muted);">Current</span>
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- ── DETAILS ── -->
+  <aside class="details-panel">
+
+    <!-- Session identity -->
+    <div style="padding:14px 14px 12px;">
+      <div style="font-size:13px;color:var(--primary);font-weight:600;margin-bottom:3px;">Homepage Hero</div>
+      <div style="font-size:11px;color:var(--muted);font-family:monospace;">localhost:3000/</div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Verdict + diff: single stat line -->
+    <div style="padding:12px 14px;">
+      <span style="font-size:12px;font-weight:600;color:var(--emerald);letter-spacing:0.05em;">MATCH</span>
+      <span style="font-size:12px;color:var(--muted);margin:0 6px;">·</span>
+      <span style="font-size:12px;color:var(--secondary);">0.0%</span>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Analysis: 2 lines, no header -->
+    <div style="padding:12px 14px;display:flex;flex-direction:column;gap:5px;">
+      <div style="height:11px;background:var(--surface);border:1px solid var(--glass-border);border-radius:2px;width:100%;"></div>
+      <div style="height:11px;background:var(--surface);border:1px solid var(--glass-border);border-radius:2px;width:72%;"></div>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Actions: icon row -->
+    <div style="padding:12px 14px;display:flex;gap:8px;">
+      <button class="icon-btn" title="Re-run comparison">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <path d="M1.5 7a5.5 5.5 0 1 0 1.2-3.4" stroke="var(--secondary)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M1.5 3v4h4" stroke="var(--secondary)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="icon-btn" title="Accept as baseline" style="color:var(--emerald);border-color:rgba(52,211,153,0.2);">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <path d="M2 7l4 4 6-6" stroke="var(--emerald)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <button class="icon-btn" title="Delete session" style="color:var(--rose);border-color:rgba(251,113,133,0.2);">
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
+          <path d="M2 2l10 10M12 2L2 12" stroke="var(--rose)" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+
+    <hr class="divider" />
+
+    <!-- Feedback: textarea + send -->
+    <div style="padding:12px 14px 16px;">
+      <textarea class="wf-textarea" rows="3" placeholder="Describe what looks wrong..."></textarea>
+      <div style="margin-top:8px;display:flex;justify-content:flex-end;">
+        <button style="padding:4px 12px;font-size:11px;border-radius:4px;border:1px solid rgba(129,140,248,0.35);background:var(--indigo-glow);color:var(--indigo);cursor:pointer;">Send</button>
+      </div>
+    </div>
+
+  </aside>
+
+</div>
+</body>
+</html>

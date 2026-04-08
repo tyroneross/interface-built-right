@@ -7,24 +7,29 @@ interface ViewTabsProps {
   onChange: (mode: ViewMode) => void;
 }
 
-export default function ViewTabs({ value, onChange }: ViewTabsProps) {
-  const tabs: { mode: ViewMode; label: string }[] = [
-    { mode: 'split', label: 'Split' },
-    { mode: 'overlay', label: 'Overlay' },
-    { mode: 'diff', label: 'Diff' },
-  ];
+const tabs: { mode: ViewMode; label: string }[] = [
+  { mode: 'split', label: 'Split' },
+  { mode: 'overlay', label: 'Overlay' },
+  { mode: 'diff', label: 'Diff' },
+];
 
+/**
+ * Aurora Deep underline text tabs (not pill toggles).
+ */
+export default function ViewTabs({ value, onChange }: ViewTabsProps) {
   return (
-    <div className="inline-flex overflow-hidden rounded-lg border border-gray-200 bg-white">
-      {tabs.map((tab, index) => (
+    <div className="flex gap-4">
+      {tabs.map((tab) => (
         <button
           key={tab.mode}
           onClick={() => onChange(tab.mode)}
-          className={`min-h-[40px] border-none px-4 py-2 text-sm transition-colors ${
-            value === tab.mode
-              ? 'bg-gray-900 text-white'
-              : 'bg-transparent text-gray-600 hover:bg-gray-50'
-          } ${index > 0 ? 'border-l border-gray-200' : ''}`}
+          className={`
+            pb-1 text-[13px] font-medium border-b-2 transition-colors duration-200
+            ${value === tab.mode
+              ? 'text-[#818cf8] border-[#818cf8]'
+              : 'text-[#5a5a72] border-transparent hover:text-[#9d9db5]'
+            }
+          `}
         >
           {tab.label}
         </button>

@@ -1,6 +1,122 @@
 @import 'tailwindcss';
 
-/* Skeleton loading animation */
+/* ── Aurora Deep Theme ─────────────────────────────────────── */
+
+:root {
+  /* Background */
+  --bg-base: #060611;
+
+  /* Surfaces */
+  --surface-glass: rgba(255, 255, 255, 0.025);
+  --surface-glass-hover: rgba(255, 255, 255, 0.05);
+  --surface-glass-border: rgba(255, 255, 255, 0.06);
+  --surface-input: rgba(255, 255, 255, 0.03);
+  --surface-active: rgba(129, 140, 248, 0.12);
+
+  /* Text */
+  --text-primary: #f0f0f5;
+  --text-secondary: #9d9db5;
+  --text-muted: #5a5a72;
+
+  /* Status */
+  --status-match: #34d399;
+  --status-changed: #fbbf24;
+  --status-broken: #fb7185;
+  --status-active: #818cf8;
+  --status-pending: #5a5a72;
+
+  /* Accent */
+  --accent-indigo: #818cf8;
+  --accent-indigo-dark: #6366f1;
+  --accent-gradient: linear-gradient(135deg, #818cf8, #6366f1);
+  --accent-glow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  --focus-ring: 0 0 0 3px rgba(129, 140, 248, 0.12);
+
+  /* Glass */
+  --glass-blur: blur(12px);
+  --glass-blur-heavy: blur(20px);
+  --glass-radius: 12px;
+
+  /* Motion */
+  --transition-interactive: 0.2s ease;
+  --transition-card: 0.25s ease;
+}
+
+/* ── Body ──────────────────────────────────────────────────── */
+
+body {
+  background: var(--bg-base);
+  background-image:
+    radial-gradient(ellipse at 15% 30%, rgba(99, 102, 241, 0.07) 0%, transparent 50%),
+    radial-gradient(ellipse at 75% 15%, rgba(34, 211, 238, 0.05) 0%, transparent 45%),
+    radial-gradient(ellipse at 50% 85%, rgba(167, 139, 250, 0.04) 0%, transparent 50%);
+  background-attachment: fixed;
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Glass Surfaces ────────────────────────────────────────── */
+
+.glass {
+  background: var(--surface-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--glass-radius);
+}
+
+.glass-heavy {
+  background: var(--surface-glass);
+  backdrop-filter: var(--glass-blur-heavy);
+  -webkit-backdrop-filter: var(--glass-blur-heavy);
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--glass-radius);
+}
+
+.glass-input {
+  background: var(--surface-input);
+  border: 1px solid var(--surface-glass-border);
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 13px;
+  padding: 10px 16px;
+  transition: border-color var(--transition-interactive),
+    box-shadow var(--transition-interactive);
+  outline: none;
+}
+
+.glass-input::placeholder {
+  color: var(--text-muted);
+}
+
+.glass-input:focus {
+  border-color: var(--accent-indigo);
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Skeleton Loading ──────────────────────────────────────── */
+
 @keyframes shimmer {
   0% {
     background-position: 200% 0;
@@ -12,4 +128,46 @@
 
 .animate-shimmer {
   animation: shimmer 1.5s infinite;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.06) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 200% 100%;
+}
+
+/* ── Pulsing Status Dot ────────────────────────────────────── */
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* ── Reduced Motion ────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Selection ─────────────────────────────────────────────── */
+
+::selection {
+  background: rgba(129, 140, 248, 0.3);
+  color: var(--text-primary);
 }

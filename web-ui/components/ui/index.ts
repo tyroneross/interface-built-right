@@ -1,6 +1,5 @@
 /**
- * UI Components Library
- * Following Calm Precision design guidelines
+ * UI Components Library — Aurora Deep
  */
 
 export { Button } from './Button';
@@ -12,7 +11,7 @@ export type { ModalProps } from './Modal';
 export { Badge } from './Badge';
 export type { BadgeProps, BadgeVariant } from './Badge';
 
-export { Skeleton, SkeletonListItem, SkeletonCard } from './Skeleton';
+export { Skeleton, SkeletonListItem } from './Skeleton';
 export type { SkeletonProps, SkeletonVariant } from './Skeleton';
 
 export { ImageModal } from './ImageModal';

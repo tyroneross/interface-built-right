@@ -1,7 +1,7 @@
 import React from 'react';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
-export type ButtonSize = 'sm' | 'md' | 'lg';
+export type ButtonVariant = 'primary' | 'glass' | 'ghost' | 'destructive';
+export type ButtonSize = 'sm' | 'md' | 'lg' | 'icon';
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
@@ -12,10 +12,11 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 /**
- * Button component following Calm Precision guidelines:
- * - Size matches user intent weight (Fitts' Law)
- * - Touch targets >= 44px on mobile
- * - Clear visual hierarchy through color and weight
+ * Aurora Deep Button
+ * Primary: indigo gradient CTA with glow hover
+ * Glass: translucent surface button
+ * Ghost: transparent text button
+ * Destructive: rose text, transparent bg
  */
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   (
@@ -31,33 +32,50 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     },
     ref
   ) => {
-    // Base classes - 8pt grid spacing, accessible touch targets
-    const baseClasses = 'inline-flex items-center justify-center gap-1.5 font-medium rounded-lg border-none cursor-pointer transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed';
+    const base =
+      'inline-flex items-center justify-center gap-1.5 font-medium rounded-xl cursor-pointer transition-all duration-200 outline-none';
 
-    // Variant classes - text color only for status (Calm Precision)
-    const variantClasses: Record<ButtonVariant, string> = {
-      primary: 'bg-gray-900 text-white hover:bg-gray-700 active:bg-gray-800',
-      secondary: 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-gray-300',
-      ghost: 'bg-transparent text-gray-600 hover:bg-gray-100 hover:text-gray-900',
-      danger: 'bg-transparent text-red-600 hover:bg-red-50'
+    const variants: Record<ButtonVariant, string> = {
+      primary: [
+        'text-white border-none',
+        'bg-gradient-to-br from-[#818cf8] to-[#6366f1]',
+        'hover:shadow-[0_4px_20px_rgba(99,102,241,0.4)] hover:-translate-y-px',
+        'disabled:text-[#5a5a72] disabled:from-[rgba(255,255,255,0.03)] disabled:to-[rgba(255,255,255,0.03)] disabled:shadow-none disabled:translate-y-0',
+      ].join(' '),
+      glass: [
+        'text-[#9d9db5] bg-[rgba(255,255,255,0.03)]',
+        'border border-[rgba(255,255,255,0.06)]',
+        'hover:bg-[rgba(255,255,255,0.05)] hover:text-[#f0f0f5]',
+        'disabled:text-[#5a5a72] disabled:bg-[rgba(255,255,255,0.02)]',
+      ].join(' '),
+      ghost: [
+        'text-[#5a5a72] bg-transparent border-none',
+        'hover:text-[#9d9db5] hover:bg-[rgba(255,255,255,0.025)]',
+        'disabled:text-[#3a3a4a]',
+      ].join(' '),
+      destructive: [
+        'text-[#fb7185] bg-transparent border-none',
+        'hover:bg-[rgba(251,113,133,0.08)]',
+        'disabled:text-[#5a5a72]',
+      ].join(' '),
     };
 
-    // Size classes - minimum 44px height for mobile touch targets
-    const sizeClasses: Record<ButtonSize, string> = {
-      sm: 'h-9 px-3 text-xs min-w-[44px]', // 36px height, min-width ensures touch target
-      md: 'h-9 px-4 text-sm min-w-[44px]', // 36px height for desktop
-      lg: 'h-11 px-4 text-sm min-w-[44px]'  // 44px height - full mobile compliance
+    const sizes: Record<ButtonSize, string> = {
+      sm: 'h-9 px-3 text-xs min-w-[44px]',
+      md: 'h-9 px-4 text-[13px] min-w-[44px]',
+      lg: 'h-11 px-5 text-sm min-w-[44px]',
+      icon: 'h-9 w-9 p-0 min-w-[36px]',
     };
-
-    // Icon-only button (square with min touch target)
-    const iconOnlyClasses = !children && icon ? 'w-9 p-0 min-w-[44px]' : '';
 
     const classes = [
-      baseClasses,
-      variantClasses[variant],
-      iconOnlyClasses || sizeClasses[size],
-      className
-    ].join(' ');
+      base,
+      variants[variant],
+      sizes[size],
+      disabled || loading ? 'cursor-not-allowed' : '',
+      className,
+    ]
+      .filter(Boolean)
+      .join(' ');
 
     return (
       <button
@@ -70,7 +88,6 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {loading ? (
           <svg
             className="animate-spin h-4 w-4"
-            xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
             aria-label="Loading"

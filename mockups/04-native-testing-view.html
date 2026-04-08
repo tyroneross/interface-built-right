@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IBR — Native Testing View (Wireframe)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #060611;
+      --surface: rgba(255,255,255,0.025);
+      --glass-border: rgba(255,255,255,0.06);
+      --primary: #f0f0f5;
+      --secondary: #9d9db5;
+      --muted: #5a5a72;
+      --indigo: #818cf8;
+      --indigo-glow: rgba(129,140,248,0.12);
+      --emerald: #34d399;
+      --rose: #fb7185;
+      --amber: #fbbf24;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+
+    /* ---- SIDEBAR ---- */
+    .sidebar {
+      width: 56px;
+      background: var(--surface);
+      border-right: 1px solid var(--glass-border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 0;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-logo {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--indigo);
+      letter-spacing: -0.5px;
+      margin-bottom: 8px;
+    }
+
+    .nav-icon {
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+
+    .nav-icon svg { width: 18px; height: 18px; }
+    .nav-icon.inactive svg { color: var(--muted); }
+    .nav-icon.inactive:hover { background: rgba(255,255,255,0.03); }
+
+    .nav-icon.active {
+      background: var(--indigo-glow);
+      box-shadow: 0 0 0 1px var(--indigo), inset 0 0 12px var(--indigo-glow);
+    }
+    .nav-icon.active svg { color: var(--indigo); }
+
+    .nav-spacer { flex: 1; }
+
+    /* ---- LEFT PANEL ---- */
+    .left-panel {
+      width: 240px;
+      flex-shrink: 0;
+      border-right: 1px solid var(--glass-border);
+      display: flex;
+      flex-direction: column;
+      padding: 20px 14px 16px;
+      gap: 12px;
+    }
+
+    .panel-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* ---- DEVICE LIST ---- */
+    .device-list {
+      flex: 1;
+      overflow-y: auto;
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .platform-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 8px 12px 4px;
+    }
+
+    .device-row {
+      display: flex;
+      align-items: center;
+      padding: 9px 12px;
+      gap: 10px;
+      border-top: 1px solid var(--glass-border);
+      cursor: pointer;
+      position: relative;
+    }
+
+    .device-row:hover:not(.selected) {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .device-row.selected {
+      background: var(--indigo-glow);
+      border-left: 2px solid var(--indigo);
+      padding-left: 10px;
+    }
+
+    .device-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--primary);
+      flex: 1;
+      min-width: 0;
+    }
+
+    .device-os {
+      font-size: 10px;
+      color: var(--muted);
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .status-dot.booted { background: var(--emerald); }
+    .status-dot.off { background: var(--muted); }
+
+    /* ---- SCAN BUTTON ---- */
+    .btn-scan {
+      width: 100%;
+      padding: 9px 0;
+      background: var(--indigo);
+      color: var(--bg);
+      border: none;
+      border-radius: 7px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: center;
+      letter-spacing: 0.01em;
+      flex-shrink: 0;
+    }
+
+    /* ---- RIGHT PANEL ---- */
+    .right-panel {
+      flex: 1;
+      padding: 24px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ---- EMPTY STATE ---- */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .empty-text {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    /* ---- RESULTS ---- */
+    .result-headline {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .result-score {
+      color: var(--emerald);
+    }
+
+    /* ---- ISSUES LIST ---- */
+    .issues-list {
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .issue-row {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    .issue-row:last-child { border-bottom: none; }
+
+    .sev-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 4px;
+    }
+
+    .sev-dot.error { background: var(--rose); }
+    .sev-dot.warn { background: var(--amber); }
+
+    .issue-element {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--primary);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .issue-desc {
+      font-size: 12px;
+      color: var(--secondary);
+      flex: 1;
+      min-width: 0;
+    }
+
+    /* ---- SCROLLBAR ---- */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 2px; }
+
+    /* Wireframe mark */
+    .wf-note {
+      font-size: 9px;
+      color: var(--muted);
+      border: 1px dashed var(--glass-border);
+      border-radius: 3px;
+      padding: 1px 6px;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">IBR</div>
+
+    <div class="nav-icon inactive" title="Dashboard">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="3" width="6" height="6" rx="1"/>
+        <rect x="11" y="3" width="6" height="6" rx="1"/>
+        <rect x="3" y="11" width="6" height="6" rx="1"/>
+        <rect x="11" y="11" width="6" height="6" rx="1"/>
+      </svg>
+    </div>
+
+    <div class="nav-icon inactive" title="Visual Testing">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="10" cy="10" r="3"/>
+        <path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/>
+      </svg>
+    </div>
+
+    <!-- Native Testing — ACTIVE -->
+    <div class="nav-icon active" title="Native Testing">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="6" y="2" width="8" height="13" rx="2"/>
+        <line x1="10" y1="13" x2="10" y2="16"/>
+        <line x1="7.5" y1="16" x2="12.5" y2="16"/>
+        <circle cx="10" cy="11.5" r="0.5" fill="currentColor"/>
+      </svg>
+    </div>
+
+    <div class="nav-icon inactive" title="Accessibility Audit">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="10" cy="5" r="2"/>
+        <path d="M5 9h10M10 9v7M7 16h6"/>
+      </svg>
+    </div>
+
+    <div class="nav-icon inactive" title="Sessions">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <rect x="3" y="4" width="14" height="11" rx="2"/>
+        <line x1="7" y1="8" x2="13" y2="8"/>
+        <line x1="7" y1="11" x2="11" y2="11"/>
+      </svg>
+    </div>
+
+    <div class="nav-spacer"></div>
+
+    <div class="nav-icon inactive" title="Settings">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="10" cy="10" r="2.5"/>
+        <path d="M10 3v1.5M10 15.5V17M3 10h1.5M15.5 10H17M5.2 5.2l1 1M13.8 13.8l1 1M14.8 5.2l-1 1M6.2 13.8l-1 1"/>
+      </svg>
+    </div>
+  </aside>
+
+  <!-- LEFT PANEL: Devices -->
+  <div class="left-panel">
+
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span class="panel-title">Devices</span>
+      <span class="wf-note">Wireframe</span>
+    </div>
+
+    <div class="device-list" style="flex:1; overflow-y:auto; overflow-x:hidden;">
+
+      <div class="platform-label">iOS</div>
+
+      <!-- Selected -->
+      <div class="device-row selected">
+        <div class="status-dot booted"></div>
+        <div style="flex:1; min-width:0;">
+          <div class="device-name">iPhone 16 Pro</div>
+          <div class="device-os">iOS 18.0</div>
+        </div>
+      </div>
+
+      <div class="device-row">
+        <div class="status-dot off"></div>
+        <div style="flex:1; min-width:0;">
+          <div class="device-name">iPhone 15</div>
+          <div class="device-os">iOS 17.5</div>
+        </div>
+      </div>
+
+      <div class="device-row">
+        <div class="status-dot booted"></div>
+        <div style="flex:1; min-width:0;">
+          <div class="device-name">iPad Pro 13"</div>
+          <div class="device-os">iPadOS 18.0</div>
+        </div>
+      </div>
+
+      <div class="device-row">
+        <div class="status-dot off"></div>
+        <div style="flex:1; min-width:0;">
+          <div class="device-name">iPad mini 6</div>
+          <div class="device-os">iPadOS 17.4</div>
+        </div>
+      </div>
+
+      <div class="platform-label" style="margin-top:4px;">watchOS</div>
+
+      <div class="device-row">
+        <div class="status-dot off"></div>
+        <div style="flex:1; min-width:0;">
+          <div class="device-name">Apple Watch Ultra 2</div>
+          <div class="device-os">watchOS 11.0</div>
+        </div>
+      </div>
+
+      <div class="platform-label" style="margin-top:4px;">macOS</div>
+
+      <div class="device-row">
+        <div class="status-dot booted"></div>
+        <div style="flex:1; min-width:0;">
+          <div class="device-name">My Mac</div>
+          <div class="device-os">macOS 15.0</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="btn-scan">Scan</div>
+
+  </div>
+
+  <!-- RIGHT PANEL: Results -->
+  <div class="right-panel">
+
+    <!-- SCANNED STATE — swap to empty-state div below to show pre-scan -->
+
+    <div class="result-headline">
+      iPhone 16 Pro
+      <span style="color: var(--muted); font-weight:400;">·</span>
+      <span class="result-score">94/100</span>
+    </div>
+
+    <div class="issues-list">
+
+      <div class="issue-row">
+        <div class="sev-dot error" style="margin-top:4px;"></div>
+        <span class="issue-element">icon-share</span>
+        <span class="issue-desc">Missing accessibility label — no accessibilityLabel or accessibilityHint set</span>
+      </div>
+
+      <div class="issue-row">
+        <div class="sev-dot warn" style="margin-top:4px;"></div>
+        <span class="issue-element">Subtitle</span>
+        <span class="issue-desc">Color contrast 3.1:1 — below WCAG AA minimum of 4.5:1</span>
+      </div>
+
+      <div class="issue-row">
+        <div class="sev-dot warn" style="margin-top:4px;"></div>
+        <span class="issue-element">Close button</span>
+        <span class="issue-desc">Touch target 20x20pt — Apple HIG recommends minimum 44x44pt</span>
+      </div>
+
+    </div>
+
+    <!--
+    EMPTY STATE (swap in when no scan yet):
+
+    <div class="empty-state">
+      <span class="empty-text">Select a device and scan</span>
+    </div>
+    -->
+
+  </div>
+
+</body>
+</html>

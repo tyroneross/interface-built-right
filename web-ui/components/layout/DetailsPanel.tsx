@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+'use client';
+
+import React, { useState, useCallback } from 'react';
 
 type VerdictStatus = 'match' | 'expected' | 'changed' | 'broken' | 'pending' | 'active' | 'closed';
 
@@ -26,23 +28,23 @@ interface DetailsPanelProps {
 }
 
 const verdictColors: Record<VerdictStatus, string> = {
-  match: 'text-green-600',
-  expected: 'text-blue-600',
-  changed: 'text-amber-600',
-  broken: 'text-red-600',
-  pending: 'text-gray-500',
-  active: 'text-blue-600',
-  closed: 'text-gray-500',
+  match: 'text-[#34d399]',
+  expected: 'text-[#818cf8]',
+  changed: 'text-[#fbbf24]',
+  broken: 'text-[#fb7185]',
+  pending: 'text-[#5a5a72]',
+  active: 'text-[#818cf8]',
+  closed: 'text-[#5a5a72]',
 };
 
 const verdictLabels: Record<VerdictStatus, string> = {
   match: 'MATCH',
-  expected: 'EXPECTED CHANGE',
+  expected: 'EXPECTED',
   changed: 'CHANGED',
   broken: 'BROKEN',
   pending: 'PENDING',
-  active: 'LIVE SESSION',
-  closed: 'SESSION ENDED',
+  active: 'LIVE',
+  closed: 'ENDED',
 };
 
 export function DetailsPanel({
@@ -54,160 +56,136 @@ export function DetailsPanel({
   onFeedbackSubmit,
 }: DetailsPanelProps) {
   const [feedback, setFeedback] = useState('');
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
 
-  const panelClasses = [
-    'w-70 bg-white border-l border-gray-200 flex flex-col shrink-0 overflow-y-auto',
-    'lg:relative lg:transform-none',
-    'max-lg:fixed max-lg:right-0 max-lg:top-14 max-lg:bottom-0 max-lg:z-50',
-    'max-lg:transition-transform max-lg:duration-200',
-    open ? 'max-lg:translate-x-0' : 'max-lg:translate-x-full',
-  ].join(' ');
-
-  const handleSendFeedback = () => {
+  const handleSendFeedback = useCallback(() => {
     if (feedback.trim()) {
       onFeedbackSubmit?.(feedback);
       setFeedback('');
     }
-  };
+  }, [feedback, onFeedbackSubmit]);
 
-  if (!session) {
+  const handleDelete = useCallback(() => {
+    if (deleteConfirm) {
+      onDelete?.();
+      setDeleteConfirm(false);
+    } else {
+      setDeleteConfirm(true);
+      // Auto-reset after 3s
+      setTimeout(() => setDeleteConfirm(false), 3000);
+    }
+  }, [deleteConfirm, onDelete]);
+
+  if (!open || !session) {
     return (
-      <aside className={panelClasses}>
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-          <div className="w-12 h-12 bg-gray-100 rounded-xl flex items-center justify-center mb-4">
-            <svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M3 3h10v10H3zM11 11h10v10H11z" />
+      <aside
+        className="flex flex-col shrink-0 border-l border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.025)] backdrop-blur-xl"
+        style={{ width: 240 }}
+      >
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-6">
+          <div className="w-12 h-12 rounded-full bg-[rgba(129,140,248,0.12)] flex items-center justify-center mb-4">
+            <svg width="24" height="24" fill="none" stroke="#818cf8" strokeWidth="1.5" viewBox="0 0 24 24">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M3 12h18" />
             </svg>
           </div>
-          <div className="text-[15px] font-medium text-gray-900 mb-1">
-            No session selected
-          </div>
-          <div className="text-[13px] text-gray-500">
-            Select a session from the library
-          </div>
+          <p className="text-[15px] font-medium text-[#f0f0f5] mb-1">No session selected</p>
+          <p className="text-[13px] text-[#5a5a72]">Create a new one</p>
         </div>
       </aside>
     );
   }
 
   return (
-    <aside className={panelClasses}>
-      {/* Session */}
-      <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide px-4 pt-3 pb-2">
-        Session
-      </div>
-      <div className="border-b border-gray-100">
-        <div className="px-4 pb-4">
-          <div className="text-[15px] font-medium text-gray-900">
-            {session.name}
-          </div>
-          <div className="text-[13px] text-gray-600 break-all">
-            {session.url}
-          </div>
-          <div className="text-[11px] text-gray-500 mt-0.5">
-            {session.viewport} • {session.timestamp}
-          </div>
-        </div>
-      </div>
+    <aside
+      className="flex flex-col shrink-0 border-l border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.025)] backdrop-blur-xl overflow-y-auto"
+      style={{ width: 240 }}
+    >
+      <div className="p-4 flex flex-col gap-4 flex-1">
+        {/* Session name */}
+        <h3 className="text-[15px] font-medium text-[#f0f0f5]">{session.name}</h3>
 
-      {/* Comparison */}
-      <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide px-4 pt-3 pb-2">
-        Comparison
-      </div>
-      <div className="border-b border-gray-100">
-        <div className="px-4 pb-4">
-          <div className="flex justify-between py-2">
-            <span className="text-[13px] text-gray-500">Verdict</span>
-            <span className={`text-[13px] font-medium ${verdictColors[session.verdict]}`}>
-              {verdictLabels[session.verdict]}
-            </span>
-          </div>
-          <div className="flex justify-between py-2 border-t border-gray-50">
-            <span className="text-[13px] text-gray-500">Difference</span>
-            <span className="text-[13px] text-gray-900">{session.difference}</span>
-          </div>
-          <div className="flex justify-between py-2 border-t border-gray-50">
-            <span className="text-[13px] text-gray-500">Pixels</span>
-            <span className="text-[13px] text-gray-900">{session.pixelsChanged}</span>
-          </div>
-        </div>
-      </div>
+        {/* URL */}
+        {session.url && (
+          <p className="text-[13px] text-[#9d9db5] break-all leading-relaxed">{session.url}</p>
+        )}
 
-      {/* Analysis */}
-      <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide px-4 pt-3 pb-2">
-        Analysis
-      </div>
-      <div className="border-b border-gray-100">
-        <div className="px-4 pb-4">
-          <p className="text-[13px] text-gray-700 leading-relaxed">
-            {session.analysis}
-          </p>
-        </div>
-      </div>
+        {/* Verdict line */}
+        <p className="text-[13px]">
+          <span className={`font-medium ${verdictColors[session.verdict]}`}>
+            {verdictLabels[session.verdict]}
+          </span>
+          {session.difference !== 'N/A' && (
+            <span className="text-[#818cf8]"> · {session.difference}</span>
+          )}
+        </p>
 
-      {/* Actions */}
-      <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide px-4 pt-3 pb-2">
-        Actions
-      </div>
-      <div className="border-b border-gray-100">
-        <div className="px-4 pb-4">
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={onCheck}
-              className="w-full h-10 inline-flex items-center justify-start gap-1.5 px-3 text-[13px] font-medium rounded-lg bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150"
-            >
-              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M1 9l3-3 3 3M4 6v8" />
-                <path d="M15 7l-3 3-3-3M12 10V2" />
+        {/* Analysis */}
+        <p className="text-[13px] text-[#9d9db5] leading-relaxed">{session.analysis}</p>
+
+        {/* Action icons — horizontal row */}
+        <div className="flex gap-2">
+          {/* Compare */}
+          <button
+            onClick={onCheck}
+            className="flex items-center justify-center w-9 h-9 rounded-lg text-[#9d9db5] hover:text-[#f0f0f5] hover:bg-[rgba(255,255,255,0.05)] transition-colors duration-200"
+            title="Compare again"
+          >
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path d="M1 4v6h6M23 20v-6h-6" />
+              <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15" />
+            </svg>
+          </button>
+          {/* Accept */}
+          <button
+            onClick={onAccept}
+            className="flex items-center justify-center w-9 h-9 rounded-lg text-[#9d9db5] hover:text-[#34d399] hover:bg-[rgba(52,211,153,0.08)] transition-colors duration-200"
+            title="Accept as baseline"
+          >
+            <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+              <path d="M5 13l4 4L19 7" />
+            </svg>
+          </button>
+          {/* Delete — two-click */}
+          <button
+            onClick={handleDelete}
+            onBlur={() => setDeleteConfirm(false)}
+            className={`flex items-center justify-center rounded-lg transition-colors duration-200 ${
+              deleteConfirm
+                ? 'px-3 h-9 text-[#fb7185] bg-[rgba(251,113,133,0.08)] text-[11px] font-medium'
+                : 'w-9 h-9 text-[#9d9db5] hover:text-[#fb7185] hover:bg-[rgba(251,113,133,0.08)]'
+            }`}
+            title={deleteConfirm ? 'Click again to confirm' : 'Delete session'}
+          >
+            {deleteConfirm ? (
+              'Confirm?'
+            ) : (
+              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14zM10 11v6M14 11v6" />
               </svg>
-              Compare Again
-            </button>
-            <button
-              onClick={onAccept}
-              className="w-full h-10 inline-flex items-center justify-start gap-1.5 px-3 text-[13px] font-medium rounded-lg bg-white text-gray-700 border border-gray-200 hover:bg-gray-50 hover:border-gray-300 transition-all duration-150"
-            >
-              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M5 12l3 3 7-10" />
-              </svg>
-              Accept as Baseline
-            </button>
-            <button
-              onClick={onDelete}
-              className="w-full h-10 inline-flex items-center justify-start gap-1.5 px-3 text-[13px] font-medium rounded-lg bg-transparent text-red-600 hover:bg-red-50 transition-all duration-150"
-            >
-              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M3 6h10M5 6V4a2 2 0 012-2h2a2 2 0 012 2v2M6 6v8M10 6v8" />
-              </svg>
-              Delete Session
-            </button>
-          </div>
+            )}
+          </button>
         </div>
-      </div>
 
-      {/* Feedback */}
-      <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide px-4 pt-3 pb-2">
-        Feedback
-      </div>
-      <div className="flex-1 flex flex-col border-b border-gray-100">
-        <div className="px-4 pb-4 flex flex-col flex-1">
+        {/* Feedback */}
+        <div className="mt-auto flex flex-col gap-2">
           <textarea
             value={feedback}
             onChange={(e) => setFeedback(e.target.value)}
-            className="flex-1 min-h-20 p-3 border border-gray-200 rounded-lg text-[13px] resize-none focus:outline-none focus:border-gray-400"
+            className="glass-input min-h-[64px] resize-y"
             placeholder="Tell Claude what to change..."
           />
-          <div className="mt-2">
-            <button
-              onClick={handleSendFeedback}
-              disabled={!feedback.trim()}
-              className="w-full h-11 inline-flex items-center justify-center gap-1.5 px-4 text-[13px] font-medium rounded-lg bg-gray-900 text-white hover:bg-gray-700 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-900"
-            >
-              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M15 1L8 8M15 1l-5 14-3-6-6-3 14-5z" />
-              </svg>
-              Send to Claude
-            </button>
-          </div>
+          <button
+            onClick={handleSendFeedback}
+            disabled={!feedback.trim()}
+            className={`self-end px-3 h-8 rounded-lg text-[12px] font-medium transition-all duration-200 ${
+              feedback.trim()
+                ? 'text-white bg-gradient-to-br from-[#818cf8] to-[#6366f1] hover:shadow-[0_4px_20px_rgba(99,102,241,0.4)]'
+                : 'text-[#5a5a72] bg-[rgba(255,255,255,0.03)]'
+            }`}
+          >
+            Send
+          </button>
         </div>
       </div>
     </aside>

@@ -9,6 +9,8 @@ import type {
   GetFeedbackResponse,
   ComparisonReport,
   ApiError,
+  ScanResponse,
+  BaselineResponse,
 } from './types';
 
 class ApiClient {

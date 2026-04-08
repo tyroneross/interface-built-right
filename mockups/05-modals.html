@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IBR Redesign — Modals (Wireframe)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --bg: #060611;
+      --surface: rgba(255,255,255,0.025);
+      --glass-border: rgba(255,255,255,0.06);
+      --primary: #f0f0f5;
+      --secondary: #9d9db5;
+      --muted: #5a5a72;
+      --indigo: #818cf8;
+      --indigo-glow: rgba(129,140,248,0.12);
+      --emerald: #34d399;
+      --rose: #fb7185;
+      --amber: #fbbf24;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      background-color: var(--bg);
+      color: var(--primary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      margin: 0;
+      padding: 48px 24px;
+    }
+
+    .page-label {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 8px;
+    }
+
+    .page-title {
+      font-size: 22px;
+      font-weight: 600;
+      color: var(--primary);
+      margin-bottom: 4px;
+    }
+
+    .page-desc {
+      font-size: 13px;
+      color: var(--secondary);
+      margin-bottom: 56px;
+    }
+
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    .modal-wrap {
+      margin-bottom: 48px;
+    }
+
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      padding: 20px 24px 0;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--primary);
+      line-height: 1.2;
+    }
+
+    .modal-body {
+      padding: 20px 24px;
+    }
+
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--glass-border);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .field {
+      margin-bottom: 14px;
+    }
+
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    .field-label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--secondary);
+      margin-bottom: 6px;
+    }
+
+    .input {
+      width: 100%;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--glass-border);
+      border-radius: 7px;
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--primary);
+      outline: none;
+    }
+
+    .input::placeholder {
+      color: var(--muted);
+    }
+
+    .input:focus {
+      border-color: var(--indigo);
+    }
+
+    .dropzone {
+      border: 1px dashed rgba(255,255,255,0.15);
+      border-radius: 8px;
+      padding: 28px 24px;
+      text-align: center;
+      cursor: pointer;
+    }
+
+    .dropzone-icon {
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--glass-border);
+      border-radius: 7px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 10px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .dropzone-primary {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--secondary);
+      margin-bottom: 4px;
+    }
+
+    .dropzone-sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      line-height: 1;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid var(--glass-border);
+      color: var(--secondary);
+    }
+
+    .btn-indigo {
+      background: var(--indigo);
+      color: #0a0a1a;
+    }
+
+    .btn-indigo:disabled,
+    .btn-indigo.disabled {
+      background: rgba(129,140,248,0.25);
+      color: rgba(10,10,26,0.5);
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div style="max-width: 480px; margin: 0 auto;">
+
+    <div class="page-label">IBR Redesign · Wireframes</div>
+    <div class="page-title">Modal Dialogs</div>
+    <div class="page-desc">Two modals. Minimal inputs.</div>
+
+    <!-- ─────────────────────────────────────────────────────────── -->
+    <!-- MODAL 1: New Session -->
+    <!-- ─────────────────────────────────────────────────────────── -->
+    <div class="modal-wrap">
+      <div class="section-label">01 — New Session</div>
+      <div class="modal">
+
+        <div class="modal-header">
+          <div class="modal-title">New Session</div>
+        </div>
+
+        <div class="modal-body">
+
+          <div class="field">
+            <label class="field-label">Name</label>
+            <input class="input" type="text" placeholder="e.g., Homepage" />
+          </div>
+
+          <div class="field">
+            <label class="field-label">URL</label>
+            <input class="input" type="text" placeholder="http://localhost:3000" />
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-ghost">Cancel</button>
+          <button class="btn btn-indigo">Create</button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────────────────── -->
+    <!-- MODAL 2: Upload Reference -->
+    <!-- ─────────────────────────────────────────────────────────── -->
+    <div class="modal-wrap">
+      <div class="section-label">02 — Upload Reference</div>
+      <div class="modal">
+
+        <div class="modal-header">
+          <div class="modal-title">Upload Reference</div>
+        </div>
+
+        <div class="modal-body">
+
+          <div class="field">
+            <div class="dropzone">
+              <div class="dropzone-icon">↑</div>
+              <div class="dropzone-primary">Drop image or click to browse</div>
+              <div class="dropzone-sub">PNG, JPG, WebP — max 10MB</div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label">Name</label>
+            <input class="input" type="text" placeholder="e.g., Dashboard mockup" />
+          </div>
+
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn btn-ghost">Cancel</button>
+          <button class="btn btn-indigo disabled" disabled>Upload</button>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile, writeFile, copyFile } from 'fs/promises';
+import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 
+const execAsync = promisify(exec);
 const IBR_DIR = process.env.IBR_DIR || './.ibr';
 
-// POST /api/sessions/[id]/check - Re-run comparison for a session
-// Uses direct file operations instead of shelling out to CLI
+async function runIbr(args: string): Promise<string> {
+  const parentDir = join(process.cwd(), '..');
+  const { stdout } = await execAsync(`npm run ibr -- ${args}`, {
+    cwd: parentDir,
+    timeout: 120000,
+  });
+  return stdout;
+}
+
+// POST /api/sessions/[id]/check - Re-run comparison via IBR CLI
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -20,56 +31,33 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    // Read the session
+    // Read session to get URL
     const content = await readFile(sessionPath, 'utf-8');
     const session = JSON.parse(content);
 
-    // Check if baseline exists
-    const baselinePath = join(sessionDir, 'baseline.png');
-    if (!existsSync(baselinePath)) {
+    if (!session.url) {
       return NextResponse.json(
-        { error: 'No baseline screenshot found. Capture a baseline first.' },
+        { error: 'Session has no URL to check against' },
         { status: 400 }
       );
     }
 
-    // Check if current screenshot exists for comparison
-    const currentPath = join(sessionDir, 'current.png');
-    if (!existsSync(currentPath)) {
-      return NextResponse.json(
-        {
-          error: 'No current screenshot to compare. The page needs to be recaptured.',
-          hint: 'Run `npx ibr check` from the command line to capture and compare.',
-        },
-        { status: 400 }
-      );
+    // Run comparison via IBR's CDP engine
+    const checkOutput = await runIbr(`check ${id} --json`);
+
+    let result;
+    try {
+      result = JSON.parse(checkOutput);
+    } catch {
+      result = { raw: checkOutput };
     }
 
-    // Read session data and return it — the web UI shows the existing
-    // comparison results. A full re-comparison requires Playwright which
-    // must be run via CLI: `npx ibr check <id>`
-    const report = {
-      sessionId: session.id,
-      sessionName: session.name,
-      url: session.url,
-      timestamp: new Date().toISOString(),
-      viewport: session.viewport,
-      comparison: session.comparison || null,
-      analysis: session.analysis || null,
-      files: {
-        baseline: `baseline.png`,
-        current: `current.png`,
-        diff: existsSync(join(sessionDir, 'diff.png')) ? 'diff.png' : null,
-      },
-      status: session.status,
-    };
+    // Re-read session for updated comparison data
+    const updated = JSON.parse(await readFile(sessionPath, 'utf-8'));
 
     return NextResponse.json({
-      session,
-      report,
-      message: session.comparison
-        ? 'Showing existing comparison results.'
-        : 'No comparison data yet. Run `npx ibr check` to capture current state and compare.',
+      session: updated,
+      report: result,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';

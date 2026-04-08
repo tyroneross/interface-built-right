@@ -9,12 +9,16 @@ export interface ImageModalProps {
   onClose: () => void;
 }
 
+/**
+ * Aurora Deep fullscreen image lightbox.
+ */
 export function ImageModal({ imageUrl, label, isOpen, onClose }: ImageModalProps) {
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  }, [onClose]);
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    },
+    [onClose]
+  );
 
   useEffect(() => {
     if (isOpen) {
@@ -31,17 +35,17 @@ export function ImageModal({ imageUrl, label, isOpen, onClose }: ImageModalProps
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#060611]/90 backdrop-blur-md"
       onClick={onClose}
     >
       {/* Header */}
       <div className="absolute left-0 right-0 top-0 flex items-center justify-between p-4">
-        <span className="rounded-lg bg-black/50 px-3 py-1.5 text-sm font-medium text-white">
+        <span className="rounded-lg bg-[rgba(255,255,255,0.06)] px-3 py-1.5 text-sm font-medium text-[#f0f0f5]">
           {label}
         </span>
         <button
           onClick={onClose}
-          className="rounded-lg bg-black/50 p-2 text-white transition-colors hover:bg-black/70"
+          className="rounded-lg bg-[rgba(255,255,255,0.06)] p-2 text-[#9d9db5] transition-colors hover:bg-[rgba(255,255,255,0.1)] hover:text-[#f0f0f5]"
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -49,7 +53,7 @@ export function ImageModal({ imageUrl, label, isOpen, onClose }: ImageModalProps
         </button>
       </div>
 
-      {/* Image container */}
+      {/* Image */}
       <div
         className="max-h-[90vh] max-w-[90vw] overflow-auto"
         onClick={(e) => e.stopPropagation()}
@@ -57,14 +61,14 @@ export function ImageModal({ imageUrl, label, isOpen, onClose }: ImageModalProps
         <img
           src={imageUrl}
           alt={label}
-          className="rounded-lg shadow-2xl"
+          className="rounded-lg"
           style={{ maxHeight: '85vh', width: 'auto' }}
         />
       </div>
 
-      {/* Instructions */}
+      {/* Hint */}
       <div className="absolute bottom-4 left-0 right-0 text-center">
-        <span className="rounded-lg bg-black/50 px-3 py-1.5 text-xs text-gray-300">
+        <span className="rounded-lg bg-[rgba(255,255,255,0.06)] px-3 py-1.5 text-xs text-[#5a5a72]">
           Press ESC or click outside to close
         </span>
       </div>
