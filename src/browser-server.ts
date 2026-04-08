@@ -10,6 +10,7 @@ import {
   type ScanResult,
   extractAndAudit,
   aggregateIssues,
+  applyDesignSystemCheck,
   determineVerdict,
   generateSummary,
 } from './scan.js';
@@ -324,17 +325,20 @@ export class PersistentSession {
   private page: CompatPage;
   private state: SessionState;
   private sessionDir: string;
+  private outputDir: string;
 
   private constructor(
     driver: EngineDriver,
     page: CompatPage,
     state: SessionState,
-    sessionDir: string
+    sessionDir: string,
+    outputDir: string
   ) {
     this.driver = driver;
     this.page = page;
     this.state = state;
     this.sessionDir = sessionDir;
+    this.outputDir = outputDir;
   }
 
   /**
@@ -416,7 +420,7 @@ export class PersistentSession {
       fullPage: false,
     });
 
-    return new PersistentSession(driver, page, state, sessionDir);
+    return new PersistentSession(driver, page, state, sessionDir, outputDir);
   }
 
   /**
@@ -452,7 +456,7 @@ export class PersistentSession {
 
     await page.goto(state.url, { waitUntil: 'networkidle' });
 
-    return new PersistentSession(driver, page, state, sessionDir);
+    return new PersistentSession(driver, page, state, sessionDir, outputDir);
   }
 
   get id(): string {
@@ -893,6 +897,13 @@ export class PersistentSession {
       ]);
 
       const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+      const designSystem = await applyDesignSystemCheck(
+        elements.all,
+        issues,
+        this.state.viewport,
+        this.url,
+        this.outputDir
+      );
       const verdict = determineVerdict(issues);
       const summary = generateSummary(elements, interactivity, semantic, issues, errorsSnapshot);
 
@@ -912,6 +923,7 @@ export class PersistentSession {
         interactivity,
         semantic,
         console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+        designSystem,
         verdict,
         issues,
         summary,
@@ -988,6 +1000,13 @@ export class PersistentSession {
       ]);
 
       const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+      const designSystem = await applyDesignSystemCheck(
+        elements.all,
+        issues,
+        this.state.viewport,
+        this.url,
+        this.outputDir
+      );
       const verdict = determineVerdict(issues);
       const summary = generateSummary(elements, interactivity, semantic, issues, errorsSnapshot);
 
@@ -1007,6 +1026,7 @@ export class PersistentSession {
         interactivity,
         semantic,
         console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+        designSystem,
         verdict,
         issues,
         summary,

@@ -955,7 +955,7 @@ export {
 export * from './context/types.js';
 
 // Comprehensive scan exports
-export { scan, formatScanResult } from './scan.js';
+export { scan, formatScanResult, applyDesignSystemCheck } from './scan.js';
 export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
 
 // Design token validation exports

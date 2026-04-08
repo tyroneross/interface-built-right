@@ -1,4 +1,4 @@
-import type { EnhancedElement, AuditResult, Viewport, ElementIssue } from '../schemas.js';
+import type { EnhancedElement, AuditResult, Viewport, ElementIssue, DesignSystemResult } from '../schemas.js';
 import type { ScanIssue } from '../scan.js';
 import type { InteractivityResult } from '../interactivity.js';
 import type { SemanticResult } from '../semantic/index.js';
@@ -77,6 +77,9 @@ export interface NativeScanResult {
 
   /** Screenshot path if captured */
   screenshotPath?: string;
+
+  /** Design system compliance result (if outputDir provided) */
+  designSystem?: DesignSystemResult;
 
   /** Overall scan verdict */
   verdict: 'PASS' | 'ISSUES' | 'FAIL';
@@ -157,6 +160,8 @@ export interface MacOSScanOptions {
   pid?: number;
   /** Capture screenshot */
   screenshot?: { path: string };
+  /** Output directory for design system config */
+  outputDir?: string;
 }
 
 /**
@@ -186,6 +191,9 @@ export interface MacOSScanResult {
     errors: string[];
     warnings: string[];
   };
+
+  /** Design system compliance result (if outputDir provided) */
+  designSystem?: DesignSystemResult;
 
   /** Overall scan verdict */
   verdict: 'PASS' | 'ISSUES' | 'FAIL';

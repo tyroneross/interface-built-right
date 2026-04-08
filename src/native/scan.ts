@@ -1,7 +1,7 @@
 import { join } from 'path';
 import type { NativeScanOptions, NativeScanResult, MacOSScanOptions, MacOSScanResult } from './types.js';
 import type { ScanIssue } from '../scan.js';
-import { aggregateIssues, determineVerdict, generateSummary } from '../scan.js';
+import { aggregateIssues, determineVerdict, generateSummary, applyDesignSystemCheck } from '../scan.js';
 import { analyzeElements } from '../extract.js';
 import { findDevice, getBootedDevices, bootDevice } from './simulator.js';
 import { captureNativeScreenshot } from './capture.js';
@@ -118,6 +118,11 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
     });
   }
 
+  // --- Design system check ---
+  const designSystem = outputDir ? await applyDesignSystemCheck(
+    elements, issues, viewport, url, outputDir
+  ) : undefined;
+
   // --- Verdict ---
   const verdict = determineVerdict(issues);
 
@@ -138,6 +143,7 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
     elements: { all: elements, audit },
     nativeIssues,
     screenshotPath,
+    designSystem,
     verdict,
     issues,
     summary,
@@ -234,8 +240,22 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
   const url = `macos://${app || bundleId || `pid-${pid}`}/${window.title}`;
   const route = `/${window.title}`;
 
+  // --- Build viewport from window dimensions ---
+  const viewport = {
+    name: 'native',
+    width: window.width,
+    height: window.height,
+  };
+
   // --- Aggregate issues (reuse from scan.ts) ---
   const issues = aggregateIssues(audit, interactivity, semantic, []);
+
+  // --- Design system check ---
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
+    elements, issues, viewport, url, options.outputDir
+  ) : undefined;
+
+  // --- Verdict ---
   const verdict = determineVerdict(issues);
 
   // --- Generate summary (reuse from scan.ts) ---
@@ -247,13 +267,6 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
     []
   );
 
-  // --- Build viewport from window dimensions ---
-  const viewport = {
-    name: 'native',
-    width: window.width,
-    height: window.height,
-  };
-
   return {
     url,
     route,
@@ -263,6 +276,7 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
     interactivity,
     semantic,
     console: { errors: [], warnings: [] },
+    designSystem,
     verdict,
     issues,
     summary,

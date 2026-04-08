@@ -9767,46 +9767,14 @@ async function scan(url, options = {}) {
       route = url;
     }
     const layoutCollisions = detectLayoutCollisions(elements.all);
-    const designSystem = await runDesignSystemCheck(
-      elements.all,
-      {
-        isMobile: resolvedViewport.width < 768,
-        viewportWidth: resolvedViewport.width,
-        viewportHeight: resolvedViewport.height,
-        url,
-        allElements: elements.all
-      },
-      options.outputDir || process.cwd()
-    ).catch(() => void 0);
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
-    if (designSystem) {
-      for (const v of designSystem.principleViolations) {
-        issues.push({
-          category: "design-system",
-          severity: v.severity === "error" ? "error" : "warning",
-          element: v.element,
-          description: v.message,
-          fix: v.fix
-        });
-      }
-      for (const v of designSystem.tokenViolations) {
-        issues.push({
-          category: "design-system",
-          severity: v.severity === "error" ? "error" : "warning",
-          element: v.element,
-          description: v.message
-        });
-      }
-      for (const v of designSystem.customViolations) {
-        issues.push({
-          category: "design-system",
-          severity: v.severity === "error" ? "error" : "warning",
-          element: v.element,
-          description: v.message,
-          fix: v.fix
-        });
-      }
-    }
+    const designSystem = await applyDesignSystemCheck(
+      elements.all,
+      issues,
+      resolvedViewport,
+      url,
+      options.outputDir || process.cwd()
+    );
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     const baseResult = {
@@ -9870,6 +9838,48 @@ function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAna
   collector.addThemeAnalysis(themeAnalysis);
   collector.addConsoleErrors(consoleErrors);
   return collector.getIssues();
+}
+async function applyDesignSystemCheck(elements, issues, viewport, url, outputDir) {
+  const designSystem = await runDesignSystemCheck(
+    elements,
+    {
+      isMobile: viewport.width < 768,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      url,
+      allElements: elements
+    },
+    outputDir
+  ).catch(() => void 0);
+  if (designSystem) {
+    for (const v of designSystem.principleViolations) {
+      issues.push({
+        category: "design-system",
+        severity: v.severity === "error" ? "error" : "warning",
+        element: v.element,
+        description: v.message,
+        fix: v.fix
+      });
+    }
+    for (const v of designSystem.tokenViolations) {
+      issues.push({
+        category: "design-system",
+        severity: v.severity === "error" ? "error" : "warning",
+        element: v.element,
+        description: v.message
+      });
+    }
+    for (const v of designSystem.customViolations) {
+      issues.push({
+        category: "design-system",
+        severity: v.severity === "error" ? "error" : "warning",
+        element: v.element,
+        description: v.message,
+        fix: v.fix
+      });
+    }
+  }
+  return designSystem;
 }
 function determineVerdict2(issues) {
   const errorCount = issues.filter((i) => i.severity === "error").length;
@@ -10805,6 +10815,13 @@ async function scanNative(options = {}) {
       description: issue.message
     });
   }
+  const designSystem = outputDir ? await applyDesignSystemCheck(
+    elements,
+    issues,
+    viewport,
+    url,
+    outputDir
+  ) : void 0;
   const verdict = determineVerdict2(issues);
   const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
   return {
@@ -10821,6 +10838,7 @@ async function scanNative(options = {}) {
     elements: { all: elements, audit },
     nativeIssues,
     screenshotPath,
+    designSystem,
     verdict,
     issues,
     summary
@@ -10872,7 +10890,19 @@ async function scanMacOS(options) {
   }
   const url = `macos://${app || bundleId || `pid-${pid}`}/${window2.title}`;
   const route = `/${window2.title}`;
+  const viewport = {
+    name: "native",
+    width: window2.width,
+    height: window2.height
+  };
   const issues = aggregateIssues(audit, interactivity, semantic, []);
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
+    elements,
+    issues,
+    viewport,
+    url,
+    options.outputDir
+  ) : void 0;
   const verdict = determineVerdict2(issues);
   const summary = generateSummary2(
     { audit },
@@ -10881,11 +10911,6 @@ async function scanMacOS(options) {
     issues,
     []
   );
-  const viewport = {
-    name: "native",
-    width: window2.width,
-    height: window2.height
-  };
   return {
     url,
     route,
@@ -10895,6 +10920,7 @@ async function scanMacOS(options) {
     interactivity,
     semantic,
     console: { errors: [], warnings: [] },
+    designSystem,
     verdict,
     issues,
     summary
@@ -11725,6 +11751,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

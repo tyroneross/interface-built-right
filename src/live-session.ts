@@ -11,6 +11,7 @@ import {
   aggregateIssues,
   determineVerdict,
   generateSummary,
+  applyDesignSystemCheck,
 } from './scan.js';
 import { testInteractivity } from './interactivity.js';
 import { getSemanticOutput } from './semantic/index.js';
@@ -296,6 +297,9 @@ export class LiveSession {
       ]);
 
       const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+      const designSystem = await applyDesignSystemCheck(
+        elements.all, issues, this.state.viewport, this.url, this.outputDir
+      );
       const verdict = determineVerdict(issues);
       const summary = generateSummary(elements, interactivity, semantic, issues, errorsSnapshot);
 
@@ -318,6 +322,7 @@ export class LiveSession {
           errors: errorsSnapshot,
           warnings: warningsSnapshot,
         },
+        designSystem,
         verdict,
         issues,
         summary,
@@ -444,6 +449,9 @@ export class LiveSession {
     ]);
 
     const issues = aggregateIssues(elements.audit, interactivity, semantic, errorsSnapshot);
+    const designSystem = await applyDesignSystemCheck(
+      elements.all, issues, this.state.viewport, this.url, this.outputDir
+    );
     const verdict = determineVerdict(issues);
     const summary = generateSummary(elements, interactivity, semantic, issues, errorsSnapshot);
 
@@ -463,6 +471,7 @@ export class LiveSession {
       interactivity,
       semantic,
       console: { errors: errorsSnapshot, warnings: warningsSnapshot },
+      designSystem,
       verdict,
       issues,
       summary,

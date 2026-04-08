@@ -269,51 +269,17 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // Detect layout collisions in extracted elements
     const layoutCollisions = detectLayoutCollisions(elements.all);
 
-    // Run design system check (needs extracted elements — cannot parallelize with extraction)
-    const designSystem = await runDesignSystemCheck(
-      elements.all,
-      {
-        isMobile: resolvedViewport.width < 768,
-        viewportWidth: resolvedViewport.width,
-        viewportHeight: resolvedViewport.height,
-        url,
-        allElements: elements.all,
-      },
-      options.outputDir || process.cwd()
-    ).catch(() => undefined);
-
     // Aggregate issues
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
 
-    // Add design system issues
-    if (designSystem) {
-      for (const v of designSystem.principleViolations) {
-        issues.push({
-          category: 'design-system' as const,
-          severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
-          element: v.element,
-          description: v.message,
-          fix: v.fix,
-        });
-      }
-      for (const v of designSystem.tokenViolations) {
-        issues.push({
-          category: 'design-system' as const,
-          severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
-          element: v.element,
-          description: v.message,
-        });
-      }
-      for (const v of designSystem.customViolations) {
-        issues.push({
-          category: 'design-system' as const,
-          severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
-          element: v.element,
-          description: v.message,
-          fix: v.fix,
-        });
-      }
-    }
+    // Run design system check and inject violations into issues
+    const designSystem = await applyDesignSystemCheck(
+      elements.all,
+      issues,
+      resolvedViewport,
+      url,
+      options.outputDir || process.cwd()
+    );
 
     const verdict = determineVerdict(issues);
     const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
@@ -411,6 +377,63 @@ export function aggregateIssues(
   collector.addConsoleErrors(consoleErrors);
 
   return collector.getIssues();
+}
+
+/**
+ * Run design system checks and inject violations into the issues array.
+ * Reusable across all scan paths (main scan, live session, browser server, native).
+ * Returns DesignSystemResult or undefined if no config exists.
+ * Mutates the issues array by pushing design-system category issues.
+ */
+export async function applyDesignSystemCheck(
+  elements: EnhancedElement[],
+  issues: ScanIssue[],
+  viewport: Viewport,
+  url: string,
+  outputDir: string
+): Promise<DesignSystemResult | undefined> {
+  const designSystem = await runDesignSystemCheck(
+    elements,
+    {
+      isMobile: viewport.width < 768,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      url,
+      allElements: elements,
+    },
+    outputDir
+  ).catch(() => undefined);
+
+  if (designSystem) {
+    for (const v of designSystem.principleViolations) {
+      issues.push({
+        category: 'design-system' as const,
+        severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
+        element: v.element,
+        description: v.message,
+        fix: v.fix,
+      });
+    }
+    for (const v of designSystem.tokenViolations) {
+      issues.push({
+        category: 'design-system' as const,
+        severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
+        element: v.element,
+        description: v.message,
+      });
+    }
+    for (const v of designSystem.customViolations) {
+      issues.push({
+        category: 'design-system' as const,
+        severity: v.severity === 'error' ? 'error' as const : 'warning' as const,
+        element: v.element,
+        description: v.message,
+        fix: v.fix,
+      });
+    }
+  }
+
+  return designSystem;
 }
 
 /**
