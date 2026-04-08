@@ -3,6 +3,7 @@ import { execFile, exec, spawn } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'fs';
 import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, readdir, rm, access, unlink, copyFile, appendFile, stat } from 'fs/promises';
+import { createServer } from 'net';
 import { homedir, tmpdir, userInfo } from 'os';
 import * as path from 'path';
 import { join, dirname } from 'path';
@@ -1437,18 +1438,38 @@ function findChrome() {
 function randomPort() {
   return 49152 + Math.floor(Math.random() * (65535 - 49152));
 }
+async function findFreePort(maxAttempts = 10) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = randomPort();
+    const isFree = await checkPortFree(port);
+    if (isFree) return port;
+  }
+  return new Promise((resolve3, reject) => {
+    const srv = createServer();
+    srv.listen(0, () => {
+      const port = srv.address().port;
+      srv.close(() => resolve3(port));
+    });
+    srv.on("error", reject);
+  });
+}
+function checkPortFree(port) {
+  return new Promise((resolve3) => {
+    const srv = createServer();
+    srv.once("error", () => resolve3(false));
+    srv.listen(port, () => srv.close(() => resolve3(true)));
+  });
+}
 var BrowserManager = class {
   process = null;
   _port = 0;
   async launch(options = {}) {
     const headless = options.headless ?? true;
-    this._port = options.port ?? randomPort();
+    this._port = options.port ?? await findFreePort();
     let userDataDir = options.userDataDir ?? join(homedir(), ".ibr", "chromium-profile");
-    if (!options.userDataDir) {
-      const lockPath = join(userDataDir, "SingletonLock");
-      if (existsSync(lockPath)) {
-        userDataDir = mkdtempSync(join(tmpdir(), "ibr-chrome-"));
-      }
+    const lockPath = join(userDataDir, "SingletonLock");
+    if (existsSync(lockPath)) {
+      userDataDir = mkdtempSync(join(tmpdir(), "ibr-chrome-"));
     }
     const chromePath = options.chromePath ?? findChrome();
     if (!chromePath) {
@@ -1518,6 +1539,9 @@ Checked: ${CHROME_PATHS.join(", ")}`
   }
   get port() {
     return this._port;
+  }
+  get pid() {
+    return this.process?.pid ?? null;
   }
 };
 
@@ -3492,6 +3516,10 @@ var EngineDriver = class {
   /** The CDP debug port Chrome is listening on. Only valid after launch(). */
   get debugPort() {
     return this.browser.port;
+  }
+  /** The OS PID of the Chrome process. Only valid after launch(). Null when connected to existing. */
+  get chromePid() {
+    return this.browser.pid;
   }
   /**
    * Connect to an already-running Chrome instance instead of launching a new one.

@@ -162,13 +162,36 @@ function findChrome() {
 function randomPort() {
   return 49152 + Math.floor(Math.random() * (65535 - 49152));
 }
-var import_node_child_process, import_node_fs, import_promises, import_node_os, import_node_path, CHROME_PATHS, BrowserManager;
+async function findFreePort(maxAttempts = 10) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = randomPort();
+    const isFree = await checkPortFree(port);
+    if (isFree) return port;
+  }
+  return new Promise((resolve5, reject) => {
+    const srv = (0, import_node_net.createServer)();
+    srv.listen(0, () => {
+      const port = srv.address().port;
+      srv.close(() => resolve5(port));
+    });
+    srv.on("error", reject);
+  });
+}
+function checkPortFree(port) {
+  return new Promise((resolve5) => {
+    const srv = (0, import_node_net.createServer)();
+    srv.once("error", () => resolve5(false));
+    srv.listen(port, () => srv.close(() => resolve5(true)));
+  });
+}
+var import_node_child_process, import_node_fs, import_promises, import_node_net, import_node_os, import_node_path, CHROME_PATHS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     "use strict";
     import_node_child_process = require("child_process");
     import_node_fs = require("fs");
     import_promises = require("fs/promises");
+    import_node_net = require("net");
     import_node_os = require("os");
     import_node_path = require("path");
     CHROME_PATHS = [
@@ -189,13 +212,11 @@ var init_browser = __esm({
       _port = 0;
       async launch(options = {}) {
         const headless = options.headless ?? true;
-        this._port = options.port ?? randomPort();
+        this._port = options.port ?? await findFreePort();
         let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
-        if (!options.userDataDir) {
-          const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
-          if ((0, import_node_fs.existsSync)(lockPath)) {
-            userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
-          }
+        const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
+        if ((0, import_node_fs.existsSync)(lockPath)) {
+          userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
         }
         const chromePath = options.chromePath ?? findChrome();
         if (!chromePath) {
@@ -265,6 +286,9 @@ Checked: ${CHROME_PATHS.join(", ")}`
       }
       get port() {
         return this._port;
+      }
+      get pid() {
+        return this.process?.pid ?? null;
       }
     };
   }
@@ -2669,6 +2693,10 @@ var init_driver = __esm({
       /** The CDP debug port Chrome is listening on. Only valid after launch(). */
       get debugPort() {
         return this.browser.port;
+      }
+      /** The OS PID of the Chrome process. Only valid after launch(). Null when connected to existing. */
+      get chromePid() {
+        return this.browser.pid;
       }
       /**
        * Connect to an already-running Chrome instance instead of launching a new one.
@@ -13701,10 +13729,10 @@ var init_session2 = __esm({
         );
       }
       async findFreePort() {
-        const { createServer } = await import("net");
+        const { createServer: createServer2 } = await import("net");
         for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
           const available = await new Promise((resolve5) => {
-            const server = createServer();
+            const server = createServer2();
             server.once("error", () => resolve5(false));
             server.once("listening", () => {
               server.close();
@@ -15027,6 +15055,7 @@ async function startBrowserServer(outputDir, options = {}) {
     wsEndpoint,
     cdpUrl,
     pid: process.pid,
+    chromePid: driver3.chromePid,
     startedAt: (/* @__PURE__ */ new Date()).toISOString(),
     headless,
     isolatedProfile: isolated ? profileDir : "",
@@ -15072,6 +15101,14 @@ async function stopBrowserServer(outputDir) {
     await (0, import_promises22.unlink)(stateFile);
     return true;
   } catch {
+    try {
+      const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
+      const state = JSON.parse(content);
+      if (state.chromePid) {
+        process.kill(state.chromePid, "SIGKILL");
+      }
+    } catch {
+    }
     await cleanupServerState(outputDir);
     return false;
   }
@@ -15731,6 +15768,13 @@ var init_browser_server = __esm({
           }
         }
         await this.driver.close();
+        const liveSessionPath = (0, import_path22.join)(this.sessionDir, "live-session.json");
+        try {
+          if ((0, import_fs12.existsSync)(liveSessionPath)) {
+            await (0, import_promises22.unlink)(liveSessionPath);
+          }
+        } catch {
+        }
       }
       /**
        * Release the driver's WebSocket and spawned tab without terminating the
@@ -18931,8 +18975,8 @@ async function loadConfig() {
 var IBR_DEFAULT_PORT = 4200;
 async function isPortAvailable(port) {
   return new Promise((resolve5) => {
-    import("net").then(({ createServer }) => {
-      const server = createServer();
+    import("net").then(({ createServer: createServer2 }) => {
+      const server = createServer2();
       server.once("error", () => resolve5(false));
       server.once("listening", () => {
         server.close();

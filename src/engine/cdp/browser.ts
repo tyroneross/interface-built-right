@@ -6,6 +6,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { existsSync, mkdtempSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -48,21 +49,44 @@ function randomPort(): number {
   return 49152 + Math.floor(Math.random() * (65535 - 49152))
 }
 
+async function findFreePort(maxAttempts = 10): Promise<number> {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = randomPort()
+    const isFree = await checkPortFree(port)
+    if (isFree) return port
+  }
+  // Last resort: let OS assign
+  return new Promise((resolve, reject) => {
+    const srv = createServer()
+    srv.listen(0, () => {
+      const port = (srv.address() as any).port
+      srv.close(() => resolve(port))
+    })
+    srv.on('error', reject)
+  })
+}
+
+function checkPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const srv = createServer()
+    srv.once('error', () => resolve(false))
+    srv.listen(port, () => srv.close(() => resolve(true)))
+  })
+}
+
 export class BrowserManager {
   private process: ChildProcess | null = null
   private _port = 0
 
   async launch(options: BrowserOptions = {}): Promise<string> {
     const headless = options.headless ?? true
-    this._port = options.port ?? randomPort()
+    this._port = options.port ?? await findFreePort()
     let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
 
-    // If default profile is locked by another Chrome, use temp profile
-    if (!options.userDataDir) {
-      const lockPath = join(userDataDir, 'SingletonLock')
-      if (existsSync(lockPath)) {
-        userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
-      }
+    const lockPath = join(userDataDir, 'SingletonLock')
+    if (existsSync(lockPath)) {
+      // Profile is locked by another Chrome — use temp profile to avoid conflict
+      userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
     }
 
     const chromePath = options.chromePath ?? findChrome()
@@ -147,5 +171,9 @@ export class BrowserManager {
 
   get port(): number {
     return this._port
+  }
+
+  get pid(): number | null {
+    return this.process?.pid ?? null
   }
 }

@@ -2252,10 +2252,10 @@ var init_session2 = __esm({
         );
       }
       async findFreePort() {
-        const { createServer } = await import("net");
+        const { createServer: createServer2 } = await import("net");
         for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
           const available = await new Promise((resolve3) => {
-            const server = createServer();
+            const server = createServer2();
             server.once("error", () => resolve3(false));
             server.once("listening", () => {
               server.close();
@@ -3762,6 +3762,7 @@ var CdpConnection = class {
 var import_node_child_process = require("child_process");
 var import_node_fs = require("fs");
 var import_promises2 = require("fs/promises");
+var import_node_net = require("net");
 var import_node_os = require("os");
 var import_node_path = require("path");
 var CHROME_PATHS = [
@@ -3786,18 +3787,38 @@ function findChrome() {
 function randomPort() {
   return 49152 + Math.floor(Math.random() * (65535 - 49152));
 }
+async function findFreePort(maxAttempts = 10) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = randomPort();
+    const isFree = await checkPortFree(port);
+    if (isFree) return port;
+  }
+  return new Promise((resolve3, reject) => {
+    const srv = (0, import_node_net.createServer)();
+    srv.listen(0, () => {
+      const port = srv.address().port;
+      srv.close(() => resolve3(port));
+    });
+    srv.on("error", reject);
+  });
+}
+function checkPortFree(port) {
+  return new Promise((resolve3) => {
+    const srv = (0, import_node_net.createServer)();
+    srv.once("error", () => resolve3(false));
+    srv.listen(port, () => srv.close(() => resolve3(true)));
+  });
+}
 var BrowserManager = class {
   process = null;
   _port = 0;
   async launch(options = {}) {
     const headless = options.headless ?? true;
-    this._port = options.port ?? randomPort();
+    this._port = options.port ?? await findFreePort();
     let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
-    if (!options.userDataDir) {
-      const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
-      if ((0, import_node_fs.existsSync)(lockPath)) {
-        userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
-      }
+    const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
+    if ((0, import_node_fs.existsSync)(lockPath)) {
+      userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
     }
     const chromePath = options.chromePath ?? findChrome();
     if (!chromePath) {
@@ -3867,6 +3888,9 @@ Checked: ${CHROME_PATHS.join(", ")}`
   }
   get port() {
     return this._port;
+  }
+  get pid() {
+    return this.process?.pid ?? null;
   }
 };
 
@@ -5843,6 +5867,10 @@ var EngineDriver = class {
   /** The CDP debug port Chrome is listening on. Only valid after launch(). */
   get debugPort() {
     return this.browser.port;
+  }
+  /** The OS PID of the Chrome process. Only valid after launch(). Null when connected to existing. */
+  get chromePid() {
+    return this.browser.pid;
   }
   /**
    * Connect to an already-running Chrome instance instead of launching a new one.

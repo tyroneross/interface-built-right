@@ -4215,6 +4215,8 @@ declare class EngineDriver implements BrowserDriver {
     get connection(): CdpConnection;
     /** The CDP debug port Chrome is listening on. Only valid after launch(). */
     get debugPort(): number;
+    /** The OS PID of the Chrome process. Only valid after launch(). Null when connected to existing. */
+    get chromePid(): number | null;
     /**
      * Connect to an already-running Chrome instance instead of launching a new one.
      * Used by browser-server reconnection to attach to a persistent Chrome process.

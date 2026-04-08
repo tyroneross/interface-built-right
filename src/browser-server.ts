@@ -23,6 +23,7 @@ interface BrowserServerState {
   wsEndpoint: string;
   cdpUrl?: string;  // CDP URL for reconnection (shares contexts)
   pid: number;
+  chromePid?: number | null;  // Chrome process PID for zombie cleanup
   startedAt: string;
   headless: boolean;
   isolatedProfile: string;
@@ -225,6 +226,7 @@ export async function startBrowserServer(
     wsEndpoint,
     cdpUrl,
     pid: process.pid,
+    chromePid: driver.chromePid,
     startedAt: new Date().toISOString(),
     headless,
     isolatedProfile: isolated ? profileDir : '',
@@ -301,7 +303,14 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
 
     return true;
   } catch {
-    // Force cleanup of state file
+    // CDP connect failed — Chrome may be zombie. Kill by stored PID
+    try {
+      const content = await readFile(stateFile, 'utf-8');
+      const state = JSON.parse(content);
+      if (state.chromePid) {
+        process.kill(state.chromePid, 'SIGKILL');
+      }
+    } catch { /* PID already dead or state unreadable */ }
     await cleanupServerState(outputDir);
     return false;
   }
@@ -1075,6 +1084,13 @@ export class PersistentSession {
       }
     }
     await this.driver.close();
+    // Clean up session state file so listActiveSessions() doesn't show stale entries
+    const liveSessionPath = join(this.sessionDir, 'live-session.json');
+    try {
+      if (existsSync(liveSessionPath)) {
+        await unlink(liveSessionPath);
+      }
+    } catch { /* non-fatal */ }
   }
 
   /**
