@@ -93,6 +93,20 @@ export function parsePx(value: string | undefined): number | null {
   return match ? parseFloat(match[1]) : null;
 }
 
+/**
+ * Get a computed style value, checking both camelCase and kebab-case keys.
+ * CDP returns camelCase (fontSize), but CSS convention is kebab-case (font-size).
+ */
+export function getStyle(styles: Record<string, string> | undefined, kebab: string): string | undefined {
+  if (!styles) return undefined;
+  // Try kebab-case first
+  const val = styles[kebab];
+  if (val !== undefined) return val;
+  // Try camelCase
+  const camel = kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  return styles[camel];
+}
+
 // ---------------------------------------------------------------------------
 // Individual validators
 // ---------------------------------------------------------------------------
@@ -136,7 +150,7 @@ const fontSizeValidator: TokenValidator = {
       const selector = element.selector || element.tagName || 'unknown';
       if (!element.computedStyles) continue;
 
-      const fontSize = parsePx(element.computedStyles['font-size']);
+      const fontSize = parsePx(getStyle(element.computedStyles, 'font-size'));
       if (fontSize === null) continue;
 
       if (!tokenValues.includes(fontSize)) {
@@ -169,7 +183,7 @@ const colorValidator: TokenValidator = {
       if (!element.computedStyles) continue;
 
       // Check text color
-      const textColor = element.computedStyles['color'];
+      const textColor = getStyle(element.computedStyles, 'color');
       if (textColor) {
         const normalized = normalizeColor(textColor);
         if (!tokenColors.has(normalized)) {
@@ -185,7 +199,7 @@ const colorValidator: TokenValidator = {
       }
 
       // Check background color
-      const bgColor = element.computedStyles['background-color'];
+      const bgColor = getStyle(element.computedStyles, 'background-color');
       if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)' && bgColor !== 'transparent') {
         const normalized = normalizeColor(bgColor);
         if (!tokenColors.has(normalized)) {
@@ -215,7 +229,7 @@ const cornerRadiusValidator: TokenValidator = {
       const selector = element.selector || element.tagName || 'unknown';
       if (!element.computedStyles) continue;
 
-      const borderRadius = parsePx(element.computedStyles['border-radius']);
+      const borderRadius = parsePx(getStyle(element.computedStyles, 'border-radius'));
       if (borderRadius === null || borderRadius === 0) continue;
 
       if (!tokenValues.includes(borderRadius)) {

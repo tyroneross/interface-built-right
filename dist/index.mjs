@@ -9102,6 +9102,13 @@ function parsePx(value) {
   const match = value.match(/^([\d.]+)px$/);
   return match ? parseFloat(match[1]) : null;
 }
+function getStyle(styles, kebab) {
+  if (!styles) return void 0;
+  const val = styles[kebab];
+  if (val !== void 0) return val;
+  const camel = kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  return styles[camel];
+}
 var touchTargetValidator = {
   name: "touchTargets",
   validate(elements, spec) {
@@ -9136,7 +9143,7 @@ var fontSizeValidator = {
     for (const element of elements) {
       const selector = element.selector || element.tagName || "unknown";
       if (!element.computedStyles) continue;
-      const fontSize = parsePx(element.computedStyles["font-size"]);
+      const fontSize = parsePx(getStyle(element.computedStyles, "font-size"));
       if (fontSize === null) continue;
       if (!tokenValues.includes(fontSize)) {
         violations.push({
@@ -9163,7 +9170,7 @@ var colorValidator = {
     for (const element of elements) {
       const selector = element.selector || element.tagName || "unknown";
       if (!element.computedStyles) continue;
-      const textColor = element.computedStyles["color"];
+      const textColor = getStyle(element.computedStyles, "color");
       if (textColor) {
         const normalized = normalizeColor(textColor);
         if (!tokenColors.has(normalized)) {
@@ -9177,7 +9184,7 @@ var colorValidator = {
           });
         }
       }
-      const bgColor = element.computedStyles["background-color"];
+      const bgColor = getStyle(element.computedStyles, "background-color");
       if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
         const normalized = normalizeColor(bgColor);
         if (!tokenColors.has(normalized)) {
@@ -9204,7 +9211,7 @@ var cornerRadiusValidator = {
     for (const element of elements) {
       const selector = element.selector || element.tagName || "unknown";
       if (!element.computedStyles) continue;
-      const borderRadius = parsePx(element.computedStyles["border-radius"]);
+      const borderRadius = parsePx(getStyle(element.computedStyles, "border-radius"));
       if (borderRadius === null || borderRadius === 0) continue;
       if (!tokenValues.includes(borderRadius)) {
         violations.push({
@@ -9272,7 +9279,7 @@ function validateFontWeights(elements, weights) {
   for (const element of elements) {
     const style = element.computedStyles;
     if (!style) continue;
-    const fw = style["font-weight"];
+    const fw = getStyle(style, "font-weight");
     if (!fw) continue;
     const weight = parseInt(fw, 10);
     if (isNaN(weight)) continue;
@@ -9295,12 +9302,12 @@ function validateLineHeights(elements, lineHeights) {
   for (const element of elements) {
     const style = element.computedStyles;
     if (!style) continue;
-    const lh = style["line-height"];
+    const lh = getStyle(style, "line-height");
     if (!lh || lh === "normal") continue;
     let value;
     const pxVal = parsePx(lh);
     if (pxVal !== null) {
-      const fontSize = parsePx(style["font-size"]);
+      const fontSize = parsePx(getStyle(style, "font-size"));
       if (fontSize && fontSize > 0) {
         value = Math.round(pxVal / fontSize * 100) / 100;
       } else {

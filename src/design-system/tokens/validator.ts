@@ -1,6 +1,6 @@
 import type { EnhancedElement } from '../../schemas.js';
 import type { TokenViolation } from '../../tokens.js';
-import { validateAgainstTokens, parsePx } from '../../tokens.js';
+import { validateAgainstTokens, parsePx, getStyle } from '../../tokens.js';
 import type { ExtendedTokenSpec } from './schema.js';
 import { toDesignTokenSpec } from './schema.js';
 
@@ -15,7 +15,7 @@ function validateFontWeights(elements: EnhancedElement[], weights: Record<string
     const style = element.computedStyles;
     if (!style) continue;
 
-    const fw = style['font-weight'];
+    const fw = getStyle(style, 'font-weight');
     if (!fw) continue;
 
     const weight = parseInt(fw, 10);
@@ -46,7 +46,7 @@ function validateLineHeights(elements: EnhancedElement[], lineHeights: Record<st
     const style = element.computedStyles;
     if (!style) continue;
 
-    const lh = style['line-height'];
+    const lh = getStyle(style, 'line-height');
     if (!lh || lh === 'normal') continue;
 
     // line-height can be px or unitless
@@ -54,7 +54,7 @@ function validateLineHeights(elements: EnhancedElement[], lineHeights: Record<st
     const pxVal = parsePx(lh);
     if (pxVal !== null) {
       // Convert px to ratio using font-size
-      const fontSize = parsePx(style['font-size']);
+      const fontSize = parsePx(getStyle(style, 'font-size'));
       if (fontSize && fontSize > 0) {
         value = Math.round((pxVal / fontSize) * 100) / 100;
       } else {
