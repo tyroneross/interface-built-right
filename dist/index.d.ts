@@ -6166,6 +6166,8 @@ declare const DesignSystemConfigSchema: z.ZodObject<{
 type DesignSystemConfig = z.infer<typeof DesignSystemConfigSchema>;
 /**
  * Load design system config from .ibr/design-system.json
+ * Accepts either a project root (looks in projectDir/.ibr/) or an outputDir
+ * that IS the .ibr/ directory (looks in outputDir/ directly).
  * Returns undefined if no config exists (backward compatible)
  */
 declare function loadDesignSystemConfig(projectDir: string): Promise<DesignSystemConfig | undefined>;

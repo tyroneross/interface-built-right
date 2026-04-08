@@ -60,13 +60,20 @@ export type CustomCheck = z.infer<typeof CustomCheckSchema>;
 
 /**
  * Load design system config from .ibr/design-system.json
+ * Accepts either a project root (looks in projectDir/.ibr/) or an outputDir
+ * that IS the .ibr/ directory (looks in outputDir/ directly).
  * Returns undefined if no config exists (backward compatible)
  */
 export async function loadDesignSystemConfig(projectDir: string): Promise<DesignSystemConfig | undefined> {
-  const configPath = join(projectDir, '.ibr', 'design-system.json');
+  // Try projectDir/.ibr/design-system.json first (project root)
+  let configPath = join(projectDir, '.ibr', 'design-system.json');
 
   if (!existsSync(configPath)) {
-    return undefined;
+    // Try projectDir/design-system.json (outputDir IS the .ibr/ dir)
+    configPath = join(projectDir, 'design-system.json');
+    if (!existsSync(configPath)) {
+      return undefined;
+    }
   }
 
   const content = await readFile(configPath, 'utf-8');

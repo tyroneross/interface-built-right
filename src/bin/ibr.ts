@@ -3477,6 +3477,7 @@ program
         bundleId: options.bundleId,
         pid: options.pid ? parseInt(options.pid, 10) : undefined,
         screenshot: options.screenshot ? { path: options.screenshot } : undefined,
+        outputDir: program.opts().output || '.ibr',
       });
 
       if (options.json) {

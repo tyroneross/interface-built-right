@@ -118,9 +118,9 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
     });
   }
 
-  // --- Design system check ---
-  const designSystem = outputDir ? await applyDesignSystemCheck(
-    elements, issues, viewport, url, outputDir
+  // --- Design system check (only when explicitly provided, not the default '.ibr') ---
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
+    elements, issues, viewport, url, options.outputDir
   ) : undefined;
 
   // --- Verdict ---

@@ -2147,6 +2147,7 @@ async function handleScanMacOS(
     bundleId,
     pid,
     screenshot: screenshot ? { path: screenshot } : undefined,
+    outputDir: DEFAULT_OUTPUT_DIR,
   });
 
   const lines = [
@@ -2586,7 +2587,7 @@ async function handleBridgeToSource(args: Record<string, unknown>): Promise<McpR
   if (appName) {
     // macOS app scan
     try {
-      const result = await scanMacOS({ app: appName });
+      const result = await scanMacOS({ app: appName, outputDir: DEFAULT_OUTPUT_DIR });
       elements = result.elements.all;
       scanSource = `macOS app: ${appName}`;
     } catch (err) {

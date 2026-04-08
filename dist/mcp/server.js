@@ -3027,9 +3027,12 @@ var DesignSystemConfigSchema = import_zod.z.object({
   }).default({})
 });
 async function loadDesignSystemConfig(projectDir) {
-  const configPath = (0, import_path.join)(projectDir, ".ibr", "design-system.json");
+  let configPath = (0, import_path.join)(projectDir, ".ibr", "design-system.json");
   if (!(0, import_fs.existsSync)(configPath)) {
-    return void 0;
+    configPath = (0, import_path.join)(projectDir, "design-system.json");
+    if (!(0, import_fs.existsSync)(configPath)) {
+      return void 0;
+    }
   }
   const content = await (0, import_promises.readFile)(configPath, "utf-8");
   const raw = JSON.parse(content);
@@ -9361,12 +9364,12 @@ async function scanNative(options = {}) {
       description: issue.message
     });
   }
-  const designSystem = outputDir ? await applyDesignSystemCheck(
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
     elements,
     issues,
     viewport,
     url,
-    outputDir
+    options.outputDir
   ) : void 0;
   const verdict = determineVerdict2(issues);
   const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
@@ -12250,7 +12253,8 @@ async function handleScanMacOS(args) {
     app,
     bundleId,
     pid,
-    screenshot: screenshot ? { path: screenshot } : void 0
+    screenshot: screenshot ? { path: screenshot } : void 0,
+    outputDir: DEFAULT_OUTPUT_DIR
   });
   const lines = [
     `macOS App Scan: ${result.url}`,
@@ -12590,7 +12594,7 @@ async function handleBridgeToSource(args) {
   let scanSource;
   if (appName) {
     try {
-      const result2 = await scanMacOS({ app: appName });
+      const result2 = await scanMacOS({ app: appName, outputDir: DEFAULT_OUTPUT_DIR });
       elements = result2.elements.all;
       scanSource = `macOS app: ${appName}`;
     } catch (err) {

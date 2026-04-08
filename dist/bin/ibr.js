@@ -10183,9 +10183,12 @@ var init_layout_collision = __esm({
 
 // src/design-system/config.ts
 async function loadDesignSystemConfig(projectDir) {
-  const configPath = (0, import_path14.join)(projectDir, ".ibr", "design-system.json");
+  let configPath = (0, import_path14.join)(projectDir, ".ibr", "design-system.json");
   if (!(0, import_fs6.existsSync)(configPath)) {
-    return void 0;
+    configPath = (0, import_path14.join)(projectDir, "design-system.json");
+    if (!(0, import_fs6.existsSync)(configPath)) {
+      return void 0;
+    }
   }
   const content = await (0, import_promises15.readFile)(configPath, "utf-8");
   const raw = JSON.parse(content);
@@ -12232,12 +12235,12 @@ async function scanNative(options = {}) {
       description: issue.message
     });
   }
-  const designSystem = outputDir ? await applyDesignSystemCheck(
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
     elements,
     issues,
     viewport,
     url,
-    outputDir
+    options.outputDir
   ) : void 0;
   const verdict = determineVerdict2(issues);
   const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
@@ -21440,7 +21443,8 @@ program.command("scan:macos").description("Scan a running macOS native app via A
       app: options.app,
       bundleId: options.bundleId,
       pid: options.pid ? parseInt(options.pid, 10) : void 0,
-      screenshot: options.screenshot ? { path: options.screenshot } : void 0
+      screenshot: options.screenshot ? { path: options.screenshot } : void 0,
+      outputDir: program.opts().output || ".ibr"
     });
     if (options.json) {
       console.log(JSON.stringify(result, null, 2));

@@ -9048,9 +9048,12 @@ var DesignSystemConfigSchema = zod.z.object({
   }).default({})
 });
 async function loadDesignSystemConfig(projectDir) {
-  const configPath = path.join(projectDir, ".ibr", "design-system.json");
+  let configPath = path.join(projectDir, ".ibr", "design-system.json");
   if (!fs$1.existsSync(configPath)) {
-    return void 0;
+    configPath = path.join(projectDir, "design-system.json");
+    if (!fs$1.existsSync(configPath)) {
+      return void 0;
+    }
   }
   const content = await fs.readFile(configPath, "utf-8");
   const raw = JSON.parse(content);
@@ -10839,12 +10842,12 @@ async function scanNative(options = {}) {
       description: issue.message
     });
   }
-  const designSystem = outputDir ? await applyDesignSystemCheck(
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
     elements,
     issues,
     viewport,
     url,
-    outputDir
+    options.outputDir
   ) : void 0;
   const verdict = determineVerdict2(issues);
   const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
