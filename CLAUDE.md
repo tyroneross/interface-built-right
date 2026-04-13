@@ -83,8 +83,19 @@ Skills: `/ibr:design-system` (config management), `/ibr:component-patterns` (pat
 
 ## Slash Commands
 
-`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:design-system` `/ibr:component-patterns`
+`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:design-system` `/ibr:component-patterns` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
 
 Use skill for details.
+
+## Skills (v0.9.0-alpha additions)
+
+| Skill | Purpose |
+|-------|---------|
+| `ui-brainstorm-preamble` | Pre-build UI brainstorming — explore directions before implementing |
+| `ui-guidance-library` | Reusable UI guidance patterns and decision aids |
+| `mockup-gallery-bridge` | Bridge between mockup gallery reviews and IBR scan verification |
+| `mobile-web-ui` | Mobile web UI patterns — responsive design, touch targets, viewport handling |
+| `ios-ui` | iOS-specific UI patterns — SwiftUI conventions, safe areas, haptics |
+| `macos-ui` | macOS-specific UI patterns — AppKit/SwiftUI, menu bar, window chrome |
 
 ---

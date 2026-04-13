@@ -172,5 +172,25 @@ IBR is also a Claude Code plugin. When installed, use slash commands:
 | `/ibr:test` | Run .ibr-test.json |
 | `/ibr:verify-changes` | Verify design changes |
 | `/ibr:compare-browsers` | Chrome vs Safari |
+| `/ibr:build <topic>` | Guided UI build — brainstorm, plan, implement, verify |
+| `/ibr:capture <url>` | Capture a named baseline snapshot for any URL |
+| `/ibr:ui-guidance` | On-demand design guidance using IBR scan data |
 
-Full list: see `plugin/CLAUDE.md`
+Full list: see `CLAUDE.md`
+
+### `/ibr:build` — Guided UI build
+
+```
+/ibr:build dashboard header with nav and user menu
+```
+
+Triggers a structured build flow: brainstorm options → plan implementation → build → scan to verify → iterate if needed. Uses the `ui-brainstorm-preamble` skill to explore directions before writing any code.
+
+### `/ibr:capture` — Baseline snapshot
+
+```
+/ibr:capture http://localhost:3000/dashboard
+/ibr:capture http://localhost:3000 --name "before-nav-redesign"
+```
+
+Captures a named IBR baseline. Equivalent to `npx ibr start <url>` but integrated into the plugin workflow with session tracking.

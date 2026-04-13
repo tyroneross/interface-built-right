@@ -77,7 +77,7 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 | `hooks/ibr-loop-hook.sh` | Stop handler |
 | `agents/visual-iterator.md` | Design validator agent definition |
 
-### Skills (8)
+### Skills (14)
 
 | Directory | Purpose |
 |---|---|
@@ -89,6 +89,12 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 | `skills/interactive-testing/` | Click/fill/observe interaction flows |
 | `skills/native-testing/` | iOS/watchOS/macOS native app scanning |
 | `skills/auto-verify/` | Automatic post-change verification |
+| `skills/ui-brainstorm-preamble/` | Pre-build UI brainstorming — explore directions before implementing |
+| `skills/ui-guidance-library/` | Reusable UI guidance patterns and decision aids |
+| `skills/mockup-gallery-bridge/` | Bridge between mockup gallery reviews and IBR scan verification |
+| `skills/mobile-web-ui/` | Mobile web UI patterns — responsive design, touch targets, viewport handling |
+| `skills/ios-ui/` | iOS-specific UI patterns — SwiftUI conventions, safe areas, haptics |
+| `skills/macos-ui/` | macOS-specific UI patterns — AppKit/SwiftUI, menu bar, window chrome |
 
 ### Hooks (3)
 
@@ -106,9 +112,9 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 
 `scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `validate_tokens` | `scan_static` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `sim_action`
 
-### Slash Commands (27)
+### Slash Commands (30)
 
-`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:scan` `/ibr:screenshot` `/ibr:native-scan` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:replicate` `/ibr:run-script` `/ibr:setup-hooks` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:update`
+`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:scan` `/ibr:screenshot` `/ibr:native-scan` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:replicate` `/ibr:run-script` `/ibr:setup-hooks` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:update` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
 
 ### Storage
 

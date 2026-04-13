@@ -61,6 +61,20 @@ IBR runs on a custom **CDP browser engine** — direct Chrome DevTools Protocol 
 
 See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 
+## What's New in v0.9.0-alpha
+
+| Feature | Command / Skill | What it does |
+|---------|----------------|-------------|
+| **Build command** | `/ibr:build <topic>` | Guided UI build — brainstorm, plan, implement, verify in one flow |
+| **Capture command** | `/ibr:capture <url>` | Capture a named baseline snapshot for any URL |
+| **UI guidance** | `/ibr:ui-guidance` | On-demand design guidance using IBR scan data |
+| **UI brainstorm preamble** | skill: `ui-brainstorm-preamble` | Pre-build exploration — explore directions before implementing |
+| **UI guidance library** | skill: `ui-guidance-library` | Reusable UI guidance patterns and decision aids |
+| **Mockup gallery bridge** | skill: `mockup-gallery-bridge` | Bridge mockup gallery reviews to IBR scan verification |
+| **Mobile web UI** | skill: `mobile-web-ui` | Mobile web patterns — responsive design, touch targets, viewport handling |
+| **iOS UI** | skill: `ios-ui` | iOS-specific patterns — SwiftUI conventions, safe areas, haptics |
+| **macOS UI** | skill: `macos-ui` | macOS-specific patterns — AppKit/SwiftUI, menu bar, window chrome |
+
 ## The Problem
 
 User says "make the buttons blue with 16px Inter font." You build it. But did it work?
