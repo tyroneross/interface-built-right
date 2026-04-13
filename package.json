@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "0.8.0",
+  "version": "0.9.0-alpha",
   "description": "Visual testing platform for Claude Code. Interaction assertions, mockup matching (SSIM), design verification, test generation, Safari support. Chrome + Safari via custom CDP/WebDriver engines.",
   "repository": {
     "type": "git",

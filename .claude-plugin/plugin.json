@@ -1,6 +1,6 @@
 {
   "name": "ibr",
-  "version": "0.8.0",
+  "version": "0.9.0-alpha",
   "description": "Visual testing platform with design system enforcement — Calm Precision principles, design tokens, component patterns, interaction assertions, mockup matching (SSIM), test generation, cross-browser (Chrome + Safari), and native iOS/macOS scanning",
   "author": {
     "name": "Tyrone Ross"
