@@ -23,6 +23,19 @@ Six-question UI-context capture. Pre-fills superpowers:brainstorming so the open
 5. **Mockup-gallery selection** — if `mockup-gallery-bridge` reports `present: true`, show gallery selections for the scope. User picks one or "none"
 6. **Density/intent** — compact-dense / balanced / spacious-marketing
 
+## Platform skill routing
+
+After Question 1 (Platform) is answered, load the matching platform skill to bring its rules into scope for the brainstorm and downstream phases:
+
+| Platform | Skill to load |
+|---|---|
+| web (mobile) | `mobile-web-ui` |
+| iOS | `ios-ui` |
+| macOS | `macos-ui` |
+| cross-platform | load all three — pick the dominant one for tokens, cross-reference others |
+
+This ensures the superpowers brainstorming dialogue starts with platform-correct rules already in context.
+
 ## Outputs
 
 Write `.ibr/builds/<topic>/preamble.json`:
