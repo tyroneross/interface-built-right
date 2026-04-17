@@ -5,6 +5,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { VIEWPORTS, type Viewport } from './schemas.js';
+import type { BrowserLaunchOptions } from './types.js';
 import {
   type ScanResult,
   extractAndAudit,
@@ -15,6 +16,7 @@ import {
 } from './scan.js';
 import { testInteractivity } from './interactivity.js';
 import { getSemanticOutput } from './semantic/index.js';
+import { waitForStableTree, waitForHydration } from './engine/cdp/wait.js';
 
 /**
  * Combined screenshot + scan data captured at a single point in time
@@ -32,6 +34,14 @@ export interface StepCapture {
   keep: boolean;
   /** ISO timestamp */
   timestamp: string;
+  /** True if the triggering action caused a URL change */
+  navigated?: boolean;
+  /** URL before the action (only set when navigated is true) */
+  urlBefore?: string;
+  /** URL after navigation (only set when navigated is true) */
+  urlAfter?: string;
+  /** Console errors that fired during the triggering action window */
+  actionErrors?: string[];
 }
 
 /**
@@ -42,12 +52,24 @@ interface LiveSessionState {
   url: string;
   name: string;
   viewport: Viewport;
-  sandbox: boolean;
+  headed: boolean;
   autoCapture: boolean;
   createdAt: string;
   actions: ActionRecord[];
   /** Combined captures (screenshot + scan) at each step */
   captures: StepCapture[];
+}
+
+/**
+ * Before/after diff captured around an interaction when autoCapture is enabled.
+ */
+export interface ActionDiff {
+  urlChanged: boolean;
+  previousUrl: string;
+  currentUrl: string;
+  elementsAdded: string[];     // labels of new elements
+  elementsRemoved: string[];   // labels of removed elements
+  consoleErrors: string[];     // errors that appeared during the action
 }
 
 /**
@@ -62,19 +84,30 @@ export interface ActionRecord {
   duration?: number;
   /** Index into captures array, if this action triggered a capture */
   captureIndex?: number;
+  /** Before/after diff (populated when autoCapture is enabled) */
+  diff?: ActionDiff;
+  /** Console errors that appeared during this action window */
+  actionErrors?: string[];
+  /** True if this action caused a URL change */
+  navigated?: boolean;
+  /** URL before the action (set when navigated is true) */
+  urlBefore?: string;
+  /** URL after navigation (set when navigated is true) */
+  urlAfter?: string;
 }
 
 /**
  * Options for creating a live session
  */
-export interface LiveSessionOptions {
+export interface LiveSessionOptions extends BrowserLaunchOptions {
   url: string;
   name?: string;
   viewport?: Viewport;
-  sandbox?: boolean;  // visible browser (default: false = headless)
-  debug?: boolean;    // sandbox + slowMo + devtools
+  headed?: boolean;   // visible browser (default: false = headless)
+  sandbox?: boolean;  // deprecated alias for headed
+  debug?: boolean;    // headed + slowMo + devtools
   timeout?: number;
-  /** Auto-capture screenshot + scan after every interaction (default: false) */
+  /** Auto-capture screenshot + scan after every interaction (default: true) */
   autoCapture?: boolean;
 }
 
@@ -141,11 +174,17 @@ export class LiveSession {
       url,
       name,
       viewport = VIEWPORTS.desktop,
+      headed = false,
       sandbox = false,
       debug = false,
       timeout = 30000,
-      autoCapture = false,
+      autoCapture = true,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
     } = options;
+    const showBrowser = headed || sandbox || debug;
 
     // Generate session ID
     const sessionId = `live_${nanoid(10)}`;
@@ -155,11 +194,15 @@ export class LiveSession {
     // Launch browser with appropriate mode
     const driver = new EngineDriver();
     await driver.launch({
-      headless: !sandbox && !debug,
+      headless: !showBrowser,
       viewport: {
         width: viewport.width,
         height: viewport.height,
       },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
     });
 
     // Create page
@@ -178,7 +221,7 @@ export class LiveSession {
       url,
       name: name || new URL(url).pathname,
       viewport,
-      sandbox: sandbox || debug,
+      headed: showBrowser,
       autoCapture,
       createdAt: new Date().toISOString(),
       actions: [{
@@ -227,12 +270,16 @@ export class LiveSession {
 
     // Load state - but browser needs to be recreated
     const content = await readFile(statePath, 'utf-8');
-    const state = JSON.parse(content) as LiveSessionState;
+    const rawState = JSON.parse(content) as LiveSessionState & { sandbox?: boolean };
+    const state: LiveSessionState = {
+      ...rawState,
+      headed: rawState.headed ?? rawState.sandbox ?? false,
+    };
 
     // Relaunch browser and navigate to last URL
     const driver = new EngineDriver();
     await driver.launch({
-      headless: !state.sandbox,
+      headless: !state.headed,
       viewport: {
         width: state.viewport.width,
         height: state.viewport.height,
@@ -493,14 +540,150 @@ export class LiveSession {
   }
 
   /**
-   * Auto-capture after a successful action (when autoCapture is enabled)
+   * Wait for the page to be ready after a navigation-inducing action.
+   * 1. Waits up to 2s for a Page.loadEventFired signal via AX tree stability.
+   * 2. Then polls for stable AX tree.
    */
-  private async autoCapAfterAction(): Promise<void> {
+  private async waitForPageReady(): Promise<void> {
+    if (!this.driver) return;
+    try {
+      await waitForStableTree(
+        () => this.driver!.getSnapshot(),
+        { timeout: 2000, stableTime: 300 },
+      );
+    } catch {
+      // Non-fatal — page may already be stable
+    }
+  }
+
+  /**
+   * Capture a lightweight before/after diff around an interaction.
+   * Returns undefined when autoCapture is disabled.
+   * Only captures AX element labels (not full scan) for performance.
+   */
+  private async captureInteractionDiff(
+    action: () => Promise<void>,
+  ): Promise<ActionDiff | undefined> {
+    if (!this.state.autoCapture || !this.driver) {
+      await action();
+      return undefined;
+    }
+
+    // --- Pre-action snapshot ---
+    const previousUrl = this.page?.url() ?? this.state.url;
+
+    // Clear console error buffer so we only collect errors from this action
+    this.driver.consoleDomain.clear();
+    // Reset our own accumulator too
+    this.consoleErrors = [];
+
+    const beforeElements = await this.driver.getSnapshot().catch(() => []);
+    const beforeLabels = new Set(
+      beforeElements.map(e => e.label).filter((l): l is string => !!l),
+    );
+
+    // --- Perform action ---
+    await action();
+
+    // --- Post-action snapshot ---
+    const currentUrl = this.page?.url() ?? this.state.url;
+
+    // Small settle wait before reading post state
+    await new Promise(r => setTimeout(r, 100));
+
+    const afterElements = await this.driver.getSnapshot().catch(() => []);
+    const afterLabels = new Set(
+      afterElements.map(e => e.label).filter((l): l is string => !!l),
+    );
+
+    // Collect console errors that fired during the action
+    const newErrors = this.driver.consoleDomain.getErrors().map(m => m.text);
+
+    const elementsAdded = [...afterLabels].filter(l => !beforeLabels.has(l));
+    const elementsRemoved = [...beforeLabels].filter(l => !afterLabels.has(l));
+
+    return {
+      urlChanged: currentUrl !== previousUrl,
+      previousUrl,
+      currentUrl,
+      elementsAdded,
+      elementsRemoved,
+      consoleErrors: newErrors,
+    };
+  }
+
+  /**
+   * Auto-capture after a successful action (when autoCapture is enabled).
+   * Waits for SPA hydration stability before running the full scan so that
+   * React/Next.js pages are fully mounted before element extraction.
+   *
+   * @param context - Navigation and error context from the triggering action.
+   *   navigated: true when the action caused a URL change (full page load needed).
+   *   urlBefore/urlAfter: URL pair for the navigation (set when navigated is true).
+   *   actionErrors: console errors that fired during the action window.
+   */
+  private async autoCapAfterAction(context?: {
+    navigated?: boolean;
+    urlBefore?: string;
+    urlAfter?: string;
+    actionErrors?: string[];
+  }): Promise<void> {
     if (!this.state.autoCapture) return;
     try {
-      // Brief wait for any transitions/network to settle
-      await this.page?.waitForLoadState('networkidle', { timeout: 3000 }).catch(() => {});
-      await this.capture({ keep: false });
+      if (this.driver) {
+        if (context?.navigated) {
+          // Full page navigation — wait for load + hydration on the new URL.
+          // waitForPageReady already ran in click(), so we just give hydration
+          // a longer stable window to absorb the new page's React mount.
+          await waitForHydration(
+            this.driver.connection,
+            () => this.driver!.getSnapshot(),
+            (expr: string) => this.driver!.evaluate(expr),
+            { timeout: 8000, stableTime: 600, minElements: 1, settleTime: 200 },
+          ).catch(() => {});
+        } else {
+          // Same-page interaction — standard SPA hydration wait.
+          await waitForHydration(
+            this.driver.connection,
+            () => this.driver!.getSnapshot(),
+            (expr: string) => this.driver!.evaluate(expr),
+            { timeout: 5000, stableTime: 400, minElements: 1, settleTime: 150 },
+          ).catch(() => {});
+        }
+      }
+
+      // Collect action errors to surface in capture and console output.
+      const actionErrors = context?.actionErrors ?? [];
+
+      // If action produced console errors, emit them to the session's accumulator
+      // so they appear in the next scan result's console.errors array.
+      if (actionErrors.length > 0) {
+        for (const err of actionErrors) {
+          if (!this.consoleErrors.includes(err)) {
+            this.consoleErrors.push(err);
+          }
+        }
+        // Log immediately so errors are visible in CLI output.
+        console.error(`[IBR] Action triggered ${actionErrors.length} console error(s):`);
+        for (const err of actionErrors) {
+          console.error(`  [console.error] ${err}`);
+        }
+      }
+
+      const stepCapture = await this.capture({ keep: false });
+
+      // Annotate the capture with navigation and error context.
+      if (context?.navigated) {
+        stepCapture.navigated = true;
+        stepCapture.urlBefore = context.urlBefore;
+        stepCapture.urlAfter = context.urlAfter;
+      }
+      if (actionErrors.length > 0) {
+        stepCapture.actionErrors = actionErrors;
+      }
+
+      // Persist the updated capture annotations.
+      await this.saveState();
     } catch {
       // Auto-capture failures are non-fatal — don't break the action
     }
@@ -545,22 +728,65 @@ export class LiveSession {
   }
 
   /**
-   * Click an element
+   * Click an element.
+   * When autoCapture is enabled: captures pre/post element snapshot, URL diff, and console errors.
+   * After any click, detects navigation (50ms check then 500ms confirm) and waits for the new
+   * page to hydrate before running the auto-capture scan.
    */
   async click(selector: string, options?: { timeout?: number }): Promise<void> {
-    const page = this.ensurePage();
+    this.ensurePage();
     const start = Date.now();
 
+    // Snapshot URL before the click so navigation detection is independent of diff timing.
+    const urlBefore = this.driver?.url ?? this.state.url;
+
     try {
-      await page.click(selector, { timeout: options?.timeout || 5000 });
+      const diff = await this.captureInteractionDiff(async () => {
+        const p = this.ensurePage();
+        await p.click(selector, { timeout: options?.timeout || 5000 });
+      });
+
+      // Navigation detection — 50ms fast check first, then 500ms confirm window.
+      await new Promise(r => setTimeout(r, 50));
+      const urlAfterFast = this.driver?.url ?? (this.page?.url() ?? this.state.url);
+
+      // If URL already changed at 50ms, navigation fired immediately.
+      // Otherwise wait up to 500ms total for async navigations (pushState, redirects).
+      let navigated = urlAfterFast !== urlBefore;
+      if (!navigated) {
+        await new Promise(r => setTimeout(r, 450)); // total: 500ms
+      }
+      const urlAfter = this.driver?.url ?? (this.page?.url() ?? this.state.url);
+      navigated = urlAfter !== urlBefore;
+
+      if (navigated) {
+        // URL changed — wait for the new page to hydrate before auto-capture.
+        await this.waitForPageReady();
+        this.state.url = urlAfter;
+      }
+
+      // Collect console errors surfaced during the action window.
+      const actionErrors = diff?.consoleErrors ?? [];
+
       await this.recordAction({
         type: 'click',
         timestamp: new Date().toISOString(),
         params: { selector },
         success: true,
         duration: Date.now() - start,
+        diff,
+        navigated,
+        urlBefore: navigated ? urlBefore : undefined,
+        urlAfter: navigated ? urlAfter : undefined,
+        actionErrors: actionErrors.length > 0 ? actionErrors : undefined,
       });
-      await this.autoCapAfterAction();
+
+      await this.autoCapAfterAction({
+        navigated,
+        urlBefore: navigated ? urlBefore : undefined,
+        urlAfter: navigated ? urlAfter : undefined,
+        actionErrors,
+      });
     } catch (error) {
       await this.recordAction({
         type: 'click',
@@ -575,23 +801,32 @@ export class LiveSession {
   }
 
   /**
-   * Type text into an element (clears existing content first)
+   * Type text into an element (clears existing content first).
+   * When autoCapture is enabled: captures pre/post element snapshot and console errors.
    */
   async type(selector: string, text: string, options?: { delay?: number; timeout?: number }): Promise<void> {
-    const page = this.ensurePage();
+    this.ensurePage();
     const start = Date.now();
 
     try {
-      await page.fill(selector, ''); // Clear first
-      await page.type(selector, text, { delay: options?.delay || 0 });
+      const diff = await this.captureInteractionDiff(async () => {
+        const p = this.ensurePage();
+        await p.fill(selector, ''); // Clear first
+        await p.type(selector, text, { delay: options?.delay || 0 });
+      });
+
+      const actionErrors = diff?.consoleErrors ?? [];
+
       await this.recordAction({
         type: 'type',
         timestamp: new Date().toISOString(),
         params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text },
         success: true,
         duration: Date.now() - start,
+        diff,
+        actionErrors: actionErrors.length > 0 ? actionErrors : undefined,
       });
-      await this.autoCapAfterAction();
+      await this.autoCapAfterAction({ actionErrors });
     } catch (error) {
       await this.recordAction({
         type: 'type',
@@ -606,37 +841,56 @@ export class LiveSession {
   }
 
   /**
-   * Fill a form with multiple fields
+   * Fill a form with multiple fields.
+   * When autoCapture is enabled: captures pre/post element snapshot and console errors.
    */
   async fill(fields: FormField[]): Promise<void> {
-    const page = this.ensurePage();
+    this.ensurePage();
     const start = Date.now();
     const results: { selector: string; success: boolean; error?: string }[] = [];
 
-    for (const field of fields) {
-      try {
-        if (field.type === 'checkbox') {
-          if (field.value === 'true' || field.value === '1') {
-            await page.check(field.selector);
-          } else {
-            await page.uncheck(field.selector);
+    let diff: ActionDiff | undefined;
+
+    try {
+      diff = await this.captureInteractionDiff(async () => {
+        const page = this.ensurePage();
+        for (const field of fields) {
+          try {
+            if (field.type === 'checkbox') {
+              if (field.value === 'true' || field.value === '1') {
+                await page.check(field.selector);
+              } else {
+                await page.uncheck(field.selector);
+              }
+            } else if (field.type === 'select') {
+              await page.selectOption(field.selector, field.value);
+            } else {
+              await page.fill(field.selector, field.value);
+            }
+            results.push({ selector: field.selector, success: true });
+          } catch (fieldError) {
+            results.push({
+              selector: field.selector,
+              success: false,
+              error: fieldError instanceof Error ? fieldError.message : String(fieldError),
+            });
           }
-        } else if (field.type === 'select') {
-          await page.selectOption(field.selector, field.value);
-        } else {
-          await page.fill(field.selector, field.value);
         }
-        results.push({ selector: field.selector, success: true });
-      } catch (error) {
-        results.push({
-          selector: field.selector,
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
+      });
+    } catch (error) {
+      await this.recordAction({
+        type: 'fill',
+        timestamp: new Date().toISOString(),
+        params: { fields: fields.map(f => ({ selector: f.selector, type: f.type || 'text' })), results },
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - start,
+      });
+      throw error;
     }
 
     const allSuccess = results.every(r => r.success);
+    const actionErrors = diff?.consoleErrors ?? [];
     await this.recordAction({
       type: 'fill',
       timestamp: new Date().toISOString(),
@@ -644,6 +898,8 @@ export class LiveSession {
       success: allSuccess,
       error: allSuccess ? undefined : `Failed to fill ${results.filter(r => !r.success).length} field(s)`,
       duration: Date.now() - start,
+      diff,
+      actionErrors: actionErrors.length > 0 ? actionErrors : undefined,
     });
 
     if (!allSuccess) {
@@ -651,26 +907,34 @@ export class LiveSession {
       throw new Error(`Failed to fill fields: ${failed.map(f => f.selector).join(', ')}`);
     }
 
-    await this.autoCapAfterAction();
+    await this.autoCapAfterAction({ actionErrors });
   }
 
   /**
-   * Hover over an element
+   * Hover over an element.
+   * When autoCapture is enabled: captures pre/post element snapshot and console errors.
    */
   async hover(selector: string, options?: { timeout?: number }): Promise<void> {
-    const page = this.ensurePage();
+    this.ensurePage();
     const start = Date.now();
 
     try {
-      await page.hover(selector, { timeout: options?.timeout || 5000 });
+      const diff = await this.captureInteractionDiff(async () => {
+        const p = this.ensurePage();
+        await p.hover(selector, { timeout: options?.timeout || 5000 });
+      });
+
+      const actionErrors = diff?.consoleErrors ?? [];
       await this.recordAction({
         type: 'hover',
         timestamp: new Date().toISOString(),
         params: { selector },
         success: true,
         duration: Date.now() - start,
+        diff,
+        actionErrors: actionErrors.length > 0 ? actionErrors : undefined,
       });
-      await this.autoCapAfterAction();
+      await this.autoCapAfterAction({ actionErrors });
     } catch (error) {
       await this.recordAction({
         type: 'hover',

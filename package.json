@@ -1,7 +1,7 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "0.9.0-alpha",
-  "description": "Visual testing platform for Claude Code. Interaction assertions, mockup matching (SSIM), design verification, test generation, Safari support. Chrome + Safari via custom CDP/WebDriver engines.",
+  "version": "0.10.0-alpha",
+  "description": "End-to-end design tool for AI coding agents. Guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching, cross-browser. Custom CDP engine.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/tyroneross/interface-built-right.git"
@@ -33,7 +33,9 @@
     "hooks",
     "scripts",
     "skills",
-    "universal"
+    "universal",
+    "references",
+    "templates"
   ],
   "scripts": {
     "postinstall": "node scripts/postinstall.js || true",
@@ -56,14 +58,17 @@
     "mcp": "node dist/mcp/server.js"
   },
   "keywords": [
+    "design-tool",
+    "ui-design",
+    "build-orchestration",
     "design-validation",
     "ui-testing",
     "css-audit",
     "cdp",
     "claude-code",
+    "codex",
     "accessibility",
-    "visual-regression",
-    "component-testing"
+    "visual-regression"
   ],
   "author": "",
   "license": "FSL-1.1-MIT",

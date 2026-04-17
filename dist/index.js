@@ -1,16 +1,16 @@
 'use strict';
 
+var fs = require('fs/promises');
+var fs$1 = require('fs');
+var path = require('path');
+var os = require('os');
+var nanoid = require('nanoid');
 var zod = require('zod');
 var child_process = require('child_process');
-var fs$1 = require('fs');
-var fs = require('fs/promises');
 var net = require('net');
-var os = require('os');
-var path = require('path');
 var pixelmatch = require('pixelmatch');
 var pngjs = require('pngjs');
 var crypto = require('crypto');
-var nanoid = require('nanoid');
 var url = require('url');
 var util = require('util');
 
@@ -1021,6 +1021,1205 @@ var init_api_timing = __esm({
   "src/api-timing.ts"() {
   }
 });
+async function initMemory(outputDir) {
+  const memoryDir = path.join(outputDir, MEMORY_DIR);
+  await fs.mkdir(path.join(memoryDir, PREFERENCES_DIR), { recursive: true });
+  await fs.mkdir(path.join(memoryDir, LEARNED_DIR), { recursive: true });
+  await fs.mkdir(path.join(memoryDir, ARCHIVE_DIR), { recursive: true });
+}
+function getMemoryPath(outputDir, ...segments) {
+  return path.join(outputDir, MEMORY_DIR, ...segments);
+}
+async function loadSummary(outputDir) {
+  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
+  if (!fs$1.existsSync(summaryPath)) {
+    return createEmptySummary();
+  }
+  try {
+    const content = await fs.readFile(summaryPath, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return createEmptySummary();
+  }
+}
+async function saveSummary(outputDir, summary) {
+  await initMemory(outputDir);
+  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
+  await fs.writeFile(summaryPath, JSON.stringify(summary, null, 2));
+}
+function createEmptySummary() {
+  return {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    stats: {
+      totalPreferences: 0,
+      totalLearned: 0,
+      byCategory: {},
+      bySource: {}
+    },
+    activePreferences: []
+  };
+}
+async function addPreference(outputDir, input) {
+  await initMemory(outputDir);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const pref = {
+    id: `${PREF_PREFIX}${nanoid.nanoid(8)}`,
+    description: input.description,
+    category: input.category,
+    source: input.source ?? "user",
+    route: input.route,
+    componentType: input.componentType,
+    expectation: {
+      property: input.property,
+      operator: input.operator ?? "equals",
+      value: input.value
+    },
+    confidence: input.confidence ?? 1,
+    createdAt: now,
+    updatedAt: now,
+    sessionIds: input.sessionIds
+  };
+  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${pref.id}.json`);
+  await fs.writeFile(prefPath, JSON.stringify(pref, null, 2));
+  await rebuildSummary(outputDir);
+  return pref;
+}
+async function getPreference(outputDir, prefId) {
+  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
+  if (!fs$1.existsSync(prefPath)) return null;
+  try {
+    const content = await fs.readFile(prefPath, "utf-8");
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+async function removePreference(outputDir, prefId) {
+  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
+  if (!fs$1.existsSync(prefPath)) return false;
+  await fs.unlink(prefPath);
+  await rebuildSummary(outputDir);
+  return true;
+}
+async function listPreferences(outputDir, filter) {
+  const prefsDir = getMemoryPath(outputDir, PREFERENCES_DIR);
+  if (!fs$1.existsSync(prefsDir)) return [];
+  const files = await fs.readdir(prefsDir);
+  const prefs = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = await fs.readFile(path.join(prefsDir, file), "utf-8");
+      const pref = JSON.parse(content);
+      if (filter?.category && pref.category !== filter.category) continue;
+      if (filter?.route && pref.route !== filter.route) continue;
+      if (filter?.componentType && pref.componentType !== filter.componentType) continue;
+      prefs.push(pref);
+    } catch {
+    }
+  }
+  return prefs.sort((a, b) => b.confidence - a.confidence);
+}
+async function learnFromSession(outputDir, session, observations) {
+  await initMemory(outputDir);
+  const route = new URL(session.url).pathname;
+  const learned = {
+    id: `${LEARN_PREFIX}${nanoid.nanoid(8)}`,
+    sessionId: session.id,
+    route,
+    observations,
+    approved: true,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+  const learnPath = getMemoryPath(outputDir, LEARNED_DIR, `${learned.id}.json`);
+  await fs.writeFile(learnPath, JSON.stringify(learned, null, 2));
+  return learned;
+}
+async function listLearned(outputDir) {
+  const learnedDir = getMemoryPath(outputDir, LEARNED_DIR);
+  if (!fs$1.existsSync(learnedDir)) return [];
+  const files = await fs.readdir(learnedDir);
+  const items = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = await fs.readFile(path.join(learnedDir, file), "utf-8");
+      items.push(JSON.parse(content));
+    } catch {
+    }
+  }
+  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+async function promoteToPreference(outputDir, learnedId) {
+  const learnedPath = getMemoryPath(outputDir, LEARNED_DIR, `${learnedId}.json`);
+  if (!fs$1.existsSync(learnedPath)) return null;
+  const content = await fs.readFile(learnedPath, "utf-8");
+  const learned = JSON.parse(content);
+  if (learned.observations.length === 0) return null;
+  const obs = learned.observations[0];
+  const pref = await addPreference(outputDir, {
+    description: obs.description,
+    category: obs.category,
+    source: "learned",
+    route: learned.route,
+    property: obs.property,
+    value: obs.value,
+    confidence: 0.8,
+    sessionIds: [learned.sessionId]
+  });
+  return pref;
+}
+async function rebuildSummary(outputDir) {
+  await archiveSummary(outputDir);
+  const prefs = await listPreferences(outputDir);
+  const learned = await listLearned(outputDir);
+  const byCategory = {};
+  const bySource = {};
+  for (const pref of prefs) {
+    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
+    bySource[pref.source] = (bySource[pref.source] || 0) + 1;
+  }
+  const activePrefs = prefs.slice(0, MAX_ACTIVE_PREFERENCES).map((pref) => ({
+    id: pref.id,
+    description: pref.description,
+    category: pref.category,
+    route: pref.route,
+    componentType: pref.componentType,
+    property: pref.expectation.property,
+    operator: pref.expectation.operator,
+    value: pref.expectation.value,
+    confidence: pref.confidence
+  }));
+  const summary = {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    stats: {
+      totalPreferences: prefs.length,
+      totalLearned: learned.length,
+      byCategory,
+      bySource
+    },
+    activePreferences: activePrefs
+  };
+  await saveSummary(outputDir, summary);
+  return summary;
+}
+async function archiveSummary(outputDir) {
+  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
+  if (!fs$1.existsSync(summaryPath)) return;
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+  const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp}.json`);
+  try {
+    await fs.copyFile(summaryPath, archivePath);
+  } catch {
+  }
+}
+async function queryMemory(outputDir, query) {
+  const summary = await loadSummary(outputDir);
+  return summary.activePreferences.filter((pref) => {
+    if (query.route && pref.route && !query.route.includes(pref.route)) return false;
+    if (query.category && pref.category !== query.category) return false;
+    if (query.componentType && pref.componentType !== query.componentType) return false;
+    return true;
+  });
+}
+function evaluateOperator(operator, actual, expected) {
+  switch (operator) {
+    case "equals":
+      return actual.toLowerCase() === expected.toLowerCase();
+    case "contains":
+      return actual.toLowerCase().includes(expected.toLowerCase());
+    case "matches":
+      try {
+        return new RegExp(expected, "i").test(actual);
+      } catch {
+        return false;
+      }
+    case "gte":
+      return parseFloat(actual) >= parseFloat(expected);
+    case "lte":
+      return parseFloat(actual) <= parseFloat(expected);
+    default:
+      return false;
+  }
+}
+function preferencesToRules(preferences) {
+  return preferences.map((pref) => ({
+    id: `memory-${pref.id}`,
+    name: `Memory: ${pref.description}`,
+    description: `User preference: ${pref.description}`,
+    defaultSeverity: pref.confidence >= 0.8 ? "error" : "warn",
+    check: (element, context) => {
+      if (pref.route && !context.url.includes(pref.route)) return null;
+      if (pref.componentType) {
+        const matchesTag = element.tagName.toLowerCase() === pref.componentType.toLowerCase();
+        const matchesRole = element.a11y?.role?.toLowerCase() === pref.componentType.toLowerCase();
+        if (!matchesTag && !matchesRole) return null;
+      }
+      const styles = element.computedStyles;
+      if (!styles) return null;
+      const actual = styles[pref.property];
+      if (!actual) return null;
+      if (evaluateOperator(pref.operator, actual, pref.value)) return null;
+      return {
+        ruleId: `memory-${pref.id}`,
+        ruleName: `Memory: ${pref.description}`,
+        severity: pref.confidence >= 0.8 ? "error" : "warn",
+        message: `Expected ${pref.property} to ${pref.operator} "${pref.value}", got "${actual}". (${pref.description})`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: `Update ${pref.property} to ${pref.value}`
+      };
+    }
+  }));
+}
+function createMemoryPreset(preferences) {
+  const rules2 = preferencesToRules(preferences);
+  const defaults = {};
+  for (const rule of rules2) {
+    defaults[rule.id] = rule.defaultSeverity;
+  }
+  return {
+    name: "memory",
+    description: "UI/UX preferences from IBR memory",
+    rules: rules2,
+    defaults
+  };
+}
+function formatMemorySummary(summary) {
+  const lines = [];
+  lines.push("IBR Memory");
+  lines.push(`Updated: ${summary.updatedAt}`);
+  lines.push("");
+  lines.push(`Preferences: ${summary.stats.totalPreferences}`);
+  lines.push(`Learned: ${summary.stats.totalLearned}`);
+  if (Object.keys(summary.stats.byCategory).length > 0) {
+    lines.push("");
+    lines.push("By category:");
+    for (const [cat, count] of Object.entries(summary.stats.byCategory)) {
+      lines.push(`  ${cat}: ${count}`);
+    }
+  }
+  if (summary.activePreferences.length > 0) {
+    lines.push("");
+    lines.push("Active preferences:");
+    for (const pref of summary.activePreferences) {
+      const scope = pref.route ? ` (${pref.route})` : " (global)";
+      const conf = pref.confidence < 1 ? ` [${Math.round(pref.confidence * 100)}%]` : "";
+      lines.push(`  ${pref.id}: ${pref.description}${scope}${conf}`);
+    }
+  }
+  return lines.join("\n");
+}
+function formatPreference(pref) {
+  const lines = [];
+  lines.push(`ID: ${pref.id}`);
+  lines.push(`Description: ${pref.description}`);
+  lines.push(`Category: ${pref.category}`);
+  lines.push(`Source: ${pref.source}`);
+  lines.push(`Confidence: ${Math.round(pref.confidence * 100)}%`);
+  lines.push(`Expectation: ${pref.expectation.property} ${pref.expectation.operator} "${pref.expectation.value}"`);
+  if (pref.route) lines.push(`Route: ${pref.route}`);
+  if (pref.componentType) lines.push(`Component: ${pref.componentType}`);
+  if (pref.sessionIds?.length) lines.push(`Sessions: ${pref.sessionIds.join(", ")}`);
+  lines.push(`Created: ${pref.createdAt}`);
+  lines.push(`Updated: ${pref.updatedAt}`);
+  return lines.join("\n");
+}
+async function initGlobalMemory() {
+  await fs.mkdir(GLOBAL_PREFS_DIR, { recursive: true });
+}
+async function promoteToGlobal(outputDir) {
+  await initGlobalMemory();
+  const localPrefs = await listPreferences(outputDir);
+  const globalPrefs = await listGlobalPreferences();
+  const globalIndex = new Set(
+    globalPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+  const promoted = [];
+  let skipped = 0;
+  let alreadyGlobal = 0;
+  for (const pref of localPrefs) {
+    if (pref.route) {
+      skipped++;
+      continue;
+    }
+    if (pref.confidence < GLOBAL_PROMOTION_THRESHOLD) {
+      skipped++;
+      continue;
+    }
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (globalIndex.has(key)) {
+      alreadyGlobal++;
+      continue;
+    }
+    const globalPref = {
+      ...pref,
+      id: `global_${nanoid.nanoid(8)}`,
+      source: "learned",
+      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+    };
+    const globalPath = path.join(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
+    await fs.writeFile(globalPath, JSON.stringify(globalPref, null, 2));
+    globalIndex.add(key);
+    promoted.push(`${pref.category}: ${pref.description}`);
+  }
+  await rebuildGlobalSummary();
+  return { promoted, skipped, alreadyGlobal };
+}
+async function listGlobalPreferences() {
+  if (!fs$1.existsSync(GLOBAL_PREFS_DIR)) return [];
+  const files = await fs.readdir(GLOBAL_PREFS_DIR);
+  const prefs = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    try {
+      const content = await fs.readFile(path.join(GLOBAL_PREFS_DIR, file), "utf-8");
+      prefs.push(JSON.parse(content));
+    } catch {
+    }
+  }
+  return prefs.sort((a, b) => b.confidence - a.confidence);
+}
+async function seedFromGlobal(outputDir) {
+  await initMemory(outputDir);
+  const globalPrefs = await listGlobalPreferences();
+  const localPrefs = await listPreferences(outputDir);
+  const localIndex = new Set(
+    localPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
+  );
+  const seeded = [];
+  let skipped = 0;
+  for (const pref of globalPrefs) {
+    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
+    if (localIndex.has(key)) {
+      skipped++;
+      continue;
+    }
+    await addPreference(outputDir, {
+      description: pref.description,
+      category: pref.category,
+      source: "learned",
+      componentType: pref.componentType,
+      property: pref.expectation.property,
+      operator: pref.expectation.operator,
+      value: pref.expectation.value,
+      confidence: 0.7
+      // Lower than locally-learned (0.8)
+    });
+    seeded.push(`${pref.category}: ${pref.description}`);
+  }
+  return { seeded, skipped };
+}
+async function rebuildGlobalSummary() {
+  const prefs = await listGlobalPreferences();
+  const byCategory = {};
+  for (const pref of prefs) {
+    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
+  }
+  const summary = {
+    version: 1,
+    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    totalPreferences: prefs.length,
+    byCategory,
+    preferences: prefs.slice(0, MAX_ACTIVE_PREFERENCES).map((p) => ({
+      id: p.id,
+      description: p.description,
+      category: p.category,
+      property: p.expectation.property,
+      operator: p.expectation.operator,
+      value: p.expectation.value,
+      confidence: p.confidence
+    }))
+  };
+  await fs.writeFile(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
+}
+async function removeGlobalPreference(prefId) {
+  const prefPath = path.join(GLOBAL_PREFS_DIR, `${prefId}.json`);
+  if (!fs$1.existsSync(prefPath)) return false;
+  await fs.unlink(prefPath);
+  await rebuildGlobalSummary();
+  return true;
+}
+function formatGlobalMemory(prefs) {
+  if (prefs.length === 0) return "No global preferences. Run `memory:promote` to promote local patterns.";
+  const lines = [
+    `Global Memory: ${prefs.length} preferences`,
+    `Location: ${GLOBAL_DIR}`,
+    ""
+  ];
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const p of prefs) {
+    const arr = byCategory.get(p.category) || [];
+    arr.push(p);
+    byCategory.set(p.category, arr);
+  }
+  for (const [cat, catPrefs] of byCategory) {
+    lines.push(`  ${cat} (${catPrefs.length}):`);
+    for (const p of catPrefs) {
+      lines.push(`    ${p.id}: ${p.description} [${Math.round(p.confidence * 100)}%]`);
+    }
+  }
+  return lines.join("\n");
+}
+var MEMORY_DIR, SUMMARY_FILE, PREFERENCES_DIR, LEARNED_DIR, ARCHIVE_DIR, PREF_PREFIX, LEARN_PREFIX, MAX_ACTIVE_PREFERENCES, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY, GLOBAL_PROMOTION_THRESHOLD;
+var init_memory = __esm({
+  "src/memory.ts"() {
+    MEMORY_DIR = "memory";
+    SUMMARY_FILE = "summary.json";
+    PREFERENCES_DIR = "preferences";
+    LEARNED_DIR = "learned";
+    ARCHIVE_DIR = "archive";
+    PREF_PREFIX = "pref_";
+    LEARN_PREFIX = "learn_";
+    MAX_ACTIVE_PREFERENCES = 50;
+    GLOBAL_DIR = path.join(os.homedir(), ".ibr", "global-memory");
+    GLOBAL_PREFS_DIR = path.join(GLOBAL_DIR, "preferences");
+    GLOBAL_SUMMARY = path.join(GLOBAL_DIR, "summary.json");
+    GLOBAL_PROMOTION_THRESHOLD = 0.9;
+  }
+});
+
+// src/design-system/principles/gestalt.ts
+var gestaltRules;
+var init_gestalt = __esm({
+  "src/design-system/principles/gestalt.ts"() {
+    gestaltRules = [
+      {
+        id: "calm-precision/gestalt-grouping",
+        name: "Gestalt: Border Grouping",
+        description: "Related items should be grouped with a single border, not individually bordered",
+        defaultSeverity: "error",
+        check: (element, _context) => {
+          const style = element.computedStyles;
+          if (!style) return null;
+          const hasBorder = style.border && style.border !== "none" && style.border !== "0px";
+          const borderWidth = style["border-width"];
+          const hasBorderWidth = borderWidth && borderWidth !== "0px";
+          const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
+          if ((hasBorder || hasBorderWidth) && isListItem) {
+            return {
+              ruleId: "calm-precision/gestalt-grouping",
+              ruleName: "Gestalt: Border Grouping",
+              severity: "error",
+              message: `List item "${(element.text || "").slice(0, 40)}" has individual border. Group related items with a single container border.`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: "Use single border around the group container with dividers between items, not individual item borders."
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/design-system/principles/signal-noise.ts
+var signalNoiseRules;
+var init_signal_noise = __esm({
+  "src/design-system/principles/signal-noise.ts"() {
+    signalNoiseRules = [
+      {
+        id: "calm-precision/signal-noise-status",
+        name: "Signal-to-Noise: Status Indication",
+        description: "Status should use text color only, not background badges",
+        defaultSeverity: "error",
+        check: (element, _context) => {
+          const style = element.computedStyles;
+          if (!style) return null;
+          const text = (element.text || "").toLowerCase();
+          const isStatus = /\b(success|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)\b/i.test(text);
+          if (!isStatus) return null;
+          const bg = style.backgroundColor || style["background-color"];
+          if (!bg || bg === "transparent" || bg === "rgba(0, 0, 0, 0)") return null;
+          const subtleMatch = bg.match(/rgba?\([^)]*,\s*(0\.(?:0[0-9]|1[0-4]))\)/);
+          if (subtleMatch) return null;
+          return {
+            ruleId: "calm-precision/signal-noise-status",
+            ruleName: "Signal-to-Noise: Status Indication",
+            severity: "error",
+            message: `Status element "${text.slice(0, 30)}" has heavy background (${bg}). Use text color only for status.`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Remove background color. Use text color (green for success, red for error, yellow for warning) instead of background badges."
+          };
+        }
+      }
+    ];
+  }
+});
+
+// src/design-system/principles/fitts.ts
+var fittsRules;
+var init_fitts = __esm({
+  "src/design-system/principles/fitts.ts"() {
+    fittsRules = [
+      {
+        id: "calm-precision/fitts-button-sizing",
+        name: "Fitts' Law: Button Sizing",
+        description: "Primary action buttons should be prominently sized",
+        defaultSeverity: "warn",
+        check: (element, _context) => {
+          if (element.tagName !== "button" && element.a11y?.role !== "button") return null;
+          const text = (element.text || "").toLowerCase();
+          const isPrimary = /\b(submit|save|confirm|checkout|buy|sign.?up|log.?in|register|continue|create|publish|send)\b/i.test(text);
+          if (!isPrimary) return null;
+          const width = element.bounds?.width || 0;
+          if (width > 0 && width < 120) {
+            return {
+              ruleId: "calm-precision/fitts-button-sizing",
+              ruleName: "Fitts' Law: Button Sizing",
+              severity: "warn",
+              message: `Primary action "${text.slice(0, 30)}" is ${width}px wide. Primary actions should be more prominent.`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: "Increase button width. Primary actions should be the most prominent interactive element."
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/design-system/principles/hick.ts
+var hickRules;
+var init_hick = __esm({
+  "src/design-system/principles/hick.ts"() {
+    hickRules = [
+      {
+        id: "calm-precision/hick-choice-count",
+        name: "Hick's Law: Choice Count",
+        description: "Limit visible choices to reduce decision time",
+        defaultSeverity: "warn",
+        check: (element, context) => {
+          if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
+          const y = element.bounds?.y || 0;
+          const siblings = context.allElements.filter((el) => {
+            if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+            const elY = el.bounds?.y || 0;
+            return Math.abs(elY - y) < 20;
+          });
+          if (siblings.length > 7 && siblings[0]?.selector === element.selector) {
+            return {
+              ruleId: "calm-precision/hick-choice-count",
+              ruleName: "Hick's Law: Choice Count",
+              severity: "warn",
+              message: `${siblings.length} interactive elements in one visual row. Consider progressive disclosure (max 5-7 visible).`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: 'Group less-used options behind a "More" menu or overflow. Show max 5-7 choices at once.'
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/design-system/principles/content-chrome.ts
+var contentChromeRules;
+var init_content_chrome = __esm({
+  "src/design-system/principles/content-chrome.ts"() {
+    contentChromeRules = [
+      {
+        id: "calm-precision/content-chrome-ratio",
+        name: "Content >= Chrome",
+        description: "Content area should be at least 70% of the viewport",
+        defaultSeverity: "warn",
+        check: (element, context) => {
+          if (context.allElements[0]?.selector !== element.selector) return null;
+          const viewportArea = context.viewportWidth * context.viewportHeight;
+          if (viewportArea === 0) return null;
+          const chromeSelectors = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
+          let chromeArea = 0;
+          for (const el of context.allElements) {
+            const isChrome = chromeSelectors.test(el.tagName) || chromeSelectors.test(el.selector || "") || chromeSelectors.test(el.a11y?.role || "");
+            if (isChrome && el.bounds) {
+              chromeArea += el.bounds.width * el.bounds.height;
+            }
+          }
+          const chromePercent = chromeArea / viewportArea * 100;
+          if (chromePercent > 30) {
+            return {
+              ruleId: "calm-precision/content-chrome-ratio",
+              ruleName: "Content >= Chrome",
+              severity: "warn",
+              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport. Content should be >= 70%.`,
+              fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/design-system/principles/cognitive-load.ts
+var cognitiveLoadRules;
+var init_cognitive_load = __esm({
+  "src/design-system/principles/cognitive-load.ts"() {
+    cognitiveLoadRules = [
+      {
+        id: "calm-precision/cognitive-load-elements",
+        name: "Cognitive Load: Element Count",
+        description: "Visual groups should have 5-7 items max to stay within working memory limits",
+        defaultSeverity: "warn",
+        check: (element, context) => {
+          if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
+          if (!element.bounds) return null;
+          const { x, y, width, height } = element.bounds;
+          const children = context.allElements.filter((el) => {
+            if (el.selector === element.selector) return false;
+            if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+            if (!el.bounds) return false;
+            return el.bounds.x >= x && el.bounds.y >= y && el.bounds.x + el.bounds.width <= x + width && el.bounds.y + el.bounds.height <= y + height;
+          });
+          if (children.length > 10) {
+            return {
+              ruleId: "calm-precision/cognitive-load-elements",
+              ruleName: "Cognitive Load: Element Count",
+              severity: "warn",
+              message: `Container has ${children.length} interactive elements. Consider grouping or progressive disclosure (5-7 max per group).`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: 'Group related actions. Use sections, tabs, or "Show more" to reduce visible elements per group.'
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/design-system/principles/calm-precision.ts
+exports.allCalmPrecisionRules = void 0; exports.corePrincipleIds = void 0; exports.stylisticPrincipleIds = void 0; var principleToRules;
+var init_calm_precision = __esm({
+  "src/design-system/principles/calm-precision.ts"() {
+    init_gestalt();
+    init_signal_noise();
+    init_fitts();
+    init_hick();
+    init_content_chrome();
+    init_cognitive_load();
+    exports.allCalmPrecisionRules = [
+      ...gestaltRules,
+      ...signalNoiseRules,
+      ...fittsRules,
+      ...hickRules,
+      ...contentChromeRules,
+      ...cognitiveLoadRules
+    ];
+    exports.corePrincipleIds = ["gestalt", "signal-noise", "content-chrome", "cognitive-load"];
+    exports.stylisticPrincipleIds = ["fitts", "hick"];
+    principleToRules = {
+      "gestalt": gestaltRules.map((r) => r.id),
+      "signal-noise": signalNoiseRules.map((r) => r.id),
+      "fitts": fittsRules.map((r) => r.id),
+      "hick": hickRules.map((r) => r.id),
+      "content-chrome": contentChromeRules.map((r) => r.id),
+      "cognitive-load": cognitiveLoadRules.map((r) => r.id)
+    };
+  }
+});
+
+// src/rules/presets/minimal.ts
+var minimal_exports = {};
+__export(minimal_exports, {
+  register: () => register,
+  rules: () => rules
+});
+function register() {
+  registerPreset(minimalPreset);
+}
+var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
+var init_minimal = __esm({
+  "src/rules/presets/minimal.ts"() {
+    init_engine();
+    noHandlerRule = {
+      id: "no-handler",
+      name: "No Click Handler",
+      description: "Interactive elements like buttons must have click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isButton = element.tagName === "button" || element.a11y.role === "button";
+        const isDisabled = element.interactive.isDisabled;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isButton && !isDisabled && !hasHandler) {
+          return {
+            ruleId: "no-handler",
+            ruleName: "No Click Handler",
+            severity: "error",
+            message: `Button "${element.text || element.selector}" has no click handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add an onClick handler or make the button disabled"
+          };
+        }
+        return null;
+      }
+    };
+    placeholderLinkRule = {
+      id: "placeholder-link",
+      name: "Placeholder Link",
+      description: "Links must have valid hrefs or click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isLink = element.tagName === "a";
+        const hasValidHref = element.interactive.hasHref;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isLink && !hasValidHref && !hasHandler) {
+          return {
+            ruleId: "placeholder-link",
+            ruleName: "Placeholder Link",
+            severity: "error",
+            message: `Link "${element.text || element.selector}" has placeholder href and no handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add a valid href or onClick handler"
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetRule = {
+      id: "touch-target-small",
+      name: "Touch Target Too Small",
+      description: "Interactive elements must meet minimum touch target size",
+      defaultSeverity: "warn",
+      check: (element, context, options) => {
+        const isInteractive2 = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive2) return null;
+        const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+        const { width, height } = element.bounds;
+        if (width < minSize || height < minSize) {
+          return {
+            ruleId: "touch-target-small",
+            ruleName: "Touch Target Too Small",
+            severity: "warn",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${minSize}x${minSize}px`
+          };
+        }
+        return null;
+      }
+    };
+    missingAriaLabelRule = {
+      id: "missing-aria-label",
+      name: "Missing Accessible Label",
+      description: "Interactive elements without text need aria-label",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        const isInteractive2 = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive2) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        const hasAriaLabel = element.a11y.ariaLabel && element.a11y.ariaLabel.trim().length > 0;
+        if (!hasText && !hasAriaLabel) {
+          return {
+            ruleId: "missing-aria-label",
+            ruleName: "Missing Accessible Label",
+            severity: "warn",
+            message: `"${element.selector}" is interactive but has no text or aria-label`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add visible text or aria-label attribute"
+          };
+        }
+        return null;
+      }
+    };
+    disabledNoVisualRule = {
+      id: "disabled-no-visual",
+      name: "Disabled Without Visual",
+      description: "Disabled elements should have visual indication",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        if (!element.interactive.isDisabled) return null;
+        const cursor = element.interactive.cursor;
+        const hasDisabledCursor = cursor === "not-allowed" || cursor === "default";
+        const bgColor = element.computedStyles?.backgroundColor;
+        const hasGrayedBg = bgColor?.includes("gray") || bgColor?.includes("rgb(200") || bgColor?.includes("rgb(220");
+        if (!hasDisabledCursor && !hasGrayedBg) {
+          return {
+            ruleId: "disabled-no-visual",
+            ruleName: "Disabled Without Visual",
+            severity: "warn",
+            message: `"${element.text || element.selector}" is disabled but has no visual indication`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add cursor: not-allowed and/or gray background to disabled state"
+          };
+        }
+        return null;
+      }
+    };
+    minimalPreset = {
+      name: "minimal",
+      description: "Basic interactivity and accessibility checks",
+      rules: [
+        noHandlerRule,
+        placeholderLinkRule,
+        touchTargetRule,
+        missingAriaLabelRule,
+        disabledNoVisualRule
+      ],
+      defaults: {
+        "no-handler": "error",
+        "placeholder-link": "error",
+        "touch-target-small": "warn",
+        "missing-aria-label": "warn",
+        "disabled-no-visual": "warn"
+      }
+    };
+    rules = {
+      noHandlerRule,
+      placeholderLinkRule,
+      touchTargetRule,
+      missingAriaLabelRule,
+      disabledNoVisualRule
+    };
+  }
+});
+
+// src/rules/presets/calm-precision.ts
+var calm_precision_exports = {};
+__export(calm_precision_exports, {
+  register: () => register2
+});
+function register2() {
+  const defaults = {};
+  for (const rule of exports.allCalmPrecisionRules) {
+    const isCore = exports.corePrincipleIds.some(
+      (pid) => principleToRules[pid]?.includes(rule.id)
+    );
+    defaults[rule.id] = isCore ? "error" : "warn";
+  }
+  registerPreset({
+    name: "calm-precision",
+    description: "Calm Precision design principles \u2014 Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load",
+    rules: exports.allCalmPrecisionRules,
+    defaults
+  });
+}
+var init_calm_precision2 = __esm({
+  "src/rules/presets/calm-precision.ts"() {
+    init_engine();
+    init_calm_precision();
+  }
+});
+
+// src/rules/presets/wcag-contrast.ts
+var wcag_contrast_exports = {};
+__export(wcag_contrast_exports, {
+  register: () => register3,
+  wcagContrastPresetRules: () => wcagContrastPresetRules
+});
+function parseColor5(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6Match) {
+    const n = parseInt(hex6Match[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3Match) {
+    const r = parseInt(hex3Match[1][0], 16) * 17;
+    const g = parseInt(hex3Match[1][1], 16) * 17;
+    const b = parseInt(hex3Match[1][2], 16) * 17;
+    return [r, g, b];
+  }
+  return null;
+}
+function linearize3(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance4(r, g, b) {
+  return 0.2126 * linearize3(r) + 0.7152 * linearize3(g) + 0.0722 * linearize3(b);
+}
+function contrastRatio4(fg, bg) {
+  const l1 = relativeLuminance4(...fg);
+  const l2 = relativeLuminance4(...bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText3(styles) {
+  const fontSizeStr = styles.fontSize ?? "";
+  const fontWeightStr = styles.fontWeight ?? "";
+  const fontSize = parseFloat(fontSizeStr);
+  if (isNaN(fontSize)) return false;
+  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+function register3() {
+  const defaults = {
+    "wcag-aa-contrast": "error",
+    "wcag-aaa-contrast": "warn"
+  };
+  registerPreset({
+    name: "wcag-contrast",
+    description: "WCAG 2.1 contrast ratio checks \u2014 AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)",
+    rules: wcagContrastPresetRules,
+    defaults
+  });
+}
+var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules;
+var init_wcag_contrast = __esm({
+  "src/rules/presets/wcag-contrast.ts"() {
+    init_engine();
+    wcagAAContrastRule = {
+      id: "wcag-aa-contrast",
+      name: "WCAG 2.1 AA Contrast",
+      description: "Text must meet WCAG 2.1 AA contrast ratio: 4.5:1 normal text, 3:1 large text",
+      defaultSeverity: "error",
+      check(element, _context) {
+        const style = element.computedStyles;
+        if (!style) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        if (!hasText) return null;
+        const fg = parseColor5(style.color ?? "");
+        const bg = parseColor5(style.backgroundColor ?? "");
+        if (!fg || !bg) return null;
+        const ratio = contrastRatio4(fg, bg);
+        const large = isLargeText3(style);
+        const required = large ? 3 : 4.5;
+        if (ratio < required) {
+          const ratioStr = ratio.toFixed(2);
+          const textSnippet = (element.text ?? "").slice(0, 40);
+          return {
+            ruleId: "wcag-aa-contrast",
+            ruleName: "WCAG 2.1 AA Contrast",
+            severity: "error",
+            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 fails WCAG 2.1 AA (requires ${required}:1 for ${large ? "large" : "normal"} text)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
+          };
+        }
+        return null;
+      }
+    };
+    wcagAAAContrastRule = {
+      id: "wcag-aaa-contrast",
+      name: "WCAG 2.1 AAA Contrast",
+      description: "Text should meet WCAG 2.1 AAA contrast ratio: 7:1 normal text, 4.5:1 large text",
+      defaultSeverity: "warn",
+      check(element, _context) {
+        const style = element.computedStyles;
+        if (!style) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        if (!hasText) return null;
+        const fg = parseColor5(style.color ?? "");
+        const bg = parseColor5(style.backgroundColor ?? "");
+        if (!fg || !bg) return null;
+        const ratio = contrastRatio4(fg, bg);
+        const large = isLargeText3(style);
+        const required = large ? 4.5 : 7;
+        if (ratio < required) {
+          const ratioStr = ratio.toFixed(2);
+          const textSnippet = (element.text ?? "").slice(0, 40);
+          return {
+            ruleId: "wcag-aaa-contrast",
+            ruleName: "WCAG 2.1 AAA Contrast",
+            severity: "warn",
+            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 below WCAG 2.1 AAA (${required}:1 for ${large ? "large" : "normal"} text)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""} to ${required}:1`
+          };
+        }
+        return null;
+      }
+    };
+    wcagContrastPresetRules = [wcagAAContrastRule, wcagAAAContrastRule];
+  }
+});
+
+// src/rules/presets/touch-targets.ts
+var touch_targets_exports = {};
+__export(touch_targets_exports, {
+  register: () => register4,
+  touchTargetPresetRules: () => touchTargetPresetRules
+});
+function isInteractive(el) {
+  const role = el.a11y.role ?? "";
+  const tag = (el.tagName ?? "").toLowerCase();
+  const interactiveRoles = /* @__PURE__ */ new Set([
+    "button",
+    "link",
+    "menuitem",
+    "tab",
+    "checkbox",
+    "radio",
+    "switch",
+    "textbox",
+    "combobox",
+    "slider"
+  ]);
+  if (interactiveRoles.has(role)) return true;
+  if (["a", "button", "input", "select", "textarea"].includes(tag)) return true;
+  if (el.interactive.hasOnClick || el.interactive.hasHref || el.interactive.hasReactHandler === true || el.interactive.hasVueHandler === true || el.interactive.hasAngularHandler === true) {
+    return true;
+  }
+  return false;
+}
+function register4() {
+  const defaults = {
+    "touch-target-mobile": "error",
+    "touch-target-desktop": "warn"
+  };
+  registerPreset({
+    name: "touch-targets",
+    description: "Minimum touch and pointer target sizes \u2014 WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)",
+    rules: touchTargetPresetRules,
+    defaults
+  });
+}
+var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules;
+var init_touch_targets = __esm({
+  "src/rules/presets/touch-targets.ts"() {
+    init_engine();
+    mobileTouchTargetRule = {
+      id: "touch-target-mobile",
+      name: "Mobile Touch Target Size",
+      description: "Interactive elements must be at least 44x44px on mobile viewports (WCAG 2.5.5 AAA / Apple HIG)",
+      defaultSeverity: "error",
+      check(element, context) {
+        if (!context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 44;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-mobile",
+            ruleName: "Mobile Touch Target Size",
+            severity: "error",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
+          };
+        }
+        return null;
+      }
+    };
+    desktopPointerTargetRule = {
+      id: "touch-target-desktop",
+      name: "Desktop Pointer Target Size",
+      description: "Interactive elements should be at least 24x24px on desktop viewports (WCAG 2.5.8 AA)",
+      defaultSeverity: "warn",
+      check(element, context) {
+        if (context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 24;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-desktop",
+            ruleName: "Desktop Pointer Target Size",
+            severity: "warn",
+            message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetPresetRules = [mobileTouchTargetRule, desktopPointerTargetRule];
+  }
+});
+
+// src/rules/engine.ts
+function registerPreset(preset) {
+  presets.set(preset.name, preset);
+}
+function mergeRuleSettings(presetNames, userRules = {}) {
+  const allRules2 = [];
+  const settings = /* @__PURE__ */ new Map();
+  const seenRuleIds = /* @__PURE__ */ new Set();
+  for (const presetName of presetNames) {
+    const preset = presets.get(presetName);
+    if (!preset) {
+      console.warn(`Unknown preset: ${presetName}`);
+      continue;
+    }
+    for (const rule of preset.rules) {
+      if (!seenRuleIds.has(rule.id)) {
+        allRules2.push(rule);
+        seenRuleIds.add(rule.id);
+        const defaultSetting = preset.defaults[rule.id] ?? rule.defaultSeverity;
+        if (typeof defaultSetting === "string") {
+          settings.set(rule.id, { severity: defaultSetting });
+        } else {
+          settings.set(rule.id, { severity: defaultSetting[0], options: defaultSetting[1] });
+        }
+      }
+    }
+  }
+  for (const [ruleId, setting] of Object.entries(userRules)) {
+    if (typeof setting === "string") {
+      settings.set(ruleId, { severity: setting });
+    } else {
+      settings.set(ruleId, { severity: setting[0], options: setting[1] });
+    }
+  }
+  return { rules: allRules2, settings };
+}
+function runRules(elements, context, config) {
+  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
+  const violations = [];
+  for (const element of elements) {
+    for (const rule of rules2) {
+      const setting = settings.get(rule.id);
+      if (!setting || setting.severity === "off") {
+        continue;
+      }
+      const violation = rule.check(element, context, setting.options);
+      if (violation) {
+        violations.push({
+          ...violation,
+          severity: setting.severity
+        });
+      }
+    }
+  }
+  return violations;
+}
+var presets;
+var init_engine = __esm({
+  "src/rules/engine.ts"() {
+    presets = /* @__PURE__ */ new Map();
+    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
+    });
+    Promise.resolve().then(() => (init_calm_precision2(), calm_precision_exports)).then((m) => m.register()).catch(() => {
+    });
+    Promise.resolve().then(() => (init_wcag_contrast(), wcag_contrast_exports)).then((m) => m.register()).catch(() => {
+    });
+    Promise.resolve().then(() => (init_touch_targets(), touch_targets_exports)).then((m) => m.register()).catch(() => {
+    });
+  }
+});
 var ViewportSchema = zod.z.object({
   name: zod.z.string().min(1).max(50),
   width: zod.z.number().min(100).max(3840),
@@ -1055,7 +2254,11 @@ var ConfigSchema = zod.z.object({
   threshold: zod.z.number().min(0).max(100).default(1),
   fullPage: zod.z.boolean().default(true),
   waitForNetworkIdle: zod.z.boolean().default(true),
-  timeout: zod.z.number().min(1e3).max(12e4).default(3e4)
+  timeout: zod.z.number().min(1e3).max(12e4).default(3e4),
+  browserMode: zod.z.enum(["local", "connect"]).optional(),
+  cdpUrl: zod.z.string().url().optional(),
+  wsEndpoint: zod.z.string().url().optional(),
+  chromePath: zod.z.string().optional()
 });
 var SessionQuerySchema = zod.z.object({
   route: zod.z.string().optional(),
@@ -1484,10 +2687,55 @@ function checkPortFree(port) {
     srv.listen(port, () => srv.close(() => resolve3(true)));
   });
 }
+async function resolveWsEndpoint(cdpUrl) {
+  const res = await fetch(`${cdpUrl}/json/version`);
+  if (!res.ok) {
+    throw new Error(`CDP endpoint did not respond: ${cdpUrl}`);
+  }
+  const data = await res.json();
+  if (!data.webSocketDebuggerUrl) {
+    throw new Error(`CDP endpoint did not return a WebSocket URL: ${cdpUrl}`);
+  }
+  return data.webSocketDebuggerUrl;
+}
+function resolveBrowserConnectionOptions(options = {}, env = process.env) {
+  const wsEndpoint = options.wsEndpoint || env.IBR_WS_ENDPOINT;
+  const cdpUrl = options.cdpUrl || env.IBR_CDP_URL;
+  const requestedMode = options.mode || env.IBR_BROWSER_MODE;
+  const mode = requestedMode === "local" ? "local" : requestedMode === "connect" || wsEndpoint || cdpUrl ? "connect" : "local";
+  return {
+    mode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath: options.chromePath || env.IBR_CHROME_PATH
+  };
+}
 var BrowserManager = class {
   process = null;
   _port = 0;
+  _mode = "local";
+  _cdpUrl = null;
+  _wsEndpoint = null;
   async launch(options = {}) {
+    const connection = resolveBrowserConnectionOptions(options);
+    this._mode = connection.mode;
+    if (connection.mode === "connect") {
+      this.process = null;
+      this._port = 0;
+      this._cdpUrl = connection.cdpUrl ?? null;
+      if (connection.wsEndpoint) {
+        this._wsEndpoint = connection.wsEndpoint;
+        return connection.wsEndpoint;
+      }
+      if (connection.cdpUrl) {
+        const wsUrl2 = await resolveWsEndpoint(connection.cdpUrl);
+        this._wsEndpoint = wsUrl2;
+        return wsUrl2;
+      }
+      throw new Error(
+        "Connect mode requires a CDP endpoint.\nProvide --cdp-url http://127.0.0.1:9222 or --ws-endpoint ws://...\nYou can also set IBR_CDP_URL or IBR_WS_ENDPOINT."
+      );
+    }
     const headless = options.headless ?? true;
     this._port = options.port ?? await findFreePort();
     let userDataDir = options.userDataDir ?? path.join(os.homedir(), ".ibr", "chromium-profile");
@@ -1495,7 +2743,7 @@ var BrowserManager = class {
     if (fs$1.existsSync(lockPath)) {
       userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
     }
-    const chromePath = options.chromePath ?? findChrome();
+    const chromePath = connection.chromePath ?? findChrome();
     if (!chromePath) {
       throw new Error(
         `Chrome not found. Install Google Chrome or pass chromePath option.
@@ -1522,7 +2770,10 @@ Checked: ${CHROME_PATHS.join(", ")}`
     this.process.on("error", (err) => {
       console.error(`Chrome process error: ${err.message}`);
     });
-    return this.waitForDebugger();
+    const wsUrl = await this.waitForDebugger();
+    this._cdpUrl = `http://127.0.0.1:${this._port}`;
+    this._wsEndpoint = wsUrl;
+    return wsUrl;
   }
   async waitForDebugger() {
     const maxAttempts = 50;
@@ -1536,11 +2787,13 @@ Checked: ${CHROME_PATHS.join(", ")}`
       }
     }
     throw new Error(
-      `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?`
+      `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?
+If you are running inside a sandbox, retry with connect mode:
+  --browser-mode connect --cdp-url http://127.0.0.1:9222`
     );
   }
   async close() {
-    if (!this.process) return;
+    if (this._mode !== "local" || !this.process) return;
     const proc = this.process;
     this.process = null;
     await new Promise((resolve3) => {
@@ -1566,6 +2819,15 @@ Checked: ${CHROME_PATHS.join(", ")}`
   }
   get pid() {
     return this.process?.pid ?? null;
+  }
+  get mode() {
+    return this._mode;
+  }
+  get cdpUrl() {
+    return this._cdpUrl;
+  }
+  get wsEndpoint() {
+    return this._wsEndpoint;
   }
 };
 
@@ -2453,6 +3715,70 @@ async function waitForStableTree(getSnapshot, options) {
   }
   const elements = await getSnapshot();
   return { elements, timedOut: true };
+}
+async function waitForHydration(_conn, getSnapshot, evaluate, options) {
+  const timeout = options?.timeout ?? 1e4;
+  const stableTime = options?.stableTime;
+  const minElements = options?.minElements;
+  const settleTime = options?.settleTime;
+  const deadline = Date.now() + timeout;
+  let hydrationDetected = false;
+  let reason = "timeout";
+  try {
+    const marker = await evaluate(`(function(){
+      if (document.readyState !== 'complete') return null;
+      if (typeof window === 'undefined') return null;
+      var hasNext = typeof window.__NEXT_DATA__ !== 'undefined';
+      var hasReact = typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ !== 'undefined';
+      var rootHydrated = false;
+      try {
+        var root = document.querySelector('#__next, #root, [data-reactroot]');
+        rootHydrated = !!root && root.children.length > 0;
+      } catch(e) {}
+      return { hasNext: hasNext, hasReact: hasReact, rootHydrated: rootHydrated };
+    })()`);
+    if (marker && typeof marker === "object") {
+      const m = marker;
+      if (m.rootHydrated) {
+        hydrationDetected = true;
+        reason = m.hasNext ? "nextjs-marker" : m.hasReact ? "react-marker" : "root-populated";
+      }
+    }
+  } catch {
+  }
+  let lastFingerprint = "";
+  let stableSince = Date.now();
+  let lastElements = [];
+  while (Date.now() < deadline) {
+    const elements = await getSnapshot();
+    lastElements = elements;
+    const fingerprint = buildFingerprint(elements);
+    const hasEnough = elements.filter((e) => e.actions.length > 0).length >= minElements;
+    if (fingerprint === lastFingerprint && hasEnough) {
+      if (Date.now() - stableSince >= stableTime) {
+        {
+          await new Promise((r) => setTimeout(r, settleTime));
+        }
+        const finalElements = await getSnapshot();
+        return {
+          elements: finalElements,
+          timedOut: false,
+          hydrationDetected: true,
+          reason: hydrationDetected ? reason : "ax-tree-stable"
+        };
+      }
+    } else {
+      lastFingerprint = fingerprint;
+      stableSince = Date.now();
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return {
+    elements: lastElements,
+    timedOut: true,
+    hydrationDetected: false,
+    reason: "timeout"
+  };
 }
 async function waitForStable(conn, getSnapshot, options) {
   const eventName = options?.eventName;
@@ -3545,6 +4871,18 @@ var EngineDriver = class {
   get chromePid() {
     return this.browser.pid;
   }
+  /** The browser connection mode used for this driver. */
+  get browserMode() {
+    return this.browser.mode;
+  }
+  /** The resolved CDP HTTP endpoint, when available. */
+  get cdpUrl() {
+    return this.browser.cdpUrl;
+  }
+  /** The resolved browser WebSocket endpoint, when available. */
+  get wsEndpoint() {
+    return this.browser.wsEndpoint;
+  }
   /**
    * Connect to an already-running Chrome instance instead of launching a new one.
    * Used by browser-server reconnection to attach to a persistent Chrome process.
@@ -3712,8 +5050,7 @@ var CompatPage = class {
     if (typeof fnOrExpr === "function") {
       const fnStr = fnOrExpr.toString();
       if (args.length > 0) {
-        const actualArgs = args.length === 1 && typeof args[0] === "object" && args[0] !== null ? Object.values(args[0]) : args;
-        return this.driver.evaluate(`(${fnStr})`, ...actualArgs);
+        return this.driver.evaluate(`(${fnStr})`, ...args);
       }
       return this.driver.evaluate(`(${fnStr})()`);
     }
@@ -4403,12 +5740,17 @@ async function captureScreenshot(options) {
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
     selector,
     waitFor,
-    delay
+    delay,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
@@ -4419,8 +5761,12 @@ async function captureScreenshot(options) {
   }
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
-    headless: true,
-    viewport: { width: viewport.width, height: viewport.height }
+    headless: !headed,
+    viewport: { width: viewport.width, height: viewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   });
   const page = new CompatPage(driverInstance);
   try {
@@ -4460,11 +5806,16 @@ async function captureWithLandmarks(options) {
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
     selector,
-    waitFor
+    waitFor,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   await fs.mkdir(path.dirname(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
@@ -4475,8 +5826,12 @@ async function captureWithLandmarks(options) {
   }
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
-    headless: true,
-    viewport: { width: viewport.width, height: viewport.height }
+    headless: !headed,
+    viewport: { width: viewport.width, height: viewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   });
   const page = new CompatPage(driverInstance);
   try {
@@ -4525,10 +5880,15 @@ async function captureWithDiagnostics(options) {
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
-    selector
+    selector,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   const startTime = Date.now();
   let navigationTime = 0;
@@ -4544,8 +5904,12 @@ async function captureWithDiagnostics(options) {
     }
     const driverInstance = new EngineDriver();
     await driverInstance.launch({
-      headless: true,
-      viewport: { width: viewport.width, height: viewport.height }
+      headless: !headed,
+      viewport: { width: viewport.width, height: viewport.height },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
     });
     const page = new CompatPage(driverInstance);
     page.on("console", (msg) => {
@@ -6439,8 +7803,8 @@ function analyzeForObviousIssues(context) {
   const queryTerms = context.query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
   for (const result of context.results) {
     const textLower = result.fullText.toLowerCase();
-    const matchCount = queryTerms.filter((term) => textLower.includes(term)).length;
-    const matchRatio = matchCount / queryTerms.length;
+    const matchCount2 = queryTerms.filter((term) => textLower.includes(term)).length;
+    const matchRatio = matchCount2 / queryTerms.length;
     if (matchRatio < 0.2 && queryTerms.length > 1) {
       issues.push({
         type: "irrelevant",
@@ -6689,11 +8053,11 @@ function parseColor(color) {
   return named[color.toLowerCase()] ?? null;
 }
 function relativeLuminance(r, g, b) {
-  const linearize = (c) => {
+  const linearize4 = (c) => {
     const s = c / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
-  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+  return 0.2126 * linearize4(r) + 0.7152 * linearize4(g) + 0.0722 * linearize4(b);
 }
 async function analyzeThemeConsistency(page) {
   const data = await page.evaluate(() => {
@@ -6737,8 +8101,8 @@ async function analyzeThemeConsistency(page) {
   const pageBackground = { color: data.pageBg, luminance: pageLuminance };
   const contentCards = data.cards.map((c) => {
     const parsed = parseColor(c.color);
-    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
-    return { selector: c.selector, color: c.color, luminance };
+    const luminance2 = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    return { selector: c.selector, color: c.color, luminance: luminance2 };
   });
   let themeMismatch = false;
   let mismatchDetails;
@@ -7947,460 +9311,9 @@ function formatResponsiveResult(result) {
   }
   return lines.join("\n");
 }
-var MEMORY_DIR = "memory";
-var SUMMARY_FILE = "summary.json";
-var PREFERENCES_DIR = "preferences";
-var LEARNED_DIR = "learned";
-var ARCHIVE_DIR = "archive";
-var PREF_PREFIX = "pref_";
-var LEARN_PREFIX = "learn_";
-var MAX_ACTIVE_PREFERENCES = 50;
-async function initMemory(outputDir) {
-  const memoryDir = path.join(outputDir, MEMORY_DIR);
-  await fs.mkdir(path.join(memoryDir, PREFERENCES_DIR), { recursive: true });
-  await fs.mkdir(path.join(memoryDir, LEARNED_DIR), { recursive: true });
-  await fs.mkdir(path.join(memoryDir, ARCHIVE_DIR), { recursive: true });
-}
-function getMemoryPath(outputDir, ...segments) {
-  return path.join(outputDir, MEMORY_DIR, ...segments);
-}
-async function loadSummary(outputDir) {
-  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  if (!fs$1.existsSync(summaryPath)) {
-    return createEmptySummary();
-  }
-  try {
-    const content = await fs.readFile(summaryPath, "utf-8");
-    return JSON.parse(content);
-  } catch {
-    return createEmptySummary();
-  }
-}
-async function saveSummary(outputDir, summary) {
-  await initMemory(outputDir);
-  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  await fs.writeFile(summaryPath, JSON.stringify(summary, null, 2));
-}
-function createEmptySummary() {
-  return {
-    version: 1,
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    stats: {
-      totalPreferences: 0,
-      totalLearned: 0,
-      byCategory: {},
-      bySource: {}
-    },
-    activePreferences: []
-  };
-}
-async function addPreference(outputDir, input) {
-  await initMemory(outputDir);
-  const now = (/* @__PURE__ */ new Date()).toISOString();
-  const pref = {
-    id: `${PREF_PREFIX}${nanoid.nanoid(8)}`,
-    description: input.description,
-    category: input.category,
-    source: input.source ?? "user",
-    route: input.route,
-    componentType: input.componentType,
-    expectation: {
-      property: input.property,
-      operator: input.operator ?? "equals",
-      value: input.value
-    },
-    confidence: input.confidence ?? 1,
-    createdAt: now,
-    updatedAt: now,
-    sessionIds: input.sessionIds
-  };
-  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${pref.id}.json`);
-  await fs.writeFile(prefPath, JSON.stringify(pref, null, 2));
-  await rebuildSummary(outputDir);
-  return pref;
-}
-async function getPreference(outputDir, prefId) {
-  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
-  if (!fs$1.existsSync(prefPath)) return null;
-  try {
-    const content = await fs.readFile(prefPath, "utf-8");
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
-async function removePreference(outputDir, prefId) {
-  const prefPath = getMemoryPath(outputDir, PREFERENCES_DIR, `${prefId}.json`);
-  if (!fs$1.existsSync(prefPath)) return false;
-  await fs.unlink(prefPath);
-  await rebuildSummary(outputDir);
-  return true;
-}
-async function listPreferences(outputDir, filter) {
-  const prefsDir = getMemoryPath(outputDir, PREFERENCES_DIR);
-  if (!fs$1.existsSync(prefsDir)) return [];
-  const files = await fs.readdir(prefsDir);
-  const prefs = [];
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-    try {
-      const content = await fs.readFile(path.join(prefsDir, file), "utf-8");
-      const pref = JSON.parse(content);
-      if (filter?.category && pref.category !== filter.category) continue;
-      if (filter?.route && pref.route !== filter.route) continue;
-      if (filter?.componentType && pref.componentType !== filter.componentType) continue;
-      prefs.push(pref);
-    } catch {
-    }
-  }
-  return prefs.sort((a, b) => b.confidence - a.confidence);
-}
-async function learnFromSession(outputDir, session, observations) {
-  await initMemory(outputDir);
-  const route = new URL(session.url).pathname;
-  const learned = {
-    id: `${LEARN_PREFIX}${nanoid.nanoid(8)}`,
-    sessionId: session.id,
-    route,
-    observations,
-    approved: true,
-    createdAt: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  const learnPath = getMemoryPath(outputDir, LEARNED_DIR, `${learned.id}.json`);
-  await fs.writeFile(learnPath, JSON.stringify(learned, null, 2));
-  return learned;
-}
-async function listLearned(outputDir) {
-  const learnedDir = getMemoryPath(outputDir, LEARNED_DIR);
-  if (!fs$1.existsSync(learnedDir)) return [];
-  const files = await fs.readdir(learnedDir);
-  const items = [];
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-    try {
-      const content = await fs.readFile(path.join(learnedDir, file), "utf-8");
-      items.push(JSON.parse(content));
-    } catch {
-    }
-  }
-  return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-}
-async function promoteToPreference(outputDir, learnedId) {
-  const learnedPath = getMemoryPath(outputDir, LEARNED_DIR, `${learnedId}.json`);
-  if (!fs$1.existsSync(learnedPath)) return null;
-  const content = await fs.readFile(learnedPath, "utf-8");
-  const learned = JSON.parse(content);
-  if (learned.observations.length === 0) return null;
-  const obs = learned.observations[0];
-  const pref = await addPreference(outputDir, {
-    description: obs.description,
-    category: obs.category,
-    source: "learned",
-    route: learned.route,
-    property: obs.property,
-    value: obs.value,
-    confidence: 0.8,
-    sessionIds: [learned.sessionId]
-  });
-  return pref;
-}
-async function rebuildSummary(outputDir) {
-  await archiveSummary(outputDir);
-  const prefs = await listPreferences(outputDir);
-  const learned = await listLearned(outputDir);
-  const byCategory = {};
-  const bySource = {};
-  for (const pref of prefs) {
-    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
-    bySource[pref.source] = (bySource[pref.source] || 0) + 1;
-  }
-  const activePrefs = prefs.slice(0, MAX_ACTIVE_PREFERENCES).map((pref) => ({
-    id: pref.id,
-    description: pref.description,
-    category: pref.category,
-    route: pref.route,
-    componentType: pref.componentType,
-    property: pref.expectation.property,
-    operator: pref.expectation.operator,
-    value: pref.expectation.value,
-    confidence: pref.confidence
-  }));
-  const summary = {
-    version: 1,
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    stats: {
-      totalPreferences: prefs.length,
-      totalLearned: learned.length,
-      byCategory,
-      bySource
-    },
-    activePreferences: activePrefs
-  };
-  await saveSummary(outputDir, summary);
-  return summary;
-}
-async function archiveSummary(outputDir) {
-  const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
-  if (!fs$1.existsSync(summaryPath)) return;
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-  const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp}.json`);
-  try {
-    await fs.copyFile(summaryPath, archivePath);
-  } catch {
-  }
-}
-async function queryMemory(outputDir, query) {
-  const summary = await loadSummary(outputDir);
-  return summary.activePreferences.filter((pref) => {
-    if (query.route && pref.route && !query.route.includes(pref.route)) return false;
-    if (query.category && pref.category !== query.category) return false;
-    if (query.componentType && pref.componentType !== query.componentType) return false;
-    return true;
-  });
-}
-function evaluateOperator(operator, actual, expected) {
-  switch (operator) {
-    case "equals":
-      return actual.toLowerCase() === expected.toLowerCase();
-    case "contains":
-      return actual.toLowerCase().includes(expected.toLowerCase());
-    case "matches":
-      try {
-        return new RegExp(expected, "i").test(actual);
-      } catch {
-        return false;
-      }
-    case "gte":
-      return parseFloat(actual) >= parseFloat(expected);
-    case "lte":
-      return parseFloat(actual) <= parseFloat(expected);
-    default:
-      return false;
-  }
-}
-function preferencesToRules(preferences) {
-  return preferences.map((pref) => ({
-    id: `memory-${pref.id}`,
-    name: `Memory: ${pref.description}`,
-    description: `User preference: ${pref.description}`,
-    defaultSeverity: pref.confidence >= 0.8 ? "error" : "warn",
-    check: (element, context) => {
-      if (pref.route && !context.url.includes(pref.route)) return null;
-      if (pref.componentType) {
-        const matchesTag = element.tagName.toLowerCase() === pref.componentType.toLowerCase();
-        const matchesRole = element.a11y?.role?.toLowerCase() === pref.componentType.toLowerCase();
-        if (!matchesTag && !matchesRole) return null;
-      }
-      const styles = element.computedStyles;
-      if (!styles) return null;
-      const actual = styles[pref.property];
-      if (!actual) return null;
-      if (evaluateOperator(pref.operator, actual, pref.value)) return null;
-      return {
-        ruleId: `memory-${pref.id}`,
-        ruleName: `Memory: ${pref.description}`,
-        severity: pref.confidence >= 0.8 ? "error" : "warn",
-        message: `Expected ${pref.property} to ${pref.operator} "${pref.value}", got "${actual}". (${pref.description})`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: `Update ${pref.property} to ${pref.value}`
-      };
-    }
-  }));
-}
-function createMemoryPreset(preferences) {
-  const rules = preferencesToRules(preferences);
-  const defaults = {};
-  for (const rule of rules) {
-    defaults[rule.id] = rule.defaultSeverity;
-  }
-  return {
-    name: "memory",
-    description: "UI/UX preferences from IBR memory",
-    rules,
-    defaults
-  };
-}
-function formatMemorySummary(summary) {
-  const lines = [];
-  lines.push("IBR Memory");
-  lines.push(`Updated: ${summary.updatedAt}`);
-  lines.push("");
-  lines.push(`Preferences: ${summary.stats.totalPreferences}`);
-  lines.push(`Learned: ${summary.stats.totalLearned}`);
-  if (Object.keys(summary.stats.byCategory).length > 0) {
-    lines.push("");
-    lines.push("By category:");
-    for (const [cat, count] of Object.entries(summary.stats.byCategory)) {
-      lines.push(`  ${cat}: ${count}`);
-    }
-  }
-  if (summary.activePreferences.length > 0) {
-    lines.push("");
-    lines.push("Active preferences:");
-    for (const pref of summary.activePreferences) {
-      const scope = pref.route ? ` (${pref.route})` : " (global)";
-      const conf = pref.confidence < 1 ? ` [${Math.round(pref.confidence * 100)}%]` : "";
-      lines.push(`  ${pref.id}: ${pref.description}${scope}${conf}`);
-    }
-  }
-  return lines.join("\n");
-}
-function formatPreference(pref) {
-  const lines = [];
-  lines.push(`ID: ${pref.id}`);
-  lines.push(`Description: ${pref.description}`);
-  lines.push(`Category: ${pref.category}`);
-  lines.push(`Source: ${pref.source}`);
-  lines.push(`Confidence: ${Math.round(pref.confidence * 100)}%`);
-  lines.push(`Expectation: ${pref.expectation.property} ${pref.expectation.operator} "${pref.expectation.value}"`);
-  if (pref.route) lines.push(`Route: ${pref.route}`);
-  if (pref.componentType) lines.push(`Component: ${pref.componentType}`);
-  if (pref.sessionIds?.length) lines.push(`Sessions: ${pref.sessionIds.join(", ")}`);
-  lines.push(`Created: ${pref.createdAt}`);
-  lines.push(`Updated: ${pref.updatedAt}`);
-  return lines.join("\n");
-}
-var GLOBAL_DIR = path.join(os.homedir(), ".ibr", "global-memory");
-var GLOBAL_PREFS_DIR = path.join(GLOBAL_DIR, "preferences");
-var GLOBAL_SUMMARY = path.join(GLOBAL_DIR, "summary.json");
-var GLOBAL_PROMOTION_THRESHOLD = 0.9;
-async function initGlobalMemory() {
-  await fs.mkdir(GLOBAL_PREFS_DIR, { recursive: true });
-}
-async function promoteToGlobal(outputDir) {
-  await initGlobalMemory();
-  const localPrefs = await listPreferences(outputDir);
-  const globalPrefs = await listGlobalPreferences();
-  const globalIndex = new Set(
-    globalPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
-  );
-  const promoted = [];
-  let skipped = 0;
-  let alreadyGlobal = 0;
-  for (const pref of localPrefs) {
-    if (pref.route) {
-      skipped++;
-      continue;
-    }
-    if (pref.confidence < GLOBAL_PROMOTION_THRESHOLD) {
-      skipped++;
-      continue;
-    }
-    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
-    if (globalIndex.has(key)) {
-      alreadyGlobal++;
-      continue;
-    }
-    const globalPref = {
-      ...pref,
-      id: `global_${nanoid.nanoid(8)}`,
-      source: "learned",
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    const globalPath = path.join(GLOBAL_PREFS_DIR, `${globalPref.id}.json`);
-    await fs.writeFile(globalPath, JSON.stringify(globalPref, null, 2));
-    globalIndex.add(key);
-    promoted.push(`${pref.category}: ${pref.description}`);
-  }
-  await rebuildGlobalSummary();
-  return { promoted, skipped, alreadyGlobal };
-}
-async function listGlobalPreferences() {
-  if (!fs$1.existsSync(GLOBAL_PREFS_DIR)) return [];
-  const files = await fs.readdir(GLOBAL_PREFS_DIR);
-  const prefs = [];
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-    try {
-      const content = await fs.readFile(path.join(GLOBAL_PREFS_DIR, file), "utf-8");
-      prefs.push(JSON.parse(content));
-    } catch {
-    }
-  }
-  return prefs.sort((a, b) => b.confidence - a.confidence);
-}
-async function seedFromGlobal(outputDir) {
-  await initMemory(outputDir);
-  const globalPrefs = await listGlobalPreferences();
-  const localPrefs = await listPreferences(outputDir);
-  const localIndex = new Set(
-    localPrefs.map((p) => `${p.expectation.property}|${p.expectation.operator}|${p.expectation.value}`)
-  );
-  const seeded = [];
-  let skipped = 0;
-  for (const pref of globalPrefs) {
-    const key = `${pref.expectation.property}|${pref.expectation.operator}|${pref.expectation.value}`;
-    if (localIndex.has(key)) {
-      skipped++;
-      continue;
-    }
-    await addPreference(outputDir, {
-      description: pref.description,
-      category: pref.category,
-      source: "learned",
-      componentType: pref.componentType,
-      property: pref.expectation.property,
-      operator: pref.expectation.operator,
-      value: pref.expectation.value,
-      confidence: 0.7
-      // Lower than locally-learned (0.8)
-    });
-    seeded.push(`${pref.category}: ${pref.description}`);
-  }
-  return { seeded, skipped };
-}
-async function rebuildGlobalSummary() {
-  const prefs = await listGlobalPreferences();
-  const byCategory = {};
-  for (const pref of prefs) {
-    byCategory[pref.category] = (byCategory[pref.category] || 0) + 1;
-  }
-  const summary = {
-    version: 1,
-    updatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    totalPreferences: prefs.length,
-    byCategory,
-    preferences: prefs.slice(0, MAX_ACTIVE_PREFERENCES).map((p) => ({
-      id: p.id,
-      description: p.description,
-      category: p.category,
-      property: p.expectation.property,
-      operator: p.expectation.operator,
-      value: p.expectation.value,
-      confidence: p.confidence
-    }))
-  };
-  await fs.writeFile(GLOBAL_SUMMARY, JSON.stringify(summary, null, 2));
-}
-async function removeGlobalPreference(prefId) {
-  const prefPath = path.join(GLOBAL_PREFS_DIR, `${prefId}.json`);
-  if (!fs$1.existsSync(prefPath)) return false;
-  await fs.unlink(prefPath);
-  await rebuildGlobalSummary();
-  return true;
-}
-function formatGlobalMemory(prefs) {
-  if (prefs.length === 0) return "No global preferences. Run `memory:promote` to promote local patterns.";
-  const lines = [
-    `Global Memory: ${prefs.length} preferences`,
-    `Location: ${GLOBAL_DIR}`,
-    ""
-  ];
-  const byCategory = /* @__PURE__ */ new Map();
-  for (const p of prefs) {
-    const arr = byCategory.get(p.category) || [];
-    arr.push(p);
-    byCategory.set(p.category, arr);
-  }
-  for (const [cat, catPrefs] of byCategory) {
-    lines.push(`  ${cat} (${catPrefs.length}):`);
-    for (const p of catPrefs) {
-      lines.push(`    ${p.id}: ${p.description} [${Math.round(p.confidence * 100)}%]`);
-    }
-  }
-  return lines.join("\n");
-}
+
+// src/index.ts
+init_memory();
 var DecisionTypeSchema = zod.z.enum([
   "css_change",
   "layout_change",
@@ -9144,8 +10057,8 @@ var touchTargetValidator = {
     const minSize = spec.tokens.touchTargets.min;
     for (const element of elements) {
       const selector = element.selector || element.tagName || "unknown";
-      const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
-      if (!isInteractive) continue;
+      const isInteractive2 = element.interactive?.hasOnClick || element.interactive?.hasHref;
+      if (!isInteractive2) continue;
       const actualSize = Math.min(element.bounds.width, element.bounds.height);
       if (actualSize < minSize) {
         violations.push({
@@ -9376,219 +10289,13 @@ function calculateComplianceScore(totalChecked, violationCount) {
   return Math.round(passing / totalChecked * 100);
 }
 
-// src/design-system/principles/gestalt.ts
-var gestaltRules = [
-  {
-    id: "calm-precision/gestalt-grouping",
-    name: "Gestalt: Border Grouping",
-    description: "Related items should be grouped with a single border, not individually bordered",
-    defaultSeverity: "error",
-    check: (element, _context) => {
-      const style = element.computedStyles;
-      if (!style) return null;
-      const hasBorder = style.border && style.border !== "none" && style.border !== "0px";
-      const borderWidth = style["border-width"];
-      const hasBorderWidth = borderWidth && borderWidth !== "0px";
-      const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
-      if ((hasBorder || hasBorderWidth) && isListItem) {
-        return {
-          ruleId: "calm-precision/gestalt-grouping",
-          ruleName: "Gestalt: Border Grouping",
-          severity: "error",
-          message: `List item "${(element.text || "").slice(0, 40)}" has individual border. Group related items with a single container border.`,
-          element: element.selector,
-          bounds: element.bounds,
-          fix: "Use single border around the group container with dividers between items, not individual item borders."
-        };
-      }
-      return null;
-    }
-  }
-];
-
-// src/design-system/principles/signal-noise.ts
-var signalNoiseRules = [
-  {
-    id: "calm-precision/signal-noise-status",
-    name: "Signal-to-Noise: Status Indication",
-    description: "Status should use text color only, not background badges",
-    defaultSeverity: "error",
-    check: (element, _context) => {
-      const style = element.computedStyles;
-      if (!style) return null;
-      const text = (element.text || "").toLowerCase();
-      const isStatus = /\b(success|error|warning|pending|active|inactive|status|failed|completed|approved|rejected)\b/i.test(text);
-      if (!isStatus) return null;
-      const bg = style.backgroundColor || style["background-color"];
-      if (!bg || bg === "transparent" || bg === "rgba(0, 0, 0, 0)") return null;
-      const subtleMatch = bg.match(/rgba?\([^)]*,\s*(0\.(?:0[0-9]|1[0-4]))\)/);
-      if (subtleMatch) return null;
-      return {
-        ruleId: "calm-precision/signal-noise-status",
-        ruleName: "Signal-to-Noise: Status Indication",
-        severity: "error",
-        message: `Status element "${text.slice(0, 30)}" has heavy background (${bg}). Use text color only for status.`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: "Remove background color. Use text color (green for success, red for error, yellow for warning) instead of background badges."
-      };
-    }
-  }
-];
-
-// src/design-system/principles/fitts.ts
-var fittsRules = [
-  {
-    id: "calm-precision/fitts-button-sizing",
-    name: "Fitts' Law: Button Sizing",
-    description: "Primary action buttons should be prominently sized",
-    defaultSeverity: "warn",
-    check: (element, _context) => {
-      if (element.tagName !== "button" && element.a11y?.role !== "button") return null;
-      const text = (element.text || "").toLowerCase();
-      const isPrimary = /\b(submit|save|confirm|checkout|buy|sign.?up|log.?in|register|continue|create|publish|send)\b/i.test(text);
-      if (!isPrimary) return null;
-      const width = element.bounds?.width || 0;
-      if (width > 0 && width < 120) {
-        return {
-          ruleId: "calm-precision/fitts-button-sizing",
-          ruleName: "Fitts' Law: Button Sizing",
-          severity: "warn",
-          message: `Primary action "${text.slice(0, 30)}" is ${width}px wide. Primary actions should be more prominent.`,
-          element: element.selector,
-          bounds: element.bounds,
-          fix: "Increase button width. Primary actions should be the most prominent interactive element."
-        };
-      }
-      return null;
-    }
-  }
-];
-
-// src/design-system/principles/hick.ts
-var hickRules = [
-  {
-    id: "calm-precision/hick-choice-count",
-    name: "Hick's Law: Choice Count",
-    description: "Limit visible choices to reduce decision time",
-    defaultSeverity: "warn",
-    check: (element, context) => {
-      if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
-      const y = element.bounds?.y || 0;
-      const siblings = context.allElements.filter((el) => {
-        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
-        const elY = el.bounds?.y || 0;
-        return Math.abs(elY - y) < 20;
-      });
-      if (siblings.length > 7 && siblings[0]?.selector === element.selector) {
-        return {
-          ruleId: "calm-precision/hick-choice-count",
-          ruleName: "Hick's Law: Choice Count",
-          severity: "warn",
-          message: `${siblings.length} interactive elements in one visual row. Consider progressive disclosure (max 5-7 visible).`,
-          element: element.selector,
-          bounds: element.bounds,
-          fix: 'Group less-used options behind a "More" menu or overflow. Show max 5-7 choices at once.'
-        };
-      }
-      return null;
-    }
-  }
-];
-
-// src/design-system/principles/content-chrome.ts
-var contentChromeRules = [
-  {
-    id: "calm-precision/content-chrome-ratio",
-    name: "Content >= Chrome",
-    description: "Content area should be at least 70% of the viewport",
-    defaultSeverity: "warn",
-    check: (element, context) => {
-      if (context.allElements[0]?.selector !== element.selector) return null;
-      const viewportArea = context.viewportWidth * context.viewportHeight;
-      if (viewportArea === 0) return null;
-      const chromeSelectors = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
-      let chromeArea = 0;
-      for (const el of context.allElements) {
-        const isChrome = chromeSelectors.test(el.tagName) || chromeSelectors.test(el.selector || "") || chromeSelectors.test(el.a11y?.role || "");
-        if (isChrome && el.bounds) {
-          chromeArea += el.bounds.width * el.bounds.height;
-        }
-      }
-      const chromePercent = chromeArea / viewportArea * 100;
-      if (chromePercent > 30) {
-        return {
-          ruleId: "calm-precision/content-chrome-ratio",
-          ruleName: "Content >= Chrome",
-          severity: "warn",
-          message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport. Content should be >= 70%.`,
-          fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
-        };
-      }
-      return null;
-    }
-  }
-];
-
-// src/design-system/principles/cognitive-load.ts
-var cognitiveLoadRules = [
-  {
-    id: "calm-precision/cognitive-load-elements",
-    name: "Cognitive Load: Element Count",
-    description: "Visual groups should have 5-7 items max to stay within working memory limits",
-    defaultSeverity: "warn",
-    check: (element, context) => {
-      if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
-      if (!element.bounds) return null;
-      const { x, y, width, height } = element.bounds;
-      const children = context.allElements.filter((el) => {
-        if (el.selector === element.selector) return false;
-        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
-        if (!el.bounds) return false;
-        return el.bounds.x >= x && el.bounds.y >= y && el.bounds.x + el.bounds.width <= x + width && el.bounds.y + el.bounds.height <= y + height;
-      });
-      if (children.length > 10) {
-        return {
-          ruleId: "calm-precision/cognitive-load-elements",
-          ruleName: "Cognitive Load: Element Count",
-          severity: "warn",
-          message: `Container has ${children.length} interactive elements. Consider grouping or progressive disclosure (5-7 max per group).`,
-          element: element.selector,
-          bounds: element.bounds,
-          fix: 'Group related actions. Use sections, tabs, or "Show more" to reduce visible elements per group.'
-        };
-      }
-      return null;
-    }
-  }
-];
-
-// src/design-system/principles/calm-precision.ts
-var allCalmPrecisionRules = [
-  ...gestaltRules,
-  ...signalNoiseRules,
-  ...fittsRules,
-  ...hickRules,
-  ...contentChromeRules,
-  ...cognitiveLoadRules
-];
-var corePrincipleIds = ["gestalt", "signal-noise", "content-chrome", "cognitive-load"];
-var stylisticPrincipleIds = ["fitts", "hick"];
-var principleToRules = {
-  "gestalt": gestaltRules.map((r) => r.id),
-  "signal-noise": signalNoiseRules.map((r) => r.id),
-  "fitts": fittsRules.map((r) => r.id),
-  "hick": hickRules.map((r) => r.id),
-  "content-chrome": contentChromeRules.map((r) => r.id),
-  "cognitive-load": cognitiveLoadRules.map((r) => r.id)
-};
-
 // src/design-system/index.ts
+init_calm_precision();
 async function runDesignSystemCheck(elements, context, projectDir) {
   const config = await loadDesignSystemConfig(projectDir);
   if (!config) return void 0;
   const principleViolations = [];
-  for (const rule of allCalmPrecisionRules) {
+  for (const rule of exports.allCalmPrecisionRules) {
     const principleId = Object.entries(principleToRules).find(
       ([, ruleIds]) => ruleIds.includes(rule.id)
     )?.[0];
@@ -9669,7 +10376,1225 @@ async function runDesignSystemCheck(elements, context, projectDir) {
   };
 }
 
+// src/sensors/visual-patterns.ts
+function styleFingerprint(el) {
+  const s = el.computedStyles ?? {};
+  return {
+    backgroundColor: s.backgroundColor ?? "",
+    color: s.color ?? "",
+    borderRadius: s.borderRadius ?? "",
+    padding: s.padding ?? "",
+    fontSize: s.fontSize ?? "",
+    fontWeight: s.fontWeight ?? "",
+    borderWidth: s.borderWidth ?? "",
+    borderColor: s.borderColor ?? ""
+  };
+}
+function fingerprintKey(fp) {
+  return Object.entries(fp).map(([k, v]) => `${k}=${v}`).join("|");
+}
+function categorize(el) {
+  const tag = el.tagName.toLowerCase();
+  const role = el.a11y.role ?? "";
+  if (tag === "button" || role === "button") return "button";
+  if (tag === "a" || role === "link") return "link";
+  if (tag === "input" || tag === "textarea" || tag === "select" || role === "textbox" || role === "combobox") return "input";
+  if (/^h[1-6]$/.test(tag) || role === "heading") return "heading";
+  return null;
+}
+function collectVisualPatterns(ctx) {
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const el of ctx.elements) {
+    const cat = categorize(el);
+    if (!cat) continue;
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat).push(el);
+  }
+  const reports = [];
+  for (const [category, els] of byCategory.entries()) {
+    const groupMap = /* @__PURE__ */ new Map();
+    for (const el of els) {
+      const fp = styleFingerprint(el);
+      const key = fingerprintKey(fp);
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          patternKey: key.slice(0, 80),
+          count: 0,
+          elements: [],
+          styleFingerprint: fp
+        });
+      }
+      const g = groupMap.get(key);
+      g.count++;
+      if (g.elements.length < 5) {
+        g.elements.push({
+          selector: el.selector,
+          text: (el.text ?? "").slice(0, 40)
+        });
+      }
+    }
+    const groups = Array.from(groupMap.values()).sort((a, b) => b.count - a.count);
+    const total = els.length;
+    const dominant = groups[0] && groups[0].count / total > 0.8 ? groups[0] : void 0;
+    reports.push({
+      category,
+      totalElements: total,
+      distinctPatterns: groups.length,
+      groups,
+      dominant
+    });
+  }
+  return reports;
+}
+
+// src/sensors/component-census.ts
+function detectComponentName(el) {
+  const attrs = el.attributes;
+  if (attrs?.["data-component"]) return attrs["data-component"];
+  const testId = el.sourceHint?.dataTestId;
+  if (testId) {
+    const name = testId.split(/[-_]/).filter(Boolean).map((p) => (p[0]?.toUpperCase() ?? "") + p.slice(1)).join("");
+    if (name.length > 0) return name;
+  }
+  const className = el.className ?? attrs?.["class"] ?? attrs?.["className"];
+  if (className) {
+    const match = className.match(/\b([A-Z][a-zA-Z0-9]+)(?:_|$|\s)/);
+    if (match) return match[1];
+  }
+  return null;
+}
+function collectComponentCensus(ctx) {
+  const byTag = {};
+  const byRole = {};
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  const orphanInteractive = [];
+  const componentMap = /* @__PURE__ */ new Map();
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    if (tag) byTag[tag] = (byTag[tag] ?? 0) + 1;
+    const role = el.a11y.role;
+    if (role) byRole[role] = (byRole[role] ?? 0) + 1;
+    const interactive = el.interactive;
+    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+      const cursor = el.computedStyles?.cursor;
+      if (cursor === "pointer" && (el.text ?? "").trim().length > 0) {
+        if (orphanInteractive.length < 20) {
+          orphanInteractive.push({
+            selector: el.selector,
+            text: (el.text ?? "").slice(0, 60),
+            reason: "cursor:pointer with no handler"
+          });
+        }
+      }
+    }
+    const componentName = detectComponentName(el) ?? el.tagName.toLowerCase();
+    const existing = componentMap.get(componentName);
+    if (existing) {
+      existing.count++;
+      if (existing.selectors.length < 5) existing.selectors.push(el.selector);
+    } else {
+      componentMap.set(componentName, { count: 1, selectors: [el.selector] });
+    }
+  }
+  const byComponent = {};
+  for (const [name, data] of componentMap) {
+    byComponent[name] = data.count;
+  }
+  const topComponents = Array.from(componentMap.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 20).map(([name, data]) => ({ name, count: data.count, selectors: data.selectors }));
+  return {
+    byTag,
+    byRole,
+    withHandlers,
+    withoutHandlers,
+    orphanInteractive,
+    byComponent,
+    topComponents
+  };
+}
+
+// src/sensors/interaction-map.ts
+function collectInteractionMap(ctx) {
+  const missingHandlers = [];
+  let total = 0;
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  let disabled = 0;
+  let formCount = 0;
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    const role = el.a11y.role ?? "";
+    const cursor = el.computedStyles?.cursor;
+    const looksInteractive2 = tag === "button" || tag === "a" || role === "button" || role === "link" || cursor === "pointer";
+    if (tag === "form") formCount++;
+    if (!looksInteractive2) continue;
+    total++;
+    const interactive = el.interactive;
+    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+      if (missingHandlers.length < 25) {
+        missingHandlers.push({
+          selector: el.selector,
+          text: (el.text ?? "").slice(0, 60),
+          tagName: tag,
+          role: role || void 0
+        });
+      }
+    }
+    if (interactive.isDisabled) disabled++;
+  }
+  return { total, withHandlers, withoutHandlers, missingHandlers, disabled, formCount };
+}
+
+// src/sensors/contrast-report.ts
+function parseColor2(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6 = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6) {
+    const n = parseInt(hex6[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3 = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3) {
+    return [
+      parseInt(hex3[1][0], 16) * 17,
+      parseInt(hex3[1][1], 16) * 17,
+      parseInt(hex3[1][2], 16) * 17
+    ];
+  }
+  return null;
+}
+function linearize(c) {
+  const n = c / 255;
+  return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4);
+}
+function luminance([r, g, b]) {
+  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+}
+function contrastRatio(fg, bg) {
+  const l1 = luminance(fg);
+  const l2 = luminance(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText(styles) {
+  const fontSize = parseFloat(styles.fontSize ?? "");
+  if (isNaN(fontSize)) return false;
+  const fw = styles.fontWeight ?? "400";
+  const isBold = fw === "bold" || parseInt(fw, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+function collectContrastReport(ctx) {
+  let pass = 0;
+  let fail = 0;
+  let passAAA = 0;
+  const failing = [];
+  let minRatio;
+  let lightOnDark = 0;
+  let darkOnLight = 0;
+  for (const el of ctx.elements) {
+    const text = (el.text ?? "").trim();
+    if (!text) continue;
+    const styles = el.computedStyles;
+    if (!styles) continue;
+    const fg = parseColor2(styles.color ?? "");
+    const bg = parseColor2(styles.backgroundColor ?? "");
+    if (!fg || !bg) continue;
+    const large = isLargeText(styles);
+    const ratio = contrastRatio(fg, bg);
+    const aaThreshold = large ? 3 : 4.5;
+    const aaaThreshold = large ? 4.5 : 7;
+    const fontSize = parseFloat(styles.fontSize ?? "16") || 16;
+    const entry = {
+      selector: el.selector,
+      text: text.slice(0, 60),
+      ratio: Number(ratio.toFixed(2)),
+      pass: ratio >= aaaThreshold ? "AAA" : ratio >= aaThreshold ? "AA" : "FAIL",
+      fontSize,
+      largeText: large
+    };
+    if (ratio >= aaThreshold) {
+      pass++;
+    } else {
+      fail++;
+      if (failing.length < 50) failing.push(entry);
+    }
+    if (ratio >= aaaThreshold) passAAA++;
+    if (!minRatio || ratio < minRatio.ratio) minRatio = entry;
+    const fgAvg = (fg[0] + fg[1] + fg[2]) / 3;
+    const bgAvg = (bg[0] + bg[1] + bg[2]) / 3;
+    if (fgAvg > bgAvg) lightOnDark++;
+    else darkOnLight++;
+  }
+  return {
+    totalChecked: pass + fail,
+    pass,
+    fail,
+    passAAA,
+    failing,
+    minRatio,
+    byTone: { lightOnDark, darkOnLight }
+  };
+}
+
+// src/sensors/navigation.ts
+function selectorDepth(selector) {
+  return (selector || "").split(/\s*>\s*/).length;
+}
+function isDescendantOf(childSelector, ancestorSelector) {
+  if (!ancestorSelector || !childSelector) return false;
+  return childSelector.startsWith(ancestorSelector + " ") || childSelector.startsWith(ancestorSelector + ">") || childSelector.startsWith(ancestorSelector + " >") || childSelector === ancestorSelector;
+}
+function linkLabel(el) {
+  return (el.text ?? el.a11y.ariaLabel ?? "").trim().slice(0, 60);
+}
+function buildTree(links, navSelector) {
+  const navDepth = selectorDepth(navSelector);
+  const sorted = [...links].sort((a, b) => a.selector.length - b.selector.length);
+  const roots = [];
+  const stack = [];
+  for (const el of sorted) {
+    const label = linkLabel(el);
+    if (!label) continue;
+    const absDepth = selectorDepth(el.selector);
+    const relDepth = absDepth - navDepth;
+    const node = {
+      label,
+      selector: el.selector,
+      depth: relDepth,
+      children: []
+    };
+    let parentEntry;
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const candidate = stack[i];
+      if (candidate.absDepth < absDepth && isDescendantOf(el.selector, candidate.node.selector)) {
+        parentEntry = candidate;
+        break;
+      }
+    }
+    if (parentEntry) {
+      parentEntry.node.children.push(node);
+    } else {
+      roots.push(node);
+    }
+    stack.push({ node, absDepth });
+  }
+  function maxD(nodes, current) {
+    let m = current;
+    for (const n of nodes) m = Math.max(m, maxD(n.children, current + 1));
+    return m;
+  }
+  const maxDepth = roots.length > 0 ? maxD(roots, 1) : 0;
+  return { roots, maxDepth };
+}
+function flattenTree(nodes, depth, counts) {
+  for (const node of nodes) {
+    counts[depth] = (counts[depth] ?? 0) + 1;
+    flattenTree(node.children, depth + 1, counts);
+  }
+}
+function collectNavigationMap(ctx) {
+  const navElements = ctx.elements.filter((el) => {
+    const role = el.a11y.role ?? "";
+    const tag = el.tagName.toLowerCase();
+    return role === "navigation" || tag === "nav";
+  });
+  const links = ctx.elements.filter((el) => {
+    const role = el.a11y.role ?? "";
+    const tag = el.tagName.toLowerCase();
+    return role === "link" || tag === "a";
+  });
+  if (links.length === 0 && navElements.length === 0) return void 0;
+  if (navElements.length > 0) {
+    const navRegions = [];
+    const byDepth = [];
+    for (const nav of navElements) {
+      const navLinks = links.filter(
+        (link) => isDescendantOf(link.selector, nav.selector)
+      );
+      const { roots, maxDepth } = buildTree(navLinks, nav.selector);
+      flattenTree(roots, 0, byDepth);
+      navRegions.push({
+        rootSelector: nav.selector,
+        roots,
+        depth: maxDepth
+      });
+    }
+    const allRoots = navRegions.flatMap((r) => r.roots);
+    const overallMaxDepth = navRegions.reduce((m, r) => Math.max(m, r.depth), 0);
+    return {
+      navs: navRegions,
+      roots: allRoots.slice(0, 40),
+      depth: overallMaxDepth,
+      totalLinks: links.length,
+      byDepth
+    };
+  }
+  const flatRoots = [];
+  for (const link of links.slice(0, 60)) {
+    const label = linkLabel(link);
+    if (!label) continue;
+    flatRoots.push({
+      label,
+      selector: link.selector,
+      depth: 0,
+      children: []
+    });
+  }
+  return {
+    navs: [],
+    roots: flatRoots.slice(0, 40),
+    depth: 1,
+    totalLinks: links.length,
+    byDepth: [flatRoots.length]
+  };
+}
+
+// src/sensors/index.ts
+function runSensors(ctx) {
+  const visualPatterns = collectVisualPatterns(ctx);
+  const componentCensus = collectComponentCensus(ctx);
+  const interactionMap = collectInteractionMap(ctx);
+  const contrast = collectContrastReport(ctx);
+  const navigation = collectNavigationMap(ctx);
+  const oneLiners = [];
+  for (const vp of visualPatterns) {
+    if (vp.distinctPatterns > 1) {
+      const dominantNote = vp.dominant ? ` (${vp.dominant.count}/${vp.totalElements} share dominant pattern)` : "";
+      oneLiners.push(
+        `${vp.category}: ${vp.totalElements} total, ${vp.distinctPatterns} distinct patterns${dominantNote}`
+      );
+    }
+  }
+  if (interactionMap.withoutHandlers > 0) {
+    oneLiners.push(
+      `${interactionMap.withoutHandlers}/${interactionMap.total} interactive-looking elements have no handler`
+    );
+  }
+  if (contrast.fail > 0) {
+    oneLiners.push(`Contrast: ${contrast.fail}/${contrast.totalChecked} text elements fail WCAG AA`);
+  }
+  if (componentCensus.orphanInteractive.length > 0) {
+    oneLiners.push(
+      `${componentCensus.orphanInteractive.length} cursor:pointer elements have no handler`
+    );
+  }
+  if (navigation) {
+    if (navigation.navs.length > 0) {
+      oneLiners.push(
+        `Nav: ${navigation.navs.length} nav region(s), max depth ${navigation.depth}, ${navigation.totalLinks} total links`
+      );
+    } else {
+      oneLiners.push(`Navigation: ${navigation.totalLinks} links, ${navigation.depth} level(s) deep`);
+    }
+  }
+  const namedComponents = componentCensus.topComponents.filter(
+    (c) => !/^[a-z]/.test(c.name) || c.name.includes("-")
+    // PascalCase or testid-derived names
+  );
+  if (namedComponents.length > 0) {
+    const top3 = namedComponents.slice(0, 3).map((c) => `${c.name}\xD7${c.count}`).join(", ");
+    const totalNamed = namedComponents.length;
+    oneLiners.push(`Components: ${top3}${totalNamed > 3 ? ` (top 3 of ${totalNamed})` : ""}`);
+  }
+  const report = {
+    visualPatterns,
+    navigation,
+    componentCensus,
+    interactionMap,
+    contrast,
+    oneLiners
+  };
+  if (ctx.semantic) {
+    const sem = ctx.semantic;
+    const states = [];
+    if (sem.state.auth.authenticated === true) states.push("authenticated");
+    if (sem.state.auth.authenticated === false) states.push("not authenticated");
+    if (sem.state.loading.loading) states.push(`loading:${sem.state.loading.type}`);
+    if (sem.state.errors.hasErrors) {
+      for (const e of sem.state.errors.errors) states.push(`error:${e.type}`);
+    }
+    report.semanticState = {
+      pageIntent: sem.pageIntent.intent,
+      states,
+      availableActions: sem.availableActions.map((a) => a.action)
+    };
+  }
+  return report;
+}
+
+// src/rules/wcag-contrast.ts
+function parseColor3(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6Match) {
+    const n = parseInt(hex6Match[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3Match) {
+    const r = parseInt(hex3Match[1][0], 16) * 17;
+    const g = parseInt(hex3Match[1][1], 16) * 17;
+    const b = parseInt(hex3Match[1][2], 16) * 17;
+    return [r, g, b];
+  }
+  return null;
+}
+function linearize2(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance2(r, g, b) {
+  return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
+}
+function contrastRatio2(l1, l2) {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText2(styles) {
+  const fontSizeStr = styles.fontSize ?? "";
+  const fontWeightStr = styles.fontWeight ?? "";
+  const fontSize = parseFloat(fontSizeStr);
+  if (isNaN(fontSize)) return false;
+  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+var wcagContrastRules = [
+  {
+    id: "wcag/contrast",
+    name: "WCAG 2.1: Color Contrast",
+    description: "Text must meet WCAG 2.1 minimum contrast: 4.5:1 normal, 3:1 large text",
+    defaultSeverity: "error",
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const hasText = element.text && element.text.trim().length > 0;
+      if (!hasText) return null;
+      const fgColor = parseColor3(style.color ?? "");
+      const bgColor = parseColor3(style.backgroundColor ?? "");
+      if (!fgColor || !bgColor) return null;
+      const fgL = relativeLuminance2(...fgColor);
+      const bgL = relativeLuminance2(...bgColor);
+      const ratio = contrastRatio2(fgL, bgL);
+      const largeText = isLargeText2(style);
+      const threshold = largeText ? 3 : 4.5;
+      if (ratio < threshold) {
+        const ratioStr = ratio.toFixed(2);
+        const textSnippet = (element.text ?? "").slice(0, 40);
+        return {
+          ruleId: "wcag/contrast",
+          ruleName: "WCAG 2.1: Color Contrast",
+          severity: "error",
+          message: `"${textSnippet}" has contrast ratio ${ratioStr}:1 (required ${threshold}:1 for ${largeText ? "large" : "normal"} text)`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/rules/touch-targets.ts
+var INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+  "button",
+  "link",
+  "textbox",
+  "checkbox",
+  "radio",
+  "combobox",
+  "listbox",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "option",
+  "searchbox",
+  "slider",
+  "spinbutton",
+  "switch",
+  "tab",
+  "treeitem"
+]);
+var INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
+function isInteractiveElement(element) {
+  if (INTERACTIVE_TAGS.has(element.tagName.toLowerCase())) return true;
+  const role = element.a11y?.role;
+  if (role && INTERACTIVE_ROLES.has(role)) return true;
+  return false;
+}
+var touchTargetRules = [
+  {
+    id: "touch-targets/minimum-size",
+    name: "Touch Target: Minimum Size",
+    description: "Interactive elements must meet minimum touch target size (44x44px mobile, 24x24px desktop)",
+    defaultSeverity: "warn",
+    check: (element, context, options) => {
+      if (!isInteractiveElement(element)) return null;
+      const isMobile = context.isMobile || context.viewportWidth < 768;
+      const minSize = isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+      const { width, height } = element.bounds;
+      if (width === 0 && height === 0) return null;
+      if (width < minSize || height < minSize) {
+        const label = element.text || element.a11y?.ariaLabel || element.selector;
+        return {
+          ruleId: "touch-targets/minimum-size",
+          ruleName: "Touch Target: Minimum Size",
+          severity: "warn",
+          message: `"${label.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Increase element size to at least ${minSize}x${minSize}px`
+        };
+      }
+      return null;
+    }
+  }
+];
+
+// src/rules/text-hierarchy.ts
+var TITLE_TAGS = /* @__PURE__ */ new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
+var DESCRIPTION_TAGS = /* @__PURE__ */ new Set(["p", "blockquote", "figcaption", "li"]);
+function inferLevel(element) {
+  const tag = element.tagName.toLowerCase();
+  const role = element.a11y?.role ?? "";
+  if (TITLE_TAGS.has(tag) || role === "heading") return "title";
+  if (DESCRIPTION_TAGS.has(tag) || role === "paragraph") return "description";
+  if (tag === "span" || tag === "small" || tag === "label") {
+    const size = parseFloat(element.computedStyles?.fontSize ?? "0");
+    if (size > 0 && size <= 12) return "metadata";
+  }
+  return "unknown";
+}
+function parseFontSize(element) {
+  const raw = element.computedStyles?.fontSize;
+  if (!raw) return null;
+  const val = parseFloat(raw);
+  return isNaN(val) ? null : val;
+}
+var textHierarchyRules = [
+  {
+    id: "text-hierarchy/title-vs-description",
+    name: "Text Hierarchy: Title vs Description Size",
+    description: "Title-level elements must be visually larger than description-level elements",
+    defaultSeverity: "warn",
+    check: (element, context) => {
+      if (inferLevel(element) !== "title") return null;
+      const titleSize = parseFontSize(element);
+      if (titleSize === null) return null;
+      for (const other of context.allElements) {
+        if (inferLevel(other) !== "description") continue;
+        const descSize = parseFontSize(other);
+        if (descSize === null) continue;
+        if (descSize >= titleSize) {
+          const titleLabel = element.text?.slice(0, 30) || element.selector;
+          const descLabel = other.text?.slice(0, 30) || other.selector;
+          return {
+            ruleId: "text-hierarchy/title-vs-description",
+            ruleName: "Text Hierarchy: Title vs Description Size",
+            severity: "warn",
+            message: `Title "${titleLabel}" (${titleSize}px) is not larger than description "${descLabel}" (${descSize}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Ensure heading/title font sizes are larger than body/description text"
+          };
+        }
+      }
+      return null;
+    }
+  }
+];
+
+// src/rules/handler-integrity.ts
+var VISUALLY_INTERACTIVE_ROLES = /* @__PURE__ */ new Set(["button", "link", "menuitem", "tab", "option"]);
+var VISUALLY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a"]);
+function looksInteractive(element) {
+  const tag = element.tagName.toLowerCase();
+  const role = element.a11y?.role ?? "";
+  const cursor = element.interactive?.cursor ?? "";
+  if (VISUALLY_INTERACTIVE_TAGS.has(tag)) return true;
+  if (VISUALLY_INTERACTIVE_ROLES.has(role)) return true;
+  if (cursor === "pointer") return true;
+  return false;
+}
+function hasAnyHandler(element) {
+  return !!(element.interactive.hasOnClick || element.interactive.hasHref || element.interactive.hasReactHandler || element.interactive.hasVueHandler || element.interactive.hasAngularHandler);
+}
+function hasDisabledVisual(element) {
+  const style = element.computedStyles;
+  if (!style) return false;
+  const opacity = parseFloat(style.opacity ?? "1");
+  if (!isNaN(opacity) && opacity <= 0.7) return true;
+  if (element.interactive.cursor === "not-allowed") return true;
+  const bg = style.backgroundColor ?? "";
+  const color = style.color ?? "";
+  const grayPattern = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/;
+  for (const c of [bg, color]) {
+    const m = c.match(grayPattern);
+    if (m) {
+      const r = parseInt(m[1], 10);
+      const g = parseInt(m[2], 10);
+      const b = parseInt(m[3], 10);
+      const range = Math.max(r, g, b) - Math.min(r, g, b);
+      if (range < 30 && r > 100 && r < 220) return true;
+    }
+  }
+  return false;
+}
+var handlerIntegrityRules = [
+  {
+    id: "handler-integrity/fake-interactive",
+    name: "Handler Integrity: Fake Interactive Element",
+    description: "Elements that look interactive must have actual handlers",
+    defaultSeverity: "error",
+    check: (element, _context) => {
+      if (!looksInteractive(element)) return null;
+      if (element.interactive.isDisabled) return null;
+      if (hasAnyHandler(element)) return null;
+      const label = element.text || element.a11y?.ariaLabel || element.selector;
+      return {
+        ruleId: "handler-integrity/fake-interactive",
+        ruleName: "Handler Integrity: Fake Interactive Element",
+        severity: "error",
+        message: `"${label.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: "Add an onClick handler, href, or remove interactive appearance"
+      };
+    }
+  },
+  {
+    id: "handler-integrity/disabled-no-visual",
+    name: "Handler Integrity: Disabled Without Visual State",
+    description: "Disabled elements must have a visible disabled appearance",
+    defaultSeverity: "warn",
+    check: (element, _context) => {
+      if (!element.interactive.isDisabled) return null;
+      if (hasDisabledVisual(element)) return null;
+      const label = element.text || element.a11y?.ariaLabel || element.selector;
+      return {
+        ruleId: "handler-integrity/disabled-no-visual",
+        ruleName: "Handler Integrity: Disabled Without Visual State",
+        severity: "warn",
+        message: `"${label.slice(0, 40)}" is disabled but shows no visual disabled state`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: "Apply opacity <= 0.7, cursor: not-allowed, or muted color to disabled elements"
+      };
+    }
+  }
+];
+
+// src/rules/spacing-grid.ts
+var SPACING_PROPERTIES = [
+  "paddingTop",
+  "paddingRight",
+  "paddingBottom",
+  "paddingLeft",
+  "marginTop",
+  "marginRight",
+  "marginBottom",
+  "marginLeft",
+  // Shorthand forms that may appear in computedStyles
+  "padding",
+  "margin",
+  "gap",
+  "rowGap",
+  "columnGap"
+];
+function parsePxValue(value) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "auto" || trimmed === "normal" || trimmed === "initial" || trimmed === "inherit") {
+    return null;
+  }
+  if (trimmed.endsWith("%")) return null;
+  if (trimmed.endsWith("em") || trimmed.endsWith("rem") || trimmed.endsWith("vw") || trimmed.endsWith("vh")) {
+    return null;
+  }
+  if (!trimmed.endsWith("px")) return null;
+  const n = parseFloat(trimmed);
+  return isNaN(n) ? null : n;
+}
+function isOnGrid(px) {
+  if (px === 0) return true;
+  return Math.round(px) % 4 === 0;
+}
+function parseSpacingShorthand(value) {
+  const parts = value.trim().split(/\s+/);
+  const results = [];
+  for (const part of parts) {
+    const px = parsePxValue(part);
+    if (px !== null) results.push(px);
+  }
+  return results;
+}
+var spacingGridRules = [
+  {
+    id: "spacing-grid/off-grid",
+    name: "Spacing Grid: Off 8pt Grid",
+    description: "Padding and margin values should be multiples of 4px (half 8pt grid)",
+    defaultSeverity: "warn",
+    check: (element, _context) => {
+      const style = element.computedStyles;
+      if (!style) return null;
+      const offGridValues = [];
+      for (const prop of SPACING_PROPERTIES) {
+        const raw = style[prop];
+        if (!raw) continue;
+        const isShorthand = prop === "padding" || prop === "margin";
+        if (isShorthand) {
+          const values = parseSpacingShorthand(raw);
+          for (const v of values) {
+            if (!isOnGrid(v)) {
+              offGridValues.push({ property: prop, value: raw });
+              break;
+            }
+          }
+        } else {
+          const px = parsePxValue(raw);
+          if (px !== null && !isOnGrid(px)) {
+            offGridValues.push({ property: prop, value: raw });
+          }
+        }
+      }
+      if (offGridValues.length === 0) return null;
+      const detail = offGridValues.map((v) => `${v.property}: ${v.value}`).join(", ");
+      const label = element.text?.slice(0, 30) || element.selector;
+      return {
+        ruleId: "spacing-grid/off-grid",
+        ruleName: "Spacing Grid: Off 8pt Grid",
+        severity: "warn",
+        message: `"${label}" has off-grid spacing: ${detail}`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: "Use spacing values that are multiples of 4px (e.g., 4, 8, 12, 16, 20, 24, 32px)"
+      };
+    }
+  }
+];
+
+// src/rules/index.ts
+var allRules = [
+  ...wcagContrastRules,
+  ...touchTargetRules,
+  ...textHierarchyRules,
+  ...handlerIntegrityRules,
+  ...spacingGridRules
+];
+function runAllRules(elements, context) {
+  const results = [];
+  for (const element of elements) {
+    for (const rule of allRules) {
+      const violation = rule.check(element, context);
+      if (!violation) continue;
+      const severity = violation.severity === "error" ? "error" : "warning";
+      results.push({
+        rule: violation.ruleId,
+        severity,
+        element: violation.element ?? element.selector,
+        expected: violation.fix ?? "",
+        actual: violation.message,
+        evidence: {
+          ruleName: violation.ruleName,
+          bounds: violation.bounds,
+          selector: element.selector,
+          tagName: element.tagName,
+          text: element.text
+        }
+      });
+    }
+  }
+  return results;
+}
+
+// src/summarize.ts
+var SIGNATURE_KEYS = [
+  "fontSize",
+  "fontWeight",
+  "color",
+  "backgroundColor",
+  "borderRadius",
+  "padding"
+];
+function extractSignature(el) {
+  const s = el.computedStyles ?? {};
+  return {
+    fontSize: s["fontSize"] ?? "",
+    fontWeight: s["fontWeight"] ?? "",
+    color: s["color"] ?? "",
+    backgroundColor: s["backgroundColor"] ?? "",
+    borderRadius: s["borderRadius"] ?? "",
+    padding: s["padding"] ?? ""
+  };
+}
+function hashSignature(sig) {
+  return SIGNATURE_KEYS.map((k) => `${k}:${sig[k]}`).join("|");
+}
+function matchCount(a, b) {
+  let count = 0;
+  for (const key of SIGNATURE_KEYS) {
+    if (a[key] === b[key]) count++;
+  }
+  return count;
+}
+function elementLabel(el) {
+  return el.text?.trim() || el.a11y?.ariaLabel || el.id || el.selector.slice(0, 60);
+}
+function resolveRole(el) {
+  return el.a11y?.role ?? el.tagName ?? "unknown";
+}
+function parseColor4(color) {
+  if (!color || color === "transparent" || color === "none") return null;
+  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return {
+      r: Number(rgbMatch[1]),
+      g: Number(rgbMatch[2]),
+      b: Number(rgbMatch[3])
+    };
+  }
+  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
+  if (hexMatch) {
+    const h = hexMatch[1];
+    if (h.length === 3) {
+      return {
+        r: parseInt(h[0] + h[0], 16),
+        g: parseInt(h[1] + h[1], 16),
+        b: parseInt(h[2] + h[2], 16)
+      };
+    }
+    if (h.length >= 6) {
+      return {
+        r: parseInt(h.slice(0, 2), 16),
+        g: parseInt(h.slice(2, 4), 16),
+        b: parseInt(h.slice(4, 6), 16)
+      };
+    }
+  }
+  const named = {
+    white: { r: 255, g: 255, b: 255 },
+    black: { r: 0, g: 0, b: 0 },
+    red: { r: 255, g: 0, b: 0 },
+    green: { r: 0, g: 128, b: 0 },
+    blue: { r: 0, g: 0, b: 255 },
+    gray: { r: 128, g: 128, b: 128 },
+    grey: { r: 128, g: 128, b: 128 }
+  };
+  return named[color.toLowerCase()] ?? null;
+}
+function relativeLuminance3(r, g, b) {
+  const lin = (c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function contrastRatio3(l1, l2) {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function buildVisualPatterns(elements) {
+  if (elements.length === 0) return [];
+  const groups = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const sig = extractSignature(el);
+    const key = hashSignature(sig);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.elements.push(el);
+    } else {
+      groups.set(key, { sig, elements: [el] });
+    }
+  }
+  const groupList = Array.from(groups.entries()).map(([key, { sig, elements: els }]) => ({
+    patternId: key.slice(0, 32),
+    // truncate for readability
+    styleSignature: sig,
+    count: els.length,
+    roles: [...new Set(els.map(resolveRole))],
+    memberElements: els
+  }));
+  const result = groupList.map((group) => {
+    const outliers = [];
+    for (const other of groupList) {
+      if (other.patternId === group.patternId) continue;
+      const matches = matchCount(group.styleSignature, other.styleSignature);
+      if (matches >= 5) {
+        for (const el of other.memberElements) {
+          outliers.push(elementLabel(el));
+        }
+      }
+    }
+    return {
+      patternId: group.patternId,
+      styleSignature: group.styleSignature,
+      count: group.count,
+      roles: group.roles,
+      outliers: [...new Set(outliers)].slice(0, 10)
+    };
+  });
+  return result.sort((a, b) => b.count - a.count);
+}
+var PRIMITIVE_PATTERNS = [
+  { testIdIncludes: "page-header", name: "PageHeader" },
+  { testIdIncludes: "page-title", name: "PageHeader" },
+  { testIdIncludes: "surface", name: "Surface+Row" },
+  { testIdIncludes: "card", name: "Surface+Row" },
+  { testIdIncludes: "nav-item", name: "NavItem" },
+  { testIdIncludes: "tab", name: "Tab" },
+  { testIdIncludes: "modal", name: "Modal" },
+  { testIdIncludes: "dialog", name: "Dialog" },
+  { testIdIncludes: "toast", name: "Toast" },
+  { testIdIncludes: "badge", name: "Badge" },
+  { testIdIncludes: "avatar", name: "Avatar" },
+  { testIdIncludes: "input", name: "Input" },
+  { testIdIncludes: "btn", name: "Button" },
+  { testIdIncludes: "button", name: "Button" }
+];
+function classifyElement(el) {
+  const testId = el.sourceHint?.dataTestId?.toLowerCase() ?? "";
+  for (const p of PRIMITIVE_PATTERNS) {
+    if (testId.includes(p.testIdIncludes)) {
+      return { pattern: p.name, compliance: "primitive" };
+    }
+  }
+  if (el.tagName === "button") {
+    return { pattern: "raw-button", compliance: "raw" };
+  }
+  if (["h1", "h2", "h3"].includes(el.tagName)) {
+    return { pattern: `raw-${el.tagName}`, compliance: "raw" };
+  }
+  if (["input", "select", "textarea"].includes(el.tagName)) {
+    return { pattern: "raw-input", compliance: "raw" };
+  }
+  if (el.tagName === "a") {
+    return { pattern: "raw-link", compliance: "raw" };
+  }
+  return { pattern: `raw-${el.tagName ?? "unknown"}`, compliance: "raw" };
+}
+function buildComponentCensus(elements, url) {
+  if (elements.length === 0) return [];
+  let route = "/";
+  try {
+    route = new URL(url).pathname;
+  } catch {
+    route = url;
+  }
+  const map = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const { pattern, compliance } = classifyElement(el);
+    const existing = map.get(pattern);
+    if (existing) {
+      existing.count++;
+      existing.pages.add(route);
+      existing.complianceCounts[compliance] = (existing.complianceCounts[compliance] ?? 0) + 1;
+    } else {
+      map.set(pattern, {
+        count: 1,
+        pages: /* @__PURE__ */ new Set([route]),
+        complianceCounts: { [compliance]: 1 }
+      });
+    }
+  }
+  return Array.from(map.entries()).map(([pattern, { count, pages, complianceCounts }]) => {
+    const primitiveCount = complianceCounts["primitive"] ?? 0;
+    const rawCount = complianceCounts["raw"] ?? 0;
+    let compliance;
+    if (primitiveCount > 0 && rawCount > 0) {
+      compliance = "mixed";
+    } else if (primitiveCount > 0) {
+      compliance = "primitive";
+    } else {
+      compliance = "raw";
+    }
+    return {
+      pattern,
+      count,
+      pages: [...pages],
+      compliance
+    };
+  }).sort((a, b) => b.count - a.count);
+}
+var HEADING_DEPTH = {
+  h1: 1,
+  h2: 2,
+  h3: 3,
+  h4: 4,
+  h5: 5,
+  h6: 6
+};
+var NAV_ROLES = /* @__PURE__ */ new Set(["navigation", "link", "tab", "menuitem", "option"]);
+function buildNavigationMap(elements) {
+  if (elements.length === 0) return [];
+  const nodes = [];
+  for (const el of elements) {
+    const role = resolveRole(el);
+    const tag = el.tagName ?? "";
+    const isHeading = tag in HEADING_DEPTH;
+    const isNavRole = NAV_ROLES.has(role);
+    if (!isHeading && !isNavRole) continue;
+    const label = elementLabel(el);
+    if (!label) continue;
+    const depth = isHeading ? HEADING_DEPTH[tag] ?? 1 : 1;
+    const styles = el.computedStyles ?? {};
+    const hasFontWeightBold = styles["fontWeight"] === "bold" || parseInt(styles["fontWeight"] ?? "0", 10) >= 700;
+    const isActive = el.a11y?.role === "tab" ? hasFontWeightBold : void 0;
+    nodes.push({
+      label,
+      role,
+      depth,
+      isActive
+    });
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    let children = 0;
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (nodes[j].depth <= node.depth) break;
+      if (nodes[j].depth === node.depth + 1) children++;
+    }
+    if (children > 0) {
+      node.childCount = children;
+    }
+  }
+  return nodes;
+}
+function buildContrastReport(elements) {
+  if (elements.length === 0) return [];
+  const pairMap = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const styles = el.computedStyles ?? {};
+    const fg = styles["color"] ?? "";
+    const bg = styles["backgroundColor"] ?? "";
+    if (!fg && !bg) continue;
+    const key = `${fg}|${bg}`;
+    const existing = pairMap.get(key);
+    if (existing) {
+      existing.elements.push(el);
+    } else {
+      pairMap.set(key, { fg, bg, elements: [el] });
+    }
+  }
+  return Array.from(pairMap.values()).map(({ fg, bg, elements: els }) => {
+    const fgRgb = parseColor4(fg);
+    const bgRgb = parseColor4(bg);
+    let status = "unknown";
+    let ratio = 0;
+    if (fgRgb && bgRgb) {
+      const fgL = relativeLuminance3(fgRgb.r, fgRgb.g, fgRgb.b);
+      const bgL = relativeLuminance3(bgRgb.r, bgRgb.g, bgRgb.b);
+      ratio = contrastRatio3(fgL, bgL);
+      status = ratio >= 4.5 ? "pass" : "fail";
+    }
+    const sampleElements = els.slice(0, 3).map(elementLabel).filter(Boolean);
+    return {
+      status,
+      ratio: Math.round(ratio * 100) / 100,
+      foreground: fg,
+      background: bg,
+      elementCount: els.length,
+      sampleElements
+    };
+  });
+}
+var INTERACTIVE_TAGS2 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
+var INTERACTIVE_ROLES2 = /* @__PURE__ */ new Set(["button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem", "option", "tab"]);
+function isLooksInteractive(el) {
+  const tag = el.tagName ?? "";
+  const role = el.a11y?.role ?? "";
+  const cursor = el.interactive?.cursor ?? el.computedStyles?.["cursor"] ?? "";
+  return INTERACTIVE_TAGS2.has(tag) || INTERACTIVE_ROLES2.has(role) || cursor === "pointer";
+}
+function buildInteractionMap(elements) {
+  if (elements.length === 0) return [];
+  const buckets = {
+    "has-handler": [],
+    "looks-interactive-no-handler": [],
+    "disabled-with-handler": [],
+    "properly-disabled": []
+  };
+  for (const el of elements) {
+    const inter = el.interactive;
+    if (!inter) continue;
+    const hasHandler = inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler;
+    const isDisabled = inter.isDisabled ?? false;
+    const looksInteractive2 = isLooksInteractive(el);
+    if (isDisabled && hasHandler) {
+      buckets["disabled-with-handler"].push(el);
+    } else if (isDisabled && !hasHandler) {
+      buckets["properly-disabled"].push(el);
+    } else if (hasHandler) {
+      buckets["has-handler"].push(el);
+    } else if (looksInteractive2) {
+      buckets["looks-interactive-no-handler"].push(el);
+    }
+  }
+  return Object.entries(buckets).filter(([, els]) => els.length > 0).map(([category, els]) => ({
+    category,
+    count: els.length,
+    elements: els.slice(0, 5).map(elementLabel)
+  }));
+}
+function estimateTokens(data) {
+  return Math.ceil(JSON.stringify(data).length / 4);
+}
+function summarizeScan(elements, url) {
+  const safeElements = elements ?? [];
+  const visualPatterns = buildVisualPatterns(safeElements);
+  const componentCensus = buildComponentCensus(safeElements, url);
+  const navigationMap = buildNavigationMap(safeElements);
+  const contrastReport = buildContrastReport(safeElements);
+  const interactionMap = buildInteractionMap(safeElements);
+  const summary = {
+    visualPatterns,
+    componentCensus,
+    navigationMap,
+    contrastReport,
+    interactionMap
+  };
+  const rawTokenEstimate = estimateTokens(safeElements);
+  const summaryTokenEstimate = estimateTokens(summary);
+  const reductionPercent = rawTokenEstimate > 0 ? Math.round(
+    (rawTokenEstimate - summaryTokenEstimate) / rawTokenEstimate * 100
+  ) : 0;
+  return {
+    ...summary,
+    tokenEfficiency: {
+      rawTokenEstimate,
+      summaryTokenEstimate,
+      reductionPercent
+    }
+  };
+}
+
 // src/scan.ts
+init_engine();
 var IssueCollector = class {
   issues = [];
   add(issue) {
@@ -9741,13 +11666,24 @@ async function scan(url, options = {}) {
     waitFor,
     screenshot,
     networkIdleTimeout,
-    patience
+    patience,
+    headed = false,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
+    hydrationStrategy = "auto",
+    rules: rulePresets
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
   const driver2 = new EngineDriver();
   await driver2.launch({
-    headless: true,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height }
+    headless: !headed,
+    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   });
   const page = new CompatPage(driver2);
   const consoleErrors = [];
@@ -9773,6 +11709,26 @@ async function scan(url, options = {}) {
       await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
         waitForTimedOut = true;
       });
+    }
+    let hydrationTimedOut = false;
+    let hydrationReason = "skipped";
+    if (hydrationStrategy !== "none") {
+      const shouldWaitForHydration = hydrationStrategy === "stable" || await detectSPAFramework(driver2);
+      if (shouldWaitForHydration) {
+        const hydrationResult = await waitForHydration(
+          driver2.connection,
+          () => driver2.getSnapshot(),
+          (expr) => driver2.evaluate(expr),
+          {
+            timeout: patience ?? 8e3,
+            stableTime: 500,
+            minElements: 1,
+            settleTime: 200
+          }
+        );
+        hydrationTimedOut = hydrationResult.timedOut;
+        hydrationReason = hydrationResult.reason;
+      }
     }
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
@@ -9804,6 +11760,35 @@ async function scan(url, options = {}) {
     );
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
+    const sensors = runSensors({
+      elements: elements.all,
+      interactivity,
+      semantic,
+      url,
+      viewport: resolvedViewport
+    });
+    const ruleContext = {
+      isMobile: resolvedViewport.width < 768,
+      viewportWidth: resolvedViewport.width,
+      viewportHeight: resolvedViewport.height,
+      url,
+      allElements: elements.all
+    };
+    const ruleEngine = runAllRules(elements.all, ruleContext);
+    if (rulePresets && rulePresets.length > 0) {
+      const presetConfig = { extends: rulePresets, rules: {} };
+      const presetViolations = runRules(elements.all, ruleContext, presetConfig);
+      for (const v of presetViolations) {
+        issues.push({
+          category: "interactivity",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: `[${v.ruleId}] ${v.message}`,
+          fix: v.fix
+        });
+      }
+    }
+    const summaries = summarizeScan(elements.all, url);
     const baseResult = {
       url,
       route,
@@ -9812,6 +11797,9 @@ async function scan(url, options = {}) {
       elements,
       interactivity,
       semantic,
+      sensors,
+      ruleEngine,
+      summaries,
       console: {
         errors: consoleErrors,
         warnings: consoleWarnings
@@ -9820,6 +11808,7 @@ async function scan(url, options = {}) {
       layoutCollisions,
       themeAnalysis,
       designSystem,
+      hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
       verdict,
       issues,
       summary
@@ -9834,6 +11823,19 @@ async function scan(url, options = {}) {
     return baseResult;
   } finally {
     await driver2.close();
+  }
+}
+async function detectSPAFramework(driver2) {
+  try {
+    const result = await driver2.evaluate(`
+      !!(window.__NEXT_DATA__ || window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
+         window.__NUXT__ || window.__VUE_DEVTOOLS_GLOBAL_HOOK__ ||
+         document.querySelector('[data-reactroot]') ||
+         document.querySelector('#__next'))
+    `);
+    return result === true;
+  } catch {
+    return false;
   }
 }
 async function extractAndAudit(page, viewport) {
@@ -10062,6 +12064,18 @@ function formatScanResult(result) {
   return lines.join("\n");
 }
 
+// src/design-system/principles/index.ts
+init_calm_precision();
+init_gestalt();
+init_signal_noise();
+init_fitts();
+init_hick();
+init_content_chrome();
+init_cognitive_load();
+
+// src/index.ts
+init_memory();
+
 // src/native/viewports.ts
 var NATIVE_VIEWPORTS = {
   // iPhone 16 series
@@ -10244,7 +12258,7 @@ var ARIA_MAP = {
   "AXScrollArea": "scrollbar",
   "AXWindow": "main"
 };
-var INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+var INTERACTIVE_ROLES3 = /* @__PURE__ */ new Set([
   "AXButton",
   "AXLink",
   "AXTextField",
@@ -10266,7 +12280,7 @@ function mapRoleToAriaRole(role) {
   return ARIA_MAP[role] || null;
 }
 function isInteractiveRole(role) {
-  return INTERACTIVE_ROLES.has(role);
+  return INTERACTIVE_ROLES3.has(role);
 }
 
 // src/native/extract.ts
@@ -10328,7 +12342,7 @@ function mapToEnhancedElements(nativeElements) {
   function flatten(elements, depth = 0) {
     for (const el of elements) {
       const tagName = mapRoleToTag(el.role);
-      const isInteractive = isInteractiveRole(el.role) && el.isEnabled;
+      const isInteractive2 = isInteractiveRole(el.role) && el.isEnabled;
       enhanced.push({
         selector: el.identifier || `[role="${el.role}"][label="${el.label}"]`,
         tagName,
@@ -10340,11 +12354,11 @@ function mapToEnhancedElements(nativeElements) {
           height: el.frame.height
         },
         interactive: {
-          hasOnClick: isInteractive,
+          hasOnClick: isInteractive2,
           hasHref: false,
           isDisabled: !el.isEnabled,
-          tabIndex: isInteractive ? 0 : -1,
-          cursor: isInteractive ? "pointer" : "default"
+          tabIndex: isInteractive2 ? 0 : -1,
+          cursor: isInteractive2 ? "pointer" : "default"
         },
         a11y: {
           role: mapRoleToAriaRole(el.role),
@@ -10493,7 +12507,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
       roleCounts[el.role] = roleCount + 1;
       const currentPath = path2 ? `${path2} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
       const tagName = mapRoleToTag(el.role);
-      const isInteractive = isInteractiveRole(el.role) && el.enabled;
+      const isInteractive2 = isInteractiveRole(el.role) && el.enabled;
       const hasPress = el.actions.includes("AXPress");
       const text = el.title || el.description || el.value || void 0;
       const bounds = {
@@ -10502,7 +12516,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
         width: el.size?.width ?? 0,
         height: el.size?.height ?? 0
       };
-      if (bounds.width > 0 || bounds.height > 0 || text || isInteractive || depth <= 1) {
+      if (bounds.width > 0 || bounds.height > 0 || text || isInteractive2 || depth <= 1) {
         enhanced.push({
           selector: el.identifier || currentPath,
           tagName,
@@ -10510,11 +12524,11 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
           text: text ? text.slice(0, 100) : void 0,
           bounds,
           interactive: {
-            hasOnClick: hasPress || isInteractive,
+            hasOnClick: hasPress || isInteractive2,
             hasHref: el.role === "AXLink",
             isDisabled: !el.enabled,
-            tabIndex: el.focused || isInteractive ? 0 : -1,
-            cursor: isInteractive ? "pointer" : "default"
+            tabIndex: el.focused || isInteractive2 ? 0 : -1,
+            cursor: isInteractive2 ? "pointer" : "default"
           },
           a11y: {
             role: mapRoleToAriaRole(el.role),
@@ -11146,12 +13160,12 @@ function computeScreenRegion(bounds, viewport) {
   const row = cy < viewport.height / 3 ? "top" : cy < viewport.height * 2 / 3 ? "middle" : "bottom";
   return `${row}-${col}`;
 }
-function buildSuggestedFix(issueType, elementLabel) {
+function buildSuggestedFix(issueType, elementLabel2) {
   switch (issueType) {
     case "TOUCH_TARGET_SMALL":
       return ".frame(minWidth: 44, minHeight: 44) or wrap in a larger tap area with .contentShape(Rectangle())";
     case "MISSING_ARIA_LABEL": {
-      const desc = elementLabel && elementLabel.length > 0 && !elementLabel.startsWith("[role") ? elementLabel : "descriptive text for this control";
+      const desc = elementLabel2 && elementLabel2.length > 0 && !elementLabel2.startsWith("[role") ? elementLabel2 : "descriptive text for this control";
       return `Add .accessibilityLabel("${desc}")`;
     }
     case "NO_HANDLER":
@@ -11170,10 +13184,10 @@ function issueTypeToCategory(issueType) {
   if (issueType === "NO_HANDLER" || issueType === "PLACEHOLDER_LINK") return "accessibility";
   return "accessibility";
 }
-function buildSearchPattern(correlation, elementSelector, elementLabel) {
+function buildSearchPattern(correlation, elementSelector, elementLabel2) {
   if (!correlation) {
-    if (elementLabel) {
-      const escaped = elementLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (elementLabel2) {
+      const escaped = elementLabel2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return `Button.*${escaped}|Text.*${escaped}`;
     }
     return elementSelector;
@@ -11186,7 +13200,7 @@ function buildSearchPattern(correlation, elementSelector, elementLabel) {
     case "view-name":
       return `struct ${correlation.viewName}: View`;
     case "text": {
-      const label = correlation.elementLabel || elementLabel;
+      const label = correlation.elementLabel || elementLabel2;
       if (label) {
         const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         return `Button.*${escaped}|Image.*${escaped}`;
@@ -11231,19 +13245,19 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
   const fixableIssues = [];
   let idCounter = 1;
   for (const issue of scanResult.nativeIssues) {
-    const elementLabel = extractLabel(issue.message);
-    const elementSelector = elementLabel || issue.type;
+    const elementLabel2 = extractLabel(issue.message);
+    const elementSelector = elementLabel2 || issue.type;
     if (isSimulatorChrome(elementSelector, issue.message)) continue;
-    const key = dedupKey(elementLabel || elementSelector, issue.type);
+    const key = dedupKey(elementLabel2 || elementSelector, issue.type);
     if (seen.has(key)) continue;
     seen.add(key);
-    let bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? null;
-    if (!bounds && elementLabel === "" && unlabeledIdx < unlabeledButtons.length) {
+    let bounds = boundsMap.get(elementLabel2.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? null;
+    if (!bounds && elementLabel2 === "" && unlabeledIdx < unlabeledButtons.length) {
       bounds = unlabeledButtons[unlabeledIdx++];
     }
     bounds = bounds ?? { x: 0, y: 0, width: 0, height: 0 };
     const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
-    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    const correlation = correlationMap.get(elementLabel2.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
     fixableIssues.push({
       id: idCounter++,
       category: issueTypeToCategory(issue.type),
@@ -11251,29 +13265,29 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
       what: issue.message,
       where: { element: elementSelector, bounds, screenRegion: region },
       current: issue.message,
-      required: buildSuggestedFix(issue.type, elementLabel),
+      required: buildSuggestedFix(issue.type, elementLabel2),
       source: correlation ? {
         file: correlation.sourceFile,
         line: correlation.sourceLine,
         confidence: correlation.confidence,
         matchedOn: correlation.matchType,
-        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel2)
       } : void 0,
-      suggestedFix: buildSuggestedFix(issue.type, elementLabel)
+      suggestedFix: buildSuggestedFix(issue.type, elementLabel2)
     });
   }
   for (const issue of scanResult.issues) {
     if (issue.severity === "info") continue;
-    const elementLabel = extractLabel(issue.description);
-    const elementSelector = issue.element ?? elementLabel;
+    const elementLabel2 = extractLabel(issue.description);
+    const elementSelector = issue.element ?? elementLabel2;
     if (isSimulatorChrome(elementSelector, issue.description)) continue;
     const issueType = issue.description.includes("touch target") || issue.description.includes("Touch target") ? "TOUCH_TARGET_SMALL" : issue.description.includes("accessibility label") || issue.description.includes("aria-label") ? "MISSING_ARIA_LABEL" : issue.category;
-    const key = dedupKey(elementLabel || elementSelector, issueType);
+    const key = dedupKey(elementLabel2 || elementSelector, issueType);
     if (seen.has(key)) continue;
     seen.add(key);
-    const bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const bounds = boundsMap.get(elementLabel2.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
     const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
-    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    const correlation = correlationMap.get(elementLabel2.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
     fixableIssues.push({
       id: idCounter++,
       category: issue.category === "interactivity" ? "touch-target" : issue.category,
@@ -11281,15 +13295,15 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
       what: issue.description,
       where: { element: elementSelector, bounds, screenRegion: region },
       current: issue.description,
-      required: issue.fix ?? buildSuggestedFix(issueType, elementLabel),
+      required: issue.fix ?? buildSuggestedFix(issueType, elementLabel2),
       source: correlation ? {
         file: correlation.sourceFile,
         line: correlation.sourceLine,
         confidence: correlation.confidence,
         matchedOn: correlation.matchType,
-        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel2)
       } : void 0,
-      suggestedFix: issue.fix ?? buildSuggestedFix(issueType, elementLabel)
+      suggestedFix: issue.fix ?? buildSuggestedFix(issueType, elementLabel2)
     });
   }
   const uniqueFiles = new Set(
@@ -11317,7 +13331,12 @@ async function compare(options) {
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
-    timeout = 3e4
+    timeout = 3e4,
+    headed = false,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   if (!baselinePath && !url) {
     throw new Error("Either baselinePath or url must be provided");
@@ -11334,8 +13353,13 @@ async function compare(options) {
       outputPath: actualBaselinePath,
       viewport: resolvedViewport,
       fullPage,
+      headed,
       waitForNetworkIdle,
-      timeout
+      timeout,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
     });
   }
   if (url && !currentPath) {
@@ -11344,8 +13368,13 @@ async function compare(options) {
       outputPath: actualCurrentPath,
       viewport: resolvedViewport,
       fullPage,
+      headed,
       waitForNetworkIdle,
-      timeout
+      timeout,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
     });
   }
   try {
@@ -11447,7 +13476,12 @@ var InterfaceBuiltRight = class {
       viewport = this.config.viewport,
       fullPage = this.config.fullPage,
       selector,
-      waitFor
+      waitFor,
+      headed = false,
+      browserMode = this.config.browserMode,
+      cdpUrl = this.config.cdpUrl,
+      wsEndpoint = this.config.wsEndpoint,
+      chromePath = this.config.chromePath
     } = options;
     const url = this.resolveUrl(path2);
     const session = await createSession(this.config.outputDir, url, name, viewport);
@@ -11457,11 +13491,16 @@ var InterfaceBuiltRight = class {
       outputPath: paths.baseline,
       viewport,
       fullPage,
+      headed,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
       selector,
-      waitFor
+      waitFor,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
     });
     const updatedSession = await updateSession(this.config.outputDir, session.id, {
       landmarkElements: captureResult.landmarkElements,
@@ -11490,7 +13529,11 @@ var InterfaceBuiltRight = class {
       fullPage: this.config.fullPage,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
-      outputDir: this.config.outputDir
+      outputDir: this.config.outputDir,
+      browserMode: this.config.browserMode,
+      cdpUrl: this.config.cdpUrl,
+      wsEndpoint: this.config.wsEndpoint,
+      chromePath: this.config.chromePath
     });
     const comparison = await compareImages({
       baselinePath: paths.baseline,
@@ -11574,7 +13617,11 @@ var InterfaceBuiltRight = class {
       fullPage: this.config.fullPage,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
-      outputDir: this.config.outputDir
+      outputDir: this.config.outputDir,
+      browserMode: this.config.browserMode,
+      cdpUrl: this.config.cdpUrl,
+      wsEndpoint: this.config.wsEndpoint,
+      chromePath: this.config.chromePath
     });
     return updateSession(this.config.outputDir, session.id, {
       status: "baseline",
@@ -11596,7 +13643,14 @@ var InterfaceBuiltRight = class {
     const viewportName = options.viewport || "desktop";
     const viewport = VIEWPORTS[viewportName];
     const driver2 = new EngineDriver();
-    await driver2.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver2.launch({
+      headless: !options.headed,
+      viewport: { width: viewport.width, height: viewport.height },
+      mode: this.config.browserMode,
+      cdpUrl: this.config.cdpUrl,
+      wsEndpoint: this.config.wsEndpoint,
+      chromePath: this.config.chromePath
+    });
     const page = new CompatPage(driver2);
     await page.goto(fullUrl, {
       waitUntil: "domcontentloaded",
@@ -11833,7 +13887,6 @@ exports.ViolationSchema = ViolationSchema;
 exports.addKnownIssue = addKnownIssue;
 exports.addPreference = addPreference;
 exports.aiSearchFlow = aiSearchFlow;
-exports.allCalmPrecisionRules = allCalmPrecisionRules;
 exports.analyzeComparison = analyzeComparison;
 exports.analyzeForObviousIssues = analyzeForObviousIssues;
 exports.annotateScreenshot = annotateScreenshot;
@@ -11858,7 +13911,6 @@ exports.compareAll = compareAll;
 exports.compareImages = compareImages;
 exports.compareLandmarks = compareLandmarks;
 exports.completeOperation = completeOperation;
-exports.corePrincipleIds = corePrincipleIds;
 exports.createApiTracker = createApiTracker;
 exports.createMemoryPreset = createMemoryPreset;
 exports.createSession = createSession;
@@ -11974,6 +14026,7 @@ exports.recordDecision = recordDecision;
 exports.registerOperation = registerOperation;
 exports.removeGlobalPreference = removeGlobalPreference;
 exports.removePreference = removePreference;
+exports.runAllRules = runAllRules;
 exports.runDesignSystemCheck = runDesignSystemCheck;
 exports.saveCompactContext = saveCompactContext;
 exports.saveSummary = saveSummary;
@@ -11984,7 +14037,7 @@ exports.scanNative = scanNative;
 exports.searchFlow = searchFlow;
 exports.seedFromGlobal = seedFromGlobal;
 exports.setActiveRoute = setActiveRoute;
-exports.stylisticPrincipleIds = stylisticPrincipleIds;
+exports.summarizeScan = summarizeScan;
 exports.testInteractivity = testInteractivity;
 exports.testResponsive = testResponsive;
 exports.updateCompactContext = updateCompactContext;

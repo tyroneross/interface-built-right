@@ -3,6 +3,8 @@
  * Forked from Spectra — extended for UI validation use cases.
  */
 
+import type { BrowserMode } from './cdp/browser.js'
+
 // ─── Platform ───────────────────────────────────────────────
 export type Platform = 'web' | 'macos' | 'ios' | 'watchos'
 
@@ -60,6 +62,10 @@ export interface BrowserDriver {
     headless?: boolean
     viewport?: { width: number; height: number }
     normalize?: boolean
+    mode?: BrowserMode
+    cdpUrl?: string
+    wsEndpoint?: string
+    chromePath?: string
   }): Promise<void>
 
   navigate(url: string, options?: {

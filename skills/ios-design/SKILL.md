@@ -1,11 +1,11 @@
 ---
-name: ios-ui
-description: iOS native UI best practices — HIG navigation, colors (semantic vs tint), SF Symbols, Dynamic Type, haptics, Live Activities, materials/vibrancy, Liquid Glass (iOS 26). Includes Apple documentation entry points for HealthKit, TestFlight, App Store Connect, device deployment. Use when building SwiftUI/UIKit apps for iPhone/iPad, or when `/ibr:build` preamble returns platform=iOS.
+name: ios-design
+description: iOS native design rules (HIG): navigation, colors, SF Symbols, Dynamic Type, haptics, materials, Liquid Glass. What to build. For architecture/deployment, see apple-platform. For design option catalogs, see ios-design-router. Use when building SwiftUI/UIKit apps for iPhone/iPad, or when /ibr:build preamble returns platform=iOS.
 version: 0.1.0
 user-invocable: false
 ---
 
-# iOS UI
+# iOS Design
 
 HIG-derived rules plus lessons from real apps (FloDoro, SpeakSavvy-iOS). Research context: `docs/research/2026-04-13-mobile-ui-best-practices.md`.
 
@@ -67,7 +67,7 @@ Use SF Symbols for every system icon. They auto-scale with Dynamic Type, auto-ti
 - Test with VoiceOver on — trap focus is a bug
 - Rotor support where appropriate
 
-## SwiftData + CloudKit lessons (from FloDoro)
+## SwiftData + CloudKit gotchas (from FloDoro)
 
 - **Do NOT** use `@Attribute(.unique)` — CloudKit fails silently
 - **Do NOT** require non-optional properties without defaults — CloudKit fails silently
@@ -77,12 +77,7 @@ Use SF Symbols for every system icon. They auto-scale with Dynamic Type, auto-ti
 
 ## WatchConnectivity (if watchOS target)
 
-Three-layer sync pattern (from FloDoro):
-- `sendMessage` — real-time, reachable peer
-- `updateApplicationContext` — eventual delivery
-- `transferUserInfo` — background FIFO
-- `transferCurrentComplicationUserInfo` — complications
-iPhone acts as bridge. No direct Mac ↔ Watch.
+Use WCSession for iOS ↔ watchOS sync. iPhone acts as bridge — no direct Mac ↔ Watch connection. Channel selection and implementation patterns are in apple-platform.
 
 ## Speech API (iOS 26+) — lessons from SpeakSavvy-iOS
 
@@ -146,3 +141,8 @@ Link to these in code comments and design docs; Apple keeps them current.
 - Retaining haptic generators long-term
 - SwiftData `@Attribute(.unique)` with CloudKit
 - Feeding raw audio format to SpeechAnalyzer without negotiation
+
+## Related Skills
+
+- **apple-platform**: Architecture patterns, SwiftData, concurrency, CI/CD, TestFlight. How to build it.
+- **ios-design-router**: Archetype classifier and design option catalogs. Routes to domain-specific references for navigation, lists, buttons, color, motion, task economy.

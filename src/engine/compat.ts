@@ -193,18 +193,12 @@ export class CompatPage {
 
   async evaluate<T>(fnOrExpr: string | ((...args: unknown[]) => T), ...args: unknown[]): Promise<T> {
     if (typeof fnOrExpr === 'function') {
-      // Serialize function to string
       const fnStr = fnOrExpr.toString()
       if (args.length > 0) {
-        // If args is a single object (Playwright's common pattern), unwrap
-        const actualArgs = args.length === 1 && typeof args[0] === 'object' && args[0] !== null
-          ? Object.values(args[0] as Record<string, unknown>)
-          : args
-        return this.driver.evaluate(`(${fnStr})`, ...actualArgs) as Promise<T>
+        return this.driver.evaluate(`(${fnStr})`, ...args) as Promise<T>
       }
       return this.driver.evaluate(`(${fnStr})()`) as Promise<T>
     }
-    // String expression
     if (args.length > 0) {
       return this.driver.evaluate(fnOrExpr, ...args) as Promise<T>
     }

@@ -2,12 +2,37 @@
 
 ## Current
 
-- **Version:** 0.8.0
+- **Version:** 0.10.0-alpha
 - **Source of truth:** Local dev (`~/Desktop/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npm: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/0.8.0/`
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/0.10.0-alpha/`
+
+## Key changes in 0.10.0-alpha
+
+### Positioning & iOS design
+
+- **Repositioned as end-to-end design tool** — from "visual testing platform" to design, build, and validate
+- **iOS design system** — archetype-based router (6 app archetypes), 6 domain reference files (navigation, lists, buttons, color, motion, task economy), Task Economy patch (CP 6.4.2)
+- **apple-platform skill** — integrated from standalone apple-dev: architecture, SwiftData, concurrency, CI/CD, TestFlight
+- **ios-ui renamed to ios-design** — clarifies scope: HIG rules (what to build) vs. apple-platform (how to build)
+- **Updated /ibr:build** — archetype classification in preamble, domain-specific reference loading in implement phase
+- 3 new skills (ios-design-router, apple-platform, ios-design), 15 new reference files
+
+### Scan engine upgrades
+
+- **`waitForHydration()` in scan pipeline** — fixes "0 elements" on SPAs. Fast-path detects Next.js/React markers + root population, then polls AX tree fingerprint until stable + minElements threshold. Replaces naive `networkidle` wait that fires before hydration completes
+- **Automatic pre/post interaction scanning** — `autoCapture` defaults to `true` in live sessions. Post-action captures wait for hydration before scanning
+- **Deterministic rule presets (no LLM)** — `wcag-contrast` (AA + AAA ratios via relative luminance) and `touch-targets` (44pt mobile WCAG 2.5.5, 24pt desktop WCAG 2.5.8). Register via `.ibr/rules.json` with `"extends": ["wcag-contrast", "touch-targets"]`
+- **Sensor layer (`src/sensors/`)** — structured summaries pre-computed from runtime data, cuts tokens the model spends re-discovering patterns:
+  - `visualPatterns` — groups elements by style fingerprint (e.g. "14 buttons match, 2 don't")
+  - `componentCensus` — tag/role counts + cursor:pointer orphan detection
+  - `interactionMap` — handler coverage, missing-handler list
+  - `contrast` — WCAG pass/fail grouped, only failures listed
+  - `navigation` — link structure and depth
+  - `semanticState` — wraps existing semantic classifier
+  - `oneLiners` — 5-second scannable summary the model reads first
 
 ## Key changes in 0.8.0
 
@@ -48,6 +73,7 @@ When "latest" is ambiguous, trust **local dev** first, then cross-check the regi
 
 ## Version history
 
+- **0.10.0-alpha** (2026-04-17): Repositioned as end-to-end design tool. iOS archetype router, 6 domain references, apple-platform skill, ios-ui → ios-design rename.
 - **0.8.0** (2026-04-07): Design system extension — Calm Precision enforcement, tokens, patterns, global memory. Commit `80653a6`.
 - **0.7.0** (2026-04-04): Context optimization, auto-verify hooks, patience mode, new skills. Commit `07e0a82`.
 - **0.4.9** (prior): Pre-optimization baseline. Cached directory deleted 2026-04-04 during drift cleanup.

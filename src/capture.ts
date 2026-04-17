@@ -148,12 +148,17 @@ export async function captureScreenshot(
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 30000,
     outputDir,
     selector,
     waitFor,
     delay,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   } = options;
 
   // Ensure output directory exists
@@ -169,8 +174,12 @@ export async function captureScreenshot(
 
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
-    headless: true,
+    headless: !headed,
     viewport: { width: viewport.width, height: viewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   });
   const page = new CompatPage(driverInstance);
 
@@ -238,11 +247,16 @@ export async function captureWithLandmarks(
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 30000,
     outputDir,
     selector,
     waitFor,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   } = options;
 
   // Ensure output directory exists
@@ -258,8 +272,12 @@ export async function captureWithLandmarks(
 
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
-    headless: true,
+    headless: !headed,
     viewport: { width: viewport.width, height: viewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   });
   const page = new CompatPage(driverInstance);
 
@@ -360,10 +378,15 @@ export async function captureWithDiagnostics(
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 30000,
     outputDir,
     selector,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   } = options;
 
   const startTime = Date.now();
@@ -386,8 +409,12 @@ export async function captureWithDiagnostics(
 
     const driverInstance = new EngineDriver();
     await driverInstance.launch({
-      headless: true,
+      headless: !headed,
       viewport: { width: viewport.width, height: viewport.height },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
     });
     const page = new CompatPage(driverInstance);
 

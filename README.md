@@ -7,8 +7,8 @@
 <h1 align="center">Interface Built Right</h1>
 
 <p align="center">
-  Visual testing platform for AI coding agents.<br>
-  Scan, interact, match mockups, verify design intent, generate tests — Chrome + Safari.
+  End-to-end design tool for AI coding agents.<br>
+  Design, build, and validate interfaces — iOS, macOS, and web. Guided builds, deterministic rules, sensor-driven scans.
 </p>
 
 <p align="center">
@@ -19,9 +19,110 @@
 
 ---
 
-IBR is a visual testing platform for AI coding agents. It scans live pages, runs interaction assertions (click X → verify Y), matches mockups against reality (SSIM), captures design intent and verifies it, auto-generates tests from page observation, and works across Chrome and Safari.
+IBR is an end-to-end design tool for AI coding agents. It guides UI builds with archetype-based iOS design routing, Calm Precision principles, and platform-specific best practices. Built-in visual validation scans live pages, runs interaction assertions, matches mockups, and verifies design intent — Chrome and Safari.
 
-Built on a custom CDP engine — no Playwright. Works from terminal, Claude Code slash commands, or code. Zero config.
+Built on a custom CDP engine — no Playwright. Works from terminal, Codex, Claude Code slash commands, or code. Zero config.
+
+## Design Workflow
+
+`/ibr:build <topic>` orchestrates the full design-to-validation flow:
+
+1. **Preamble** — Platform, scope, app archetype (iOS: Utility/Content/Productivity/Consumer/Editorial/Tool), UI template, density
+2. **Brainstorm** — Guided exploration with platform-specific design rules
+3. **Plan** — Implementation plan with component sequence
+4. **Implement** — Build with design guidance: HIG rules (`ios-design`), architecture patterns (`apple-platform`), domain-specific option catalogs (`references/ios-design/`)
+5. **Validate** — Scan, match mockups, test interactions, iterate until passing
+
+### iOS Design System
+
+The `ios-design-router` skill classifies apps into 6 archetypes, each with pre-set defaults for navigation, color, typography, motion, and more. Domain reference files provide comprehensive option catalogs:
+
+| Domain | Reference | Covers |
+|--------|-----------|--------|
+| Navigation | `1_navigation_structure.md` | Tab bars, transitions, sheets, page hierarchy |
+| Content | `2_lists_cards_content.md` | Lists, cards, swipe actions, content resilience |
+| Interactions | `3_buttons_touch_interactions.md` | Buttons, haptics, toggles, forms |
+| Visual | `4_color_surface_typography.md` | Color, gradients, dark mode, typography |
+| Motion & States | `5_motion_states_identity.md` | Loading, onboarding, celebrations, profiles |
+| Task Economy | `6_task_economy.md` | Step counting, flow validation |
+
+## Two-Tier Architecture
+
+IBR scans return structured data, not just raw element dumps. Two layers run on every scan:
+
+### Tier 1 — Deterministic Rule Engine (no LLM)
+
+Runs pure algorithms against the runtime data. Zero tokens. Returns structured verdicts with evidence.
+
+| Rule Preset | What It Checks | Algorithm |
+|-------------|---------------|-----------|
+| `wcag-contrast` | Text contrast ratios, AA and AAA | WCAG 2.1 relative luminance |
+| `touch-targets` | Interactive element sizing | 44px mobile (WCAG 2.5.5), 24px desktop (WCAG 2.5.8) |
+| `calm-precision` | Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load | Principle-based checks |
+
+Enable via `.ibr/rules.json`:
+
+```json
+{
+  "extends": ["wcag-contrast", "touch-targets", "calm-precision"]
+}
+```
+
+Or one-off via CLI:
+
+```bash
+ibr scan http://localhost:3000 --rules wcag-contrast,touch-targets
+```
+
+Output in `scanResult.issues` with `ruleId`, `severity`, `message`, `element`, and `fix` fields.
+
+### Tier 2 — Sensor Layer (structured summaries)
+
+Pre-computed summaries that let the model focus on judgment instead of re-discovering patterns:
+
+| Sensor | What It Produces | Token Saving |
+|--------|------------------|--------------|
+| `visualPatterns` | Groups elements by style fingerprint per category (button, link, input, heading) | Replaces N element dumps with M pattern groups |
+| `componentCensus` | Tag/role counts + orphan cursor:pointer elements with no handler | Replaces grep across pages |
+| `interactionMap` | Handler coverage — which interactive-looking elements actually have handlers | Pre-computed from handler detection |
+| `contrast` | WCAG pass/fail grouped, only failures listed | Model skips passing elements |
+| `navigation` | Link structure with depth and counts | Replaces reading Sidebar.tsx |
+| `semanticState` | Wraps existing semantic classifier: page intent, states, available actions | Summary form |
+| `oneLiners` | 5-second scannable summary lines | Read first, then drill down |
+
+Access in `scanResult.sensors`. Get summaries-only (cuts ~60% tokens):
+
+```bash
+ibr scan http://localhost:3000 --output summary
+```
+
+## Hydration Waiting
+
+SPAs (Next.js, React, Vue) often render after `networkidle` fires. IBR's `waitForHydration()` runs after network idle:
+
+1. Fast-path marker detection: `window.__NEXT_DATA__`, React DevTools hook, `#__next` / `#root` population
+2. AX tree fingerprint polling until stable for 500ms with at least one interactive element
+3. Settle time (200ms default) to absorb async effects
+
+This eliminates the common "0 elements" result on modern SPAs.
+
+## Live Sessions with Auto-Capture
+
+Sessions now auto-capture pre/post interaction by default:
+
+```bash
+ibr session start http://localhost:3000
+ibr session interact --action click --target "Submit"
+# Automatically: pre-scan baseline -> action -> URL change detection -> hydration wait -> post-scan -> surface console errors
+ibr session close
+```
+
+Each `ActionRecord` includes:
+- `navigated: boolean` — did the click cause a URL change?
+- `urlBefore` / `urlAfter`
+- `actionErrors: string[]` — console errors that appeared during this action
+
+Opt out with `--no-auto-capture` on `session start`.
 
 ## Architecture
 
@@ -61,6 +162,19 @@ IBR runs on a custom **CDP browser engine** — direct Chrome DevTools Protocol 
 
 See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 
+## What's New in v0.10.0-alpha
+
+| Feature | Command / Usage | What it does |
+|---------|----------------|-------------|
+| **End-to-end design tool** | Positioning update | From "visual testing platform" to design + build + validate |
+| **iOS design system** | `/ibr:build` with platform=iOS | 6-archetype router, 7 domain reference files covering navigation, lists, buttons, color, motion, task economy |
+| **apple-platform skill** | Loaded during iOS builds | Architecture, SwiftData, concurrency, CI/CD, TestFlight — integrated from standalone apple-dev |
+| **Deterministic rule engine** | `ibr scan --rules wcag-contrast,touch-targets` | WCAG AA/AAA contrast, touch target sizes. No LLM tokens |
+| **Sensor layer** | `scanResult.sensors` | Visual patterns, component census, interaction map, contrast report, navigation, one-liners |
+| **Summary output mode** | `ibr scan --output summary` | Returns sensors + verdict, cuts ~60% of tokens |
+| **Hydration wait** | Built into `ibr scan` | Fixes "0 elements" on SPAs; polls AX tree stability + detects Next.js/React markers |
+| **Auto-capture sessions** | Default on | Pre/post scan with URL-change detection and console error surfacing |
+
 ## What's New in v0.9.0-alpha
 
 | Feature | Command / Skill | What it does |
@@ -72,7 +186,7 @@ See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 | **UI guidance library** | skill: `ui-guidance-library` | Reusable UI guidance patterns and decision aids |
 | **Mockup gallery bridge** | skill: `mockup-gallery-bridge` | Bridge mockup gallery reviews to IBR scan verification |
 | **Mobile web UI** | skill: `mobile-web-ui` | Mobile web patterns — responsive design, touch targets, viewport handling |
-| **iOS UI** | skill: `ios-ui` | iOS-specific patterns — SwiftUI conventions, safe areas, haptics |
+| **iOS Design** | skill: `ios-design` | iOS-specific patterns — SwiftUI conventions, safe areas, haptics |
 | **macOS UI** | skill: `macos-ui` | macOS-specific patterns — AppKit/SwiftUI, menu bar, window chrome |
 
 ## The Problem
@@ -134,6 +248,35 @@ npx ibr start http://localhost:3000    # capture baseline
 # ... make changes ...
 npx ibr check                          # compare
 ```
+
+### Sandbox-friendly browser attach
+
+Use `connect` mode when the agent can reach a Chrome DevTools endpoint but should not spawn Chrome itself.
+
+```bash
+npx ibr scan http://localhost:3000 \
+  --browser-mode connect \
+  --cdp-url http://127.0.0.1:9222
+```
+
+You can also provide a browser WebSocket directly:
+
+```bash
+npx ibr scan http://localhost:3000 \
+  --browser-mode connect \
+  --ws-endpoint ws://127.0.0.1:9222/devtools/browser/<id>
+```
+
+Environment variables are supported for sandboxed agents and wrappers:
+
+```bash
+IBR_BROWSER_MODE=connect
+IBR_CDP_URL=http://127.0.0.1:9222
+IBR_WS_ENDPOINT=ws://127.0.0.1:9222/devtools/browser/<id>
+IBR_CHROME_PATH=/path/to/chrome
+```
+
+`--headed` is now the preferred flag for a visible browser window. `--sandbox` remains as a deprecated alias for backwards compatibility.
 
 ## Setup as Claude Code Plugin
 

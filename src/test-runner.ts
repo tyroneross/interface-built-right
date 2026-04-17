@@ -7,6 +7,7 @@ import { readFile, mkdir, writeFile } from 'fs/promises'
 import { join, resolve } from 'path'
 import { EngineDriver } from './engine/driver.js'
 import type { TestSuite, TestStep } from './test-generator.js'
+import type { BrowserLaunchOptions } from './types.js'
 
 // ─── Public Types ─────────────────────────────────────────
 
@@ -34,7 +35,7 @@ export interface TestRunResult {
   duration: number
 }
 
-export interface RunTestsOptions {
+export interface RunTestsOptions extends BrowserLaunchOptions {
   /** Path to .ibr-test.json (default: .ibr-test.json) */
   filePath?: string
   /** Where to store screenshots/results (default: .ibr/test-results) */
@@ -53,6 +54,10 @@ export async function runTests(options: RunTestsOptions = {}): Promise<TestRunRe
     outputDir = '.ibr/test-results',
     headless = true,
     viewport,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   } = options
 
   const raw = await readFile(resolve(filePath), 'utf-8')
@@ -70,6 +75,10 @@ export async function runTests(options: RunTestsOptions = {}): Promise<TestRunRe
       await driver.launch({
         headless,
         viewport: viewport ?? { width: 1280, height: 720 },
+        mode: browserMode,
+        cdpUrl,
+        wsEndpoint,
+        chromePath,
       })
       await driver.navigate(pageSuite.url)
 

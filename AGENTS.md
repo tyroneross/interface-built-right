@@ -6,9 +6,9 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 ## What IBR Is
 
-IBR is a visual testing platform for Claude Code. It verifies that UI implementations match intent by scanning live pages and returning structured data — computed CSS, bounds, handler wiring, accessibility attributes, page structure, and console errors.
+IBR is an end-to-end design tool for Claude Code. It guides UI builds with archetype-based design routing and platform-specific best practices, then validates implementations with visual scanning and interaction testing.
 
-- **Package:** `@tyroneross/interface-built-right` v0.8.0
+- **Package:** `@tyroneross/interface-built-right` v0.10.0-alpha
 - **Runtime:** Node.js >= 22, TypeScript
 - **Dual distribution:** npm package + Claude Code plugin (`.claude-plugin/plugin.json`)
 - **License:** MIT
@@ -76,6 +76,7 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 | `hooks/ibr-post-change.sh` | PostToolUse handler |
 | `hooks/ibr-loop-hook.sh` | Stop handler |
 | `agents/visual-iterator.md` | Design validator agent definition |
+| `references/` | iOS/macOS design reference files (domain option catalogs) |
 
 ### Skills (14)
 
@@ -93,7 +94,9 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 | `skills/ui-guidance-library/` | Reusable UI guidance patterns and decision aids |
 | `skills/mockup-gallery-bridge/` | Bridge between mockup gallery reviews and IBR scan verification |
 | `skills/mobile-web-ui/` | Mobile web UI patterns — responsive design, touch targets, viewport handling |
-| `skills/ios-ui/` | iOS-specific UI patterns — SwiftUI conventions, safe areas, haptics |
+| `skills/ios-design/` | iOS HIG rules — what to build: SwiftUI conventions, safe areas, haptics |
+| `skills/ios-design-router/` | Archetype classifier — routes to defaults for 6 iOS app archetypes |
+| `skills/apple-platform/` | How to build: architecture patterns, SwiftData, concurrency, CI/CD, TestFlight |
 | `skills/macos-ui/` | macOS-specific UI patterns — AppKit/SwiftUI, menu bar, window chrome |
 
 ### Hooks (3)

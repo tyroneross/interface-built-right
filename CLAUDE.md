@@ -1,7 +1,7 @@
-<!-- Plugin: ibr · Version: 0.8.0 · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
+<!-- Plugin: ibr · Version: 0.10.0-alpha · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
-# IBR — Design Implementation Partner
+# IBR — End-to-End Design Tool
 
 IBR reads live UI and returns structured data — computed CSS, bounds, handler wiring, accessibility, page structure. Scan output is ground truth for what is actually rendered. Use this data to inform implementation decisions during the build and confirm results after. Screenshots complement scans for visual coherence, rendering bugs, and canvas/SVG content.
 
@@ -87,7 +87,7 @@ Skills: `/ibr:design-system` (config management), `/ibr:component-patterns` (pat
 
 Use skill for details.
 
-## Skills (v0.9.0-alpha additions)
+## Skills (v0.10.0-alpha)
 
 | Skill | Purpose |
 |-------|---------|
@@ -95,7 +95,13 @@ Use skill for details.
 | `ui-guidance-library` | Reusable UI guidance patterns and decision aids |
 | `mockup-gallery-bridge` | Bridge between mockup gallery reviews and IBR scan verification |
 | `mobile-web-ui` | Mobile web UI patterns — responsive design, touch targets, viewport handling |
-| `ios-ui` | iOS-specific UI patterns — SwiftUI conventions, safe areas, haptics |
+| `ios-design` | iOS HIG rules — what to build: SwiftUI conventions, safe areas, haptics |
+| `ios-design-router` | Archetype classifier — routes to defaults for 6 iOS app archetypes |
+| `apple-platform` | How to build: architecture patterns, SwiftData, concurrency, CI/CD, TestFlight |
 | `macos-ui` | macOS-specific UI patterns — AppKit/SwiftUI, menu bar, window chrome |
+
+## iOS Design References
+
+`references/ios-design/` contains 6 domain reference files with comprehensive option catalogs. These are loaded by `ios-design-router` during the Implement phase of `/ibr:build`. Also see `references/apple-platform/` for architecture and deployment patterns.
 
 ---

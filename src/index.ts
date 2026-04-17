@@ -17,7 +17,7 @@ import {
   getSessionStats,
 } from './session.js';
 import { generateReport } from './report.js';
-import type { StartSessionOptions, StartSessionResult, CleanOptions } from './types.js';
+import type { BrowserLaunchOptions, StartSessionOptions, StartSessionResult, CleanOptions } from './types.js';
 import { getSemanticOutput, formatSemanticText, type SemanticResult } from './semantic/index.js';
 import { loginFlow, searchFlow, formFlow, type FlowLoginOptions, type FlowSearchOptions, type FlowFormOptions } from './flows/index.js';
 import { EngineDriver } from './engine/driver.js';
@@ -36,7 +36,7 @@ import { maybeAutoClean } from './cleanup.js';
 /**
  * Options for standalone compare function
  */
-export interface CompareInput {
+export interface CompareInput extends BrowserLaunchOptions {
   /** URL to capture and compare (will auto-capture current state) */
   url?: string;
   /** Path to baseline image (required if no url) */
@@ -55,6 +55,8 @@ export interface CompareInput {
   waitForNetworkIdle?: boolean;
   /** Capture timeout in ms */
   timeout?: number;
+  /** Show a visible browser window instead of headless mode */
+  headed?: boolean;
 }
 
 /**
@@ -125,6 +127,11 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     fullPage = true,
     waitForNetworkIdle = true,
     timeout = 30000,
+    headed = false,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   } = options;
 
   // Validate inputs
@@ -153,8 +160,13 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
       outputPath: actualBaselinePath,
       viewport: resolvedViewport,
       fullPage,
+      headed,
       waitForNetworkIdle,
       timeout,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
     });
   }
 
@@ -165,8 +177,13 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
       outputPath: actualCurrentPath,
       viewport: resolvedViewport,
       fullPage,
+      headed,
       waitForNetworkIdle,
       timeout,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
     });
   }
 
@@ -339,6 +356,11 @@ export class InterfaceBuiltRight {
       fullPage = this.config.fullPage,
       selector,
       waitFor,
+      headed = false,
+      browserMode = this.config.browserMode,
+      cdpUrl = this.config.cdpUrl,
+      wsEndpoint = this.config.wsEndpoint,
+      chromePath = this.config.chromePath,
     } = options;
 
     const url = this.resolveUrl(path);
@@ -353,11 +375,16 @@ export class InterfaceBuiltRight {
       outputPath: paths.baseline,
       viewport,
       fullPage,
+      headed,
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
       selector,
       waitFor,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
     });
 
     // Update session with detected landmarks and page intent
@@ -402,6 +429,10 @@ export class InterfaceBuiltRight {
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
+      browserMode: this.config.browserMode,
+      cdpUrl: this.config.cdpUrl,
+      wsEndpoint: this.config.wsEndpoint,
+      chromePath: this.config.chromePath,
     });
 
     // Compare images
@@ -516,6 +547,10 @@ export class InterfaceBuiltRight {
       waitForNetworkIdle: this.config.waitForNetworkIdle,
       timeout: this.config.timeout,
       outputDir: this.config.outputDir,
+      browserMode: this.config.browserMode,
+      cdpUrl: this.config.cdpUrl,
+      wsEndpoint: this.config.wsEndpoint,
+      chromePath: this.config.chromePath,
     });
 
     // Reset session status
@@ -539,6 +574,7 @@ export class InterfaceBuiltRight {
     viewport?: 'desktop' | 'mobile' | 'tablet';
     waitFor?: string;
     timeout?: number;
+    headed?: boolean;
   } = {}): Promise<IBRSession> {
     const fullUrl = this.resolveUrl(url);
     const viewportName = options.viewport || 'desktop';
@@ -546,7 +582,14 @@ export class InterfaceBuiltRight {
 
     // Launch browser via engine
     const driver = new EngineDriver();
-    await driver.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+    await driver.launch({
+      headless: !options.headed,
+      viewport: { width: viewport.width, height: viewport.height },
+      mode: this.config.browserMode,
+      cdpUrl: this.config.cdpUrl,
+      wsEndpoint: this.config.wsEndpoint,
+      chromePath: this.config.chromePath,
+    });
     const page = new CompatPage(driver);
 
     // Navigate
@@ -958,6 +1001,14 @@ export * from './context/types.js';
 export { scan, formatScanResult, applyDesignSystemCheck } from './scan.js';
 export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
 
+// Rule engine exports
+export { runAllRules } from './rules/index.js';
+export type { RuleEngineResult } from './rules/index.js';
+
+// Scan summarization exports
+export { summarizeScan } from './summarize.js';
+export type { ScanSummary } from './summarize.js';
+
 // Design token validation exports
 export { loadTokenSpec, validateAgainstTokens, normalizeColor } from './tokens.js';
 export type { DesignTokenSpec, TokenViolation } from './tokens.js';
@@ -974,3 +1025,7 @@ export { promoteToGlobal, seedFromGlobal, listGlobalPreferences, removeGlobalPre
 
 // Native iOS/watchOS simulator support
 export * from './native/index.js';
+
+// Browser transport exports
+export type { BrowserMode, BrowserConnectionOptions, BrowserOptions } from './engine/cdp/browser.js';
+export type { BrowserLaunchOptions } from './types.js';

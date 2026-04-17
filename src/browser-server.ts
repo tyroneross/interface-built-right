@@ -5,6 +5,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { VIEWPORTS, type Viewport, type EnhancedElement, type AuditResult } from './schemas.js';
+import type { BrowserConnectionOptions, BrowserMode } from './engine/cdp/browser.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
 import {
   type ScanResult,
@@ -27,6 +28,8 @@ interface BrowserServerState {
   chromePid?: number | null;  // Chrome process PID for zombie cleanup
   startedAt: string;
   headless: boolean;
+  mode: BrowserMode;
+  ownsBrowser: boolean;
   isolatedProfile: string;
   lowMemory?: boolean;  // Whether low-memory mode is enabled
 }
@@ -89,7 +92,7 @@ export interface SessionOptions {
 /**
  * Options for starting the browser server
  */
-export interface BrowserServerOptions {
+export interface BrowserServerOptions extends BrowserConnectionOptions {
   headless?: boolean;  // Default: true
   debug?: boolean;     // Visible + slowMo + devtools
   isolated?: boolean;  // Use isolated profile (default: true)
@@ -125,7 +128,7 @@ export async function isServerRunning(outputDir: string): Promise<boolean> {
     const state: BrowserServerState = JSON.parse(content);
 
     if (!state.cdpUrl) {
-      return false;
+      return Boolean(state.wsEndpoint);
     }
 
     // Use fetch() to check if Chrome is alive — avoids spawning a new process
@@ -168,7 +171,7 @@ async function resolveWsEndpoint(cdpUrl: string): Promise<string> {
 export async function startBrowserServer(
   outputDir: string,
   options: BrowserServerOptions = {}
-): Promise<{ driver: EngineDriver; wsEndpoint: string }> {
+): Promise<{ driver: EngineDriver; wsEndpoint: string; ownsBrowser: boolean }> {
   const { stateFile, profileDir } = getPaths(outputDir);
   const headless = options.headless ?? !options.debug;
   const isolated = options.isolated ?? true;
@@ -213,14 +216,19 @@ export async function startBrowserServer(
   await driver.launch({
     headless,
     userDataDir: isolated ? profileDir : undefined,
+    mode: options.mode,
+    cdpUrl: options.cdpUrl,
+    wsEndpoint: options.wsEndpoint,
+    chromePath: options.chromePath,
   });
+  const mode = driver.browserMode;
+  const cdpUrl = driver.cdpUrl ?? undefined;
+  const wsEndpoint = driver.wsEndpoint ?? (cdpUrl ? await resolveWsEndpoint(cdpUrl) : undefined);
+  const ownsBrowser = mode === 'local';
 
-  // Derive CDP URL from the port the BrowserManager chose
-  const debugPort = driver.debugPort;
-  const cdpUrl = `http://127.0.0.1:${debugPort}`;
-
-  // Resolve the browser-level WS endpoint from the CDP debug URL
-  const wsEndpoint = await resolveWsEndpoint(cdpUrl);
+  if (!wsEndpoint) {
+    throw new Error('Failed to resolve browser WebSocket endpoint.');
+  }
 
   // Save server state
   const state: BrowserServerState = {
@@ -230,13 +238,15 @@ export async function startBrowserServer(
     chromePid: driver.chromePid,
     startedAt: new Date().toISOString(),
     headless,
+    mode,
+    ownsBrowser,
     isolatedProfile: isolated ? profileDir : '',
     lowMemory: options.lowMemory,
   };
 
   await writeFile(stateFile, JSON.stringify(state, null, 2));
 
-  return { driver, wsEndpoint };
+  return { driver, wsEndpoint, ownsBrowser };
 }
 
 /**
@@ -287,14 +297,19 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
     const content = await readFile(stateFile, 'utf-8');
     const state: BrowserServerState = JSON.parse(content);
 
-    // Connect and close the browser
+    // Connect and release the session. In local mode this shuts down the
+    // browser we launched; in connect mode it only drops IBR's attachment.
     const wsUrl = state.cdpUrl
       ? await resolveWsEndpoint(state.cdpUrl)
       : state.wsEndpoint;
 
     const driver = new EngineDriver();
     await driver.connectExisting(wsUrl);
-    await driver.close();
+    if (state.ownsBrowser) {
+      await driver.close();
+    } else {
+      await driver.disconnect();
+    }
 
     // Clean up state file
     await unlink(stateFile);

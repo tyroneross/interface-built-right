@@ -3,6 +3,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { EngineDriver } from '../engine/driver.js';
+import type { BrowserConnectionOptions } from '../engine/cdp/browser.js';
 import type { BrowserDriver } from '../engine/types.js';
 import { CompatPage } from '../engine/compat.js';
 import {
@@ -122,6 +123,14 @@ program.hook('postAction', async (_thisCommand, actionCommand) => {
   setImmediate(() => process.exit(code));
 });
 
+program.hook('preAction', () => {
+  const browserOpts = getBrowserConnectionOptions();
+  if (browserOpts.mode) process.env.IBR_BROWSER_MODE = browserOpts.mode;
+  if (browserOpts.cdpUrl) process.env.IBR_CDP_URL = browserOpts.cdpUrl;
+  if (browserOpts.wsEndpoint) process.env.IBR_WS_ENDPOINT = browserOpts.wsEndpoint;
+  if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
+});
+
 // Load config from .ibrrc.json if it exists
 async function loadConfig(): Promise<Partial<Config>> {
   const configPath = join(process.cwd(), '.ibrrc.json');
@@ -177,6 +186,10 @@ async function createIBR(options: Record<string, unknown> = {}): Promise<Interfa
     ...(options.viewport ? { viewport: VIEWPORTS[options.viewport as keyof typeof VIEWPORTS] } : {}),
     ...(options.threshold ? { threshold: Number(options.threshold) } : {}),
     ...(options.fullPage !== undefined ? { fullPage: Boolean(options.fullPage) } : {}),
+    ...(options.browserMode ? { browserMode: String(options.browserMode) as Config['browserMode'] } : {}),
+    ...(options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {}),
+    ...(options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {}),
+    ...(options.chromePath ? { chromePath: String(options.chromePath) } : {}),
   };
 
   return new InterfaceBuiltRight(merged);
@@ -197,17 +210,31 @@ async function createDriver(browser?: string): Promise<BrowserDriver> {
 /**
  * Merge global --chrome-path into launch options for EngineDriver.
  */
-function withChromePath<T extends Record<string, unknown>>(opts: T): T & { chromePath?: string } {
+function getBrowserConnectionOptions(): BrowserConnectionOptions {
   const globalOpts = program.opts();
-  if (globalOpts.chromePath) {
-    return { ...opts, chromePath: globalOpts.chromePath as string };
-  }
-  return opts;
+  return {
+    mode: globalOpts.browserMode as BrowserConnectionOptions['mode'] | undefined,
+    cdpUrl: globalOpts.cdpUrl as string | undefined,
+    wsEndpoint: globalOpts.wsEndpoint as string | undefined,
+    chromePath: globalOpts.chromePath as string | undefined,
+  };
+}
+
+function withBrowserOptions<T extends Record<string, unknown>>(opts: T): T & {
+  mode?: BrowserConnectionOptions['mode'];
+  cdpUrl?: string;
+  wsEndpoint?: string;
+  chromePath?: string;
+} {
+  return {
+    ...opts,
+    ...getBrowserConnectionOptions(),
+  };
 }
 
 program
   .name('ibr')
-  .description('Design validation for Claude Code')
+  .description('Design validation for Codex, Claude Code, and other AI coding agents')
   .version('0.8.0');
 
 // Global options
@@ -217,6 +244,9 @@ program
   .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet', 'desktop')
   .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0')
   .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome')
+  .option('--browser-mode <mode>', 'Browser transport: local or connect')
+  .option('--cdp-url <url>', 'Connect to an existing browser via CDP HTTP endpoint')
+  .option('--ws-endpoint <url>', 'Connect to an existing browser via CDP WebSocket endpoint')
   .option('--chrome-path <path>', 'Path to Chrome/Chromium executable');
 
 // Start command
@@ -227,9 +257,18 @@ program
   .option('-s, --selector <css>', 'CSS selector to capture specific element')
   .option('-w, --wait-for <selector>', 'Wait for selector before screenshot')
   .option('--no-full-page', 'Capture only the viewport, not full page')
-  .option('--sandbox', 'Show visible browser window (default: headless)')
+  .option('--headed', 'Show visible browser window (default: headless)')
+  .option('--sandbox', 'Deprecated alias for --headed')
   .option('--debug', 'Visible browser + slow motion + devtools')
-  .action(async (url: string | undefined, options: { name?: string; fullPage?: boolean; selector?: string; waitFor?: string; sandbox?: boolean; debug?: boolean }) => {
+  .action(async (url: string | undefined, options: {
+    name?: string;
+    fullPage?: boolean;
+    selector?: string;
+    waitFor?: string;
+    headed?: boolean;
+    sandbox?: boolean;
+    debug?: boolean;
+  }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const ibr = await createIBR(program.opts());
@@ -238,6 +277,8 @@ program
         fullPage: options.fullPage,
         selector: options.selector,
         waitFor: options.waitFor,
+        headed: Boolean(options.headed || options.sandbox || options.debug),
+        ...getBrowserConnectionOptions(),
       });
 
       console.log(`Session started: ${result.sessionId}`);
@@ -467,7 +508,7 @@ program
       // Launch browser for audit
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
       const driver = new EngineDriver();
-      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -818,6 +859,41 @@ program
     }
   });
 
+/**
+ * Apply output mode filtering post-scan.
+ * Keeps library API (scan()) unchanged — trimming happens in the CLI layer.
+ *
+ * full    — default, no change
+ * summary — omits elements.all and interactivity.detailedResults; keeps sensors, verdict, issues, console, semantic intent/state (~60% token reduction)
+ * raw     — omits sensors; keeps everything else
+ */
+function applyOutputMode(result: import('../scan.js').ScanResult, mode: string): Partial<import('../scan.js').ScanResult> {
+  if (mode === 'summary') {
+    return {
+      url: result.url,
+      route: result.route,
+      timestamp: result.timestamp,
+      verdict: result.verdict,
+      summary: result.summary,
+      issues: result.issues,
+      sensors: result.sensors,
+      console: result.console,
+      semantic: result.semantic ? {
+        pageIntent: (result.semantic as unknown as Record<string, unknown>).pageIntent,
+        state: (result.semantic as unknown as Record<string, unknown>).state,
+      } as import('../scan.js').ScanResult['semantic'] : undefined,
+      coverage: result.coverage,
+      hydration: result.hydration,
+    };
+  }
+  if (mode === 'raw') {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { sensors: _sensors, ...rest } = result as unknown as Record<string, unknown>;
+    return rest as Partial<import('../scan.js').ScanResult>;
+  }
+  return result;
+}
+
 // Scan command - comprehensive end-to-end UI scan
 program
   .command('scan <url>')
@@ -829,12 +905,19 @@ program
   .option('--timeout <ms>', 'Page load timeout in ms', '30000')
   .option('--patience <ms>', 'Wait longer for slow async content (AI search, LLM results)')
   .option('--network-idle-timeout <ms>', 'Network idle timeout in ms (default: 10000)')
-  .action(async (url: string, options: { viewport: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string }) => {
+  .option('--rules <presets>', 'Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)')
+  .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
+  .action(async (url: string, options: { viewport: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string; output: string }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
 
       console.log(`Scanning ${resolvedUrl}...`);
+
+      // Parse comma-separated rule presets
+      const rulePresets = options.rules
+        ? options.rules.split(',').map(s => s.trim()).filter(Boolean)
+        : undefined;
 
       const result = await scan(resolvedUrl, {
         viewport: options.viewport as 'desktop' | 'mobile' | 'tablet',
@@ -843,10 +926,13 @@ program
         patience: options.patience ? parseInt(options.patience, 10) : undefined,
         networkIdleTimeout: options.networkIdleTimeout ? parseInt(options.networkIdleTimeout, 10) : undefined,
         screenshot: options.screenshot ? { path: options.screenshot } : undefined,
+        rules: rulePresets,
+        ...getBrowserConnectionOptions(),
       });
 
       if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
+        const output = applyOutputMode(result, options.output);
+        console.log(JSON.stringify(output, null, 2));
       } else {
         console.log(formatScanResult(result));
       }
@@ -1180,6 +1266,7 @@ program
         url,
         outputDir,
         timeout: parseInt(options.timeout, 10),
+        ...getBrowserConnectionOptions(),
       });
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
@@ -1221,7 +1308,7 @@ flowCmd.command('search <url>')
       const { searchFlow } = await import('../flows/search.js');
 
       const driver = new EngineDriver();
-      await driver.launch(withChromePath({}));
+      await driver.launch(withBrowserOptions({}));
       await driver.navigate(url);
 
       const page = new CompatPage(driver);
@@ -1265,7 +1352,7 @@ flowCmd.command('form <url>')
       }
 
       const driver = new EngineDriver();
-      await driver.launch(withChromePath({}));
+      await driver.launch(withBrowserOptions({}));
       await driver.navigate(url);
 
       const page = new CompatPage(driver);
@@ -1302,7 +1389,7 @@ flowCmd.command('login <url>')
       const { loginFlow } = await import('../flows/login.js');
 
       const driver = new EngineDriver();
-      await driver.launch(withChromePath({}));
+      await driver.launch(withBrowserOptions({}));
       await driver.navigate(url);
 
       const page = new CompatPage(driver);
@@ -1338,11 +1425,20 @@ program
   .description('Start an interactive browser session (browser persists across commands)')
   .option('-n, --name <name>', 'Session name')
   .option('-w, --wait-for <selector>', 'Wait for selector before considering page ready')
-  .option('--sandbox', 'Show visible browser window (default: headless)')
+  .option('--headed', 'Show visible browser window (default: headless)')
+  .option('--sandbox', 'Deprecated alias for --headed')
   .option('--debug', 'Visible browser + slow motion + devtools')
   .option('--low-memory', 'Reduce memory usage for lower-powered machines (4GB RAM)')
   .option('--auto-capture', 'Auto-capture screenshot + scan after every interaction')
-  .action(async (url: string | undefined, options: { name?: string; waitFor?: string; sandbox?: boolean; debug?: boolean; lowMemory?: boolean; autoCapture?: boolean }) => {
+  .action(async (url: string | undefined, options: {
+    name?: string;
+    waitFor?: string;
+    headed?: boolean;
+    sandbox?: boolean;
+    debug?: boolean;
+    lowMemory?: boolean;
+    autoCapture?: boolean;
+  }) => {
     try {
       const {
         startBrowserServer,
@@ -1352,7 +1448,8 @@ program
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
       const resolvedUrl = await resolveBaseUrl(url);
-      const headless = !options.sandbox && !options.debug;
+      const headed = Boolean(options.headed || options.sandbox || options.debug);
+      const headless = !headed;
 
       // Check if browser server is already running
       const serverRunning = await isServerRunning(outputDir);
@@ -1362,11 +1459,12 @@ program
         const modeLabel = options.lowMemory ? ' (low-memory mode)' : '';
         console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
 
-        const { driver } = await startBrowserServer(outputDir, {
+        const { driver, ownsBrowser } = await startBrowserServer(outputDir, {
           headless,
           debug: options.debug,
           isolated: true,  // Prevents conflicts with Playwright MCP
           lowMemory: options.lowMemory,
+          ...getBrowserConnectionOptions(),
         });
 
         // Create the session
@@ -1395,6 +1493,12 @@ program
         }
         console.log('To close: npx ibr session:close all');
         console.log('');
+        if (!ownsBrowser) {
+          console.log('Connected to external browser. Session metadata saved.');
+          await driver.disconnect();
+          return;
+        }
+
         console.log('Browser server running. Press Ctrl+C to stop.');
 
         // Keep process alive until SIGINT
@@ -2330,7 +2434,7 @@ program
       // Launch browser
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
       const driver = new EngineDriver();
-      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3517,7 +3621,7 @@ program
 
       const { searchFlow } = await import('../flows/search.js');
 
-      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3581,7 +3685,7 @@ program
         }
       }
 
-      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3638,7 +3742,7 @@ program
         process.exit(1);
       }
 
-      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3678,12 +3782,14 @@ program
   .option('-e, --expect <spec>', 'Assertion specification (repeatable). Format: visible|hidden|text|count:value', (val, acc: string[]) => { acc.push(val); return acc }, [] as string[])
   .option('--expect-screenshot <name>', 'Capture screenshot after last action with this name')
   .option('--json', 'Output as JSON')
-  .option('--sandbox', 'Show visible browser window (default: headless)')
+  .option('--headed', 'Show visible browser window (default: headless)')
+  .option('--sandbox', 'Deprecated alias for --headed')
   .action(async (url: string, options: {
     action: string[]
     expect: string[]
     expectScreenshot?: string
     json?: boolean
+    headed?: boolean
     sandbox?: boolean
   }) => {
     const {
@@ -3756,7 +3862,8 @@ program
         steps,
         viewport,
         outputDir: join(outputDir, 'interactions'),
-        headless: !options.sandbox,
+        headless: !(options.headed || options.sandbox),
+        ...getBrowserConnectionOptions(),
       })
 
       if (options.json) {
@@ -4006,7 +4113,7 @@ program
       console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
       console.log('');
 
-      await driver.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
       await driver.navigate(resolvedUrl);
 
       // Small wait for hydration
@@ -4081,6 +4188,7 @@ program
         filePath: options.file,
         outputDir: options.outputDir,
         headless: options.headless,
+        ...getBrowserConnectionOptions(),
       })
 
       if (options.json) {
@@ -4222,10 +4330,10 @@ program
     let chromeError: string | null = null
 
     try {
-      await chromeDriver.launch({
+      await chromeDriver.launch(withBrowserOptions({
         headless: true,
         viewport: { width: viewport.width, height: viewport.height },
-      })
+      }))
       await chromeDriver.navigate(resolvedUrl, { waitFor: 'stable', timeout })
       chromeScreenshot = await chromeDriver.screenshot()
       const discovered = await chromeDriver.discover({ filter: 'interactive' })
@@ -4385,7 +4493,7 @@ program
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
-      await driver.launch(withChromePath({ headless: true }))
+      await driver.launch(withBrowserOptions({ headless: true }))
       await driver.navigate(url)
 
       const element = await driver.find(opts.target, opts.role ? { role: opts.role } : undefined)
@@ -4439,7 +4547,7 @@ program
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
-      await driver.launch(withChromePath({ headless: true }))
+      await driver.launch(withBrowserOptions({ headless: true }))
       await driver.navigate(url)
       const actions = await driver.observe({ role: opts.role, limit: Number(opts.limit) })
 
@@ -4467,7 +4575,7 @@ program
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
-      await driver.launch(withChromePath({ headless: true }))
+      await driver.launch(withBrowserOptions({ headless: true }))
       await driver.navigate(url)
       const meta = await driver.extractMeta()
 

@@ -170,7 +170,16 @@ export async function loadAuthState(outputDir: string): Promise<object | null> {
  * When done, close the browser or press Ctrl+C to save the state.
  */
 export async function performLogin(options: LoginOptions): Promise<string> {
-  const { url, outputDir, timeout = 300000 } = options; // 5 min default timeout
+  const {
+    url,
+    outputDir,
+    timeout = 300000,
+    headed = true,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
+  } = options; // 5 min default timeout
 
   // Block in deployed environments
   if (isDeployedEnvironment()) {
@@ -203,8 +212,12 @@ export async function performLogin(options: LoginOptions): Promise<string> {
 
   const driver = new EngineDriver();
   await driver.launch({
-    headless: false, // Visible browser for manual login
+    headless: !headed,
     viewport: { width: 1280, height: 800 },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   });
   const page = new CompatPage(driver);
 

@@ -38,9 +38,23 @@ Invoke `superpowers:writing-plans` with spec path `.ibr/builds/<topic>/spec.md`.
 For each task in `plan.md`:
 
 1. Load UI guidance: read `.ibr/ui-guidance/active.md`
-2. Invoke `ibr:component-patterns` + `ibr:design-implementation` as guidance in scope
-3. If a `validation-target` ref exists in `refs.json`, optionally call `/ibr:replicate` to seed markup
-4. Write code
+2. **iOS design routing** (when `preamble.platform === "iOS"`):
+   - Load `ios-design` skill (HIG rules)
+   - Load `apple-platform` skill (architecture patterns)
+   - Based on the current component type being built, Read the appropriate reference from `${CLAUDE_PLUGIN_ROOT}/references/ios-design/` per the router's domain reference routing table:
+     - Navigation work → `1_navigation_structure.md`
+     - List/card/content work → `2_lists_cards_content.md`
+     - Button/form/interaction work → `3_buttons_touch_interactions.md`
+     - Color/typography/visual work → `4_color_surface_typography.md`
+     - Loading/states/animation/onboarding work → `5_motion_states_identity.md`
+     - Any multi-step flow → `6_task_economy.md` (always validate step count)
+   - Apply archetype defaults from `preamble.iosDefaults`
+3. **macOS design routing** (when `preamble.platform === "macOS"`):
+   - Load `macos-ui` skill
+   - Load `apple-platform` skill (architecture patterns)
+4. Invoke `ibr:component-patterns` + `ibr:design-implementation` as guidance in scope
+5. If a `validation-target` ref exists in `refs.json`, optionally call `/ibr:replicate` to seed markup
+6. Write code
 
 ### Phase 5 — Validate & Iterate
 

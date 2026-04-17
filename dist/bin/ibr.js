@@ -184,6 +184,29 @@ function checkPortFree(port) {
     srv.listen(port, () => srv.close(() => resolve5(true)));
   });
 }
+async function resolveWsEndpoint(cdpUrl) {
+  const res = await fetch(`${cdpUrl}/json/version`);
+  if (!res.ok) {
+    throw new Error(`CDP endpoint did not respond: ${cdpUrl}`);
+  }
+  const data = await res.json();
+  if (!data.webSocketDebuggerUrl) {
+    throw new Error(`CDP endpoint did not return a WebSocket URL: ${cdpUrl}`);
+  }
+  return data.webSocketDebuggerUrl;
+}
+function resolveBrowserConnectionOptions(options = {}, env = process.env) {
+  const wsEndpoint = options.wsEndpoint || env.IBR_WS_ENDPOINT;
+  const cdpUrl = options.cdpUrl || env.IBR_CDP_URL;
+  const requestedMode = options.mode || env.IBR_BROWSER_MODE;
+  const mode = requestedMode === "local" ? "local" : requestedMode === "connect" || wsEndpoint || cdpUrl ? "connect" : "local";
+  return {
+    mode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath: options.chromePath || env.IBR_CHROME_PATH
+  };
+}
 var import_node_child_process, import_node_fs, import_promises, import_node_net, import_node_os, import_node_path, CHROME_PATHS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
@@ -210,7 +233,29 @@ var init_browser = __esm({
     BrowserManager = class {
       process = null;
       _port = 0;
+      _mode = "local";
+      _cdpUrl = null;
+      _wsEndpoint = null;
       async launch(options = {}) {
+        const connection = resolveBrowserConnectionOptions(options);
+        this._mode = connection.mode;
+        if (connection.mode === "connect") {
+          this.process = null;
+          this._port = 0;
+          this._cdpUrl = connection.cdpUrl ?? null;
+          if (connection.wsEndpoint) {
+            this._wsEndpoint = connection.wsEndpoint;
+            return connection.wsEndpoint;
+          }
+          if (connection.cdpUrl) {
+            const wsUrl2 = await resolveWsEndpoint(connection.cdpUrl);
+            this._wsEndpoint = wsUrl2;
+            return wsUrl2;
+          }
+          throw new Error(
+            "Connect mode requires a CDP endpoint.\nProvide --cdp-url http://127.0.0.1:9222 or --ws-endpoint ws://...\nYou can also set IBR_CDP_URL or IBR_WS_ENDPOINT."
+          );
+        }
         const headless = options.headless ?? true;
         this._port = options.port ?? await findFreePort();
         let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
@@ -218,7 +263,7 @@ var init_browser = __esm({
         if ((0, import_node_fs.existsSync)(lockPath)) {
           userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
         }
-        const chromePath = options.chromePath ?? findChrome();
+        const chromePath = connection.chromePath ?? findChrome();
         if (!chromePath) {
           throw new Error(
             `Chrome not found. Install Google Chrome or pass chromePath option.
@@ -245,7 +290,10 @@ Checked: ${CHROME_PATHS.join(", ")}`
         this.process.on("error", (err) => {
           console.error(`Chrome process error: ${err.message}`);
         });
-        return this.waitForDebugger();
+        const wsUrl = await this.waitForDebugger();
+        this._cdpUrl = `http://127.0.0.1:${this._port}`;
+        this._wsEndpoint = wsUrl;
+        return wsUrl;
       }
       async waitForDebugger() {
         const maxAttempts = 50;
@@ -259,11 +307,13 @@ Checked: ${CHROME_PATHS.join(", ")}`
           }
         }
         throw new Error(
-          `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?`
+          `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?
+If you are running inside a sandbox, retry with connect mode:
+  --browser-mode connect --cdp-url http://127.0.0.1:9222`
         );
       }
       async close() {
-        if (!this.process) return;
+        if (this._mode !== "local" || !this.process) return;
         const proc = this.process;
         this.process = null;
         await new Promise((resolve5) => {
@@ -289,6 +339,15 @@ Checked: ${CHROME_PATHS.join(", ")}`
       }
       get pid() {
         return this.process?.pid ?? null;
+      }
+      get mode() {
+        return this._mode;
+      }
+      get cdpUrl() {
+        return this._cdpUrl;
+      }
+      get wsEndpoint() {
+        return this._wsEndpoint;
       }
     };
   }
@@ -1278,6 +1337,70 @@ async function waitForStableTree(getSnapshot, options) {
   }
   const elements = await getSnapshot();
   return { elements, timedOut: true };
+}
+async function waitForHydration(_conn, getSnapshot, evaluate, options) {
+  const timeout = options?.timeout ?? 1e4;
+  const stableTime = options?.stableTime ?? 500;
+  const minElements = options?.minElements ?? 1;
+  const settleTime = options?.settleTime ?? 200;
+  const deadline = Date.now() + timeout;
+  let hydrationDetected = false;
+  let reason = "timeout";
+  try {
+    const marker = await evaluate(`(function(){
+      if (document.readyState !== 'complete') return null;
+      if (typeof window === 'undefined') return null;
+      var hasNext = typeof window.__NEXT_DATA__ !== 'undefined';
+      var hasReact = typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ !== 'undefined';
+      var rootHydrated = false;
+      try {
+        var root = document.querySelector('#__next, #root, [data-reactroot]');
+        rootHydrated = !!root && root.children.length > 0;
+      } catch(e) {}
+      return { hasNext: hasNext, hasReact: hasReact, rootHydrated: rootHydrated };
+    })()`);
+    if (marker && typeof marker === "object") {
+      const m = marker;
+      if (m.rootHydrated) {
+        hydrationDetected = true;
+        reason = m.hasNext ? "nextjs-marker" : m.hasReact ? "react-marker" : "root-populated";
+      }
+    }
+  } catch {
+  }
+  let lastFingerprint = "";
+  let stableSince = Date.now();
+  let lastElements = [];
+  while (Date.now() < deadline) {
+    const elements = await getSnapshot();
+    lastElements = elements;
+    const fingerprint = buildFingerprint(elements);
+    const hasEnough = elements.filter((e) => e.actions.length > 0).length >= minElements;
+    if (fingerprint === lastFingerprint && hasEnough) {
+      if (Date.now() - stableSince >= stableTime) {
+        if (settleTime > 0) {
+          await new Promise((r) => setTimeout(r, settleTime));
+        }
+        const finalElements = await getSnapshot();
+        return {
+          elements: finalElements,
+          timedOut: false,
+          hydrationDetected: true,
+          reason: hydrationDetected ? reason : "ax-tree-stable"
+        };
+      }
+    } else {
+      lastFingerprint = fingerprint;
+      stableSince = Date.now();
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return {
+    elements: lastElements,
+    timedOut: true,
+    hydrationDetected: false,
+    reason: "timeout"
+  };
 }
 async function waitForStable(conn, getSnapshot, options) {
   const eventName = options?.eventName ?? "Accessibility.nodesUpdated";
@@ -2698,6 +2821,18 @@ var init_driver = __esm({
       get chromePid() {
         return this.browser.pid;
       }
+      /** The browser connection mode used for this driver. */
+      get browserMode() {
+        return this.browser.mode;
+      }
+      /** The resolved CDP HTTP endpoint, when available. */
+      get cdpUrl() {
+        return this.browser.cdpUrl;
+      }
+      /** The resolved browser WebSocket endpoint, when available. */
+      get wsEndpoint() {
+        return this.browser.wsEndpoint;
+      }
       /**
        * Connect to an already-running Chrome instance instead of launching a new one.
        * Used by browser-server reconnection to attach to a persistent Chrome process.
@@ -2875,8 +3010,7 @@ var init_compat = __esm({
         if (typeof fnOrExpr === "function") {
           const fnStr = fnOrExpr.toString();
           if (args.length > 0) {
-            const actualArgs = args.length === 1 && typeof args[0] === "object" && args[0] !== null ? Object.values(args[0]) : args;
-            return this.driver.evaluate(`(${fnStr})`, ...actualArgs);
+            return this.driver.evaluate(`(${fnStr})`, ...args);
           }
           return this.driver.evaluate(`(${fnStr})()`);
         }
@@ -3077,7 +3211,11 @@ var init_schemas = __esm({
       threshold: import_zod.z.number().min(0).max(100).default(1),
       fullPage: import_zod.z.boolean().default(true),
       waitForNetworkIdle: import_zod.z.boolean().default(true),
-      timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4)
+      timeout: import_zod.z.number().min(1e3).max(12e4).default(3e4),
+      browserMode: import_zod.z.enum(["local", "connect"]).optional(),
+      cdpUrl: import_zod.z.string().url().optional(),
+      wsEndpoint: import_zod.z.string().url().optional(),
+      chromePath: import_zod.z.string().optional()
     });
     SessionQuerySchema = import_zod.z.object({
       route: import_zod.z.string().optional(),
@@ -3469,7 +3607,16 @@ async function loadAuthState(outputDir) {
   }
 }
 async function performLogin(options) {
-  const { url, outputDir, timeout = 3e5 } = options;
+  const {
+    url,
+    outputDir,
+    timeout = 3e5,
+    headed = true,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
+  } = options;
   if (isDeployedEnvironment()) {
     throw new Error(
       "Authentication cannot be performed in deployed environments.\nRun `ibr login` locally on your development machine."
@@ -3489,9 +3636,12 @@ async function performLogin(options) {
   console.log("   When finished, close the browser window to save your session.\n");
   const driver3 = new EngineDriver();
   await driver3.launch({
-    headless: false,
-    // Visible browser for manual login
-    viewport: { width: 1280, height: 800 }
+    headless: !headed,
+    viewport: { width: 1280, height: 800 },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   });
   const page = new CompatPage(driver3);
   try {
@@ -4071,12 +4221,17 @@ async function captureScreenshot(options) {
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
     selector,
     waitFor,
-    delay
+    delay,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
@@ -4087,8 +4242,12 @@ async function captureScreenshot(options) {
   }
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
-    headless: true,
-    viewport: { width: viewport.width, height: viewport.height }
+    headless: !headed,
+    viewport: { width: viewport.width, height: viewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   });
   const page = new CompatPage(driverInstance);
   try {
@@ -4128,11 +4287,16 @@ async function captureWithLandmarks(options) {
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
     selector,
-    waitFor
+    waitFor,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   await (0, import_promises4.mkdir)((0, import_path3.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
@@ -4143,8 +4307,12 @@ async function captureWithLandmarks(options) {
   }
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
-    headless: true,
-    viewport: { width: viewport.width, height: viewport.height }
+    headless: !headed,
+    viewport: { width: viewport.width, height: viewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   });
   const page = new CompatPage(driverInstance);
   try {
@@ -4208,10 +4376,15 @@ async function captureWithDiagnostics(options) {
     outputPath,
     viewport = VIEWPORTS.desktop,
     fullPage = true,
+    headed = false,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
-    selector
+    selector,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   const startTime = Date.now();
   let navigationTime = 0;
@@ -4227,8 +4400,12 @@ async function captureWithDiagnostics(options) {
     }
     const driverInstance = new EngineDriver();
     await driverInstance.launch({
-      headless: true,
-      viewport: { width: viewport.width, height: viewport.height }
+      headless: !headed,
+      viewport: { width: viewport.width, height: viewport.height },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
     });
     const page = new CompatPage(driverInstance);
     page.on("console", (msg) => {
@@ -6426,8 +6603,8 @@ function analyzeForObviousIssues(context) {
   const queryTerms = context.query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
   for (const result of context.results) {
     const textLower = result.fullText.toLowerCase();
-    const matchCount = queryTerms.filter((term) => textLower.includes(term)).length;
-    const matchRatio = matchCount / queryTerms.length;
+    const matchCount2 = queryTerms.filter((term) => textLower.includes(term)).length;
+    const matchRatio = matchCount2 / queryTerms.length;
     if (matchRatio < 0.2 && queryTerms.length > 1) {
       issues.push({
         type: "irrelevant",
@@ -6712,11 +6889,11 @@ function parseColor(color) {
   return named[color.toLowerCase()] ?? null;
 }
 function relativeLuminance(r, g, b) {
-  const linearize = (c) => {
+  const linearize4 = (c) => {
     const s = c / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
-  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+  return 0.2126 * linearize4(r) + 0.7152 * linearize4(g) + 0.0722 * linearize4(b);
 }
 async function analyzeThemeConsistency(page) {
   const data = await page.evaluate(() => {
@@ -6760,8 +6937,8 @@ async function analyzeThemeConsistency(page) {
   const pageBackground = { color: data.pageBg, luminance: pageLuminance };
   const contentCards = data.cards.map((c) => {
     const parsed = parseColor(c.color);
-    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
-    return { selector: c.selector, color: c.color, luminance };
+    const luminance2 = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    return { selector: c.selector, color: c.color, luminance: luminance2 };
   });
   let themeMismatch = false;
   let mismatchDetails;
@@ -10355,8 +10532,8 @@ var init_tokens = __esm({
         const minSize = spec.tokens.touchTargets.min;
         for (const element of elements) {
           const selector = element.selector || element.tagName || "unknown";
-          const isInteractive = element.interactive?.hasOnClick || element.interactive?.hasHref;
-          if (!isInteractive) continue;
+          const isInteractive2 = element.interactive?.hasOnClick || element.interactive?.hasHref;
+          if (!isInteractive2) continue;
           const actualSize = Math.min(element.bounds.width, element.bounds.height);
           if (actualSize < minSize) {
             violations.push({
@@ -10946,6 +11123,1891 @@ var init_design_system = __esm({
   }
 });
 
+// src/sensors/visual-patterns.ts
+function styleFingerprint(el) {
+  const s = el.computedStyles ?? {};
+  return {
+    backgroundColor: s.backgroundColor ?? "",
+    color: s.color ?? "",
+    borderRadius: s.borderRadius ?? "",
+    padding: s.padding ?? "",
+    fontSize: s.fontSize ?? "",
+    fontWeight: s.fontWeight ?? "",
+    borderWidth: s.borderWidth ?? "",
+    borderColor: s.borderColor ?? ""
+  };
+}
+function fingerprintKey(fp) {
+  return Object.entries(fp).map(([k, v]) => `${k}=${v}`).join("|");
+}
+function categorize(el) {
+  const tag = el.tagName.toLowerCase();
+  const role = el.a11y.role ?? "";
+  if (tag === "button" || role === "button") return "button";
+  if (tag === "a" || role === "link") return "link";
+  if (tag === "input" || tag === "textarea" || tag === "select" || role === "textbox" || role === "combobox") return "input";
+  if (/^h[1-6]$/.test(tag) || role === "heading") return "heading";
+  return null;
+}
+function collectVisualPatterns(ctx) {
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const el of ctx.elements) {
+    const cat = categorize(el);
+    if (!cat) continue;
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat).push(el);
+  }
+  const reports = [];
+  for (const [category, els] of byCategory.entries()) {
+    const groupMap = /* @__PURE__ */ new Map();
+    for (const el of els) {
+      const fp = styleFingerprint(el);
+      const key = fingerprintKey(fp);
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          patternKey: key.slice(0, 80),
+          count: 0,
+          elements: [],
+          styleFingerprint: fp
+        });
+      }
+      const g = groupMap.get(key);
+      g.count++;
+      if (g.elements.length < 5) {
+        g.elements.push({
+          selector: el.selector,
+          text: (el.text ?? "").slice(0, 40)
+        });
+      }
+    }
+    const groups = Array.from(groupMap.values()).sort((a, b) => b.count - a.count);
+    const total = els.length;
+    const dominant = groups[0] && groups[0].count / total > 0.8 ? groups[0] : void 0;
+    reports.push({
+      category,
+      totalElements: total,
+      distinctPatterns: groups.length,
+      groups,
+      dominant
+    });
+  }
+  return reports;
+}
+var init_visual_patterns = __esm({
+  "src/sensors/visual-patterns.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/component-census.ts
+function detectComponentName(el) {
+  const attrs = el.attributes;
+  if (attrs?.["data-component"]) return attrs["data-component"];
+  const testId = el.sourceHint?.dataTestId;
+  if (testId) {
+    const name = testId.split(/[-_]/).filter(Boolean).map((p) => (p[0]?.toUpperCase() ?? "") + p.slice(1)).join("");
+    if (name.length > 0) return name;
+  }
+  const className = el.className ?? attrs?.["class"] ?? attrs?.["className"];
+  if (className) {
+    const match = className.match(/\b([A-Z][a-zA-Z0-9]+)(?:_|$|\s)/);
+    if (match) return match[1];
+  }
+  return null;
+}
+function collectComponentCensus(ctx) {
+  const byTag = {};
+  const byRole = {};
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  const orphanInteractive = [];
+  const componentMap = /* @__PURE__ */ new Map();
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    if (tag) byTag[tag] = (byTag[tag] ?? 0) + 1;
+    const role = el.a11y.role;
+    if (role) byRole[role] = (byRole[role] ?? 0) + 1;
+    const interactive = el.interactive;
+    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+      const cursor = el.computedStyles?.cursor;
+      if (cursor === "pointer" && (el.text ?? "").trim().length > 0) {
+        if (orphanInteractive.length < 20) {
+          orphanInteractive.push({
+            selector: el.selector,
+            text: (el.text ?? "").slice(0, 60),
+            reason: "cursor:pointer with no handler"
+          });
+        }
+      }
+    }
+    const componentName = detectComponentName(el) ?? el.tagName.toLowerCase();
+    const existing = componentMap.get(componentName);
+    if (existing) {
+      existing.count++;
+      if (existing.selectors.length < 5) existing.selectors.push(el.selector);
+    } else {
+      componentMap.set(componentName, { count: 1, selectors: [el.selector] });
+    }
+  }
+  const byComponent = {};
+  for (const [name, data] of componentMap) {
+    byComponent[name] = data.count;
+  }
+  const topComponents = Array.from(componentMap.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 20).map(([name, data]) => ({ name, count: data.count, selectors: data.selectors }));
+  return {
+    byTag,
+    byRole,
+    withHandlers,
+    withoutHandlers,
+    orphanInteractive,
+    byComponent,
+    topComponents
+  };
+}
+var init_component_census = __esm({
+  "src/sensors/component-census.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/interaction-map.ts
+function collectInteractionMap(ctx) {
+  const missingHandlers = [];
+  let total = 0;
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  let disabled = 0;
+  let formCount = 0;
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    const role = el.a11y.role ?? "";
+    const cursor = el.computedStyles?.cursor;
+    const looksInteractive2 = tag === "button" || tag === "a" || role === "button" || role === "link" || cursor === "pointer";
+    if (tag === "form") formCount++;
+    if (!looksInteractive2) continue;
+    total++;
+    const interactive = el.interactive;
+    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+      if (missingHandlers.length < 25) {
+        missingHandlers.push({
+          selector: el.selector,
+          text: (el.text ?? "").slice(0, 60),
+          tagName: tag,
+          role: role || void 0
+        });
+      }
+    }
+    if (interactive.isDisabled) disabled++;
+  }
+  return { total, withHandlers, withoutHandlers, missingHandlers, disabled, formCount };
+}
+var init_interaction_map = __esm({
+  "src/sensors/interaction-map.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/contrast-report.ts
+function parseColor2(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6 = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6) {
+    const n = parseInt(hex6[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3 = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3) {
+    return [
+      parseInt(hex3[1][0], 16) * 17,
+      parseInt(hex3[1][1], 16) * 17,
+      parseInt(hex3[1][2], 16) * 17
+    ];
+  }
+  return null;
+}
+function linearize(c) {
+  const n = c / 255;
+  return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4);
+}
+function luminance([r, g, b]) {
+  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+}
+function contrastRatio(fg, bg) {
+  const l1 = luminance(fg);
+  const l2 = luminance(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText(styles) {
+  const fontSize = parseFloat(styles.fontSize ?? "");
+  if (isNaN(fontSize)) return false;
+  const fw = styles.fontWeight ?? "400";
+  const isBold = fw === "bold" || parseInt(fw, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+function collectContrastReport(ctx) {
+  let pass = 0;
+  let fail = 0;
+  let passAAA = 0;
+  const failing = [];
+  let minRatio;
+  let lightOnDark = 0;
+  let darkOnLight = 0;
+  for (const el of ctx.elements) {
+    const text = (el.text ?? "").trim();
+    if (!text) continue;
+    const styles = el.computedStyles;
+    if (!styles) continue;
+    const fg = parseColor2(styles.color ?? "");
+    const bg = parseColor2(styles.backgroundColor ?? "");
+    if (!fg || !bg) continue;
+    const large = isLargeText(styles);
+    const ratio = contrastRatio(fg, bg);
+    const aaThreshold = large ? 3 : 4.5;
+    const aaaThreshold = large ? 4.5 : 7;
+    const fontSize = parseFloat(styles.fontSize ?? "16") || 16;
+    const entry = {
+      selector: el.selector,
+      text: text.slice(0, 60),
+      ratio: Number(ratio.toFixed(2)),
+      pass: ratio >= aaaThreshold ? "AAA" : ratio >= aaThreshold ? "AA" : "FAIL",
+      fontSize,
+      largeText: large
+    };
+    if (ratio >= aaThreshold) {
+      pass++;
+    } else {
+      fail++;
+      if (failing.length < 50) failing.push(entry);
+    }
+    if (ratio >= aaaThreshold) passAAA++;
+    if (!minRatio || ratio < minRatio.ratio) minRatio = entry;
+    const fgAvg = (fg[0] + fg[1] + fg[2]) / 3;
+    const bgAvg = (bg[0] + bg[1] + bg[2]) / 3;
+    if (fgAvg > bgAvg) lightOnDark++;
+    else darkOnLight++;
+  }
+  return {
+    totalChecked: pass + fail,
+    pass,
+    fail,
+    passAAA,
+    failing,
+    minRatio,
+    byTone: { lightOnDark, darkOnLight }
+  };
+}
+var init_contrast_report = __esm({
+  "src/sensors/contrast-report.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/navigation.ts
+function selectorDepth(selector) {
+  return (selector || "").split(/\s*>\s*/).length;
+}
+function isDescendantOf(childSelector, ancestorSelector) {
+  if (!ancestorSelector || !childSelector) return false;
+  return childSelector.startsWith(ancestorSelector + " ") || childSelector.startsWith(ancestorSelector + ">") || childSelector.startsWith(ancestorSelector + " >") || childSelector === ancestorSelector;
+}
+function linkLabel(el) {
+  return (el.text ?? el.a11y.ariaLabel ?? "").trim().slice(0, 60);
+}
+function buildTree(links, navSelector) {
+  const navDepth = selectorDepth(navSelector);
+  const sorted = [...links].sort((a, b) => a.selector.length - b.selector.length);
+  const roots = [];
+  const stack = [];
+  for (const el of sorted) {
+    const label = linkLabel(el);
+    if (!label) continue;
+    const absDepth = selectorDepth(el.selector);
+    const relDepth = absDepth - navDepth;
+    const node = {
+      label,
+      selector: el.selector,
+      depth: relDepth,
+      children: []
+    };
+    let parentEntry;
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const candidate = stack[i];
+      if (candidate.absDepth < absDepth && isDescendantOf(el.selector, candidate.node.selector)) {
+        parentEntry = candidate;
+        break;
+      }
+    }
+    if (parentEntry) {
+      parentEntry.node.children.push(node);
+    } else {
+      roots.push(node);
+    }
+    stack.push({ node, absDepth });
+  }
+  function maxD(nodes, current) {
+    let m = current;
+    for (const n of nodes) m = Math.max(m, maxD(n.children, current + 1));
+    return m;
+  }
+  const maxDepth = roots.length > 0 ? maxD(roots, 1) : 0;
+  return { roots, maxDepth };
+}
+function flattenTree(nodes, depth, counts) {
+  for (const node of nodes) {
+    counts[depth] = (counts[depth] ?? 0) + 1;
+    flattenTree(node.children, depth + 1, counts);
+  }
+}
+function collectNavigationMap(ctx) {
+  const navElements = ctx.elements.filter((el) => {
+    const role = el.a11y.role ?? "";
+    const tag = el.tagName.toLowerCase();
+    return role === "navigation" || tag === "nav";
+  });
+  const links = ctx.elements.filter((el) => {
+    const role = el.a11y.role ?? "";
+    const tag = el.tagName.toLowerCase();
+    return role === "link" || tag === "a";
+  });
+  if (links.length === 0 && navElements.length === 0) return void 0;
+  if (navElements.length > 0) {
+    const navRegions = [];
+    const byDepth = [];
+    for (const nav of navElements) {
+      const navLinks = links.filter(
+        (link) => isDescendantOf(link.selector, nav.selector)
+      );
+      const { roots, maxDepth } = buildTree(navLinks, nav.selector);
+      flattenTree(roots, 0, byDepth);
+      navRegions.push({
+        rootSelector: nav.selector,
+        roots,
+        depth: maxDepth
+      });
+    }
+    const allRoots = navRegions.flatMap((r) => r.roots);
+    const overallMaxDepth = navRegions.reduce((m, r) => Math.max(m, r.depth), 0);
+    return {
+      navs: navRegions,
+      roots: allRoots.slice(0, 40),
+      depth: overallMaxDepth,
+      totalLinks: links.length,
+      byDepth
+    };
+  }
+  const flatRoots = [];
+  for (const link of links.slice(0, 60)) {
+    const label = linkLabel(link);
+    if (!label) continue;
+    flatRoots.push({
+      label,
+      selector: link.selector,
+      depth: 0,
+      children: []
+    });
+  }
+  return {
+    navs: [],
+    roots: flatRoots.slice(0, 40),
+    depth: 1,
+    totalLinks: links.length,
+    byDepth: [flatRoots.length]
+  };
+}
+var init_navigation = __esm({
+  "src/sensors/navigation.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/index.ts
+function runSensors(ctx) {
+  const visualPatterns = collectVisualPatterns(ctx);
+  const componentCensus = collectComponentCensus(ctx);
+  const interactionMap = collectInteractionMap(ctx);
+  const contrast = collectContrastReport(ctx);
+  const navigation = collectNavigationMap(ctx);
+  const oneLiners = [];
+  for (const vp of visualPatterns) {
+    if (vp.distinctPatterns > 1) {
+      const dominantNote = vp.dominant ? ` (${vp.dominant.count}/${vp.totalElements} share dominant pattern)` : "";
+      oneLiners.push(
+        `${vp.category}: ${vp.totalElements} total, ${vp.distinctPatterns} distinct patterns${dominantNote}`
+      );
+    }
+  }
+  if (interactionMap.withoutHandlers > 0) {
+    oneLiners.push(
+      `${interactionMap.withoutHandlers}/${interactionMap.total} interactive-looking elements have no handler`
+    );
+  }
+  if (contrast.fail > 0) {
+    oneLiners.push(`Contrast: ${contrast.fail}/${contrast.totalChecked} text elements fail WCAG AA`);
+  }
+  if (componentCensus.orphanInteractive.length > 0) {
+    oneLiners.push(
+      `${componentCensus.orphanInteractive.length} cursor:pointer elements have no handler`
+    );
+  }
+  if (navigation) {
+    if (navigation.navs.length > 0) {
+      oneLiners.push(
+        `Nav: ${navigation.navs.length} nav region(s), max depth ${navigation.depth}, ${navigation.totalLinks} total links`
+      );
+    } else {
+      oneLiners.push(`Navigation: ${navigation.totalLinks} links, ${navigation.depth} level(s) deep`);
+    }
+  }
+  const namedComponents = componentCensus.topComponents.filter(
+    (c) => !/^[a-z]/.test(c.name) || c.name.includes("-")
+    // PascalCase or testid-derived names
+  );
+  if (namedComponents.length > 0) {
+    const top3 = namedComponents.slice(0, 3).map((c) => `${c.name}\xD7${c.count}`).join(", ");
+    const totalNamed = namedComponents.length;
+    oneLiners.push(`Components: ${top3}${totalNamed > 3 ? ` (top 3 of ${totalNamed})` : ""}`);
+  }
+  const report = {
+    visualPatterns,
+    navigation,
+    componentCensus,
+    interactionMap,
+    contrast,
+    oneLiners
+  };
+  if (ctx.semantic) {
+    const sem = ctx.semantic;
+    const states = [];
+    if (sem.state.auth.authenticated === true) states.push("authenticated");
+    if (sem.state.auth.authenticated === false) states.push("not authenticated");
+    if (sem.state.loading.loading) states.push(`loading:${sem.state.loading.type}`);
+    if (sem.state.errors.hasErrors) {
+      for (const e of sem.state.errors.errors) states.push(`error:${e.type}`);
+    }
+    report.semanticState = {
+      pageIntent: sem.pageIntent.intent,
+      states,
+      availableActions: sem.availableActions.map((a) => a.action)
+    };
+  }
+  return report;
+}
+var init_sensors = __esm({
+  "src/sensors/index.ts"() {
+    "use strict";
+    init_visual_patterns();
+    init_component_census();
+    init_interaction_map();
+    init_contrast_report();
+    init_navigation();
+  }
+});
+
+// src/rules/wcag-contrast.ts
+function parseColor3(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6Match) {
+    const n = parseInt(hex6Match[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3Match) {
+    const r = parseInt(hex3Match[1][0], 16) * 17;
+    const g = parseInt(hex3Match[1][1], 16) * 17;
+    const b = parseInt(hex3Match[1][2], 16) * 17;
+    return [r, g, b];
+  }
+  return null;
+}
+function linearize2(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance2(r, g, b) {
+  return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
+}
+function contrastRatio2(l1, l2) {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText2(styles) {
+  const fontSizeStr = styles.fontSize ?? "";
+  const fontWeightStr = styles.fontWeight ?? "";
+  const fontSize = parseFloat(fontSizeStr);
+  if (isNaN(fontSize)) return false;
+  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+var wcagContrastRules;
+var init_wcag_contrast = __esm({
+  "src/rules/wcag-contrast.ts"() {
+    "use strict";
+    wcagContrastRules = [
+      {
+        id: "wcag/contrast",
+        name: "WCAG 2.1: Color Contrast",
+        description: "Text must meet WCAG 2.1 minimum contrast: 4.5:1 normal, 3:1 large text",
+        defaultSeverity: "error",
+        check: (element, _context) => {
+          const style = element.computedStyles;
+          if (!style) return null;
+          const hasText = element.text && element.text.trim().length > 0;
+          if (!hasText) return null;
+          const fgColor = parseColor3(style.color ?? "");
+          const bgColor = parseColor3(style.backgroundColor ?? "");
+          if (!fgColor || !bgColor) return null;
+          const fgL = relativeLuminance2(...fgColor);
+          const bgL = relativeLuminance2(...bgColor);
+          const ratio = contrastRatio2(fgL, bgL);
+          const largeText = isLargeText2(style);
+          const threshold = largeText ? 3 : 4.5;
+          if (ratio < threshold) {
+            const ratioStr = ratio.toFixed(2);
+            const textSnippet = (element.text ?? "").slice(0, 40);
+            return {
+              ruleId: "wcag/contrast",
+              ruleName: "WCAG 2.1: Color Contrast",
+              severity: "error",
+              message: `"${textSnippet}" has contrast ratio ${ratioStr}:1 (required ${threshold}:1 for ${largeText ? "large" : "normal"} text)`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/touch-targets.ts
+function isInteractiveElement(element) {
+  if (INTERACTIVE_TAGS.has(element.tagName.toLowerCase())) return true;
+  const role = element.a11y?.role;
+  if (role && INTERACTIVE_ROLES.has(role)) return true;
+  return false;
+}
+var INTERACTIVE_ROLES, INTERACTIVE_TAGS, touchTargetRules;
+var init_touch_targets = __esm({
+  "src/rules/touch-targets.ts"() {
+    "use strict";
+    INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+      "button",
+      "link",
+      "textbox",
+      "checkbox",
+      "radio",
+      "combobox",
+      "listbox",
+      "menuitem",
+      "menuitemcheckbox",
+      "menuitemradio",
+      "option",
+      "searchbox",
+      "slider",
+      "spinbutton",
+      "switch",
+      "tab",
+      "treeitem"
+    ]);
+    INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
+    touchTargetRules = [
+      {
+        id: "touch-targets/minimum-size",
+        name: "Touch Target: Minimum Size",
+        description: "Interactive elements must meet minimum touch target size (44x44px mobile, 24x24px desktop)",
+        defaultSeverity: "warn",
+        check: (element, context, options) => {
+          if (!isInteractiveElement(element)) return null;
+          const isMobile = context.isMobile || context.viewportWidth < 768;
+          const minSize = isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+          const { width, height } = element.bounds;
+          if (width === 0 && height === 0) return null;
+          if (width < minSize || height < minSize) {
+            const label = element.text || element.a11y?.ariaLabel || element.selector;
+            return {
+              ruleId: "touch-targets/minimum-size",
+              ruleName: "Touch Target: Minimum Size",
+              severity: "warn",
+              message: `"${label.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: `Increase element size to at least ${minSize}x${minSize}px`
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/text-hierarchy.ts
+function inferLevel(element) {
+  const tag = element.tagName.toLowerCase();
+  const role = element.a11y?.role ?? "";
+  if (TITLE_TAGS.has(tag) || role === "heading") return "title";
+  if (DESCRIPTION_TAGS.has(tag) || role === "paragraph") return "description";
+  if (tag === "span" || tag === "small" || tag === "label") {
+    const size = parseFloat(element.computedStyles?.fontSize ?? "0");
+    if (size > 0 && size <= 12) return "metadata";
+  }
+  return "unknown";
+}
+function parseFontSize(element) {
+  const raw = element.computedStyles?.fontSize;
+  if (!raw) return null;
+  const val = parseFloat(raw);
+  return isNaN(val) ? null : val;
+}
+var TITLE_TAGS, DESCRIPTION_TAGS, textHierarchyRules;
+var init_text_hierarchy = __esm({
+  "src/rules/text-hierarchy.ts"() {
+    "use strict";
+    TITLE_TAGS = /* @__PURE__ */ new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
+    DESCRIPTION_TAGS = /* @__PURE__ */ new Set(["p", "blockquote", "figcaption", "li"]);
+    textHierarchyRules = [
+      {
+        id: "text-hierarchy/title-vs-description",
+        name: "Text Hierarchy: Title vs Description Size",
+        description: "Title-level elements must be visually larger than description-level elements",
+        defaultSeverity: "warn",
+        check: (element, context) => {
+          if (inferLevel(element) !== "title") return null;
+          const titleSize = parseFontSize(element);
+          if (titleSize === null) return null;
+          for (const other of context.allElements) {
+            if (inferLevel(other) !== "description") continue;
+            const descSize = parseFontSize(other);
+            if (descSize === null) continue;
+            if (descSize >= titleSize) {
+              const titleLabel = element.text?.slice(0, 30) || element.selector;
+              const descLabel = other.text?.slice(0, 30) || other.selector;
+              return {
+                ruleId: "text-hierarchy/title-vs-description",
+                ruleName: "Text Hierarchy: Title vs Description Size",
+                severity: "warn",
+                message: `Title "${titleLabel}" (${titleSize}px) is not larger than description "${descLabel}" (${descSize}px)`,
+                element: element.selector,
+                bounds: element.bounds,
+                fix: "Ensure heading/title font sizes are larger than body/description text"
+              };
+            }
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/handler-integrity.ts
+function looksInteractive(element) {
+  const tag = element.tagName.toLowerCase();
+  const role = element.a11y?.role ?? "";
+  const cursor = element.interactive?.cursor ?? "";
+  if (VISUALLY_INTERACTIVE_TAGS.has(tag)) return true;
+  if (VISUALLY_INTERACTIVE_ROLES.has(role)) return true;
+  if (cursor === "pointer") return true;
+  return false;
+}
+function hasAnyHandler(element) {
+  return !!(element.interactive.hasOnClick || element.interactive.hasHref || element.interactive.hasReactHandler || element.interactive.hasVueHandler || element.interactive.hasAngularHandler);
+}
+function hasDisabledVisual(element) {
+  const style = element.computedStyles;
+  if (!style) return false;
+  const opacity = parseFloat(style.opacity ?? "1");
+  if (!isNaN(opacity) && opacity <= 0.7) return true;
+  if (element.interactive.cursor === "not-allowed") return true;
+  const bg = style.backgroundColor ?? "";
+  const color = style.color ?? "";
+  const grayPattern = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/;
+  for (const c of [bg, color]) {
+    const m = c.match(grayPattern);
+    if (m) {
+      const r = parseInt(m[1], 10);
+      const g = parseInt(m[2], 10);
+      const b = parseInt(m[3], 10);
+      const range = Math.max(r, g, b) - Math.min(r, g, b);
+      if (range < 30 && r > 100 && r < 220) return true;
+    }
+  }
+  return false;
+}
+var VISUALLY_INTERACTIVE_ROLES, VISUALLY_INTERACTIVE_TAGS, handlerIntegrityRules;
+var init_handler_integrity = __esm({
+  "src/rules/handler-integrity.ts"() {
+    "use strict";
+    VISUALLY_INTERACTIVE_ROLES = /* @__PURE__ */ new Set(["button", "link", "menuitem", "tab", "option"]);
+    VISUALLY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a"]);
+    handlerIntegrityRules = [
+      {
+        id: "handler-integrity/fake-interactive",
+        name: "Handler Integrity: Fake Interactive Element",
+        description: "Elements that look interactive must have actual handlers",
+        defaultSeverity: "error",
+        check: (element, _context) => {
+          if (!looksInteractive(element)) return null;
+          if (element.interactive.isDisabled) return null;
+          if (hasAnyHandler(element)) return null;
+          const label = element.text || element.a11y?.ariaLabel || element.selector;
+          return {
+            ruleId: "handler-integrity/fake-interactive",
+            ruleName: "Handler Integrity: Fake Interactive Element",
+            severity: "error",
+            message: `"${label.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add an onClick handler, href, or remove interactive appearance"
+          };
+        }
+      },
+      {
+        id: "handler-integrity/disabled-no-visual",
+        name: "Handler Integrity: Disabled Without Visual State",
+        description: "Disabled elements must have a visible disabled appearance",
+        defaultSeverity: "warn",
+        check: (element, _context) => {
+          if (!element.interactive.isDisabled) return null;
+          if (hasDisabledVisual(element)) return null;
+          const label = element.text || element.a11y?.ariaLabel || element.selector;
+          return {
+            ruleId: "handler-integrity/disabled-no-visual",
+            ruleName: "Handler Integrity: Disabled Without Visual State",
+            severity: "warn",
+            message: `"${label.slice(0, 40)}" is disabled but shows no visual disabled state`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Apply opacity <= 0.7, cursor: not-allowed, or muted color to disabled elements"
+          };
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/spacing-grid.ts
+function parsePxValue(value) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "auto" || trimmed === "normal" || trimmed === "initial" || trimmed === "inherit") {
+    return null;
+  }
+  if (trimmed.endsWith("%")) return null;
+  if (trimmed.endsWith("em") || trimmed.endsWith("rem") || trimmed.endsWith("vw") || trimmed.endsWith("vh")) {
+    return null;
+  }
+  if (!trimmed.endsWith("px")) return null;
+  const n = parseFloat(trimmed);
+  return isNaN(n) ? null : n;
+}
+function isOnGrid(px) {
+  if (px === 0) return true;
+  return Math.round(px) % 4 === 0;
+}
+function parseSpacingShorthand(value) {
+  const parts = value.trim().split(/\s+/);
+  const results = [];
+  for (const part of parts) {
+    const px = parsePxValue(part);
+    if (px !== null) results.push(px);
+  }
+  return results;
+}
+var SPACING_PROPERTIES, spacingGridRules;
+var init_spacing_grid = __esm({
+  "src/rules/spacing-grid.ts"() {
+    "use strict";
+    SPACING_PROPERTIES = [
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft",
+      // Shorthand forms that may appear in computedStyles
+      "padding",
+      "margin",
+      "gap",
+      "rowGap",
+      "columnGap"
+    ];
+    spacingGridRules = [
+      {
+        id: "spacing-grid/off-grid",
+        name: "Spacing Grid: Off 8pt Grid",
+        description: "Padding and margin values should be multiples of 4px (half 8pt grid)",
+        defaultSeverity: "warn",
+        check: (element, _context) => {
+          const style = element.computedStyles;
+          if (!style) return null;
+          const offGridValues = [];
+          for (const prop of SPACING_PROPERTIES) {
+            const raw = style[prop];
+            if (!raw) continue;
+            const isShorthand = prop === "padding" || prop === "margin";
+            if (isShorthand) {
+              const values = parseSpacingShorthand(raw);
+              for (const v of values) {
+                if (!isOnGrid(v)) {
+                  offGridValues.push({ property: prop, value: raw });
+                  break;
+                }
+              }
+            } else {
+              const px = parsePxValue(raw);
+              if (px !== null && !isOnGrid(px)) {
+                offGridValues.push({ property: prop, value: raw });
+              }
+            }
+          }
+          if (offGridValues.length === 0) return null;
+          const detail = offGridValues.map((v) => `${v.property}: ${v.value}`).join(", ");
+          const label = element.text?.slice(0, 30) || element.selector;
+          return {
+            ruleId: "spacing-grid/off-grid",
+            ruleName: "Spacing Grid: Off 8pt Grid",
+            severity: "warn",
+            message: `"${label}" has off-grid spacing: ${detail}`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Use spacing values that are multiples of 4px (e.g., 4, 8, 12, 16, 20, 24, 32px)"
+          };
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/index.ts
+function runAllRules(elements, context) {
+  const results = [];
+  for (const element of elements) {
+    for (const rule of allRules) {
+      const violation = rule.check(element, context);
+      if (!violation) continue;
+      const severity = violation.severity === "error" ? "error" : "warning";
+      results.push({
+        rule: violation.ruleId,
+        severity,
+        element: violation.element ?? element.selector,
+        expected: violation.fix ?? "",
+        actual: violation.message,
+        evidence: {
+          ruleName: violation.ruleName,
+          bounds: violation.bounds,
+          selector: element.selector,
+          tagName: element.tagName,
+          text: element.text
+        }
+      });
+    }
+  }
+  return results;
+}
+var allRules;
+var init_rules = __esm({
+  "src/rules/index.ts"() {
+    "use strict";
+    init_wcag_contrast();
+    init_touch_targets();
+    init_text_hierarchy();
+    init_handler_integrity();
+    init_spacing_grid();
+    init_wcag_contrast();
+    init_touch_targets();
+    init_text_hierarchy();
+    init_handler_integrity();
+    init_spacing_grid();
+    allRules = [
+      ...wcagContrastRules,
+      ...touchTargetRules,
+      ...textHierarchyRules,
+      ...handlerIntegrityRules,
+      ...spacingGridRules
+    ];
+  }
+});
+
+// src/summarize.ts
+function extractSignature(el) {
+  const s = el.computedStyles ?? {};
+  return {
+    fontSize: s["fontSize"] ?? "",
+    fontWeight: s["fontWeight"] ?? "",
+    color: s["color"] ?? "",
+    backgroundColor: s["backgroundColor"] ?? "",
+    borderRadius: s["borderRadius"] ?? "",
+    padding: s["padding"] ?? ""
+  };
+}
+function hashSignature(sig) {
+  return SIGNATURE_KEYS.map((k) => `${k}:${sig[k]}`).join("|");
+}
+function matchCount(a, b) {
+  let count = 0;
+  for (const key of SIGNATURE_KEYS) {
+    if (a[key] === b[key]) count++;
+  }
+  return count;
+}
+function elementLabel(el) {
+  return el.text?.trim() || el.a11y?.ariaLabel || el.id || el.selector.slice(0, 60);
+}
+function resolveRole(el) {
+  return el.a11y?.role ?? el.tagName ?? "unknown";
+}
+function parseColor4(color) {
+  if (!color || color === "transparent" || color === "none") return null;
+  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return {
+      r: Number(rgbMatch[1]),
+      g: Number(rgbMatch[2]),
+      b: Number(rgbMatch[3])
+    };
+  }
+  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
+  if (hexMatch) {
+    const h = hexMatch[1];
+    if (h.length === 3) {
+      return {
+        r: parseInt(h[0] + h[0], 16),
+        g: parseInt(h[1] + h[1], 16),
+        b: parseInt(h[2] + h[2], 16)
+      };
+    }
+    if (h.length >= 6) {
+      return {
+        r: parseInt(h.slice(0, 2), 16),
+        g: parseInt(h.slice(2, 4), 16),
+        b: parseInt(h.slice(4, 6), 16)
+      };
+    }
+  }
+  const named = {
+    white: { r: 255, g: 255, b: 255 },
+    black: { r: 0, g: 0, b: 0 },
+    red: { r: 255, g: 0, b: 0 },
+    green: { r: 0, g: 128, b: 0 },
+    blue: { r: 0, g: 0, b: 255 },
+    gray: { r: 128, g: 128, b: 128 },
+    grey: { r: 128, g: 128, b: 128 }
+  };
+  return named[color.toLowerCase()] ?? null;
+}
+function relativeLuminance3(r, g, b) {
+  const lin = (c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function contrastRatio3(l1, l2) {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function buildVisualPatterns(elements) {
+  if (elements.length === 0) return [];
+  const groups = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const sig = extractSignature(el);
+    const key = hashSignature(sig);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.elements.push(el);
+    } else {
+      groups.set(key, { sig, elements: [el] });
+    }
+  }
+  const groupList = Array.from(groups.entries()).map(([key, { sig, elements: els }]) => ({
+    patternId: key.slice(0, 32),
+    // truncate for readability
+    styleSignature: sig,
+    count: els.length,
+    roles: [...new Set(els.map(resolveRole))],
+    memberElements: els
+  }));
+  const result = groupList.map((group) => {
+    const outliers = [];
+    for (const other of groupList) {
+      if (other.patternId === group.patternId) continue;
+      const matches = matchCount(group.styleSignature, other.styleSignature);
+      if (matches >= 5) {
+        for (const el of other.memberElements) {
+          outliers.push(elementLabel(el));
+        }
+      }
+    }
+    return {
+      patternId: group.patternId,
+      styleSignature: group.styleSignature,
+      count: group.count,
+      roles: group.roles,
+      outliers: [...new Set(outliers)].slice(0, 10)
+    };
+  });
+  return result.sort((a, b) => b.count - a.count);
+}
+function classifyElement(el) {
+  const testId = el.sourceHint?.dataTestId?.toLowerCase() ?? "";
+  for (const p of PRIMITIVE_PATTERNS) {
+    if (testId.includes(p.testIdIncludes)) {
+      return { pattern: p.name, compliance: "primitive" };
+    }
+  }
+  if (el.tagName === "button") {
+    return { pattern: "raw-button", compliance: "raw" };
+  }
+  if (["h1", "h2", "h3"].includes(el.tagName)) {
+    return { pattern: `raw-${el.tagName}`, compliance: "raw" };
+  }
+  if (["input", "select", "textarea"].includes(el.tagName)) {
+    return { pattern: "raw-input", compliance: "raw" };
+  }
+  if (el.tagName === "a") {
+    return { pattern: "raw-link", compliance: "raw" };
+  }
+  return { pattern: `raw-${el.tagName ?? "unknown"}`, compliance: "raw" };
+}
+function buildComponentCensus(elements, url) {
+  if (elements.length === 0) return [];
+  let route = "/";
+  try {
+    route = new URL(url).pathname;
+  } catch {
+    route = url;
+  }
+  const map = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const { pattern, compliance } = classifyElement(el);
+    const existing = map.get(pattern);
+    if (existing) {
+      existing.count++;
+      existing.pages.add(route);
+      existing.complianceCounts[compliance] = (existing.complianceCounts[compliance] ?? 0) + 1;
+    } else {
+      map.set(pattern, {
+        count: 1,
+        pages: /* @__PURE__ */ new Set([route]),
+        complianceCounts: { [compliance]: 1 }
+      });
+    }
+  }
+  return Array.from(map.entries()).map(([pattern, { count, pages, complianceCounts }]) => {
+    const primitiveCount = complianceCounts["primitive"] ?? 0;
+    const rawCount = complianceCounts["raw"] ?? 0;
+    let compliance;
+    if (primitiveCount > 0 && rawCount > 0) {
+      compliance = "mixed";
+    } else if (primitiveCount > 0) {
+      compliance = "primitive";
+    } else {
+      compliance = "raw";
+    }
+    return {
+      pattern,
+      count,
+      pages: [...pages],
+      compliance
+    };
+  }).sort((a, b) => b.count - a.count);
+}
+function buildNavigationMap(elements) {
+  if (elements.length === 0) return [];
+  const nodes = [];
+  for (const el of elements) {
+    const role = resolveRole(el);
+    const tag = el.tagName ?? "";
+    const isHeading = tag in HEADING_DEPTH;
+    const isNavRole = NAV_ROLES.has(role);
+    if (!isHeading && !isNavRole) continue;
+    const label = elementLabel(el);
+    if (!label) continue;
+    const depth = isHeading ? HEADING_DEPTH[tag] ?? 1 : 1;
+    const styles = el.computedStyles ?? {};
+    const hasFontWeightBold = styles["fontWeight"] === "bold" || parseInt(styles["fontWeight"] ?? "0", 10) >= 700;
+    const isActive = el.a11y?.role === "tab" ? hasFontWeightBold : void 0;
+    nodes.push({
+      label,
+      role,
+      depth,
+      isActive
+    });
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    let children = 0;
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (nodes[j].depth <= node.depth) break;
+      if (nodes[j].depth === node.depth + 1) children++;
+    }
+    if (children > 0) {
+      node.childCount = children;
+    }
+  }
+  return nodes;
+}
+function buildContrastReport(elements) {
+  if (elements.length === 0) return [];
+  const pairMap = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const styles = el.computedStyles ?? {};
+    const fg = styles["color"] ?? "";
+    const bg = styles["backgroundColor"] ?? "";
+    if (!fg && !bg) continue;
+    const key = `${fg}|${bg}`;
+    const existing = pairMap.get(key);
+    if (existing) {
+      existing.elements.push(el);
+    } else {
+      pairMap.set(key, { fg, bg, elements: [el] });
+    }
+  }
+  return Array.from(pairMap.values()).map(({ fg, bg, elements: els }) => {
+    const fgRgb = parseColor4(fg);
+    const bgRgb = parseColor4(bg);
+    let status = "unknown";
+    let ratio = 0;
+    if (fgRgb && bgRgb) {
+      const fgL = relativeLuminance3(fgRgb.r, fgRgb.g, fgRgb.b);
+      const bgL = relativeLuminance3(bgRgb.r, bgRgb.g, bgRgb.b);
+      ratio = contrastRatio3(fgL, bgL);
+      status = ratio >= 4.5 ? "pass" : "fail";
+    }
+    const sampleElements = els.slice(0, 3).map(elementLabel).filter(Boolean);
+    return {
+      status,
+      ratio: Math.round(ratio * 100) / 100,
+      foreground: fg,
+      background: bg,
+      elementCount: els.length,
+      sampleElements
+    };
+  });
+}
+function isLooksInteractive(el) {
+  const tag = el.tagName ?? "";
+  const role = el.a11y?.role ?? "";
+  const cursor = el.interactive?.cursor ?? el.computedStyles?.["cursor"] ?? "";
+  return INTERACTIVE_TAGS2.has(tag) || INTERACTIVE_ROLES2.has(role) || cursor === "pointer";
+}
+function buildInteractionMap(elements) {
+  if (elements.length === 0) return [];
+  const buckets = {
+    "has-handler": [],
+    "looks-interactive-no-handler": [],
+    "disabled-with-handler": [],
+    "properly-disabled": []
+  };
+  for (const el of elements) {
+    const inter = el.interactive;
+    if (!inter) continue;
+    const hasHandler = inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler;
+    const isDisabled = inter.isDisabled ?? false;
+    const looksInteractive2 = isLooksInteractive(el);
+    if (isDisabled && hasHandler) {
+      buckets["disabled-with-handler"].push(el);
+    } else if (isDisabled && !hasHandler) {
+      buckets["properly-disabled"].push(el);
+    } else if (hasHandler) {
+      buckets["has-handler"].push(el);
+    } else if (looksInteractive2) {
+      buckets["looks-interactive-no-handler"].push(el);
+    }
+  }
+  return Object.entries(buckets).filter(([, els]) => els.length > 0).map(([category, els]) => ({
+    category,
+    count: els.length,
+    elements: els.slice(0, 5).map(elementLabel)
+  }));
+}
+function estimateTokens(data) {
+  return Math.ceil(JSON.stringify(data).length / 4);
+}
+function summarizeScan(elements, url) {
+  const safeElements = elements ?? [];
+  const visualPatterns = buildVisualPatterns(safeElements);
+  const componentCensus = buildComponentCensus(safeElements, url);
+  const navigationMap = buildNavigationMap(safeElements);
+  const contrastReport = buildContrastReport(safeElements);
+  const interactionMap = buildInteractionMap(safeElements);
+  const summary = {
+    visualPatterns,
+    componentCensus,
+    navigationMap,
+    contrastReport,
+    interactionMap
+  };
+  const rawTokenEstimate = estimateTokens(safeElements);
+  const summaryTokenEstimate = estimateTokens(summary);
+  const reductionPercent = rawTokenEstimate > 0 ? Math.round(
+    (rawTokenEstimate - summaryTokenEstimate) / rawTokenEstimate * 100
+  ) : 0;
+  return {
+    ...summary,
+    tokenEfficiency: {
+      rawTokenEstimate,
+      summaryTokenEstimate,
+      reductionPercent
+    }
+  };
+}
+var SIGNATURE_KEYS, PRIMITIVE_PATTERNS, HEADING_DEPTH, NAV_ROLES, INTERACTIVE_TAGS2, INTERACTIVE_ROLES2;
+var init_summarize = __esm({
+  "src/summarize.ts"() {
+    "use strict";
+    SIGNATURE_KEYS = [
+      "fontSize",
+      "fontWeight",
+      "color",
+      "backgroundColor",
+      "borderRadius",
+      "padding"
+    ];
+    PRIMITIVE_PATTERNS = [
+      { testIdIncludes: "page-header", name: "PageHeader" },
+      { testIdIncludes: "page-title", name: "PageHeader" },
+      { testIdIncludes: "surface", name: "Surface+Row" },
+      { testIdIncludes: "card", name: "Surface+Row" },
+      { testIdIncludes: "nav-item", name: "NavItem" },
+      { testIdIncludes: "tab", name: "Tab" },
+      { testIdIncludes: "modal", name: "Modal" },
+      { testIdIncludes: "dialog", name: "Dialog" },
+      { testIdIncludes: "toast", name: "Toast" },
+      { testIdIncludes: "badge", name: "Badge" },
+      { testIdIncludes: "avatar", name: "Avatar" },
+      { testIdIncludes: "input", name: "Input" },
+      { testIdIncludes: "btn", name: "Button" },
+      { testIdIncludes: "button", name: "Button" }
+    ];
+    HEADING_DEPTH = {
+      h1: 1,
+      h2: 2,
+      h3: 3,
+      h4: 4,
+      h5: 5,
+      h6: 6
+    };
+    NAV_ROLES = /* @__PURE__ */ new Set(["navigation", "link", "tab", "menuitem", "option"]);
+    INTERACTIVE_TAGS2 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
+    INTERACTIVE_ROLES2 = /* @__PURE__ */ new Set(["button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem", "option", "tab"]);
+  }
+});
+
+// src/rules/presets/minimal.ts
+var minimal_exports = {};
+__export(minimal_exports, {
+  register: () => register,
+  rules: () => rules
+});
+function register() {
+  registerPreset(minimalPreset);
+}
+var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
+var init_minimal = __esm({
+  "src/rules/presets/minimal.ts"() {
+    "use strict";
+    init_engine();
+    noHandlerRule = {
+      id: "no-handler",
+      name: "No Click Handler",
+      description: "Interactive elements like buttons must have click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isButton = element.tagName === "button" || element.a11y.role === "button";
+        const isDisabled = element.interactive.isDisabled;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isButton && !isDisabled && !hasHandler) {
+          return {
+            ruleId: "no-handler",
+            ruleName: "No Click Handler",
+            severity: "error",
+            message: `Button "${element.text || element.selector}" has no click handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add an onClick handler or make the button disabled"
+          };
+        }
+        return null;
+      }
+    };
+    placeholderLinkRule = {
+      id: "placeholder-link",
+      name: "Placeholder Link",
+      description: "Links must have valid hrefs or click handlers",
+      defaultSeverity: "error",
+      check: (element, _context) => {
+        const isLink = element.tagName === "a";
+        const hasValidHref = element.interactive.hasHref;
+        const hasHandler = element.interactive.hasOnClick;
+        if (isLink && !hasValidHref && !hasHandler) {
+          return {
+            ruleId: "placeholder-link",
+            ruleName: "Placeholder Link",
+            severity: "error",
+            message: `Link "${element.text || element.selector}" has placeholder href and no handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add a valid href or onClick handler"
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetRule = {
+      id: "touch-target-small",
+      name: "Touch Target Too Small",
+      description: "Interactive elements must meet minimum touch target size",
+      defaultSeverity: "warn",
+      check: (element, context, options) => {
+        const isInteractive2 = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive2) return null;
+        const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+        const { width, height } = element.bounds;
+        if (width < minSize || height < minSize) {
+          return {
+            ruleId: "touch-target-small",
+            ruleName: "Touch Target Too Small",
+            severity: "warn",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${minSize}x${minSize}px`
+          };
+        }
+        return null;
+      }
+    };
+    missingAriaLabelRule = {
+      id: "missing-aria-label",
+      name: "Missing Accessible Label",
+      description: "Interactive elements without text need aria-label",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        const isInteractive2 = element.interactive.hasOnClick || element.interactive.hasHref;
+        if (!isInteractive2) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        const hasAriaLabel = element.a11y.ariaLabel && element.a11y.ariaLabel.trim().length > 0;
+        if (!hasText && !hasAriaLabel) {
+          return {
+            ruleId: "missing-aria-label",
+            ruleName: "Missing Accessible Label",
+            severity: "warn",
+            message: `"${element.selector}" is interactive but has no text or aria-label`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add visible text or aria-label attribute"
+          };
+        }
+        return null;
+      }
+    };
+    disabledNoVisualRule = {
+      id: "disabled-no-visual",
+      name: "Disabled Without Visual",
+      description: "Disabled elements should have visual indication",
+      defaultSeverity: "warn",
+      check: (element, _context) => {
+        if (!element.interactive.isDisabled) return null;
+        const cursor = element.interactive.cursor;
+        const hasDisabledCursor = cursor === "not-allowed" || cursor === "default";
+        const bgColor = element.computedStyles?.backgroundColor;
+        const hasGrayedBg = bgColor?.includes("gray") || bgColor?.includes("rgb(200") || bgColor?.includes("rgb(220");
+        if (!hasDisabledCursor && !hasGrayedBg) {
+          return {
+            ruleId: "disabled-no-visual",
+            ruleName: "Disabled Without Visual",
+            severity: "warn",
+            message: `"${element.text || element.selector}" is disabled but has no visual indication`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add cursor: not-allowed and/or gray background to disabled state"
+          };
+        }
+        return null;
+      }
+    };
+    minimalPreset = {
+      name: "minimal",
+      description: "Basic interactivity and accessibility checks",
+      rules: [
+        noHandlerRule,
+        placeholderLinkRule,
+        touchTargetRule,
+        missingAriaLabelRule,
+        disabledNoVisualRule
+      ],
+      defaults: {
+        "no-handler": "error",
+        "placeholder-link": "error",
+        "touch-target-small": "warn",
+        "missing-aria-label": "warn",
+        "disabled-no-visual": "warn"
+      }
+    };
+    rules = {
+      noHandlerRule,
+      placeholderLinkRule,
+      touchTargetRule,
+      missingAriaLabelRule,
+      disabledNoVisualRule
+    };
+  }
+});
+
+// src/rules/presets/calm-precision.ts
+var calm_precision_exports = {};
+__export(calm_precision_exports, {
+  register: () => register2
+});
+function register2() {
+  const defaults = {};
+  for (const rule of allCalmPrecisionRules) {
+    const isCore = corePrincipleIds.some(
+      (pid) => principleToRules[pid]?.includes(rule.id)
+    );
+    defaults[rule.id] = isCore ? "error" : "warn";
+  }
+  registerPreset({
+    name: "calm-precision",
+    description: "Calm Precision design principles \u2014 Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load",
+    rules: allCalmPrecisionRules,
+    defaults
+  });
+}
+var init_calm_precision2 = __esm({
+  "src/rules/presets/calm-precision.ts"() {
+    "use strict";
+    init_engine();
+    init_calm_precision();
+  }
+});
+
+// src/rules/presets/wcag-contrast.ts
+var wcag_contrast_exports = {};
+__export(wcag_contrast_exports, {
+  register: () => register3,
+  wcagContrastPresetRules: () => wcagContrastPresetRules
+});
+function parseColor5(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6Match) {
+    const n = parseInt(hex6Match[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3Match) {
+    const r = parseInt(hex3Match[1][0], 16) * 17;
+    const g = parseInt(hex3Match[1][1], 16) * 17;
+    const b = parseInt(hex3Match[1][2], 16) * 17;
+    return [r, g, b];
+  }
+  return null;
+}
+function linearize3(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance4(r, g, b) {
+  return 0.2126 * linearize3(r) + 0.7152 * linearize3(g) + 0.0722 * linearize3(b);
+}
+function contrastRatio4(fg, bg) {
+  const l1 = relativeLuminance4(...fg);
+  const l2 = relativeLuminance4(...bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText3(styles) {
+  const fontSizeStr = styles.fontSize ?? "";
+  const fontWeightStr = styles.fontWeight ?? "";
+  const fontSize = parseFloat(fontSizeStr);
+  if (isNaN(fontSize)) return false;
+  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+function register3() {
+  const defaults = {
+    "wcag-aa-contrast": "error",
+    "wcag-aaa-contrast": "warn"
+  };
+  registerPreset({
+    name: "wcag-contrast",
+    description: "WCAG 2.1 contrast ratio checks \u2014 AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)",
+    rules: wcagContrastPresetRules,
+    defaults
+  });
+}
+var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules;
+var init_wcag_contrast2 = __esm({
+  "src/rules/presets/wcag-contrast.ts"() {
+    "use strict";
+    init_engine();
+    wcagAAContrastRule = {
+      id: "wcag-aa-contrast",
+      name: "WCAG 2.1 AA Contrast",
+      description: "Text must meet WCAG 2.1 AA contrast ratio: 4.5:1 normal text, 3:1 large text",
+      defaultSeverity: "error",
+      check(element, _context) {
+        const style = element.computedStyles;
+        if (!style) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        if (!hasText) return null;
+        const fg = parseColor5(style.color ?? "");
+        const bg = parseColor5(style.backgroundColor ?? "");
+        if (!fg || !bg) return null;
+        const ratio = contrastRatio4(fg, bg);
+        const large = isLargeText3(style);
+        const required = large ? 3 : 4.5;
+        if (ratio < required) {
+          const ratioStr = ratio.toFixed(2);
+          const textSnippet = (element.text ?? "").slice(0, 40);
+          return {
+            ruleId: "wcag-aa-contrast",
+            ruleName: "WCAG 2.1 AA Contrast",
+            severity: "error",
+            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 fails WCAG 2.1 AA (requires ${required}:1 for ${large ? "large" : "normal"} text)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
+          };
+        }
+        return null;
+      }
+    };
+    wcagAAAContrastRule = {
+      id: "wcag-aaa-contrast",
+      name: "WCAG 2.1 AAA Contrast",
+      description: "Text should meet WCAG 2.1 AAA contrast ratio: 7:1 normal text, 4.5:1 large text",
+      defaultSeverity: "warn",
+      check(element, _context) {
+        const style = element.computedStyles;
+        if (!style) return null;
+        const hasText = element.text && element.text.trim().length > 0;
+        if (!hasText) return null;
+        const fg = parseColor5(style.color ?? "");
+        const bg = parseColor5(style.backgroundColor ?? "");
+        if (!fg || !bg) return null;
+        const ratio = contrastRatio4(fg, bg);
+        const large = isLargeText3(style);
+        const required = large ? 4.5 : 7;
+        if (ratio < required) {
+          const ratioStr = ratio.toFixed(2);
+          const textSnippet = (element.text ?? "").slice(0, 40);
+          return {
+            ruleId: "wcag-aaa-contrast",
+            ruleName: "WCAG 2.1 AAA Contrast",
+            severity: "warn",
+            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 below WCAG 2.1 AAA (${required}:1 for ${large ? "large" : "normal"} text)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""} to ${required}:1`
+          };
+        }
+        return null;
+      }
+    };
+    wcagContrastPresetRules = [wcagAAContrastRule, wcagAAAContrastRule];
+  }
+});
+
+// src/rules/presets/touch-targets.ts
+var touch_targets_exports = {};
+__export(touch_targets_exports, {
+  register: () => register4,
+  touchTargetPresetRules: () => touchTargetPresetRules
+});
+function isInteractive(el) {
+  const role = el.a11y.role ?? "";
+  const tag = (el.tagName ?? "").toLowerCase();
+  const interactiveRoles = /* @__PURE__ */ new Set([
+    "button",
+    "link",
+    "menuitem",
+    "tab",
+    "checkbox",
+    "radio",
+    "switch",
+    "textbox",
+    "combobox",
+    "slider"
+  ]);
+  if (interactiveRoles.has(role)) return true;
+  if (["a", "button", "input", "select", "textarea"].includes(tag)) return true;
+  if (el.interactive.hasOnClick || el.interactive.hasHref || el.interactive.hasReactHandler === true || el.interactive.hasVueHandler === true || el.interactive.hasAngularHandler === true) {
+    return true;
+  }
+  return false;
+}
+function register4() {
+  const defaults = {
+    "touch-target-mobile": "error",
+    "touch-target-desktop": "warn"
+  };
+  registerPreset({
+    name: "touch-targets",
+    description: "Minimum touch and pointer target sizes \u2014 WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)",
+    rules: touchTargetPresetRules,
+    defaults
+  });
+}
+var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules;
+var init_touch_targets2 = __esm({
+  "src/rules/presets/touch-targets.ts"() {
+    "use strict";
+    init_engine();
+    mobileTouchTargetRule = {
+      id: "touch-target-mobile",
+      name: "Mobile Touch Target Size",
+      description: "Interactive elements must be at least 44x44px on mobile viewports (WCAG 2.5.5 AAA / Apple HIG)",
+      defaultSeverity: "error",
+      check(element, context) {
+        if (!context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 44;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-mobile",
+            ruleName: "Mobile Touch Target Size",
+            severity: "error",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
+          };
+        }
+        return null;
+      }
+    };
+    desktopPointerTargetRule = {
+      id: "touch-target-desktop",
+      name: "Desktop Pointer Target Size",
+      description: "Interactive elements should be at least 24x24px on desktop viewports (WCAG 2.5.8 AA)",
+      defaultSeverity: "warn",
+      check(element, context) {
+        if (context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 24;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-desktop",
+            ruleName: "Desktop Pointer Target Size",
+            severity: "warn",
+            message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetPresetRules = [mobileTouchTargetRule, desktopPointerTargetRule];
+  }
+});
+
+// src/rules/engine.ts
+var engine_exports = {};
+__export(engine_exports, {
+  createAuditResult: () => createAuditResult,
+  formatAuditResult: () => formatAuditResult,
+  getPreset: () => getPreset,
+  listPresets: () => listPresets,
+  loadMemoryPreset: () => loadMemoryPreset,
+  loadRulesConfig: () => loadRulesConfig,
+  registerPreset: () => registerPreset,
+  runRules: () => runRules
+});
+function registerPreset(preset) {
+  presets.set(preset.name, preset);
+}
+function getPreset(name) {
+  return presets.get(name);
+}
+function listPresets() {
+  return Array.from(presets.keys());
+}
+async function loadRulesConfig(projectDir) {
+  const configPath = (0, import_path15.join)(projectDir, ".ibr", "rules.json");
+  if (!(0, import_fs8.existsSync)(configPath)) {
+    return { extends: [], rules: {} };
+  }
+  try {
+    const content = await (0, import_promises16.readFile)(configPath, "utf-8");
+    return JSON.parse(content);
+  } catch (error) {
+    console.warn(`Failed to parse rules.json: ${error}`);
+    return { extends: [], rules: {} };
+  }
+}
+function mergeRuleSettings(presetNames, userRules = {}) {
+  const allRules2 = [];
+  const settings = /* @__PURE__ */ new Map();
+  const seenRuleIds = /* @__PURE__ */ new Set();
+  for (const presetName of presetNames) {
+    const preset = presets.get(presetName);
+    if (!preset) {
+      console.warn(`Unknown preset: ${presetName}`);
+      continue;
+    }
+    for (const rule of preset.rules) {
+      if (!seenRuleIds.has(rule.id)) {
+        allRules2.push(rule);
+        seenRuleIds.add(rule.id);
+        const defaultSetting = preset.defaults[rule.id] ?? rule.defaultSeverity;
+        if (typeof defaultSetting === "string") {
+          settings.set(rule.id, { severity: defaultSetting });
+        } else {
+          settings.set(rule.id, { severity: defaultSetting[0], options: defaultSetting[1] });
+        }
+      }
+    }
+  }
+  for (const [ruleId, setting] of Object.entries(userRules)) {
+    if (typeof setting === "string") {
+      settings.set(ruleId, { severity: setting });
+    } else {
+      settings.set(ruleId, { severity: setting[0], options: setting[1] });
+    }
+  }
+  return { rules: allRules2, settings };
+}
+function runRules(elements, context, config) {
+  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
+  const violations = [];
+  for (const element of elements) {
+    for (const rule of rules2) {
+      const setting = settings.get(rule.id);
+      if (!setting || setting.severity === "off") {
+        continue;
+      }
+      const violation = rule.check(element, context, setting.options);
+      if (violation) {
+        violations.push({
+          ...violation,
+          severity: setting.severity
+        });
+      }
+    }
+  }
+  return violations;
+}
+function createAuditResult(url, elements, violations) {
+  const errors = violations.filter((v) => v.severity === "error").length;
+  const warnings = violations.filter((v) => v.severity === "warn").length;
+  return {
+    url,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    elementsScanned: elements.length,
+    violations,
+    summary: {
+      errors,
+      warnings,
+      passed: elements.length - errors - warnings
+    }
+  };
+}
+function formatAuditResult(result) {
+  const lines = [];
+  lines.push(`IBR Audit: ${result.url}`);
+  lines.push(`Scanned: ${result.elementsScanned} elements`);
+  lines.push("");
+  if (result.violations.length === 0) {
+    lines.push("No violations found.");
+  } else {
+    lines.push(`Found ${result.summary.errors} errors, ${result.summary.warnings} warnings:`);
+    lines.push("");
+    for (const v of result.violations) {
+      const icon = v.severity === "error" ? "\u2717" : "!";
+      lines.push(`  ${icon} [${v.ruleId}] ${v.message}`);
+      if (v.element) {
+        lines.push(`    Element: ${v.element.slice(0, 60)}${v.element.length > 60 ? "..." : ""}`);
+      }
+      if (v.fix) {
+        lines.push(`    Fix: ${v.fix}`);
+      }
+    }
+  }
+  lines.push("");
+  lines.push(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.passed} passed`);
+  return lines.join("\n");
+}
+async function loadMemoryPreset(outputDir) {
+  try {
+    const { loadSummary: loadSummary2, createMemoryPreset: createMemoryPreset2 } = await Promise.resolve().then(() => (init_memory(), memory_exports));
+    const summary = await loadSummary2(outputDir);
+    if (summary.activePreferences.length > 0) {
+      const preset = createMemoryPreset2(summary.activePreferences);
+      registerPreset(preset);
+    }
+  } catch {
+  }
+}
+var import_promises16, import_fs8, import_path15, presets;
+var init_engine = __esm({
+  "src/rules/engine.ts"() {
+    "use strict";
+    import_promises16 = require("fs/promises");
+    import_fs8 = require("fs");
+    import_path15 = require("path");
+    presets = /* @__PURE__ */ new Map();
+    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
+    });
+    Promise.resolve().then(() => (init_calm_precision2(), calm_precision_exports)).then((m) => m.register()).catch(() => {
+    });
+    Promise.resolve().then(() => (init_wcag_contrast2(), wcag_contrast_exports)).then((m) => m.register()).catch(() => {
+    });
+    Promise.resolve().then(() => (init_touch_targets2(), touch_targets_exports)).then((m) => m.register()).catch(() => {
+    });
+  }
+});
+
 // src/scan.ts
 var scan_exports = {};
 __export(scan_exports, {
@@ -10965,13 +13027,24 @@ async function scan(url, options = {}) {
     waitFor,
     screenshot,
     networkIdleTimeout,
-    patience
+    patience,
+    headed = false,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
+    hydrationStrategy = "auto",
+    rules: rulePresets
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
   const driver3 = new EngineDriver();
   await driver3.launch({
-    headless: true,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height }
+    headless: !headed,
+    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   });
   const page = new CompatPage(driver3);
   const consoleErrors = [];
@@ -10997,6 +13070,26 @@ async function scan(url, options = {}) {
       await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
         waitForTimedOut = true;
       });
+    }
+    let hydrationTimedOut = false;
+    let hydrationReason = "skipped";
+    if (hydrationStrategy !== "none") {
+      const shouldWaitForHydration = hydrationStrategy === "stable" || await detectSPAFramework(driver3);
+      if (shouldWaitForHydration) {
+        const hydrationResult = await waitForHydration(
+          driver3.connection,
+          () => driver3.getSnapshot(),
+          (expr) => driver3.evaluate(expr),
+          {
+            timeout: patience ?? 8e3,
+            stableTime: 500,
+            minElements: 1,
+            settleTime: 200
+          }
+        );
+        hydrationTimedOut = hydrationResult.timedOut;
+        hydrationReason = hydrationResult.reason;
+      }
     }
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
@@ -11028,6 +13121,35 @@ async function scan(url, options = {}) {
     );
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
+    const sensors = runSensors({
+      elements: elements.all,
+      interactivity,
+      semantic,
+      url,
+      viewport: resolvedViewport
+    });
+    const ruleContext = {
+      isMobile: resolvedViewport.width < 768,
+      viewportWidth: resolvedViewport.width,
+      viewportHeight: resolvedViewport.height,
+      url,
+      allElements: elements.all
+    };
+    const ruleEngine = runAllRules(elements.all, ruleContext);
+    if (rulePresets && rulePresets.length > 0) {
+      const presetConfig = { extends: rulePresets, rules: {} };
+      const presetViolations = runRules(elements.all, ruleContext, presetConfig);
+      for (const v of presetViolations) {
+        issues.push({
+          category: "interactivity",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: `[${v.ruleId}] ${v.message}`,
+          fix: v.fix
+        });
+      }
+    }
+    const summaries = summarizeScan(elements.all, url);
     const baseResult = {
       url,
       route,
@@ -11036,6 +13158,9 @@ async function scan(url, options = {}) {
       elements,
       interactivity,
       semantic,
+      sensors,
+      ruleEngine,
+      summaries,
       console: {
         errors: consoleErrors,
         warnings: consoleWarnings
@@ -11044,6 +13169,7 @@ async function scan(url, options = {}) {
       layoutCollisions,
       themeAnalysis,
       designSystem,
+      hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
       verdict,
       issues,
       summary
@@ -11058,6 +13184,19 @@ async function scan(url, options = {}) {
     return baseResult;
   } finally {
     await driver3.close();
+  }
+}
+async function detectSPAFramework(driver3) {
+  try {
+    const result = await driver3.evaluate(`
+      !!(window.__NEXT_DATA__ || window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
+         window.__NUXT__ || window.__VUE_DEVTOOLS_GLOBAL_HOOK__ ||
+         document.querySelector('[data-reactroot]') ||
+         document.querySelector('#__next'))
+    `);
+    return result === true;
+  } catch {
+    return false;
   }
 }
 async function extractAndAudit(page, viewport) {
@@ -11298,6 +13437,11 @@ var init_scan = __esm({
     init_layout_collision();
     init_consistency();
     init_design_system();
+    init_wait();
+    init_sensors();
+    init_rules();
+    init_summarize();
+    init_engine();
     IssueCollector = class {
       issues = [];
       add(issue) {
@@ -11495,7 +13639,7 @@ async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises16.mkdir)((0, import_path15.dirname)(outputPath), { recursive: true });
+    await (0, import_promises17.mkdir)((0, import_path16.dirname)(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -11521,14 +13665,14 @@ async function captureNativeScreenshot(options) {
     };
   }
 }
-var import_child_process3, import_util2, import_promises16, import_path15, execFileAsync2;
+var import_child_process3, import_util2, import_promises17, import_path16, execFileAsync2;
 var init_capture2 = __esm({
   "src/native/capture.ts"() {
     "use strict";
     import_child_process3 = require("child_process");
     import_util2 = require("util");
-    import_promises16 = require("fs/promises");
-    import_path15 = require("path");
+    import_promises17 = require("fs/promises");
+    import_path16 = require("path");
     init_viewports();
     execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
   }
@@ -11542,9 +13686,9 @@ function mapRoleToAriaRole(role) {
   return ARIA_MAP[role] || null;
 }
 function isInteractiveRole(role) {
-  return INTERACTIVE_ROLES.has(role);
+  return INTERACTIVE_ROLES3.has(role);
 }
-var TAG_MAP, ARIA_MAP, INTERACTIVE_ROLES;
+var TAG_MAP, ARIA_MAP, INTERACTIVE_ROLES3;
 var init_role_map = __esm({
   "src/native/role-map.ts"() {
     "use strict";
@@ -11603,7 +13747,7 @@ var init_role_map = __esm({
       "AXScrollArea": "scrollbar",
       "AXWindow": "main"
     };
-    INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+    INTERACTIVE_ROLES3 = /* @__PURE__ */ new Set([
       "AXButton",
       "AXLink",
       "AXTextField",
@@ -11623,18 +13767,18 @@ var init_role_map = __esm({
 
 // src/native/extract.ts
 async function ensureExtractor() {
-  if ((0, import_fs8.existsSync)(EXTRACTOR_PATH)) {
+  if ((0, import_fs9.existsSync)(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
-  await (0, import_promises17.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  await (0, import_promises18.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
     await execFileAsync3("swift", ["build", "-c", "release"], {
       cwd: SWIFT_SOURCE_DIR,
       timeout: 12e4
       // 2 minutes for first compile
     });
-    const buildPath = (0, import_path16.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs8.existsSync)(buildPath)) {
+    const buildPath = (0, import_path17.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    if (!(0, import_fs9.existsSync)(buildPath)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
     await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
@@ -11647,8 +13791,8 @@ async function ensureExtractor() {
   }
 }
 function isExtractorAvailable() {
-  if ((0, import_fs8.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs8.existsSync)((0, import_path16.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  if ((0, import_fs9.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs9.existsSync)((0, import_path17.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -11676,7 +13820,7 @@ function mapToEnhancedElements(nativeElements) {
   function flatten(elements, depth = 0) {
     for (const el of elements) {
       const tagName = mapRoleToTag(el.role);
-      const isInteractive = isInteractiveRole(el.role) && el.isEnabled;
+      const isInteractive2 = isInteractiveRole(el.role) && el.isEnabled;
       enhanced.push({
         selector: el.identifier || `[role="${el.role}"][label="${el.label}"]`,
         tagName,
@@ -11688,11 +13832,11 @@ function mapToEnhancedElements(nativeElements) {
           height: el.frame.height
         },
         interactive: {
-          hasOnClick: isInteractive,
+          hasOnClick: isInteractive2,
           hasHref: false,
           isDisabled: !el.isEnabled,
-          tabIndex: isInteractive ? 0 : -1,
-          cursor: isInteractive ? "pointer" : "default"
+          tabIndex: isInteractive2 ? 0 : -1,
+          cursor: isInteractive2 ? "pointer" : "default"
         },
         a11y: {
           role: mapRoleToAriaRole(el.role),
@@ -11708,20 +13852,20 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs8, import_promises17, import_path16, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var import_child_process4, import_util3, import_fs9, import_promises18, import_path17, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util3 = require("util");
-    import_fs8 = require("fs");
-    import_promises17 = require("fs/promises");
-    import_path16 = require("path");
+    import_fs9 = require("fs");
+    import_promises18 = require("fs/promises");
+    import_path17 = require("path");
     init_role_map();
     execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path16.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path16.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = (0, import_path16.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    EXTRACTOR_DIR = (0, import_path17.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path17.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = (0, import_path17.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
   }
 });
 
@@ -11773,7 +13917,7 @@ function auditNativeElements(elements, platform, viewport) {
   }
   return issues;
 }
-var init_rules = __esm({
+var init_rules2 = __esm({
   "src/native/rules.ts"() {
     "use strict";
   }
@@ -11862,7 +14006,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
       roleCounts[el.role] = roleCount + 1;
       const currentPath = path2 ? `${path2} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
       const tagName = mapRoleToTag(el.role);
-      const isInteractive = isInteractiveRole(el.role) && el.enabled;
+      const isInteractive2 = isInteractiveRole(el.role) && el.enabled;
       const hasPress = el.actions.includes("AXPress");
       const text = el.title || el.description || el.value || void 0;
       const bounds = {
@@ -11871,7 +14015,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
         width: el.size?.width ?? 0,
         height: el.size?.height ?? 0
       };
-      if (bounds.width > 0 || bounds.height > 0 || text || isInteractive || depth <= 1) {
+      if (bounds.width > 0 || bounds.height > 0 || text || isInteractive2 || depth <= 1) {
         enhanced.push({
           selector: el.identifier || currentPath,
           tagName,
@@ -11879,11 +14023,11 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
           text: text ? text.slice(0, 100) : void 0,
           bounds,
           interactive: {
-            hasOnClick: hasPress || isInteractive,
+            hasOnClick: hasPress || isInteractive2,
             hasHref: el.role === "AXLink",
             isDisabled: !el.enabled,
-            tabIndex: el.focused || isInteractive ? 0 : -1,
-            cursor: isInteractive ? "pointer" : "default"
+            tabIndex: el.focused || isInteractive2 ? 0 : -1,
+            cursor: isInteractive2 ? "pointer" : "default"
           },
           a11y: {
             role: mapRoleToAriaRole(el.role),
@@ -11902,19 +14046,19 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises18.mkdir)((0, import_path17.dirname)(outputPath), { recursive: true });
+  await (0, import_promises19.mkdir)((0, import_path18.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
 }
-var import_child_process5, import_util4, import_promises18, import_path17, execFileAsync4, execAsync;
+var import_child_process5, import_util4, import_promises19, import_path18, execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
     "use strict";
     import_child_process5 = require("child_process");
     import_util4 = require("util");
-    import_promises18 = require("fs/promises");
-    import_path17 = require("path");
+    import_promises19 = require("fs/promises");
+    import_path18 = require("path");
     init_extract3();
     init_role_map();
     execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
@@ -12192,7 +14336,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp = Date.now();
-    const ssPath = (0, import_path18.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const ssPath = (0, import_path19.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -12420,18 +14564,18 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_path18;
+var import_path19;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
     "use strict";
-    import_path18 = require("path");
+    import_path19 = require("path");
     init_scan();
     init_extract2();
     init_simulator();
     init_capture2();
     init_viewports();
     init_extract3();
-    init_rules();
+    init_rules2();
     init_macos();
     init_interactivity2();
     init_semantic2();
@@ -12499,7 +14643,7 @@ function drawLabel(png, cx, cy, id) {
 async function annotateScreenshot(screenshotPath, issues) {
   let png;
   try {
-    const buf = (0, import_fs9.readFileSync)(screenshotPath);
+    const buf = (0, import_fs10.readFileSync)(screenshotPath);
     png = import_pngjs3.PNG.sync.read(buf);
   } catch {
     return null;
@@ -12511,18 +14655,18 @@ async function annotateScreenshot(screenshotPath, issues) {
   }
   const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
   try {
-    (0, import_fs9.writeFileSync)(outPath, import_pngjs3.PNG.sync.write(png));
+    (0, import_fs10.writeFileSync)(outPath, import_pngjs3.PNG.sync.write(png));
   } catch {
     return null;
   }
   return outPath;
 }
-var import_pngjs3, import_fs9, DIGITS;
+var import_pngjs3, import_fs10, DIGITS;
 var init_annotate = __esm({
   "src/native/annotate.ts"() {
     "use strict";
     import_pngjs3 = require("pngjs");
-    import_fs9 = require("fs");
+    import_fs10 = require("fs");
     DIGITS = [
       [31, 17, 17, 17, 17, 17, 31],
       // 0
@@ -12564,12 +14708,12 @@ function computeScreenRegion(bounds, viewport) {
   const row = cy < viewport.height / 3 ? "top" : cy < viewport.height * 2 / 3 ? "middle" : "bottom";
   return `${row}-${col}`;
 }
-function buildSuggestedFix(issueType, elementLabel) {
+function buildSuggestedFix(issueType, elementLabel2) {
   switch (issueType) {
     case "TOUCH_TARGET_SMALL":
       return ".frame(minWidth: 44, minHeight: 44) or wrap in a larger tap area with .contentShape(Rectangle())";
     case "MISSING_ARIA_LABEL": {
-      const desc = elementLabel && elementLabel.length > 0 && !elementLabel.startsWith("[role") ? elementLabel : "descriptive text for this control";
+      const desc = elementLabel2 && elementLabel2.length > 0 && !elementLabel2.startsWith("[role") ? elementLabel2 : "descriptive text for this control";
       return `Add .accessibilityLabel("${desc}")`;
     }
     case "NO_HANDLER":
@@ -12588,10 +14732,10 @@ function issueTypeToCategory(issueType) {
   if (issueType === "NO_HANDLER" || issueType === "PLACEHOLDER_LINK") return "accessibility";
   return "accessibility";
 }
-function buildSearchPattern(correlation, elementSelector, elementLabel) {
+function buildSearchPattern(correlation, elementSelector, elementLabel2) {
   if (!correlation) {
-    if (elementLabel) {
-      const escaped = elementLabel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (elementLabel2) {
+      const escaped = elementLabel2.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       return `Button.*${escaped}|Text.*${escaped}`;
     }
     return elementSelector;
@@ -12604,7 +14748,7 @@ function buildSearchPattern(correlation, elementSelector, elementLabel) {
     case "view-name":
       return `struct ${correlation.viewName}: View`;
     case "text": {
-      const label = correlation.elementLabel || elementLabel;
+      const label = correlation.elementLabel || elementLabel2;
       if (label) {
         const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         return `Button.*${escaped}|Image.*${escaped}`;
@@ -12649,19 +14793,19 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
   const fixableIssues = [];
   let idCounter = 1;
   for (const issue of scanResult.nativeIssues) {
-    const elementLabel = extractLabel(issue.message);
-    const elementSelector = elementLabel || issue.type;
+    const elementLabel2 = extractLabel(issue.message);
+    const elementSelector = elementLabel2 || issue.type;
     if (isSimulatorChrome(elementSelector, issue.message)) continue;
-    const key = dedupKey(elementLabel || elementSelector, issue.type);
+    const key = dedupKey(elementLabel2 || elementSelector, issue.type);
     if (seen.has(key)) continue;
     seen.add(key);
-    let bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? null;
-    if (!bounds && elementLabel === "" && unlabeledIdx < unlabeledButtons.length) {
+    let bounds = boundsMap.get(elementLabel2.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? null;
+    if (!bounds && elementLabel2 === "" && unlabeledIdx < unlabeledButtons.length) {
       bounds = unlabeledButtons[unlabeledIdx++];
     }
     bounds = bounds ?? { x: 0, y: 0, width: 0, height: 0 };
     const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
-    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    const correlation = correlationMap.get(elementLabel2.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
     fixableIssues.push({
       id: idCounter++,
       category: issueTypeToCategory(issue.type),
@@ -12669,29 +14813,29 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
       what: issue.message,
       where: { element: elementSelector, bounds, screenRegion: region },
       current: issue.message,
-      required: buildSuggestedFix(issue.type, elementLabel),
+      required: buildSuggestedFix(issue.type, elementLabel2),
       source: correlation ? {
         file: correlation.sourceFile,
         line: correlation.sourceLine,
         confidence: correlation.confidence,
         matchedOn: correlation.matchType,
-        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel2)
       } : void 0,
-      suggestedFix: buildSuggestedFix(issue.type, elementLabel)
+      suggestedFix: buildSuggestedFix(issue.type, elementLabel2)
     });
   }
   for (const issue of scanResult.issues) {
     if (issue.severity === "info") continue;
-    const elementLabel = extractLabel(issue.description);
-    const elementSelector = issue.element ?? elementLabel;
+    const elementLabel2 = extractLabel(issue.description);
+    const elementSelector = issue.element ?? elementLabel2;
     if (isSimulatorChrome(elementSelector, issue.description)) continue;
     const issueType = issue.description.includes("touch target") || issue.description.includes("Touch target") ? "TOUCH_TARGET_SMALL" : issue.description.includes("accessibility label") || issue.description.includes("aria-label") ? "MISSING_ARIA_LABEL" : issue.category;
-    const key = dedupKey(elementLabel || elementSelector, issueType);
+    const key = dedupKey(elementLabel2 || elementSelector, issueType);
     if (seen.has(key)) continue;
     seen.add(key);
-    const bounds = boundsMap.get(elementLabel.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
+    const bounds = boundsMap.get(elementLabel2.toLowerCase()) ?? boundsMap.get(elementSelector.toLowerCase()) ?? { x: 0, y: 0, width: 0, height: 0 };
     const region = bounds.x > 0 || bounds.y > 0 ? computeScreenRegion(bounds, viewport) : "unknown";
-    const correlation = correlationMap.get(elementLabel.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
+    const correlation = correlationMap.get(elementLabel2.toLowerCase()) ?? correlationMap.get(elementSelector.toLowerCase());
     fixableIssues.push({
       id: idCounter++,
       category: issue.category === "interactivity" ? "touch-target" : issue.category,
@@ -12699,15 +14843,15 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
       what: issue.description,
       where: { element: elementSelector, bounds, screenRegion: region },
       current: issue.description,
-      required: issue.fix ?? buildSuggestedFix(issueType, elementLabel),
+      required: issue.fix ?? buildSuggestedFix(issueType, elementLabel2),
       source: correlation ? {
         file: correlation.sourceFile,
         line: correlation.sourceLine,
         confidence: correlation.confidence,
         matchedOn: correlation.matchType,
-        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel)
+        searchPattern: buildSearchPattern(correlation, elementSelector, elementLabel2)
       } : void 0,
-      suggestedFix: issue.fix ?? buildSuggestedFix(issueType, elementLabel)
+      suggestedFix: issue.fix ?? buildSuggestedFix(issueType, elementLabel2)
     });
   }
   const uniqueFiles = new Set(
@@ -12776,7 +14920,7 @@ var init_native = __esm({
     init_simulator();
     init_capture2();
     init_extract3();
-    init_rules();
+    init_rules2();
     init_scan2();
     init_macos();
     init_interactivity2();
@@ -12986,6 +15130,7 @@ __export(index_exports, {
   registerOperation: () => registerOperation,
   removeGlobalPreference: () => removeGlobalPreference,
   removePreference: () => removePreference,
+  runAllRules: () => runAllRules,
   runDesignSystemCheck: () => runDesignSystemCheck,
   saveCompactContext: () => saveCompactContext,
   saveSummary: () => saveSummary,
@@ -12997,6 +15142,7 @@ __export(index_exports, {
   seedFromGlobal: () => seedFromGlobal,
   setActiveRoute: () => setActiveRoute,
   stylisticPrincipleIds: () => stylisticPrincipleIds,
+  summarizeScan: () => summarizeScan,
   testInteractivity: () => testInteractivity,
   testResponsive: () => testResponsive,
   updateCompactContext: () => updateCompactContext,
@@ -13014,29 +15160,39 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path19.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path20.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
-    timeout = 3e4
+    timeout = 3e4,
+    headed = false,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   if (!baselinePath && !url) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises19.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises20.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path19.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path19.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path19.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path20.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path20.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path20.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
       outputPath: actualBaselinePath,
       viewport: resolvedViewport,
       fullPage,
+      headed,
       waitForNetworkIdle,
-      timeout
+      timeout,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
     });
   }
   if (url && !currentPath) {
@@ -13045,17 +15201,22 @@ async function compare(options) {
       outputPath: actualCurrentPath,
       viewport: resolvedViewport,
       fullPage,
+      headed,
       waitForNetworkIdle,
-      timeout
+      timeout,
+      browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
     });
   }
   try {
-    await (0, import_promises19.access)(actualBaselinePath);
+    await (0, import_promises20.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises19.access)(actualCurrentPath);
+    await (0, import_promises20.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -13104,7 +15265,7 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path19.dirname)(paths.diff),
+      outputDir: (0, import_path20.dirname)(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
@@ -13122,7 +15283,7 @@ async function compareAll(options = {}) {
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path19.dirname)(paths.diff),
+          outputDir: (0, import_path20.dirname)(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -13134,7 +15295,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises19, import_path19, import_os3, InterfaceBuiltRight, IBRSession;
+var import_promises20, import_path20, import_os3, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -13147,8 +15308,8 @@ var init_index = __esm({
     init_flows();
     init_driver();
     init_compat();
-    import_promises19 = require("fs/promises");
-    import_path19 = require("path");
+    import_promises20 = require("fs/promises");
+    import_path20 = require("path");
     import_os3 = require("os");
     init_cleanup();
     init_schemas();
@@ -13174,6 +15335,8 @@ var init_index = __esm({
     init_compact();
     init_types3();
     init_scan();
+    init_rules();
+    init_summarize();
     init_tokens();
     init_design_system();
     init_tokens2();
@@ -13194,7 +15357,12 @@ var init_index = __esm({
           viewport = this.config.viewport,
           fullPage = this.config.fullPage,
           selector,
-          waitFor
+          waitFor,
+          headed = false,
+          browserMode = this.config.browserMode,
+          cdpUrl = this.config.cdpUrl,
+          wsEndpoint = this.config.wsEndpoint,
+          chromePath = this.config.chromePath
         } = options;
         const url = this.resolveUrl(path2);
         const session = await createSession(this.config.outputDir, url, name, viewport);
@@ -13204,11 +15372,16 @@ var init_index = __esm({
           outputPath: paths.baseline,
           viewport,
           fullPage,
+          headed,
           waitForNetworkIdle: this.config.waitForNetworkIdle,
           timeout: this.config.timeout,
           outputDir: this.config.outputDir,
           selector,
-          waitFor
+          waitFor,
+          browserMode,
+          cdpUrl,
+          wsEndpoint,
+          chromePath
         });
         const updatedSession = await updateSession(this.config.outputDir, session.id, {
           landmarkElements: captureResult.landmarkElements,
@@ -13237,7 +15410,11 @@ var init_index = __esm({
           fullPage: this.config.fullPage,
           waitForNetworkIdle: this.config.waitForNetworkIdle,
           timeout: this.config.timeout,
-          outputDir: this.config.outputDir
+          outputDir: this.config.outputDir,
+          browserMode: this.config.browserMode,
+          cdpUrl: this.config.cdpUrl,
+          wsEndpoint: this.config.wsEndpoint,
+          chromePath: this.config.chromePath
         });
         const comparison = await compareImages({
           baselinePath: paths.baseline,
@@ -13321,7 +15498,11 @@ var init_index = __esm({
           fullPage: this.config.fullPage,
           waitForNetworkIdle: this.config.waitForNetworkIdle,
           timeout: this.config.timeout,
-          outputDir: this.config.outputDir
+          outputDir: this.config.outputDir,
+          browserMode: this.config.browserMode,
+          cdpUrl: this.config.cdpUrl,
+          wsEndpoint: this.config.wsEndpoint,
+          chromePath: this.config.chromePath
         });
         return updateSession(this.config.outputDir, session.id, {
           status: "baseline",
@@ -13343,7 +15524,14 @@ var init_index = __esm({
         const viewportName = options.viewport || "desktop";
         const viewport = VIEWPORTS[viewportName];
         const driver3 = new EngineDriver();
-        await driver3.launch({ headless: true, viewport: { width: viewport.width, height: viewport.height } });
+        await driver3.launch({
+          headless: !options.headed,
+          viewport: { width: viewport.width, height: viewport.height },
+          mode: this.config.browserMode,
+          cdpUrl: this.config.cdpUrl,
+          wsEndpoint: this.config.wsEndpoint,
+          chromePath: this.config.chromePath
+        });
         const page = new CompatPage(driver3);
         await page.goto(fullUrl, {
           waitUntil: "domcontentloaded",
@@ -14167,347 +16355,6 @@ var init_driver2 = __esm({
   }
 });
 
-// src/rules/presets/minimal.ts
-var minimal_exports = {};
-__export(minimal_exports, {
-  register: () => register,
-  rules: () => rules
-});
-function register() {
-  registerPreset(minimalPreset);
-}
-var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
-var init_minimal = __esm({
-  "src/rules/presets/minimal.ts"() {
-    "use strict";
-    init_engine();
-    noHandlerRule = {
-      id: "no-handler",
-      name: "No Click Handler",
-      description: "Interactive elements like buttons must have click handlers",
-      defaultSeverity: "error",
-      check: (element, _context) => {
-        const isButton = element.tagName === "button" || element.a11y.role === "button";
-        const isDisabled = element.interactive.isDisabled;
-        const hasHandler = element.interactive.hasOnClick;
-        if (isButton && !isDisabled && !hasHandler) {
-          return {
-            ruleId: "no-handler",
-            ruleName: "No Click Handler",
-            severity: "error",
-            message: `Button "${element.text || element.selector}" has no click handler`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add an onClick handler or make the button disabled"
-          };
-        }
-        return null;
-      }
-    };
-    placeholderLinkRule = {
-      id: "placeholder-link",
-      name: "Placeholder Link",
-      description: "Links must have valid hrefs or click handlers",
-      defaultSeverity: "error",
-      check: (element, _context) => {
-        const isLink = element.tagName === "a";
-        const hasValidHref = element.interactive.hasHref;
-        const hasHandler = element.interactive.hasOnClick;
-        if (isLink && !hasValidHref && !hasHandler) {
-          return {
-            ruleId: "placeholder-link",
-            ruleName: "Placeholder Link",
-            severity: "error",
-            message: `Link "${element.text || element.selector}" has placeholder href and no handler`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add a valid href or onClick handler"
-          };
-        }
-        return null;
-      }
-    };
-    touchTargetRule = {
-      id: "touch-target-small",
-      name: "Touch Target Too Small",
-      description: "Interactive elements must meet minimum touch target size",
-      defaultSeverity: "warn",
-      check: (element, context, options) => {
-        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
-        if (!isInteractive) return null;
-        const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
-        const { width, height } = element.bounds;
-        if (width < minSize || height < minSize) {
-          return {
-            ruleId: "touch-target-small",
-            ruleName: "Touch Target Too Small",
-            severity: "warn",
-            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${minSize}x${minSize}px`
-          };
-        }
-        return null;
-      }
-    };
-    missingAriaLabelRule = {
-      id: "missing-aria-label",
-      name: "Missing Accessible Label",
-      description: "Interactive elements without text need aria-label",
-      defaultSeverity: "warn",
-      check: (element, _context) => {
-        const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
-        if (!isInteractive) return null;
-        const hasText = element.text && element.text.trim().length > 0;
-        const hasAriaLabel = element.a11y.ariaLabel && element.a11y.ariaLabel.trim().length > 0;
-        if (!hasText && !hasAriaLabel) {
-          return {
-            ruleId: "missing-aria-label",
-            ruleName: "Missing Accessible Label",
-            severity: "warn",
-            message: `"${element.selector}" is interactive but has no text or aria-label`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add visible text or aria-label attribute"
-          };
-        }
-        return null;
-      }
-    };
-    disabledNoVisualRule = {
-      id: "disabled-no-visual",
-      name: "Disabled Without Visual",
-      description: "Disabled elements should have visual indication",
-      defaultSeverity: "warn",
-      check: (element, _context) => {
-        if (!element.interactive.isDisabled) return null;
-        const cursor = element.interactive.cursor;
-        const hasDisabledCursor = cursor === "not-allowed" || cursor === "default";
-        const bgColor = element.computedStyles?.backgroundColor;
-        const hasGrayedBg = bgColor?.includes("gray") || bgColor?.includes("rgb(200") || bgColor?.includes("rgb(220");
-        if (!hasDisabledCursor && !hasGrayedBg) {
-          return {
-            ruleId: "disabled-no-visual",
-            ruleName: "Disabled Without Visual",
-            severity: "warn",
-            message: `"${element.text || element.selector}" is disabled but has no visual indication`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add cursor: not-allowed and/or gray background to disabled state"
-          };
-        }
-        return null;
-      }
-    };
-    minimalPreset = {
-      name: "minimal",
-      description: "Basic interactivity and accessibility checks",
-      rules: [
-        noHandlerRule,
-        placeholderLinkRule,
-        touchTargetRule,
-        missingAriaLabelRule,
-        disabledNoVisualRule
-      ],
-      defaults: {
-        "no-handler": "error",
-        "placeholder-link": "error",
-        "touch-target-small": "warn",
-        "missing-aria-label": "warn",
-        "disabled-no-visual": "warn"
-      }
-    };
-    rules = {
-      noHandlerRule,
-      placeholderLinkRule,
-      touchTargetRule,
-      missingAriaLabelRule,
-      disabledNoVisualRule
-    };
-  }
-});
-
-// src/rules/presets/calm-precision.ts
-var calm_precision_exports = {};
-__export(calm_precision_exports, {
-  register: () => register2
-});
-function register2() {
-  const defaults = {};
-  for (const rule of allCalmPrecisionRules) {
-    const isCore = corePrincipleIds.some(
-      (pid) => principleToRules[pid]?.includes(rule.id)
-    );
-    defaults[rule.id] = isCore ? "error" : "warn";
-  }
-  registerPreset({
-    name: "calm-precision",
-    description: "Calm Precision design principles \u2014 Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load",
-    rules: allCalmPrecisionRules,
-    defaults
-  });
-}
-var init_calm_precision2 = __esm({
-  "src/rules/presets/calm-precision.ts"() {
-    "use strict";
-    init_engine();
-    init_calm_precision();
-  }
-});
-
-// src/rules/engine.ts
-var engine_exports = {};
-__export(engine_exports, {
-  createAuditResult: () => createAuditResult,
-  formatAuditResult: () => formatAuditResult,
-  getPreset: () => getPreset,
-  listPresets: () => listPresets,
-  loadMemoryPreset: () => loadMemoryPreset,
-  loadRulesConfig: () => loadRulesConfig,
-  registerPreset: () => registerPreset,
-  runRules: () => runRules
-});
-function registerPreset(preset) {
-  presets.set(preset.name, preset);
-}
-function getPreset(name) {
-  return presets.get(name);
-}
-function listPresets() {
-  return Array.from(presets.keys());
-}
-async function loadRulesConfig(projectDir) {
-  const configPath = (0, import_path20.join)(projectDir, ".ibr", "rules.json");
-  if (!(0, import_fs10.existsSync)(configPath)) {
-    return { extends: [], rules: {} };
-  }
-  try {
-    const content = await (0, import_promises20.readFile)(configPath, "utf-8");
-    return JSON.parse(content);
-  } catch (error) {
-    console.warn(`Failed to parse rules.json: ${error}`);
-    return { extends: [], rules: {} };
-  }
-}
-function mergeRuleSettings(presetNames, userRules = {}) {
-  const allRules = [];
-  const settings = /* @__PURE__ */ new Map();
-  const seenRuleIds = /* @__PURE__ */ new Set();
-  for (const presetName of presetNames) {
-    const preset = presets.get(presetName);
-    if (!preset) {
-      console.warn(`Unknown preset: ${presetName}`);
-      continue;
-    }
-    for (const rule of preset.rules) {
-      if (!seenRuleIds.has(rule.id)) {
-        allRules.push(rule);
-        seenRuleIds.add(rule.id);
-        const defaultSetting = preset.defaults[rule.id] ?? rule.defaultSeverity;
-        if (typeof defaultSetting === "string") {
-          settings.set(rule.id, { severity: defaultSetting });
-        } else {
-          settings.set(rule.id, { severity: defaultSetting[0], options: defaultSetting[1] });
-        }
-      }
-    }
-  }
-  for (const [ruleId, setting] of Object.entries(userRules)) {
-    if (typeof setting === "string") {
-      settings.set(ruleId, { severity: setting });
-    } else {
-      settings.set(ruleId, { severity: setting[0], options: setting[1] });
-    }
-  }
-  return { rules: allRules, settings };
-}
-function runRules(elements, context, config) {
-  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
-  const violations = [];
-  for (const element of elements) {
-    for (const rule of rules2) {
-      const setting = settings.get(rule.id);
-      if (!setting || setting.severity === "off") {
-        continue;
-      }
-      const violation = rule.check(element, context, setting.options);
-      if (violation) {
-        violations.push({
-          ...violation,
-          severity: setting.severity
-        });
-      }
-    }
-  }
-  return violations;
-}
-function createAuditResult(url, elements, violations) {
-  const errors = violations.filter((v) => v.severity === "error").length;
-  const warnings = violations.filter((v) => v.severity === "warn").length;
-  return {
-    url,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    elementsScanned: elements.length,
-    violations,
-    summary: {
-      errors,
-      warnings,
-      passed: elements.length - errors - warnings
-    }
-  };
-}
-function formatAuditResult(result) {
-  const lines = [];
-  lines.push(`IBR Audit: ${result.url}`);
-  lines.push(`Scanned: ${result.elementsScanned} elements`);
-  lines.push("");
-  if (result.violations.length === 0) {
-    lines.push("No violations found.");
-  } else {
-    lines.push(`Found ${result.summary.errors} errors, ${result.summary.warnings} warnings:`);
-    lines.push("");
-    for (const v of result.violations) {
-      const icon = v.severity === "error" ? "\u2717" : "!";
-      lines.push(`  ${icon} [${v.ruleId}] ${v.message}`);
-      if (v.element) {
-        lines.push(`    Element: ${v.element.slice(0, 60)}${v.element.length > 60 ? "..." : ""}`);
-      }
-      if (v.fix) {
-        lines.push(`    Fix: ${v.fix}`);
-      }
-    }
-  }
-  lines.push("");
-  lines.push(`Summary: ${result.summary.errors} errors, ${result.summary.warnings} warnings, ${result.summary.passed} passed`);
-  return lines.join("\n");
-}
-async function loadMemoryPreset(outputDir) {
-  try {
-    const { loadSummary: loadSummary2, createMemoryPreset: createMemoryPreset2 } = await Promise.resolve().then(() => (init_memory(), memory_exports));
-    const summary = await loadSummary2(outputDir);
-    if (summary.activePreferences.length > 0) {
-      const preset = createMemoryPreset2(summary.activePreferences);
-      registerPreset(preset);
-    }
-  } catch {
-  }
-}
-var import_promises20, import_fs10, import_path20, presets;
-var init_engine = __esm({
-  "src/rules/engine.ts"() {
-    "use strict";
-    import_promises20 = require("fs/promises");
-    import_fs10 = require("fs");
-    import_path20 = require("path");
-    presets = /* @__PURE__ */ new Map();
-    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
-    });
-    Promise.resolve().then(() => (init_calm_precision2(), calm_precision_exports)).then((m) => m.register()).catch(() => {
-    });
-  }
-});
-
 // src/framework-parser.ts
 function parseDesignFramework(content, sourcePath) {
   const frameworkInfo = detectFrameworkName(content);
@@ -15019,7 +16866,7 @@ async function isServerRunning(outputDir) {
     const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (!state.cdpUrl) {
-      return false;
+      return Boolean(state.wsEndpoint);
     }
     const res = await fetch(`${state.cdpUrl}/json/version`, {
       signal: AbortSignal.timeout(2e3)
@@ -15037,7 +16884,7 @@ async function cleanupServerState(outputDir) {
   } catch {
   }
 }
-async function resolveWsEndpoint(cdpUrl) {
+async function resolveWsEndpoint2(cdpUrl) {
   const res = await fetch(`${cdpUrl}/json/version`);
   const data = await res.json();
   return data.webSocketDebuggerUrl;
@@ -15084,11 +16931,19 @@ async function startBrowserServer(outputDir, options = {}) {
   const driver3 = new EngineDriver();
   await driver3.launch({
     headless,
-    userDataDir: isolated ? profileDir : void 0
+    userDataDir: isolated ? profileDir : void 0,
+    mode: options.mode,
+    cdpUrl: options.cdpUrl,
+    wsEndpoint: options.wsEndpoint,
+    chromePath: options.chromePath
   });
-  const debugPort = driver3.debugPort;
-  const cdpUrl = `http://127.0.0.1:${debugPort}`;
-  const wsEndpoint = await resolveWsEndpoint(cdpUrl);
+  const mode = driver3.browserMode;
+  const cdpUrl = driver3.cdpUrl ?? void 0;
+  const wsEndpoint = driver3.wsEndpoint ?? (cdpUrl ? await resolveWsEndpoint2(cdpUrl) : void 0);
+  const ownsBrowser = mode === "local";
+  if (!wsEndpoint) {
+    throw new Error("Failed to resolve browser WebSocket endpoint.");
+  }
   const state = {
     wsEndpoint,
     cdpUrl,
@@ -15096,11 +16951,13 @@ async function startBrowserServer(outputDir, options = {}) {
     chromePid: driver3.chromePid,
     startedAt: (/* @__PURE__ */ new Date()).toISOString(),
     headless,
+    mode,
+    ownsBrowser,
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
   await (0, import_promises22.writeFile)(stateFile, JSON.stringify(state, null, 2));
-  return { driver: driver3, wsEndpoint };
+  return { driver: driver3, wsEndpoint, ownsBrowser };
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
@@ -15112,7 +16969,7 @@ async function connectToBrowserServer(outputDir) {
     const state = JSON.parse(content);
     let wsUrl;
     if (state.cdpUrl) {
-      wsUrl = await resolveWsEndpoint(state.cdpUrl);
+      wsUrl = await resolveWsEndpoint2(state.cdpUrl);
     } else {
       wsUrl = state.wsEndpoint;
     }
@@ -15132,10 +16989,14 @@ async function stopBrowserServer(outputDir) {
   try {
     const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
-    const wsUrl = state.cdpUrl ? await resolveWsEndpoint(state.cdpUrl) : state.wsEndpoint;
+    const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
     const driver3 = new EngineDriver();
     await driver3.connectExisting(wsUrl);
-    await driver3.close();
+    if (state.ownsBrowser) {
+      await driver3.close();
+    } else {
+      await driver3.disconnect();
+    }
     await (0, import_promises22.unlink)(stateFile);
     return true;
   } catch {
@@ -15878,6 +17739,7 @@ var init_live_session = __esm({
     init_scan();
     init_interactivity();
     init_semantic();
+    init_wait();
     LiveSession = class _LiveSession {
       driver = null;
       page = null;
@@ -15909,21 +17771,31 @@ var init_live_session = __esm({
           url,
           name,
           viewport = VIEWPORTS.desktop,
+          headed = false,
           sandbox = false,
           debug = false,
           timeout = 3e4,
-          autoCapture = false
+          autoCapture = true,
+          browserMode,
+          cdpUrl,
+          wsEndpoint,
+          chromePath
         } = options;
+        const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
         const sessionDir = (0, import_path23.join)(outputDir, "sessions", sessionId);
         await (0, import_promises23.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
-          headless: !sandbox && !debug,
+          headless: !showBrowser,
           viewport: {
             width: viewport.width,
             height: viewport.height
-          }
+          },
+          mode: browserMode,
+          cdpUrl,
+          wsEndpoint,
+          chromePath
         });
         const page = new CompatPage(driver3);
         const navStart = Date.now();
@@ -15937,7 +17809,7 @@ var init_live_session = __esm({
           url,
           name: name || new URL(url).pathname,
           viewport,
-          sandbox: sandbox || debug,
+          headed: showBrowser,
           autoCapture,
           createdAt: (/* @__PURE__ */ new Date()).toISOString(),
           actions: [{
@@ -15974,10 +17846,14 @@ var init_live_session = __esm({
           return null;
         }
         const content = await (0, import_promises23.readFile)(statePath, "utf-8");
-        const state = JSON.parse(content);
+        const rawState = JSON.parse(content);
+        const state = {
+          ...rawState,
+          headed: rawState.headed ?? rawState.sandbox ?? false
+        };
         const driver3 = new EngineDriver();
         await driver3.launch({
-          headless: !state.sandbox,
+          headless: !state.headed,
           viewport: {
             width: state.viewport.width,
             height: state.viewport.height
@@ -16205,14 +18081,110 @@ var init_live_session = __esm({
         return last.type;
       }
       /**
-       * Auto-capture after a successful action (when autoCapture is enabled)
+       * Wait for the page to be ready after a navigation-inducing action.
+       * 1. Waits up to 2s for a Page.loadEventFired signal via AX tree stability.
+       * 2. Then polls for stable AX tree.
        */
-      async autoCapAfterAction() {
+      async waitForPageReady() {
+        if (!this.driver) return;
+        try {
+          await waitForStableTree(
+            () => this.driver.getSnapshot(),
+            { timeout: 2e3, stableTime: 300 }
+          );
+        } catch {
+        }
+      }
+      /**
+       * Capture a lightweight before/after diff around an interaction.
+       * Returns undefined when autoCapture is disabled.
+       * Only captures AX element labels (not full scan) for performance.
+       */
+      async captureInteractionDiff(action) {
+        if (!this.state.autoCapture || !this.driver) {
+          await action();
+          return void 0;
+        }
+        const previousUrl = this.page?.url() ?? this.state.url;
+        this.driver.consoleDomain.clear();
+        this.consoleErrors = [];
+        const beforeElements = await this.driver.getSnapshot().catch(() => []);
+        const beforeLabels = new Set(
+          beforeElements.map((e) => e.label).filter((l) => !!l)
+        );
+        await action();
+        const currentUrl = this.page?.url() ?? this.state.url;
+        await new Promise((r) => setTimeout(r, 100));
+        const afterElements = await this.driver.getSnapshot().catch(() => []);
+        const afterLabels = new Set(
+          afterElements.map((e) => e.label).filter((l) => !!l)
+        );
+        const newErrors = this.driver.consoleDomain.getErrors().map((m) => m.text);
+        const elementsAdded = [...afterLabels].filter((l) => !beforeLabels.has(l));
+        const elementsRemoved = [...beforeLabels].filter((l) => !afterLabels.has(l));
+        return {
+          urlChanged: currentUrl !== previousUrl,
+          previousUrl,
+          currentUrl,
+          elementsAdded,
+          elementsRemoved,
+          consoleErrors: newErrors
+        };
+      }
+      /**
+       * Auto-capture after a successful action (when autoCapture is enabled).
+       * Waits for SPA hydration stability before running the full scan so that
+       * React/Next.js pages are fully mounted before element extraction.
+       *
+       * @param context - Navigation and error context from the triggering action.
+       *   navigated: true when the action caused a URL change (full page load needed).
+       *   urlBefore/urlAfter: URL pair for the navigation (set when navigated is true).
+       *   actionErrors: console errors that fired during the action window.
+       */
+      async autoCapAfterAction(context) {
         if (!this.state.autoCapture) return;
         try {
-          await this.page?.waitForLoadState("networkidle", { timeout: 3e3 }).catch(() => {
-          });
-          await this.capture({ keep: false });
+          if (this.driver) {
+            if (context?.navigated) {
+              await waitForHydration(
+                this.driver.connection,
+                () => this.driver.getSnapshot(),
+                (expr) => this.driver.evaluate(expr),
+                { timeout: 8e3, stableTime: 600, minElements: 1, settleTime: 200 }
+              ).catch(() => {
+              });
+            } else {
+              await waitForHydration(
+                this.driver.connection,
+                () => this.driver.getSnapshot(),
+                (expr) => this.driver.evaluate(expr),
+                { timeout: 5e3, stableTime: 400, minElements: 1, settleTime: 150 }
+              ).catch(() => {
+              });
+            }
+          }
+          const actionErrors = context?.actionErrors ?? [];
+          if (actionErrors.length > 0) {
+            for (const err of actionErrors) {
+              if (!this.consoleErrors.includes(err)) {
+                this.consoleErrors.push(err);
+              }
+            }
+            console.error(`[IBR] Action triggered ${actionErrors.length} console error(s):`);
+            for (const err of actionErrors) {
+              console.error(`  [console.error] ${err}`);
+            }
+          }
+          const stepCapture = await this.capture({ keep: false });
+          if (context?.navigated) {
+            stepCapture.navigated = true;
+            stepCapture.urlBefore = context.urlBefore;
+            stepCapture.urlAfter = context.urlAfter;
+          }
+          if (actionErrors.length > 0) {
+            stepCapture.actionErrors = actionErrors;
+          }
+          await this.saveState();
         } catch {
         }
       }
@@ -16252,21 +18224,51 @@ var init_live_session = __esm({
         }
       }
       /**
-       * Click an element
+       * Click an element.
+       * When autoCapture is enabled: captures pre/post element snapshot, URL diff, and console errors.
+       * After any click, detects navigation (50ms check then 500ms confirm) and waits for the new
+       * page to hydrate before running the auto-capture scan.
        */
       async click(selector, options) {
-        const page = this.ensurePage();
+        this.ensurePage();
         const start = Date.now();
+        const urlBefore = this.driver?.url ?? this.state.url;
         try {
-          await page.click(selector, { timeout: options?.timeout || 5e3 });
+          const diff = await this.captureInteractionDiff(async () => {
+            const p = this.ensurePage();
+            await p.click(selector, { timeout: options?.timeout || 5e3 });
+          });
+          await new Promise((r) => setTimeout(r, 50));
+          const urlAfterFast = this.driver?.url ?? (this.page?.url() ?? this.state.url);
+          let navigated = urlAfterFast !== urlBefore;
+          if (!navigated) {
+            await new Promise((r) => setTimeout(r, 450));
+          }
+          const urlAfter = this.driver?.url ?? (this.page?.url() ?? this.state.url);
+          navigated = urlAfter !== urlBefore;
+          if (navigated) {
+            await this.waitForPageReady();
+            this.state.url = urlAfter;
+          }
+          const actionErrors = diff?.consoleErrors ?? [];
           await this.recordAction({
             type: "click",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
             params: { selector },
             success: true,
-            duration: Date.now() - start
+            duration: Date.now() - start,
+            diff,
+            navigated,
+            urlBefore: navigated ? urlBefore : void 0,
+            urlAfter: navigated ? urlAfter : void 0,
+            actionErrors: actionErrors.length > 0 ? actionErrors : void 0
           });
-          await this.autoCapAfterAction();
+          await this.autoCapAfterAction({
+            navigated,
+            urlBefore: navigated ? urlBefore : void 0,
+            urlAfter: navigated ? urlAfter : void 0,
+            actionErrors
+          });
         } catch (error) {
           await this.recordAction({
             type: "click",
@@ -16280,22 +18282,29 @@ var init_live_session = __esm({
         }
       }
       /**
-       * Type text into an element (clears existing content first)
+       * Type text into an element (clears existing content first).
+       * When autoCapture is enabled: captures pre/post element snapshot and console errors.
        */
       async type(selector, text, options) {
-        const page = this.ensurePage();
+        this.ensurePage();
         const start = Date.now();
         try {
-          await page.fill(selector, "");
-          await page.type(selector, text, { delay: options?.delay || 0 });
+          const diff = await this.captureInteractionDiff(async () => {
+            const p = this.ensurePage();
+            await p.fill(selector, "");
+            await p.type(selector, text, { delay: options?.delay || 0 });
+          });
+          const actionErrors = diff?.consoleErrors ?? [];
           await this.recordAction({
             type: "type",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
             params: { selector, text: text.length > 50 ? `${text.slice(0, 50)}...` : text },
             success: true,
-            duration: Date.now() - start
+            duration: Date.now() - start,
+            diff,
+            actionErrors: actionErrors.length > 0 ? actionErrors : void 0
           });
-          await this.autoCapAfterAction();
+          await this.autoCapAfterAction({ actionErrors });
         } catch (error) {
           await this.recordAction({
             type: "type",
@@ -16309,65 +18318,92 @@ var init_live_session = __esm({
         }
       }
       /**
-       * Fill a form with multiple fields
+       * Fill a form with multiple fields.
+       * When autoCapture is enabled: captures pre/post element snapshot and console errors.
        */
       async fill(fields) {
-        const page = this.ensurePage();
+        this.ensurePage();
         const start = Date.now();
         const results = [];
-        for (const field of fields) {
-          try {
-            if (field.type === "checkbox") {
-              if (field.value === "true" || field.value === "1") {
-                await page.check(field.selector);
-              } else {
-                await page.uncheck(field.selector);
+        let diff;
+        try {
+          diff = await this.captureInteractionDiff(async () => {
+            const page = this.ensurePage();
+            for (const field of fields) {
+              try {
+                if (field.type === "checkbox") {
+                  if (field.value === "true" || field.value === "1") {
+                    await page.check(field.selector);
+                  } else {
+                    await page.uncheck(field.selector);
+                  }
+                } else if (field.type === "select") {
+                  await page.selectOption(field.selector, field.value);
+                } else {
+                  await page.fill(field.selector, field.value);
+                }
+                results.push({ selector: field.selector, success: true });
+              } catch (fieldError) {
+                results.push({
+                  selector: field.selector,
+                  success: false,
+                  error: fieldError instanceof Error ? fieldError.message : String(fieldError)
+                });
               }
-            } else if (field.type === "select") {
-              await page.selectOption(field.selector, field.value);
-            } else {
-              await page.fill(field.selector, field.value);
             }
-            results.push({ selector: field.selector, success: true });
-          } catch (error) {
-            results.push({
-              selector: field.selector,
-              success: false,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          }
+          });
+        } catch (error) {
+          await this.recordAction({
+            type: "fill",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { fields: fields.map((f) => ({ selector: f.selector, type: f.type || "text" })), results },
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            duration: Date.now() - start
+          });
+          throw error;
         }
         const allSuccess = results.every((r) => r.success);
+        const actionErrors = diff?.consoleErrors ?? [];
         await this.recordAction({
           type: "fill",
           timestamp: (/* @__PURE__ */ new Date()).toISOString(),
           params: { fields: fields.map((f) => ({ selector: f.selector, type: f.type || "text" })), results },
           success: allSuccess,
           error: allSuccess ? void 0 : `Failed to fill ${results.filter((r) => !r.success).length} field(s)`,
-          duration: Date.now() - start
+          duration: Date.now() - start,
+          diff,
+          actionErrors: actionErrors.length > 0 ? actionErrors : void 0
         });
         if (!allSuccess) {
           const failed = results.filter((r) => !r.success);
           throw new Error(`Failed to fill fields: ${failed.map((f) => f.selector).join(", ")}`);
         }
-        await this.autoCapAfterAction();
+        await this.autoCapAfterAction({ actionErrors });
       }
       /**
-       * Hover over an element
+       * Hover over an element.
+       * When autoCapture is enabled: captures pre/post element snapshot and console errors.
        */
       async hover(selector, options) {
-        const page = this.ensurePage();
+        this.ensurePage();
         const start = Date.now();
         try {
-          await page.hover(selector, { timeout: options?.timeout || 5e3 });
+          const diff = await this.captureInteractionDiff(async () => {
+            const p = this.ensurePage();
+            await p.hover(selector, { timeout: options?.timeout || 5e3 });
+          });
+          const actionErrors = diff?.consoleErrors ?? [];
           await this.recordAction({
             type: "hover",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
             params: { selector },
             success: true,
-            duration: Date.now() - start
+            duration: Date.now() - start,
+            diff,
+            actionErrors: actionErrors.length > 0 ? actionErrors : void 0
           });
-          await this.autoCapAfterAction();
+          await this.autoCapAfterAction({ actionErrors });
         } catch (error) {
           await this.recordAction({
             type: "hover",
@@ -17235,11 +19271,25 @@ __export(interaction_test_exports, {
   runInteractionTest: () => runInteractionTest
 });
 async function runInteractionTest(options) {
-  const { url, steps, viewport, outputDir = ".ibr/interactions", headless = true } = options;
+  const {
+    url,
+    steps,
+    viewport,
+    outputDir = ".ibr/interactions",
+    headless = true,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
+  } = options;
   const driver3 = new EngineDriver();
   const launchOpts = {
     headless,
-    viewport: viewport ? { width: viewport.width, height: viewport.height } : void 0
+    viewport: viewport ? { width: viewport.width, height: viewport.height } : void 0,
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   };
   try {
     await driver3.launch(launchOpts);
@@ -18314,7 +20364,11 @@ async function runTests(options = {}) {
     filePath = ".ibr-test.json",
     outputDir = ".ibr/test-results",
     headless = true,
-    viewport
+    viewport,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
   } = options;
   const raw = await (0, import_promises29.readFile)((0, import_path29.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
@@ -18327,7 +20381,11 @@ async function runTests(options = {}) {
     try {
       await driver3.launch({
         headless,
-        viewport: viewport ?? { width: 1280, height: 720 }
+        viewport: viewport ?? { width: 1280, height: 720 },
+        mode: browserMode,
+        cdpUrl,
+        wsEndpoint,
+        chromePath
       });
       await driver3.navigate(pageSuite.url);
       const testResults = [];
@@ -19033,6 +21091,13 @@ program.hook("postAction", async (_thisCommand, actionCommand) => {
   const code = typeof process.exitCode === "number" ? process.exitCode : 0;
   setImmediate(() => process.exit(code));
 });
+program.hook("preAction", () => {
+  const browserOpts = getBrowserConnectionOptions();
+  if (browserOpts.mode) process.env.IBR_BROWSER_MODE = browserOpts.mode;
+  if (browserOpts.cdpUrl) process.env.IBR_CDP_URL = browserOpts.cdpUrl;
+  if (browserOpts.wsEndpoint) process.env.IBR_WS_ENDPOINT = browserOpts.wsEndpoint;
+  if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
+});
 async function loadConfig() {
   const configPath = (0, import_path32.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs17.existsSync)(configPath)) {
@@ -19075,7 +21140,11 @@ async function createIBR(options = {}) {
     ...options.output ? { outputDir: String(options.output) } : {},
     ...options.viewport ? { viewport: VIEWPORTS[options.viewport] } : {},
     ...options.threshold ? { threshold: Number(options.threshold) } : {},
-    ...options.fullPage !== void 0 ? { fullPage: Boolean(options.fullPage) } : {}
+    ...options.fullPage !== void 0 ? { fullPage: Boolean(options.fullPage) } : {},
+    ...options.browserMode ? { browserMode: String(options.browserMode) } : {},
+    ...options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {},
+    ...options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {},
+    ...options.chromePath ? { chromePath: String(options.chromePath) } : {}
   };
   return new InterfaceBuiltRight(merged);
 }
@@ -19086,16 +21155,24 @@ async function createDriver(browser) {
   }
   return new EngineDriver();
 }
-function withChromePath(opts) {
+function getBrowserConnectionOptions() {
   const globalOpts = program.opts();
-  if (globalOpts.chromePath) {
-    return { ...opts, chromePath: globalOpts.chromePath };
-  }
-  return opts;
+  return {
+    mode: globalOpts.browserMode,
+    cdpUrl: globalOpts.cdpUrl,
+    wsEndpoint: globalOpts.wsEndpoint,
+    chromePath: globalOpts.chromePath
+  };
 }
-program.name("ibr").description("Design validation for Claude Code").version("0.8.0");
-program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
-program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
+function withBrowserOptions(opts) {
+  return {
+    ...opts,
+    ...getBrowserConnectionOptions()
+  };
+}
+program.name("ibr").description("Design validation for Codex, Claude Code, and other AI coding agents").version("0.8.0");
+program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
+program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const ibr = await createIBR(program.opts());
@@ -19103,7 +21180,9 @@ program.command("start [url]").description("Capture a baseline screenshot (auto-
       name: options.name,
       fullPage: options.fullPage,
       selector: options.selector,
-      waitFor: options.waitFor
+      waitFor: options.waitFor,
+      headed: Boolean(options.headed || options.sandbox || options.debug),
+      ...getBrowserConnectionOptions()
     });
     console.log(`Session started: ${result.sessionId}`);
     console.log(`Baseline: ${result.baseline}`);
@@ -19226,11 +21305,11 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     const resolvedUrl = await resolveBaseUrl(url);
     const globalOpts = program.opts();
     const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
-    const { register: register3 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
+    const { register: register5 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
     const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract2(), extract_exports));
     const { discoverUserContext: discoverUserContext2, formatContextSummary: formatContextSummary2 } = await Promise.resolve().then(() => (init_context_loader(), context_loader_exports));
     const { createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
-    register3();
+    register5();
     const userContext = await discoverUserContext2(process.cwd());
     if (options.showFramework) {
       console.log(formatContextSummary2(userContext));
@@ -19264,7 +21343,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     console.log("");
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const driver3 = new EngineDriver();
-    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     await page.waitForTimeout(1e3);
@@ -19501,21 +21580,50 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     process.exit(1);
   }
 });
-program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").action(async (url, options) => {
+function applyOutputMode(result, mode) {
+  if (mode === "summary") {
+    return {
+      url: result.url,
+      route: result.route,
+      timestamp: result.timestamp,
+      verdict: result.verdict,
+      summary: result.summary,
+      issues: result.issues,
+      sensors: result.sensors,
+      console: result.console,
+      semantic: result.semantic ? {
+        pageIntent: result.semantic.pageIntent,
+        state: result.semantic.state
+      } : void 0,
+      coverage: result.coverage,
+      hydration: result.hydration
+    };
+  }
+  if (mode === "raw") {
+    const { sensors: _sensors, ...rest } = result;
+    return rest;
+  }
+  return result;
+}
+program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", "Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").action(async (url, options) => {
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url);
     console.log(`Scanning ${resolvedUrl}...`);
+    const rulePresets = options.rules ? options.rules.split(",").map((s) => s.trim()).filter(Boolean) : void 0;
     const result = await scan2(resolvedUrl, {
       viewport: options.viewport,
       waitFor: options.waitFor,
       timeout: parseInt(options.timeout, 10),
       patience: options.patience ? parseInt(options.patience, 10) : void 0,
       networkIdleTimeout: options.networkIdleTimeout ? parseInt(options.networkIdleTimeout, 10) : void 0,
-      screenshot: options.screenshot ? { path: options.screenshot } : void 0
+      screenshot: options.screenshot ? { path: options.screenshot } : void 0,
+      rules: rulePresets,
+      ...getBrowserConnectionOptions()
     });
     if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
+      const output = applyOutputMode(result, options.output);
+      console.log(JSON.stringify(output, null, 2));
     } else {
       console.log(formatScanResult2(result));
     }
@@ -19753,7 +21861,8 @@ program.command("login <url>").description("Open browser for manual login, then 
     await performLogin2({
       url,
       outputDir,
-      timeout: parseInt(options.timeout, 10)
+      timeout: parseInt(options.timeout, 10),
+      ...getBrowserConnectionOptions()
     });
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
@@ -19778,7 +21887,7 @@ flowCmd.command("search <url>").description("Execute search flow").requiredOptio
     const { CompatPage: CompatPage2 } = await Promise.resolve().then(() => (init_compat(), compat_exports));
     const { searchFlow: searchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
     const driver3 = new EngineDriver2();
-    await driver3.launch(withChromePath({}));
+    await driver3.launch(withBrowserOptions({}));
     await driver3.navigate(url);
     const page = new CompatPage2(driver3);
     const result = await searchFlow2(page, { query: options.query });
@@ -19811,7 +21920,7 @@ flowCmd.command("form <url>").description("Fill and submit a form").requiredOpti
       return;
     }
     const driver3 = new EngineDriver2();
-    await driver3.launch(withChromePath({}));
+    await driver3.launch(withBrowserOptions({}));
     await driver3.navigate(url);
     const page = new CompatPage2(driver3);
     const formFields = Object.entries(fieldMap).map(([name, value]) => ({ name, value }));
@@ -19839,7 +21948,7 @@ flowCmd.command("login <url>").description("Execute login flow").requiredOption(
     const { CompatPage: CompatPage2 } = await Promise.resolve().then(() => (init_compat(), compat_exports));
     const { loginFlow: loginFlow2 } = await Promise.resolve().then(() => (init_login(), login_exports));
     const driver3 = new EngineDriver2();
-    await driver3.launch(withChromePath({}));
+    await driver3.launch(withBrowserOptions({}));
     await driver3.navigate(url);
     const page = new CompatPage2(driver3);
     const result = await loginFlow2(page, { email: options.username, password: options.password });
@@ -19858,7 +21967,7 @@ flowCmd.command("login <url>").description("Execute login flow").requiredOption(
     process.exit(1);
   }
 });
-program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--sandbox", "Show visible browser window (default: headless)").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--auto-capture", "Auto-capture screenshot + scan after every interaction").action(async (url, options) => {
+program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--auto-capture", "Auto-capture screenshot + scan after every interaction").action(async (url, options) => {
   try {
     const {
       startBrowserServer: startBrowserServer2,
@@ -19868,17 +21977,19 @@ program.command("session:start [url]").description("Start an interactive browser
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const resolvedUrl = await resolveBaseUrl(url);
-    const headless = !options.sandbox && !options.debug;
+    const headed = Boolean(options.headed || options.sandbox || options.debug);
+    const headless = !headed;
     const serverRunning = await isServerRunning2(outputDir);
     if (!serverRunning) {
       const modeLabel = options.lowMemory ? " (low-memory mode)" : "";
       console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
-      const { driver: driver3 } = await startBrowserServer2(outputDir, {
+      const { driver: driver3, ownsBrowser } = await startBrowserServer2(outputDir, {
         headless,
         debug: options.debug,
         isolated: true,
         // Prevents conflicts with Playwright MCP
-        lowMemory: options.lowMemory
+        lowMemory: options.lowMemory,
+        ...getBrowserConnectionOptions()
       });
       const session = await PersistentSession2.create(outputDir, {
         url: resolvedUrl,
@@ -19904,6 +22015,11 @@ program.command("session:start [url]").description("Start an interactive browser
       }
       console.log("To close: npx ibr session:close all");
       console.log("");
+      if (!ownsBrowser) {
+        console.log("Connected to external browser. Session metadata saved.");
+        await driver3.disconnect();
+        return;
+      }
       console.log("Browser server running. Press Ctrl+C to stop.");
       await new Promise((resolve5) => {
         const cleanup = async () => {
@@ -20594,7 +22710,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     console.log("");
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const driver3 = new EngineDriver();
-    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
     const sessionDir = (0, import_path32.join)(outputDir, "sessions", `search-${Date.now()}`);
@@ -21466,7 +23582,7 @@ program.command("test-search <url>").description("Test search functionality on a
     const globalOpts = program.opts();
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const { searchFlow: searchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
-    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await searchFlow2(page, {
@@ -21511,7 +23627,7 @@ program.command("test-form <url>").description("Test form submission on a page u
         process.exit(1);
       }
     }
-    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await formFlow2(page, {
@@ -21548,7 +23664,7 @@ program.command("test-login <url>").description("Test login flow on a page using
       console.error("Error: --email and --password are required");
       process.exit(1);
     }
-    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await loginFlow2(page, {
@@ -21579,7 +23695,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
 }, []).option("-e, --expect <spec>", "Assertion specification (repeatable). Format: visible|hidden|text|count:value", (val, acc) => {
   acc.push(val);
   return acc;
-}, []).option("--expect-screenshot <name>", "Capture screenshot after last action with this name").option("--json", "Output as JSON").option("--sandbox", "Show visible browser window (default: headless)").action(async (url, options) => {
+}, []).option("--expect-screenshot <name>", "Capture screenshot after last action with this name").option("--json", "Output as JSON").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").action(async (url, options) => {
   const {
     runInteractionTest: runInteractionTest2,
     parseActionArg: parseActionArg2,
@@ -21635,7 +23751,8 @@ program.command("test-interact <url>").description("Run interaction assertions: 
       steps,
       viewport,
       outputDir: (0, import_path32.join)(outputDir, "interactions"),
-      headless: !options.sandbox
+      headless: !(options.headed || options.sandbox),
+      ...getBrowserConnectionOptions()
     });
     if (options.json) {
       console.log(JSON.stringify(results.map((r) => ({
@@ -21797,7 +23914,7 @@ program.command("verify-changes <url>").description("Verify all recorded design 
     }
     console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
     console.log("");
-    await driver3.launch(withChromePath({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     await driver3.navigate(resolvedUrl);
     await new Promise((r) => setTimeout(r, 500));
     const results = await verifyAllChanges2(changes, driver3);
@@ -21845,7 +23962,8 @@ program.command("test").description("Run declarative .ibr-test.json test file").
     const results = await runTests2({
       filePath: options.file,
       outputDir: options.outputDir,
-      headless: options.headless
+      headless: options.headless,
+      ...getBrowserConnectionOptions()
     });
     if (options.json) {
       console.log(JSON.stringify(results, null, 2));
@@ -21936,10 +24054,10 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
   let chromeElements = [];
   let chromeError = null;
   try {
-    await chromeDriver.launch({
+    await chromeDriver.launch(withBrowserOptions({
       headless: true,
       viewport: { width: viewport.width, height: viewport.height }
-    });
+    }));
     await chromeDriver.navigate(resolvedUrl, { waitFor: "stable", timeout });
     chromeScreenshot = await chromeDriver.screenshot();
     const discovered = await chromeDriver.discover({ filter: "interactive" });
@@ -22064,7 +24182,7 @@ program.command("interact <url>").description("Click, type, fill, or interact wi
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
-    await driver3.launch(withChromePath({ headless: true }));
+    await driver3.launch(withBrowserOptions({ headless: true }));
     await driver3.navigate(url);
     const element = await driver3.find(opts.target, opts.role ? { role: opts.role } : void 0);
     if (!element) {
@@ -22127,7 +24245,7 @@ program.command("observe <url>").description("Preview available actions on a pag
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
-    await driver3.launch(withChromePath({ headless: true }));
+    await driver3.launch(withBrowserOptions({ headless: true }));
     await driver3.navigate(url);
     const actions = await driver3.observe({ role: opts.role, limit: Number(opts.limit) });
     if (actions.length === 0) {
@@ -22151,7 +24269,7 @@ program.command("extract <url>").description("Extract structured data from a pag
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
-    await driver3.launch(withChromePath({ headless: true }));
+    await driver3.launch(withBrowserOptions({ headless: true }));
     await driver3.navigate(url);
     const meta = await driver3.extractMeta();
     if (meta.headings.length > 0) {

@@ -31,11 +31,26 @@ export function findChrome(): string | null {
   return null
 }
 
-export interface BrowserOptions {
+export type BrowserMode = 'local' | 'connect'
+
+export interface BrowserConnectionOptions {
+  mode?: BrowserMode
+  cdpUrl?: string
+  wsEndpoint?: string
+  chromePath?: string
+}
+
+interface ResolvedBrowserConnectionOptions {
+  mode: BrowserMode
+  cdpUrl?: string
+  wsEndpoint?: string
+  chromePath?: string
+}
+
+export interface BrowserOptions extends BrowserConnectionOptions {
   headless?: boolean    // default: true
   port?: number         // default: random ephemeral port
   userDataDir?: string  // default: ~/.ibr/chromium-profile/
-  chromePath?: string   // override Chrome executable path
   /**
    * Rendering normalization for mockup comparison.
    * Adds --disable-lcd-text and --force-device-scale-factor=1.
@@ -74,11 +89,70 @@ function checkPortFree(port: number): Promise<boolean> {
   })
 }
 
+async function resolveWsEndpoint(cdpUrl: string): Promise<string> {
+  const res = await fetch(`${cdpUrl}/json/version`)
+  if (!res.ok) {
+    throw new Error(`CDP endpoint did not respond: ${cdpUrl}`)
+  }
+  const data = await res.json() as { webSocketDebuggerUrl?: string }
+  if (!data.webSocketDebuggerUrl) {
+    throw new Error(`CDP endpoint did not return a WebSocket URL: ${cdpUrl}`)
+  }
+  return data.webSocketDebuggerUrl
+}
+
+export function resolveBrowserConnectionOptions(
+  options: BrowserConnectionOptions = {},
+  env: NodeJS.ProcessEnv = process.env,
+): ResolvedBrowserConnectionOptions {
+  const wsEndpoint = options.wsEndpoint || env.IBR_WS_ENDPOINT
+  const cdpUrl = options.cdpUrl || env.IBR_CDP_URL
+  const requestedMode = options.mode || env.IBR_BROWSER_MODE
+  const mode: BrowserMode = requestedMode === 'local'
+    ? 'local'
+    : requestedMode === 'connect' || wsEndpoint || cdpUrl
+      ? 'connect'
+      : 'local'
+
+  return {
+    mode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath: options.chromePath || env.IBR_CHROME_PATH,
+  }
+}
+
 export class BrowserManager {
   private process: ChildProcess | null = null
   private _port = 0
+  private _mode: BrowserMode = 'local'
+  private _cdpUrl: string | null = null
+  private _wsEndpoint: string | null = null
 
   async launch(options: BrowserOptions = {}): Promise<string> {
+    const connection = resolveBrowserConnectionOptions(options)
+    this._mode = connection.mode
+
+    if (connection.mode === 'connect') {
+      this.process = null
+      this._port = 0
+      this._cdpUrl = connection.cdpUrl ?? null
+      if (connection.wsEndpoint) {
+        this._wsEndpoint = connection.wsEndpoint
+        return connection.wsEndpoint
+      }
+      if (connection.cdpUrl) {
+        const wsUrl = await resolveWsEndpoint(connection.cdpUrl)
+        this._wsEndpoint = wsUrl
+        return wsUrl
+      }
+      throw new Error(
+        'Connect mode requires a CDP endpoint.\n'
+        + 'Provide --cdp-url http://127.0.0.1:9222 or --ws-endpoint ws://...\n'
+        + 'You can also set IBR_CDP_URL or IBR_WS_ENDPOINT.'
+      )
+    }
+
     const headless = options.headless ?? true
     this._port = options.port ?? await findFreePort()
     let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
@@ -89,7 +163,7 @@ export class BrowserManager {
       userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
     }
 
-    const chromePath = options.chromePath ?? findChrome()
+    const chromePath = connection.chromePath ?? findChrome()
     if (!chromePath) {
       throw new Error(
         'Chrome not found. Install Google Chrome or pass chromePath option.\n'
@@ -122,7 +196,10 @@ export class BrowserManager {
       console.error(`Chrome process error: ${err.message}`)
     })
 
-    return this.waitForDebugger()
+    const wsUrl = await this.waitForDebugger()
+    this._cdpUrl = `http://127.0.0.1:${this._port}`
+    this._wsEndpoint = wsUrl
+    return wsUrl
   }
 
   private async waitForDebugger(): Promise<string> {
@@ -138,12 +215,14 @@ export class BrowserManager {
     }
     throw new Error(
       `Chrome debugger did not respond within 5s on port ${this._port}. `
-      + 'Is another Chrome instance using this port?'
+      + 'Is another Chrome instance using this port?\n'
+      + 'If you are running inside a sandbox, retry with connect mode:\n'
+      + '  --browser-mode connect --cdp-url http://127.0.0.1:9222'
     )
   }
 
   async close(): Promise<void> {
-    if (!this.process) return
+    if (this._mode !== 'local' || !this.process) return
 
     const proc = this.process
     this.process = null
@@ -175,5 +254,17 @@ export class BrowserManager {
 
   get pid(): number | null {
     return this.process?.pid ?? null
+  }
+
+  get mode(): BrowserMode {
+    return this._mode
+  }
+
+  get cdpUrl(): string | null {
+    return this._cdpUrl
+  }
+
+  get wsEndpoint(): string | null {
+    return this._wsEndpoint
   }
 }

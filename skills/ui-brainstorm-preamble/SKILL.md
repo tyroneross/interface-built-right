@@ -30,11 +30,25 @@ After Question 1 (Platform) is answered, load the matching platform skill to bri
 | Platform | Skill to load |
 |---|---|
 | web (mobile) | `mobile-web-ui` |
-| iOS | `ios-ui` |
-| macOS | `macos-ui` |
-| cross-platform | load all three — pick the dominant one for tokens, cross-reference others |
+| iOS | `ios-design` + `ios-design-router` + `apple-platform` |
+| macOS | `macos-ui` + `apple-platform` |
+| cross-platform | load all applicable, pick dominant for tokens |
 
 This ensures the superpowers brainstorming dialogue starts with platform-correct rules already in context.
+
+### Question 1b (iOS only) — App archetype
+
+When Platform = iOS and Scope = app or flow, load `ios-design-router` skill and run the archetype classifier:
+
+"What kind of app is this?"
+- **Utility** — task completes in <60s, minimal chrome
+- **Content/Feed** — scrollable items, discovery-oriented
+- **Productivity** — create and manage artifacts
+- **Consumer/Habit** — daily engagement, gamification
+- **Editorial** — long-form reading, curated content
+- **Tool/Pro** — complex workflows, power users
+
+Store the classified archetype and its defaults from the router's defaults table.
 
 ## Outputs
 
@@ -44,13 +58,17 @@ Write `.ibr/builds/<topic>/preamble.json`:
   "topic": "...",
   "platform": "...",
   "scope": "...",
+  "iosArchetype": "utility|content|productivity|consumer|editorial|tool",
+  "iosDefaults": {},
   "template": {"name": "...", "source": "central|project|new"},
-  "references": [{"id": "...", "source": "...", "tags": [...], "path": "..."}],
+  "references": [],
   "mockupSelection": null,
   "density": "...",
   "capturedAt": "ISO8601"
 }
 ```
+
+`iosArchetype` and `iosDefaults` are only present when platform=iOS.
 
 ## Handoff
 

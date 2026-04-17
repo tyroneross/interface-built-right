@@ -10,6 +10,13 @@ import { detectLayoutCollisions, type LayoutCollisionResult } from './layout-col
 import { analyzeThemeConsistency, type ThemeAnalysis } from './consistency.js';
 import { runDesignSystemCheck } from './design-system/index.js';
 import type { DesignSystemResult } from './schemas.js';
+import type { BrowserLaunchOptions } from './types.js'
+import { waitForHydration } from './engine/cdp/wait.js';
+import { runSensors, type SensorReport } from './sensors/index.js';
+import { runAllRules, type RuleEngineResult } from './rules/index.js';
+import { summarizeScan, type ScanSummary } from './summarize.js';
+import { runRules, type RuleContext as PresetRuleContext } from './rules/engine.js';
+import type { RulesConfig } from './schemas.js';
 
 
 /**
@@ -50,6 +57,21 @@ export interface ScanResult {
 
   /** Design system check results — principle violations, token compliance */
   designSystem?: DesignSystemResult;
+
+  /** Hydration wait result — present when SPA hydration detection ran */
+  hydration?: {
+    timedOut: boolean;
+    reason: string;
+  };
+
+  /** Pre-processed sensor summaries — condensed patterns for model consumption */
+  sensors?: SensorReport;
+
+  /** Deterministic rule engine results — no LLM needed */
+  ruleEngine?: RuleEngineResult[];
+
+  /** Condensed summaries for model-assisted review */
+  summaries?: ScanSummary;
 
   /** Overall scan verdict */
   verdict: 'PASS' | 'ISSUES' | 'FAIL' | 'PARTIAL';
@@ -161,13 +183,15 @@ export class IssueCollector {
 /**
  * Options for running a scan
  */
-export interface ScanOptions {
+export interface ScanOptions extends BrowserLaunchOptions {
   /** Viewport to use (default: desktop) */
   viewport?: keyof typeof VIEWPORTS | Viewport;
   /** Timeout for page load in ms (default: 30000) */
   timeout?: number;
   /** Wait for this selector before scanning */
   waitFor?: string;
+  /** Show a visible browser window instead of headless mode */
+  headed?: boolean;
   /** IBR output directory for auth state */
   outputDir?: string;
   /** Whether to capture a screenshot */
@@ -179,6 +203,10 @@ export interface ScanOptions {
   networkIdleTimeout?: number;
   /** Patience mode: extends all wait timeouts. Use for AI search / LLM result pages */
   patience?: number;
+  /** How to handle SPA hydration. 'auto' detects framework, 'stable' always waits, 'none' skips. Default: 'auto' */
+  hydrationStrategy?: 'auto' | 'stable' | 'none';
+  /** Rule preset names to enable for this scan (e.g. ['wcag-contrast', 'touch-targets']) */
+  rules?: string[];
 }
 
 /**
@@ -199,6 +227,13 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     screenshot,
     networkIdleTimeout,
     patience,
+    headed = false,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
+    hydrationStrategy = 'auto',
+    rules: rulePresets,
   } = options;
 
   const resolvedViewport: Viewport = typeof viewportOpt === 'string'
@@ -208,8 +243,12 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
   // Launch browser
   const driver = new EngineDriver();
   await driver.launch({
-    headless: true,
+    headless: !headed,
     viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   });
   const page: PageLike = new CompatPage(driver);
 
@@ -239,6 +278,29 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     let waitForTimedOut = false;
     if (waitFor) {
       await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 10000 }).catch(() => { waitForTimedOut = true; });
+    }
+
+    // Wait for SPA hydration (React/Next.js/Vue). Prevents "0 elements" on unhydrated shells.
+    // Uses marker detection + AX tree stability polling.
+    let hydrationTimedOut = false;
+    let hydrationReason = 'skipped';
+    if (hydrationStrategy !== 'none') {
+      const shouldWaitForHydration = hydrationStrategy === 'stable' || await detectSPAFramework(driver);
+      if (shouldWaitForHydration) {
+        const hydrationResult = await waitForHydration(
+          driver.connection,
+          () => driver.getSnapshot(),
+          (expr: string) => driver.evaluate(expr),
+          {
+            timeout: patience ?? 8000,
+            stableTime: 500,
+            minElements: 1,
+            settleTime: 200,
+          },
+        );
+        hydrationTimedOut = hydrationResult.timedOut;
+        hydrationReason = hydrationResult.reason;
+      }
     }
 
     // Run all analyses in parallel where possible
@@ -284,6 +346,45 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     const verdict = determineVerdict(issues);
     const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
 
+    // Run sensor layer — condense raw elements into model-friendly summaries
+    const sensors = runSensors({
+      elements: elements.all,
+      interactivity,
+      semantic,
+      url,
+      viewport: resolvedViewport,
+    });
+
+    // Run deterministic rule engine
+    const ruleContext = {
+      isMobile: resolvedViewport.width < 768,
+      viewportWidth: resolvedViewport.width,
+      viewportHeight: resolvedViewport.height,
+      url,
+      allElements: elements.all,
+    };
+    const ruleEngine = runAllRules(elements.all, ruleContext);
+
+    // Run preset rule engine if --rules flag was provided
+    if (rulePresets && rulePresets.length > 0) {
+      // Build in-memory config equivalent to .ibr/rules.json { extends: [...], rules: {} }
+      const presetConfig: RulesConfig = { extends: rulePresets, rules: {} };
+      const presetViolations = runRules(elements.all, ruleContext as PresetRuleContext, presetConfig);
+      // Inject preset violations into issues so they appear in the standard output
+      for (const v of presetViolations) {
+        issues.push({
+          category: 'interactivity' as const,
+          severity: v.severity === 'error' ? 'error' : 'warning',
+          element: v.element,
+          description: `[${v.ruleId}] ${v.message}`,
+          fix: v.fix,
+        });
+      }
+    }
+
+    // Generate condensed summaries
+    const summaries = summarizeScan(elements.all, url);
+
     const baseResult = {
       url,
       route,
@@ -292,6 +393,9 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       elements,
       interactivity,
       semantic,
+      sensors,
+      ruleEngine,
+      summaries,
       console: {
         errors: consoleErrors,
         warnings: consoleWarnings,
@@ -300,6 +404,9 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       layoutCollisions,
       themeAnalysis,
       designSystem,
+      hydration: hydrationReason !== 'skipped'
+        ? { timedOut: hydrationTimedOut, reason: hydrationReason }
+        : undefined,
       verdict,
       issues,
       summary,
@@ -316,6 +423,25 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     return baseResult;
   } finally {
     await driver.close();
+  }
+}
+
+/**
+ * Detect if the page is running a known SPA framework (React, Next.js, Vue, Nuxt).
+ * Used by the 'auto' hydration strategy to skip the stability wait on static pages.
+ * Returns false on evaluation error — non-SPA behavior preserved.
+ */
+async function detectSPAFramework(driver: EngineDriver): Promise<boolean> {
+  try {
+    const result = await driver.evaluate(`
+      !!(window.__NEXT_DATA__ || window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
+         window.__NUXT__ || window.__VUE_DEVTOOLS_GLOBAL_HOOK__ ||
+         document.querySelector('[data-reactroot]') ||
+         document.querySelector('#__next'))
+    `);
+    return result === true;
+  } catch {
+    return false;
   }
 }
 

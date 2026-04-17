@@ -7,6 +7,7 @@ import { mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { EngineDriver, type LaunchOptions } from './engine/driver.js'
 import type { Viewport } from './schemas.js'
+import type { BrowserLaunchOptions } from './types.js'
 
 export interface InteractionStep {
   action: {
@@ -33,7 +34,7 @@ export interface InteractionResult {
   diff: { addedElements: string[]; removedElements: string[]; pixelDiff: number }
 }
 
-export interface InteractionTestOptions {
+export interface InteractionTestOptions extends BrowserLaunchOptions {
   url: string
   steps: InteractionStep[]
   viewport?: Viewport
@@ -47,12 +48,26 @@ export interface InteractionTestOptions {
 export async function runInteractionTest(
   options: InteractionTestOptions,
 ): Promise<InteractionResult[]> {
-  const { url, steps, viewport, outputDir = '.ibr/interactions', headless = true } = options
+  const {
+    url,
+    steps,
+    viewport,
+    outputDir = '.ibr/interactions',
+    headless = true,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
+  } = options
 
   const driver = new EngineDriver()
   const launchOpts: LaunchOptions = {
     headless,
     viewport: viewport ? { width: viewport.width, height: viewport.height } : undefined,
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
   }
 
   try {

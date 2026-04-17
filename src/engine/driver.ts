@@ -4,7 +4,7 @@
  */
 
 import { CdpConnection } from './cdp/connection.js'
-import { BrowserManager, type BrowserOptions } from './cdp/browser.js'
+import { BrowserManager, type BrowserMode, type BrowserOptions } from './cdp/browser.js'
 import { TargetDomain } from './cdp/target.js'
 import { PageDomain, type ScreenshotOptions } from './cdp/page.js'
 import { AccessibilityDomain } from './cdp/accessibility.js'
@@ -939,6 +939,15 @@ export class EngineDriver implements BrowserDriver {
 
   /** The OS PID of the Chrome process. Only valid after launch(). Null when connected to existing. */
   get chromePid(): number | null { return this.browser.pid }
+
+  /** The browser connection mode used for this driver. */
+  get browserMode(): BrowserMode { return this.browser.mode }
+
+  /** The resolved CDP HTTP endpoint, when available. */
+  get cdpUrl(): string | null { return this.browser.cdpUrl }
+
+  /** The resolved browser WebSocket endpoint, when available. */
+  get wsEndpoint(): string | null { return this.browser.wsEndpoint }
 
   /**
    * Connect to an already-running Chrome instance instead of launching a new one.

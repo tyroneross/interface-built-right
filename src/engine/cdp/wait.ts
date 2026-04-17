@@ -6,6 +6,8 @@
 import type { Element } from '../types.js'
 import type { CdpConnection } from './connection.js'
 
+type EvaluateFn = (expression: string) => Promise<unknown>
+
 export interface WaitOptions {
   interval?: number     // Polling interval in ms (default: 100)
   stableTime?: number   // How long fingerprint must stay unchanged (default: 300)
@@ -84,6 +86,108 @@ export async function waitForEvent(
 
     conn.on(eventName, handler)
   })
+}
+
+/**
+ * Wait for React/SPA hydration to complete.
+ *
+ * Strategy: after networkidle, poll the AX tree until the interactive element
+ * fingerprint stays stable for a minimum duration. This catches SPAs that
+ * mount, hydrate, and then render interactive elements after DOMContentLoaded.
+ *
+ * Also detects hydration markers when available:
+ *  - window.__NEXT_DATA__ presence (Next.js)
+ *  - React DevTools hook (__REACT_DEVTOOLS_GLOBAL_HOOK__)
+ *  - document.readyState === 'complete'
+ *
+ * Use after waitForLoadState('networkidle'), before extracting elements.
+ *
+ * The conn parameter is accepted for interface consistency but is not used
+ * in the polling path — callers that cannot provide a CdpConnection may pass
+ * null and the function will fall back to pure AX-tree polling.
+ */
+export async function waitForHydration(
+  _conn: CdpConnection | null,
+  getSnapshot: SnapshotFn,
+  evaluate: EvaluateFn,
+  options?: WaitOptions & {
+    /** Minimum interactive elements required before considering the page hydrated (default: 1) */
+    minElements?: number;
+    /** Extra wait after detected stability to absorb async handlers (default: 200ms) */
+    settleTime?: number;
+  },
+): Promise<{ elements: Element[]; timedOut: boolean; hydrationDetected: boolean; reason: string }> {
+  const timeout = options?.timeout ?? 10000
+  const stableTime = options?.stableTime ?? 500
+  const minElements = options?.minElements ?? 1
+  const settleTime = options?.settleTime ?? 200
+  const deadline = Date.now() + timeout
+
+  // Fast path: detect hydration markers via evaluate
+  let hydrationDetected = false
+  let reason = 'timeout'
+  try {
+    const marker = await evaluate(`(function(){
+      if (document.readyState !== 'complete') return null;
+      if (typeof window === 'undefined') return null;
+      var hasNext = typeof window.__NEXT_DATA__ !== 'undefined';
+      var hasReact = typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ !== 'undefined';
+      var rootHydrated = false;
+      try {
+        var root = document.querySelector('#__next, #root, [data-reactroot]');
+        rootHydrated = !!root && root.children.length > 0;
+      } catch(e) {}
+      return { hasNext: hasNext, hasReact: hasReact, rootHydrated: rootHydrated };
+    })()`)
+    if (marker && typeof marker === 'object') {
+      const m = marker as { hasNext?: boolean; hasReact?: boolean; rootHydrated?: boolean }
+      if (m.rootHydrated) {
+        hydrationDetected = true
+        reason = m.hasNext ? 'nextjs-marker' : m.hasReact ? 'react-marker' : 'root-populated'
+      }
+    }
+  } catch {
+    // Evaluate failed — fall through to polling
+  }
+
+  // Poll for AX tree stability + minElement threshold
+  let lastFingerprint = ''
+  let stableSince = Date.now()
+  let lastElements: Element[] = []
+
+  while (Date.now() < deadline) {
+    const elements = await getSnapshot()
+    lastElements = elements
+    const fingerprint = buildFingerprint(elements)
+    const hasEnough = elements.filter((e) => e.actions.length > 0).length >= minElements
+
+    if (fingerprint === lastFingerprint && hasEnough) {
+      if (Date.now() - stableSince >= stableTime) {
+        if (settleTime > 0) {
+          await new Promise((r) => setTimeout(r, settleTime))
+        }
+        const finalElements = await getSnapshot()
+        return {
+          elements: finalElements,
+          timedOut: false,
+          hydrationDetected: true,
+          reason: hydrationDetected ? reason : 'ax-tree-stable',
+        }
+      }
+    } else {
+      lastFingerprint = fingerprint
+      stableSince = Date.now()
+    }
+
+    await new Promise((r) => setTimeout(r, 100))
+  }
+
+  return {
+    elements: lastElements,
+    timedOut: true,
+    hydrationDetected: false,
+    reason: 'timeout',
+  }
 }
 
 /**

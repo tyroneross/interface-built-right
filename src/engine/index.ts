@@ -32,7 +32,7 @@ export type {
 // ─── CDP Transport ──────────────────────────────────────────
 export { CdpConnection } from './cdp/connection.js'
 export { BrowserManager, findChrome, CHROME_PATHS } from './cdp/browser.js'
-export type { BrowserOptions } from './cdp/browser.js'
+export type { BrowserMode, BrowserConnectionOptions, BrowserOptions } from './cdp/browser.js'
 
 // ─── CDP Domains ────────────────────────────────────────────
 export { TargetDomain } from './cdp/target.js'

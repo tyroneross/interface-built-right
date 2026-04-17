@@ -46,6 +46,10 @@ export const ConfigSchema = z.object({
   fullPage: z.boolean().default(true),
   waitForNetworkIdle: z.boolean().default(true),
   timeout: z.number().min(1000).max(120000).default(30000),
+  browserMode: z.enum(['local', 'connect']).optional(),
+  cdpUrl: z.string().url().optional(),
+  wsEndpoint: z.string().url().optional(),
+  chromePath: z.string().optional(),
 });
 
 /**

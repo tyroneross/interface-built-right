@@ -6,11 +6,19 @@ import type {
   Viewport,
   Analysis,
 } from './schemas.js';
+import type { BrowserMode } from './engine/cdp/browser.js';
+
+export interface BrowserLaunchOptions {
+  browserMode?: BrowserMode;
+  cdpUrl?: string;
+  wsEndpoint?: string;
+  chromePath?: string;
+}
 
 /**
  * Options for starting a visual session
  */
-export interface StartSessionOptions {
+export interface StartSessionOptions extends BrowserLaunchOptions {
   name?: string;
   viewport?: Viewport;
   fullPage?: boolean;
@@ -18,6 +26,8 @@ export interface StartSessionOptions {
   selector?: string;
   /** CSS selector to wait for before capturing screenshot */
   waitFor?: string;
+  /** Show a visible browser window instead of headless mode */
+  headed?: boolean;
 }
 
 /**
@@ -77,11 +87,12 @@ export const DEFAULT_DYNAMIC_SELECTORS = [
 /**
  * Options for capturing a screenshot
  */
-export interface CaptureOptions {
+export interface CaptureOptions extends BrowserLaunchOptions {
   url: string;
   outputPath: string;
   viewport?: Viewport;
   fullPage?: boolean;
+  headed?: boolean;
   waitForNetworkIdle?: boolean;
   timeout?: number;
   /** CSS selector to capture specific element instead of full page */
@@ -163,6 +174,11 @@ export interface LoginOptions {
   url: string;
   outputDir: string;
   timeout?: number;
+  headed?: boolean;
+  browserMode?: BrowserMode;
+  cdpUrl?: string;
+  wsEndpoint?: string;
+  chromePath?: string;
 }
 
 // Re-export schema types for convenience
