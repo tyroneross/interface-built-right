@@ -162,7 +162,7 @@ IBR runs on a custom **CDP browser engine** — direct Chrome DevTools Protocol 
 
 See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 
-## What's New in v1.0.0-alpha
+## What's New in v1.0.0
 
 | Feature | Command / Usage | What it does |
 |---------|----------------|-------------|

@@ -1,4 +1,4 @@
-<!-- Plugin: ibr · Version: 1.0.0-alpha · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
+<!-- Plugin: ibr · Version: 1.0.0 · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
 # IBR — End-to-End Design Tool
@@ -87,7 +87,7 @@ Skills: `/ibr:design-system` (config management), `/ibr:component-patterns` (pat
 
 Use skill for details.
 
-## Skills (v1.0.0-alpha)
+## Skills (v1.0.0)
 
 | Skill | Purpose |
 |-------|---------|

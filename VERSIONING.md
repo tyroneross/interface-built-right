@@ -2,14 +2,14 @@
 
 ## Current
 
-- **Version:** 1.0.0-alpha
+- **Version:** 1.0.0
 - **Source of truth:** Local dev (`~/Desktop/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npm: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.0.0-alpha/`
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.0.0/`
 
-## Key changes in 1.0.0-alpha
+## Key changes in 1.0.0
 
 ### Positioning & iOS design
 
@@ -73,7 +73,7 @@ When "latest" is ambiguous, trust **local dev** first, then cross-check the regi
 
 ## Version history
 
-- **1.0.0-alpha** (2026-04-17): Repositioned as end-to-end design tool. iOS archetype router, 6 domain references, apple-platform skill, ios-ui → ios-design rename.
+- **1.0.0** (2026-04-17): Repositioned as end-to-end design tool. iOS archetype router, 6 domain references, apple-platform skill, ios-ui → ios-design rename.
 - **0.8.0** (2026-04-07): Design system extension — Calm Precision enforcement, tokens, patterns, global memory. Commit `80653a6`.
 - **0.7.0** (2026-04-04): Context optimization, auto-verify hooks, patience mode, new skills. Commit `07e0a82`.
 - **0.4.9** (prior): Pre-optimization baseline. Cached directory deleted 2026-04-04 during drift cleanup.
