@@ -234,8 +234,8 @@ function withBrowserOptions<T extends Record<string, unknown>>(opts: T): T & {
 
 program
   .name('ibr')
-  .description('Design validation for Codex, Claude Code, and other AI coding agents')
-  .version('0.8.0');
+  .description('End-to-end design tool for AI coding agents')
+  .version('1.0.0');
 
 // Global options
 program

@@ -14965,7 +14965,7 @@ function sendError(id, code, message) {
 }
 var SERVER_INFO = {
   name: "ibr",
-  version: "0.4.9"
+  version: "1.0.0"
 };
 var CAPABILITIES = {
   tools: {}

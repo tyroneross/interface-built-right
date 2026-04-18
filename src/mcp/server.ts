@@ -41,7 +41,7 @@ function sendError(id: string | number, code: number, message: string) {
 
 const SERVER_INFO = {
   name: "ibr",
-  version: "0.4.9",
+  version: "1.0.0",
 };
 
 const CAPABILITIES = {
