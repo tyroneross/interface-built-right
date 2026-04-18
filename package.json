@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "0.10.0-alpha",
+  "version": "1.0.0-alpha",
   "description": "End-to-end design tool for AI coding agents. Guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching, cross-browser. Custom CDP engine.",
   "repository": {
     "type": "git",
