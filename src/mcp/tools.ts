@@ -1803,6 +1803,39 @@ async function handleScan(
     }
   }
 
+  // Rule engine results
+  if (result.ruleEngine && result.ruleEngine.length > 0) {
+    lines.push("");
+    lines.push(`Rule engine violations (${result.ruleEngine.length}):`);
+    for (const v of result.ruleEngine.slice(0, 10)) {
+      lines.push(`- [${v.severity}] ${v.rule}: ${v.actual} (${v.element})`);
+    }
+    if (result.ruleEngine.length > 10) {
+      lines.push(`  ... and ${result.ruleEngine.length - 10} more`);
+    }
+  }
+
+  // Scan summaries
+  if (result.summaries) {
+    const s = result.summaries;
+    lines.push("");
+    lines.push("Summaries:");
+    if (s.componentCensus && s.componentCensus.length > 0) {
+      lines.push(`  Components: ${s.componentCensus.map((c) => `${c.pattern}(${c.count})`).join(", ")}`);
+    }
+    if (s.contrastReport && s.contrastReport.length > 0) {
+      const failing = s.contrastReport.filter((c) => c.status === 'fail').length;
+      const total = s.contrastReport.length;
+      lines.push(`  Contrast: ${total - failing}/${total} pass`);
+    }
+    if (s.interactionMap && s.interactionMap.length > 0) {
+      lines.push(`  Interaction coverage: ${s.interactionMap.map((m) => `${m.category}(${m.count})`).join(", ")}`);
+    }
+    if (s.tokenEfficiency) {
+      lines.push(`  Token efficiency: ${s.tokenEfficiency.reductionPercent}% reduction (${s.tokenEfficiency.summaryTokenEstimate} vs ${s.tokenEfficiency.rawTokenEstimate} tokens)`);
+    }
+  }
+
   if (result.verdict === 'PARTIAL') {
     lines.push("");
     lines.push(`⚠️ ${result.partialReason}`);
