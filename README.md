@@ -280,31 +280,37 @@ IBR_CHROME_PATH=/path/to/chrome
 
 ## Setup as Claude Code Plugin
 
-IBR works standalone, but it's built for Claude Code. As a plugin, it automatically validates UI changes against what the user described and guides you to combine scan data with visual checks for complete coverage.
+IBR works standalone, but it's built for Claude Code. As a plugin, it guides UI builds with archetype-based routing and validates implementations automatically.
 
-**1. Add to your project's `.claude/settings.json`:**
+**1. Add the marketplace (one-time):**
 
-```json
-{
-  "plugins": ["node_modules/@tyroneross/interface-built-right/plugin"]
-}
+```
+/plugin marketplace add tyroneross/interface-built-right
 ```
 
-**2. Restart Claude Code. You now have:**
+**2. Install the plugin:**
 
-| Command | What it does |
-|---------|-------------|
-| `/ibr:snapshot` | Capture baseline before making changes |
-| `/ibr:compare` | Compare current state against baseline |
-| `/ibr:full-interface-scan` | Scan all pages, test every component |
-| `/ibr:build-baseline` | Create baselines with element catalog |
-| `/ibr:ui` | Open the web dashboard at localhost:4200 |
+```
+/plugin install ibr@interface-built-right
+```
 
 **3. Use in conversation:**
 
-> "Make the header dark with a purple CTA" -> Claude builds it -> runs `npx ibr scan` -> checks `backgroundColor` on header and button -> confirms match or iterates
+| Command | What it does |
+|---------|-------------|
+| `/ibr:build <topic>` | Guided UI build: preamble → brainstorm → plan → implement → validate |
+| `/ibr:scan <url>` | Full page scan with sensor summaries and optional rule checks |
+| `/ibr:snapshot` / `/ibr:compare` | Before/after regression check |
+| `/ibr:interact` | Click, type, fill by accessible name |
+| `/ibr:match` | Compare rendered UI against a mockup (SSIM) |
+| `/ibr:native-scan` | Scan iOS/watchOS/macOS apps |
+| `/ibr:ui` | Open the web dashboard at localhost:4200 |
 
-The plugin hooks handle the rest — nudging Claude to validate after UI work and suggesting scan data alongside visual checks for thorough coverage.
+**Example:**
+
+> "Build a daily focus timer for iOS" -> `/ibr:build` classifies it as a Utility archetype -> routes to iOS design references -> implements with apple-platform patterns -> scans the result, reports any WCAG / touch target / hydration issues.
+
+The plugin hooks run automatic pre/post scans around UI file edits and surface console errors immediately when interactions trigger them.
 
 ## What IBR Does For You (Plugin Hooks)
 

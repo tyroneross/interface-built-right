@@ -5,15 +5,15 @@
     "url": "https://github.com/tyroneross"
   },
   "metadata": {
-    "description": "Design validation for Claude Code — verify UI matches user intent with structured CSS, layout, handler, and accessibility data",
+    "description": "End-to-end design tool for Claude Code — guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching, cross-browser",
     "version": "1.0.0"
   },
   "plugins": [
     {
       "name": "ibr",
       "source": "./",
-      "description": "Visual testing platform for Claude Code — interaction assertions, mockup matching, design verification, test generation, cross-browser (Chrome + Safari), native iOS/macOS scanning.",
-      "version": "0.8.0",
+      "description": "End-to-end design tool for AI coding agents — guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching (SSIM), test generation, cross-browser (Chrome + Safari), and native scanning.",
+      "version": "0.10.0-alpha",
       "author": {
         "name": "Tyrone Ross"
       },
@@ -21,21 +21,22 @@
       "repository": "https://github.com/tyroneross/interface-built-right",
       "license": "MIT",
       "keywords": [
-        "design-validation",
-        "ui-testing",
-        "css-audit",
+        "design-tool",
+        "ui-design",
+        "build-orchestration",
+        "visual-testing",
+        "interaction-testing",
+        "mockup-matching",
         "accessibility",
         "cdp",
         "safari",
-        "claude-code",
-        "interaction-testing",
-        "visual-regression"
+        "claude-code"
       ],
-      "category": "testing",
+      "category": "design",
       "tags": [
-        "design-validation",
-        "ui-testing",
-        "css-audit"
+        "design-tool",
+        "ui-design",
+        "build-orchestration"
       ]
     }
   ]
