@@ -48,7 +48,7 @@ Every pattern file follows the same structure:
 
 **Anti-Patterns** — Common mistakes to avoid. These map directly to issues the scan will flag.
 
-**IBR Validation** — Which scan fields to check to confirm the pattern is implemented correctly. Maps user intent to scan output fields, same format as the design-implementation skill.
+**IBR Validation** — Which scan fields to check to confirm the pattern is implemented correctly. Maps user intent to scan output fields, same format as the scan-while-building skill.
 
 ## Extending Patterns
 

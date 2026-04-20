@@ -3099,8 +3099,8 @@ program
     console.log('');
     console.log('IBR includes a Claude Code plugin for AI-assisted visual testing:');
     console.log('');
-    console.log('  /ibr:snapshot  - Capture baseline with one command');
-    console.log('  /ibr:compare   - Visual diff without leaving conversation');
+    console.log('  /ibr:build     - Guided UI build (preamble → plan → implement → validate)');
+    console.log('  /ibr:scan      - Full page scan with structured output');
     console.log('  /ibr:ui        - Open comparison viewer');
     console.log('');
     console.log('Benefits:');
@@ -3152,8 +3152,8 @@ program
       console.log('IBR plugin registered.');
       console.log('');
       console.log('Restart Claude Code to activate. Then use:');
-      console.log('  /ibr:snapshot <url>  - Capture baseline');
-      console.log('  /ibr:compare         - Compare after changes');
+      console.log('  /ibr:scan <url>      - Full page scan');
+      console.log('  /ibr:build <topic>   - Guided UI build workflow');
 
     } catch (err) {
       console.log('');

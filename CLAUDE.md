@@ -79,26 +79,66 @@ IBR now enforces design principles and tokens. When `.ibr/design-system.json` ex
 **Core principles** (error): gestalt, signal-noise, content-chrome, cognitive-load
 **Stylistic principles** (warn): fitts, hick
 
-Skills: `/ibr:design-system` (config management), `/ibr:component-patterns` (pattern library), design-guidance (auto-activates when building UI)
+Skills: `design-guidance` (pre-build patterns + config management, merged), `component-patterns` (pattern library), `scan-while-building` (auto-activates during UI edits)
 
-## Slash Commands
+## Slash Commands vs MCP Tools
 
-`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:design-system` `/ibr:component-patterns` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
+Commands are reserved for multi-step workflows, orchestration, and explicit user intent. Single-function capture/interact operations go through MCP tools directly.
 
-Use skill for details.
+### Slash Commands (24)
 
-## Skills (v1.0.0)
+`/ibr:scan` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:native-scan` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:replicate` `/ibr:run-script` `/ibr:setup-hooks` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:update` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
 
+### Retired → use MCP tool
+
+| Was | Now |
+|-----|-----|
+| `/ibr:snapshot` | `snapshot` MCP tool (or `npx ibr start`) |
+| `/ibr:compare` | `compare` MCP tool (or `npx ibr check`) |
+| `/ibr:screenshot` | `screenshot` MCP tool |
+| `/ibr:test-form` | `flow_form` MCP tool |
+| `/ibr:test-login` | `flow_login` MCP tool |
+| `/ibr:test-search` | `flow_search` MCP tool |
+| `/ibr:design-system` | merged into `design-guidance` skill |
+| `/ibr:component-patterns` | now a skill only (no command) |
+
+Use the relevant skill for details on any retained command.
+
+## Skills (v1.1.0 — 18 skills)
+
+### Design flow
+| Skill | Purpose |
+|-------|---------|
+| `design-guidance` | Pre-build pattern selection + design-system configuration (merged) |
+| `scan-while-building` | Real-time scan-driven feedback during implementation (renamed from design-implementation) |
+| `design-validation` | Post-build audit: accessibility, interactivity, regressions |
+| `design-reference` | Capture external/local references for visual guidance |
+| `component-patterns` | Opinionated patterns (card, nav, form, dashboard, modal, table, list) |
+
+### Build flow
 | Skill | Purpose |
 |-------|---------|
 | `ui-brainstorm-preamble` | Pre-build UI brainstorming — explore directions before implementing |
 | `ui-guidance-library` | Reusable UI guidance patterns and decision aids |
 | `mockup-gallery-bridge` | Bridge between mockup gallery reviews and IBR scan verification |
-| `mobile-web-ui` | Mobile web UI patterns — responsive design, touch targets, viewport handling |
-| `ios-design` | iOS HIG rules — what to build: SwiftUI conventions, safe areas, haptics |
-| `ios-design-router` | Archetype classifier — routes to defaults for 6 iOS app archetypes |
-| `apple-platform` | How to build: architecture patterns, SwiftData, concurrency, CI/CD, TestFlight |
-| `macos-ui` | macOS-specific UI patterns — AppKit/SwiftUI, menu bar, window chrome |
+| `iterative-refinement` | Scan → fix → re-scan loop with convergence detection |
+| `auto-verify` | Automatic pre/post-edit scans via hooks |
+
+### Testing
+| Skill | Purpose |
+|-------|---------|
+| `interactive-testing` | Web interaction flows (click, type, fill by accessible name) |
+| `native-testing` | iOS/watchOS/macOS app scanning |
+| `cli-reference` | Full IBR CLI command reference |
+
+### Platform-specific
+| Skill | Purpose |
+|-------|---------|
+| `mobile-web-ui` | Mobile web UI — responsive, touch targets, viewport |
+| `ios-design` | iOS HIG rules — SwiftUI conventions, safe areas, haptics |
+| `ios-design-router` | Archetype classifier — 6 iOS app archetypes |
+| `apple-platform` | Architecture, SwiftData, concurrency, CI/CD, TestFlight |
+| `macos-ui` | macOS-specific — AppKit/SwiftUI, menu bar, window chrome |
 
 ## iOS Design References
 

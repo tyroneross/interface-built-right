@@ -82,10 +82,16 @@ const result = await session.flow.login({
 Design validation directly in your AI coding workflow.
 
 ```
-/ibr:snapshot http://localhost:3000/settings
+# Before changes
+npx ibr start http://localhost:3000/settings --name settings
+
 # Make UI changes...
-/ibr:compare
+
+# After changes
+npx ibr check
 ```
+
+Or via MCP from Claude Code (the `snapshot` and `compare` MCP tools).
 
 Or validate against user intent directly:
 ```bash

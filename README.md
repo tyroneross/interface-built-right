@@ -300,7 +300,7 @@ IBR works standalone, but it's built for Claude Code. As a plugin, it guides UI 
 |---------|-------------|
 | `/ibr:build <topic>` | Guided UI build: preamble → brainstorm → plan → implement → validate |
 | `/ibr:scan <url>` | Full page scan with sensor summaries and optional rule checks |
-| `/ibr:snapshot` / `/ibr:compare` | Before/after regression check |
+| `snapshot` / `compare` MCP tools | Before/after regression check (also `npx ibr start` / `npx ibr check`) |
 | `/ibr:interact` | Click, type, fill by accessible name |
 | `/ibr:match` | Compare rendered UI against a mockup (SSIM) |
 | `/ibr:native-scan` | Scan iOS/watchOS/macOS apps |
@@ -579,3 +579,17 @@ Available viewports: `desktop`, `laptop`, `tablet`, `mobile`, `iphone-14`, `ipho
 ## License
 
 MIT
+
+## Codex
+
+This package now ships an additive Codex plugin surface alongside the existing Claude Code package. The Claude package remains authoritative for Claude behavior; the Codex package adds a parallel `.codex-plugin/plugin.json` install surface without changing the Claude runtime.
+
+Package root for Codex installs:
+- the repository root (`.`)
+
+Primary Codex surface:
+- skills from `./skills` when present
+- MCP config from `./.mcp.json` when present
+
+Install the package from this package root using your current Codex plugin install flow. The Codex package is additive only: Claude-specific hooks, slash commands, and agent wiring remain unchanged for Claude Code.
+

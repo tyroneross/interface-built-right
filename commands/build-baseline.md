@@ -127,7 +127,7 @@ For each page, list the key elements:
 ### NEXT STEPS
 
 After baselines are built:
-- Make UI changes with confidence — run `/ibr:compare` to see what moved
+- Make UI changes with confidence — use the `compare` MCP tool (or `npx ibr check`) to see what moved
 - Run `/ibr:full-interface-scan` for deeper component testing
 - Use `npx ibr list` to see all captured sessions
 
