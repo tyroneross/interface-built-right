@@ -1,11 +1,11 @@
 ---
-name: design-implementation
-description: This skill should be used when the user asks to "build this UI", "implement this design", "make it look like", "check my progress", "does this match what I described", "build this component", "make this work", "implement the layout", "set up this page", or when frontend files (.tsx, .jsx, .vue, .svelte, .css, .scss, .swift) are being actively edited and implementation needs to stay aligned with user intent.
-version: 0.5.0
+name: scan-while-building
+description: Real-time scan-driven feedback loop during implementation. Use when the user asks to "build this UI", "implement this design", "make it look like", "check my progress", "does this match what I described", "build this component", "make this work", "implement the layout", "set up this page", or when frontend files (.tsx, .jsx, .vue, .svelte, .css, .scss, .swift) are being actively edited and implementation needs to stay aligned with user intent.
+version: 0.6.0
 user-invocable: false
 ---
 
-# Design Implementation with IBR
+# Scan While Building
 
 Use IBR as a planning partner during the build — scan live pages to confirm implementation matches user intent, catch mismatches early, and track changes incrementally. Ground truth is what is actually rendered, not what the code is supposed to do.
 

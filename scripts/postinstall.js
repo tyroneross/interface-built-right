@@ -110,7 +110,7 @@ console.log(`${DIM}────────────────────�
 console.log(`  Add to ${CYAN}.claude/settings.json${RESET}:`);
 console.log(`  ${DIM}{ "plugins": ["node_modules/@tyroneross/interface-built-right/plugin"] }${RESET}`);
 console.log('');
-console.log(`  Slash commands:  ${CYAN}/ibr:snapshot${RESET}  ${CYAN}/ibr:compare${RESET}  ${CYAN}/ibr:ui${RESET}`);
+console.log(`  Slash commands:  ${CYAN}/ibr:build${RESET}  ${CYAN}/ibr:scan${RESET}  ${CYAN}/ibr:ui${RESET}`);
 console.log('');
 console.log(`${DIM}Docs: https://github.com/tyroneross/interface-built-right${RESET}`);
 console.log('');

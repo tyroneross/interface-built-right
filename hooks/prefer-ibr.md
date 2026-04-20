@@ -38,7 +38,7 @@ Block the capture tool and provide IBR alternatives.
 ```json
 {
   "decision": "block",
-  "reason": "IBR-only mode is enabled for capture and validation tasks.\n\nUse IBR instead:\n• Design validation: npx ibr scan <url> --json\n• Screenshot: npx ibr start <url> --name \"description\"\n• HTML extraction: IBR web UI → Upload Reference → From URL\n• Or use /ibr:screenshot command\n\nPlaywright interaction tools (click, type, navigate for flows) remain available.\n\nTo disable: /prefer-ibr"
+  "reason": "IBR-only mode is enabled for capture and validation tasks.\n\nUse IBR instead:\n• Design validation: npx ibr scan <url> --json\n• Screenshot: use the `screenshot` MCP tool (or npx ibr start <url> --name \"description\")\n• HTML extraction: IBR web UI → Upload Reference → From URL\n\nPlaywright interaction tools (click, type, navigate for flows) remain available.\n\nTo disable: /prefer-ibr"
 }
 ```
 

@@ -52,7 +52,7 @@ For each task in `plan.md`:
 3. **macOS design routing** (when `preamble.platform === "macOS"`):
    - Load `macos-ui` skill
    - Load `apple-platform` skill (architecture patterns)
-4. Invoke `ibr:component-patterns` + `ibr:design-implementation` as guidance in scope
+4. Invoke `ibr:component-patterns` + `ibr:scan-while-building` as guidance in scope
 5. If a `validation-target` ref exists in `refs.json`, optionally call `/ibr:replicate` to seed markup
 6. Write code
 
