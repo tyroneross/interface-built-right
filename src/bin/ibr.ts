@@ -947,6 +947,39 @@ program
     }
   });
 
+// Ask command — verdict-engine surface (v3 thesis Milestone 1)
+program
+  .command('ask <url> <question...>')
+  .description('Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump.')
+  .option('-v, --viewport <preset>', 'Viewport preset (desktop, mobile, tablet)', 'desktop')
+  .option('--timeout <ms>', 'Page load timeout in ms', '30000')
+  .option('--max-findings <n>', 'Cap returned findings (default 25)', '25')
+  .action(async (
+    url: string,
+    questionWords: string[],
+    options: { viewport: string; timeout: string; maxFindings: string },
+  ) => {
+    try {
+      const { ask } = await import('../ask.js');
+      const resolvedUrl = await resolveBaseUrl(url);
+      const question = questionWords.join(' ');
+
+      const response = await ask(resolvedUrl, question, {
+        viewport: options.viewport as 'desktop' | 'mobile' | 'tablet',
+        timeout: parseInt(options.timeout, 10),
+        maxFindings: parseInt(options.maxFindings, 10),
+      });
+
+      // Always JSON — `ask` is built for agent consumption.
+      console.log(JSON.stringify(response, null, 2));
+
+      if (response.verdict === 'FAIL') process.exit(1);
+    } catch (error) {
+      console.error('Ask error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Status command - show pending baselines
 program
   .command('status')

@@ -17018,6 +17018,207 @@ var init_dynamic_rules = __esm({
   }
 });
 
+// src/ask.ts
+var ask_exports = {};
+__export(ask_exports, {
+  _internal: () => _internal,
+  ask: () => ask
+});
+function matchQuestion(input) {
+  const normalised = input.trim();
+  for (const def of QUESTIONS) {
+    if (def.canonical === normalised) return def;
+    if (def.aliases.some((re) => re.test(normalised))) return def;
+  }
+  return null;
+}
+function aggregateVerdict(findings) {
+  if (findings.length === 0) return "PASS";
+  if (findings.some((f) => f.verdict === "FAIL")) return "FAIL";
+  if (findings.some((f) => f.verdict === "WARN")) return "WARN";
+  if (findings.some((f) => f.verdict === "UNCERTAIN")) return "UNCERTAIN";
+  return "PASS";
+}
+function violationToFinding(v, kindSeverity) {
+  const evidence = {};
+  if (v.bounds) evidence.bounds = v.bounds;
+  return {
+    verdict: kindSeverity === "error" ? "FAIL" : "WARN",
+    rule: v.ruleId,
+    summary: v.message,
+    element: v.element,
+    evidence: Object.keys(evidence).length ? evidence : void 0,
+    fix: v.fix
+  };
+}
+function tokenViolationToFinding(t) {
+  return {
+    verdict: t.severity === "error" ? "FAIL" : "WARN",
+    rule: `tokens/${t.property}`,
+    summary: t.message,
+    element: t.element,
+    evidence: { expected: t.expected, actual: t.actual, property: t.property }
+  };
+}
+async function ask(url, question, options = {}) {
+  const start = Date.now();
+  const def = matchQuestion(question);
+  if (!def) {
+    return {
+      question,
+      verdict: "UNCERTAIN",
+      findings: [
+        {
+          verdict: "UNCERTAIN",
+          rule: "ask/unsupported-question",
+          summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join("; ")}`
+        }
+      ],
+      meta: {
+        engineVersion: ENGINE_VERSION,
+        durationMs: Date.now() - start,
+        elementsScanned: 0,
+        rulesRun: [],
+        supportedQuestions: SUPPORTED_QUESTIONS
+      }
+    };
+  }
+  let elements;
+  let viewportWidth;
+  let viewportHeight;
+  if (options.preScannedElements) {
+    elements = options.preScannedElements;
+    viewportWidth = options.viewportMetrics?.width ?? 1280;
+    viewportHeight = options.viewportMetrics?.height ?? 800;
+  } else {
+    const result = await scan(url, {
+      viewport: options.viewport ?? "desktop",
+      timeout: options.timeout
+    });
+    elements = result.elements.all;
+    viewportWidth = result.viewport.width;
+    viewportHeight = result.viewport.height;
+  }
+  const context = {
+    isMobile: viewportWidth < 768,
+    viewportWidth,
+    viewportHeight,
+    url,
+    allElements: elements
+  };
+  const maxFindings = options.maxFindings ?? 25;
+  const findings = [];
+  const rulesRun = [];
+  let truncated = false;
+  if (def.kind === "touch-target" || def.kind === "signal-noise") {
+    const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
+    for (const r of targetRules) rulesRun.push(r.id);
+    const violations = [];
+    for (const element of elements) {
+      for (const rule of targetRules) {
+        const v = rule.check(element, context);
+        if (v) violations.push({ ...v, severity: def.severity });
+      }
+    }
+    truncated = violations.length > maxFindings;
+    for (const v of violations.slice(0, maxFindings)) {
+      findings.push(violationToFinding(v, def.severity));
+    }
+  } else if (def.kind === "token-compliance") {
+    const projectDir = options.projectDir ?? process.cwd();
+    const config = await loadDesignSystemConfig(projectDir);
+    if (!config) {
+      findings.push({
+        verdict: "UNCERTAIN",
+        rule: "tokens/no-config",
+        summary: "No design-system config found. Initialise with `ibr design-system init` to define tokens, or skip this question."
+      });
+    } else {
+      rulesRun.push("tokens/extended");
+      const tokens = config.tokens;
+      if (!tokens) {
+        findings.push({
+          verdict: "UNCERTAIN",
+          rule: "tokens/no-tokens",
+          summary: "Design-system config exists but has no `tokens` defined."
+        });
+      } else {
+        const tokenViolations = validateExtendedTokens(elements, tokens, config.name ?? "project");
+        truncated = tokenViolations.length > maxFindings;
+        for (const t of tokenViolations.slice(0, maxFindings)) {
+          findings.push(tokenViolationToFinding(t));
+        }
+      }
+    }
+  }
+  return {
+    question,
+    verdict: aggregateVerdict(findings),
+    findings,
+    truncated: truncated || void 0,
+    meta: {
+      engineVersion: ENGINE_VERSION,
+      durationMs: Date.now() - start,
+      elementsScanned: elements.length,
+      rulesRun
+    }
+  };
+}
+var QUESTIONS, SUPPORTED_QUESTIONS, ENGINE_VERSION, _internal;
+var init_ask = __esm({
+  "src/ask.ts"() {
+    "use strict";
+    init_scan();
+    init_touch_targets();
+    init_signal_noise();
+    init_design_system();
+    init_validator();
+    QUESTIONS = [
+      {
+        kind: "touch-target",
+        canonical: "is the touch-target compliant",
+        aliases: [
+          /touch[- ]?target/i,
+          /minimum\s+(tap|button|target)\s+size/i,
+          /\b44\s*px|\b24\s*px|\btap target\b/i
+        ],
+        severity: "warn"
+      },
+      {
+        kind: "signal-noise",
+        canonical: "do status indicators follow signal-to-noise",
+        aliases: [
+          /signal[- ]?(to[- ]?)?noise/i,
+          /(status|badge|pill).*(background|color|noise)/i,
+          /are status (badges|pills) okay/i,
+          /do badges follow calm[- ]?precision/i
+        ],
+        severity: "error"
+      },
+      {
+        kind: "token-compliance",
+        canonical: "is design-system token compliance okay",
+        aliases: [
+          /design[- ]?system\s+token/i,
+          /token\s+compliance/i,
+          /off[- ]?(system|token)/i,
+          /design tokens?\b/i
+        ],
+        severity: "warn"
+      }
+    ];
+    SUPPORTED_QUESTIONS = QUESTIONS.map((q) => q.canonical);
+    ENGINE_VERSION = "0.1.0-m1";
+    _internal = {
+      matchQuestion,
+      aggregateVerdict,
+      violationToFinding,
+      tokenViolationToFinding,
+      SUPPORTED_QUESTIONS
+    };
+  }
+});
+
 // src/browser-server.ts
 var browser_server_exports = {};
 __export(browser_server_exports, {
@@ -21810,6 +22011,23 @@ program.command("scan <url>").description("Full UI scan: elements + interactivit
     }
   } catch (error) {
     console.error("Scan error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump.").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").action(async (url, questionWords, options) => {
+  try {
+    const { ask: ask2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
+    const resolvedUrl = await resolveBaseUrl(url);
+    const question = questionWords.join(" ");
+    const response = await ask2(resolvedUrl, question, {
+      viewport: options.viewport,
+      timeout: parseInt(options.timeout, 10),
+      maxFindings: parseInt(options.maxFindings, 10)
+    });
+    console.log(JSON.stringify(response, null, 2));
+    if (response.verdict === "FAIL") process.exit(1);
+  } catch (error) {
+    console.error("Ask error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
 });
