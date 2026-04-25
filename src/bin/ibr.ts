@@ -947,25 +947,32 @@ program
     }
   });
 
-// Ask command — verdict-engine surface (v3 thesis Milestone 1)
+// Ask command — verdict-engine surface (v3 thesis Milestone 1).
+//
+// Note: viewport is intentionally read from the global `-v/--viewport` flag
+// (declared on `program`) rather than redeclared here. Defining a local option
+// with the same long flag was confusing Commander — the parent's parser would
+// claim `--viewport mobile` and the child option would silently fall back to
+// its default. Mirror the `audit` command's pattern: read program.opts().
 program
   .command('ask <url> <question...>')
-  .description('Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump.')
-  .option('-v, --viewport <preset>', 'Viewport preset (desktop, mobile, tablet)', 'desktop')
+  .description('Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).')
   .option('--timeout <ms>', 'Page load timeout in ms', '30000')
   .option('--max-findings <n>', 'Cap returned findings (default 25)', '25')
   .action(async (
     url: string,
     questionWords: string[],
-    options: { viewport: string; timeout: string; maxFindings: string },
+    options: { timeout: string; maxFindings: string },
   ) => {
     try {
       const { ask } = await import('../ask.js');
       const resolvedUrl = await resolveBaseUrl(url);
       const question = questionWords.join(' ');
+      const globalViewport = (program.opts().viewport as string | undefined) ?? 'desktop';
+      const viewport = globalViewport as 'desktop' | 'mobile' | 'tablet';
 
       const response = await ask(resolvedUrl, question, {
-        viewport: options.viewport as 'desktop' | 'mobile' | 'tablet',
+        viewport,
         timeout: parseInt(options.timeout, 10),
         maxFindings: parseInt(options.maxFindings, 10),
       });

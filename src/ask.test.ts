@@ -95,6 +95,30 @@ describe('ask: touch-target', () => {
     expect(f.fix).toMatch(/Increase element size/)
   })
 
+  // Regression test for A1: the rule's "on mobile/desktop" copy must reflect
+  // the actual viewport classification (isMobile = width < 768).
+  it('classifies as mobile and uses 44px minimum when viewportMetrics width < 768', async () => {
+    const r = await ask(URL, 'is the touch-target compliant', {
+      preScannedElements: [
+        el({ bounds: { x: 0, y: 0, width: 30, height: 30 }, text: 'Tiny' }),
+      ],
+      viewportMetrics: { width: 360, height: 800 },
+    })
+    expect(r.findings[0]?.summary).toMatch(/on mobile/)
+    expect(r.findings[0]?.summary).toMatch(/minimum 44x44px/)
+  })
+
+  it('classifies as desktop and uses 24px minimum when viewportMetrics width >= 768', async () => {
+    const r = await ask(URL, 'is the touch-target compliant', {
+      preScannedElements: [
+        el({ bounds: { x: 0, y: 0, width: 20, height: 20 }, text: 'TinyDesk' }),
+      ],
+      viewportMetrics: { width: 1280, height: 800 },
+    })
+    expect(r.findings[0]?.summary).toMatch(/on desktop/)
+    expect(r.findings[0]?.summary).toMatch(/minimum 24x24px/)
+  })
+
   it('caps findings at maxFindings and sets truncated=true', async () => {
     const tiny = (i: number) =>
       el({

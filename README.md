@@ -76,6 +76,18 @@ ibr scan http://localhost:3000 --rules wcag-contrast,touch-targets
 
 Output in `scanResult.issues` with `ruleId`, `severity`, `message`, `element`, and `fix` fields.
 
+### `ibr ask` — focused verdicts (v3 thesis M1)
+
+Where `scan` returns the whole tree, `ask` returns one verdict + minimal evidence. ~600 bytes vs ~19KB for the same page.
+
+```bash
+ibr ask http://localhost:3000 'is the touch-target compliant'
+ibr -v mobile ask http://localhost:3000 'do status indicators follow signal-to-noise'
+ibr ask http://localhost:3000 'is design-system token compliance okay'
+```
+
+Closed question vocabulary today (3 questions); unknown questions return `verdict: UNCERTAIN` with the supported list. Returns `{verdict, findings[], meta}` with bounds and a fix per finding. Designed for LLM agents — the agent reads a verdict, optionally drills into one finding's evidence, instead of parsing the full DOM.
+
 ### Tier 2 — Sensor Layer (structured summaries)
 
 Pre-computed summaries that let the model focus on judgment instead of re-discovering patterns:

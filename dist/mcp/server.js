@@ -10796,6 +10796,44 @@ var DecisionEntryWithChecksSchema = DecisionEntrySchema.extend({
 // src/context/compact.ts
 var import_nanoid5 = require("nanoid");
 
+// src/ask.ts
+init_signal_noise();
+var QUESTIONS = [
+  {
+    kind: "touch-target",
+    canonical: "is the touch-target compliant",
+    aliases: [
+      /touch[- ]?target/i,
+      /minimum\s+(tap|button|target)\s+size/i,
+      /\b44\s*px|\b24\s*px|\btap target\b/i
+    ],
+    severity: "warn"
+  },
+  {
+    kind: "signal-noise",
+    canonical: "do status indicators follow signal-to-noise",
+    aliases: [
+      /signal[- ]?(to[- ]?)?noise/i,
+      /(status|badge|pill).*(background|color|noise)/i,
+      /are status (badges|pills) okay/i,
+      /do badges follow calm[- ]?precision/i
+    ],
+    severity: "error"
+  },
+  {
+    kind: "token-compliance",
+    canonical: "is design-system token compliance okay",
+    aliases: [
+      /design[- ]?system\s+token/i,
+      /token\s+compliance/i,
+      /off[- ]?(system|token)/i,
+      /design tokens?\b/i
+    ],
+    severity: "warn"
+  }
+];
+var SUPPORTED_QUESTIONS = QUESTIONS.map((q) => q.canonical);
+
 // src/design-system/principles/index.ts
 init_calm_precision();
 init_gestalt();
