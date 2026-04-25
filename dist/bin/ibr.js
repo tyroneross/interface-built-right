@@ -14354,12 +14354,23 @@ async function scanNative(options = {}) {
     issues: []
   };
   let extractionSucceeded = false;
+  const HOST_CHROME_TAGS = /* @__PURE__ */ new Set([
+    "application",
+    "menubaritem",
+    "nav"
+  ]);
+  let iosGuestUnreachable = false;
   if (isExtractorAvailable()) {
     try {
       const nativeElements = await extractNativeElements(device);
-      elements = mapToEnhancedElements(nativeElements);
+      const allMapped = mapToEnhancedElements(nativeElements);
+      const filtered = device.platform === "ios" ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase())) : allMapped;
+      elements = filtered;
+      if (device.platform === "ios" && allMapped.length > 0 && filtered.length === 0) {
+        iosGuestUnreachable = true;
+      }
       audit = analyzeElements(elements, true);
-      extractionSucceeded = true;
+      extractionSucceeded = !iosGuestUnreachable;
     } catch {
     }
   }
@@ -14377,6 +14388,13 @@ async function scanNative(options = {}) {
       category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
       severity: issue.severity,
       description: issue.message
+    });
+  }
+  if (iosGuestUnreachable) {
+    issues.push({
+      category: "structure",
+      severity: "error",
+      description: "iOS guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2)."
     });
   }
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
@@ -14582,6 +14600,159 @@ var init_scan2 = __esm({
   }
 });
 
+// src/native/sim-driver.ts
+function existingBinaryCandidates() {
+  return [
+    (0, import_path20.join)(__dirname, "..", "bin", DRIVER_NAME),
+    (0, import_path20.join)(__dirname, "bin", DRIVER_NAME),
+    (0, import_path20.join)(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    CACHE_PATH
+  ];
+}
+function sourceDirCandidates() {
+  return [
+    (0, import_path20.join)(__dirname, "..", "..", "mobile-ui", "sim-driver"),
+    (0, import_path20.join)(__dirname, "..", "mobile-ui", "sim-driver")
+  ];
+}
+function findExistingBinary() {
+  return existingBinaryCandidates().find((p) => (0, import_fs10.existsSync)(p)) ?? null;
+}
+function findSourceDir() {
+  return sourceDirCandidates().find((p) => (0, import_fs10.existsSync)((0, import_path20.join)(p, "Package.swift"))) ?? null;
+}
+function isSimDriverAvailable() {
+  if (process.platform !== "darwin") return false;
+  if (cachedPath) return true;
+  if (findExistingBinary()) return true;
+  if (buildError) return false;
+  return findSourceDir() !== null;
+}
+var import_child_process6, import_fs10, import_path20, import_util5, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+var init_sim_driver = __esm({
+  "src/native/sim-driver.ts"() {
+    "use strict";
+    import_child_process6 = require("child_process");
+    import_fs10 = require("fs");
+    import_path20 = require("path");
+    import_util5 = require("util");
+    execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
+    DRIVER_NAME = "ibr-sim-driver";
+    CACHE_DIR = (0, import_path20.join)(process.cwd(), ".ibr", "bin");
+    CACHE_PATH = (0, import_path20.join)(CACHE_DIR, DRIVER_NAME);
+    buildError = null;
+  }
+});
+
+// src/native/idb.ts
+function configuredDriverPreference() {
+  const raw = process.env[SIMULATOR_DRIVER_ENV]?.trim();
+  if (!raw) return "auto";
+  const allowed = ["auto", "native-hid", "native-window", "idb", "simctl"];
+  return allowed.includes(raw) ? raw : "auto";
+}
+function formatSimulatorDriver(driver3) {
+  return driver3 ? DRIVER_LABELS[driver3] : "unknown driver";
+}
+async function isIdbCliAvailable() {
+  try {
+    await execFileAsync6("which", ["idb"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function isSimctlAvailable() {
+  try {
+    await execFileAsync6("which", ["xcrun"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function getSimulatorInteractionDriverStatus() {
+  const preference = configuredDriverPreference();
+  const nativeWindowAvailable = isSimDriverAvailable();
+  const idbAvailable = await isIdbCliAvailable();
+  const simctlAvailable = await isSimctlAvailable();
+  return [
+    {
+      driver: "native-hid",
+      label: DRIVER_LABELS["native-hid"],
+      available: false,
+      headless: true,
+      bundled: true,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Not implemented in this build.",
+        "Target backend uses CoreSimulator/SimulatorKit HID injection, matching IDB-class headless input."
+      ],
+      reason: "pending private-framework HID backend",
+      selected: preference === "native-hid"
+    },
+    {
+      driver: "native-window",
+      label: DRIVER_LABELS["native-window"],
+      available: nativeWindowAvailable,
+      headless: false,
+      bundled: true,
+      actions: ["tap", "type", "swipe"],
+      constraints: [
+        "Requires macOS Accessibility permission.",
+        "Requires a visible Simulator.app window.",
+        "Uses host CGEvent mouse/keyboard events; not IDB-equivalent HID injection."
+      ],
+      reason: nativeWindowAvailable ? void 0 : "Swift driver binary/source unavailable on this platform",
+      selected: preference === "auto" || preference === "native-window"
+    },
+    {
+      driver: "idb",
+      label: DRIVER_LABELS.idb,
+      available: idbAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Requires idb_companion and fb-idb to be installed outside IBR."
+      ],
+      reason: idbAvailable ? void 0 : "idb CLI not found on PATH",
+      selected: preference === "auto" || preference === "idb"
+    },
+    {
+      driver: "simctl",
+      label: DRIVER_LABELS.simctl,
+      available: simctlAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["openUrl", "button"],
+      constraints: [
+        "Can open URLs and capture screenshots.",
+        "HOME has a SpringBoard restart fallback.",
+        "Does not support tap or swipe input through simctl io."
+      ],
+      reason: simctlAvailable ? void 0 : "xcrun not found on PATH",
+      selected: preference === "simctl"
+    }
+  ];
+}
+var import_child_process7, import_util6, execFileAsync6, SIMULATOR_DRIVER_ENV, DRIVER_LABELS;
+var init_idb = __esm({
+  "src/native/idb.ts"() {
+    "use strict";
+    import_child_process7 = require("child_process");
+    import_util6 = require("util");
+    init_sim_driver();
+    execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+    SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
+    DRIVER_LABELS = {
+      "native-hid": "IBR native HID",
+      "native-window": "IBR native-window",
+      idb: "Meta IDB",
+      simctl: "simctl"
+    };
+  }
+});
+
 // src/native/annotate.ts
 var annotate_exports = {};
 __export(annotate_exports, {
@@ -14643,7 +14814,7 @@ function drawLabel(png, cx, cy, id) {
 async function annotateScreenshot(screenshotPath, issues) {
   let png;
   try {
-    const buf = (0, import_fs10.readFileSync)(screenshotPath);
+    const buf = (0, import_fs11.readFileSync)(screenshotPath);
     png = import_pngjs3.PNG.sync.read(buf);
   } catch {
     return null;
@@ -14655,18 +14826,18 @@ async function annotateScreenshot(screenshotPath, issues) {
   }
   const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
   try {
-    (0, import_fs10.writeFileSync)(outPath, import_pngjs3.PNG.sync.write(png));
+    (0, import_fs11.writeFileSync)(outPath, import_pngjs3.PNG.sync.write(png));
   } catch {
     return null;
   }
   return outPath;
 }
-var import_pngjs3, import_fs10, DIGITS;
+var import_pngjs3, import_fs11, DIGITS;
 var init_annotate = __esm({
   "src/native/annotate.ts"() {
     "use strict";
     import_pngjs3 = require("pngjs");
-    import_fs10 = require("fs");
+    import_fs11 = require("fs");
     DIGITS = [
       [31, 17, 17, 17, 17, 17, 31],
       // 0
@@ -14888,6 +15059,7 @@ var init_fix_guide = __esm({
 var native_exports = {};
 __export(native_exports, {
   NATIVE_VIEWPORTS: () => NATIVE_VIEWPORTS,
+  SIMULATOR_DRIVER_ENV: () => SIMULATOR_DRIVER_ENV,
   annotateScreenshot: () => annotateScreenshot,
   auditNativeElements: () => auditNativeElements,
   bootDevice: () => bootDevice,
@@ -14903,9 +15075,11 @@ __export(native_exports, {
   formatDevice: () => formatDevice,
   formatMacOSScanResult: () => formatMacOSScanResult,
   formatNativeScanResult: () => formatNativeScanResult,
+  formatSimulatorDriver: () => formatSimulatorDriver,
   generateFixGuide: () => generateFixGuide,
   getBootedDevices: () => getBootedDevices,
   getDeviceViewport: () => getDeviceViewport,
+  getSimulatorInteractionDriverStatus: () => getSimulatorInteractionDriverStatus,
   isExtractorAvailable: () => isExtractorAvailable,
   listDevices: () => listDevices,
   mapMacOSToEnhancedElements: () => mapMacOSToEnhancedElements,
@@ -14922,6 +15096,7 @@ var init_native = __esm({
     init_extract3();
     init_rules2();
     init_scan2();
+    init_idb();
     init_macos();
     init_interactivity2();
     init_semantic2();
@@ -14979,6 +15154,7 @@ __export(index_exports, {
   RuleSettingSchema: () => RuleSettingSchema,
   RuleSeveritySchema: () => RuleSeveritySchema,
   RulesConfigSchema: () => RulesConfigSchema,
+  SIMULATOR_DRIVER_ENV: () => SIMULATOR_DRIVER_ENV,
   SessionQuerySchema: () => SessionQuerySchema,
   SessionSchema: () => SessionSchema,
   SessionStatusSchema: () => SessionStatusSchema,
@@ -15064,6 +15240,7 @@ __export(index_exports, {
   formatSemanticJson: () => formatSemanticJson,
   formatSemanticText: () => formatSemanticText,
   formatSessionSummary: () => formatSessionSummary,
+  formatSimulatorDriver: () => formatSimulatorDriver,
   formatValidationResult: () => formatValidationResult,
   generateDevModePrompt: () => generateDevModePrompt,
   generateFixGuide: () => generateFixGuide,
@@ -15091,6 +15268,7 @@ __export(index_exports, {
   getSessionPaths: () => getSessionPaths,
   getSessionStats: () => getSessionStats,
   getSessionsByRoute: () => getSessionsByRoute,
+  getSimulatorInteractionDriverStatus: () => getSimulatorInteractionDriverStatus,
   getTimeline: () => getTimeline,
   getTrackedRoutes: () => getTrackedRoutes,
   getVerdictDescription: () => getVerdictDescription,
@@ -15160,7 +15338,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path20.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path21.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -15177,9 +15355,9 @@ async function compare(options) {
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
   await (0, import_promises20.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path20.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path20.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path20.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path21.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path21.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path21.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -15265,7 +15443,7 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path20.dirname)(paths.diff),
+      outputDir: (0, import_path21.dirname)(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
@@ -15283,7 +15461,7 @@ async function compareAll(options = {}) {
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path20.dirname)(paths.diff),
+          outputDir: (0, import_path21.dirname)(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -15295,7 +15473,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises20, import_path20, import_os3, InterfaceBuiltRight, IBRSession;
+var import_promises20, import_path21, import_os3, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -15309,7 +15487,7 @@ var init_index = __esm({
     init_driver();
     init_compat();
     import_promises20 = require("fs/promises");
-    import_path20 = require("path");
+    import_path21 = require("path");
     import_os3 = require("os");
     init_cleanup();
     init_schemas();
@@ -15870,13 +16048,13 @@ var session_exports2 = {};
 __export(session_exports2, {
   SafariSession: () => SafariSession
 });
-var import_child_process6, import_util5, execFileAsync5, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process8, import_util7, execFileAsync7, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process6 = require("child_process");
-    import_util5 = require("util");
-    execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
+    import_child_process8 = require("child_process");
+    import_util7 = require("util");
+    execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -15894,7 +16072,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process6.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process8.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -15932,7 +16110,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync5("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync7("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -15981,17 +16159,17 @@ var driver_exports2 = {};
 __export(driver_exports2, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process7, import_util6, execFileAsync6, SafariDriver;
+var import_child_process9, import_util8, execFileAsync8, SafariDriver;
 var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process7 = require("child_process");
-    import_util6 = require("util");
+    import_child_process9 = require("child_process");
+    import_util8 = require("util");
     init_webdriver();
     init_session2();
     init_extract3();
     init_serialize();
-    execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+    execFileAsync8 = (0, import_util8.promisify)(import_child_process9.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -16005,7 +16183,7 @@ var init_driver2 = __esm({
         await this.client.createSession();
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process7.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process9.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -16186,7 +16364,7 @@ var init_driver2 = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync6(
+          const { stdout } = await execFileAsync8(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -16535,19 +16713,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path21.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = (0, import_path22.join)(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path21.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = (0, import_path22.join)(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path21.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = (0, import_path22.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -16556,8 +16734,8 @@ async function discoverUserContext(projectDir) {
   const config = await loadIBRConfig(projectDir);
   let memory;
   const outputDir = config.outputDir || "./.ibr";
-  const memoryPath = (0, import_path21.join)(outputDir, "memory", "summary.json");
-  if ((0, import_fs11.existsSync)(memoryPath)) {
+  const memoryPath = (0, import_path22.join)(outputDir, "memory", "summary.json");
+  if ((0, import_fs12.existsSync)(memoryPath)) {
     try {
       const memContent = await (0, import_promises21.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
@@ -16579,7 +16757,7 @@ async function tryLoadFramework(filePath, type) {
     found: false,
     hasFramework: false
   };
-  if (!(0, import_fs11.existsSync)(filePath)) {
+  if (!(0, import_fs12.existsSync)(filePath)) {
     return { source };
   }
   source.found = true;
@@ -16595,8 +16773,8 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path21.join)(projectDir, ".ibrrc.json");
-  if (!(0, import_fs11.existsSync)(configPath)) {
+  const configPath = (0, import_path22.join)(projectDir, ".ibrrc.json");
+  if (!(0, import_fs12.existsSync)(configPath)) {
     return {};
   }
   try {
@@ -16630,13 +16808,13 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs11, import_promises21, import_path21, import_os4;
+var import_fs12, import_promises21, import_path22, import_os4;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
-    import_fs11 = require("fs");
+    import_fs12 = require("fs");
     import_promises21 = require("fs/promises");
-    import_path21 = require("path");
+    import_path22 = require("path");
     import_os4 = require("os");
     init_framework_parser();
   }
@@ -16852,14 +17030,14 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path22.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path22.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path22.join)(outputDir, "sessions")
+    stateFile: (0, import_path23.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path23.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path23.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs12.existsSync)(stateFile)) {
+  if (!(0, import_fs13.existsSync)(stateFile)) {
     return false;
   }
   try {
@@ -16961,7 +17139,7 @@ async function startBrowserServer(outputDir, options = {}) {
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs12.existsSync)(stateFile)) {
+  if (!(0, import_fs13.existsSync)(stateFile)) {
     return null;
   }
   try {
@@ -16983,7 +17161,7 @@ async function connectToBrowserServer(outputDir) {
 }
 async function stopBrowserServer(outputDir) {
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs12.existsSync)(stateFile)) {
+  if (!(0, import_fs13.existsSync)(stateFile)) {
     return false;
   }
   try {
@@ -17014,7 +17192,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs12.existsSync)(sessionsDir)) {
+  if (!(0, import_fs13.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir6 } = await import("fs/promises");
@@ -17022,23 +17200,23 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path22.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs12.existsSync)(statePath)) {
+      const statePath = (0, import_path23.join)(sessionsDir, entry.name, "live-session.json");
+      if ((0, import_fs13.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_promises22, import_fs12, import_path22, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_promises22, import_fs13, import_path23, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises22 = require("fs/promises");
-    import_fs12 = require("fs");
-    import_path22 = require("path");
+    import_fs13 = require("fs");
+    import_path23 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
     init_extract2();
@@ -17072,8 +17250,8 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${(0, import_nanoid6.nanoid)(10)}`;
-        const sessionsDir = (0, import_path22.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path22.join)(sessionsDir, sessionId);
+        const sessionsDir = (0, import_path23.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path23.join)(sessionsDir, sessionId);
         await (0, import_promises22.mkdir)(sessionDir, { recursive: true });
         await driver3.setViewport({
           width: viewport.width,
@@ -17106,11 +17284,11 @@ var init_browser_server = __esm({
           }]
         };
         await (0, import_promises22.writeFile)(
-          (0, import_path22.join)(sessionDir, "live-session.json"),
+          (0, import_path23.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path22.join)(sessionDir, "baseline.png"),
+          path: (0, import_path23.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
@@ -17119,9 +17297,9 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path22.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path22.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs12.existsSync)(statePath)) {
+        const sessionDir = (0, import_path23.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path23.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs13.existsSync)(statePath)) {
           return null;
         }
         const driver3 = await connectToBrowserServer(outputDir);
@@ -17153,7 +17331,7 @@ var init_browser_server = __esm({
       }
       async saveState() {
         await (0, import_promises22.writeFile)(
-          (0, import_path22.join)(this.sessionDir, "live-session.json"),
+          (0, import_path23.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -17295,7 +17473,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path22.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path23.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -17566,7 +17744,7 @@ var init_browser_server = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path22.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path23.join)(this.sessionDir, screenshotFile);
         try {
           await this.page.addStyleTag({
             content: `*, *::before, *::after {
@@ -17667,14 +17845,14 @@ var init_browser_server = __esm({
         if (this.state.captures && this.state.captures.length > 0) {
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
-            const archiveDir = (0, import_path22.join)(this.sessionDir, "archive");
+            const archiveDir = (0, import_path23.join)(this.sessionDir, "archive");
             await (0, import_promises22.mkdir)(archiveDir, { recursive: true });
             const { rename: rename2 } = await import("fs/promises");
             for (const cap of ephemeral) {
-              const src = (0, import_path22.join)(this.sessionDir, cap.screenshot);
-              const dest = (0, import_path22.join)(archiveDir, cap.screenshot);
+              const src = (0, import_path23.join)(this.sessionDir, cap.screenshot);
+              const dest = (0, import_path23.join)(archiveDir, cap.screenshot);
               try {
-                if ((0, import_fs12.existsSync)(src)) {
+                if ((0, import_fs13.existsSync)(src)) {
                   await rename2(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
@@ -17685,9 +17863,9 @@ var init_browser_server = __esm({
           }
         }
         await this.driver.close();
-        const liveSessionPath = (0, import_path22.join)(this.sessionDir, "live-session.json");
+        const liveSessionPath = (0, import_path23.join)(this.sessionDir, "live-session.json");
         try {
-          if ((0, import_fs12.existsSync)(liveSessionPath)) {
+          if ((0, import_fs13.existsSync)(liveSessionPath)) {
             await (0, import_promises22.unlink)(liveSessionPath);
           }
         } catch {
@@ -17725,15 +17903,15 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises23, import_fs13, import_path23, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises23, import_fs14, import_path24, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     init_driver();
     init_compat();
     import_promises23 = require("fs/promises");
-    import_fs13 = require("fs");
-    import_path23 = require("path");
+    import_fs14 = require("fs");
+    import_path24 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
     init_scan();
@@ -17752,7 +17930,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, driver3, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path23.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path24.join)(outputDir, "sessions", state.id);
         this.driver = driver3;
         this.page = page;
         page.on("console", (msg) => {
@@ -17783,7 +17961,7 @@ var init_live_session = __esm({
         } = options;
         const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
-        const sessionDir = (0, import_path23.join)(outputDir, "sessions", sessionId);
+        const sessionDir = (0, import_path24.join)(outputDir, "sessions", sessionId);
         await (0, import_promises23.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
@@ -17822,11 +18000,11 @@ var init_live_session = __esm({
           captures: []
         };
         await (0, import_promises23.writeFile)(
-          (0, import_path23.join)(sessionDir, "live-session.json"),
+          (0, import_path24.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path23.join)(sessionDir, "baseline.png"),
+          path: (0, import_path24.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         const session = new _LiveSession(state, outputDir, driver3, page);
@@ -17840,9 +18018,9 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path23.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path23.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs13.existsSync)(statePath)) {
+        const sessionDir = (0, import_path24.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path24.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs14.existsSync)(statePath)) {
           return null;
         }
         const content = await (0, import_promises23.readFile)(statePath, "utf-8");
@@ -17972,7 +18150,7 @@ var init_live_session = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path23.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path24.join)(this.sessionDir, screenshotFile);
         try {
           await page.addStyleTag({
             content: `
@@ -18483,7 +18661,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path23.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path24.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -18597,13 +18775,13 @@ var init_live_session = __esm({
       async archiveEphemeralScreenshots() {
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
-        const archiveDir = (0, import_path23.join)(this.sessionDir, "archive");
+        const archiveDir = (0, import_path24.join)(this.sessionDir, "archive");
         await (0, import_promises23.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
-          const src = (0, import_path23.join)(this.sessionDir, cap.screenshot);
-          const dest = (0, import_path23.join)(archiveDir, cap.screenshot);
+          const src = (0, import_path24.join)(this.sessionDir, cap.screenshot);
+          const dest = (0, import_path24.join)(archiveDir, cap.screenshot);
           try {
-            if ((0, import_fs13.existsSync)(src)) {
+            if ((0, import_fs14.existsSync)(src)) {
               await (0, import_promises23.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
@@ -18620,7 +18798,7 @@ var init_live_session = __esm({
       }
       async saveState() {
         await (0, import_promises23.writeFile)(
-          (0, import_path23.join)(this.sessionDir, "live-session.json"),
+          (0, import_path24.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -18688,13 +18866,13 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises24, import_fs14, import_path24, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises24, import_fs15, import_path25, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
     import_promises24 = require("fs/promises");
-    import_fs14 = require("fs");
-    import_path24 = require("path");
+    import_fs15 = require("fs");
+    import_path25 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
       maxSizeBytes: 500 * 1024 * 1024,
@@ -18715,12 +18893,12 @@ var init_screenshot_manager = __esm({
         const { sessionId, fullPage = false, selector } = options;
         let outputPath;
         if (sessionId) {
-          const sessionDir = (0, import_path24.join)(this.outputDir, "sessions", sessionId);
+          const sessionDir = (0, import_path25.join)(this.outputDir, "sessions", sessionId);
           await (0, import_promises24.mkdir)(sessionDir, { recursive: true });
-          outputPath = (0, import_path24.join)(sessionDir, `${name}.png`);
+          outputPath = (0, import_path25.join)(sessionDir, `${name}.png`);
         } else {
           await (0, import_promises24.mkdir)(this.outputDir, { recursive: true });
-          outputPath = (0, import_path24.join)(this.outputDir, `${name}.png`);
+          outputPath = (0, import_path25.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
           content: `
@@ -18751,8 +18929,8 @@ var init_screenshot_manager = __esm({
        * List all screenshots for a session
        */
       async list(sessionId) {
-        const sessionDir = (0, import_path24.join)(this.outputDir, "sessions", sessionId);
-        if (!(0, import_fs14.existsSync)(sessionDir)) {
+        const sessionDir = (0, import_path25.join)(this.outputDir, "sessions", sessionId);
+        if (!(0, import_fs15.existsSync)(sessionDir)) {
           return [];
         }
         const screenshots = [];
@@ -18764,14 +18942,14 @@ var init_screenshot_manager = __esm({
        * List all screenshots across all sessions
        */
       async listAll() {
-        const sessionsDir = (0, import_path24.join)(this.outputDir, "sessions");
-        if (!(0, import_fs14.existsSync)(sessionsDir)) {
+        const sessionsDir = (0, import_path25.join)(this.outputDir, "sessions");
+        if (!(0, import_fs15.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
         const sessions = await (0, import_promises24.readdir)(sessionsDir);
         for (const sessionId of sessions) {
-          const sessionDir = (0, import_path24.join)(sessionsDir, sessionId);
+          const sessionDir = (0, import_path25.join)(sessionsDir, sessionId);
           const stats = await (0, import_promises24.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
@@ -18786,7 +18964,7 @@ var init_screenshot_manager = __esm({
       async scanDirectory(dir, sessionId, results) {
         const entries = await (0, import_promises24.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
-          const fullPath = (0, import_path24.join)(dir, entry.name);
+          const fullPath = (0, import_path25.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
@@ -18810,20 +18988,20 @@ var init_screenshot_manager = __esm({
        * Get metadata for a specific screenshot
        */
       async getMetadata(path2) {
-        if (!(0, import_fs14.existsSync)(path2)) {
+        if (!(0, import_fs15.existsSync)(path2)) {
           return null;
         }
         const stats = await (0, import_promises24.stat)(path2);
-        const name = (0, import_path24.basename)(path2);
-        const dir = (0, import_path24.dirname)(path2);
+        const name = (0, import_path25.basename)(path2);
+        const dir = (0, import_path25.dirname)(path2);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
         const step = stepMatch ? stepMatch[1] : void 0;
         const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
         const sessionId = sessionMatch ? sessionMatch[1] : void 0;
         let query;
         let userIntent;
-        const resultsPath = (0, import_path24.join)(dir, "results.json");
-        if ((0, import_fs14.existsSync)(resultsPath)) {
+        const resultsPath = (0, import_path25.join)(dir, "results.json");
+        if ((0, import_fs15.existsSync)(resultsPath)) {
           try {
             const resultsContent = await (0, import_promises24.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
@@ -18922,15 +19100,15 @@ var init_screenshot_manager = __esm({
        * Save configuration to file
        */
       async saveConfig() {
-        const configPath = (0, import_path24.join)(this.outputDir, "screenshot-config.json");
+        const configPath = (0, import_path25.join)(this.outputDir, "screenshot-config.json");
         await (0, import_promises24.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
        */
       async loadConfig() {
-        const configPath = (0, import_path24.join)(this.outputDir, "screenshot-config.json");
-        if ((0, import_fs14.existsSync)(configPath)) {
+        const configPath = (0, import_path25.join)(this.outputDir, "screenshot-config.json");
+        if ((0, import_fs15.existsSync)(configPath)) {
           try {
             const content = await (0, import_promises24.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
@@ -18964,23 +19142,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs15.readdirSync)(currentDir);
+      entries = (0, import_fs16.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path25.join)(currentDir, entry);
+      const fullPath = (0, import_path26.join)(currentDir, entry);
       let stat5;
       try {
-        stat5 = (0, import_fs15.statSync)(fullPath);
+        stat5 = (0, import_fs16.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat5.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path25.relative)(rootDir, fullPath));
+        results.push((0, import_path26.relative)(rootDir, fullPath));
       }
     }
   }
@@ -18996,10 +19174,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path25.join)(projectRoot, filePath);
+    const fullPath = (0, import_path26.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs15.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs16.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -19083,10 +19261,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
 }
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path25.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs15.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path26.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs16.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs15.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs16.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -19242,15 +19420,15 @@ function formatBridgeResult(result) {
   }
   return lines.join("\n");
 }
-var import_fs15, import_path25, NAVGATOR_PATHS, CONFIDENCE;
+var import_fs16, import_path26, NAVGATOR_PATHS, CONFIDENCE;
 var init_bridge = __esm({
   "src/native/bridge.ts"() {
     "use strict";
-    import_fs15 = require("fs");
-    import_path25 = require("path");
+    import_fs16 = require("fs");
+    import_path26 = require("path");
     NAVGATOR_PATHS = [
-      (0, import_path25.join)(".navgator", "architecture"),
-      (0, import_path25.join)(".claude", "architecture")
+      (0, import_path26.join)(".navgator", "architecture"),
+      (0, import_path26.join)(".claude", "architecture")
       // legacy — NavGator < 0.3
     ];
     CONFIDENCE = {
@@ -19439,7 +19617,7 @@ async function executeStep(driver3, step, url, outputDir) {
     if (expectation.screenshot !== void 0) {
       try {
         await (0, import_promises25.mkdir)(outputDir, { recursive: true });
-        const screenshotPath = (0, import_path26.join)(outputDir, `${expectation.screenshot}.png`);
+        const screenshotPath = (0, import_path27.join)(outputDir, `${expectation.screenshot}.png`);
         await (0, import_promises25.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
@@ -19586,12 +19764,12 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises25, import_path26;
+var import_promises25, import_path27;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
     import_promises25 = require("fs/promises");
-    import_path26 = require("path");
+    import_path27 = require("path");
     init_driver();
   }
 });
@@ -20180,8 +20358,8 @@ function formatReconciliationMatrix(matrix) {
   return lines.join("\n");
 }
 async function loadChanges(outputDir) {
-  const filePath = (0, import_path27.join)(outputDir, CHANGES_FILE);
-  if (!(0, import_fs16.existsSync)(filePath)) return [];
+  const filePath = (0, import_path28.join)(outputDir, CHANGES_FILE);
+  if (!(0, import_fs17.existsSync)(filePath)) return [];
   try {
     const raw = await (0, import_promises27.readFile)(filePath, "utf-8");
     const parsed = JSON.parse(raw);
@@ -20195,16 +20373,16 @@ async function saveChange(outputDir, change) {
   await (0, import_promises27.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
-  const filePath = (0, import_path27.join)(outputDir, CHANGES_FILE);
+  const filePath = (0, import_path28.join)(outputDir, CHANGES_FILE);
   await (0, import_promises27.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises27, import_fs16, import_path27, CHANGES_FILE;
+var import_promises27, import_fs17, import_path28, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
     import_promises27 = require("fs/promises");
-    import_fs16 = require("fs");
-    import_path27 = require("path");
+    import_fs17 = require("fs");
+    import_path28 = require("path");
     CHANGES_FILE = "design-changes.json";
   }
 });
@@ -20271,7 +20449,7 @@ async function generateTest(options) {
   const suite = {
     [pageName]: { url, tests }
   };
-  const dir = (0, import_path28.dirname)(outputPath);
+  const dir = (0, import_path29.dirname)(outputPath);
   if (dir && dir !== ".") {
     await (0, import_promises28.mkdir)(dir, { recursive: true });
   }
@@ -20330,12 +20508,12 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises28, import_path28, INPUT_SAMPLE_VALUES;
+var import_promises28, import_path29, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
     import_promises28 = require("fs/promises");
-    import_path28 = require("path");
+    import_path29 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
       email: "test@example.com",
@@ -20370,7 +20548,7 @@ async function runTests(options = {}) {
     wsEndpoint,
     chromePath
   } = options;
-  const raw = await (0, import_promises29.readFile)((0, import_path29.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises29.readFile)((0, import_path30.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
   await (0, import_promises29.mkdir)(outputDir, { recursive: true });
   const allResults = [];
@@ -20419,7 +20597,7 @@ async function runTests(options = {}) {
         duration: Date.now() - runStart
       };
       allResults.push(runResult);
-      const resultPath = (0, import_path29.join)(outputDir, `${pageName}-results.json`);
+      const resultPath = (0, import_path30.join)(outputDir, `${pageName}-results.json`);
       await (0, import_promises29.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
@@ -20449,7 +20627,7 @@ async function executeStep2(driver3, step, outputDir) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
       await (0, import_promises29.mkdir)(outputDir, { recursive: true });
-      const screenshotPath = (0, import_path29.join)(outputDir, `${step.screenshot}.png`);
+      const screenshotPath = (0, import_path30.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
       await (0, import_promises29.writeFile)(screenshotPath, buf);
       return {
@@ -20548,12 +20726,12 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises29, import_path29;
+var import_promises29, import_path30;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
     import_promises29 = require("fs/promises");
-    import_path29 = require("path");
+    import_path30 = require("path");
     init_driver();
   }
 });
@@ -20600,10 +20778,10 @@ async function runScript(options) {
     env = {}
   } = options;
   const tmpId = (0, import_crypto2.randomBytes)(8).toString("hex");
-  const tmpDir = (0, import_path30.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
+  const tmpDir = (0, import_path31.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
   await (0, import_promises30.mkdir)(tmpDir, { recursive: true });
-  const copiedScript = (0, import_path30.join)(tmpDir, "user_script.py");
-  const wrapperPath = (0, import_path30.join)(tmpDir, "wrapper.py");
+  const copiedScript = (0, import_path31.join)(tmpDir, "user_script.py");
+  const wrapperPath = (0, import_path31.join)(tmpDir, "wrapper.py");
   try {
     await (0, import_promises30.copyFile)(scriptPath, copiedScript);
     await (0, import_promises30.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
@@ -20613,7 +20791,7 @@ async function runScript(options) {
     let stderr = "";
     let exitCode = 0;
     await new Promise((resolvePromise) => {
-      const child = (0, import_child_process8.spawn)("python3", [wrapperPath], {
+      const child = (0, import_child_process10.spawn)("python3", [wrapperPath], {
         cwd: tmpDir,
         detached: true,
         shell: false,
@@ -20683,13 +20861,13 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process8, import_promises30, import_path30, import_os5, import_crypto2;
+var import_child_process10, import_promises30, import_path31, import_os5, import_crypto2;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
-    import_child_process8 = require("child_process");
+    import_child_process10 = require("child_process");
     import_promises30 = require("fs/promises");
-    import_path30 = require("path");
+    import_path31 = require("path");
     import_os5 = require("os");
     import_crypto2 = require("crypto");
   }
@@ -20712,7 +20890,7 @@ async function loadState(statePath) {
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises31.mkdir)((0, import_path31.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises31.mkdir)((0, import_path32.resolve)(statePath, ".."), { recursive: true });
   await (0, import_promises31.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
@@ -20823,7 +21001,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     try {
       const results = await runTests({
         filePath: testFile,
-        outputDir: (0, import_path31.join)(outputDir, `iter-${iterationNumber}`)
+        outputDir: (0, import_path32.join)(outputDir, `iter-${iterationNumber}`)
       });
       fingerprints = testRunFingerprints(results);
       issueCount = fingerprints.length;
@@ -20837,7 +21015,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     }
   } else {
     try {
-      const result = await scan(url, { outputDir: (0, import_path31.join)(outputDir, `iter-${iterationNumber}`) });
+      const result = await scan(url, { outputDir: (0, import_path32.join)(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
       issues = result.issues;
@@ -20864,7 +21042,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
 async function verifyResolved(url, outputDir, iterationNumber) {
   try {
     const verifyResult = await scan(url, {
-      outputDir: (0, import_path31.join)(outputDir, `iter-${iterationNumber}-verify`)
+      outputDir: (0, import_path32.join)(outputDir, `iter-${iterationNumber}-verify`)
     });
     return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length };
   } catch {
@@ -20879,7 +21057,7 @@ async function iterate(options) {
     outputDir = ".ibr/iterate",
     autoApprove = false
   } = options;
-  const statePath = (0, import_path31.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path32.join)(outputDir, "iterate-state.json");
   await (0, import_promises31.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url) {
@@ -20935,11 +21113,11 @@ async function iterate(options) {
   const targetState = finalState ?? "in_progress";
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
-    const analysisDir = (0, import_path31.join)(outputDir);
+    const analysisDir = (0, import_path32.join)(outputDir);
     await (0, import_promises31.mkdir)(analysisDir, { recursive: true }).catch(() => {
     });
     await (0, import_promises31.writeFile)(
-      (0, import_path31.join)(analysisDir, "analysis.json"),
+      (0, import_path32.join)(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
     });
@@ -20981,17 +21159,17 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
   return { iterations, finalState, summary, verificationPassed, analysis };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
-  const statePath = (0, import_path31.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path32.join)(outputDir, "iterate-state.json");
   await (0, import_promises31.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto3, import_promises31, import_path31, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var import_crypto3, import_promises31, import_path32, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
     import_crypto3 = require("crypto");
     import_promises31 = require("fs/promises");
-    import_path31 = require("path");
+    import_path32 = require("path");
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
@@ -21011,8 +21189,8 @@ var init_iterate = __esm({
 // src/bin/ibr.ts
 var import_commander = require("commander");
 var import_promises32 = require("fs/promises");
-var import_path32 = require("path");
-var import_fs17 = require("fs");
+var import_path33 = require("path");
+var import_fs18 = require("fs");
 init_driver();
 init_compat();
 init_index();
@@ -21099,8 +21277,8 @@ program.hook("preAction", () => {
   if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
 });
 async function loadConfig() {
-  const configPath = (0, import_path32.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs17.existsSync)(configPath)) {
+  const configPath = (0, import_path33.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs18.existsSync)(configPath)) {
     try {
       const content = await (0, import_promises32.readFile)(configPath, "utf-8");
       return JSON.parse(content);
@@ -21364,7 +21542,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { mkdir: mkdir26, access: access4 } = await import("fs/promises");
-      const { join: join29 } = await import("path");
+      const { join: join30 } = await import("path");
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
@@ -21372,7 +21550,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir26(join29(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir26(join30(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -21403,7 +21581,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { readFile: readFile23 } = await import("fs/promises");
-      const { join: join29 } = await import("path");
+      const { join: join30 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
@@ -21428,7 +21606,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join29(process.cwd(), "CLAUDE.md");
+          const claudeMdPath = join30(process.cwd(), "CLAUDE.md");
           const content = await readFile23(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
@@ -21777,20 +21955,20 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn: spawn4 } = await import("child_process");
   const { resolve: resolve5 } = await import("path");
   const packageRoot = resolve5(process.cwd());
-  let webUiDir = (0, import_path32.join)(packageRoot, "web-ui");
-  if (!(0, import_fs17.existsSync)(webUiDir)) {
+  let webUiDir = (0, import_path33.join)(packageRoot, "web-ui");
+  if (!(0, import_fs18.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path32.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path32.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path33.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path33.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs17.existsSync)(p)) {
+      if ((0, import_fs18.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs17.existsSync)(webUiDir)) {
+  if (!(0, import_fs18.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -22713,7 +22891,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path32.join)(outputDir, "sessions", `search-${Date.now()}`);
+    const sessionDir = (0, import_path33.join)(outputDir, "sessions", `search-${Date.now()}`);
     await mkdir26(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
@@ -22977,13 +23155,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join29 } = await import("path");
+    const { join: join30 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join29(outputDir, "diagnose", "test.png"),
+      outputPath: join30(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -23101,10 +23279,10 @@ async function resolveBaseUrl(providedUrl) {
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
   const { writeFile: writeFile20, readFile: readFile23, mkdir: mkdir26 } = await import("fs/promises");
-  const configPath = (0, import_path32.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path32.join)(process.cwd(), ".claude", "settings.json");
+  const configPath = (0, import_path33.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path33.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs17.existsSync)(configPath)) {
+  if (!(0, import_fs18.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -23158,8 +23336,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs17.existsSync)((0, import_path32.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs17.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs18.existsSync)((0, import_path33.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs18.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -23168,7 +23346,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs17.existsSync)((0, import_path32.join)(process.cwd(), p))) {
+    if ((0, import_fs18.existsSync)((0, import_path33.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -23247,7 +23425,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir26((0, import_path32.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir26((0, import_path33.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
@@ -23414,8 +23592,8 @@ program.command("native:scan [device]").description("Scan a running simulator fo
         if (annotated) fixGuide.screenshot = annotated;
       }
       const { mkdirSync, writeFileSync: writeFileSync2 } = await import("fs");
-      const guidePath = (0, import_path32.join)(outputDir, "native", "fix-guide.json");
-      mkdirSync((0, import_path32.join)(outputDir, "native"), { recursive: true });
+      const guidePath = (0, import_path33.join)(outputDir, "native", "fix-guide.json");
+      mkdirSync((0, import_path33.join)(outputDir, "native"), { recursive: true });
       writeFileSync2(guidePath, JSON.stringify(fixGuide, null, 2));
       if (options.json) {
         console.log(JSON.stringify(fixGuide, null, 2));
@@ -23750,7 +23928,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
       url: resolvedUrl,
       steps,
       viewport,
-      outputDir: (0, import_path32.join)(outputDir, "interactions"),
+      outputDir: (0, import_path33.join)(outputDir, "interactions"),
       headless: !(options.headed || options.sandbox),
       ...getBrowserConnectionOptions()
     });

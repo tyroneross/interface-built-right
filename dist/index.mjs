@@ -12807,12 +12807,23 @@ async function scanNative(options = {}) {
     issues: []
   };
   let extractionSucceeded = false;
+  const HOST_CHROME_TAGS = /* @__PURE__ */ new Set([
+    "application",
+    "menubaritem",
+    "nav"
+  ]);
+  let iosGuestUnreachable = false;
   if (isExtractorAvailable()) {
     try {
       const nativeElements = await extractNativeElements(device);
-      elements = mapToEnhancedElements(nativeElements);
+      const allMapped = mapToEnhancedElements(nativeElements);
+      const filtered = device.platform === "ios" ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase())) : allMapped;
+      elements = filtered;
+      if (device.platform === "ios" && allMapped.length > 0 && filtered.length === 0) {
+        iosGuestUnreachable = true;
+      }
       audit = analyzeElements(elements, true);
-      extractionSucceeded = true;
+      extractionSucceeded = !iosGuestUnreachable;
     } catch {
     }
   }
@@ -12830,6 +12841,13 @@ async function scanNative(options = {}) {
       category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
       severity: issue.severity,
       description: issue.message
+    });
+  }
+  if (iosGuestUnreachable) {
+    issues.push({
+      category: "structure",
+      severity: "error",
+      description: "iOS guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2)."
     });
   }
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
@@ -13016,6 +13034,135 @@ function formatNativeScanResult(result) {
   lines.push(...formatIssuesSection(result.issues));
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
+}
+promisify(execFile);
+var DRIVER_NAME = "ibr-sim-driver";
+var CACHE_DIR = join(process.cwd(), ".ibr", "bin");
+var CACHE_PATH = join(CACHE_DIR, DRIVER_NAME);
+function existingBinaryCandidates() {
+  return [
+    join(__dirname, "..", "bin", DRIVER_NAME),
+    join(__dirname, "bin", DRIVER_NAME),
+    join(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    CACHE_PATH
+  ];
+}
+function sourceDirCandidates() {
+  return [
+    join(__dirname, "..", "..", "mobile-ui", "sim-driver"),
+    join(__dirname, "..", "mobile-ui", "sim-driver")
+  ];
+}
+function findExistingBinary() {
+  return existingBinaryCandidates().find((p) => existsSync(p)) ?? null;
+}
+function findSourceDir() {
+  return sourceDirCandidates().find((p) => existsSync(join(p, "Package.swift"))) ?? null;
+}
+function isSimDriverAvailable() {
+  if (process.platform !== "darwin") return false;
+  if (findExistingBinary()) return true;
+  return findSourceDir() !== null;
+}
+
+// src/native/idb.ts
+var execFileAsync6 = promisify(execFile);
+var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
+var DRIVER_LABELS = {
+  "native-hid": "IBR native HID",
+  "native-window": "IBR native-window",
+  idb: "Meta IDB",
+  simctl: "simctl"
+};
+function configuredDriverPreference() {
+  const raw = process.env[SIMULATOR_DRIVER_ENV]?.trim();
+  if (!raw) return "auto";
+  const allowed = ["auto", "native-hid", "native-window", "idb", "simctl"];
+  return allowed.includes(raw) ? raw : "auto";
+}
+function formatSimulatorDriver(driver2) {
+  return driver2 ? DRIVER_LABELS[driver2] : "unknown driver";
+}
+async function isIdbCliAvailable() {
+  try {
+    await execFileAsync6("which", ["idb"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function isSimctlAvailable() {
+  try {
+    await execFileAsync6("which", ["xcrun"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function getSimulatorInteractionDriverStatus() {
+  const preference = configuredDriverPreference();
+  const nativeWindowAvailable = isSimDriverAvailable();
+  const idbAvailable = await isIdbCliAvailable();
+  const simctlAvailable = await isSimctlAvailable();
+  return [
+    {
+      driver: "native-hid",
+      label: DRIVER_LABELS["native-hid"],
+      available: false,
+      headless: true,
+      bundled: true,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Not implemented in this build.",
+        "Target backend uses CoreSimulator/SimulatorKit HID injection, matching IDB-class headless input."
+      ],
+      reason: "pending private-framework HID backend",
+      selected: preference === "native-hid"
+    },
+    {
+      driver: "native-window",
+      label: DRIVER_LABELS["native-window"],
+      available: nativeWindowAvailable,
+      headless: false,
+      bundled: true,
+      actions: ["tap", "type", "swipe"],
+      constraints: [
+        "Requires macOS Accessibility permission.",
+        "Requires a visible Simulator.app window.",
+        "Uses host CGEvent mouse/keyboard events; not IDB-equivalent HID injection."
+      ],
+      reason: nativeWindowAvailable ? void 0 : "Swift driver binary/source unavailable on this platform",
+      selected: preference === "auto" || preference === "native-window"
+    },
+    {
+      driver: "idb",
+      label: DRIVER_LABELS.idb,
+      available: idbAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Requires idb_companion and fb-idb to be installed outside IBR."
+      ],
+      reason: idbAvailable ? void 0 : "idb CLI not found on PATH",
+      selected: preference === "auto" || preference === "idb"
+    },
+    {
+      driver: "simctl",
+      label: DRIVER_LABELS.simctl,
+      available: simctlAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["openUrl", "button"],
+      constraints: [
+        "Can open URLs and capture screenshots.",
+        "HOME has a SpringBoard restart fallback.",
+        "Does not support tap or swipe input through simctl io."
+      ],
+      reason: simctlAvailable ? void 0 : "xcrun not found on PATH",
+      selected: preference === "simctl"
+    }
+  ];
 }
 var DIGITS = [
   [31, 17, 17, 17, 17, 17, 31],
@@ -13808,6 +13955,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

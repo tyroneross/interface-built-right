@@ -2936,13 +2936,13 @@ var init_webdriver = __esm({
 });
 
 // src/engine/safari/session.ts
-var import_child_process8, import_util7, execFileAsync7, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process9, import_util8, execFileAsync8, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process8 = require("child_process");
-    import_util7 = require("util");
-    execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
+    import_child_process9 = require("child_process");
+    import_util8 = require("util");
+    execFileAsync8 = (0, import_util8.promisify)(import_child_process9.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -2960,7 +2960,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process8.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process9.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -2998,7 +2998,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync7("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync8("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -3047,17 +3047,17 @@ var driver_exports = {};
 __export(driver_exports, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process9, import_util8, execFileAsync8, SafariDriver;
+var import_child_process10, import_util9, execFileAsync9, SafariDriver;
 var init_driver = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process9 = require("child_process");
-    import_util8 = require("util");
+    import_child_process10 = require("child_process");
+    import_util9 = require("util");
     init_webdriver();
     init_session2();
     init_extract();
     init_serialize();
-    execFileAsync8 = (0, import_util8.promisify)(import_child_process9.execFile);
+    execFileAsync9 = (0, import_util9.promisify)(import_child_process10.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -3071,7 +3071,7 @@ var init_driver = __esm({
         await this.client.createSession();
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process9.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process10.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -3252,7 +3252,7 @@ var init_driver = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync8(
+          const { stdout } = await execFileAsync9(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -3616,16 +3616,16 @@ __export(scan_exports, {
 });
 function scanStatic(options) {
   const { htmlPath, cssPath } = options;
-  if (!(0, import_fs5.existsSync)(htmlPath)) {
+  if (!(0, import_fs6.existsSync)(htmlPath)) {
     throw new Error(`HTML file not found: ${htmlPath}`);
   }
-  if (cssPath && !(0, import_fs5.existsSync)(cssPath)) {
+  if (cssPath && !(0, import_fs6.existsSync)(cssPath)) {
     throw new Error(`CSS file not found: ${cssPath}`);
   }
-  const html = (0, import_fs5.readFileSync)(htmlPath, "utf-8");
+  const html = (0, import_fs6.readFileSync)(htmlPath, "utf-8");
   let elements = parseStaticHTML(html);
   if (cssPath) {
-    const css = (0, import_fs5.readFileSync)(cssPath, "utf-8");
+    const css = (0, import_fs6.readFileSync)(cssPath, "utf-8");
     const rules2 = parseCSS(css);
     elements = applyStyles(elements, rules2);
   }
@@ -3733,11 +3733,11 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   }
   return parts.join(", ") + ".";
 }
-var import_fs5;
+var import_fs6;
 var init_scan = __esm({
   "src/static/scan.ts"() {
     "use strict";
-    import_fs5 = require("fs");
+    import_fs6 = require("fs");
     init_parser();
   }
 });
@@ -3746,8 +3746,8 @@ var init_scan = __esm({
 var import_readline = require("readline");
 
 // src/mcp/tools.ts
-var import_fs6 = require("fs");
-var import_path16 = require("path");
+var import_fs7 = require("fs");
+var import_path17 = require("path");
 
 // src/design-system/config.ts
 var import_zod = require("zod");
@@ -10593,8 +10593,8 @@ async function formFlow(page, options) {
 }
 
 // src/index.ts
-var import_promises13 = require("fs/promises");
-var import_path14 = require("path");
+var import_promises14 = require("fs/promises");
+var import_path15 = require("path");
 var import_os3 = require("os");
 
 // src/cleanup.ts
@@ -11358,12 +11358,23 @@ async function scanNative(options = {}) {
     issues: []
   };
   let extractionSucceeded = false;
+  const HOST_CHROME_TAGS = /* @__PURE__ */ new Set([
+    "application",
+    "menubaritem",
+    "nav"
+  ]);
+  let iosGuestUnreachable = false;
   if (isExtractorAvailable()) {
     try {
       const nativeElements = await extractNativeElements(device);
-      elements = mapToEnhancedElements(nativeElements);
+      const allMapped = mapToEnhancedElements(nativeElements);
+      const filtered = device.platform === "ios" ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase())) : allMapped;
+      elements = filtered;
+      if (device.platform === "ios" && allMapped.length > 0 && filtered.length === 0) {
+        iosGuestUnreachable = true;
+      }
       audit = analyzeElements(elements, true);
-      extractionSucceeded = true;
+      extractionSucceeded = !iosGuestUnreachable;
     } catch {
     }
   }
@@ -11381,6 +11392,13 @@ async function scanNative(options = {}) {
       category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
       severity: issue.severity,
       description: issue.message
+    });
+  }
+  if (iosGuestUnreachable) {
+    issues.push({
+      category: "structure",
+      severity: "error",
+      description: "iOS guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2)."
     });
   }
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
@@ -11495,6 +11513,410 @@ async function scanMacOS(options) {
   };
 }
 
+// src/native/idb.ts
+var import_child_process7 = require("child_process");
+var import_util6 = require("util");
+
+// src/native/sim-driver.ts
+var import_child_process6 = require("child_process");
+var import_fs4 = require("fs");
+var import_promises13 = require("fs/promises");
+var import_path14 = require("path");
+var import_util5 = require("util");
+var execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
+var DRIVER_NAME = "ibr-sim-driver";
+var CACHE_DIR = (0, import_path14.join)(process.cwd(), ".ibr", "bin");
+var CACHE_PATH = (0, import_path14.join)(CACHE_DIR, DRIVER_NAME);
+var cachedPath;
+var buildError = null;
+function existingBinaryCandidates() {
+  return [
+    (0, import_path14.join)(__dirname, "..", "bin", DRIVER_NAME),
+    (0, import_path14.join)(__dirname, "bin", DRIVER_NAME),
+    (0, import_path14.join)(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    CACHE_PATH
+  ];
+}
+function sourceDirCandidates() {
+  return [
+    (0, import_path14.join)(__dirname, "..", "..", "mobile-ui", "sim-driver"),
+    (0, import_path14.join)(__dirname, "..", "mobile-ui", "sim-driver")
+  ];
+}
+function findExistingBinary() {
+  return existingBinaryCandidates().find((p) => (0, import_fs4.existsSync)(p)) ?? null;
+}
+function findSourceDir() {
+  return sourceDirCandidates().find((p) => (0, import_fs4.existsSync)((0, import_path14.join)(p, "Package.swift"))) ?? null;
+}
+function errorMessage(err) {
+  if (err && typeof err === "object") {
+    const e = err;
+    const stderr = e.stderr?.trim();
+    if (stderr) return stderr;
+    const stdout = e.stdout?.trim();
+    if (stdout) return stdout;
+    if (e.message) return e.message;
+  }
+  return String(err);
+}
+function isSimDriverAvailable() {
+  if (process.platform !== "darwin") return false;
+  if (cachedPath) return true;
+  if (findExistingBinary()) return true;
+  if (buildError) return false;
+  return findSourceDir() !== null;
+}
+async function ensureSimDriver() {
+  if (cachedPath) return cachedPath;
+  const existing = findExistingBinary();
+  if (existing) {
+    cachedPath = existing;
+    return existing;
+  }
+  if (process.platform !== "darwin") {
+    throw new Error("ibr-sim-driver is only available on macOS");
+  }
+  const sourceDir = findSourceDir();
+  if (!sourceDir) {
+    throw new Error("ibr-sim-driver Swift package not found");
+  }
+  if (buildError) throw new Error(buildError);
+  try {
+    await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
+      timeout: 12e4
+    });
+    const builtPath = (0, import_path14.join)(sourceDir, ".build", "release", DRIVER_NAME);
+    if (!(0, import_fs4.existsSync)(builtPath)) {
+      throw new Error("Swift build succeeded but binary was not created");
+    }
+    await (0, import_promises13.mkdir)(CACHE_DIR, { recursive: true });
+    await (0, import_promises13.copyFile)(builtPath, CACHE_PATH);
+    await (0, import_promises13.chmod)(CACHE_PATH, 493);
+    cachedPath = CACHE_PATH;
+    return CACHE_PATH;
+  } catch (err) {
+    buildError = `Failed to build ibr-sim-driver: ${errorMessage(err)}`;
+    throw new Error(buildError);
+  }
+}
+async function runSimDriver(args, action) {
+  try {
+    const driverPath = await ensureSimDriver();
+    await execFileAsync5(driverPath, args, { timeout: 15e3 });
+    return { success: true, action };
+  } catch (err) {
+    return { success: false, action, error: errorMessage(err) };
+  }
+}
+function simDriverTap(udid, x, y) {
+  return runSimDriver(["tap", "--udid", udid, String(x), String(y)], "tap");
+}
+function simDriverType(udid, text) {
+  return runSimDriver(["type", "--udid", udid, text], "type");
+}
+function simDriverSwipe(udid, x1, y1, x2, y2, duration) {
+  const args = ["swipe", "--udid", udid, String(x1), String(y1), String(x2), String(y2)];
+  if (duration) args.push("--duration", String(duration));
+  return runSimDriver(args, "swipe");
+}
+
+// src/native/idb.ts
+var execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
+var INSTALL_HINT = "Install IDB: brew tap facebook/fb && brew install idb-companion && pipx install fb-idb. IBR also ships a bundled native-window fallback (requires Accessibility permission and a visible Simulator window).";
+var DRIVER_LABELS = {
+  "native-hid": "IBR native HID",
+  "native-window": "IBR native-window",
+  idb: "Meta IDB",
+  simctl: "simctl"
+};
+function configuredDriverPreference() {
+  const raw = process.env[SIMULATOR_DRIVER_ENV]?.trim();
+  if (!raw) return "auto";
+  const allowed = ["auto", "native-hid", "native-window", "idb", "simctl"];
+  return allowed.includes(raw) ? raw : "auto";
+}
+function shouldTryDriver(driver2, preference) {
+  return preference === "auto" || preference === driver2;
+}
+function forcedDriverFailure(action, driver2, message) {
+  return {
+    success: false,
+    action,
+    driver: driver2,
+    error: `${SIMULATOR_DRIVER_ENV}=${driver2}: ${message}`
+  };
+}
+function nativeHidUnavailable(action) {
+  return forcedDriverFailure(
+    action,
+    "native-hid",
+    "headless CoreSimulator/SimulatorKit HID injection is the IDB-parity target, but it is not implemented in this build."
+  );
+}
+function simDriverSuffix(error) {
+  return error ? ` native-window: ${error}` : "";
+}
+function formatSimulatorDriver(driver2) {
+  return driver2 ? DRIVER_LABELS[driver2] : "unknown driver";
+}
+async function isIdbCliAvailable() {
+  try {
+    await execFileAsync6("which", ["idb"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function isSimctlAvailable() {
+  try {
+    await execFileAsync6("which", ["xcrun"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function getSimulatorInteractionDriverStatus() {
+  const preference = configuredDriverPreference();
+  const nativeWindowAvailable = isSimDriverAvailable();
+  const idbAvailable = await isIdbCliAvailable();
+  const simctlAvailable = await isSimctlAvailable();
+  return [
+    {
+      driver: "native-hid",
+      label: DRIVER_LABELS["native-hid"],
+      available: false,
+      headless: true,
+      bundled: true,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Not implemented in this build.",
+        "Target backend uses CoreSimulator/SimulatorKit HID injection, matching IDB-class headless input."
+      ],
+      reason: "pending private-framework HID backend",
+      selected: preference === "native-hid"
+    },
+    {
+      driver: "native-window",
+      label: DRIVER_LABELS["native-window"],
+      available: nativeWindowAvailable,
+      headless: false,
+      bundled: true,
+      actions: ["tap", "type", "swipe"],
+      constraints: [
+        "Requires macOS Accessibility permission.",
+        "Requires a visible Simulator.app window.",
+        "Uses host CGEvent mouse/keyboard events; not IDB-equivalent HID injection."
+      ],
+      reason: nativeWindowAvailable ? void 0 : "Swift driver binary/source unavailable on this platform",
+      selected: preference === "auto" || preference === "native-window"
+    },
+    {
+      driver: "idb",
+      label: DRIVER_LABELS.idb,
+      available: idbAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Requires idb_companion and fb-idb to be installed outside IBR."
+      ],
+      reason: idbAvailable ? void 0 : "idb CLI not found on PATH",
+      selected: preference === "auto" || preference === "idb"
+    },
+    {
+      driver: "simctl",
+      label: DRIVER_LABELS.simctl,
+      available: simctlAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["openUrl", "button"],
+      constraints: [
+        "Can open URLs and capture screenshots.",
+        "HOME has a SpringBoard restart fallback.",
+        "Does not support tap or swipe input through simctl io."
+      ],
+      reason: simctlAvailable ? void 0 : "xcrun not found on PATH",
+      selected: preference === "simctl"
+    }
+  ];
+}
+async function idbTap(udid, x, y) {
+  const preference = configuredDriverPreference();
+  let simDriverError;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable("tap");
+  }
+  if (shouldTryDriver("native-window", preference)) {
+    if (!isSimDriverAvailable()) {
+      if (preference === "native-window") {
+        return forcedDriverFailure("tap", "native-window", "native-window driver is not available.");
+      }
+    } else {
+      const r = await simDriverTap(udid, x, y);
+      if (r.success) return { ...r, driver: "native-window" };
+      simDriverError = r.error;
+      if (preference === "native-window") {
+        return { success: false, action: "tap", error: r.error, driver: "native-window" };
+      }
+    }
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure("tap", "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        await execFileAsync6("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+        return { success: true, action: "tap", driver: "idb" };
+      } catch (err) {
+        return { success: false, action: "tap", error: err.message, driver: "idb" };
+      }
+    }
+  }
+  return {
+    success: false,
+    action: "tap",
+    error: `No simulator tap driver available. ${INSTALL_HINT}${simDriverSuffix(simDriverError)}`
+  };
+}
+async function idbType(udid, text) {
+  const preference = configuredDriverPreference();
+  let simDriverError;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable("type");
+  }
+  if (shouldTryDriver("native-window", preference)) {
+    if (!isSimDriverAvailable()) {
+      if (preference === "native-window") {
+        return forcedDriverFailure("type", "native-window", "native-window driver is not available.");
+      }
+    } else {
+      const r = await simDriverType(udid, text);
+      if (r.success) return { ...r, driver: "native-window" };
+      simDriverError = r.error;
+      if (preference === "native-window") {
+        return { success: false, action: "type", error: r.error, driver: "native-window" };
+      }
+    }
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure("type", "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        await execFileAsync6("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+        return { success: true, action: "type", driver: "idb" };
+      } catch (err) {
+        return { success: false, action: "type", error: err.message, driver: "idb" };
+      }
+    }
+  }
+  return {
+    success: false,
+    action: "type",
+    error: `No simulator type driver available. ${INSTALL_HINT}${simDriverSuffix(simDriverError)}`
+  };
+}
+async function idbSwipe(udid, x1, y1, x2, y2, duration) {
+  const preference = configuredDriverPreference();
+  let simDriverError;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable("swipe");
+  }
+  if (shouldTryDriver("native-window", preference)) {
+    if (!isSimDriverAvailable()) {
+      if (preference === "native-window") {
+        return forcedDriverFailure("swipe", "native-window", "native-window driver is not available.");
+      }
+    } else {
+      const r = await simDriverSwipe(udid, x1, y1, x2, y2, duration);
+      if (r.success) return { ...r, driver: "native-window" };
+      simDriverError = r.error;
+      if (preference === "native-window") {
+        return { success: false, action: "swipe", error: r.error, driver: "native-window" };
+      }
+    }
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure("swipe", "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
+        if (duration) args.push("--duration", String(duration));
+        await execFileAsync6("idb", args, { timeout: 1e4 });
+        return { success: true, action: "swipe", driver: "idb" };
+      } catch (err) {
+        return { success: false, action: "swipe", error: err.message, driver: "idb" };
+      }
+    }
+  }
+  return {
+    success: false,
+    action: "swipe",
+    error: `No simulator swipe driver available. ${INSTALL_HINT}${simDriverSuffix(simDriverError)}`
+  };
+}
+async function idbButton(udid, button) {
+  const preference = configuredDriverPreference();
+  const action = `button:${button}`;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable(action);
+  }
+  if (preference === "native-window") {
+    return forcedDriverFailure(action, "native-window", "native-window does not support hardware buttons.");
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure(action, "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        await execFileAsync6("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+        return { success: true, action, driver: "idb" };
+      } catch (err) {
+        return { success: false, action, error: err.message, driver: "idb" };
+      }
+    }
+  }
+  if (button === "HOME" && shouldTryDriver("simctl", preference)) {
+    try {
+      await execFileAsync6(
+        "xcrun",
+        ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"],
+        { timeout: 1e4 }
+      );
+      return { success: true, action, driver: "simctl" };
+    } catch (err) {
+      return { success: false, action, error: err.message, driver: "simctl" };
+    }
+  }
+  if (preference === "simctl") {
+    return forcedDriverFailure(action, "simctl", `simctl fallback supports HOME only, not ${button}.`);
+  }
+  return {
+    success: false,
+    action,
+    error: `No driver available for ${button}. ${INSTALL_HINT}`
+  };
+}
+async function idbOpenUrl(udid, url) {
+  try {
+    await execFileAsync6("xcrun", ["simctl", "openurl", udid, url], { timeout: 1e4 });
+    return { success: true, action: "openUrl", driver: "simctl" };
+  } catch (err) {
+    return { success: false, action: "openUrl", error: err.message, driver: "simctl" };
+  }
+}
+
 // src/native/annotate.ts
 var import_pngjs3 = require("pngjs");
 
@@ -11505,7 +11927,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path14.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path15.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -11520,11 +11942,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises13.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises14.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path14.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path14.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path14.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path15.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path15.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path15.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -11556,12 +11978,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises13.access)(actualBaselinePath);
+    await (0, import_promises14.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises13.access)(actualCurrentPath);
+    await (0, import_promises14.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -11967,8 +12389,8 @@ init_session();
 init_schemas();
 
 // src/native/bridge.ts
-var import_fs4 = require("fs");
-var import_path15 = require("path");
+var import_fs5 = require("fs");
+var import_path16 = require("path");
 function findSwiftFiles(dir, rootDir) {
   const SKIP_DIRS = /* @__PURE__ */ new Set([
     "node_modules",
@@ -11984,23 +12406,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs4.readdirSync)(currentDir);
+      entries = (0, import_fs5.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path15.join)(currentDir, entry);
+      const fullPath = (0, import_path16.join)(currentDir, entry);
       let stat2;
       try {
-        stat2 = (0, import_fs4.statSync)(fullPath);
+        stat2 = (0, import_fs5.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat2.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path15.relative)(rootDir, fullPath));
+        results.push((0, import_path16.relative)(rootDir, fullPath));
       }
     }
   }
@@ -12016,10 +12438,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path15.join)(projectRoot, filePath);
+    const fullPath = (0, import_path16.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs4.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs5.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -12102,16 +12524,16 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   return matches;
 }
 var NAVGATOR_PATHS = [
-  (0, import_path15.join)(".navgator", "architecture"),
-  (0, import_path15.join)(".claude", "architecture")
+  (0, import_path16.join)(".navgator", "architecture"),
+  (0, import_path16.join)(".claude", "architecture")
   // legacy — NavGator < 0.3
 ];
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path15.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs4.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path16.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs5.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs4.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs5.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -12274,116 +12696,11 @@ function formatBridgeResult(result) {
   return lines.join("\n");
 }
 
-// src/native/idb.ts
-var import_child_process6 = require("child_process");
-var import_util5 = require("util");
-var execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
-async function isIdbCliAvailable() {
-  try {
-    await execFileAsync5("which", ["idb"]);
-    return true;
-  } catch {
-    return false;
-  }
-}
-async function idbTap(udid, x, y) {
-  try {
-    if (await isIdbCliAvailable()) {
-      await execFileAsync5("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
-      return { success: true, action: "tap" };
-    }
-    await execFileAsync5("xcrun", ["simctl", "io", udid, "tap", String(x), String(y)], { timeout: 1e4 });
-    return { success: true, action: "tap" };
-  } catch (err) {
-    return { success: false, action: "tap", error: err.message };
-  }
-}
-async function idbType(udid, text) {
-  try {
-    if (await isIdbCliAvailable()) {
-      await execFileAsync5("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
-      return { success: true, action: "type" };
-    }
-    try {
-      const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      await execFileAsync5("osascript", [
-        "-e",
-        'tell application "Simulator" to activate',
-        "-e",
-        `tell application "System Events" to keystroke "${escaped}"`
-      ], { timeout: 1e4 });
-      return { success: true, action: "type" };
-    } catch (err) {
-      return {
-        success: false,
-        action: "type",
-        error: `Typing failed. IDB not available, AppleScript fallback failed: ${err.message}. Install IDB: brew install idb-companion && pip install fb-idb`
-      };
-    }
-  } catch (err) {
-    return { success: false, action: "type", error: err.message };
-  }
-}
-async function idbSwipe(udid, x1, y1, x2, y2, duration) {
-  try {
-    if (await isIdbCliAvailable()) {
-      const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
-      if (duration) args.push("--duration", String(duration));
-      await execFileAsync5("idb", args, { timeout: 1e4 });
-      return { success: true, action: "swipe" };
-    }
-    try {
-      await execFileAsync5("xcrun", [
-        "simctl",
-        "io",
-        udid,
-        "swipe",
-        String(x1),
-        String(y1),
-        String(x2),
-        String(y2)
-      ], { timeout: 1e4 });
-      return { success: true, action: "swipe" };
-    } catch {
-    }
-    return {
-      success: false,
-      action: "swipe",
-      error: "Swipe requires IDB (brew install idb-companion) or Xcode 15+ with simctl swipe support."
-    };
-  } catch (err) {
-    return { success: false, action: "swipe", error: err.message };
-  }
-}
-async function idbButton(udid, button) {
-  try {
-    if (await isIdbCliAvailable()) {
-      await execFileAsync5("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
-      return { success: true, action: `button:${button}` };
-    }
-    if (button === "HOME") {
-      await execFileAsync5("xcrun", ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"], { timeout: 1e4 });
-      return { success: true, action: "button:HOME" };
-    }
-    return { success: false, action: `button:${button}`, error: "IDB not available" };
-  } catch (err) {
-    return { success: false, action: `button:${button}`, error: err.message };
-  }
-}
-async function idbOpenUrl(udid, url) {
-  try {
-    await execFileAsync5("xcrun", ["simctl", "openurl", udid, url], { timeout: 1e4 });
-    return { success: true, action: "openUrl" };
-  } catch (err) {
-    return { success: false, action: "openUrl", error: err.message };
-  }
-}
-
 // src/native/actions.ts
-var import_child_process7 = require("child_process");
-var import_util6 = require("util");
+var import_child_process8 = require("child_process");
+var import_util7 = require("util");
 init_extract();
-var execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+var execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
 function elementCenter(element) {
   if (!element.frame) return null;
   return {
@@ -13214,7 +13531,7 @@ var TOOLS = [
   },
   {
     name: "sim_action",
-    description: "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. For tap with coordinates: taps directly at x,y. Requires IDB for typing and swipe (install: brew install idb-companion && pip install fb-idb). Tap and openUrl fall back to simctl when IDB is unavailable.",
+    description: "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. For tap with coordinates: taps directly at x,y. Tap, type, and swipe use IBR's capability-aware driver chain: native-window fallback, then IDB. Set IBR_SIMULATOR_DRIVER=idb to require IDB in headless CI. openUrl uses simctl.",
     inputSchema: {
       type: "object",
       properties: {
@@ -13650,10 +13967,10 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
         const sessionId = crypto.randomUUID();
         if (app) {
           try {
-            const { execFile: execFile9 } = await import("child_process");
-            const { promisify: promisify9 } = await import("util");
-            const execFileAsync9 = promisify9(execFile9);
-            const { stdout } = await execFileAsync9("pgrep", ["-x", app]);
+            const { execFile: execFile10 } = await import("child_process");
+            const { promisify: promisify10 } = await import("util");
+            const execFileAsync10 = promisify10(execFile10);
+            const { stdout } = await execFileAsync10("pgrep", ["-x", app]);
             const pid = parseInt(stdout.trim(), 10);
             if (isNaN(pid)) throw new Error(`App "${app}" is not running`);
             sessions.set(sessionId, { driver: null, type: "macos", app, pid, createdAt: Date.now() });
@@ -14186,17 +14503,17 @@ async function handleListSessions() {
   );
   return textResponse(lines.join("\n"));
 }
-var REFERENCES_DIR = (0, import_path16.join)(DEFAULT_OUTPUT_DIR, "references");
-var REFERENCES_INDEX = (0, import_path16.join)(REFERENCES_DIR, "index.json");
+var REFERENCES_DIR = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "references");
+var REFERENCES_INDEX = (0, import_path17.join)(REFERENCES_DIR, "index.json");
 function readReferencesIndex() {
-  if (!(0, import_fs6.existsSync)(REFERENCES_INDEX)) {
+  if (!(0, import_fs7.existsSync)(REFERENCES_INDEX)) {
     return { references: [] };
   }
-  return JSON.parse((0, import_fs6.readFileSync)(REFERENCES_INDEX, "utf-8"));
+  return JSON.parse((0, import_fs7.readFileSync)(REFERENCES_INDEX, "utf-8"));
 }
 function writeReferencesIndex(index) {
-  (0, import_fs6.mkdirSync)(REFERENCES_DIR, { recursive: true });
-  (0, import_fs6.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+  (0, import_fs7.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs7.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
 }
 async function handleScreenshot(args) {
   const url = args.url;
@@ -14212,9 +14529,9 @@ async function handleScreenshot(args) {
   const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp = Date.now();
-  const screenshotsDir = (0, import_path16.join)(DEFAULT_OUTPUT_DIR, "screenshots");
-  (0, import_fs6.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path16.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const screenshotsDir = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "screenshots");
+  (0, import_fs7.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path17.join)(screenshotsDir, `capture-${timestamp}.png`);
   await captureScreenshot({
     url,
     outputPath: tempPath,
@@ -14226,14 +14543,14 @@ async function handleScreenshot(args) {
     waitFor,
     delay
   });
-  const imageBuffer = (0, import_fs6.readFileSync)(tempPath);
+  const imageBuffer = (0, import_fs7.readFileSync)(tempPath);
   const base64 = imageBuffer.toString("base64");
   const fileSize = imageBuffer.length;
   let savedPath = "not saved";
   if (saveAs) {
-    (0, import_fs6.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path16.join)(REFERENCES_DIR, `${saveAs}.png`);
-    (0, import_fs6.writeFileSync)(refPath, imageBuffer);
+    (0, import_fs7.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path17.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs7.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
     index.references = index.references.filter((r) => r.name !== saveAs);
@@ -14288,11 +14605,11 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path16.join)(REFERENCES_DIR, ref.path);
-      if (!(0, import_fs6.existsSync)(refPath)) {
+      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs7.existsSync)(refPath)) {
         return errorResponse(`Reference file missing: ${refPath}`);
       }
-      const imageBuffer = (0, import_fs6.readFileSync)(refPath);
+      const imageBuffer = (0, import_fs7.readFileSync)(refPath);
       const base64 = imageBuffer.toString("base64");
       const metadata = [
         `Reference: ${ref.name}`,
@@ -14314,9 +14631,9 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path16.join)(REFERENCES_DIR, ref.path);
-      if ((0, import_fs6.existsSync)(refPath)) {
-        (0, import_fs6.unlinkSync)(refPath);
+      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs7.existsSync)(refPath)) {
+        (0, import_fs7.unlinkSync)(refPath);
       }
       index.references = index.references.filter((r) => r.name !== name);
       writeReferencesIndex(index);
@@ -14554,6 +14871,17 @@ async function handleNativeDevices(args) {
   const booted = devices.filter((d) => d.state === "Booted");
   lines.push("");
   lines.push(`Total: ${devices.length} available, ${booted.length} booted`);
+  const driverStatus = await getSimulatorInteractionDriverStatus();
+  lines.push("");
+  lines.push("Interaction Drivers:");
+  for (const status of driverStatus) {
+    const availability = status.available ? "available" : `unavailable (${status.reason})`;
+    const headless = status.headless ? "headless" : "requires visible window";
+    const selected = status.selected ? " selected" : "";
+    lines.push(
+      `  ${status.label}: ${availability}; ${headless}; actions: ${status.actions.join(",")}${selected}`
+    );
+  }
   return textResponse(lines.join("\n"));
 }
 async function handleValidateTokens(args) {
@@ -14673,7 +15001,7 @@ async function handleBridgeToSource(args) {
   if (!projectRoot) {
     return errorResponse("The 'project_root' parameter is required.");
   }
-  if (!(0, import_fs6.existsSync)(projectRoot)) {
+  if (!(0, import_fs7.existsSync)(projectRoot)) {
     return errorResponse(`Project root not found: ${projectRoot}`);
   }
   const deviceQuery = args.device;
@@ -14754,7 +15082,7 @@ async function handleSimAction(args) {
         if (!tapResult.success) {
           return errorResponse(`tap failed: ${tapResult.error}`);
         }
-        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)}`);
+        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)} via ${formatSimulatorDriver(tapResult.driver)}`);
       }
       try {
         let flattenElements2 = function(elements) {
@@ -14796,12 +15124,12 @@ async function handleSimAction(args) {
             const oy = parseFloat(override[2]);
             const overrideResult = await idbTap(udid, ox, oy);
             if (!overrideResult.success) return errorResponse(`tap failed: ${overrideResult.error}`);
-            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override]`);
+            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override] via ${formatSimulatorDriver(overrideResult.driver)}`);
           }
         }
         const tapResult = await idbTap(udid, center.x, center.y);
         if (!tapResult.success) return errorResponse(`tap failed: ${tapResult.error}`);
-        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y})`);
+        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y}) via ${formatSimulatorDriver(tapResult.driver)}`);
       } catch (err) {
         return errorResponse(`tap by label failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -14810,14 +15138,9 @@ async function handleSimAction(args) {
       if (!target) {
         return errorResponse("'target' is required for type (text to input).");
       }
-      if (!await isIdbCliAvailable()) {
-        return errorResponse(
-          "IDB not available. Install with: brew install idb-companion && pip install fb-idb"
-        );
-      }
       const typeResult = await idbType(udid, target);
       if (!typeResult.success) return errorResponse(`type failed: ${typeResult.error}`);
-      return textResponse(`Typed "${target}" into focused field`);
+      return textResponse(`Typed "${target}" into focused field via ${formatSimulatorDriver(typeResult.driver)}`);
     }
     case "scroll":
     case "swipe": {
@@ -14853,12 +15176,12 @@ async function handleSimAction(args) {
       }
       const swipeResult = await idbSwipe(udid, cx, cy, x2, y2, 0.5);
       if (!swipeResult.success) return errorResponse(`${action} failed: ${swipeResult.error}`);
-      return textResponse(`Scrolled ${direction} from (${cx}, ${cy})`);
+      return textResponse(`Scrolled ${direction} from (${cx}, ${cy}) via ${formatSimulatorDriver(swipeResult.driver)}`);
     }
     case "home": {
       const homeResult = await idbButton(udid, "HOME");
       if (!homeResult.success) return errorResponse(`home button failed: ${homeResult.error}`);
-      return textResponse("Pressed HOME button");
+      return textResponse(`Pressed HOME button via ${formatSimulatorDriver(homeResult.driver)}`);
     }
     case "openUrl": {
       if (!target) {
@@ -14866,7 +15189,7 @@ async function handleSimAction(args) {
       }
       const urlResult = await idbOpenUrl(udid, target);
       if (!urlResult.success) return errorResponse(`openUrl failed: ${urlResult.error}`);
-      return textResponse(`Opened URL: ${target}`);
+      return textResponse(`Opened URL: ${target} via ${formatSimulatorDriver(urlResult.driver)}`);
     }
     default:
       return errorResponse(`Unknown action: ${action}. Use: tap, type, scroll, swipe, home, openUrl`);
@@ -14875,32 +15198,32 @@ async function handleSimAction(args) {
 async function handleDesignSystem(args) {
   const action = args.action;
   const projectDir = args.projectDir || process.cwd();
-  const ibrDir = (0, import_path16.join)(projectDir, ".ibr");
-  const configPath = (0, import_path16.join)(ibrDir, "design-system.json");
+  const ibrDir = (0, import_path17.join)(projectDir, ".ibr");
+  const configPath = (0, import_path17.join)(ibrDir, "design-system.json");
   switch (action) {
     case "init": {
       const templateCandidates = [
-        (0, import_path16.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
-        (0, import_path16.join)(projectDir, "templates", "design-system.json"),
+        (0, import_path17.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path17.join)(projectDir, "templates", "design-system.json"),
         // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
-        (0, import_path16.join)(__dirname, "..", "..", "templates", "design-system.json")
+        (0, import_path17.join)(__dirname, "..", "..", "templates", "design-system.json")
       ];
-      const templatePath = templateCandidates.find((p) => (0, import_fs6.existsSync)(p));
+      const templatePath = templateCandidates.find((p) => (0, import_fs7.existsSync)(p));
       if (!templatePath) {
         return errorResponse(
           "Could not find design-system template. Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json"
         );
       }
-      if ((0, import_fs6.existsSync)(configPath)) {
+      if ((0, import_fs7.existsSync)(configPath)) {
         return textResponse(
           `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.
 Path: ${configPath}`
         );
       }
-      if (!(0, import_fs6.existsSync)(ibrDir)) {
-        (0, import_fs6.mkdirSync)(ibrDir, { recursive: true });
+      if (!(0, import_fs7.existsSync)(ibrDir)) {
+        (0, import_fs7.mkdirSync)(ibrDir, { recursive: true });
       }
-      (0, import_fs6.copyFileSync)(templatePath, configPath);
+      (0, import_fs7.copyFileSync)(templatePath, configPath);
       return textResponse(
         `Design system config created at .ibr/design-system.json
 Edit it to add your tokens and configure principle severities.
@@ -14908,13 +15231,13 @@ Path: ${configPath}`
       );
     }
     case "status": {
-      if (!(0, import_fs6.existsSync)(configPath)) {
+      if (!(0, import_fs7.existsSync)(configPath)) {
         return textResponse(
           `No design system config found. Run design_system with action "init" to create one.
 Expected: ${configPath}`
         );
       }
-      const raw = (0, import_fs6.readFileSync)(configPath, "utf-8");
+      const raw = (0, import_fs7.readFileSync)(configPath, "utf-8");
       const config = JSON.parse(raw);
       return textResponse(
         `Design system config: ${configPath}

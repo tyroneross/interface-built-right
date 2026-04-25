@@ -12831,12 +12831,23 @@ async function scanNative(options = {}) {
     issues: []
   };
   let extractionSucceeded = false;
+  const HOST_CHROME_TAGS = /* @__PURE__ */ new Set([
+    "application",
+    "menubaritem",
+    "nav"
+  ]);
+  let iosGuestUnreachable = false;
   if (isExtractorAvailable()) {
     try {
       const nativeElements = await extractNativeElements(device);
-      elements = mapToEnhancedElements(nativeElements);
+      const allMapped = mapToEnhancedElements(nativeElements);
+      const filtered = device.platform === "ios" ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase())) : allMapped;
+      elements = filtered;
+      if (device.platform === "ios" && allMapped.length > 0 && filtered.length === 0) {
+        iosGuestUnreachable = true;
+      }
       audit = analyzeElements(elements, true);
-      extractionSucceeded = true;
+      extractionSucceeded = !iosGuestUnreachable;
     } catch {
     }
   }
@@ -12854,6 +12865,13 @@ async function scanNative(options = {}) {
       category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
       severity: issue.severity,
       description: issue.message
+    });
+  }
+  if (iosGuestUnreachable) {
+    issues.push({
+      category: "structure",
+      severity: "error",
+      description: "iOS guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2)."
     });
   }
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
@@ -13040,6 +13058,135 @@ function formatNativeScanResult(result) {
   lines.push(...formatIssuesSection(result.issues));
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
+}
+util.promisify(child_process.execFile);
+var DRIVER_NAME = "ibr-sim-driver";
+var CACHE_DIR = path.join(process.cwd(), ".ibr", "bin");
+var CACHE_PATH = path.join(CACHE_DIR, DRIVER_NAME);
+function existingBinaryCandidates() {
+  return [
+    path.join(__dirname, "..", "bin", DRIVER_NAME),
+    path.join(__dirname, "bin", DRIVER_NAME),
+    path.join(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    CACHE_PATH
+  ];
+}
+function sourceDirCandidates() {
+  return [
+    path.join(__dirname, "..", "..", "mobile-ui", "sim-driver"),
+    path.join(__dirname, "..", "mobile-ui", "sim-driver")
+  ];
+}
+function findExistingBinary() {
+  return existingBinaryCandidates().find((p) => fs$1.existsSync(p)) ?? null;
+}
+function findSourceDir() {
+  return sourceDirCandidates().find((p) => fs$1.existsSync(path.join(p, "Package.swift"))) ?? null;
+}
+function isSimDriverAvailable() {
+  if (process.platform !== "darwin") return false;
+  if (findExistingBinary()) return true;
+  return findSourceDir() !== null;
+}
+
+// src/native/idb.ts
+var execFileAsync6 = util.promisify(child_process.execFile);
+var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
+var DRIVER_LABELS = {
+  "native-hid": "IBR native HID",
+  "native-window": "IBR native-window",
+  idb: "Meta IDB",
+  simctl: "simctl"
+};
+function configuredDriverPreference() {
+  const raw = process.env[SIMULATOR_DRIVER_ENV]?.trim();
+  if (!raw) return "auto";
+  const allowed = ["auto", "native-hid", "native-window", "idb", "simctl"];
+  return allowed.includes(raw) ? raw : "auto";
+}
+function formatSimulatorDriver(driver2) {
+  return driver2 ? DRIVER_LABELS[driver2] : "unknown driver";
+}
+async function isIdbCliAvailable() {
+  try {
+    await execFileAsync6("which", ["idb"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function isSimctlAvailable() {
+  try {
+    await execFileAsync6("which", ["xcrun"]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function getSimulatorInteractionDriverStatus() {
+  const preference = configuredDriverPreference();
+  const nativeWindowAvailable = isSimDriverAvailable();
+  const idbAvailable = await isIdbCliAvailable();
+  const simctlAvailable = await isSimctlAvailable();
+  return [
+    {
+      driver: "native-hid",
+      label: DRIVER_LABELS["native-hid"],
+      available: false,
+      headless: true,
+      bundled: true,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Not implemented in this build.",
+        "Target backend uses CoreSimulator/SimulatorKit HID injection, matching IDB-class headless input."
+      ],
+      reason: "pending private-framework HID backend",
+      selected: preference === "native-hid"
+    },
+    {
+      driver: "native-window",
+      label: DRIVER_LABELS["native-window"],
+      available: nativeWindowAvailable,
+      headless: false,
+      bundled: true,
+      actions: ["tap", "type", "swipe"],
+      constraints: [
+        "Requires macOS Accessibility permission.",
+        "Requires a visible Simulator.app window.",
+        "Uses host CGEvent mouse/keyboard events; not IDB-equivalent HID injection."
+      ],
+      reason: nativeWindowAvailable ? void 0 : "Swift driver binary/source unavailable on this platform",
+      selected: preference === "auto" || preference === "native-window"
+    },
+    {
+      driver: "idb",
+      label: DRIVER_LABELS.idb,
+      available: idbAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["tap", "type", "swipe", "button", "accessibility"],
+      constraints: [
+        "Requires idb_companion and fb-idb to be installed outside IBR."
+      ],
+      reason: idbAvailable ? void 0 : "idb CLI not found on PATH",
+      selected: preference === "auto" || preference === "idb"
+    },
+    {
+      driver: "simctl",
+      label: DRIVER_LABELS.simctl,
+      available: simctlAvailable,
+      headless: true,
+      bundled: false,
+      actions: ["openUrl", "button"],
+      constraints: [
+        "Can open URLs and capture screenshots.",
+        "HOME has a SpringBoard restart fallback.",
+        "Does not support tap or swipe input through simctl io."
+      ],
+      reason: simctlAvailable ? void 0 : "xcrun not found on PATH",
+      selected: preference === "simctl"
+    }
+  ];
 }
 var DIGITS = [
   [31, 17, 17, 17, 17, 17, 31],
@@ -13877,6 +14024,7 @@ exports.RuleAuditResultSchema = RuleAuditResultSchema;
 exports.RuleSettingSchema = RuleSettingSchema;
 exports.RuleSeveritySchema = RuleSeveritySchema;
 exports.RulesConfigSchema = RulesConfigSchema;
+exports.SIMULATOR_DRIVER_ENV = SIMULATOR_DRIVER_ENV;
 exports.SessionQuerySchema = SessionQuerySchema;
 exports.SessionSchema = SessionSchema;
 exports.SessionStatusSchema = SessionStatusSchema;
@@ -13960,6 +14108,7 @@ exports.formatScanResult = formatScanResult;
 exports.formatSemanticJson = formatSemanticJson;
 exports.formatSemanticText = formatSemanticText;
 exports.formatSessionSummary = formatSessionSummary;
+exports.formatSimulatorDriver = formatSimulatorDriver;
 exports.formatValidationResult = formatValidationResult;
 exports.generateDevModePrompt = generateDevModePrompt;
 exports.generateFixGuide = generateFixGuide;
@@ -13987,6 +14136,7 @@ exports.getSession = getSession;
 exports.getSessionPaths = getSessionPaths;
 exports.getSessionStats = getSessionStats;
 exports.getSessionsByRoute = getSessionsByRoute;
+exports.getSimulatorInteractionDriverStatus = getSimulatorInteractionDriverStatus;
 exports.getTimeline = getTimeline;
 exports.getTrackedRoutes = getTrackedRoutes;
 exports.getVerdictDescription = getVerdictDescription;

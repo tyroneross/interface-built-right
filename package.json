@@ -31,6 +31,7 @@
     "agents",
     "commands",
     "hooks",
+    "mobile-ui/sim-driver",
     "scripts",
     "skills",
     "universal",
@@ -40,7 +41,9 @@
   "scripts": {
     "postinstall": "node scripts/postinstall.js || true",
     "dev": "tsx watch src/index.ts",
-    "build": "tsup",
+    "build": "npm run build:ts && npm run build:sim-driver",
+    "build:ts": "tsup",
+    "build:sim-driver": "node scripts/build-sim-driver.js",
     "build:cli": "tsup src/bin/ibr.ts --format cjs --outDir dist/bin",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src --ext .ts",

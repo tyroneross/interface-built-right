@@ -37,6 +37,7 @@ test-results/
 
 # Swift build artifacts
 src/native/swift/**/.build/
+mobile-ui/**/.build/
 
 # Claude Code
 .claude/

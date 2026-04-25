@@ -80,12 +80,39 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
   };
   let extractionSucceeded = false;
 
+  // On modern Xcode (12+), iOS guest accessibility is no longer bridged into
+  // the macOS host process — only Simulator.app's chrome is visible. Filter
+  // out the chrome roles below so verdicts don't rate menu bar items as SUT
+  // content. The native AX→tagName mapping yields these for host chrome:
+  //   AXApplication → application
+  //   AXMenuBar / AXMenu → nav
+  //   AXMenuBarItem / AXMenuItem → menubaritem / li
+  const HOST_CHROME_TAGS = new Set([
+    'application',
+    'menubaritem',
+    'nav',
+  ]);
+
+  let iosGuestUnreachable = false;
+
   if (isExtractorAvailable()) {
     try {
       const nativeElements = await extractNativeElements(device);
-      elements = mapToEnhancedElements(nativeElements);
+      const allMapped = mapToEnhancedElements(nativeElements);
+      // Drop host-chrome roles for iOS targets. On macOS targets the same
+      // filter is a no-op because the AX root is the app itself, not the host.
+      const filtered =
+        device.platform === 'ios'
+          ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || '').toLowerCase()))
+          : allMapped;
+      elements = filtered;
+      // If we got results from the AX query but everything was host chrome,
+      // the iOS guest tree is unreachable from this process. Surface it.
+      if (device.platform === 'ios' && allMapped.length > 0 && filtered.length === 0) {
+        iosGuestUnreachable = true;
+      }
       audit = analyzeElements(elements, true); // Always treat as mobile-sized targets
-      extractionSucceeded = true;
+      extractionSucceeded = !iosGuestUnreachable;
     } catch {
       // Graceful fallback to screenshot-only mode
     }
@@ -115,6 +142,20 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
       category: issue.type === 'MISSING_ARIA_LABEL' ? 'accessibility' : 'structure',
       severity: issue.severity,
       description: issue.message,
+    });
+  }
+
+  // Honest signal: iOS guest accessibility tree is not reachable from the
+  // macOS host process on modern Xcode. The scan returned host chrome only.
+  if (iosGuestUnreachable) {
+    issues.push({
+      category: 'structure',
+      severity: 'error',
+      description:
+        'iOS guest accessibility tree is unreachable from this process. ' +
+        'native:scan can only see Simulator.app chrome on Xcode 12+. ' +
+        'Use a screenshot-driven workflow, or install IDB and route through ' +
+        '`idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2).',
     });
   }
 

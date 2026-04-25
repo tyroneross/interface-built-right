@@ -44,7 +44,8 @@ import {
   idbSwipe,
   idbButton,
   idbOpenUrl,
-  isIdbCliAvailable,
+  formatSimulatorDriver,
+  getSimulatorInteractionDriverStatus,
 } from '../native/idb.js';
 import { elementCenter, findElementByLabel } from '../native/actions.js'
 import { compressSnapshot, formatCompressed } from '../engine/compress.js';
@@ -851,8 +852,9 @@ export const TOOLS = [
       "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. " +
       "For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. " +
       "For tap with coordinates: taps directly at x,y. " +
-      "Requires IDB for typing and swipe (install: brew install idb-companion && pip install fb-idb). " +
-      "Tap and openUrl fall back to simctl when IDB is unavailable.",
+      "Tap, type, and swipe use IBR's capability-aware driver chain: native-window fallback, then IDB. " +
+      "Set IBR_SIMULATOR_DRIVER=idb to require IDB in headless CI. " +
+      "openUrl uses simctl.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -2451,6 +2453,18 @@ async function handleNativeDevices(
   lines.push("");
   lines.push(`Total: ${devices.length} available, ${booted.length} booted`);
 
+  const driverStatus = await getSimulatorInteractionDriverStatus();
+  lines.push("");
+  lines.push("Interaction Drivers:");
+  for (const status of driverStatus) {
+    const availability = status.available ? "available" : `unavailable (${status.reason})`;
+    const headless = status.headless ? "headless" : "requires visible window";
+    const selected = status.selected ? " selected" : "";
+    lines.push(
+      `  ${status.label}: ${availability}; ${headless}; actions: ${status.actions.join(",")}${selected}`
+    );
+  }
+
   return textResponse(lines.join("\n"));
 }
 
@@ -2707,7 +2721,7 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
         if (!tapResult.success) {
           return errorResponse(`tap failed: ${tapResult.error}`);
         }
-        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)}`);
+        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)} via ${formatSimulatorDriver(tapResult.driver)}`);
       }
 
       // Resolve by label: extract AX tree, find element, get center
@@ -2767,13 +2781,13 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
             const oy = parseFloat(override[2]);
             const overrideResult = await idbTap(udid, ox, oy);
             if (!overrideResult.success) return errorResponse(`tap failed: ${overrideResult.error}`);
-            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override]`);
+            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override] via ${formatSimulatorDriver(overrideResult.driver)}`);
           }
         }
 
         const tapResult = await idbTap(udid, center.x, center.y);
         if (!tapResult.success) return errorResponse(`tap failed: ${tapResult.error}`);
-        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y})`);
+        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y}) via ${formatSimulatorDriver(tapResult.driver)}`);
       } catch (err) {
         return errorResponse(`tap by label failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -2783,14 +2797,9 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
       if (!target) {
         return errorResponse("'target' is required for type (text to input).");
       }
-      if (!(await isIdbCliAvailable())) {
-        return errorResponse(
-          'IDB not available. Install with: brew install idb-companion && pip install fb-idb'
-        );
-      }
       const typeResult = await idbType(udid, target);
       if (!typeResult.success) return errorResponse(`type failed: ${typeResult.error}`);
-      return textResponse(`Typed "${target}" into focused field`);
+      return textResponse(`Typed "${target}" into focused field via ${formatSimulatorDriver(typeResult.driver)}`);
     }
 
     case 'scroll':
@@ -2823,13 +2832,13 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
 
       const swipeResult = await idbSwipe(udid, cx, cy, x2, y2, 0.5);
       if (!swipeResult.success) return errorResponse(`${action} failed: ${swipeResult.error}`);
-      return textResponse(`Scrolled ${direction} from (${cx}, ${cy})`);
+      return textResponse(`Scrolled ${direction} from (${cx}, ${cy}) via ${formatSimulatorDriver(swipeResult.driver)}`);
     }
 
     case 'home': {
       const homeResult = await idbButton(udid, 'HOME');
       if (!homeResult.success) return errorResponse(`home button failed: ${homeResult.error}`);
-      return textResponse('Pressed HOME button');
+      return textResponse(`Pressed HOME button via ${formatSimulatorDriver(homeResult.driver)}`);
     }
 
     case 'openUrl': {
@@ -2838,7 +2847,7 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
       }
       const urlResult = await idbOpenUrl(udid, target);
       if (!urlResult.success) return errorResponse(`openUrl failed: ${urlResult.error}`);
-      return textResponse(`Opened URL: ${target}`);
+      return textResponse(`Opened URL: ${target} via ${formatSimulatorDriver(urlResult.driver)}`);
     }
 
     default:
