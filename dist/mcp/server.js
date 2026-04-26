@@ -11647,14 +11647,32 @@ async function runSimDriver(args, action) {
     return { success: false, action, error: errorMessage(err) };
   }
 }
-function simDriverTap(udid, x, y) {
-  return runSimDriver(["tap", "--udid", udid, String(x), String(y)], "tap");
+function coordFlags(opts) {
+  const out = [];
+  if (opts?.coords) out.push("--coords", opts.coords);
+  if (opts?.chromeOffset !== void 0) out.push("--chrome-offset", String(opts.chromeOffset));
+  return out;
+}
+function simDriverTap(udid, x, y, opts) {
+  return runSimDriver(
+    ["tap", "--udid", udid, ...coordFlags(opts), String(x), String(y)],
+    "tap"
+  );
 }
 function simDriverType(udid, text) {
   return runSimDriver(["type", "--udid", udid, text], "type");
 }
-function simDriverSwipe(udid, x1, y1, x2, y2, duration) {
-  const args = ["swipe", "--udid", udid, String(x1), String(y1), String(x2), String(y2)];
+function simDriverSwipe(udid, x1, y1, x2, y2, duration, opts) {
+  const args = [
+    "swipe",
+    "--udid",
+    udid,
+    ...coordFlags(opts),
+    String(x1),
+    String(y1),
+    String(x2),
+    String(y2)
+  ];
   if (duration) args.push("--duration", String(duration));
   return runSimDriver(args, "swipe");
 }

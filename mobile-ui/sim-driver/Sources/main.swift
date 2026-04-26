@@ -52,6 +52,21 @@ struct Command {
     let udid: String
     let values: [String]
     let duration: Double?
+    let coords: CoordMode
+    let chromeOffset: Double
+}
+
+enum CoordMode: String {
+    /// Caller passes iOS logical points (e.g. 200, 760 for the centre of a
+    /// "Start Practicing" CTA on iPhone 16 Pro). Driver adds window origin
+    /// plus a chrome offset to reach host-screen coordinates. **Default.**
+    case ios
+    /// Caller passes raw host-screen coordinates (top-left origin). Useful
+    /// when integrating with tools that already know absolute screen coords.
+    case host
+    /// Caller passes window-relative coordinates. Y measured from the window
+    /// title bar (chrome included). Mostly here for backward compatibility.
+    case window
 }
 
 let version = "1.0.0"
@@ -61,13 +76,20 @@ func usage() -> String {
     """
     Usage:
       ibr-sim-driver --version
-      ibr-sim-driver tap --udid <UDID> <x> <y>
-      ibr-sim-driver swipe --udid <UDID> <x1> <y1> <x2> <y2> [--duration <seconds>]
-      ibr-sim-driver type --udid <UDID> <text>
+      ibr-sim-driver tap   --udid <UDID> [--coords <mode>] [--chrome-offset <pt>] <x> <y>
+      ibr-sim-driver swipe --udid <UDID> [--coords <mode>] [--chrome-offset <pt>] <x1> <y1> <x2> <y2> [--duration <s>]
+      ibr-sim-driver type  --udid <UDID> <text>
 
-    Coordinates are auto-detected:
-      - absolute screen points when inside the Simulator window bounds
-      - Simulator-window-relative points otherwise
+    Coordinate modes (--coords):
+      ios     iOS logical points. Driver adds window origin + chrome offset.
+              Default. Recommended for agents and automation.
+      host    Absolute host-screen coordinates (top-left origin). Use when
+              integrating with tools that already know screen coords.
+      window  Window-relative coordinates (Y measured from window top, chrome
+              included). Backward-compatible with the pre-coords API.
+
+    --chrome-offset <pt>   Top-edge chrome height in points. Default 52
+                           (modern Simulator on Xcode 14+).
     """
 }
 
@@ -86,6 +108,8 @@ func parseCommand(_ args: [String]) throws -> Command {
     var udid: String?
     var values: [String] = []
     var duration: Double?
+    var coords: CoordMode = .ios
+    var chromeOffset: Double = 52
 
     var index = 2
     while index < args.count {
@@ -101,6 +125,18 @@ func parseCommand(_ args: [String]) throws -> Command {
                 throw DriverError.usage("--duration requires a numeric value")
             }
             duration = parsed
+        case "--coords":
+            index += 1
+            guard index < args.count, let mode = CoordMode(rawValue: args[index]) else {
+                throw DriverError.usage("--coords must be one of: ios, host, window")
+            }
+            coords = mode
+        case "--chrome-offset":
+            index += 1
+            guard index < args.count, let parsed = Double(args[index]) else {
+                throw DriverError.usage("--chrome-offset requires a numeric value")
+            }
+            chromeOffset = parsed
         default:
             values.append(arg)
         }
@@ -108,7 +144,10 @@ func parseCommand(_ args: [String]) throws -> Command {
     }
 
     guard let udid else { throw DriverError.usage("--udid is required") }
-    return Command(name: name, udid: udid, values: values, duration: duration)
+    return Command(
+        name: name, udid: udid, values: values, duration: duration,
+        coords: coords, chromeOffset: chromeOffset,
+    )
 }
 
 func runProcess(_ launchPath: String, _ arguments: [String]) throws -> Data {
@@ -210,12 +249,19 @@ func parseDouble(_ value: String, label: String) throws -> Double {
     return parsed
 }
 
-func resolvePoint(x: Double, y: Double, in window: WindowInfo) -> CGPoint {
-    let point = CGPoint(x: x, y: y)
-    if window.bounds.contains(point) {
-        return point
+func resolvePoint(x: Double, y: Double, in window: WindowInfo, mode: CoordMode, chromeOffset: Double) -> CGPoint {
+    switch mode {
+    case .ios:
+        // iOS logical points → window origin plus the chrome offset for Y.
+        // X is 1:1 with the window's left edge (modern Simulator scales 1:1).
+        return CGPoint(x: window.bounds.minX + x, y: window.bounds.minY + chromeOffset + y)
+    case .host:
+        // Caller already knows host-screen coordinates.
+        return CGPoint(x: x, y: y)
+    case .window:
+        // Window-relative — chrome included. Backward-compat behaviour.
+        return CGPoint(x: window.bounds.minX + x, y: window.bounds.minY + y)
     }
-    return CGPoint(x: window.bounds.minX + x, y: window.bounds.minY + y)
 }
 
 /// Returns (ownerPID, ownerName) of the topmost on-screen window covering the point,
@@ -263,17 +309,17 @@ func postMouse(_ type: CGEventType, at point: CGPoint) throws {
     event.post(tap: .cghidEventTap)
 }
 
-func tap(window: WindowInfo, x: Double, y: Double, simulatorPid: pid_t) throws {
-    let point = resolvePoint(x: x, y: y, in: window)
+func tap(window: WindowInfo, x: Double, y: Double, simulatorPid: pid_t, mode: CoordMode, chromeOffset: Double) throws {
+    let point = resolvePoint(x: x, y: y, in: window, mode: mode, chromeOffset: chromeOffset)
     try ensureVisible(window: window, at: point, simulatorPid: simulatorPid)
     try postMouse(.leftMouseDown, at: point)
     usleep(45_000)
     try postMouse(.leftMouseUp, at: point)
 }
 
-func swipe(window: WindowInfo, x1: Double, y1: Double, x2: Double, y2: Double, duration: Double, simulatorPid: pid_t) throws {
-    let start = resolvePoint(x: x1, y: y1, in: window)
-    let end = resolvePoint(x: x2, y: y2, in: window)
+func swipe(window: WindowInfo, x1: Double, y1: Double, x2: Double, y2: Double, duration: Double, simulatorPid: pid_t, mode: CoordMode, chromeOffset: Double) throws {
+    let start = resolvePoint(x: x1, y: y1, in: window, mode: mode, chromeOffset: chromeOffset)
+    let end = resolvePoint(x: x2, y: y2, in: window, mode: mode, chromeOffset: chromeOffset)
     // Verify both endpoints. A swipe whose start is occluded won't register at all.
     try ensureVisible(window: window, at: start, simulatorPid: simulatorPid)
     try ensureVisible(window: window, at: end, simulatorPid: simulatorPid)
@@ -347,7 +393,7 @@ do {
         guard command.values.count == 2 else { throw DriverError.usage("tap requires <x> <y>") }
         let x = try parseDouble(command.values[0], label: "x")
         let y = try parseDouble(command.values[1], label: "y")
-        try tap(window: window, x: x, y: y, simulatorPid: app.processIdentifier)
+        try tap(window: window, x: x, y: y, simulatorPid: app.processIdentifier, mode: command.coords, chromeOffset: command.chromeOffset)
         printSuccess(action: "tap")
 
     case "swipe":
@@ -356,7 +402,7 @@ do {
         let y1 = try parseDouble(command.values[1], label: "y1")
         let x2 = try parseDouble(command.values[2], label: "x2")
         let y2 = try parseDouble(command.values[3], label: "y2")
-        try swipe(window: window, x1: x1, y1: y1, x2: x2, y2: y2, duration: command.duration ?? 0.3, simulatorPid: app.processIdentifier)
+        try swipe(window: window, x1: x1, y1: y1, x2: x2, y2: y2, duration: command.duration ?? 0.3, simulatorPid: app.processIdentifier, mode: command.coords, chromeOffset: command.chromeOffset)
         printSuccess(action: "swipe")
 
     case "type":

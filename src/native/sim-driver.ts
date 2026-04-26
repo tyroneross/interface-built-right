@@ -135,8 +135,32 @@ async function runSimDriver(args: string[], action: string): Promise<IdbActionRe
   }
 }
 
-export function simDriverTap(udid: string, x: number, y: number): Promise<IdbActionResult> {
-  return runSimDriver(['tap', '--udid', udid, String(x), String(y)], 'tap')
+export type SimDriverCoords = 'ios' | 'host' | 'window'
+
+export interface SimDriverPointOptions {
+  /** Coordinate mode. Default `ios` (logical iOS points). */
+  coords?: SimDriverCoords
+  /** Chrome offset in points. Default 52 (modern Simulator on Xcode 14+). */
+  chromeOffset?: number
+}
+
+function coordFlags(opts?: SimDriverPointOptions): string[] {
+  const out: string[] = []
+  if (opts?.coords) out.push('--coords', opts.coords)
+  if (opts?.chromeOffset !== undefined) out.push('--chrome-offset', String(opts.chromeOffset))
+  return out
+}
+
+export function simDriverTap(
+  udid: string,
+  x: number,
+  y: number,
+  opts?: SimDriverPointOptions,
+): Promise<IdbActionResult> {
+  return runSimDriver(
+    ['tap', '--udid', udid, ...coordFlags(opts), String(x), String(y)],
+    'tap',
+  )
 }
 
 export function simDriverType(udid: string, text: string): Promise<IdbActionResult> {
@@ -150,8 +174,18 @@ export function simDriverSwipe(
   x2: number,
   y2: number,
   duration?: number,
+  opts?: SimDriverPointOptions,
 ): Promise<IdbActionResult> {
-  const args = ['swipe', '--udid', udid, String(x1), String(y1), String(x2), String(y2)]
+  const args = [
+    'swipe',
+    '--udid',
+    udid,
+    ...coordFlags(opts),
+    String(x1),
+    String(y1),
+    String(x2),
+    String(y2),
+  ]
   if (duration) args.push('--duration', String(duration))
   return runSimDriver(args, 'swipe')
 }
