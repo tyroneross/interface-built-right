@@ -197,6 +197,12 @@ export interface AskOptions {
    * scans (where scan() can't run) still attach evidence.
    */
   screenshotPath?: string
+  /**
+   * Warm-browser pool forwarded to scan(). When set, the second-and-onwards
+   * ask() call in the same process avoids a fresh browser launch — drops
+   * first-finding latency by ~600-800ms (the browser-launch share).
+   */
+  pool?: import('./engine/browser-pool.js').BrowserPool
 }
 
 const ENGINE_VERSION = '0.1.0-m1'
@@ -368,6 +374,7 @@ export async function* askStream(
     const result = await scan(url, {
       viewport: options.viewport ?? 'desktop',
       timeout: options.timeout,
+      ...(options.pool ? { pool: options.pool } : {}),
       ...(options.screenshot && screenshotPath
         ? { screenshot: { path: screenshotPath } }
         : {}),

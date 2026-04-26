@@ -7617,15 +7617,21 @@ async function scan(url, options = {}) {
     rules: rulePresets
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
-  const driver2 = new EngineDriver();
-  await driver2.launch({
-    headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath
-  });
+  const ownDriver = !options.pool;
+  let driver2;
+  if (options.pool) {
+    driver2 = await options.pool.acquire();
+  } else {
+    driver2 = new EngineDriver();
+    await driver2.launch({
+      headless: !headed,
+      viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
+    });
+  }
   const page = new CompatPage(driver2);
   const consoleErrors = [];
   const consoleWarnings = [];
@@ -7763,7 +7769,11 @@ async function scan(url, options = {}) {
     }
     return baseResult;
   } finally {
-    await driver2.close();
+    if (ownDriver) {
+      await driver2.close();
+    } else if (options.pool) {
+      options.pool.release();
+    }
   }
 }
 async function detectSPAFramework(driver2) {
@@ -10172,6 +10182,7 @@ async function* askStream(url, question, options = {}) {
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
       timeout: options.timeout,
+      ...options.pool ? { pool: options.pool } : {},
       ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
@@ -10376,6 +10387,77 @@ var init_ask = __esm({
       violationToFinding,
       tokenViolationToFinding,
       SUPPORTED_QUESTIONS
+    };
+  }
+});
+
+// src/engine/browser-pool.ts
+var browser_pool_exports = {};
+__export(browser_pool_exports, {
+  BrowserPool: () => BrowserPool
+});
+var BrowserPool;
+var init_browser_pool = __esm({
+  "src/engine/browser-pool.ts"() {
+    "use strict";
+    init_driver();
+    BrowserPool = class {
+      driver = null;
+      launchOptions;
+      inUse = false;
+      waiters = [];
+      closed = false;
+      constructor(options = {}) {
+        this.launchOptions = options.launchOptions ?? {};
+      }
+      /** Acquire the warm driver. Launches on first call. Awaits if another
+       *  caller currently holds the driver. */
+      async acquire() {
+        if (this.closed) throw new Error("BrowserPool is closed");
+        while (this.inUse) {
+          await new Promise((resolve3) => this.waiters.push(resolve3));
+        }
+        this.inUse = true;
+        if (!this.driver) {
+          this.driver = new EngineDriver();
+          try {
+            await this.driver.launch(this.launchOptions);
+          } catch (err) {
+            this.driver = null;
+            this.inUse = false;
+            const next = this.waiters.shift();
+            if (next) next();
+            throw err;
+          }
+        }
+        return this.driver;
+      }
+      /** Release the driver back to the pool. Wakes up the next waiter. */
+      release() {
+        this.inUse = false;
+        const next = this.waiters.shift();
+        if (next) next();
+      }
+      /** Close the underlying browser. Future acquire() calls throw. */
+      async close() {
+        this.closed = true;
+        if (this.driver) {
+          const d = this.driver;
+          this.driver = null;
+          try {
+            await d.close();
+          } catch {
+          }
+        }
+        while (this.waiters.length) {
+          const w = this.waiters.shift();
+          if (w) w();
+        }
+      }
+      /** True if the pool has a live driver. Useful for diagnostics. */
+      hasWarmDriver() {
+        return this.driver !== null;
+      }
     };
   }
 });
@@ -12399,6 +12481,7 @@ var import_nanoid5 = require("nanoid");
 // src/index.ts
 init_scan();
 init_ask();
+init_browser_pool();
 init_rules();
 init_summarize();
 init_tokens();
@@ -14543,6 +14626,14 @@ var TOOLS = [
   }
 ];
 var DEFAULT_OUTPUT_DIR = ".ibr";
+var mcpBrowserPool;
+async function getMcpBrowserPool() {
+  if (!mcpBrowserPool) {
+    const { BrowserPool: BrowserPool2 } = await Promise.resolve().then(() => (init_browser_pool(), browser_pool_exports));
+    mcpBrowserPool = new BrowserPool2({ launchOptions: { headless: true } });
+  }
+  return mcpBrowserPool;
+}
 async function handleToolCall(name, args) {
   try {
     switch (name) {
@@ -15291,10 +15382,12 @@ async function handleScan(args) {
     return errorResponse("The 'url' parameter is required.");
   }
   const viewport = args.viewport || "desktop";
+  const pool = await getMcpBrowserPool();
   const result = await scan(url, {
     viewport,
     patience: args.patience,
-    networkIdleTimeout: args.networkIdleTimeout
+    networkIdleTimeout: args.networkIdleTimeout,
+    pool
   });
   const lines = [
     `UI Scan: ${result.url}`,
@@ -15411,9 +15504,11 @@ async function handleAsk(args) {
   const maxFindings = args.maxFindings ?? 25;
   const wantScreenshot = args.screenshot === true;
   const { ask: ask2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
+  const pool = await getMcpBrowserPool();
   const response = await ask2(url, question, {
     viewport,
     maxFindings,
+    pool,
     ...wantScreenshot ? { screenshot: true } : {}
   });
   const content = [

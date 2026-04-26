@@ -8776,15 +8776,21 @@ async function scan(url, options = {}) {
     rules: rulePresets
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? exports.VIEWPORTS[viewportOpt] || exports.VIEWPORTS.desktop : viewportOpt;
-  const driver2 = new EngineDriver();
-  await driver2.launch({
-    headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath
-  });
+  const ownDriver = !options.pool;
+  let driver2;
+  if (options.pool) {
+    driver2 = await options.pool.acquire();
+  } else {
+    driver2 = new EngineDriver();
+    await driver2.launch({
+      headless: !headed,
+      viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
+    });
+  }
   const page = new CompatPage(driver2);
   const consoleErrors = [];
   const consoleWarnings = [];
@@ -8922,7 +8928,11 @@ async function scan(url, options = {}) {
     }
     return baseResult;
   } finally {
-    await driver2.close();
+    if (ownDriver) {
+      await driver2.close();
+    } else if (options.pool) {
+      options.pool.release();
+    }
   }
 }
 async function detectSPAFramework(driver2) {
@@ -13680,6 +13690,7 @@ async function* askStream(url, question, options = {}) {
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
       timeout: options.timeout,
+      ...options.pool ? { pool: options.pool } : {},
       ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
@@ -13833,6 +13844,67 @@ async function ask(url, question, options = {}) {
     }
   };
 }
+
+// src/engine/browser-pool.ts
+init_driver();
+var BrowserPool = class {
+  driver = null;
+  launchOptions;
+  inUse = false;
+  waiters = [];
+  closed = false;
+  constructor(options = {}) {
+    this.launchOptions = options.launchOptions ?? {};
+  }
+  /** Acquire the warm driver. Launches on first call. Awaits if another
+   *  caller currently holds the driver. */
+  async acquire() {
+    if (this.closed) throw new Error("BrowserPool is closed");
+    while (this.inUse) {
+      await new Promise((resolve3) => this.waiters.push(resolve3));
+    }
+    this.inUse = true;
+    if (!this.driver) {
+      this.driver = new EngineDriver();
+      try {
+        await this.driver.launch(this.launchOptions);
+      } catch (err) {
+        this.driver = null;
+        this.inUse = false;
+        const next = this.waiters.shift();
+        if (next) next();
+        throw err;
+      }
+    }
+    return this.driver;
+  }
+  /** Release the driver back to the pool. Wakes up the next waiter. */
+  release() {
+    this.inUse = false;
+    const next = this.waiters.shift();
+    if (next) next();
+  }
+  /** Close the underlying browser. Future acquire() calls throw. */
+  async close() {
+    this.closed = true;
+    if (this.driver) {
+      const d = this.driver;
+      this.driver = null;
+      try {
+        await d.close();
+      } catch {
+      }
+    }
+    while (this.waiters.length) {
+      const w = this.waiters.shift();
+      if (w) w();
+    }
+  }
+  /** True if the pool has a live driver. Useful for diagnostics. */
+  hasWarmDriver() {
+    return this.driver !== null;
+  }
+};
 
 // src/index.ts
 init_rules();
@@ -14785,6 +14857,7 @@ var IBRSession = class {
   }
 };
 
+exports.BrowserPool = BrowserPool;
 exports.CompactContextSchema = CompactContextSchema;
 exports.CompactionRequestSchema = CompactionRequestSchema;
 exports.CompactionResultSchema = CompactionResultSchema;

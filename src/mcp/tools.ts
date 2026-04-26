@@ -942,6 +942,28 @@ export const TOOLS = [
 
 const DEFAULT_OUTPUT_DIR = ".ibr";
 
+// Process-level warm browser. Lazy-init on first scan/ask in the MCP server,
+// reused for the lifetime of the server. First call pays the ~700ms launch
+// cost; subsequent calls land in roughly half the time. See
+// src/engine/browser-pool.ts for the lifecycle contract.
+let mcpBrowserPool:
+  | import('../engine/browser-pool.js').BrowserPool
+  | undefined;
+async function getMcpBrowserPool() {
+  if (!mcpBrowserPool) {
+    const { BrowserPool } = await import('../engine/browser-pool.js');
+    mcpBrowserPool = new BrowserPool({ launchOptions: { headless: true } });
+  }
+  return mcpBrowserPool;
+}
+/** Test/host hook — close and reset the pool. Used at process exit. */
+export async function closeMcpBrowserPool(): Promise<void> {
+  if (mcpBrowserPool) {
+    await mcpBrowserPool.close();
+    mcpBrowserPool = undefined;
+  }
+}
+
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>
@@ -1762,10 +1784,12 @@ async function handleScan(
 
   const viewport = (args.viewport as string) || "desktop";
 
+  const pool = await getMcpBrowserPool();
   const result = await scan(url, {
     viewport: viewport as ScanOptions["viewport"],
     patience: args.patience as number | undefined,
     networkIdleTimeout: args.networkIdleTimeout as number | undefined,
+    pool,
   });
 
   // Format for LLM consumption — concise structured text
@@ -1908,9 +1932,11 @@ async function handleAsk(
   const wantScreenshot = args.screenshot === true;
 
   const { ask } = await import('../ask.js');
+  const pool = await getMcpBrowserPool();
   const response = await ask(url, question, {
     viewport,
     maxFindings,
+    pool,
     ...(wantScreenshot ? { screenshot: true } : {}),
   });
 

@@ -207,6 +207,14 @@ export interface ScanOptions extends BrowserLaunchOptions {
   hydrationStrategy?: 'auto' | 'stable' | 'none';
   /** Rule preset names to enable for this scan (e.g. ['wcag-contrast', 'touch-targets']) */
   rules?: string[];
+  /**
+   * Optional warm-browser pool. When supplied, scan() reuses the pool's
+   * EngineDriver instead of launching a fresh browser. Drops first-finding
+   * latency dramatically for the second-and-onwards call in the same process
+   * (e.g. an MCP server fielding multiple `ask` calls). The pool's lifecycle
+   * is the caller's responsibility — scan() does not close it.
+   */
+  pool?: import('./engine/browser-pool.js').BrowserPool;
 }
 
 /**
@@ -240,16 +248,27 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop
     : viewportOpt;
 
-  // Launch browser
-  const driver = new EngineDriver();
-  await driver.launch({
-    headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath,
-  });
+  // Launch browser — or acquire one from the pool when supplied.
+  const ownDriver = !options.pool;
+  let driver: EngineDriver;
+  if (options.pool) {
+    driver = await options.pool.acquire();
+    // Per-scan viewport is intentionally NOT re-applied: emulation is private
+    // on EngineDriver. The pool's launch viewport is sticky for the process.
+    // Callers that need a different viewport mid-process should construct a
+    // dedicated pool with the right launch options, or omit `pool` for
+    // viewport-sensitive scans.
+  } else {
+    driver = new EngineDriver();
+    await driver.launch({
+      headless: !headed,
+      viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
+    });
+  }
   const page: PageLike = new CompatPage(driver);
 
   // Capture console output
@@ -422,7 +441,11 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
 
     return baseResult;
   } finally {
-    await driver.close();
+    if (ownDriver) {
+      await driver.close();
+    } else if (options.pool) {
+      options.pool.release();
+    }
   }
 }
 

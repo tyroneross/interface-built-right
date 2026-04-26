@@ -1005,6 +1005,12 @@ export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
 export { ask, askStream } from './ask.js';
 export type { AskResponse, AskOptions, Finding, Verdict, AskStreamEvent } from './ask.js';
 
+// Browser pool — keeps a warm browser across multiple scan/ask calls in the
+// same process. Drops first-finding latency for the second-and-onwards call
+// by ~600-800ms (the cold-launch share). See src/engine/browser-pool.ts.
+export { BrowserPool } from './engine/browser-pool.js';
+export type { BrowserPoolOptions } from './engine/browser-pool.js';
+
 // Rule engine exports
 export { runAllRules } from './rules/index.js';
 export type { RuleEngineResult } from './rules/index.js';

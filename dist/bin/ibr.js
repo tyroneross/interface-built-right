@@ -13037,15 +13037,21 @@ async function scan(url, options = {}) {
     rules: rulePresets
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
-  const driver3 = new EngineDriver();
-  await driver3.launch({
-    headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath
-  });
+  const ownDriver = !options.pool;
+  let driver3;
+  if (options.pool) {
+    driver3 = await options.pool.acquire();
+  } else {
+    driver3 = new EngineDriver();
+    await driver3.launch({
+      headless: !headed,
+      viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
+    });
+  }
   const page = new CompatPage(driver3);
   const consoleErrors = [];
   const consoleWarnings = [];
@@ -13183,7 +13189,11 @@ async function scan(url, options = {}) {
     }
     return baseResult;
   } finally {
-    await driver3.close();
+    if (ownDriver) {
+      await driver3.close();
+    } else if (options.pool) {
+      options.pool.release();
+    }
   }
 }
 async function detectSPAFramework(driver3) {
@@ -14794,6 +14804,7 @@ async function* askStream(url, question, options = {}) {
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
       timeout: options.timeout,
+      ...options.pool ? { pool: options.pool } : {},
       ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
@@ -14998,6 +15009,73 @@ var init_ask = __esm({
       violationToFinding,
       tokenViolationToFinding,
       SUPPORTED_QUESTIONS
+    };
+  }
+});
+
+// src/engine/browser-pool.ts
+var BrowserPool;
+var init_browser_pool = __esm({
+  "src/engine/browser-pool.ts"() {
+    "use strict";
+    init_driver();
+    BrowserPool = class {
+      driver = null;
+      launchOptions;
+      inUse = false;
+      waiters = [];
+      closed = false;
+      constructor(options = {}) {
+        this.launchOptions = options.launchOptions ?? {};
+      }
+      /** Acquire the warm driver. Launches on first call. Awaits if another
+       *  caller currently holds the driver. */
+      async acquire() {
+        if (this.closed) throw new Error("BrowserPool is closed");
+        while (this.inUse) {
+          await new Promise((resolve5) => this.waiters.push(resolve5));
+        }
+        this.inUse = true;
+        if (!this.driver) {
+          this.driver = new EngineDriver();
+          try {
+            await this.driver.launch(this.launchOptions);
+          } catch (err) {
+            this.driver = null;
+            this.inUse = false;
+            const next = this.waiters.shift();
+            if (next) next();
+            throw err;
+          }
+        }
+        return this.driver;
+      }
+      /** Release the driver back to the pool. Wakes up the next waiter. */
+      release() {
+        this.inUse = false;
+        const next = this.waiters.shift();
+        if (next) next();
+      }
+      /** Close the underlying browser. Future acquire() calls throw. */
+      async close() {
+        this.closed = true;
+        if (this.driver) {
+          const d = this.driver;
+          this.driver = null;
+          try {
+            await d.close();
+          } catch {
+          }
+        }
+        while (this.waiters.length) {
+          const w = this.waiters.shift();
+          if (w) w();
+        }
+      }
+      /** True if the pool has a live driver. Useful for diagnostics. */
+      hasWarmDriver() {
+        return this.driver !== null;
+      }
     };
   }
 });
@@ -15529,6 +15607,7 @@ __export(index_exports, {
   AnalysisSchema: () => AnalysisSchema,
   AuditResultSchema: () => AuditResultSchema,
   BoundsSchema: () => BoundsSchema,
+  BrowserPool: () => BrowserPool,
   ChangedRegionSchema: () => ChangedRegionSchema,
   CompactContextSchema: () => CompactContextSchema,
   CompactionRequestSchema: () => CompactionRequestSchema,
@@ -15932,6 +16011,7 @@ var init_index = __esm({
     init_types3();
     init_scan();
     init_ask();
+    init_browser_pool();
     init_rules();
     init_summarize();
     init_tokens();
