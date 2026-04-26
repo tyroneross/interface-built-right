@@ -13832,35 +13832,59 @@ var BrowserPool = class {
   constructor(options = {}) {
     this.launchOptions = options.launchOptions ?? {};
   }
-  /** Acquire the warm driver. Launches on first call. Awaits if another
-   *  caller currently holds the driver. */
+  /**
+   * Acquire the warm driver. Launches on first call. Awaits if another
+   * caller currently holds the driver.
+   *
+   * Ticket-lock pattern: when a waiter wakes, the lock is *theirs* — no
+   * re-check loop. release() hands ownership directly so the queue is
+   * strictly FIFO and a fresh caller cannot jump in between release() and
+   * the woken waiter's continuation.
+   */
   async acquire() {
     if (this.closed) throw new Error("BrowserPool is closed");
-    while (this.inUse) {
+    if (this.inUse) {
       await new Promise((resolve3) => this.waiters.push(resolve3));
+      if (this.closed) throw new Error("BrowserPool is closed");
+    } else {
+      this.inUse = true;
     }
-    this.inUse = true;
     if (!this.driver) {
       this.driver = new EngineDriver();
       try {
         await this.driver.launch(this.launchOptions);
       } catch (err) {
         this.driver = null;
-        this.inUse = false;
         const next = this.waiters.shift();
-        if (next) next();
+        if (next) {
+          next();
+        } else {
+          this.inUse = false;
+        }
         throw err;
       }
     }
     return this.driver;
   }
-  /** Release the driver back to the pool. Wakes up the next waiter. */
+  /**
+   * Release the driver back to the pool. Hands off ownership to the next
+   * waiter directly (without resetting inUse) so the queue stays FIFO.
+   */
   release() {
-    this.inUse = false;
     const next = this.waiters.shift();
-    if (next) next();
+    if (next) {
+      next();
+    } else {
+      this.inUse = false;
+    }
   }
-  /** Close the underlying browser. Future acquire() calls throw. */
+  /**
+   * Close the underlying browser. Future acquire() calls throw. Already-
+   * waiting callers wake and observe `closed`, so no one hangs.
+   *
+   * Note: a current holder is *not* forcibly evicted. Their next release()
+   * is still valid (it just falls through the no-waiters branch).
+   */
   async close() {
     this.closed = true;
     if (this.driver) {

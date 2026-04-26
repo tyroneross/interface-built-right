@@ -91,6 +91,50 @@ describe('BrowserPool', () => {
     await expect(pool.acquire()).rejects.toThrow(/closed/)
   })
 
+  // Regression: close() called while a holder is still active used to hang
+  // any pending waiter forever (waiter woke, re-entered while-loop, saw
+  // inUse still true, queued another never-resolving waiter). Ticket-lock
+  // refactor fixes this: woken waiters check `closed` and throw, never loop.
+  it('close() while a holder is active wakes pending waiters with closed error (no hang)', async () => {
+    const pool = new BrowserPool()
+    await pool.acquire() // holder A — never releases in this test
+    const acquireB = pool.acquire() // queues a waiter
+    // Race: close while B is still queued.
+    const closed = pool.close()
+    await expect(acquireB).rejects.toThrow(/closed/)
+    await closed
+  })
+
+  it('release() hands off ownership FIFO — fresh acquire cannot jump the queue', async () => {
+    const pool = new BrowserPool()
+    const order: string[] = []
+
+    await pool.acquire() // hold
+
+    // B queues first.
+    const b = (async () => {
+      await pool.acquire()
+      order.push('B')
+      pool.release()
+    })()
+
+    // Microtask checkpoint to ensure B is queued before C tries.
+    await Promise.resolve()
+
+    // Now release the holder. B should be next, not any C that races to acquire.
+    pool.release()
+    // C tries to acquire AFTER release — it must wait until B finishes.
+    const c = (async () => {
+      await pool.acquire()
+      order.push('C')
+      pool.release()
+    })()
+
+    await Promise.all([b, c])
+    expect(order).toEqual(['B', 'C'])
+    await pool.close()
+  })
+
   it('failed launch resets state so the next acquire retries', async () => {
     launchSpy.mockImplementationOnce(async () => {
       throw new Error('cdp connect failed')

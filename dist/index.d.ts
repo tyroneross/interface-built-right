@@ -5849,12 +5849,28 @@ declare class BrowserPool {
     private waiters;
     private closed;
     constructor(options?: BrowserPoolOptions);
-    /** Acquire the warm driver. Launches on first call. Awaits if another
-     *  caller currently holds the driver. */
+    /**
+     * Acquire the warm driver. Launches on first call. Awaits if another
+     * caller currently holds the driver.
+     *
+     * Ticket-lock pattern: when a waiter wakes, the lock is *theirs* — no
+     * re-check loop. release() hands ownership directly so the queue is
+     * strictly FIFO and a fresh caller cannot jump in between release() and
+     * the woken waiter's continuation.
+     */
     acquire(): Promise<EngineDriver>;
-    /** Release the driver back to the pool. Wakes up the next waiter. */
+    /**
+     * Release the driver back to the pool. Hands off ownership to the next
+     * waiter directly (without resetting inUse) so the queue stays FIFO.
+     */
     release(): void;
-    /** Close the underlying browser. Future acquire() calls throw. */
+    /**
+     * Close the underlying browser. Future acquire() calls throw. Already-
+     * waiting callers wake and observe `closed`, so no one hangs.
+     *
+     * Note: a current holder is *not* forcibly evicted. Their next release()
+     * is still valid (it just falls through the no-waiters branch).
+     */
     close(): Promise<void>;
     /** True if the pool has a live driver. Useful for diagnostics. */
     hasWarmDriver(): boolean;

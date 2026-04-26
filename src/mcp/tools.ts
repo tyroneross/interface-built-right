@@ -946,21 +946,35 @@ const DEFAULT_OUTPUT_DIR = ".ibr";
 // reused for the lifetime of the server. First call pays the ~700ms launch
 // cost; subsequent calls land in roughly half the time. See
 // src/engine/browser-pool.ts for the lifecycle contract.
-let mcpBrowserPool:
-  | import('../engine/browser-pool.js').BrowserPool
+//
+// The init *promise* is cached (not the pool itself) so that two simultaneous
+// tool calls before the first import resolves can't each create a separate
+// BrowserPool — they share the same in-flight promise.
+let mcpBrowserPoolPromise:
+  | Promise<import('../engine/browser-pool.js').BrowserPool>
   | undefined;
-async function getMcpBrowserPool() {
-  if (!mcpBrowserPool) {
-    const { BrowserPool } = await import('../engine/browser-pool.js');
-    mcpBrowserPool = new BrowserPool({ launchOptions: { headless: true } });
+function getMcpBrowserPool() {
+  if (!mcpBrowserPoolPromise) {
+    mcpBrowserPoolPromise = (async () => {
+      const { BrowserPool } = await import('../engine/browser-pool.js');
+      return new BrowserPool({ launchOptions: { headless: true } });
+    })();
   }
-  return mcpBrowserPool;
+  return mcpBrowserPoolPromise;
 }
 /** Test/host hook — close and reset the pool. Used at process exit. */
 export async function closeMcpBrowserPool(): Promise<void> {
-  if (mcpBrowserPool) {
-    await mcpBrowserPool.close();
-    mcpBrowserPool = undefined;
+  if (mcpBrowserPoolPromise) {
+    const p = mcpBrowserPoolPromise;
+    mcpBrowserPoolPromise = undefined;
+    try {
+      const pool = await p;
+      await pool.close();
+    } catch {
+      // Best-effort cleanup. If the pool never finished initialising we have
+      // nothing concrete to close; the underlying browser process (if any)
+      // will be reaped on parent exit.
+    }
   }
 }
 

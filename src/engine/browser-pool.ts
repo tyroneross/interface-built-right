@@ -38,38 +38,65 @@ export class BrowserPool {
     this.launchOptions = options.launchOptions ?? {}
   }
 
-  /** Acquire the warm driver. Launches on first call. Awaits if another
-   *  caller currently holds the driver. */
+  /**
+   * Acquire the warm driver. Launches on first call. Awaits if another
+   * caller currently holds the driver.
+   *
+   * Ticket-lock pattern: when a waiter wakes, the lock is *theirs* — no
+   * re-check loop. release() hands ownership directly so the queue is
+   * strictly FIFO and a fresh caller cannot jump in between release() and
+   * the woken waiter's continuation.
+   */
   async acquire(): Promise<EngineDriver> {
     if (this.closed) throw new Error('BrowserPool is closed')
-    while (this.inUse) {
+    if (this.inUse) {
       await new Promise<void>((resolve) => this.waiters.push(resolve))
+      // Re-check closed after wake — close() may have just resolved us.
+      if (this.closed) throw new Error('BrowserPool is closed')
+      // We were promised the lock by release(); inUse stays true.
+    } else {
+      this.inUse = true
     }
-    this.inUse = true
     if (!this.driver) {
       this.driver = new EngineDriver()
       try {
         await this.driver.launch(this.launchOptions)
       } catch (err) {
         // Reset state on launch failure so the next acquire can retry.
+        // Hand off to the next waiter (or release the lock entirely if none).
         this.driver = null
-        this.inUse = false
         const next = this.waiters.shift()
-        if (next) next()
+        if (next) {
+          next() // waiter is now owner; inUse stays true
+        } else {
+          this.inUse = false
+        }
         throw err
       }
     }
     return this.driver
   }
 
-  /** Release the driver back to the pool. Wakes up the next waiter. */
+  /**
+   * Release the driver back to the pool. Hands off ownership to the next
+   * waiter directly (without resetting inUse) so the queue stays FIFO.
+   */
   release(): void {
-    this.inUse = false
     const next = this.waiters.shift()
-    if (next) next()
+    if (next) {
+      next() // waiter is now owner; inUse stays true
+    } else {
+      this.inUse = false
+    }
   }
 
-  /** Close the underlying browser. Future acquire() calls throw. */
+  /**
+   * Close the underlying browser. Future acquire() calls throw. Already-
+   * waiting callers wake and observe `closed`, so no one hangs.
+   *
+   * Note: a current holder is *not* forcibly evicted. Their next release()
+   * is still valid (it just falls through the no-waiters branch).
+   */
   async close(): Promise<void> {
     this.closed = true
     if (this.driver) {
@@ -81,7 +108,7 @@ export class BrowserPool {
         // Best-effort close; never throw from cleanup.
       }
     }
-    // Wake any pending waiters so they observe the closed state.
+    // Wake any pending waiters so they observe the closed state and throw.
     while (this.waiters.length) {
       const w = this.waiters.shift()
       if (w) w()
