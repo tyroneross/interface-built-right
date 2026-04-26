@@ -8739,8 +8739,8 @@ async function testResponsive(url, options = {}) {
         minFontSize
       });
       if (captureScreenshots) {
-        const { mkdir: mkdir26 } = await import("fs/promises");
-        await mkdir26(outputDir, { recursive: true });
+        const { mkdir: mkdir27 } = await import("fs/promises");
+        await mkdir27(outputDir, { recursive: true });
         const screenshotPath = `${outputDir}/${viewportName}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
         result.screenshot = screenshotPath;
@@ -14593,6 +14593,53 @@ var init_scan2 = __esm({
   }
 });
 
+// src/utils/crop.ts
+var crop_exports = {};
+__export(crop_exports, {
+  cropPng: () => cropPng
+});
+function loadPng(path2) {
+  return new Promise((resolve5, reject) => {
+    const png = new import_pngjs3.PNG();
+    (0, import_fs10.createReadStream)(path2).pipe(png).on("parsed", () => resolve5(png)).on("error", reject);
+  });
+}
+function writePng(png, path2) {
+  return new Promise((resolve5, reject) => {
+    png.pack().pipe((0, import_fs10.createWriteStream)(path2)).on("finish", resolve5).on("error", reject);
+  });
+}
+function clamp(v, lo, hi) {
+  return Math.min(Math.max(v, lo), hi);
+}
+async function cropPng(srcPath, bounds, destPath, opts = {}) {
+  const padding = opts.padding ?? 16;
+  const scale = opts.scale ?? 1;
+  const src = await loadPng(srcPath);
+  const x0 = Math.floor(clamp((bounds.x - padding) * scale, 0, src.width));
+  const y0 = Math.floor(clamp((bounds.y - padding) * scale, 0, src.height));
+  const x1 = Math.ceil(clamp((bounds.x + bounds.width + padding) * scale, 0, src.width));
+  const y1 = Math.ceil(clamp((bounds.y + bounds.height + padding) * scale, 0, src.height));
+  const cropW = x1 - x0;
+  const cropH = y1 - y0;
+  if (cropW <= 0 || cropH <= 0) return null;
+  const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
+  src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
+  await (0, import_promises20.mkdir)((0, import_path20.dirname)(destPath), { recursive: true });
+  await writePng(out, destPath);
+  return destPath;
+}
+var import_fs10, import_promises20, import_path20, import_pngjs3;
+var init_crop = __esm({
+  "src/utils/crop.ts"() {
+    "use strict";
+    import_fs10 = require("fs");
+    import_promises20 = require("fs/promises");
+    import_path20 = require("path");
+    import_pngjs3 = require("pngjs");
+  }
+});
+
 // src/ask.ts
 var ask_exports = {};
 __export(ask_exports, {
@@ -14740,9 +14787,9 @@ async function* askStream(url, question, options = {}) {
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
-      const { mkdir: mkdir26 } = await import("fs/promises");
-      const { dirname: dirname10 } = await import("path");
-      if (screenshotPath) await mkdir26(dirname10(screenshotPath), { recursive: true });
+      const { mkdir: mkdir27 } = await import("fs/promises");
+      const { dirname: dirname11 } = await import("path");
+      if (screenshotPath) await mkdir27(dirname11(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -14773,6 +14820,24 @@ async function* askStream(url, question, options = {}) {
   }
   const signal = options.signal;
   let aborted = false;
+  let cropFn = null;
+  async function maybeCrop(b) {
+    if (!screenshotPath) return null;
+    if (!b || typeof b !== "object") return null;
+    const bounds = b.bounds;
+    if (!bounds) return null;
+    if (!cropFn) {
+      const m = await Promise.resolve().then(() => (init_crop(), crop_exports));
+      cropFn = m.cropPng;
+    }
+    const idx = emitted;
+    const dest = screenshotPath.replace(/\.png$/i, `.crop-${idx}.png`);
+    try {
+      return await cropFn(screenshotPath, bounds, dest);
+    } catch {
+      return null;
+    }
+  }
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
@@ -14787,6 +14852,10 @@ async function* askStream(url, question, options = {}) {
         totalProduced++;
         if (emitted < maxFindings) {
           const finding = violationToFinding({ ...v, severity: def.severity }, def.severity);
+          const cropped = await maybeCrop(finding.evidence);
+          if (cropped) {
+            finding.evidence = { ...finding.evidence ?? {}, screenshot: cropped };
+          }
           bumpVerdict(finding.verdict);
           emitted++;
           yield { type: "finding", ...finding };
@@ -14950,23 +15019,23 @@ var init_principles = __esm({
 // src/native/sim-driver.ts
 function existingBinaryCandidates() {
   return [
-    (0, import_path20.join)(__dirname, "..", "bin", DRIVER_NAME),
-    (0, import_path20.join)(__dirname, "bin", DRIVER_NAME),
-    (0, import_path20.join)(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    (0, import_path21.join)(__dirname, "..", "bin", DRIVER_NAME),
+    (0, import_path21.join)(__dirname, "bin", DRIVER_NAME),
+    (0, import_path21.join)(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
     CACHE_PATH
   ];
 }
 function sourceDirCandidates() {
   return [
-    (0, import_path20.join)(__dirname, "..", "..", "mobile-ui", "sim-driver"),
-    (0, import_path20.join)(__dirname, "..", "mobile-ui", "sim-driver")
+    (0, import_path21.join)(__dirname, "..", "..", "mobile-ui", "sim-driver"),
+    (0, import_path21.join)(__dirname, "..", "mobile-ui", "sim-driver")
   ];
 }
 function findExistingBinary() {
-  return existingBinaryCandidates().find((p) => (0, import_fs10.existsSync)(p)) ?? null;
+  return existingBinaryCandidates().find((p) => (0, import_fs11.existsSync)(p)) ?? null;
 }
 function findSourceDir() {
-  return sourceDirCandidates().find((p) => (0, import_fs10.existsSync)((0, import_path20.join)(p, "Package.swift"))) ?? null;
+  return sourceDirCandidates().find((p) => (0, import_fs11.existsSync)((0, import_path21.join)(p, "Package.swift"))) ?? null;
 }
 function isSimDriverAvailable() {
   if (process.platform !== "darwin") return false;
@@ -14975,18 +15044,18 @@ function isSimDriverAvailable() {
   if (buildError) return false;
   return findSourceDir() !== null;
 }
-var import_child_process6, import_fs10, import_path20, import_util5, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+var import_child_process6, import_fs11, import_path21, import_util5, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
 var init_sim_driver = __esm({
   "src/native/sim-driver.ts"() {
     "use strict";
     import_child_process6 = require("child_process");
-    import_fs10 = require("fs");
-    import_path20 = require("path");
+    import_fs11 = require("fs");
+    import_path21 = require("path");
     import_util5 = require("util");
     execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
     DRIVER_NAME = "ibr-sim-driver";
-    CACHE_DIR = (0, import_path20.join)(process.cwd(), ".ibr", "bin");
-    CACHE_PATH = (0, import_path20.join)(CACHE_DIR, DRIVER_NAME);
+    CACHE_DIR = (0, import_path21.join)(process.cwd(), ".ibr", "bin");
+    CACHE_PATH = (0, import_path21.join)(CACHE_DIR, DRIVER_NAME);
     buildError = null;
   }
 });
@@ -15161,8 +15230,8 @@ function drawLabel(png, cx, cy, id) {
 async function annotateScreenshot(screenshotPath, issues) {
   let png;
   try {
-    const buf = (0, import_fs11.readFileSync)(screenshotPath);
-    png = import_pngjs3.PNG.sync.read(buf);
+    const buf = (0, import_fs12.readFileSync)(screenshotPath);
+    png = import_pngjs4.PNG.sync.read(buf);
   } catch {
     return null;
   }
@@ -15173,18 +15242,18 @@ async function annotateScreenshot(screenshotPath, issues) {
   }
   const outPath = screenshotPath.replace(/\.png$/i, "-annotated.png");
   try {
-    (0, import_fs11.writeFileSync)(outPath, import_pngjs3.PNG.sync.write(png));
+    (0, import_fs12.writeFileSync)(outPath, import_pngjs4.PNG.sync.write(png));
   } catch {
     return null;
   }
   return outPath;
 }
-var import_pngjs3, import_fs11, DIGITS;
+var import_pngjs4, import_fs12, DIGITS;
 var init_annotate = __esm({
   "src/native/annotate.ts"() {
     "use strict";
-    import_pngjs3 = require("pngjs");
-    import_fs11 = require("fs");
+    import_pngjs4 = require("pngjs");
+    import_fs12 = require("fs");
     DIGITS = [
       [31, 17, 17, 17, 17, 17, 31],
       // 0
@@ -15687,7 +15756,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path21.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path22.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -15702,11 +15771,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises20.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises21.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path21.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path21.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path21.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path22.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path22.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path22.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -15738,12 +15807,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises20.access)(actualBaselinePath);
+    await (0, import_promises21.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises20.access)(actualCurrentPath);
+    await (0, import_promises21.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -15792,7 +15861,7 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path21.dirname)(paths.diff),
+      outputDir: (0, import_path22.dirname)(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
@@ -15810,7 +15879,7 @@ async function compareAll(options = {}) {
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path21.dirname)(paths.diff),
+          outputDir: (0, import_path22.dirname)(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -15822,7 +15891,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises20, import_path21, import_os3, InterfaceBuiltRight, IBRSession;
+var import_promises21, import_path22, import_os3, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -15835,8 +15904,8 @@ var init_index = __esm({
     init_flows();
     init_driver();
     init_compat();
-    import_promises20 = require("fs/promises");
-    import_path21 = require("path");
+    import_promises21 = require("fs/promises");
+    import_path22 = require("path");
     import_os3 = require("os");
     init_cleanup();
     init_schemas();
@@ -16861,9 +16930,9 @@ var init_driver2 = __esm({
        */
       async _cropScreenshot(buf, clip) {
         try {
-          const { PNG: PNG5 } = await import("pngjs");
-          const src = PNG5.sync.read(buf);
-          const dst = new PNG5({ width: clip.width, height: clip.height });
+          const { PNG: PNG6 } = await import("pngjs");
+          const src = PNG6.sync.read(buf);
+          const dst = new PNG6({ width: clip.width, height: clip.height });
           for (let y = 0; y < clip.height; y++) {
             for (let x = 0; x < clip.width; x++) {
               const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
@@ -16874,7 +16943,7 @@ var init_driver2 = __esm({
               dst.data[dstIdx + 3] = src.data[srcIdx + 3];
             }
           }
-          return PNG5.sync.write(dst);
+          return PNG6.sync.write(dst);
         } catch {
           return buf;
         }
@@ -17063,19 +17132,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path22.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = (0, import_path23.join)(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path22.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = (0, import_path23.join)(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path22.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = (0, import_path23.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -17084,10 +17153,10 @@ async function discoverUserContext(projectDir) {
   const config = await loadIBRConfig(projectDir);
   let memory;
   const outputDir = config.outputDir || "./.ibr";
-  const memoryPath = (0, import_path22.join)(outputDir, "memory", "summary.json");
-  if ((0, import_fs12.existsSync)(memoryPath)) {
+  const memoryPath = (0, import_path23.join)(outputDir, "memory", "summary.json");
+  if ((0, import_fs13.existsSync)(memoryPath)) {
     try {
-      const memContent = await (0, import_promises21.readFile)(memoryPath, "utf-8");
+      const memContent = await (0, import_promises22.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
     } catch {
     }
@@ -17107,12 +17176,12 @@ async function tryLoadFramework(filePath, type) {
     found: false,
     hasFramework: false
   };
-  if (!(0, import_fs12.existsSync)(filePath)) {
+  if (!(0, import_fs13.existsSync)(filePath)) {
     return { source };
   }
   source.found = true;
   try {
-    const content = await (0, import_promises21.readFile)(filePath, "utf-8");
+    const content = await (0, import_promises22.readFile)(filePath, "utf-8");
     const framework = parseDesignFramework(content, filePath);
     if (framework) {
       source.hasFramework = true;
@@ -17123,12 +17192,12 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path22.join)(projectDir, ".ibrrc.json");
-  if (!(0, import_fs12.existsSync)(configPath)) {
+  const configPath = (0, import_path23.join)(projectDir, ".ibrrc.json");
+  if (!(0, import_fs13.existsSync)(configPath)) {
     return {};
   }
   try {
-    const content = await (0, import_promises21.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises22.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -17158,13 +17227,13 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs12, import_promises21, import_path22, import_os4;
+var import_fs13, import_promises22, import_path23, import_os4;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
-    import_fs12 = require("fs");
-    import_promises21 = require("fs/promises");
-    import_path22 = require("path");
+    import_fs13 = require("fs");
+    import_promises22 = require("fs/promises");
+    import_path23 = require("path");
     import_os4 = require("os");
     init_framework_parser();
   }
@@ -17380,18 +17449,18 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path23.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path23.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path23.join)(outputDir, "sessions")
+    stateFile: (0, import_path24.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path24.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path24.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs13.existsSync)(stateFile)) {
+  if (!(0, import_fs14.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (!state.cdpUrl) {
       return Boolean(state.wsEndpoint);
@@ -17408,7 +17477,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises22.unlink)(stateFile);
+    await (0, import_promises23.unlink)(stateFile);
   } catch {
   }
 }
@@ -17424,9 +17493,9 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises22.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises23.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises22.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises23.mkdir)(profileDir, { recursive: true });
   }
   const extraArgs = [];
   if (options.lowMemory) {
@@ -17484,16 +17553,16 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises22.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await (0, import_promises23.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { driver: driver3, wsEndpoint, ownsBrowser };
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs13.existsSync)(stateFile)) {
+  if (!(0, import_fs14.existsSync)(stateFile)) {
     return null;
   }
   try {
-    const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     let wsUrl;
     if (state.cdpUrl) {
@@ -17511,11 +17580,11 @@ async function connectToBrowserServer(outputDir) {
 }
 async function stopBrowserServer(outputDir) {
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs13.existsSync)(stateFile)) {
+  if (!(0, import_fs14.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
     const driver3 = new EngineDriver();
@@ -17525,11 +17594,11 @@ async function stopBrowserServer(outputDir) {
     } else {
       await driver3.disconnect();
     }
-    await (0, import_promises22.unlink)(stateFile);
+    await (0, import_promises23.unlink)(stateFile);
     return true;
   } catch {
     try {
-      const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
+      const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
       const state = JSON.parse(content);
       if (state.chromePid) {
         process.kill(state.chromePid, "SIGKILL");
@@ -17542,7 +17611,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs13.existsSync)(sessionsDir)) {
+  if (!(0, import_fs14.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir6 } = await import("fs/promises");
@@ -17550,23 +17619,23 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path23.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs13.existsSync)(statePath)) {
+      const statePath = (0, import_path24.join)(sessionsDir, entry.name, "live-session.json");
+      if ((0, import_fs14.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_promises22, import_fs13, import_path23, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_promises23, import_fs14, import_path24, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises22 = require("fs/promises");
-    import_fs13 = require("fs");
-    import_path23 = require("path");
+    import_promises23 = require("fs/promises");
+    import_fs14 = require("fs");
+    import_path24 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
     init_extract2();
@@ -17600,9 +17669,9 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${(0, import_nanoid6.nanoid)(10)}`;
-        const sessionsDir = (0, import_path23.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path23.join)(sessionsDir, sessionId);
-        await (0, import_promises22.mkdir)(sessionDir, { recursive: true });
+        const sessionsDir = (0, import_path24.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path24.join)(sessionsDir, sessionId);
+        await (0, import_promises23.mkdir)(sessionDir, { recursive: true });
         await driver3.setViewport({
           width: viewport.width,
           height: viewport.height
@@ -17633,12 +17702,12 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises22.writeFile)(
-          (0, import_path23.join)(sessionDir, "live-session.json"),
+        await (0, import_promises23.writeFile)(
+          (0, import_path24.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path23.join)(sessionDir, "baseline.png"),
+          path: (0, import_path24.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
@@ -17647,16 +17716,16 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path23.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path23.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs13.existsSync)(statePath)) {
+        const sessionDir = (0, import_path24.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path24.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs14.existsSync)(statePath)) {
           return null;
         }
         const driver3 = await connectToBrowserServer(outputDir);
         if (!driver3) {
           return null;
         }
-        const content = await (0, import_promises22.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises23.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const page = new CompatPage(driver3);
         await driver3.setViewport({
@@ -17680,8 +17749,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises22.writeFile)(
-          (0, import_path23.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises23.writeFile)(
+          (0, import_path24.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -17823,7 +17892,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path23.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path24.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -18094,7 +18163,7 @@ var init_browser_server = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path23.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path24.join)(this.sessionDir, screenshotFile);
         try {
           await this.page.addStyleTag({
             content: `*, *::before, *::after {
@@ -18195,14 +18264,14 @@ var init_browser_server = __esm({
         if (this.state.captures && this.state.captures.length > 0) {
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
-            const archiveDir = (0, import_path23.join)(this.sessionDir, "archive");
-            await (0, import_promises22.mkdir)(archiveDir, { recursive: true });
+            const archiveDir = (0, import_path24.join)(this.sessionDir, "archive");
+            await (0, import_promises23.mkdir)(archiveDir, { recursive: true });
             const { rename: rename2 } = await import("fs/promises");
             for (const cap of ephemeral) {
-              const src = (0, import_path23.join)(this.sessionDir, cap.screenshot);
-              const dest = (0, import_path23.join)(archiveDir, cap.screenshot);
+              const src = (0, import_path24.join)(this.sessionDir, cap.screenshot);
+              const dest = (0, import_path24.join)(archiveDir, cap.screenshot);
               try {
-                if ((0, import_fs13.existsSync)(src)) {
+                if ((0, import_fs14.existsSync)(src)) {
                   await rename2(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
@@ -18213,10 +18282,10 @@ var init_browser_server = __esm({
           }
         }
         await this.driver.close();
-        const liveSessionPath = (0, import_path23.join)(this.sessionDir, "live-session.json");
+        const liveSessionPath = (0, import_path24.join)(this.sessionDir, "live-session.json");
         try {
-          if ((0, import_fs13.existsSync)(liveSessionPath)) {
-            await (0, import_promises22.unlink)(liveSessionPath);
+          if ((0, import_fs14.existsSync)(liveSessionPath)) {
+            await (0, import_promises23.unlink)(liveSessionPath);
           }
         } catch {
         }
@@ -18253,15 +18322,15 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises23, import_fs14, import_path24, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises24, import_fs15, import_path25, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises23 = require("fs/promises");
-    import_fs14 = require("fs");
-    import_path24 = require("path");
+    import_promises24 = require("fs/promises");
+    import_fs15 = require("fs");
+    import_path25 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
     init_scan();
@@ -18280,7 +18349,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, driver3, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path24.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path25.join)(outputDir, "sessions", state.id);
         this.driver = driver3;
         this.page = page;
         page.on("console", (msg) => {
@@ -18311,8 +18380,8 @@ var init_live_session = __esm({
         } = options;
         const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
-        const sessionDir = (0, import_path24.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises23.mkdir)(sessionDir, { recursive: true });
+        const sessionDir = (0, import_path25.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises24.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
           headless: !showBrowser,
@@ -18349,12 +18418,12 @@ var init_live_session = __esm({
           }],
           captures: []
         };
-        await (0, import_promises23.writeFile)(
-          (0, import_path24.join)(sessionDir, "live-session.json"),
+        await (0, import_promises24.writeFile)(
+          (0, import_path25.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path24.join)(sessionDir, "baseline.png"),
+          path: (0, import_path25.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         const session = new _LiveSession(state, outputDir, driver3, page);
@@ -18368,12 +18437,12 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path24.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path24.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs14.existsSync)(statePath)) {
+        const sessionDir = (0, import_path25.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path25.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs15.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises23.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises24.readFile)(statePath, "utf-8");
         const rawState = JSON.parse(content);
         const state = {
           ...rawState,
@@ -18500,7 +18569,7 @@ var init_live_session = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path24.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path25.join)(this.sessionDir, screenshotFile);
         try {
           await page.addStyleTag({
             content: `
@@ -19011,7 +19080,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path24.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path25.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -19125,14 +19194,14 @@ var init_live_session = __esm({
       async archiveEphemeralScreenshots() {
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
-        const archiveDir = (0, import_path24.join)(this.sessionDir, "archive");
-        await (0, import_promises23.mkdir)(archiveDir, { recursive: true });
+        const archiveDir = (0, import_path25.join)(this.sessionDir, "archive");
+        await (0, import_promises24.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
-          const src = (0, import_path24.join)(this.sessionDir, cap.screenshot);
-          const dest = (0, import_path24.join)(archiveDir, cap.screenshot);
+          const src = (0, import_path25.join)(this.sessionDir, cap.screenshot);
+          const dest = (0, import_path25.join)(archiveDir, cap.screenshot);
           try {
-            if ((0, import_fs14.existsSync)(src)) {
-              await (0, import_promises23.rename)(src, dest);
+            if ((0, import_fs15.existsSync)(src)) {
+              await (0, import_promises24.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
           } catch {
@@ -19147,8 +19216,8 @@ var init_live_session = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises23.writeFile)(
-          (0, import_path24.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises24.writeFile)(
+          (0, import_path25.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -19216,13 +19285,13 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises24, import_fs15, import_path25, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises25, import_fs16, import_path26, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
-    import_promises24 = require("fs/promises");
-    import_fs15 = require("fs");
-    import_path25 = require("path");
+    import_promises25 = require("fs/promises");
+    import_fs16 = require("fs");
+    import_path26 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
       maxSizeBytes: 500 * 1024 * 1024,
@@ -19243,12 +19312,12 @@ var init_screenshot_manager = __esm({
         const { sessionId, fullPage = false, selector } = options;
         let outputPath;
         if (sessionId) {
-          const sessionDir = (0, import_path25.join)(this.outputDir, "sessions", sessionId);
-          await (0, import_promises24.mkdir)(sessionDir, { recursive: true });
-          outputPath = (0, import_path25.join)(sessionDir, `${name}.png`);
+          const sessionDir = (0, import_path26.join)(this.outputDir, "sessions", sessionId);
+          await (0, import_promises25.mkdir)(sessionDir, { recursive: true });
+          outputPath = (0, import_path26.join)(sessionDir, `${name}.png`);
         } else {
-          await (0, import_promises24.mkdir)(this.outputDir, { recursive: true });
-          outputPath = (0, import_path25.join)(this.outputDir, `${name}.png`);
+          await (0, import_promises25.mkdir)(this.outputDir, { recursive: true });
+          outputPath = (0, import_path26.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
           content: `
@@ -19279,8 +19348,8 @@ var init_screenshot_manager = __esm({
        * List all screenshots for a session
        */
       async list(sessionId) {
-        const sessionDir = (0, import_path25.join)(this.outputDir, "sessions", sessionId);
-        if (!(0, import_fs15.existsSync)(sessionDir)) {
+        const sessionDir = (0, import_path26.join)(this.outputDir, "sessions", sessionId);
+        if (!(0, import_fs16.existsSync)(sessionDir)) {
           return [];
         }
         const screenshots = [];
@@ -19292,15 +19361,15 @@ var init_screenshot_manager = __esm({
        * List all screenshots across all sessions
        */
       async listAll() {
-        const sessionsDir = (0, import_path25.join)(this.outputDir, "sessions");
-        if (!(0, import_fs15.existsSync)(sessionsDir)) {
+        const sessionsDir = (0, import_path26.join)(this.outputDir, "sessions");
+        if (!(0, import_fs16.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
-        const sessions = await (0, import_promises24.readdir)(sessionsDir);
+        const sessions = await (0, import_promises25.readdir)(sessionsDir);
         for (const sessionId of sessions) {
-          const sessionDir = (0, import_path25.join)(sessionsDir, sessionId);
-          const stats = await (0, import_promises24.stat)(sessionDir);
+          const sessionDir = (0, import_path26.join)(sessionsDir, sessionId);
+          const stats = await (0, import_promises25.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
           }
@@ -19312,13 +19381,13 @@ var init_screenshot_manager = __esm({
        * Scan a directory for PNG files
        */
       async scanDirectory(dir, sessionId, results) {
-        const entries = await (0, import_promises24.readdir)(dir, { withFileTypes: true });
+        const entries = await (0, import_promises25.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
-          const fullPath = (0, import_path25.join)(dir, entry.name);
+          const fullPath = (0, import_path26.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
-            const stats = await (0, import_promises24.stat)(fullPath);
+            const stats = await (0, import_promises25.stat)(fullPath);
             const now = Date.now();
             const stepMatch = entry.name.match(/^\d+-(.+)\.png$/);
             const step = stepMatch ? stepMatch[1] : void 0;
@@ -19338,22 +19407,22 @@ var init_screenshot_manager = __esm({
        * Get metadata for a specific screenshot
        */
       async getMetadata(path2) {
-        if (!(0, import_fs15.existsSync)(path2)) {
+        if (!(0, import_fs16.existsSync)(path2)) {
           return null;
         }
-        const stats = await (0, import_promises24.stat)(path2);
-        const name = (0, import_path25.basename)(path2);
-        const dir = (0, import_path25.dirname)(path2);
+        const stats = await (0, import_promises25.stat)(path2);
+        const name = (0, import_path26.basename)(path2);
+        const dir = (0, import_path26.dirname)(path2);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
         const step = stepMatch ? stepMatch[1] : void 0;
         const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
         const sessionId = sessionMatch ? sessionMatch[1] : void 0;
         let query;
         let userIntent;
-        const resultsPath = (0, import_path25.join)(dir, "results.json");
-        if ((0, import_fs15.existsSync)(resultsPath)) {
+        const resultsPath = (0, import_path26.join)(dir, "results.json");
+        if ((0, import_fs16.existsSync)(resultsPath)) {
           try {
-            const resultsContent = await (0, import_promises24.readFile)(resultsPath, "utf-8");
+            const resultsContent = await (0, import_promises25.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
             query = results.query;
             userIntent = results.userIntent;
@@ -19412,7 +19481,7 @@ var init_screenshot_manager = __esm({
         for (const shot of toDelete) {
           try {
             if (!dryRun) {
-              await (0, import_promises24.unlink)(shot.path);
+              await (0, import_promises25.unlink)(shot.path);
             }
             report.deleted++;
             report.bytesFreed += shot.size;
@@ -19450,17 +19519,17 @@ var init_screenshot_manager = __esm({
        * Save configuration to file
        */
       async saveConfig() {
-        const configPath = (0, import_path25.join)(this.outputDir, "screenshot-config.json");
-        await (0, import_promises24.writeFile)(configPath, JSON.stringify(this.config, null, 2));
+        const configPath = (0, import_path26.join)(this.outputDir, "screenshot-config.json");
+        await (0, import_promises25.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
        */
       async loadConfig() {
-        const configPath = (0, import_path25.join)(this.outputDir, "screenshot-config.json");
-        if ((0, import_fs15.existsSync)(configPath)) {
+        const configPath = (0, import_path26.join)(this.outputDir, "screenshot-config.json");
+        if ((0, import_fs16.existsSync)(configPath)) {
           try {
-            const content = await (0, import_promises24.readFile)(configPath, "utf-8");
+            const content = await (0, import_promises25.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
             this.config = { ...DEFAULT_CONFIG, ...loaded };
           } catch {
@@ -19492,23 +19561,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs16.readdirSync)(currentDir);
+      entries = (0, import_fs17.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path26.join)(currentDir, entry);
+      const fullPath = (0, import_path27.join)(currentDir, entry);
       let stat5;
       try {
-        stat5 = (0, import_fs16.statSync)(fullPath);
+        stat5 = (0, import_fs17.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat5.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path26.relative)(rootDir, fullPath));
+        results.push((0, import_path27.relative)(rootDir, fullPath));
       }
     }
   }
@@ -19524,10 +19593,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path26.join)(projectRoot, filePath);
+    const fullPath = (0, import_path27.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs16.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs17.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -19611,10 +19680,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
 }
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path26.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs16.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path27.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs17.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs16.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs17.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -19770,15 +19839,15 @@ function formatBridgeResult(result) {
   }
   return lines.join("\n");
 }
-var import_fs16, import_path26, NAVGATOR_PATHS, CONFIDENCE;
+var import_fs17, import_path27, NAVGATOR_PATHS, CONFIDENCE;
 var init_bridge = __esm({
   "src/native/bridge.ts"() {
     "use strict";
-    import_fs16 = require("fs");
-    import_path26 = require("path");
+    import_fs17 = require("fs");
+    import_path27 = require("path");
     NAVGATOR_PATHS = [
-      (0, import_path26.join)(".navgator", "architecture"),
-      (0, import_path26.join)(".claude", "architecture")
+      (0, import_path27.join)(".navgator", "architecture"),
+      (0, import_path27.join)(".claude", "architecture")
       // legacy — NavGator < 0.3
     ];
     CONFIDENCE = {
@@ -19966,9 +20035,9 @@ async function executeStep(driver3, step, url, outputDir) {
     }
     if (expectation.screenshot !== void 0) {
       try {
-        await (0, import_promises25.mkdir)(outputDir, { recursive: true });
-        const screenshotPath = (0, import_path27.join)(outputDir, `${expectation.screenshot}.png`);
-        await (0, import_promises25.writeFile)(screenshotPath, captureResult.after.screenshot);
+        await (0, import_promises26.mkdir)(outputDir, { recursive: true });
+        const screenshotPath = (0, import_path28.join)(outputDir, `${expectation.screenshot}.png`);
+        await (0, import_promises26.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
           passed: true,
@@ -20114,12 +20183,12 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises25, import_path27;
+var import_promises26, import_path28;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
-    import_promises25 = require("fs/promises");
-    import_path27 = require("path");
+    import_promises26 = require("fs/promises");
+    import_path28 = require("path");
     init_driver();
   }
 });
@@ -20234,12 +20303,12 @@ __export(mockup_match_exports, {
   saveDiffImage: () => saveDiffImage
 });
 async function readPng(filePath) {
-  const buffer = await (0, import_promises26.readFile)(filePath);
-  const png = import_pngjs4.PNG.sync.read(buffer);
+  const buffer = await (0, import_promises27.readFile)(filePath);
+  const png = import_pngjs5.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function decodePng(buffer) {
-  const png = import_pngjs4.PNG.sync.read(buffer);
+  const png = import_pngjs5.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
 function resizeNearest(src, srcW, srcH, dstW, dstH) {
@@ -20358,7 +20427,7 @@ async function matchMockup(options) {
       { data: compareData1, width: compareWidth, height: compareHeight },
       { data: compareData2, width: compareWidth, height: compareHeight }
     );
-    const diffPng = new import_pngjs4.PNG({ width: compareWidth, height: compareHeight });
+    const diffPng = new import_pngjs5.PNG({ width: compareWidth, height: compareHeight });
     const diffPixelCount = (0, import_pixelmatch3.default)(
       compareData1,
       compareData2,
@@ -20373,7 +20442,7 @@ async function matchMockup(options) {
       }
     );
     const totalPixels = compareWidth * compareHeight;
-    const diffImage = import_pngjs4.PNG.sync.write(diffPng);
+    const diffImage = import_pngjs5.PNG.sync.write(diffPng);
     return {
       ssim: ssimResult,
       pixelDiff: {
@@ -20442,14 +20511,14 @@ async function findDynamicRegions(driver3) {
   return regions;
 }
 async function saveDiffImage(diffImage, outputPath) {
-  await (0, import_promises26.writeFile)(outputPath, diffImage);
+  await (0, import_promises27.writeFile)(outputPath, diffImage);
 }
-var import_promises26, import_pngjs4, import_pixelmatch3;
+var import_promises27, import_pngjs5, import_pixelmatch3;
 var init_mockup_match = __esm({
   "src/mockup-match.ts"() {
     "use strict";
-    import_promises26 = require("fs/promises");
-    import_pngjs4 = require("pngjs");
+    import_promises27 = require("fs/promises");
+    import_pngjs5 = require("pngjs");
     import_pixelmatch3 = __toESM(require("pixelmatch"));
     init_driver();
     init_ssim();
@@ -20708,10 +20777,10 @@ function formatReconciliationMatrix(matrix) {
   return lines.join("\n");
 }
 async function loadChanges(outputDir) {
-  const filePath = (0, import_path28.join)(outputDir, CHANGES_FILE);
-  if (!(0, import_fs17.existsSync)(filePath)) return [];
+  const filePath = (0, import_path29.join)(outputDir, CHANGES_FILE);
+  if (!(0, import_fs18.existsSync)(filePath)) return [];
   try {
-    const raw = await (0, import_promises27.readFile)(filePath, "utf-8");
+    const raw = await (0, import_promises28.readFile)(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed;
@@ -20720,19 +20789,19 @@ async function loadChanges(outputDir) {
   }
 }
 async function saveChange(outputDir, change) {
-  await (0, import_promises27.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises28.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
-  const filePath = (0, import_path28.join)(outputDir, CHANGES_FILE);
-  await (0, import_promises27.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
+  const filePath = (0, import_path29.join)(outputDir, CHANGES_FILE);
+  await (0, import_promises28.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises27, import_fs17, import_path28, CHANGES_FILE;
+var import_promises28, import_fs18, import_path29, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
-    import_promises27 = require("fs/promises");
-    import_fs17 = require("fs");
-    import_path28 = require("path");
+    import_promises28 = require("fs/promises");
+    import_fs18 = require("fs");
+    import_path29 = require("path");
     CHANGES_FILE = "design-changes.json";
   }
 });
@@ -20799,11 +20868,11 @@ async function generateTest(options) {
   const suite = {
     [pageName]: { url, tests }
   };
-  const dir = (0, import_path29.dirname)(outputPath);
+  const dir = (0, import_path30.dirname)(outputPath);
   if (dir && dir !== ".") {
-    await (0, import_promises28.mkdir)(dir, { recursive: true });
+    await (0, import_promises29.mkdir)(dir, { recursive: true });
   }
-  await (0, import_promises28.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
+  await (0, import_promises29.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
   console.log(`[test-generator] wrote ${outputPath}`);
   return suite;
 }
@@ -20858,12 +20927,12 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises28, import_path29, INPUT_SAMPLE_VALUES;
+var import_promises29, import_path30, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
-    import_promises28 = require("fs/promises");
-    import_path29 = require("path");
+    import_promises29 = require("fs/promises");
+    import_path30 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
       email: "test@example.com",
@@ -20898,9 +20967,9 @@ async function runTests(options = {}) {
     wsEndpoint,
     chromePath
   } = options;
-  const raw = await (0, import_promises29.readFile)((0, import_path30.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises30.readFile)((0, import_path31.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
-  await (0, import_promises29.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises30.mkdir)(outputDir, { recursive: true });
   const allResults = [];
   const runStart = Date.now();
   for (const [pageName, pageSuite] of Object.entries(suite)) {
@@ -20947,8 +21016,8 @@ async function runTests(options = {}) {
         duration: Date.now() - runStart
       };
       allResults.push(runResult);
-      const resultPath = (0, import_path30.join)(outputDir, `${pageName}-results.json`);
-      await (0, import_promises29.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
+      const resultPath = (0, import_path31.join)(outputDir, `${pageName}-results.json`);
+      await (0, import_promises30.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
       await driver3.close();
@@ -20976,10 +21045,10 @@ async function executeStep2(driver3, step, outputDir) {
     } else if ("assert" in step) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
-      await (0, import_promises29.mkdir)(outputDir, { recursive: true });
-      const screenshotPath = (0, import_path30.join)(outputDir, `${step.screenshot}.png`);
+      await (0, import_promises30.mkdir)(outputDir, { recursive: true });
+      const screenshotPath = (0, import_path31.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
-      await (0, import_promises29.writeFile)(screenshotPath, buf);
+      await (0, import_promises30.writeFile)(screenshotPath, buf);
       return {
         step: stepDesc,
         passed: true,
@@ -21076,12 +21145,12 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises29, import_path30;
+var import_promises30, import_path31;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
-    import_promises29 = require("fs/promises");
-    import_path30 = require("path");
+    import_promises30 = require("fs/promises");
+    import_path31 = require("path");
     init_driver();
   }
 });
@@ -21128,13 +21197,13 @@ async function runScript(options) {
     env = {}
   } = options;
   const tmpId = (0, import_crypto2.randomBytes)(8).toString("hex");
-  const tmpDir = (0, import_path31.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
-  await (0, import_promises30.mkdir)(tmpDir, { recursive: true });
-  const copiedScript = (0, import_path31.join)(tmpDir, "user_script.py");
-  const wrapperPath = (0, import_path31.join)(tmpDir, "wrapper.py");
+  const tmpDir = (0, import_path32.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
+  await (0, import_promises31.mkdir)(tmpDir, { recursive: true });
+  const copiedScript = (0, import_path32.join)(tmpDir, "user_script.py");
+  const wrapperPath = (0, import_path32.join)(tmpDir, "wrapper.py");
   try {
-    await (0, import_promises30.copyFile)(scriptPath, copiedScript);
-    await (0, import_promises30.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
+    await (0, import_promises31.copyFile)(scriptPath, copiedScript);
+    await (0, import_promises31.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
     const start = Date.now();
     let timedOut = false;
     let stdout = "";
@@ -21193,7 +21262,7 @@ Process error: ${err.message}`;
     }
     return { exitCode, stdout, stderr, output, duration, timedOut };
   } finally {
-    await (0, import_promises30.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
+    await (0, import_promises31.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
     });
   }
 }
@@ -21211,13 +21280,13 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process10, import_promises30, import_path31, import_os5, import_crypto2;
+var import_child_process10, import_promises31, import_path32, import_os5, import_crypto2;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
     import_child_process10 = require("child_process");
-    import_promises30 = require("fs/promises");
-    import_path31 = require("path");
+    import_promises31 = require("fs/promises");
+    import_path32 = require("path");
     import_os5 = require("os");
     import_crypto2 = require("crypto");
   }
@@ -21233,15 +21302,15 @@ __export(iterate_exports, {
 });
 async function loadState(statePath) {
   try {
-    const raw = await (0, import_promises31.readFile)(statePath, "utf-8");
+    const raw = await (0, import_promises32.readFile)(statePath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises31.mkdir)((0, import_path32.resolve)(statePath, ".."), { recursive: true });
-  await (0, import_promises31.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
+  await (0, import_promises32.mkdir)((0, import_path33.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises32.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
   const sorted = [...issues].sort();
@@ -21351,7 +21420,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     try {
       const results = await runTests({
         filePath: testFile,
-        outputDir: (0, import_path32.join)(outputDir, `iter-${iterationNumber}`)
+        outputDir: (0, import_path33.join)(outputDir, `iter-${iterationNumber}`)
       });
       fingerprints = testRunFingerprints(results);
       issueCount = fingerprints.length;
@@ -21365,7 +21434,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     }
   } else {
     try {
-      const result = await scan(url, { outputDir: (0, import_path32.join)(outputDir, `iter-${iterationNumber}`) });
+      const result = await scan(url, { outputDir: (0, import_path33.join)(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
       issues = result.issues;
@@ -21392,7 +21461,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
 async function verifyResolved(url, outputDir, iterationNumber) {
   try {
     const verifyResult = await scan(url, {
-      outputDir: (0, import_path32.join)(outputDir, `iter-${iterationNumber}-verify`)
+      outputDir: (0, import_path33.join)(outputDir, `iter-${iterationNumber}-verify`)
     });
     return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length };
   } catch {
@@ -21407,8 +21476,8 @@ async function iterate(options) {
     outputDir = ".ibr/iterate",
     autoApprove = false
   } = options;
-  const statePath = (0, import_path32.join)(outputDir, "iterate-state.json");
-  await (0, import_promises31.mkdir)(outputDir, { recursive: true });
+  const statePath = (0, import_path33.join)(outputDir, "iterate-state.json");
+  await (0, import_promises32.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url) {
     persisted = {
@@ -21463,11 +21532,11 @@ async function iterate(options) {
   const targetState = finalState ?? "in_progress";
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
-    const analysisDir = (0, import_path32.join)(outputDir);
-    await (0, import_promises31.mkdir)(analysisDir, { recursive: true }).catch(() => {
+    const analysisDir = (0, import_path33.join)(outputDir);
+    await (0, import_promises32.mkdir)(analysisDir, { recursive: true }).catch(() => {
     });
-    await (0, import_promises31.writeFile)(
-      (0, import_path32.join)(analysisDir, "analysis.json"),
+    await (0, import_promises32.writeFile)(
+      (0, import_path33.join)(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
     });
@@ -21509,17 +21578,17 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
   return { iterations, finalState, summary, verificationPassed, analysis };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
-  const statePath = (0, import_path32.join)(outputDir, "iterate-state.json");
-  await (0, import_promises31.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
+  const statePath = (0, import_path33.join)(outputDir, "iterate-state.json");
+  await (0, import_promises32.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto3, import_promises31, import_path32, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var import_crypto3, import_promises32, import_path33, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
     import_crypto3 = require("crypto");
-    import_promises31 = require("fs/promises");
-    import_path32 = require("path");
+    import_promises32 = require("fs/promises");
+    import_path33 = require("path");
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
@@ -21538,9 +21607,9 @@ var init_iterate = __esm({
 
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises32 = require("fs/promises");
-var import_path33 = require("path");
-var import_fs18 = require("fs");
+var import_promises33 = require("fs/promises");
+var import_path34 = require("path");
+var import_fs19 = require("fs");
 init_driver();
 init_compat();
 init_index();
@@ -21627,10 +21696,10 @@ program.hook("preAction", () => {
   if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
 });
 async function loadConfig() {
-  const configPath = (0, import_path33.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs18.existsSync)(configPath)) {
+  const configPath = (0, import_path34.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs19.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises32.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises33.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -21891,7 +21960,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runVisual) {
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { mkdir: mkdir26, access: access4 } = await import("fs/promises");
+      const { mkdir: mkdir27, access: access4 } = await import("fs/promises");
       const { join: join30 } = await import("path");
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions = await listSessions2(outputDir);
@@ -21900,7 +21969,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir26(join30(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir27(join30(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -22348,20 +22417,20 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { spawn: spawn4 } = await import("child_process");
   const { resolve: resolve5 } = await import("path");
   const packageRoot = resolve5(process.cwd());
-  let webUiDir = (0, import_path33.join)(packageRoot, "web-ui");
-  if (!(0, import_fs18.existsSync)(webUiDir)) {
+  let webUiDir = (0, import_path34.join)(packageRoot, "web-ui");
+  if (!(0, import_fs19.existsSync)(webUiDir)) {
     const possiblePaths = [
-      (0, import_path33.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path33.join)(packageRoot, "..", "interface-built-right", "web-ui")
+      (0, import_path34.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
+      (0, import_path34.join)(packageRoot, "..", "interface-built-right", "web-ui")
     ];
     for (const p of possiblePaths) {
-      if ((0, import_fs18.existsSync)(p)) {
+      if ((0, import_fs19.existsSync)(p)) {
         webUiDir = p;
         break;
       }
     }
   }
-  if (!(0, import_fs18.existsSync)(webUiDir)) {
+  if (!(0, import_fs19.existsSync)(webUiDir)) {
     console.log("Web UI not found. Please ensure web-ui directory exists.");
     console.log("");
     console.log("For now, you can view the comparison images directly:");
@@ -23274,7 +23343,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
-    const { mkdir: mkdir26 } = await import("fs/promises");
+    const { mkdir: mkdir27 } = await import("fs/promises");
     console.log(`Testing search on ${url}...`);
     console.log(`Query: "${options.query}"`);
     if (options.intent) console.log(`Intent: ${options.intent}`);
@@ -23284,8 +23353,8 @@ program.command("search-test <url>").description("Run AI search test with screen
     await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path33.join)(outputDir, "sessions", `search-${Date.now()}`);
-    await mkdir26(sessionDir, { recursive: true });
+    const sessionDir = (0, import_path34.join)(outputDir, "sessions", `search-${Date.now()}`);
+    await mkdir27(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
       userIntent: options.intent || `Find results related to: ${options.query}`,
@@ -23671,11 +23740,11 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile20, readFile: readFile23, mkdir: mkdir26 } = await import("fs/promises");
-  const configPath = (0, import_path33.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path33.join)(process.cwd(), ".claude", "settings.json");
+  const { writeFile: writeFile20, readFile: readFile23, mkdir: mkdir27 } = await import("fs/promises");
+  const configPath = (0, import_path34.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path34.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs18.existsSync)(configPath)) {
+  if (!(0, import_fs19.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -23729,8 +23798,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs18.existsSync)((0, import_path33.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs18.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs19.existsSync)((0, import_path34.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs19.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -23739,7 +23808,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs18.existsSync)((0, import_path33.join)(process.cwd(), p))) {
+    if ((0, import_fs19.existsSync)((0, import_path34.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -23818,7 +23887,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir26((0, import_path33.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir27((0, import_path34.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
@@ -23985,8 +24054,8 @@ program.command("native:scan [device]").description("Scan a running simulator fo
         if (annotated) fixGuide.screenshot = annotated;
       }
       const { mkdirSync, writeFileSync: writeFileSync2 } = await import("fs");
-      const guidePath = (0, import_path33.join)(outputDir, "native", "fix-guide.json");
-      mkdirSync((0, import_path33.join)(outputDir, "native"), { recursive: true });
+      const guidePath = (0, import_path34.join)(outputDir, "native", "fix-guide.json");
+      mkdirSync((0, import_path34.join)(outputDir, "native"), { recursive: true });
       writeFileSync2(guidePath, JSON.stringify(fixGuide, null, 2));
       if (options.json) {
         console.log(JSON.stringify(fixGuide, null, 2));
@@ -24321,7 +24390,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
       url: resolvedUrl,
       steps,
       viewport,
-      outputDir: (0, import_path33.join)(outputDir, "interactions"),
+      outputDir: (0, import_path34.join)(outputDir, "interactions"),
       headless: !(options.headed || options.sandbox),
       ...getBrowserConnectionOptions()
     });
@@ -24673,13 +24742,13 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
   let diffSaved = false;
   if (chromeScreenshot && safariScreenshot) {
     try {
-      const { PNG: PNG5 } = await import("pngjs");
+      const { PNG: PNG6 } = await import("pngjs");
       const pixelmatch4 = (await import("pixelmatch")).default;
-      const chromePng = PNG5.sync.read(chromeScreenshot);
-      const safariPng = PNG5.sync.read(safariScreenshot);
+      const chromePng = PNG6.sync.read(chromeScreenshot);
+      const safariPng = PNG6.sync.read(safariScreenshot);
       const w = Math.min(chromePng.width, safariPng.width);
       const h = Math.min(chromePng.height, safariPng.height);
-      const diff = new PNG5({ width: w, height: h });
+      const diff = new PNG6({ width: w, height: h });
       const chromeData = cropPngData(chromePng.data, chromePng.width, w, h);
       const safariData = cropPngData(safariPng.data, safariPng.width, w, h);
       pixelDiff = pixelmatch4(chromeData, safariData, diff.data, w, h, {
@@ -24689,9 +24758,9 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
       diffPercent = Math.round(pixelDiff / (w * h) * 1e4) / 100;
       if (options.saveDiff) {
         const { writeFile: writeFile20, mkdir: mkdirFs } = await import("fs/promises");
-        const { dirname: dirname10 } = await import("path");
-        await mkdirFs(dirname10(options.saveDiff), { recursive: true });
-        await writeFile20(options.saveDiff, PNG5.sync.write(diff));
+        const { dirname: dirname11 } = await import("path");
+        await mkdirFs(dirname11(options.saveDiff), { recursive: true });
+        await writeFile20(options.saveDiff, PNG6.sync.write(diff));
         diffSaved = true;
       }
     } catch {

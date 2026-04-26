@@ -401,6 +401,34 @@ export async function* askStream(
   const signal = options.signal
   let aborted = false
 
+  // Per-finding cropping: when a screenshot was captured, attach a cropped
+  // region to each finding's evidence. Token-economic: the agent gets the
+  // rectangle that matters instead of the whole page. Lazy-loaded so non-
+  // screenshot calls don't pay the import cost.
+  type CropFn = (
+    src: string,
+    bounds: { x: number; y: number; width: number; height: number },
+    dest: string,
+  ) => Promise<string | null>
+  let cropFn: CropFn | null = null
+  async function maybeCrop(b: Finding['evidence']): Promise<string | null> {
+    if (!screenshotPath) return null
+    if (!b || typeof b !== 'object') return null
+    const bounds = (b as { bounds?: { x: number; y: number; width: number; height: number } }).bounds
+    if (!bounds) return null
+    if (!cropFn) {
+      const m = await import('./utils/crop.js')
+      cropFn = m.cropPng
+    }
+    const idx = emitted // emitted is incremented after this call site
+    const dest = screenshotPath.replace(/\.png$/i, `.crop-${idx}.png`)
+    try {
+      return await cropFn(screenshotPath, bounds, dest)
+    } catch {
+      return null // Don't fail the whole call if cropping fails.
+    }
+  }
+
   if (def.kind === 'touch-target' || def.kind === 'signal-noise') {
     const targetRules = def.kind === 'touch-target' ? touchTargetRules : signalNoiseRules
     for (const r of targetRules) rulesRun.push(r.id)
@@ -417,6 +445,11 @@ export async function* askStream(
         totalProduced++
         if (emitted < maxFindings) {
           const finding = violationToFinding({ ...v, severity: def.severity }, def.severity)
+          // Attach a cropped per-finding screenshot when one was captured.
+          const cropped = await maybeCrop(finding.evidence)
+          if (cropped) {
+            finding.evidence = { ...(finding.evidence ?? {}), screenshot: cropped }
+          }
           bumpVerdict(finding.verdict)
           emitted++
           yield { type: 'finding', ...finding }

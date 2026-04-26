@@ -10296,6 +10296,47 @@ var init_scan2 = __esm({
   }
 });
 
+// src/utils/crop.ts
+var crop_exports = {};
+__export(crop_exports, {
+  cropPng: () => cropPng
+});
+function loadPng(path2) {
+  return new Promise((resolve3, reject) => {
+    const png = new pngjs.PNG();
+    fs$1.createReadStream(path2).pipe(png).on("parsed", () => resolve3(png)).on("error", reject);
+  });
+}
+function writePng(png, path2) {
+  return new Promise((resolve3, reject) => {
+    png.pack().pipe(fs$1.createWriteStream(path2)).on("finish", resolve3).on("error", reject);
+  });
+}
+function clamp(v, lo, hi) {
+  return Math.min(Math.max(v, lo), hi);
+}
+async function cropPng(srcPath, bounds, destPath, opts = {}) {
+  const padding = opts.padding ?? 16;
+  const scale = opts.scale ?? 1;
+  const src = await loadPng(srcPath);
+  const x0 = Math.floor(clamp((bounds.x - padding) * scale, 0, src.width));
+  const y0 = Math.floor(clamp((bounds.y - padding) * scale, 0, src.height));
+  const x1 = Math.ceil(clamp((bounds.x + bounds.width + padding) * scale, 0, src.width));
+  const y1 = Math.ceil(clamp((bounds.y + bounds.height + padding) * scale, 0, src.height));
+  const cropW = x1 - x0;
+  const cropH = y1 - y0;
+  if (cropW <= 0 || cropH <= 0) return null;
+  const out = new pngjs.PNG({ width: cropW, height: cropH });
+  src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
+  await fs.mkdir(path.dirname(destPath), { recursive: true });
+  await writePng(out, destPath);
+  return destPath;
+}
+var init_crop = __esm({
+  "src/utils/crop.ts"() {
+  }
+});
+
 // src/index.ts
 init_schemas();
 
@@ -12905,8 +12946,8 @@ async function testResponsive(url, options = {}) {
         minFontSize
       });
       if (captureScreenshots) {
-        const { mkdir: mkdir16 } = await import('fs/promises');
-        await mkdir16(outputDir, { recursive: true });
+        const { mkdir: mkdir17 } = await import('fs/promises');
+        await mkdir17(outputDir, { recursive: true });
         const screenshotPath = `${outputDir}/${viewportName}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
         result.screenshot = screenshotPath;
@@ -13632,9 +13673,9 @@ async function* askStream(url, question, options = {}) {
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
-      const { mkdir: mkdir16 } = await import('fs/promises');
-      const { dirname: dirname8 } = await import('path');
-      if (screenshotPath) await mkdir16(dirname8(screenshotPath), { recursive: true });
+      const { mkdir: mkdir17 } = await import('fs/promises');
+      const { dirname: dirname9 } = await import('path');
+      if (screenshotPath) await mkdir17(dirname9(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -13665,6 +13706,24 @@ async function* askStream(url, question, options = {}) {
   }
   const signal = options.signal;
   let aborted = false;
+  let cropFn = null;
+  async function maybeCrop(b) {
+    if (!screenshotPath) return null;
+    if (!b || typeof b !== "object") return null;
+    const bounds = b.bounds;
+    if (!bounds) return null;
+    if (!cropFn) {
+      const m = await Promise.resolve().then(() => (init_crop(), crop_exports));
+      cropFn = m.cropPng;
+    }
+    const idx = emitted;
+    const dest = screenshotPath.replace(/\.png$/i, `.crop-${idx}.png`);
+    try {
+      return await cropFn(screenshotPath, bounds, dest);
+    } catch {
+      return null;
+    }
+  }
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
@@ -13679,6 +13738,10 @@ async function* askStream(url, question, options = {}) {
         totalProduced++;
         if (emitted < maxFindings) {
           const finding = violationToFinding({ ...v, severity: def.severity }, def.severity);
+          const cropped = await maybeCrop(finding.evidence);
+          if (cropped) {
+            finding.evidence = { ...finding.evidence ?? {}, screenshot: cropped };
+          }
           bumpVerdict(finding.verdict);
           emitted++;
           yield { type: "finding", ...finding };

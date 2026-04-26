@@ -9971,6 +9971,53 @@ var init_scan2 = __esm({
   }
 });
 
+// src/utils/crop.ts
+var crop_exports = {};
+__export(crop_exports, {
+  cropPng: () => cropPng
+});
+function loadPng(path) {
+  return new Promise((resolve3, reject) => {
+    const png = new import_pngjs3.PNG();
+    (0, import_fs4.createReadStream)(path).pipe(png).on("parsed", () => resolve3(png)).on("error", reject);
+  });
+}
+function writePng(png, path) {
+  return new Promise((resolve3, reject) => {
+    png.pack().pipe((0, import_fs4.createWriteStream)(path)).on("finish", resolve3).on("error", reject);
+  });
+}
+function clamp(v, lo, hi) {
+  return Math.min(Math.max(v, lo), hi);
+}
+async function cropPng(srcPath, bounds, destPath, opts = {}) {
+  const padding = opts.padding ?? 16;
+  const scale = opts.scale ?? 1;
+  const src = await loadPng(srcPath);
+  const x0 = Math.floor(clamp((bounds.x - padding) * scale, 0, src.width));
+  const y0 = Math.floor(clamp((bounds.y - padding) * scale, 0, src.height));
+  const x1 = Math.ceil(clamp((bounds.x + bounds.width + padding) * scale, 0, src.width));
+  const y1 = Math.ceil(clamp((bounds.y + bounds.height + padding) * scale, 0, src.height));
+  const cropW = x1 - x0;
+  const cropH = y1 - y0;
+  if (cropW <= 0 || cropH <= 0) return null;
+  const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
+  src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
+  await (0, import_promises13.mkdir)((0, import_path14.dirname)(destPath), { recursive: true });
+  await writePng(out, destPath);
+  return destPath;
+}
+var import_fs4, import_promises13, import_path14, import_pngjs3;
+var init_crop = __esm({
+  "src/utils/crop.ts"() {
+    "use strict";
+    import_fs4 = require("fs");
+    import_promises13 = require("fs/promises");
+    import_path14 = require("path");
+    import_pngjs3 = require("pngjs");
+  }
+});
+
 // src/ask.ts
 var ask_exports = {};
 __export(ask_exports, {
@@ -10118,9 +10165,9 @@ async function* askStream(url, question, options = {}) {
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
-      const { mkdir: mkdir12 } = await import("fs/promises");
-      const { dirname: dirname7 } = await import("path");
-      if (screenshotPath) await mkdir12(dirname7(screenshotPath), { recursive: true });
+      const { mkdir: mkdir13 } = await import("fs/promises");
+      const { dirname: dirname8 } = await import("path");
+      if (screenshotPath) await mkdir13(dirname8(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -10151,6 +10198,24 @@ async function* askStream(url, question, options = {}) {
   }
   const signal = options.signal;
   let aborted = false;
+  let cropFn = null;
+  async function maybeCrop(b) {
+    if (!screenshotPath) return null;
+    if (!b || typeof b !== "object") return null;
+    const bounds = b.bounds;
+    if (!bounds) return null;
+    if (!cropFn) {
+      const m = await Promise.resolve().then(() => (init_crop(), crop_exports));
+      cropFn = m.cropPng;
+    }
+    const idx = emitted;
+    const dest = screenshotPath.replace(/\.png$/i, `.crop-${idx}.png`);
+    try {
+      return await cropFn(screenshotPath, bounds, dest);
+    } catch {
+      return null;
+    }
+  }
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
@@ -10165,6 +10230,10 @@ async function* askStream(url, question, options = {}) {
         totalProduced++;
         if (emitted < maxFindings) {
           const finding = violationToFinding({ ...v, severity: def.severity }, def.severity);
+          const cropped = await maybeCrop(finding.evidence);
+          if (cropped) {
+            finding.evidence = { ...finding.evidence ?? {}, screenshot: cropped };
+          }
           bumpVerdict(finding.verdict);
           emitted++;
           yield { type: "finding", ...finding };
@@ -10925,9 +10994,9 @@ var init_driver2 = __esm({
        */
       async _cropScreenshot(buf, clip) {
         try {
-          const { PNG: PNG4 } = await import("pngjs");
-          const src = PNG4.sync.read(buf);
-          const dst = new PNG4({ width: clip.width, height: clip.height });
+          const { PNG: PNG5 } = await import("pngjs");
+          const src = PNG5.sync.read(buf);
+          const dst = new PNG5({ width: clip.width, height: clip.height });
           for (let y = 0; y < clip.height; y++) {
             for (let x = 0; x < clip.width; x++) {
               const srcIdx = ((clip.y + y) * src.width + (clip.x + x)) * 4;
@@ -10938,7 +11007,7 @@ var init_driver2 = __esm({
               dst.data[dstIdx + 3] = src.data[srcIdx + 3];
             }
           }
-          return PNG4.sync.write(dst);
+          return PNG5.sync.write(dst);
         } catch {
           return buf;
         }
@@ -11142,16 +11211,16 @@ __export(scan_exports2, {
 });
 function scanStatic(options) {
   const { htmlPath, cssPath } = options;
-  if (!(0, import_fs6.existsSync)(htmlPath)) {
+  if (!(0, import_fs7.existsSync)(htmlPath)) {
     throw new Error(`HTML file not found: ${htmlPath}`);
   }
-  if (cssPath && !(0, import_fs6.existsSync)(cssPath)) {
+  if (cssPath && !(0, import_fs7.existsSync)(cssPath)) {
     throw new Error(`CSS file not found: ${cssPath}`);
   }
-  const html = (0, import_fs6.readFileSync)(htmlPath, "utf-8");
+  const html = (0, import_fs7.readFileSync)(htmlPath, "utf-8");
   let elements = parseStaticHTML(html);
   if (cssPath) {
-    const css = (0, import_fs6.readFileSync)(cssPath, "utf-8");
+    const css = (0, import_fs7.readFileSync)(cssPath, "utf-8");
     const rules2 = parseCSS(css);
     elements = applyStyles(elements, rules2);
   }
@@ -11259,11 +11328,11 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   }
   return parts.join(", ") + ".";
 }
-var import_fs6;
+var import_fs7;
 var init_scan3 = __esm({
   "src/static/scan.ts"() {
     "use strict";
-    import_fs6 = require("fs");
+    import_fs7 = require("fs");
     init_parser();
   }
 });
@@ -11272,8 +11341,8 @@ var init_scan3 = __esm({
 var import_readline = require("readline");
 
 // src/mcp/tools.ts
-var import_fs7 = require("fs");
-var import_path17 = require("path");
+var import_fs8 = require("fs");
+var import_path18 = require("path");
 init_design_system();
 init_scan();
 
@@ -12114,8 +12183,8 @@ async function formFlow(page, options) {
 // src/index.ts
 init_driver();
 init_compat();
-var import_promises14 = require("fs/promises");
-var import_path15 = require("path");
+var import_promises15 = require("fs/promises");
+var import_path16 = require("path");
 var import_os3 = require("os");
 
 // src/cleanup.ts
@@ -12362,35 +12431,35 @@ var import_util6 = require("util");
 
 // src/native/sim-driver.ts
 var import_child_process6 = require("child_process");
-var import_fs4 = require("fs");
-var import_promises13 = require("fs/promises");
-var import_path14 = require("path");
+var import_fs5 = require("fs");
+var import_promises14 = require("fs/promises");
+var import_path15 = require("path");
 var import_util5 = require("util");
 var execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
 var DRIVER_NAME = "ibr-sim-driver";
-var CACHE_DIR = (0, import_path14.join)(process.cwd(), ".ibr", "bin");
-var CACHE_PATH = (0, import_path14.join)(CACHE_DIR, DRIVER_NAME);
+var CACHE_DIR = (0, import_path15.join)(process.cwd(), ".ibr", "bin");
+var CACHE_PATH = (0, import_path15.join)(CACHE_DIR, DRIVER_NAME);
 var cachedPath;
 var buildError = null;
 function existingBinaryCandidates() {
   return [
-    (0, import_path14.join)(__dirname, "..", "bin", DRIVER_NAME),
-    (0, import_path14.join)(__dirname, "bin", DRIVER_NAME),
-    (0, import_path14.join)(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    (0, import_path15.join)(__dirname, "..", "bin", DRIVER_NAME),
+    (0, import_path15.join)(__dirname, "bin", DRIVER_NAME),
+    (0, import_path15.join)(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
     CACHE_PATH
   ];
 }
 function sourceDirCandidates() {
   return [
-    (0, import_path14.join)(__dirname, "..", "..", "mobile-ui", "sim-driver"),
-    (0, import_path14.join)(__dirname, "..", "mobile-ui", "sim-driver")
+    (0, import_path15.join)(__dirname, "..", "..", "mobile-ui", "sim-driver"),
+    (0, import_path15.join)(__dirname, "..", "mobile-ui", "sim-driver")
   ];
 }
 function findExistingBinary() {
-  return existingBinaryCandidates().find((p) => (0, import_fs4.existsSync)(p)) ?? null;
+  return existingBinaryCandidates().find((p) => (0, import_fs5.existsSync)(p)) ?? null;
 }
 function findSourceDir() {
-  return sourceDirCandidates().find((p) => (0, import_fs4.existsSync)((0, import_path14.join)(p, "Package.swift"))) ?? null;
+  return sourceDirCandidates().find((p) => (0, import_fs5.existsSync)((0, import_path15.join)(p, "Package.swift"))) ?? null;
 }
 function errorMessage(err) {
   if (err && typeof err === "object") {
@@ -12429,13 +12498,13 @@ async function ensureSimDriver() {
     await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
-    const builtPath = (0, import_path14.join)(sourceDir, ".build", "release", DRIVER_NAME);
-    if (!(0, import_fs4.existsSync)(builtPath)) {
+    const builtPath = (0, import_path15.join)(sourceDir, ".build", "release", DRIVER_NAME);
+    if (!(0, import_fs5.existsSync)(builtPath)) {
       throw new Error("Swift build succeeded but binary was not created");
     }
-    await (0, import_promises13.mkdir)(CACHE_DIR, { recursive: true });
-    await (0, import_promises13.copyFile)(builtPath, CACHE_PATH);
-    await (0, import_promises13.chmod)(CACHE_PATH, 493);
+    await (0, import_promises14.mkdir)(CACHE_DIR, { recursive: true });
+    await (0, import_promises14.copyFile)(builtPath, CACHE_PATH);
+    await (0, import_promises14.chmod)(CACHE_PATH, 493);
     cachedPath = CACHE_PATH;
     return CACHE_PATH;
   } catch (err) {
@@ -12784,7 +12853,7 @@ init_interactivity2();
 init_semantic2();
 
 // src/native/annotate.ts
-var import_pngjs3 = require("pngjs");
+var import_pngjs4 = require("pngjs");
 
 // src/index.ts
 async function compare(options) {
@@ -12793,7 +12862,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path15.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path16.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -12808,11 +12877,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises14.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises15.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path15.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path15.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path15.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path16.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path16.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path16.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -12844,12 +12913,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises14.access)(actualBaselinePath);
+    await (0, import_promises15.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises14.access)(actualCurrentPath);
+    await (0, import_promises15.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -13256,8 +13325,8 @@ init_schemas();
 init_tokens();
 
 // src/native/bridge.ts
-var import_fs5 = require("fs");
-var import_path16 = require("path");
+var import_fs6 = require("fs");
+var import_path17 = require("path");
 function findSwiftFiles(dir, rootDir) {
   const SKIP_DIRS = /* @__PURE__ */ new Set([
     "node_modules",
@@ -13273,23 +13342,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs5.readdirSync)(currentDir);
+      entries = (0, import_fs6.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path16.join)(currentDir, entry);
+      const fullPath = (0, import_path17.join)(currentDir, entry);
       let stat2;
       try {
-        stat2 = (0, import_fs5.statSync)(fullPath);
+        stat2 = (0, import_fs6.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat2.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path16.relative)(rootDir, fullPath));
+        results.push((0, import_path17.relative)(rootDir, fullPath));
       }
     }
   }
@@ -13305,10 +13374,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path16.join)(projectRoot, filePath);
+    const fullPath = (0, import_path17.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs5.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs6.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -13391,16 +13460,16 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   return matches;
 }
 var NAVGATOR_PATHS = [
-  (0, import_path16.join)(".navgator", "architecture"),
-  (0, import_path16.join)(".claude", "architecture")
+  (0, import_path17.join)(".navgator", "architecture"),
+  (0, import_path17.join)(".claude", "architecture")
   // legacy — NavGator < 0.3
 ];
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path16.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs5.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path17.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs6.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs5.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs6.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -15453,17 +15522,17 @@ async function handleListSessions() {
   );
   return textResponse(lines.join("\n"));
 }
-var REFERENCES_DIR = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "references");
-var REFERENCES_INDEX = (0, import_path17.join)(REFERENCES_DIR, "index.json");
+var REFERENCES_DIR = (0, import_path18.join)(DEFAULT_OUTPUT_DIR, "references");
+var REFERENCES_INDEX = (0, import_path18.join)(REFERENCES_DIR, "index.json");
 function readReferencesIndex() {
-  if (!(0, import_fs7.existsSync)(REFERENCES_INDEX)) {
+  if (!(0, import_fs8.existsSync)(REFERENCES_INDEX)) {
     return { references: [] };
   }
-  return JSON.parse((0, import_fs7.readFileSync)(REFERENCES_INDEX, "utf-8"));
+  return JSON.parse((0, import_fs8.readFileSync)(REFERENCES_INDEX, "utf-8"));
 }
 function writeReferencesIndex(index) {
-  (0, import_fs7.mkdirSync)(REFERENCES_DIR, { recursive: true });
-  (0, import_fs7.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+  (0, import_fs8.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs8.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
 }
 async function handleScreenshot(args) {
   const url = args.url;
@@ -15479,9 +15548,9 @@ async function handleScreenshot(args) {
   const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp = Date.now();
-  const screenshotsDir = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "screenshots");
-  (0, import_fs7.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path17.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const screenshotsDir = (0, import_path18.join)(DEFAULT_OUTPUT_DIR, "screenshots");
+  (0, import_fs8.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path18.join)(screenshotsDir, `capture-${timestamp}.png`);
   await captureScreenshot({
     url,
     outputPath: tempPath,
@@ -15493,14 +15562,14 @@ async function handleScreenshot(args) {
     waitFor,
     delay
   });
-  const imageBuffer = (0, import_fs7.readFileSync)(tempPath);
+  const imageBuffer = (0, import_fs8.readFileSync)(tempPath);
   const base64 = imageBuffer.toString("base64");
   const fileSize = imageBuffer.length;
   let savedPath = "not saved";
   if (saveAs) {
-    (0, import_fs7.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path17.join)(REFERENCES_DIR, `${saveAs}.png`);
-    (0, import_fs7.writeFileSync)(refPath, imageBuffer);
+    (0, import_fs8.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path18.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs8.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
     index.references = index.references.filter((r) => r.name !== saveAs);
@@ -15555,11 +15624,11 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
-      if (!(0, import_fs7.existsSync)(refPath)) {
+      const refPath = (0, import_path18.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs8.existsSync)(refPath)) {
         return errorResponse(`Reference file missing: ${refPath}`);
       }
-      const imageBuffer = (0, import_fs7.readFileSync)(refPath);
+      const imageBuffer = (0, import_fs8.readFileSync)(refPath);
       const base64 = imageBuffer.toString("base64");
       const metadata = [
         `Reference: ${ref.name}`,
@@ -15581,9 +15650,9 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
-      if ((0, import_fs7.existsSync)(refPath)) {
-        (0, import_fs7.unlinkSync)(refPath);
+      const refPath = (0, import_path18.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs8.existsSync)(refPath)) {
+        (0, import_fs8.unlinkSync)(refPath);
       }
       index.references = index.references.filter((r) => r.name !== name);
       writeReferencesIndex(index);
@@ -15951,7 +16020,7 @@ async function handleBridgeToSource(args) {
   if (!projectRoot) {
     return errorResponse("The 'project_root' parameter is required.");
   }
-  if (!(0, import_fs7.existsSync)(projectRoot)) {
+  if (!(0, import_fs8.existsSync)(projectRoot)) {
     return errorResponse(`Project root not found: ${projectRoot}`);
   }
   const deviceQuery = args.device;
@@ -16148,32 +16217,32 @@ async function handleSimAction(args) {
 async function handleDesignSystem(args) {
   const action = args.action;
   const projectDir = args.projectDir || process.cwd();
-  const ibrDir = (0, import_path17.join)(projectDir, ".ibr");
-  const configPath = (0, import_path17.join)(ibrDir, "design-system.json");
+  const ibrDir = (0, import_path18.join)(projectDir, ".ibr");
+  const configPath = (0, import_path18.join)(ibrDir, "design-system.json");
   switch (action) {
     case "init": {
       const templateCandidates = [
-        (0, import_path17.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
-        (0, import_path17.join)(projectDir, "templates", "design-system.json"),
+        (0, import_path18.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path18.join)(projectDir, "templates", "design-system.json"),
         // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
-        (0, import_path17.join)(__dirname, "..", "..", "templates", "design-system.json")
+        (0, import_path18.join)(__dirname, "..", "..", "templates", "design-system.json")
       ];
-      const templatePath = templateCandidates.find((p) => (0, import_fs7.existsSync)(p));
+      const templatePath = templateCandidates.find((p) => (0, import_fs8.existsSync)(p));
       if (!templatePath) {
         return errorResponse(
           "Could not find design-system template. Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json"
         );
       }
-      if ((0, import_fs7.existsSync)(configPath)) {
+      if ((0, import_fs8.existsSync)(configPath)) {
         return textResponse(
           `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.
 Path: ${configPath}`
         );
       }
-      if (!(0, import_fs7.existsSync)(ibrDir)) {
-        (0, import_fs7.mkdirSync)(ibrDir, { recursive: true });
+      if (!(0, import_fs8.existsSync)(ibrDir)) {
+        (0, import_fs8.mkdirSync)(ibrDir, { recursive: true });
       }
-      (0, import_fs7.copyFileSync)(templatePath, configPath);
+      (0, import_fs8.copyFileSync)(templatePath, configPath);
       return textResponse(
         `Design system config created at .ibr/design-system.json
 Edit it to add your tokens and configure principle severities.
@@ -16181,13 +16250,13 @@ Path: ${configPath}`
       );
     }
     case "status": {
-      if (!(0, import_fs7.existsSync)(configPath)) {
+      if (!(0, import_fs8.existsSync)(configPath)) {
         return textResponse(
           `No design system config found. Run design_system with action "init" to create one.
 Expected: ${configPath}`
         );
       }
-      const raw = (0, import_fs7.readFileSync)(configPath, "utf-8");
+      const raw = (0, import_fs8.readFileSync)(configPath, "utf-8");
       const config = JSON.parse(raw);
       return textResponse(
         `Design system config: ${configPath}
