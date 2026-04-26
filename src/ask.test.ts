@@ -314,6 +314,30 @@ describe('askStream', () => {
     expect(end.aborted).toBe(true)
   })
 
+  it('passes through preset screenshotPath in start and end events', async () => {
+    const events: AskStreamEvent[] = []
+    for await (const e of askStream(URL, 'is the touch-target compliant', {
+      preScannedElements: [el()],
+      viewportMetrics: { width: 1280, height: 800 },
+      screenshotPath: '/tmp/test-shot.png',
+    })) {
+      events.push(e)
+    }
+    const start = events.find((e) => e.type === 'start')
+    const end = events.find((e) => e.type === 'end')
+    expect(start && 'screenshotPath' in start ? start.screenshotPath : undefined).toBe('/tmp/test-shot.png')
+    expect(end && 'screenshotPath' in end ? end.screenshotPath : undefined).toBe('/tmp/test-shot.png')
+  })
+
+  it('ask() blocking wrapper surfaces screenshotPath in meta', async () => {
+    const r = await ask(URL, 'is the touch-target compliant', {
+      preScannedElements: [el()],
+      viewportMetrics: { width: 1280, height: 800 },
+      screenshotPath: '/tmp/test-meta.png',
+    })
+    expect(r.meta.screenshotPath).toBe('/tmp/test-meta.png')
+  })
+
   it('unsupported question yields a single UNCERTAIN finding then end', async () => {
     const events = await collect(
       askStream(URL, 'what colour is the sky', { preScannedElements: [] }),

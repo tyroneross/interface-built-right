@@ -13579,7 +13579,22 @@ async function* askStream(url, question, options = {}) {
     };
     return;
   }
-  yield { type: "start", question, engineVersion: ENGINE_VERSION };
+  let screenshotPath;
+  if (typeof options.screenshot === "string") {
+    screenshotPath = options.screenshot;
+  } else if (options.screenshot === true) {
+    const ts = Date.now();
+    const safe = url.replace(/[^a-z0-9]/gi, "_").slice(0, 60);
+    screenshotPath = `.ibr/ask-screenshots/${safe}-${ts}.png`;
+  } else if (options.screenshotPath) {
+    screenshotPath = options.screenshotPath;
+  }
+  yield {
+    type: "start",
+    question,
+    engineVersion: ENGINE_VERSION,
+    ...screenshotPath ? { screenshotPath } : {}
+  };
   let elements;
   let viewportWidth;
   let viewportHeight;
@@ -13588,9 +13603,15 @@ async function* askStream(url, question, options = {}) {
     viewportWidth = options.viewportMetrics?.width ?? 1280;
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
+    if (typeof options.screenshot === "string" || options.screenshot === true) {
+      const { mkdir: mkdir26 } = await import("fs/promises");
+      const { dirname: dirname10 } = await import("path");
+      if (screenshotPath) await mkdir26(dirname10(screenshotPath), { recursive: true });
+    }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
-      timeout: options.timeout
+      timeout: options.timeout,
+      ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
     viewportWidth = result.viewport.width;
@@ -13685,6 +13706,7 @@ async function* askStream(url, question, options = {}) {
     truncated: totalProduced > emitted,
     rulesRun,
     elementsScanned: elements.length,
+    ...screenshotPath ? { screenshotPath } : {},
     ...aborted ? { aborted: true } : {}
   };
 }
@@ -13715,7 +13737,8 @@ async function ask(url, question, options = {}) {
       durationMs: endEvent.durationMs,
       elementsScanned: endEvent.elementsScanned,
       rulesRun: endEvent.rulesRun,
-      ...supportedQuestions ? { supportedQuestions } : {}
+      ...supportedQuestions ? { supportedQuestions } : {},
+      ...endEvent.screenshotPath ? { screenshotPath: endEvent.screenshotPath } : {}
     }
   };
 }
@@ -22081,17 +22104,19 @@ program.command("scan <url>").description("Full UI scan: elements + interactivit
     process.exit(1);
   }
 });
-program.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").option("--stream", "Emit NDJSON stream \u2014 one event per line (start, finding..., end). Findings arrive as the rule loop produces them.").action(async (url, questionWords, options) => {
+program.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").option("--stream", "Emit NDJSON stream \u2014 one event per line (start, finding..., end). Findings arrive as the rule loop produces them.").option("--screenshot", "Capture a page screenshot during the scan. Path is surfaced in response.meta.screenshotPath. Saves to .ibr/ask-screenshots/.").option("--screenshot-path <path>", "Explicit screenshot output path. Implies --screenshot.").action(async (url, questionWords, options) => {
   try {
     const { ask: ask2, askStream: askStream2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
     const resolvedUrl = await resolveBaseUrl(url);
     const question = questionWords.join(" ");
     const globalViewport = program.opts().viewport ?? "desktop";
     const viewport = globalViewport;
+    const screenshotOpt = options.screenshotPath ? options.screenshotPath : options.screenshot === true ? true : void 0;
     const askOpts = {
       viewport,
       timeout: parseInt(options.timeout, 10),
-      maxFindings: parseInt(options.maxFindings, 10)
+      maxFindings: parseInt(options.maxFindings, 10),
+      ...screenshotOpt !== void 0 ? { screenshot: screenshotOpt } : {}
     };
     if (options.stream) {
       const controller = new AbortController();

@@ -960,10 +960,18 @@ program
   .option('--timeout <ms>', 'Page load timeout in ms', '30000')
   .option('--max-findings <n>', 'Cap returned findings (default 25)', '25')
   .option('--stream', 'Emit NDJSON stream — one event per line (start, finding..., end). Findings arrive as the rule loop produces them.')
+  .option('--screenshot', 'Capture a page screenshot during the scan. Path is surfaced in response.meta.screenshotPath. Saves to .ibr/ask-screenshots/.')
+  .option('--screenshot-path <path>', 'Explicit screenshot output path. Implies --screenshot.')
   .action(async (
     url: string,
     questionWords: string[],
-    options: { timeout: string; maxFindings: string; stream?: boolean },
+    options: {
+      timeout: string;
+      maxFindings: string;
+      stream?: boolean;
+      screenshot?: boolean;
+      screenshotPath?: string;
+    },
   ) => {
     try {
       const { ask, askStream } = await import('../ask.js');
@@ -971,10 +979,17 @@ program
       const question = questionWords.join(' ');
       const globalViewport = (program.opts().viewport as string | undefined) ?? 'desktop';
       const viewport = globalViewport as 'desktop' | 'mobile' | 'tablet';
+      // Either bare --screenshot (boolean) or --screenshot-path <p> (string).
+      // Bracket-style ([path]) was consumed positionally by Commander's parser.
+      const screenshotOpt: boolean | string | undefined =
+        options.screenshotPath ? options.screenshotPath
+        : options.screenshot === true ? true
+        : undefined;
       const askOpts = {
         viewport,
         timeout: parseInt(options.timeout, 10),
         maxFindings: parseInt(options.maxFindings, 10),
+        ...(screenshotOpt !== undefined ? { screenshot: screenshotOpt } : {}),
       };
 
       if (options.stream) {

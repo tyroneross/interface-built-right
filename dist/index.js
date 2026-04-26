@@ -12158,7 +12158,22 @@ async function* askStream(url, question, options = {}) {
     };
     return;
   }
-  yield { type: "start", question, engineVersion: ENGINE_VERSION };
+  let screenshotPath;
+  if (typeof options.screenshot === "string") {
+    screenshotPath = options.screenshot;
+  } else if (options.screenshot === true) {
+    const ts = Date.now();
+    const safe = url.replace(/[^a-z0-9]/gi, "_").slice(0, 60);
+    screenshotPath = `.ibr/ask-screenshots/${safe}-${ts}.png`;
+  } else if (options.screenshotPath) {
+    screenshotPath = options.screenshotPath;
+  }
+  yield {
+    type: "start",
+    question,
+    engineVersion: ENGINE_VERSION,
+    ...screenshotPath ? { screenshotPath } : {}
+  };
   let elements;
   let viewportWidth;
   let viewportHeight;
@@ -12167,9 +12182,15 @@ async function* askStream(url, question, options = {}) {
     viewportWidth = options.viewportMetrics?.width ?? 1280;
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
+    if (typeof options.screenshot === "string" || options.screenshot === true) {
+      const { mkdir: mkdir16 } = await import('fs/promises');
+      const { dirname: dirname8 } = await import('path');
+      if (screenshotPath) await mkdir16(dirname8(screenshotPath), { recursive: true });
+    }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
-      timeout: options.timeout
+      timeout: options.timeout,
+      ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
     viewportWidth = result.viewport.width;
@@ -12264,6 +12285,7 @@ async function* askStream(url, question, options = {}) {
     truncated: totalProduced > emitted,
     rulesRun,
     elementsScanned: elements.length,
+    ...screenshotPath ? { screenshotPath } : {},
     ...aborted ? { aborted: true } : {}
   };
 }
@@ -12294,7 +12316,8 @@ async function ask(url, question, options = {}) {
       durationMs: endEvent.durationMs,
       elementsScanned: endEvent.elementsScanned,
       rulesRun: endEvent.rulesRun,
-      ...supportedQuestions ? { supportedQuestions } : {}
+      ...supportedQuestions ? { supportedQuestions } : {},
+      ...endEvent.screenshotPath ? { screenshotPath: endEvent.screenshotPath } : {}
     }
   };
 }

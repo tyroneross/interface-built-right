@@ -131,7 +131,7 @@ export const TOOLS = [
   {
     name: "ask",
     description:
-      "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages — designed for agent consumption.",
+      "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages — designed for agent consumption. Pass screenshot:true to additionally receive the page screenshot as an image content block — vision-capable agents can fuse pixels with the verdict.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -154,6 +154,11 @@ export const TOOLS = [
           type: "number",
           description:
             "Cap on returned findings to keep responses tight. Default 25.",
+        },
+        screenshot: {
+          type: "boolean",
+          description:
+            "Capture and return the page screenshot as an image content block alongside the JSON verdict. Use when the question may benefit from visual evidence (e.g. iOS guest where the AX tree is unreachable, or visual hierarchy questions). Default false to keep responses small.",
         },
       },
       required: ["url", "question"],
@@ -1900,14 +1905,42 @@ async function handleAsk(
   }
   const viewport = (args.viewport as 'desktop' | 'mobile' | 'tablet' | undefined) ?? 'desktop';
   const maxFindings = (args.maxFindings as number | undefined) ?? 25;
+  const wantScreenshot = args.screenshot === true;
 
   const { ask } = await import('../ask.js');
-  const response = await ask(url, question, { viewport, maxFindings });
+  const response = await ask(url, question, {
+    viewport,
+    maxFindings,
+    ...(wantScreenshot ? { screenshot: true } : {}),
+  });
 
-  // MCP responses are not streamed today; return the aggregated AskResponse as JSON.
-  // Streaming over MCP (SSE) is M2.5+; the askStream() async generator is already
-  // available to in-process consumers via `import { askStream } from 'interface-built-right'`.
-  return textResponse(JSON.stringify(response, null, 2));
+  // Build response: text content (the JSON verdict) is always emitted.
+  // When the caller asked for a screenshot AND we successfully captured one,
+  // attach it as an image content block so vision-capable agents can fuse
+  // pixels with the verdict (Gap 3 / v3 thesis Shift 5).
+  const content: McpContent[] = [
+    { type: 'text' as const, text: JSON.stringify(response, null, 2) },
+  ];
+  const screenshotPath = response.meta?.screenshotPath;
+  if (wantScreenshot && screenshotPath) {
+    try {
+      const { readFile } = await import('fs/promises');
+      const buf = await readFile(screenshotPath);
+      content.unshift({
+        type: 'image' as const,
+        data: buf.toString('base64'),
+        mimeType: 'image/png',
+      });
+    } catch (err) {
+      // Don't fail the whole call on a missing screenshot — the verdict
+      // is still useful. Surface the failure as a trailing text note.
+      content.push({
+        type: 'text' as const,
+        text: `(screenshot capture failed: ${err instanceof Error ? err.message : 'unknown'})`,
+      });
+    }
+  }
+  return { content };
 }
 
 async function handleSnapshot(

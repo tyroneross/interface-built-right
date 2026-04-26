@@ -6237,6 +6237,12 @@ interface AskResponse {
         rulesRun: string[];
         /** When verdict is UNCERTAIN, list of supported question phrasings. */
         supportedQuestions?: string[];
+        /**
+         * Path to a captured screenshot, when `screenshot` was requested and
+         * a scan was actually performed (not bypassed via preScannedElements).
+         * Vision-capable agents can fuse the screenshot with the verdict.
+         */
+        screenshotPath?: string;
     };
 }
 interface AskOptions {
@@ -6256,12 +6262,29 @@ interface AskOptions {
     projectDir?: string;
     /** Abort the rule loop (and any in-flight scan) when this signal fires. */
     signal?: AbortSignal;
+    /**
+     * Capture a screenshot during the scan and surface its path on the
+     * response. Useful for vision-required verdicts (Gap 3 from
+     * `docs/strategy/v3-m1-eval.md`): the agent can reason over pixels +
+     * structure together.
+     *   - `true`  — auto path under `.ibr/ask-screenshots/<timestamp>.png`
+     *   - string  — explicit path
+     *   - omitted — no screenshot (default; preserves token-minimality)
+     */
+    screenshot?: boolean | string;
+    /**
+     * Pre-existing screenshot path to attach to the response when
+     * `preScannedElements` is supplied. Lets test fixtures and native iOS
+     * scans (where scan() can't run) still attach evidence.
+     */
+    screenshotPath?: string;
 }
 type AskStreamEvent = {
     type: 'start';
     question: string;
     engineVersion: string;
     supportedQuestions?: string[];
+    screenshotPath?: string;
 } | ({
     type: 'finding';
 } & Finding) | {
@@ -6272,6 +6295,7 @@ type AskStreamEvent = {
     truncated: boolean;
     rulesRun: string[];
     elementsScanned: number;
+    screenshotPath?: string;
     /** Set when the rule loop halted because options.signal fired. */
     aborted?: boolean;
 };

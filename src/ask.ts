@@ -46,6 +46,12 @@ export interface AskResponse {
     rulesRun: string[]
     /** When verdict is UNCERTAIN, list of supported question phrasings. */
     supportedQuestions?: string[]
+    /**
+     * Path to a captured screenshot, when `screenshot` was requested and
+     * a scan was actually performed (not bypassed via preScannedElements).
+     * Vision-capable agents can fuse the screenshot with the verdict.
+     */
+    screenshotPath?: string
   }
 }
 
@@ -162,6 +168,22 @@ export interface AskOptions {
   projectDir?: string
   /** Abort the rule loop (and any in-flight scan) when this signal fires. */
   signal?: AbortSignal
+  /**
+   * Capture a screenshot during the scan and surface its path on the
+   * response. Useful for vision-required verdicts (Gap 3 from
+   * `docs/strategy/v3-m1-eval.md`): the agent can reason over pixels +
+   * structure together.
+   *   - `true`  — auto path under `.ibr/ask-screenshots/<timestamp>.png`
+   *   - string  — explicit path
+   *   - omitted — no screenshot (default; preserves token-minimality)
+   */
+  screenshot?: boolean | string
+  /**
+   * Pre-existing screenshot path to attach to the response when
+   * `preScannedElements` is supplied. Lets test fixtures and native iOS
+   * scans (where scan() can't run) still attach evidence.
+   */
+  screenshotPath?: string
 }
 
 const ENGINE_VERSION = '0.1.0-m1'
@@ -177,7 +199,7 @@ const ENGINE_VERSION = '0.1.0-m1'
 // Wire-format on stdout (CLI --stream): NDJSON. One JSON object per line.
 
 export type AskStreamEvent =
-  | { type: 'start'; question: string; engineVersion: string; supportedQuestions?: string[] }
+  | { type: 'start'; question: string; engineVersion: string; supportedQuestions?: string[]; screenshotPath?: string }
   | ({ type: 'finding' } & Finding)
   | {
       type: 'end'
@@ -187,6 +209,7 @@ export type AskStreamEvent =
       truncated: boolean
       rulesRun: string[]
       elementsScanned: number
+      screenshotPath?: string
       /** Set when the rule loop halted because options.signal fired. */
       aborted?: boolean
     }
@@ -224,7 +247,24 @@ export async function* askStream(
     return
   }
 
-  yield { type: 'start', question, engineVersion: ENGINE_VERSION }
+  // Resolve screenshot intent before yielding `start` so consumers see the path early.
+  let screenshotPath: string | undefined
+  if (typeof options.screenshot === 'string') {
+    screenshotPath = options.screenshot
+  } else if (options.screenshot === true) {
+    const ts = Date.now()
+    const safe = url.replace(/[^a-z0-9]/gi, '_').slice(0, 60)
+    screenshotPath = `.ibr/ask-screenshots/${safe}-${ts}.png`
+  } else if (options.screenshotPath) {
+    screenshotPath = options.screenshotPath
+  }
+
+  yield {
+    type: 'start',
+    question,
+    engineVersion: ENGINE_VERSION,
+    ...(screenshotPath ? { screenshotPath } : {}),
+  }
 
   // Get elements: either supplied for tests, or via a fresh scan.
   let elements: EnhancedElement[]
@@ -236,9 +276,18 @@ export async function* askStream(
     viewportWidth = options.viewportMetrics?.width ?? 1280
     viewportHeight = options.viewportMetrics?.height ?? 800
   } else {
+    // Auto-create the screenshot dir before passing to scan.
+    if (typeof options.screenshot === 'string' || options.screenshot === true) {
+      const { mkdir } = await import('fs/promises')
+      const { dirname } = await import('path')
+      if (screenshotPath) await mkdir(dirname(screenshotPath), { recursive: true })
+    }
     const result = await scan(url, {
       viewport: options.viewport ?? 'desktop',
       timeout: options.timeout,
+      ...(options.screenshot && screenshotPath
+        ? { screenshot: { path: screenshotPath } }
+        : {}),
     })
     elements = result.elements.all
     viewportWidth = result.viewport.width
@@ -346,6 +395,7 @@ export async function* askStream(
     truncated: totalProduced > emitted,
     rulesRun,
     elementsScanned: elements.length,
+    ...(screenshotPath ? { screenshotPath } : {}),
     ...(aborted ? { aborted: true } : {}),
   }
 }
@@ -391,6 +441,7 @@ export async function ask(
       elementsScanned: endEvent.elementsScanned,
       rulesRun: endEvent.rulesRun,
       ...(supportedQuestions ? { supportedQuestions } : {}),
+      ...(endEvent.screenshotPath ? { screenshotPath: endEvent.screenshotPath } : {}),
     },
   }
 }

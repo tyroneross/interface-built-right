@@ -8942,7 +8942,22 @@ async function* askStream(url, question, options = {}) {
     };
     return;
   }
-  yield { type: "start", question, engineVersion: ENGINE_VERSION };
+  let screenshotPath;
+  if (typeof options.screenshot === "string") {
+    screenshotPath = options.screenshot;
+  } else if (options.screenshot === true) {
+    const ts = Date.now();
+    const safe = url.replace(/[^a-z0-9]/gi, "_").slice(0, 60);
+    screenshotPath = `.ibr/ask-screenshots/${safe}-${ts}.png`;
+  } else if (options.screenshotPath) {
+    screenshotPath = options.screenshotPath;
+  }
+  yield {
+    type: "start",
+    question,
+    engineVersion: ENGINE_VERSION,
+    ...screenshotPath ? { screenshotPath } : {}
+  };
   let elements;
   let viewportWidth;
   let viewportHeight;
@@ -8951,9 +8966,15 @@ async function* askStream(url, question, options = {}) {
     viewportWidth = options.viewportMetrics?.width ?? 1280;
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
+    if (typeof options.screenshot === "string" || options.screenshot === true) {
+      const { mkdir: mkdir12 } = await import("fs/promises");
+      const { dirname: dirname7 } = await import("path");
+      if (screenshotPath) await mkdir12(dirname7(screenshotPath), { recursive: true });
+    }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
-      timeout: options.timeout
+      timeout: options.timeout,
+      ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
     viewportWidth = result.viewport.width;
@@ -9048,6 +9069,7 @@ async function* askStream(url, question, options = {}) {
     truncated: totalProduced > emitted,
     rulesRun,
     elementsScanned: elements.length,
+    ...screenshotPath ? { screenshotPath } : {},
     ...aborted ? { aborted: true } : {}
   };
 }
@@ -9078,7 +9100,8 @@ async function ask(url, question, options = {}) {
       durationMs: endEvent.durationMs,
       elementsScanned: endEvent.elementsScanned,
       rulesRun: endEvent.rulesRun,
-      ...supportedQuestions ? { supportedQuestions } : {}
+      ...supportedQuestions ? { supportedQuestions } : {},
+      ...endEvent.screenshotPath ? { screenshotPath: endEvent.screenshotPath } : {}
     }
   };
 }
@@ -13500,7 +13523,7 @@ var TOOLS = [
   },
   {
     name: "ask",
-    description: "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages \u2014 designed for agent consumption.",
+    description: "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages \u2014 designed for agent consumption. Pass screenshot:true to additionally receive the page screenshot as an image content block \u2014 vision-capable agents can fuse pixels with the verdict.",
     inputSchema: {
       type: "object",
       properties: {
@@ -13520,6 +13543,10 @@ var TOOLS = [
         maxFindings: {
           type: "number",
           description: "Cap on returned findings to keep responses tight. Default 25."
+        },
+        screenshot: {
+          type: "boolean",
+          description: "Capture and return the page screenshot as an image content block alongside the JSON verdict. Use when the question may benefit from visual evidence (e.g. iOS guest where the AX tree is unreachable, or visual hierarchy questions). Default false to keep responses small."
         }
       },
       required: ["url", "question"]
@@ -15129,9 +15156,34 @@ async function handleAsk(args) {
   }
   const viewport = args.viewport ?? "desktop";
   const maxFindings = args.maxFindings ?? 25;
+  const wantScreenshot = args.screenshot === true;
   const { ask: ask2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
-  const response = await ask2(url, question, { viewport, maxFindings });
-  return textResponse(JSON.stringify(response, null, 2));
+  const response = await ask2(url, question, {
+    viewport,
+    maxFindings,
+    ...wantScreenshot ? { screenshot: true } : {}
+  });
+  const content = [
+    { type: "text", text: JSON.stringify(response, null, 2) }
+  ];
+  const screenshotPath = response.meta?.screenshotPath;
+  if (wantScreenshot && screenshotPath) {
+    try {
+      const { readFile: readFile7 } = await import("fs/promises");
+      const buf = await readFile7(screenshotPath);
+      content.unshift({
+        type: "image",
+        data: buf.toString("base64"),
+        mimeType: "image/png"
+      });
+    } catch (err) {
+      content.push({
+        type: "text",
+        text: `(screenshot capture failed: ${err instanceof Error ? err.message : "unknown"})`
+      });
+    }
+  }
+  return { content };
 }
 async function handleSnapshot(args) {
   const url = args.url;
