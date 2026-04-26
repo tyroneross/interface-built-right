@@ -13614,10 +13614,16 @@ async function* askStream(url, question, options = {}) {
     else if (next === "WARN") aggregate = "WARN";
     else if (next === "UNCERTAIN" && aggregate === "PASS") aggregate = "UNCERTAIN";
   }
+  const signal = options.signal;
+  let aborted = false;
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
     outer: for (const element of elements) {
+      if (signal?.aborted) {
+        aborted = true;
+        break;
+      }
       for (const rule of targetRules) {
         const v = rule.check(element, context);
         if (!v) continue;
@@ -13673,12 +13679,13 @@ async function* askStream(url, question, options = {}) {
   }
   yield {
     type: "end",
-    verdict: aggregate,
+    verdict: aborted ? "UNCERTAIN" : aggregate,
     totalFindings: emitted,
     durationMs: Date.now() - start,
     truncated: totalProduced > emitted,
     rulesRun,
-    elementsScanned: elements.length
+    elementsScanned: elements.length,
+    ...aborted ? { aborted: true } : {}
   };
 }
 async function ask(url, question, options = {}) {
@@ -22087,10 +22094,22 @@ program.command("ask <url> <question...>").description("Ask a focused question a
       maxFindings: parseInt(options.maxFindings, 10)
     };
     if (options.stream) {
+      const controller = new AbortController();
+      const onSig = () => controller.abort();
+      process.on("SIGINT", onSig);
+      process.on("SIGTERM", onSig);
       let endVerdict = "PASS";
-      for await (const event of askStream2(resolvedUrl, question, askOpts)) {
-        process.stdout.write(JSON.stringify(event) + "\n");
-        if (event.type === "end") endVerdict = event.verdict;
+      try {
+        for await (const event of askStream2(resolvedUrl, question, {
+          ...askOpts,
+          signal: controller.signal
+        })) {
+          process.stdout.write(JSON.stringify(event) + "\n");
+          if (event.type === "end") endVerdict = event.verdict;
+        }
+      } finally {
+        process.off("SIGINT", onSig);
+        process.off("SIGTERM", onSig);
       }
       if (endVerdict === "FAIL") process.exit(1);
       return;

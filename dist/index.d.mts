@@ -6254,6 +6254,8 @@ interface AskOptions {
     };
     /** Project dir for design-system config lookup. Defaults to cwd. */
     projectDir?: string;
+    /** Abort the rule loop (and any in-flight scan) when this signal fires. */
+    signal?: AbortSignal;
 }
 type AskStreamEvent = {
     type: 'start';
@@ -6270,6 +6272,8 @@ type AskStreamEvent = {
     truncated: boolean;
     rulesRun: string[];
     elementsScanned: number;
+    /** Set when the rule loop halted because options.signal fired. */
+    aborted?: boolean;
 };
 declare function askStream(url: string, question: string, options?: AskOptions): AsyncGenerator<AskStreamEvent, void, void>;
 declare function ask(url: string, question: string, options?: AskOptions): Promise<AskResponse>;

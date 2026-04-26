@@ -8977,10 +8977,16 @@ async function* askStream(url, question, options = {}) {
     else if (next === "WARN") aggregate = "WARN";
     else if (next === "UNCERTAIN" && aggregate === "PASS") aggregate = "UNCERTAIN";
   }
+  const signal = options.signal;
+  let aborted = false;
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
     outer: for (const element of elements) {
+      if (signal?.aborted) {
+        aborted = true;
+        break;
+      }
       for (const rule of targetRules) {
         const v = rule.check(element, context);
         if (!v) continue;
@@ -9036,12 +9042,13 @@ async function* askStream(url, question, options = {}) {
   }
   yield {
     type: "end",
-    verdict: aggregate,
+    verdict: aborted ? "UNCERTAIN" : aggregate,
     totalFindings: emitted,
     durationMs: Date.now() - start,
     truncated: totalProduced > emitted,
     rulesRun,
-    elementsScanned: elements.length
+    elementsScanned: elements.length,
+    ...aborted ? { aborted: true } : {}
   };
 }
 async function ask(url, question, options = {}) {

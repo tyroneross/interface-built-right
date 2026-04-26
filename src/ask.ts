@@ -160,6 +160,8 @@ export interface AskOptions {
   viewportMetrics?: { width: number; height: number }
   /** Project dir for design-system config lookup. Defaults to cwd. */
   projectDir?: string
+  /** Abort the rule loop (and any in-flight scan) when this signal fires. */
+  signal?: AbortSignal
 }
 
 const ENGINE_VERSION = '0.1.0-m1'
@@ -185,6 +187,8 @@ export type AskStreamEvent =
       truncated: boolean
       rulesRun: string[]
       elementsScanned: number
+      /** Set when the rule loop halted because options.signal fired. */
+      aborted?: boolean
     }
 
 export async function* askStream(
@@ -262,11 +266,19 @@ export async function* askStream(
     else if (next === 'UNCERTAIN' && aggregate === 'PASS') aggregate = 'UNCERTAIN'
   }
 
+  const signal = options.signal
+  let aborted = false
+
   if (def.kind === 'touch-target' || def.kind === 'signal-noise') {
     const targetRules = def.kind === 'touch-target' ? touchTargetRules : signalNoiseRules
     for (const r of targetRules) rulesRun.push(r.id)
 
     outer: for (const element of elements) {
+      // Check before each element so cancellation halts within one element's worth of work.
+      if (signal?.aborted) {
+        aborted = true
+        break
+      }
       for (const rule of targetRules) {
         const v = rule.check(element, context)
         if (!v) continue
@@ -328,12 +340,13 @@ export async function* askStream(
 
   yield {
     type: 'end',
-    verdict: aggregate,
+    verdict: aborted ? 'UNCERTAIN' : aggregate,
     totalFindings: emitted,
     durationMs: Date.now() - start,
     truncated: totalProduced > emitted,
     rulesRun,
     elementsScanned: elements.length,
+    ...(aborted ? { aborted: true } : {}),
   }
 }
 

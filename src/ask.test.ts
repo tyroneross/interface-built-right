@@ -272,6 +272,48 @@ describe('askStream', () => {
     expect(firstFindingAt!).toBeLessThan(100)
   })
 
+  it('AbortSignal halts the rule loop and end.aborted is true', async () => {
+    const tiny = (i: number) =>
+      el({ selector: `.b-${i}`, text: `T${i}`, bounds: { x: 0, y: 0, width: 20, height: 20 } })
+    const controller = new AbortController()
+    const events: AskStreamEvent[] = []
+    const gen = askStream(URL, 'is the touch-target compliant', {
+      preScannedElements: Array.from({ length: 50 }, (_, i) => tiny(i)),
+      viewportMetrics: { width: 360, height: 800 },
+      signal: controller.signal,
+    })
+    for await (const e of gen) {
+      events.push(e)
+      // Abort after the first finding lands. The next element check should bail.
+      if (e.type === 'finding') controller.abort()
+    }
+    const end = events.at(-1)
+    if (end?.type !== 'end') throw new Error('expected end')
+    expect(end.aborted).toBe(true)
+    expect(end.verdict).toBe('UNCERTAIN')
+    // We must have processed far fewer than 50 elements.
+    expect(end.totalFindings).toBeLessThan(50)
+  })
+
+  it('AbortSignal already aborted before iteration produces empty stream + aborted end', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const tiny = (i: number) =>
+      el({ selector: `.b-${i}`, text: `T${i}`, bounds: { x: 0, y: 0, width: 20, height: 20 } })
+    const events: AskStreamEvent[] = []
+    for await (const e of askStream(URL, 'is the touch-target compliant', {
+      preScannedElements: Array.from({ length: 5 }, (_, i) => tiny(i)),
+      viewportMetrics: { width: 360, height: 800 },
+      signal: controller.signal,
+    })) {
+      events.push(e)
+    }
+    expect(events.filter((e) => e.type === 'finding')).toHaveLength(0)
+    const end = events.at(-1)
+    if (end?.type !== 'end') throw new Error('expected end')
+    expect(end.aborted).toBe(true)
+  })
+
   it('unsupported question yields a single UNCERTAIN finding then end', async () => {
     const events = await collect(
       askStream(URL, 'what colour is the sky', { preScannedElements: [] }),

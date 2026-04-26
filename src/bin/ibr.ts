@@ -978,10 +978,25 @@ program
       };
 
       if (options.stream) {
+        // SIGINT (Ctrl+C) cleanly aborts the rule loop. We still let askStream
+        // emit its `end` event (with aborted:true) before exiting so the
+        // consumer's NDJSON parser can finish a clean record.
+        const controller = new AbortController();
+        const onSig = () => controller.abort();
+        process.on('SIGINT', onSig);
+        process.on('SIGTERM', onSig);
         let endVerdict: string = 'PASS';
-        for await (const event of askStream(resolvedUrl, question, askOpts)) {
-          process.stdout.write(JSON.stringify(event) + '\n');
-          if (event.type === 'end') endVerdict = event.verdict;
+        try {
+          for await (const event of askStream(resolvedUrl, question, {
+            ...askOpts,
+            signal: controller.signal,
+          })) {
+            process.stdout.write(JSON.stringify(event) + '\n');
+            if (event.type === 'end') endVerdict = event.verdict;
+          }
+        } finally {
+          process.off('SIGINT', onSig);
+          process.off('SIGTERM', onSig);
         }
         if (endVerdict === 'FAIL') process.exit(1);
         return;
