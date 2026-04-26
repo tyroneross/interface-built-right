@@ -1001,9 +1001,9 @@ export * from './context/types.js';
 export { scan, formatScanResult, applyDesignSystemCheck } from './scan.js';
 export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
 
-// Verdict-engine surface (v3 thesis M1)
-export { ask } from './ask.js';
-export type { AskResponse, AskOptions, Finding, Verdict } from './ask.js';
+// Verdict-engine surface (v3 thesis M1 + B1 streaming)
+export { ask, askStream } from './ask.js';
+export type { AskResponse, AskOptions, Finding, Verdict, AskStreamEvent } from './ask.js';
 
 // Rule engine exports
 export { runAllRules } from './rules/index.js';

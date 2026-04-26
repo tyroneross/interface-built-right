@@ -164,34 +164,63 @@ export interface AskOptions {
 
 const ENGINE_VERSION = '0.1.0-m1'
 
-export async function ask(
+// ── Streaming protocol (B1 / v3 thesis Shift 3) ───────────────────────────────
+//
+// askStream yields three event kinds in order:
+//   { type: 'start',  question, engineVersion, supportedQuestions? }
+//   { type: 'finding', ... } — repeated, one per finding, as the rule loop
+//                              produces them. Agents can act / cancel mid-stream.
+//   { type: 'end',     verdict, totalFindings, durationMs, truncated, rulesRun, elementsScanned }
+//
+// Wire-format on stdout (CLI --stream): NDJSON. One JSON object per line.
+
+export type AskStreamEvent =
+  | { type: 'start'; question: string; engineVersion: string; supportedQuestions?: string[] }
+  | ({ type: 'finding' } & Finding)
+  | {
+      type: 'end'
+      verdict: Verdict
+      totalFindings: number
+      durationMs: number
+      truncated: boolean
+      rulesRun: string[]
+      elementsScanned: number
+    }
+
+export async function* askStream(
   url: string,
   question: string,
   options: AskOptions = {},
-): Promise<AskResponse> {
+): AsyncGenerator<AskStreamEvent, void, void> {
   const start = Date.now()
   const def = matchQuestion(question)
 
   if (!def) {
-    return {
+    yield {
+      type: 'start',
       question,
-      verdict: 'UNCERTAIN',
-      findings: [
-        {
-          verdict: 'UNCERTAIN',
-          rule: 'ask/unsupported-question',
-          summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join('; ')}`,
-        },
-      ],
-      meta: {
-        engineVersion: ENGINE_VERSION,
-        durationMs: Date.now() - start,
-        elementsScanned: 0,
-        rulesRun: [],
-        supportedQuestions: SUPPORTED_QUESTIONS,
-      },
+      engineVersion: ENGINE_VERSION,
+      supportedQuestions: SUPPORTED_QUESTIONS,
     }
+    yield {
+      type: 'finding',
+      verdict: 'UNCERTAIN',
+      rule: 'ask/unsupported-question',
+      summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join('; ')}`,
+    }
+    yield {
+      type: 'end',
+      verdict: 'UNCERTAIN',
+      totalFindings: 1,
+      durationMs: Date.now() - start,
+      truncated: false,
+      rulesRun: [],
+      elementsScanned: 0,
+    }
+    return
   }
+
+  yield { type: 'start', question, engineVersion: ENGINE_VERSION }
 
   // Get elements: either supplied for tests, or via a fresh scan.
   let elements: EnhancedElement[]
@@ -221,65 +250,134 @@ export async function ask(
   }
 
   const maxFindings = options.maxFindings ?? 25
-  const findings: Finding[] = []
   const rulesRun: string[] = []
-  let truncated = false
+  let emitted = 0
+  let totalProduced = 0
+  let aggregate: Verdict = 'PASS'
+
+  function bumpVerdict(next: Verdict): void {
+    if (aggregate === 'FAIL') return
+    if (next === 'FAIL') aggregate = 'FAIL'
+    else if (next === 'WARN') aggregate = 'WARN'
+    else if (next === 'UNCERTAIN' && aggregate === 'PASS') aggregate = 'UNCERTAIN'
+  }
 
   if (def.kind === 'touch-target' || def.kind === 'signal-noise') {
     const targetRules = def.kind === 'touch-target' ? touchTargetRules : signalNoiseRules
     for (const r of targetRules) rulesRun.push(r.id)
-    const violations: Violation[] = []
-    for (const element of elements) {
+
+    outer: for (const element of elements) {
       for (const rule of targetRules) {
         const v = rule.check(element, context)
-        if (v) violations.push({ ...v, severity: def.severity })
+        if (!v) continue
+        totalProduced++
+        if (emitted < maxFindings) {
+          const finding = violationToFinding({ ...v, severity: def.severity }, def.severity)
+          bumpVerdict(finding.verdict)
+          emitted++
+          yield { type: 'finding', ...finding }
+          // Streaming consumers can stop iteration to cancel further work.
+          // We continue producing until maxFindings or all elements are exhausted.
+        } else {
+          // Past the cap: keep counting for `truncated` accuracy but stop yielding.
+          break outer
+        }
       }
-    }
-    truncated = violations.length > maxFindings
-    for (const v of violations.slice(0, maxFindings)) {
-      findings.push(violationToFinding(v, def.severity))
     }
   } else if (def.kind === 'token-compliance') {
     const projectDir = options.projectDir ?? process.cwd()
     const config = await loadDesignSystemConfig(projectDir)
     if (!config) {
-      // Honest UNCERTAIN — no config means we cannot answer this question.
-      findings.push({
+      const f: Finding = {
         verdict: 'UNCERTAIN',
         rule: 'tokens/no-config',
         summary:
           'No design-system config found. Initialise with `ibr design-system init` ' +
           'to define tokens, or skip this question.',
-      })
+      }
+      bumpVerdict(f.verdict)
+      emitted++
+      totalProduced++
+      yield { type: 'finding', ...f }
     } else {
       rulesRun.push('tokens/extended')
       const tokens = config.tokens
       if (!tokens) {
-        findings.push({
+        const f: Finding = {
           verdict: 'UNCERTAIN',
           rule: 'tokens/no-tokens',
           summary: 'Design-system config exists but has no `tokens` defined.',
-        })
+        }
+        bumpVerdict(f.verdict)
+        emitted++
+        totalProduced++
+        yield { type: 'finding', ...f }
       } else {
         const tokenViolations = validateExtendedTokens(elements, tokens, config.name ?? 'project')
-        truncated = tokenViolations.length > maxFindings
-        for (const t of tokenViolations.slice(0, maxFindings)) {
-          findings.push(tokenViolationToFinding(t))
+        for (const t of tokenViolations) {
+          totalProduced++
+          if (emitted >= maxFindings) continue
+          const finding = tokenViolationToFinding(t)
+          bumpVerdict(finding.verdict)
+          emitted++
+          yield { type: 'finding', ...finding }
         }
       }
     }
   }
 
+  yield {
+    type: 'end',
+    verdict: aggregate,
+    totalFindings: emitted,
+    durationMs: Date.now() - start,
+    truncated: totalProduced > emitted,
+    rulesRun,
+    elementsScanned: elements.length,
+  }
+}
+
+// ── Blocking wrapper: consumes the stream into a single AskResponse. ─────────
+// Existing callers continue to work without changes.
+
+export async function ask(
+  url: string,
+  question: string,
+  options: AskOptions = {},
+): Promise<AskResponse> {
+  const findings: Finding[] = []
+  let endEvent:
+    | Extract<AskStreamEvent, { type: 'end' }>
+    | undefined
+  let supportedQuestions: string[] | undefined
+
+  for await (const event of askStream(url, question, options)) {
+    if (event.type === 'finding') {
+      const { type: _t, ...rest } = event
+      findings.push(rest)
+    } else if (event.type === 'start') {
+      supportedQuestions = event.supportedQuestions
+    } else if (event.type === 'end') {
+      endEvent = event
+    }
+  }
+
+  if (!endEvent) {
+    // Defensive: should never happen — askStream always emits an `end` event.
+    throw new Error('askStream did not emit an end event')
+  }
+
   return {
     question,
-    verdict: aggregateVerdict(findings),
+    verdict: endEvent.verdict,
     findings,
-    truncated: truncated || undefined,
+    truncated: endEvent.truncated || undefined,
     meta: {
       engineVersion: ENGINE_VERSION,
-      durationMs: Date.now() - start,
-      elementsScanned: elements.length,
-      rulesRun,
+      durationMs: endEvent.durationMs,
+      elementsScanned: endEvent.elementsScanned,
+      rulesRun: endEvent.rulesRun,
+      ...(supportedQuestions ? { supportedQuestions } : {}),
     },
   }
 }

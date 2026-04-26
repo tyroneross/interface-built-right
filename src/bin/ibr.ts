@@ -959,27 +959,37 @@ program
   .description('Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).')
   .option('--timeout <ms>', 'Page load timeout in ms', '30000')
   .option('--max-findings <n>', 'Cap returned findings (default 25)', '25')
+  .option('--stream', 'Emit NDJSON stream — one event per line (start, finding..., end). Findings arrive as the rule loop produces them.')
   .action(async (
     url: string,
     questionWords: string[],
-    options: { timeout: string; maxFindings: string },
+    options: { timeout: string; maxFindings: string; stream?: boolean },
   ) => {
     try {
-      const { ask } = await import('../ask.js');
+      const { ask, askStream } = await import('../ask.js');
       const resolvedUrl = await resolveBaseUrl(url);
       const question = questionWords.join(' ');
       const globalViewport = (program.opts().viewport as string | undefined) ?? 'desktop';
       const viewport = globalViewport as 'desktop' | 'mobile' | 'tablet';
-
-      const response = await ask(resolvedUrl, question, {
+      const askOpts = {
         viewport,
         timeout: parseInt(options.timeout, 10),
         maxFindings: parseInt(options.maxFindings, 10),
-      });
+      };
 
+      if (options.stream) {
+        let endVerdict: string = 'PASS';
+        for await (const event of askStream(resolvedUrl, question, askOpts)) {
+          process.stdout.write(JSON.stringify(event) + '\n');
+          if (event.type === 'end') endVerdict = event.verdict;
+        }
+        if (endVerdict === 'FAIL') process.exit(1);
+        return;
+      }
+
+      const response = await ask(resolvedUrl, question, askOpts);
       // Always JSON — `ask` is built for agent consumption.
       console.log(JSON.stringify(response, null, 2));
-
       if (response.verdict === 'FAIL') process.exit(1);
     } catch (error) {
       console.error('Ask error:', error instanceof Error ? error.message : error);

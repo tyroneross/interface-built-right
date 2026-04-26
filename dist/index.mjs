@@ -12085,13 +12085,6 @@ function matchQuestion(input) {
   }
   return null;
 }
-function aggregateVerdict(findings) {
-  if (findings.length === 0) return "PASS";
-  if (findings.some((f) => f.verdict === "FAIL")) return "FAIL";
-  if (findings.some((f) => f.verdict === "WARN")) return "WARN";
-  if (findings.some((f) => f.verdict === "UNCERTAIN")) return "UNCERTAIN";
-  return "PASS";
-}
 function violationToFinding(v, kindSeverity) {
   const evidence = {};
   if (v.bounds) evidence.bounds = v.bounds;
@@ -12114,29 +12107,34 @@ function tokenViolationToFinding(t) {
   };
 }
 var ENGINE_VERSION = "0.1.0-m1";
-async function ask(url, question, options = {}) {
+async function* askStream(url, question, options = {}) {
   const start = Date.now();
   const def = matchQuestion(question);
   if (!def) {
-    return {
+    yield {
+      type: "start",
       question,
-      verdict: "UNCERTAIN",
-      findings: [
-        {
-          verdict: "UNCERTAIN",
-          rule: "ask/unsupported-question",
-          summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join("; ")}`
-        }
-      ],
-      meta: {
-        engineVersion: ENGINE_VERSION,
-        durationMs: Date.now() - start,
-        elementsScanned: 0,
-        rulesRun: [],
-        supportedQuestions: SUPPORTED_QUESTIONS
-      }
+      engineVersion: ENGINE_VERSION,
+      supportedQuestions: SUPPORTED_QUESTIONS
     };
+    yield {
+      type: "finding",
+      verdict: "UNCERTAIN",
+      rule: "ask/unsupported-question",
+      summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join("; ")}`
+    };
+    yield {
+      type: "end",
+      verdict: "UNCERTAIN",
+      totalFindings: 1,
+      durationMs: Date.now() - start,
+      truncated: false,
+      rulesRun: [],
+      elementsScanned: 0
+    };
+    return;
   }
+  yield { type: "start", question, engineVersion: ENGINE_VERSION };
   let elements;
   let viewportWidth;
   let viewportHeight;
@@ -12161,60 +12159,111 @@ async function ask(url, question, options = {}) {
     allElements: elements
   };
   const maxFindings = options.maxFindings ?? 25;
-  const findings = [];
   const rulesRun = [];
-  let truncated = false;
+  let emitted = 0;
+  let totalProduced = 0;
+  let aggregate = "PASS";
+  function bumpVerdict(next) {
+    if (aggregate === "FAIL") return;
+    if (next === "FAIL") aggregate = "FAIL";
+    else if (next === "WARN") aggregate = "WARN";
+    else if (next === "UNCERTAIN" && aggregate === "PASS") aggregate = "UNCERTAIN";
+  }
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
-    const violations = [];
-    for (const element of elements) {
+    outer: for (const element of elements) {
       for (const rule of targetRules) {
         const v = rule.check(element, context);
-        if (v) violations.push({ ...v, severity: def.severity });
+        if (!v) continue;
+        totalProduced++;
+        if (emitted < maxFindings) {
+          const finding = violationToFinding({ ...v, severity: def.severity }, def.severity);
+          bumpVerdict(finding.verdict);
+          emitted++;
+          yield { type: "finding", ...finding };
+        } else {
+          break outer;
+        }
       }
-    }
-    truncated = violations.length > maxFindings;
-    for (const v of violations.slice(0, maxFindings)) {
-      findings.push(violationToFinding(v, def.severity));
     }
   } else if (def.kind === "token-compliance") {
     const projectDir = options.projectDir ?? process.cwd();
     const config = await loadDesignSystemConfig(projectDir);
     if (!config) {
-      findings.push({
+      const f = {
         verdict: "UNCERTAIN",
         rule: "tokens/no-config",
         summary: "No design-system config found. Initialise with `ibr design-system init` to define tokens, or skip this question."
-      });
+      };
+      bumpVerdict(f.verdict);
+      emitted++;
+      totalProduced++;
+      yield { type: "finding", ...f };
     } else {
       rulesRun.push("tokens/extended");
       const tokens = config.tokens;
       if (!tokens) {
-        findings.push({
+        const f = {
           verdict: "UNCERTAIN",
           rule: "tokens/no-tokens",
           summary: "Design-system config exists but has no `tokens` defined."
-        });
+        };
+        bumpVerdict(f.verdict);
+        emitted++;
+        totalProduced++;
+        yield { type: "finding", ...f };
       } else {
         const tokenViolations = validateExtendedTokens(elements, tokens, config.name ?? "project");
-        truncated = tokenViolations.length > maxFindings;
-        for (const t of tokenViolations.slice(0, maxFindings)) {
-          findings.push(tokenViolationToFinding(t));
+        for (const t of tokenViolations) {
+          totalProduced++;
+          if (emitted >= maxFindings) continue;
+          const finding = tokenViolationToFinding(t);
+          bumpVerdict(finding.verdict);
+          emitted++;
+          yield { type: "finding", ...finding };
         }
       }
     }
   }
+  yield {
+    type: "end",
+    verdict: aggregate,
+    totalFindings: emitted,
+    durationMs: Date.now() - start,
+    truncated: totalProduced > emitted,
+    rulesRun,
+    elementsScanned: elements.length
+  };
+}
+async function ask(url, question, options = {}) {
+  const findings = [];
+  let endEvent;
+  let supportedQuestions;
+  for await (const event of askStream(url, question, options)) {
+    if (event.type === "finding") {
+      const { type: _t, ...rest } = event;
+      findings.push(rest);
+    } else if (event.type === "start") {
+      supportedQuestions = event.supportedQuestions;
+    } else if (event.type === "end") {
+      endEvent = event;
+    }
+  }
+  if (!endEvent) {
+    throw new Error("askStream did not emit an end event");
+  }
   return {
     question,
-    verdict: aggregateVerdict(findings),
+    verdict: endEvent.verdict,
     findings,
-    truncated: truncated || void 0,
+    truncated: endEvent.truncated || void 0,
     meta: {
       engineVersion: ENGINE_VERSION,
-      durationMs: Date.now() - start,
-      elementsScanned: elements.length,
-      rulesRun
+      durationMs: endEvent.durationMs,
+      elementsScanned: endEvent.elementsScanned,
+      rulesRun: endEvent.rulesRun,
+      ...supportedQuestions ? { supportedQuestions } : {}
     }
   };
 }
@@ -14134,6 +14183,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

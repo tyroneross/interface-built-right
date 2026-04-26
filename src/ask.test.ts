@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { ask, _internal, type AskResponse } from './ask.js'
+import { ask, askStream, _internal, type AskResponse, type AskStreamEvent } from './ask.js'
 import type { EnhancedElement } from './schemas.js'
 
 const URL = 'http://test.local/'
@@ -190,5 +190,95 @@ describe('ask: response shape', () => {
     expect(r.meta.engineVersion).toMatch(/^0\.\d+\.\d+/)
     expect(typeof r.meta.durationMs).toBe('number')
     expect(r.meta.durationMs).toBeGreaterThanOrEqual(0)
+  })
+})
+
+// ── B1: NDJSON streaming ──────────────────────────────────────────────────────
+
+describe('askStream', () => {
+  async function collect(gen: AsyncGenerator<AskStreamEvent, void, void>) {
+    const events: AskStreamEvent[] = []
+    for await (const e of gen) events.push(e)
+    return events
+  }
+
+  it('emits start → finding* → end in order', async () => {
+    const events = await collect(
+      askStream(URL, 'is the touch-target compliant', {
+        preScannedElements: [
+          el({ bounds: { x: 0, y: 0, width: 20, height: 20 }, text: 'TooSmall' }),
+        ],
+        viewportMetrics: { width: 1280, height: 800 },
+      }),
+    )
+    expect(events[0]?.type).toBe('start')
+    expect(events.at(-1)?.type).toBe('end')
+    expect(events.filter((e) => e.type === 'finding').length).toBeGreaterThan(0)
+  })
+
+  it('end event aggregates verdict and totals', async () => {
+    const events = await collect(
+      askStream(URL, 'is the touch-target compliant', {
+        preScannedElements: [
+          el({ bounds: { x: 0, y: 0, width: 20, height: 20 }, text: 'A' }),
+          el({ bounds: { x: 0, y: 0, width: 20, height: 20 }, text: 'B' }),
+        ],
+        viewportMetrics: { width: 1280, height: 800 },
+      }),
+    )
+    const end = events.at(-1)
+    expect(end?.type).toBe('end')
+    if (end?.type !== 'end') throw new Error('expected end')
+    expect(end.verdict).toBe('WARN')
+    expect(end.totalFindings).toBe(2)
+    expect(end.elementsScanned).toBe(2)
+    expect(end.truncated).toBe(false)
+  })
+
+  it('end.truncated reflects the cap', async () => {
+    const tiny = (i: number) =>
+      el({ selector: `.b-${i}`, text: `T${i}`, bounds: { x: 0, y: 0, width: 20, height: 20 } })
+    const events = await collect(
+      askStream(URL, 'is the touch-target compliant', {
+        preScannedElements: Array.from({ length: 5 }, (_, i) => tiny(i)),
+        viewportMetrics: { width: 360, height: 800 },
+        maxFindings: 2,
+      }),
+    )
+    const findings = events.filter((e) => e.type === 'finding')
+    expect(findings).toHaveLength(2)
+    const end = events.at(-1)
+    if (end?.type !== 'end') throw new Error('expected end')
+    expect(end.truncated).toBe(true)
+  })
+
+  it('first finding arrives in < 100ms on pre-scanned fixture', async () => {
+    const tiny = (i: number) =>
+      el({ selector: `.b-${i}`, text: `T${i}`, bounds: { x: 0, y: 0, width: 20, height: 20 } })
+    const start = Date.now()
+    const gen = askStream(URL, 'is the touch-target compliant', {
+      preScannedElements: Array.from({ length: 100 }, (_, i) => tiny(i)),
+      viewportMetrics: { width: 360, height: 800 },
+    })
+    let firstFindingAt: number | null = null
+    for await (const e of gen) {
+      if (e.type === 'finding' && firstFindingAt === null) {
+        firstFindingAt = Date.now() - start
+      }
+      if (firstFindingAt !== null && e.type === 'finding') break
+    }
+    expect(firstFindingAt).not.toBeNull()
+    // Pre-scanned (no CDP) — well under the 500ms budget the thesis specified.
+    expect(firstFindingAt!).toBeLessThan(100)
+  })
+
+  it('unsupported question yields a single UNCERTAIN finding then end', async () => {
+    const events = await collect(
+      askStream(URL, 'what colour is the sky', { preScannedElements: [] }),
+    )
+    expect(events.map((e) => e.type)).toEqual(['start', 'finding', 'end'])
+    const start = events[0]
+    if (start?.type !== 'start') throw new Error('expected start')
+    expect(start.supportedQuestions).toEqual(_internal.SUPPORTED_QUESTIONS)
   })
 })

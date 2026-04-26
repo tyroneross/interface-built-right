@@ -13513,7 +13513,8 @@ var init_scan = __esm({
 var ask_exports = {};
 __export(ask_exports, {
   _internal: () => _internal,
-  ask: () => ask
+  ask: () => ask,
+  askStream: () => askStream
 });
 function matchQuestion(input) {
   const normalised = input.trim();
@@ -13551,29 +13552,34 @@ function tokenViolationToFinding(t) {
     evidence: { expected: t.expected, actual: t.actual, property: t.property }
   };
 }
-async function ask(url, question, options = {}) {
+async function* askStream(url, question, options = {}) {
   const start = Date.now();
   const def = matchQuestion(question);
   if (!def) {
-    return {
+    yield {
+      type: "start",
       question,
-      verdict: "UNCERTAIN",
-      findings: [
-        {
-          verdict: "UNCERTAIN",
-          rule: "ask/unsupported-question",
-          summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join("; ")}`
-        }
-      ],
-      meta: {
-        engineVersion: ENGINE_VERSION,
-        durationMs: Date.now() - start,
-        elementsScanned: 0,
-        rulesRun: [],
-        supportedQuestions: SUPPORTED_QUESTIONS
-      }
+      engineVersion: ENGINE_VERSION,
+      supportedQuestions: SUPPORTED_QUESTIONS
     };
+    yield {
+      type: "finding",
+      verdict: "UNCERTAIN",
+      rule: "ask/unsupported-question",
+      summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join("; ")}`
+    };
+    yield {
+      type: "end",
+      verdict: "UNCERTAIN",
+      totalFindings: 1,
+      durationMs: Date.now() - start,
+      truncated: false,
+      rulesRun: [],
+      elementsScanned: 0
+    };
+    return;
   }
+  yield { type: "start", question, engineVersion: ENGINE_VERSION };
   let elements;
   let viewportWidth;
   let viewportHeight;
@@ -13598,60 +13604,111 @@ async function ask(url, question, options = {}) {
     allElements: elements
   };
   const maxFindings = options.maxFindings ?? 25;
-  const findings = [];
   const rulesRun = [];
-  let truncated = false;
+  let emitted = 0;
+  let totalProduced = 0;
+  let aggregate = "PASS";
+  function bumpVerdict(next) {
+    if (aggregate === "FAIL") return;
+    if (next === "FAIL") aggregate = "FAIL";
+    else if (next === "WARN") aggregate = "WARN";
+    else if (next === "UNCERTAIN" && aggregate === "PASS") aggregate = "UNCERTAIN";
+  }
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
-    const violations = [];
-    for (const element of elements) {
+    outer: for (const element of elements) {
       for (const rule of targetRules) {
         const v = rule.check(element, context);
-        if (v) violations.push({ ...v, severity: def.severity });
+        if (!v) continue;
+        totalProduced++;
+        if (emitted < maxFindings) {
+          const finding = violationToFinding({ ...v, severity: def.severity }, def.severity);
+          bumpVerdict(finding.verdict);
+          emitted++;
+          yield { type: "finding", ...finding };
+        } else {
+          break outer;
+        }
       }
-    }
-    truncated = violations.length > maxFindings;
-    for (const v of violations.slice(0, maxFindings)) {
-      findings.push(violationToFinding(v, def.severity));
     }
   } else if (def.kind === "token-compliance") {
     const projectDir = options.projectDir ?? process.cwd();
     const config = await loadDesignSystemConfig(projectDir);
     if (!config) {
-      findings.push({
+      const f = {
         verdict: "UNCERTAIN",
         rule: "tokens/no-config",
         summary: "No design-system config found. Initialise with `ibr design-system init` to define tokens, or skip this question."
-      });
+      };
+      bumpVerdict(f.verdict);
+      emitted++;
+      totalProduced++;
+      yield { type: "finding", ...f };
     } else {
       rulesRun.push("tokens/extended");
       const tokens = config.tokens;
       if (!tokens) {
-        findings.push({
+        const f = {
           verdict: "UNCERTAIN",
           rule: "tokens/no-tokens",
           summary: "Design-system config exists but has no `tokens` defined."
-        });
+        };
+        bumpVerdict(f.verdict);
+        emitted++;
+        totalProduced++;
+        yield { type: "finding", ...f };
       } else {
         const tokenViolations = validateExtendedTokens(elements, tokens, config.name ?? "project");
-        truncated = tokenViolations.length > maxFindings;
-        for (const t of tokenViolations.slice(0, maxFindings)) {
-          findings.push(tokenViolationToFinding(t));
+        for (const t of tokenViolations) {
+          totalProduced++;
+          if (emitted >= maxFindings) continue;
+          const finding = tokenViolationToFinding(t);
+          bumpVerdict(finding.verdict);
+          emitted++;
+          yield { type: "finding", ...finding };
         }
       }
     }
   }
+  yield {
+    type: "end",
+    verdict: aggregate,
+    totalFindings: emitted,
+    durationMs: Date.now() - start,
+    truncated: totalProduced > emitted,
+    rulesRun,
+    elementsScanned: elements.length
+  };
+}
+async function ask(url, question, options = {}) {
+  const findings = [];
+  let endEvent;
+  let supportedQuestions;
+  for await (const event of askStream(url, question, options)) {
+    if (event.type === "finding") {
+      const { type: _t, ...rest } = event;
+      findings.push(rest);
+    } else if (event.type === "start") {
+      supportedQuestions = event.supportedQuestions;
+    } else if (event.type === "end") {
+      endEvent = event;
+    }
+  }
+  if (!endEvent) {
+    throw new Error("askStream did not emit an end event");
+  }
   return {
     question,
-    verdict: aggregateVerdict(findings),
+    verdict: endEvent.verdict,
     findings,
-    truncated: truncated || void 0,
+    truncated: endEvent.truncated || void 0,
     meta: {
       engineVersion: ENGINE_VERSION,
-      durationMs: Date.now() - start,
-      elementsScanned: elements.length,
-      rulesRun
+      durationMs: endEvent.durationMs,
+      elementsScanned: endEvent.elementsScanned,
+      rulesRun: endEvent.rulesRun,
+      ...supportedQuestions ? { supportedQuestions } : {}
     }
   };
 }
@@ -15373,6 +15430,7 @@ __export(index_exports, {
   applyDesignSystemCheck: () => applyDesignSystemCheck,
   archiveSummary: () => archiveSummary,
   ask: () => ask,
+  askStream: () => askStream,
   auditNativeElements: () => auditNativeElements,
   bootDevice: () => bootDevice,
   buildNativeInteractivity: () => buildNativeInteractivity,
@@ -22016,18 +22074,28 @@ program.command("scan <url>").description("Full UI scan: elements + interactivit
     process.exit(1);
   }
 });
-program.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").action(async (url, questionWords, options) => {
+program.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").option("--stream", "Emit NDJSON stream \u2014 one event per line (start, finding..., end). Findings arrive as the rule loop produces them.").action(async (url, questionWords, options) => {
   try {
-    const { ask: ask2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
+    const { ask: ask2, askStream: askStream2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
     const resolvedUrl = await resolveBaseUrl(url);
     const question = questionWords.join(" ");
     const globalViewport = program.opts().viewport ?? "desktop";
     const viewport = globalViewport;
-    const response = await ask2(resolvedUrl, question, {
+    const askOpts = {
       viewport,
       timeout: parseInt(options.timeout, 10),
       maxFindings: parseInt(options.maxFindings, 10)
-    });
+    };
+    if (options.stream) {
+      let endVerdict = "PASS";
+      for await (const event of askStream2(resolvedUrl, question, askOpts)) {
+        process.stdout.write(JSON.stringify(event) + "\n");
+        if (event.type === "end") endVerdict = event.verdict;
+      }
+      if (endVerdict === "FAIL") process.exit(1);
+      return;
+    }
+    const response = await ask2(resolvedUrl, question, askOpts);
     console.log(JSON.stringify(response, null, 2));
     if (response.verdict === "FAIL") process.exit(1);
   } catch (error) {
