@@ -5,7 +5,7 @@
  * they run without spinning up a CDP browser.
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { ask, askStream, _internal, type AskResponse, type AskStreamEvent } from './ask.js'
 import type { EnhancedElement } from './schemas.js'
 
@@ -336,6 +336,71 @@ describe('askStream', () => {
       screenshotPath: '/tmp/test-meta.png',
     })
     expect(r.meta.screenshotPath).toBe('/tmp/test-meta.png')
+  })
+
+  // ── Gap 3 Step 2 — iOS guest PARTIAL verdict ────────────────────────────────
+
+  it('iOS guest URL routes to PARTIAL with screenshot evidence', async () => {
+    // Mock the native scan dynamically — must be done before askStream imports it.
+    vi.resetModules()
+    vi.doMock('./native/scan.js', () => ({
+      scanNative: vi.fn().mockResolvedValue({
+        url: 'simulator://iPhone%2017%20Pro/current',
+        platform: 'ios',
+        device: { name: 'iPhone 17 Pro', udid: 'TEST-UDID', runtime: 'iOS 26' },
+        screenshotPath: '/tmp/test-ios-shot.png',
+        elements: { all: [], audit: { totalElements: 0, interactiveCount: 0, withHandlers: 0, withoutHandlers: 0, issues: [] } },
+        verdict: 'ISSUES',
+        issues: [],
+        summary: 'mocked',
+      }),
+    }))
+    const mod = await import('./ask.js')
+    const events: AskStreamEvent[] = []
+    for await (const e of mod.askStream(
+      'simulator://iPhone%2017%20Pro/com.example.app',
+      'is the touch-target compliant',
+    )) {
+      events.push(e)
+    }
+    const findings = events.filter((e) => e.type === 'finding')
+    expect(findings).toHaveLength(1)
+    const f = findings[0]
+    if (f?.type !== 'finding') throw new Error('expected finding')
+    expect(f.verdict).toBe('PARTIAL')
+    expect(f.rule).toBe('ask/ios-guest-vision-required')
+    expect(f.evidence?.screenshotPath).toBe('/tmp/test-ios-shot.png')
+    const end = events.at(-1)
+    if (end?.type !== 'end') throw new Error('expected end')
+    expect(end.verdict).toBe('PARTIAL')
+    expect(end.screenshotPath).toBe('/tmp/test-ios-shot.png')
+    vi.doUnmock('./native/scan.js')
+  })
+
+  it('iOS guest URL with native scan failure still emits PARTIAL', async () => {
+    vi.resetModules()
+    vi.doMock('./native/scan.js', () => ({
+      scanNative: vi.fn().mockRejectedValue(new Error('no booted simulator')),
+    }))
+    const mod = await import('./ask.js')
+    const events: AskStreamEvent[] = []
+    for await (const e of mod.askStream(
+      'simulator://iPhone%2017%20Pro/current',
+      'is the touch-target compliant',
+    )) {
+      events.push(e)
+    }
+    const findings = events.filter((e) => e.type === 'finding')
+    expect(findings).toHaveLength(1)
+    const f = findings[0]
+    if (f?.type !== 'finding') throw new Error('expected finding')
+    expect(f.verdict).toBe('PARTIAL')
+    expect(f.rule).toBe('ask/ios-guest-scan-failed')
+    expect(f.summary).toMatch(/no booted simulator/)
+    const end = events.at(-1)
+    if (end?.type !== 'end') throw new Error('expected end')
+    expect(end.verdict).toBe('PARTIAL')
+    vi.doUnmock('./native/scan.js')
   })
 
   it('unsupported question yields a single UNCERTAIN finding then end', async () => {

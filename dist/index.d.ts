@@ -6215,7 +6215,19 @@ declare function validateAgainstTokens(elements: EnhancedElement[], spec: Design
  * M1 scope: three questions, three rule families. Closed vocabulary.
  */
 
-type Verdict = 'PASS' | 'FAIL' | 'WARN' | 'UNCERTAIN';
+/**
+ * Verdict ladder:
+ *   PASS       — no findings; the question is answered cleanly
+ *   WARN       — findings exist at warning severity
+ *   FAIL       — findings exist at error severity
+ *   PARTIAL    — engine has *visual* evidence but couldn't run the rule
+ *                deterministically (e.g. iOS guest where AX tree is
+ *                unreachable). Vision-capable consumer should inspect the
+ *                screenshot.
+ *   UNCERTAIN  — engine couldn't answer. The agent should not act on this
+ *                as if it were PASS.
+ */
+type Verdict = 'PASS' | 'FAIL' | 'WARN' | 'UNCERTAIN' | 'PARTIAL';
 interface Finding {
     verdict: Verdict;
     rule: string;

@@ -8872,6 +8872,1105 @@ var init_memory = __esm({
   }
 });
 
+// src/native/simulator.ts
+var simulator_exports = {};
+__export(simulator_exports, {
+  bootDevice: () => bootDevice,
+  findDevice: () => findDevice,
+  formatDevice: () => formatDevice,
+  getBootedDevices: () => getBootedDevices,
+  listDevices: () => listDevices
+});
+function parseRuntime(runtime) {
+  if (/watchOS/i.test(runtime)) return "watchos";
+  return "ios";
+}
+async function listDevices() {
+  const { stdout } = await execFileAsync("xcrun", ["simctl", "list", "devices", "--json"]);
+  const data = JSON.parse(stdout);
+  const devices = [];
+  for (const [runtime, deviceList] of Object.entries(data.devices)) {
+    if (!Array.isArray(deviceList)) continue;
+    for (const dev of deviceList) {
+      devices.push({
+        udid: dev.udid,
+        name: dev.name,
+        state: dev.state,
+        runtime,
+        platform: parseRuntime(runtime),
+        isAvailable: dev.isAvailable
+      });
+    }
+  }
+  return devices;
+}
+async function findDevice(nameOrUdid) {
+  const devices = await listDevices();
+  const search = nameOrUdid.toLowerCase();
+  const byUdid = devices.find((d) => d.udid.toLowerCase() === search);
+  if (byUdid) return byUdid;
+  const matches = devices.filter((d) => d.name.toLowerCase().includes(search) && d.isAvailable).sort((a, b) => {
+    if (a.state === "Booted" && b.state !== "Booted") return -1;
+    if (b.state === "Booted" && a.state !== "Booted") return 1;
+    return 0;
+  });
+  return matches[0] || null;
+}
+async function getBootedDevices() {
+  const devices = await listDevices();
+  return devices.filter((d) => d.state === "Booted");
+}
+async function bootDevice(udid) {
+  const devices = await listDevices();
+  const device = devices.find((d) => d.udid === udid);
+  if (!device) {
+    throw new Error(`Device not found: ${udid}`);
+  }
+  if (device.state === "Booted") {
+    return;
+  }
+  await execFileAsync("xcrun", ["simctl", "boot", udid]);
+  await new Promise((resolve3) => setTimeout(resolve3, 2e3));
+}
+function formatDevice(device) {
+  const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
+  const stateIcon = device.state === "Booted" ? "\x1B[32m\u25CF\x1B[0m" : "\x1B[90m\u25CB\x1B[0m";
+  return `${stateIcon} ${device.name} (${runtimeVersion}) [${device.udid.slice(0, 8)}...]`;
+}
+var import_child_process2, import_util, execFileAsync;
+var init_simulator = __esm({
+  "src/native/simulator.ts"() {
+    "use strict";
+    import_child_process2 = require("child_process");
+    import_util = require("util");
+    execFileAsync = (0, import_util.promisify)(import_child_process2.execFile);
+  }
+});
+
+// src/native/viewports.ts
+function getDeviceViewport(device) {
+  for (const [pattern, key] of DEVICE_NAME_PATTERNS) {
+    if (pattern.test(device.name)) {
+      return NATIVE_VIEWPORTS[key];
+    }
+  }
+  if (device.platform === "watchos") {
+    return NATIVE_VIEWPORTS["watch-series-10-42mm"];
+  }
+  return NATIVE_VIEWPORTS["iphone-16-pro"];
+}
+var NATIVE_VIEWPORTS, DEVICE_NAME_PATTERNS;
+var init_viewports = __esm({
+  "src/native/viewports.ts"() {
+    "use strict";
+    NATIVE_VIEWPORTS = {
+      // iPhone 16 series
+      "iphone-16": { name: "iphone-16", width: 393, height: 852 },
+      "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
+      "iphone-16-pro": { name: "iphone-16-pro", width: 402, height: 874 },
+      "iphone-16-pro-max": { name: "iphone-16-pro-max", width: 440, height: 956 },
+      // Apple Watch Series 10
+      "watch-series-10-42mm": { name: "watch-series-10-42mm", width: 176, height: 215 },
+      "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
+      // Apple Watch Ultra 2
+      "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
+    };
+    DEVICE_NAME_PATTERNS = [
+      [/iPhone 16 Pro Max/i, "iphone-16-pro-max"],
+      [/iPhone 16 Pro/i, "iphone-16-pro"],
+      [/iPhone 16 Plus/i, "iphone-16-plus"],
+      [/iPhone 16/i, "iphone-16"],
+      [/Apple Watch.*Ultra.*49/i, "watch-ultra-2-49mm"],
+      [/Apple Watch.*46/i, "watch-series-10-46mm"],
+      [/Apple Watch.*42/i, "watch-series-10-42mm"],
+      // Fallbacks for generic watch/phone
+      [/Apple Watch Ultra/i, "watch-ultra-2-49mm"],
+      [/Apple Watch/i, "watch-series-10-42mm"],
+      [/iPhone/i, "iphone-16-pro"]
+    ];
+  }
+});
+
+// src/native/capture.ts
+async function captureNativeScreenshot(options) {
+  const { device, outputPath, mask } = options;
+  const start = Date.now();
+  try {
+    await (0, import_promises10.mkdir)((0, import_path10.dirname)(outputPath), { recursive: true });
+    const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
+    const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
+    if (effectiveMask) {
+      args.push(`--mask=${effectiveMask}`);
+    }
+    args.push(outputPath);
+    await execFileAsync2("xcrun", args, { timeout: 15e3 });
+    const viewport = getDeviceViewport(device);
+    return {
+      success: true,
+      outputPath,
+      device,
+      viewport,
+      timing: Date.now() - start
+    };
+  } catch (err) {
+    return {
+      success: false,
+      device,
+      viewport: getDeviceViewport(device),
+      timing: Date.now() - start,
+      error: err instanceof Error ? err.message : "Screenshot capture failed"
+    };
+  }
+}
+var import_child_process3, import_util2, import_promises10, import_path10, execFileAsync2;
+var init_capture = __esm({
+  "src/native/capture.ts"() {
+    "use strict";
+    import_child_process3 = require("child_process");
+    import_util2 = require("util");
+    import_promises10 = require("fs/promises");
+    import_path10 = require("path");
+    init_viewports();
+    execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
+  }
+});
+
+// src/native/role-map.ts
+function mapRoleToTag(role) {
+  return TAG_MAP[role] || role.replace(/^AX/, "").toLowerCase();
+}
+function mapRoleToAriaRole(role) {
+  return ARIA_MAP[role] || null;
+}
+function isInteractiveRole(role) {
+  return INTERACTIVE_ROLES3.has(role);
+}
+var TAG_MAP, ARIA_MAP, INTERACTIVE_ROLES3;
+var init_role_map = __esm({
+  "src/native/role-map.ts"() {
+    "use strict";
+    TAG_MAP = {
+      "AXButton": "button",
+      "AXLink": "a",
+      "AXTextField": "input",
+      "AXTextArea": "textarea",
+      "AXSecureTextField": "input",
+      "AXStaticText": "span",
+      "AXImage": "img",
+      "AXGroup": "div",
+      "AXSplitGroup": "div",
+      "AXList": "ul",
+      "AXCell": "li",
+      "AXTable": "table",
+      "AXScrollArea": "div",
+      "AXToolbar": "nav",
+      "AXMenuBar": "nav",
+      "AXMenu": "nav",
+      "AXMenuItem": "li",
+      "AXCheckBox": "input",
+      "AXRadioButton": "input",
+      "AXSlider": "input",
+      "AXSwitch": "input",
+      "AXPopUpButton": "select",
+      "AXComboBox": "select",
+      "AXTabGroup": "div",
+      "AXTab": "button",
+      "AXNavigationBar": "nav",
+      "AXHeader": "header",
+      "AXWindow": "main"
+    };
+    ARIA_MAP = {
+      "AXButton": "button",
+      "AXLink": "link",
+      "AXTextField": "textbox",
+      "AXTextArea": "textbox",
+      "AXSecureTextField": "textbox",
+      "AXStaticText": "text",
+      "AXImage": "img",
+      "AXGroup": "group",
+      "AXList": "list",
+      "AXCell": "listitem",
+      "AXTable": "table",
+      "AXCheckBox": "checkbox",
+      "AXRadioButton": "radio",
+      "AXSlider": "slider",
+      "AXSwitch": "switch",
+      "AXTab": "tab",
+      "AXTabGroup": "tablist",
+      "AXNavigationBar": "navigation",
+      "AXToolbar": "toolbar",
+      "AXMenuItem": "menuitem",
+      "AXMenu": "menu",
+      "AXScrollArea": "scrollbar",
+      "AXWindow": "main"
+    };
+    INTERACTIVE_ROLES3 = /* @__PURE__ */ new Set([
+      "AXButton",
+      "AXLink",
+      "AXTextField",
+      "AXTextArea",
+      "AXSecureTextField",
+      "AXCheckBox",
+      "AXRadioButton",
+      "AXSlider",
+      "AXSwitch",
+      "AXPopUpButton",
+      "AXComboBox",
+      "AXMenuItem",
+      "AXTab"
+    ]);
+  }
+});
+
+// src/native/extract.ts
+var extract_exports = {};
+__export(extract_exports, {
+  ensureExtractor: () => ensureExtractor,
+  extractNativeElements: () => extractNativeElements,
+  isExtractorAvailable: () => isExtractorAvailable,
+  mapToEnhancedElements: () => mapToEnhancedElements
+});
+async function ensureExtractor() {
+  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) {
+    return EXTRACTOR_PATH;
+  }
+  await (0, import_promises11.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  try {
+    await execFileAsync3("swift", ["build", "-c", "release"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+      // 2 minutes for first compile
+    });
+    const buildPath = (0, import_path11.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    if (!(0, import_fs3.existsSync)(buildPath)) {
+      throw new Error("Swift build succeeded but binary not found at expected path");
+    }
+    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
+    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
+    return EXTRACTOR_PATH;
+  } catch (err) {
+    throw new Error(
+      `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
+    );
+  }
+}
+function isExtractorAvailable() {
+  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs3.existsSync)((0, import_path11.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+}
+async function extractNativeElements(device) {
+  const extractorPath = await ensureExtractor();
+  try {
+    const { stdout } = await execFileAsync3(extractorPath, [
+      "--device-name",
+      device.name
+    ], {
+      timeout: 3e4
+    });
+    const elements = JSON.parse(stdout);
+    return elements;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    if (message.includes("permission") || message.includes("accessibility")) {
+      throw new Error(
+        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
+      );
+    }
+    throw new Error(`Element extraction failed: ${message}`);
+  }
+}
+function mapToEnhancedElements(nativeElements) {
+  const enhanced = [];
+  function flatten(elements, depth = 0) {
+    for (const el of elements) {
+      const tagName = mapRoleToTag(el.role);
+      const isInteractive2 = isInteractiveRole(el.role) && el.isEnabled;
+      enhanced.push({
+        selector: el.identifier || `[role="${el.role}"][label="${el.label}"]`,
+        tagName,
+        text: el.label || void 0,
+        bounds: {
+          x: el.frame.x,
+          y: el.frame.y,
+          width: el.frame.width,
+          height: el.frame.height
+        },
+        interactive: {
+          hasOnClick: isInteractive2,
+          hasHref: false,
+          isDisabled: !el.isEnabled,
+          tabIndex: isInteractive2 ? 0 : -1,
+          cursor: isInteractive2 ? "pointer" : "default"
+        },
+        a11y: {
+          role: mapRoleToAriaRole(el.role),
+          ariaLabel: el.label || null,
+          ariaDescribedBy: null
+        }
+      });
+      if (el.children.length > 0) {
+        flatten(el.children, depth + 1);
+      }
+    }
+  }
+  flatten(nativeElements);
+  return enhanced;
+}
+var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var init_extract3 = __esm({
+  "src/native/extract.ts"() {
+    "use strict";
+    import_child_process4 = require("child_process");
+    import_util3 = require("util");
+    import_fs3 = require("fs");
+    import_promises11 = require("fs/promises");
+    import_path11 = require("path");
+    init_role_map();
+    execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
+    EXTRACTOR_DIR = (0, import_path11.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path11.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = (0, import_path11.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+  }
+});
+
+// src/native/rules.ts
+function auditNativeElements(elements, platform, viewport) {
+  const issues = [];
+  const interactive = elements.filter(
+    (e) => e.interactive.hasOnClick && !e.interactive.isDisabled
+  );
+  if (platform === "watchos" && interactive.length > 7) {
+    issues.push({
+      type: "TOUCH_TARGET_SMALL",
+      // Reuse closest existing type
+      severity: "warning",
+      message: `watchOS screen has ${interactive.length} interactive elements (recommended max: 7). Reduce choices to avoid cognitive overload on small displays.`
+    });
+  }
+  for (const el of interactive) {
+    const minDimension = Math.min(el.bounds.width, el.bounds.height);
+    if (minDimension < 44) {
+      issues.push({
+        type: "TOUCH_TARGET_SMALL",
+        severity: "error",
+        message: `Touch target too small: "${el.text || el.selector}" is ${el.bounds.width}x${el.bounds.height}pt (minimum: 44x44pt)`
+      });
+    }
+  }
+  if (platform === "watchos") {
+    for (const el of elements) {
+      const rightEdge = el.bounds.x + el.bounds.width;
+      if (rightEdge > viewport.width) {
+        issues.push({
+          type: "TOUCH_TARGET_SMALL",
+          // Closest existing type
+          severity: "warning",
+          message: `Element "${el.text || el.selector}" overflows watchOS viewport (right edge: ${rightEdge}pt, viewport width: ${viewport.width}pt)`
+        });
+      }
+    }
+  }
+  for (const el of interactive) {
+    if (!el.text && !el.a11y.ariaLabel) {
+      issues.push({
+        type: "MISSING_ARIA_LABEL",
+        severity: "error",
+        message: `Interactive element "${el.selector}" has no accessibility label`
+      });
+    }
+  }
+  return issues;
+}
+var init_rules2 = __esm({
+  "src/native/rules.ts"() {
+    "use strict";
+  }
+});
+
+// src/native/macos.ts
+async function findProcess(appNameOrBundleId) {
+  try {
+    const { stdout } = await execAsync(
+      `lsappinfo info -only pid "${appNameOrBundleId}" 2>/dev/null || true`
+    );
+    const pidMatch = stdout.match(/"pid"\s*=\s*(\d+)/);
+    if (pidMatch) {
+      return parseInt(pidMatch[1], 10);
+    }
+  } catch {
+  }
+  try {
+    const { stdout } = await execAsync(
+      `pgrep -f "${appNameOrBundleId}" 2>/dev/null | head -1`
+    );
+    const pid = parseInt(stdout.trim(), 10);
+    if (!isNaN(pid) && pid > 0) {
+      return pid;
+    }
+  } catch {
+  }
+  throw new Error(
+    `No running process found for "${appNameOrBundleId}". Ensure the app is running and try again.`
+  );
+}
+async function extractMacOSElements(options) {
+  const extractorPath = await ensureExtractor();
+  const args = [];
+  if (options.pid) {
+    args.push("--pid", String(options.pid));
+  } else if (options.app) {
+    args.push("--app", options.app);
+  } else {
+    throw new Error("Either pid or app must be provided");
+  }
+  try {
+    const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
+      timeout: 3e4
+    });
+    if (stderr && stderr.includes("Error:")) {
+      throw new Error(stderr.trim());
+    }
+    const lines = stdout.split("\n");
+    const headerLine = lines[0];
+    const jsonStr = lines.slice(1).join("\n");
+    let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
+    if (headerLine.startsWith("WINDOW:")) {
+      const parts = headerLine.slice(7).split(":");
+      const windowId = parseInt(parts[0], 10);
+      const dims = (parts[1] || "800x600").split("x");
+      const title = parts.slice(2).join(":");
+      window2 = {
+        windowId,
+        width: parseInt(dims[0], 10) || 800,
+        height: parseInt(dims[1], 10) || 600,
+        title
+      };
+    }
+    const elements = JSON.parse(jsonStr);
+    return { elements, window: window2 };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    if (message.includes("Accessibility permission")) {
+      throw new Error(
+        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
+      );
+    }
+    if (message.includes("No running app")) {
+      throw err;
+    }
+    throw new Error(`macOS element extraction failed: ${message}`);
+  }
+}
+function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
+  const enhanced = [];
+  function flatten(elements, path, depth) {
+    const roleCounts = {};
+    for (const el of elements) {
+      const roleCount = roleCounts[el.role] || 0;
+      roleCounts[el.role] = roleCount + 1;
+      const currentPath = path ? `${path} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
+      const tagName = mapRoleToTag(el.role);
+      const isInteractive2 = isInteractiveRole(el.role) && el.enabled;
+      const hasPress = el.actions.includes("AXPress");
+      const text = el.title || el.description || el.value || void 0;
+      const bounds = {
+        x: el.position?.x ?? 0,
+        y: el.position?.y ?? 0,
+        width: el.size?.width ?? 0,
+        height: el.size?.height ?? 0
+      };
+      if (bounds.width > 0 || bounds.height > 0 || text || isInteractive2 || depth <= 1) {
+        enhanced.push({
+          selector: el.identifier || currentPath,
+          tagName,
+          id: el.identifier || void 0,
+          text: text ? text.slice(0, 100) : void 0,
+          bounds,
+          interactive: {
+            hasOnClick: hasPress || isInteractive2,
+            hasHref: el.role === "AXLink",
+            isDisabled: !el.enabled,
+            tabIndex: el.focused || isInteractive2 ? 0 : -1,
+            cursor: isInteractive2 ? "pointer" : "default"
+          },
+          a11y: {
+            role: mapRoleToAriaRole(el.role),
+            ariaLabel: el.title || el.description || null,
+            ariaDescribedBy: null
+          },
+          sourceHint: el.identifier ? { dataTestId: el.identifier } : void 0
+        });
+      }
+      if (el.children.length > 0) {
+        flatten(el.children, currentPath, depth + 1);
+      }
+    }
+  }
+  flatten(nativeElements, parentPath, 0);
+  return enhanced;
+}
+async function captureMacOSScreenshot(windowId, outputPath) {
+  await (0, import_promises12.mkdir)((0, import_path12.dirname)(outputPath), { recursive: true });
+  await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
+    timeout: 1e4
+  });
+}
+var import_child_process5, import_util4, import_promises12, import_path12, execFileAsync4, execAsync;
+var init_macos = __esm({
+  "src/native/macos.ts"() {
+    "use strict";
+    import_child_process5 = require("child_process");
+    import_util4 = require("util");
+    import_promises12 = require("fs/promises");
+    import_path12 = require("path");
+    init_extract3();
+    init_role_map();
+    execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
+    execAsync = (0, import_util4.promisify)(import_child_process5.exec);
+  }
+});
+
+// src/native/interactivity.ts
+function buildNativeInteractivity(elements) {
+  const buttons = [];
+  const links = [];
+  const forms = [];
+  const issues = [];
+  for (const el of elements) {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a" || el.a11y.role === "link";
+    if (isButton) {
+      const btn = {
+        selector: el.selector,
+        tagName: el.tagName,
+        text: el.text,
+        hasHandler: el.interactive.hasOnClick,
+        isDisabled: el.interactive.isDisabled,
+        isVisible: el.bounds.width > 0 && el.bounds.height > 0,
+        a11y: {
+          role: el.a11y.role || void 0,
+          ariaLabel: el.a11y.ariaLabel || void 0,
+          tabIndex: el.interactive.tabIndex
+        },
+        buttonType: "button"
+      };
+      buttons.push(btn);
+      if (!btn.hasHandler && !btn.isDisabled) {
+        issues.push({
+          type: "NO_HANDLER",
+          element: el.selector,
+          severity: "warning",
+          description: `Button "${el.text || el.selector}" has no press action`
+        });
+      }
+      if (!el.text && !el.a11y.ariaLabel) {
+        issues.push({
+          type: "MISSING_LABEL",
+          element: el.selector,
+          severity: "error",
+          description: `Button has no accessible label (no text or accessibility label)`
+        });
+      }
+    }
+    if (isLink) {
+      const link = {
+        selector: el.selector,
+        tagName: el.tagName,
+        text: el.text,
+        hasHandler: el.interactive.hasOnClick || el.interactive.hasHref,
+        isDisabled: el.interactive.isDisabled,
+        isVisible: el.bounds.width > 0 && el.bounds.height > 0,
+        a11y: {
+          role: el.a11y.role || void 0,
+          ariaLabel: el.a11y.ariaLabel || void 0,
+          tabIndex: el.interactive.tabIndex
+        },
+        href: "",
+        // Native links don't have traditional hrefs
+        isPlaceholder: false,
+        opensNewTab: false,
+        isExternal: false
+      };
+      links.push(link);
+      if (!el.text && !el.a11y.ariaLabel) {
+        issues.push({
+          type: "MISSING_LABEL",
+          element: el.selector,
+          severity: "error",
+          description: `Link has no accessible label (no text or accessibility label)`
+        });
+      }
+    }
+  }
+  const inputs = elements.filter(
+    (e) => ["input", "textarea", "select"].includes(e.tagName) || e.a11y.role === "textbox"
+  );
+  if (inputs.length > 0) {
+    const submitButton = buttons.find(
+      (b) => b.text?.toLowerCase().includes("submit") || b.text?.toLowerCase().includes("save") || b.text?.toLowerCase().includes("login") || b.text?.toLowerCase().includes("sign") || b.text?.toLowerCase().includes("unlock") || b.text?.toLowerCase().includes("confirm")
+    );
+    if (inputs.length >= 1) {
+      forms.push({
+        selector: "native-form",
+        hasSubmitHandler: !!submitButton,
+        fields: inputs.map((inp) => ({
+          selector: inp.selector,
+          name: inp.id || void 0,
+          type: inp.a11y.role === "textbox" ? "text" : inp.tagName,
+          label: inp.a11y.ariaLabel || inp.text || void 0,
+          required: false,
+          hasValidation: false
+        })),
+        hasValidation: false,
+        submitButton
+      });
+    }
+  }
+  const allInteractive = [...buttons, ...links];
+  const withHandlers = allInteractive.filter((e) => e.hasHandler).length;
+  return {
+    buttons,
+    links,
+    forms,
+    issues,
+    summary: {
+      totalInteractive: allInteractive.length,
+      withHandlers,
+      withoutHandlers: allInteractive.length - withHandlers,
+      issueCount: {
+        error: issues.filter((i) => i.severity === "error").length,
+        warning: issues.filter((i) => i.severity === "warning").length,
+        info: issues.filter((i) => i.severity === "info").length
+      }
+    }
+  };
+}
+var init_interactivity2 = __esm({
+  "src/native/interactivity.ts"() {
+    "use strict";
+  }
+});
+
+// src/native/semantic.ts
+function buildNativeSemantic(elements, window2) {
+  const intent = classifyNativeIntent(elements, window2.title);
+  const issues = [];
+  const hasPasswordField = elements.some(
+    (e) => e.a11y.role === "textbox" && (e.text?.toLowerCase().includes("password") || e.a11y.ariaLabel?.toLowerCase().includes("password") || e.selector.toLowerCase().includes("secure"))
+  );
+  const hasLockIcon = elements.some(
+    (e) => e.text?.toLowerCase().includes("lock") || e.a11y.ariaLabel?.toLowerCase().includes("lock")
+  );
+  const hasUnlockButton = elements.some(
+    (e) => (e.tagName === "button" || e.a11y.role === "button") && (e.text?.toLowerCase().includes("unlock") || e.text?.toLowerCase().includes("sign in") || e.text?.toLowerCase().includes("log in"))
+  );
+  const isAuthScreen = hasPasswordField || hasLockIcon && hasUnlockButton;
+  const errorElements = elements.filter(
+    (e) => e.text?.toLowerCase().includes("error") || e.text?.toLowerCase().includes("failed") || e.a11y.ariaLabel?.toLowerCase().includes("error")
+  );
+  const hasErrors = errorElements.length > 0;
+  if (hasErrors) {
+    for (const el of errorElements.slice(0, 3)) {
+      issues.push({
+        severity: "major",
+        type: "error-indicator",
+        problem: `Error detected: "${el.text || el.a11y.ariaLabel}"`,
+        fix: "Investigate the error state in the native app"
+      });
+    }
+  }
+  const verdict = hasErrors ? "FAIL" : "PASS";
+  const availableActions = elements.filter((e) => e.interactive.hasOnClick && !e.interactive.isDisabled && e.text).slice(0, 10).map((e) => ({
+    action: e.text.toLowerCase().replace(/\s+/g, "-"),
+    selector: e.selector,
+    description: e.text
+  }));
+  const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
+  const authSignals = [];
+  if (hasPasswordField) authSignals.push("password-field");
+  if (hasLockIcon) authSignals.push("lock-icon");
+  if (hasUnlockButton) authSignals.push("unlock-button");
+  const summaryParts = [
+    `${intent.intent} window`,
+    `${elements.length} elements (${interactive} interactive)`,
+    isAuthScreen ? "auth required" : "ready"
+  ];
+  return {
+    verdict,
+    confidence: intent.confidence,
+    pageIntent: intent,
+    state: {
+      auth: {
+        authenticated: isAuthScreen ? false : null,
+        confidence: isAuthScreen ? 0.8 : 0.3,
+        signals: authSignals,
+        socialLoginProviders: [],
+        hasForgotPassword: false,
+        hasSignupLink: false,
+        hasPasswordToggle: false
+      },
+      loading: {
+        loading: false,
+        type: "none",
+        elements: 0
+      },
+      errors: {
+        hasErrors,
+        errors: errorElements.map((e) => ({
+          type: "unknown",
+          message: e.text || "Error"
+        })),
+        severity: hasErrors ? "error" : "none"
+      },
+      ready: !hasErrors
+    },
+    availableActions,
+    issues,
+    summary: summaryParts.join(", "),
+    url: `macos://${window2.title}`,
+    title: window2.title,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function classifyNativeIntent(elements, windowTitle) {
+  const titleLower = windowTitle.toLowerCase();
+  const hasPasswordInput = elements.some(
+    (e) => e.selector.toLowerCase().includes("secure") || e.text?.toLowerCase().includes("password")
+  );
+  const hasLoginButton = elements.some(
+    (e) => e.tagName === "button" && (e.text?.toLowerCase().includes("login") || e.text?.toLowerCase().includes("sign in") || e.text?.toLowerCase().includes("unlock"))
+  );
+  if (hasPasswordInput || hasLoginButton) {
+    return { intent: "auth", confidence: 0.9, signals: ["password-field", "login-button"] };
+  }
+  if (titleLower.includes("settings") || titleLower.includes("preferences")) {
+    return { intent: "form", confidence: 0.85, signals: ["title-settings"] };
+  }
+  const listElements = elements.filter(
+    (e) => e.a11y.role === "list" || e.a11y.role === "listitem" || e.tagName === "ul" || e.tagName === "li"
+  );
+  if (listElements.length > 3) {
+    return { intent: "listing", confidence: 0.75, signals: ["list-elements"] };
+  }
+  const inputElements = elements.filter(
+    (e) => e.tagName === "input" || e.tagName === "textarea" || e.a11y.role === "textbox"
+  );
+  if (inputElements.length >= 2) {
+    return { intent: "form", confidence: 0.7, signals: ["multiple-inputs"] };
+  }
+  const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
+  if (interactive > 5) {
+    return { intent: "dashboard", confidence: 0.6, signals: ["many-interactive"] };
+  }
+  return { intent: "detail", confidence: 0.5, signals: ["default"] };
+}
+var init_semantic2 = __esm({
+  "src/native/semantic.ts"() {
+    "use strict";
+  }
+});
+
+// src/native/scan.ts
+var scan_exports = {};
+__export(scan_exports, {
+  formatMacOSScanResult: () => formatMacOSScanResult,
+  formatNativeScanResult: () => formatNativeScanResult,
+  scanMacOS: () => scanMacOS,
+  scanNative: () => scanNative
+});
+async function scanNative(options = {}) {
+  const { device: deviceQuery, screenshot = true, outputDir = ".ibr" } = options;
+  let device;
+  if (deviceQuery) {
+    device = await findDevice(deviceQuery);
+    if (!device) {
+      throw new Error(
+        `No simulator found matching "${deviceQuery}". Run \`xcrun simctl list devices available\` to see available simulators.`
+      );
+    }
+  } else {
+    const booted = await getBootedDevices();
+    if (booted.length === 0) {
+      throw new Error(
+        "No booted simulators found. Boot one with: xcrun simctl boot <device-name>"
+      );
+    }
+    device = booted[0];
+  }
+  if (device.state !== "Booted") {
+    await bootDevice(device.udid);
+    const refreshed = await findDevice(device.udid);
+    if (refreshed) device = refreshed;
+  }
+  const viewport = getDeviceViewport(device);
+  const url = `simulator://${device.name}/${options.bundleId || "current"}`;
+  let screenshotPath;
+  if (screenshot) {
+    const timestamp = Date.now();
+    const ssPath = (0, import_path13.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const captureResult = await captureNativeScreenshot({
+      device,
+      outputPath: ssPath
+    });
+    if (captureResult.success) {
+      screenshotPath = captureResult.outputPath;
+    }
+  }
+  let elements = [];
+  let audit = {
+    totalElements: 0,
+    interactiveCount: 0,
+    withHandlers: 0,
+    withoutHandlers: 0,
+    issues: []
+  };
+  let extractionSucceeded = false;
+  const HOST_CHROME_TAGS = /* @__PURE__ */ new Set([
+    "application",
+    "menubaritem",
+    "nav"
+  ]);
+  let iosGuestUnreachable = false;
+  if (isExtractorAvailable()) {
+    try {
+      const nativeElements = await extractNativeElements(device);
+      const allMapped = mapToEnhancedElements(nativeElements);
+      const filtered = device.platform === "ios" ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase())) : allMapped;
+      elements = filtered;
+      if (device.platform === "ios" && allMapped.length > 0 && filtered.length === 0) {
+        iosGuestUnreachable = true;
+      }
+      audit = analyzeElements(elements, true);
+      extractionSucceeded = !iosGuestUnreachable;
+    } catch {
+    }
+  }
+  const nativeIssues = extractionSucceeded ? auditNativeElements(elements, device.platform, viewport) : [];
+  const issues = [];
+  for (const issue of audit.issues) {
+    issues.push({
+      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity",
+      severity: issue.severity,
+      description: issue.message
+    });
+  }
+  for (const issue of nativeIssues) {
+    issues.push({
+      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
+      severity: issue.severity,
+      description: issue.message
+    });
+  }
+  if (iosGuestUnreachable) {
+    issues.push({
+      category: "structure",
+      severity: "error",
+      description: "iOS guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2)."
+    });
+  }
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
+    elements,
+    issues,
+    viewport,
+    url,
+    options.outputDir
+  ) : void 0;
+  const verdict = determineVerdict2(issues);
+  const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
+  return {
+    url,
+    route: `/${device.name}`,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    viewport,
+    platform: device.platform,
+    device: {
+      name: device.name,
+      udid: device.udid,
+      runtime: device.runtime
+    },
+    elements: { all: elements, audit },
+    nativeIssues,
+    screenshotPath,
+    designSystem,
+    verdict,
+    issues,
+    summary
+  };
+}
+function generateNativeSummary(device, elements, issues, extractionSucceeded) {
+  const parts = [];
+  parts.push(`${device.platform} simulator (${device.name})`);
+  if (extractionSucceeded) {
+    const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
+    parts.push(`${elements.length} elements (${interactive} interactive)`);
+  } else {
+    parts.push("screenshot-only mode (element extraction unavailable)");
+  }
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount > 0 || warningCount > 0) {
+    const issueParts = [];
+    if (errorCount > 0) issueParts.push(`${errorCount} errors`);
+    if (warningCount > 0) issueParts.push(`${warningCount} warnings`);
+    parts.push(issueParts.join(", "));
+  }
+  return parts.join(", ");
+}
+async function scanMacOS(options) {
+  if (process.platform !== "darwin") {
+    throw new Error("macOS native scanning is only available on macOS");
+  }
+  const { app, bundleId, pid: directPid, screenshot } = options;
+  if (!app && !bundleId && !directPid) {
+    throw new Error("Provide --app, --bundle-id, or --pid to identify the target app");
+  }
+  let pid;
+  if (directPid) {
+    pid = directPid;
+  } else {
+    pid = await findProcess(app || bundleId);
+  }
+  const { elements: nativeElements, window: window2 } = await extractMacOSElements({
+    pid,
+    app: app || bundleId
+  });
+  const elements = mapMacOSToEnhancedElements(nativeElements);
+  const audit = analyzeElements(elements, false);
+  const interactivity = buildNativeInteractivity(elements);
+  const semantic = buildNativeSemantic(elements, window2);
+  if (screenshot && window2.windowId > 0) {
+    await captureMacOSScreenshot(window2.windowId, screenshot.path);
+  }
+  const url = `macos://${app || bundleId || `pid-${pid}`}/${window2.title}`;
+  const route = `/${window2.title}`;
+  const viewport = {
+    name: "native",
+    width: window2.width,
+    height: window2.height
+  };
+  const issues = aggregateIssues(audit, interactivity, semantic, []);
+  const designSystem = options.outputDir ? await applyDesignSystemCheck(
+    elements,
+    issues,
+    viewport,
+    url,
+    options.outputDir
+  ) : void 0;
+  const verdict = determineVerdict2(issues);
+  const summary = generateSummary2(
+    { all: elements, audit },
+    interactivity,
+    semantic,
+    issues,
+    []
+  );
+  return {
+    url,
+    route,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    viewport,
+    elements: { all: elements, audit },
+    interactivity,
+    semantic,
+    console: { errors: [], warnings: [] },
+    designSystem,
+    verdict,
+    issues,
+    summary
+  };
+}
+function verdictIcon(verdict) {
+  return verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
+}
+function formatElementsSection(audit) {
+  return [
+    "  ELEMENTS",
+    "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    `  Total:              ${audit.totalElements}`,
+    `  Interactive:        ${audit.interactiveCount}`,
+    `  With handlers:      ${audit.withHandlers}`,
+    `  Without handlers:   ${audit.withoutHandlers}`,
+    ""
+  ];
+}
+function formatIssuesSection(issues) {
+  if (issues.length === 0) return ["  No issues detected."];
+  const lines = ["  ISSUES", "  \u2500\u2500\u2500\u2500\u2500\u2500"];
+  for (const issue of issues) {
+    const icon = issue.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
+    lines.push(`  ${icon} [${issue.category}] ${issue.description}`);
+    if (issue.fix) lines.push(`    \u2192 ${issue.fix}`);
+  }
+  return lines;
+}
+function formatMacOSScanResult(result) {
+  const lines = [
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "  IBR NATIVE macOS SCAN",
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "",
+    `  App:      ${result.url}`,
+    `  Window:   ${result.route.slice(1)}`,
+    `  Viewport: ${result.viewport.width}x${result.viewport.height}`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    "",
+    `  ${result.summary}`,
+    "",
+    "  PAGE UNDERSTANDING",
+    "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500",
+    `  Intent:   ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
+    `  Auth:     ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`,
+    "",
+    ...formatElementsSection(result.elements.audit)
+  ];
+  const { buttons, links, forms } = result.interactivity;
+  lines.push("  INTERACTIVITY", "  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
+  lines.push(`  Buttons: ${buttons.length}  Links: ${links.length}  Forms: ${forms.length}`, "");
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines.join("\n");
+}
+function formatNativeScanResult(result) {
+  const lines = [
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "  IBR NATIVE SCAN",
+    "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550",
+    "",
+    `  Device:   ${result.device.name}`,
+    `  Platform: ${result.platform}`,
+    `  Runtime:  ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`,
+    `  Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
+    `  Verdict:  ${verdictIcon(result.verdict)} ${result.verdict}`,
+    "",
+    `  ${result.summary}`,
+    "",
+    ...formatElementsSection(result.elements.audit)
+  ];
+  if (result.screenshotPath) {
+    lines.push(`  Screenshot: ${result.screenshotPath}`, "");
+  }
+  lines.push(...formatIssuesSection(result.issues));
+  lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  return lines.join("\n");
+}
+var import_path13;
+var init_scan2 = __esm({
+  "src/native/scan.ts"() {
+    "use strict";
+    import_path13 = require("path");
+    init_scan();
+    init_extract2();
+    init_simulator();
+    init_capture();
+    init_viewports();
+    init_extract3();
+    init_rules2();
+    init_macos();
+    init_interactivity2();
+    init_semantic2();
+  }
+});
+
 // src/ask.ts
 var ask_exports = {};
 __export(ask_exports, {
@@ -8891,6 +9990,7 @@ function aggregateVerdict(findings) {
   if (findings.length === 0) return "PASS";
   if (findings.some((f) => f.verdict === "FAIL")) return "FAIL";
   if (findings.some((f) => f.verdict === "WARN")) return "WARN";
+  if (findings.some((f) => f.verdict === "PARTIAL")) return "PARTIAL";
   if (findings.some((f) => f.verdict === "UNCERTAIN")) return "UNCERTAIN";
   return "PASS";
 }
@@ -8952,12 +10052,63 @@ async function* askStream(url, question, options = {}) {
   } else if (options.screenshotPath) {
     screenshotPath = options.screenshotPath;
   }
+  const isIosGuest = /^simulator:\/\//i.test(url);
   yield {
     type: "start",
     question,
     engineVersion: ENGINE_VERSION,
     ...screenshotPath ? { screenshotPath } : {}
   };
+  if (isIosGuest) {
+    const startMs = Date.now();
+    let nativeScreenshot = screenshotPath;
+    try {
+      const { scanNative: scanNative2 } = await Promise.resolve().then(() => (init_scan2(), scan_exports));
+      const match = url.match(/^simulator:\/\/([^/]+)(?:\/(.+))?/i);
+      const device = match?.[1] ? decodeURIComponent(match[1]) : void 0;
+      const result = await scanNative2({
+        device,
+        screenshot: true
+      });
+      if (result.screenshotPath) nativeScreenshot = result.screenshotPath;
+    } catch (err) {
+      const finding2 = {
+        verdict: "PARTIAL",
+        rule: "ask/ios-guest-scan-failed",
+        summary: `iOS guest scan failed; AX tree is unreachable from the host process on Xcode 12+. Underlying error: ${err instanceof Error ? err.message : "unknown"}.`
+      };
+      yield { type: "finding", ...finding2 };
+      yield {
+        type: "end",
+        verdict: "PARTIAL",
+        totalFindings: 1,
+        durationMs: Date.now() - startMs,
+        truncated: false,
+        rulesRun: [],
+        elementsScanned: 0,
+        ...nativeScreenshot ? { screenshotPath: nativeScreenshot } : {}
+      };
+      return;
+    }
+    const finding = {
+      verdict: "PARTIAL",
+      rule: "ask/ios-guest-vision-required",
+      summary: `iOS guest accessibility tree is unreachable from the macOS host (Xcode 12+). Returned the screenshot as evidence \u2014 verify visually whether the answer to "${question}" is satisfied. Path forward for deterministic rules: XCUITest bundle (NATIVE_SUPPORT_PROPOSAL.md Phase 2).`,
+      ...nativeScreenshot ? { evidence: { screenshotPath: nativeScreenshot } } : {}
+    };
+    yield { type: "finding", ...finding };
+    yield {
+      type: "end",
+      verdict: "PARTIAL",
+      totalFindings: 1,
+      durationMs: Date.now() - startMs,
+      truncated: false,
+      rulesRun: [],
+      elementsScanned: 0,
+      ...nativeScreenshot ? { screenshotPath: nativeScreenshot } : {}
+    };
+    return;
+  }
   let elements;
   let viewportWidth;
   let viewportHeight;
@@ -9157,279 +10308,6 @@ var init_ask = __esm({
       tokenViolationToFinding,
       SUPPORTED_QUESTIONS
     };
-  }
-});
-
-// src/native/simulator.ts
-var simulator_exports = {};
-__export(simulator_exports, {
-  bootDevice: () => bootDevice,
-  findDevice: () => findDevice,
-  formatDevice: () => formatDevice,
-  getBootedDevices: () => getBootedDevices,
-  listDevices: () => listDevices
-});
-function parseRuntime(runtime) {
-  if (/watchOS/i.test(runtime)) return "watchos";
-  return "ios";
-}
-async function listDevices() {
-  const { stdout } = await execFileAsync("xcrun", ["simctl", "list", "devices", "--json"]);
-  const data = JSON.parse(stdout);
-  const devices = [];
-  for (const [runtime, deviceList] of Object.entries(data.devices)) {
-    if (!Array.isArray(deviceList)) continue;
-    for (const dev of deviceList) {
-      devices.push({
-        udid: dev.udid,
-        name: dev.name,
-        state: dev.state,
-        runtime,
-        platform: parseRuntime(runtime),
-        isAvailable: dev.isAvailable
-      });
-    }
-  }
-  return devices;
-}
-async function findDevice(nameOrUdid) {
-  const devices = await listDevices();
-  const search = nameOrUdid.toLowerCase();
-  const byUdid = devices.find((d) => d.udid.toLowerCase() === search);
-  if (byUdid) return byUdid;
-  const matches = devices.filter((d) => d.name.toLowerCase().includes(search) && d.isAvailable).sort((a, b) => {
-    if (a.state === "Booted" && b.state !== "Booted") return -1;
-    if (b.state === "Booted" && a.state !== "Booted") return 1;
-    return 0;
-  });
-  return matches[0] || null;
-}
-async function getBootedDevices() {
-  const devices = await listDevices();
-  return devices.filter((d) => d.state === "Booted");
-}
-async function bootDevice(udid) {
-  const devices = await listDevices();
-  const device = devices.find((d) => d.udid === udid);
-  if (!device) {
-    throw new Error(`Device not found: ${udid}`);
-  }
-  if (device.state === "Booted") {
-    return;
-  }
-  await execFileAsync("xcrun", ["simctl", "boot", udid]);
-  await new Promise((resolve3) => setTimeout(resolve3, 2e3));
-}
-function formatDevice(device) {
-  const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
-  const stateIcon = device.state === "Booted" ? "\x1B[32m\u25CF\x1B[0m" : "\x1B[90m\u25CB\x1B[0m";
-  return `${stateIcon} ${device.name} (${runtimeVersion}) [${device.udid.slice(0, 8)}...]`;
-}
-var import_child_process2, import_util, execFileAsync;
-var init_simulator = __esm({
-  "src/native/simulator.ts"() {
-    "use strict";
-    import_child_process2 = require("child_process");
-    import_util = require("util");
-    execFileAsync = (0, import_util.promisify)(import_child_process2.execFile);
-  }
-});
-
-// src/native/role-map.ts
-function mapRoleToTag(role) {
-  return TAG_MAP[role] || role.replace(/^AX/, "").toLowerCase();
-}
-function mapRoleToAriaRole(role) {
-  return ARIA_MAP[role] || null;
-}
-function isInteractiveRole(role) {
-  return INTERACTIVE_ROLES3.has(role);
-}
-var TAG_MAP, ARIA_MAP, INTERACTIVE_ROLES3;
-var init_role_map = __esm({
-  "src/native/role-map.ts"() {
-    "use strict";
-    TAG_MAP = {
-      "AXButton": "button",
-      "AXLink": "a",
-      "AXTextField": "input",
-      "AXTextArea": "textarea",
-      "AXSecureTextField": "input",
-      "AXStaticText": "span",
-      "AXImage": "img",
-      "AXGroup": "div",
-      "AXSplitGroup": "div",
-      "AXList": "ul",
-      "AXCell": "li",
-      "AXTable": "table",
-      "AXScrollArea": "div",
-      "AXToolbar": "nav",
-      "AXMenuBar": "nav",
-      "AXMenu": "nav",
-      "AXMenuItem": "li",
-      "AXCheckBox": "input",
-      "AXRadioButton": "input",
-      "AXSlider": "input",
-      "AXSwitch": "input",
-      "AXPopUpButton": "select",
-      "AXComboBox": "select",
-      "AXTabGroup": "div",
-      "AXTab": "button",
-      "AXNavigationBar": "nav",
-      "AXHeader": "header",
-      "AXWindow": "main"
-    };
-    ARIA_MAP = {
-      "AXButton": "button",
-      "AXLink": "link",
-      "AXTextField": "textbox",
-      "AXTextArea": "textbox",
-      "AXSecureTextField": "textbox",
-      "AXStaticText": "text",
-      "AXImage": "img",
-      "AXGroup": "group",
-      "AXList": "list",
-      "AXCell": "listitem",
-      "AXTable": "table",
-      "AXCheckBox": "checkbox",
-      "AXRadioButton": "radio",
-      "AXSlider": "slider",
-      "AXSwitch": "switch",
-      "AXTab": "tab",
-      "AXTabGroup": "tablist",
-      "AXNavigationBar": "navigation",
-      "AXToolbar": "toolbar",
-      "AXMenuItem": "menuitem",
-      "AXMenu": "menu",
-      "AXScrollArea": "scrollbar",
-      "AXWindow": "main"
-    };
-    INTERACTIVE_ROLES3 = /* @__PURE__ */ new Set([
-      "AXButton",
-      "AXLink",
-      "AXTextField",
-      "AXTextArea",
-      "AXSecureTextField",
-      "AXCheckBox",
-      "AXRadioButton",
-      "AXSlider",
-      "AXSwitch",
-      "AXPopUpButton",
-      "AXComboBox",
-      "AXMenuItem",
-      "AXTab"
-    ]);
-  }
-});
-
-// src/native/extract.ts
-var extract_exports = {};
-__export(extract_exports, {
-  ensureExtractor: () => ensureExtractor,
-  extractNativeElements: () => extractNativeElements,
-  isExtractorAvailable: () => isExtractorAvailable,
-  mapToEnhancedElements: () => mapToEnhancedElements
-});
-async function ensureExtractor() {
-  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) {
-    return EXTRACTOR_PATH;
-  }
-  await (0, import_promises11.mkdir)(EXTRACTOR_DIR, { recursive: true });
-  try {
-    await execFileAsync3("swift", ["build", "-c", "release"], {
-      cwd: SWIFT_SOURCE_DIR,
-      timeout: 12e4
-      // 2 minutes for first compile
-    });
-    const buildPath = (0, import_path11.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs3.existsSync)(buildPath)) {
-      throw new Error("Swift build succeeded but binary not found at expected path");
-    }
-    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
-    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
-    return EXTRACTOR_PATH;
-  } catch (err) {
-    throw new Error(
-      `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
-    );
-  }
-}
-function isExtractorAvailable() {
-  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs3.existsSync)((0, import_path11.join)(SWIFT_SOURCE_DIR, "Package.swift"));
-}
-async function extractNativeElements(device) {
-  const extractorPath = await ensureExtractor();
-  try {
-    const { stdout } = await execFileAsync3(extractorPath, [
-      "--device-name",
-      device.name
-    ], {
-      timeout: 3e4
-    });
-    const elements = JSON.parse(stdout);
-    return elements;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("permission") || message.includes("accessibility")) {
-      throw new Error(
-        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
-      );
-    }
-    throw new Error(`Element extraction failed: ${message}`);
-  }
-}
-function mapToEnhancedElements(nativeElements) {
-  const enhanced = [];
-  function flatten(elements, depth = 0) {
-    for (const el of elements) {
-      const tagName = mapRoleToTag(el.role);
-      const isInteractive2 = isInteractiveRole(el.role) && el.isEnabled;
-      enhanced.push({
-        selector: el.identifier || `[role="${el.role}"][label="${el.label}"]`,
-        tagName,
-        text: el.label || void 0,
-        bounds: {
-          x: el.frame.x,
-          y: el.frame.y,
-          width: el.frame.width,
-          height: el.frame.height
-        },
-        interactive: {
-          hasOnClick: isInteractive2,
-          hasHref: false,
-          isDisabled: !el.isEnabled,
-          tabIndex: isInteractive2 ? 0 : -1,
-          cursor: isInteractive2 ? "pointer" : "default"
-        },
-        a11y: {
-          role: mapRoleToAriaRole(el.role),
-          ariaLabel: el.label || null,
-          ariaDescribedBy: null
-        }
-      });
-      if (el.children.length > 0) {
-        flatten(el.children, depth + 1);
-      }
-    }
-  }
-  flatten(nativeElements);
-  return enhanced;
-}
-var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
-var init_extract3 = __esm({
-  "src/native/extract.ts"() {
-    "use strict";
-    import_child_process4 = require("child_process");
-    import_util3 = require("util");
-    import_fs3 = require("fs");
-    import_promises11 = require("fs/promises");
-    import_path11 = require("path");
-    init_role_map();
-    execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path11.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path11.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = (0, import_path11.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
   }
 });
 
@@ -10258,8 +11136,8 @@ var init_parser = __esm({
 });
 
 // src/static/scan.ts
-var scan_exports = {};
-__export(scan_exports, {
+var scan_exports2 = {};
+__export(scan_exports2, {
   scanStatic: () => scanStatic
 });
 function scanStatic(options) {
@@ -10382,7 +11260,7 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   return parts.join(", ") + ".";
 }
 var import_fs6;
-var init_scan2 = __esm({
+var init_scan3 = __esm({
   "src/static/scan.ts"() {
     "use strict";
     import_fs6 = require("fs");
@@ -11470,712 +12348,13 @@ init_cognitive_load();
 // src/index.ts
 init_memory();
 
-// src/native/viewports.ts
-var NATIVE_VIEWPORTS = {
-  // iPhone 16 series
-  "iphone-16": { name: "iphone-16", width: 393, height: 852 },
-  "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
-  "iphone-16-pro": { name: "iphone-16-pro", width: 402, height: 874 },
-  "iphone-16-pro-max": { name: "iphone-16-pro-max", width: 440, height: 956 },
-  // Apple Watch Series 10
-  "watch-series-10-42mm": { name: "watch-series-10-42mm", width: 176, height: 215 },
-  "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
-  // Apple Watch Ultra 2
-  "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
-};
-var DEVICE_NAME_PATTERNS = [
-  [/iPhone 16 Pro Max/i, "iphone-16-pro-max"],
-  [/iPhone 16 Pro/i, "iphone-16-pro"],
-  [/iPhone 16 Plus/i, "iphone-16-plus"],
-  [/iPhone 16/i, "iphone-16"],
-  [/Apple Watch.*Ultra.*49/i, "watch-ultra-2-49mm"],
-  [/Apple Watch.*46/i, "watch-series-10-46mm"],
-  [/Apple Watch.*42/i, "watch-series-10-42mm"],
-  // Fallbacks for generic watch/phone
-  [/Apple Watch Ultra/i, "watch-ultra-2-49mm"],
-  [/Apple Watch/i, "watch-series-10-42mm"],
-  [/iPhone/i, "iphone-16-pro"]
-];
-function getDeviceViewport(device) {
-  for (const [pattern, key] of DEVICE_NAME_PATTERNS) {
-    if (pattern.test(device.name)) {
-      return NATIVE_VIEWPORTS[key];
-    }
-  }
-  if (device.platform === "watchos") {
-    return NATIVE_VIEWPORTS["watch-series-10-42mm"];
-  }
-  return NATIVE_VIEWPORTS["iphone-16-pro"];
-}
-
 // src/native/index.ts
+init_viewports();
 init_simulator();
-
-// src/native/capture.ts
-var import_child_process3 = require("child_process");
-var import_util2 = require("util");
-var import_promises10 = require("fs/promises");
-var import_path10 = require("path");
-var execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
-async function captureNativeScreenshot(options) {
-  const { device, outputPath, mask } = options;
-  const start = Date.now();
-  try {
-    await (0, import_promises10.mkdir)((0, import_path10.dirname)(outputPath), { recursive: true });
-    const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
-    const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
-    if (effectiveMask) {
-      args.push(`--mask=${effectiveMask}`);
-    }
-    args.push(outputPath);
-    await execFileAsync2("xcrun", args, { timeout: 15e3 });
-    const viewport = getDeviceViewport(device);
-    return {
-      success: true,
-      outputPath,
-      device,
-      viewport,
-      timing: Date.now() - start
-    };
-  } catch (err) {
-    return {
-      success: false,
-      device,
-      viewport: getDeviceViewport(device),
-      timing: Date.now() - start,
-      error: err instanceof Error ? err.message : "Screenshot capture failed"
-    };
-  }
-}
-
-// src/native/index.ts
+init_capture();
 init_extract3();
-
-// src/native/rules.ts
-function auditNativeElements(elements, platform, viewport) {
-  const issues = [];
-  const interactive = elements.filter(
-    (e) => e.interactive.hasOnClick && !e.interactive.isDisabled
-  );
-  if (platform === "watchos" && interactive.length > 7) {
-    issues.push({
-      type: "TOUCH_TARGET_SMALL",
-      // Reuse closest existing type
-      severity: "warning",
-      message: `watchOS screen has ${interactive.length} interactive elements (recommended max: 7). Reduce choices to avoid cognitive overload on small displays.`
-    });
-  }
-  for (const el of interactive) {
-    const minDimension = Math.min(el.bounds.width, el.bounds.height);
-    if (minDimension < 44) {
-      issues.push({
-        type: "TOUCH_TARGET_SMALL",
-        severity: "error",
-        message: `Touch target too small: "${el.text || el.selector}" is ${el.bounds.width}x${el.bounds.height}pt (minimum: 44x44pt)`
-      });
-    }
-  }
-  if (platform === "watchos") {
-    for (const el of elements) {
-      const rightEdge = el.bounds.x + el.bounds.width;
-      if (rightEdge > viewport.width) {
-        issues.push({
-          type: "TOUCH_TARGET_SMALL",
-          // Closest existing type
-          severity: "warning",
-          message: `Element "${el.text || el.selector}" overflows watchOS viewport (right edge: ${rightEdge}pt, viewport width: ${viewport.width}pt)`
-        });
-      }
-    }
-  }
-  for (const el of interactive) {
-    if (!el.text && !el.a11y.ariaLabel) {
-      issues.push({
-        type: "MISSING_ARIA_LABEL",
-        severity: "error",
-        message: `Interactive element "${el.selector}" has no accessibility label`
-      });
-    }
-  }
-  return issues;
-}
-
-// src/native/scan.ts
-var import_path13 = require("path");
-init_scan();
-init_extract2();
-init_simulator();
-init_extract3();
-
-// src/native/macos.ts
-var import_child_process5 = require("child_process");
-var import_util4 = require("util");
-var import_promises12 = require("fs/promises");
-var import_path12 = require("path");
-init_extract3();
-init_role_map();
-var execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
-var execAsync = (0, import_util4.promisify)(import_child_process5.exec);
-async function findProcess(appNameOrBundleId) {
-  try {
-    const { stdout } = await execAsync(
-      `lsappinfo info -only pid "${appNameOrBundleId}" 2>/dev/null || true`
-    );
-    const pidMatch = stdout.match(/"pid"\s*=\s*(\d+)/);
-    if (pidMatch) {
-      return parseInt(pidMatch[1], 10);
-    }
-  } catch {
-  }
-  try {
-    const { stdout } = await execAsync(
-      `pgrep -f "${appNameOrBundleId}" 2>/dev/null | head -1`
-    );
-    const pid = parseInt(stdout.trim(), 10);
-    if (!isNaN(pid) && pid > 0) {
-      return pid;
-    }
-  } catch {
-  }
-  throw new Error(
-    `No running process found for "${appNameOrBundleId}". Ensure the app is running and try again.`
-  );
-}
-async function extractMacOSElements(options) {
-  const extractorPath = await ensureExtractor();
-  const args = [];
-  if (options.pid) {
-    args.push("--pid", String(options.pid));
-  } else if (options.app) {
-    args.push("--app", options.app);
-  } else {
-    throw new Error("Either pid or app must be provided");
-  }
-  try {
-    const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
-      timeout: 3e4
-    });
-    if (stderr && stderr.includes("Error:")) {
-      throw new Error(stderr.trim());
-    }
-    const lines = stdout.split("\n");
-    const headerLine = lines[0];
-    const jsonStr = lines.slice(1).join("\n");
-    let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
-    if (headerLine.startsWith("WINDOW:")) {
-      const parts = headerLine.slice(7).split(":");
-      const windowId = parseInt(parts[0], 10);
-      const dims = (parts[1] || "800x600").split("x");
-      const title = parts.slice(2).join(":");
-      window2 = {
-        windowId,
-        width: parseInt(dims[0], 10) || 800,
-        height: parseInt(dims[1], 10) || 600,
-        title
-      };
-    }
-    const elements = JSON.parse(jsonStr);
-    return { elements, window: window2 };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    if (message.includes("Accessibility permission")) {
-      throw new Error(
-        "Accessibility permission required. Grant Terminal/IDE access in System Settings > Privacy & Security > Accessibility"
-      );
-    }
-    if (message.includes("No running app")) {
-      throw err;
-    }
-    throw new Error(`macOS element extraction failed: ${message}`);
-  }
-}
-function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
-  const enhanced = [];
-  function flatten(elements, path, depth) {
-    const roleCounts = {};
-    for (const el of elements) {
-      const roleCount = roleCounts[el.role] || 0;
-      roleCounts[el.role] = roleCount + 1;
-      const currentPath = path ? `${path} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
-      const tagName = mapRoleToTag(el.role);
-      const isInteractive2 = isInteractiveRole(el.role) && el.enabled;
-      const hasPress = el.actions.includes("AXPress");
-      const text = el.title || el.description || el.value || void 0;
-      const bounds = {
-        x: el.position?.x ?? 0,
-        y: el.position?.y ?? 0,
-        width: el.size?.width ?? 0,
-        height: el.size?.height ?? 0
-      };
-      if (bounds.width > 0 || bounds.height > 0 || text || isInteractive2 || depth <= 1) {
-        enhanced.push({
-          selector: el.identifier || currentPath,
-          tagName,
-          id: el.identifier || void 0,
-          text: text ? text.slice(0, 100) : void 0,
-          bounds,
-          interactive: {
-            hasOnClick: hasPress || isInteractive2,
-            hasHref: el.role === "AXLink",
-            isDisabled: !el.enabled,
-            tabIndex: el.focused || isInteractive2 ? 0 : -1,
-            cursor: isInteractive2 ? "pointer" : "default"
-          },
-          a11y: {
-            role: mapRoleToAriaRole(el.role),
-            ariaLabel: el.title || el.description || null,
-            ariaDescribedBy: null
-          },
-          sourceHint: el.identifier ? { dataTestId: el.identifier } : void 0
-        });
-      }
-      if (el.children.length > 0) {
-        flatten(el.children, currentPath, depth + 1);
-      }
-    }
-  }
-  flatten(nativeElements, parentPath, 0);
-  return enhanced;
-}
-async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises12.mkdir)((0, import_path12.dirname)(outputPath), { recursive: true });
-  await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
-    timeout: 1e4
-  });
-}
-
-// src/native/interactivity.ts
-function buildNativeInteractivity(elements) {
-  const buttons = [];
-  const links = [];
-  const forms = [];
-  const issues = [];
-  for (const el of elements) {
-    const isButton = el.tagName === "button" || el.a11y.role === "button";
-    const isLink = el.tagName === "a" || el.a11y.role === "link";
-    if (isButton) {
-      const btn = {
-        selector: el.selector,
-        tagName: el.tagName,
-        text: el.text,
-        hasHandler: el.interactive.hasOnClick,
-        isDisabled: el.interactive.isDisabled,
-        isVisible: el.bounds.width > 0 && el.bounds.height > 0,
-        a11y: {
-          role: el.a11y.role || void 0,
-          ariaLabel: el.a11y.ariaLabel || void 0,
-          tabIndex: el.interactive.tabIndex
-        },
-        buttonType: "button"
-      };
-      buttons.push(btn);
-      if (!btn.hasHandler && !btn.isDisabled) {
-        issues.push({
-          type: "NO_HANDLER",
-          element: el.selector,
-          severity: "warning",
-          description: `Button "${el.text || el.selector}" has no press action`
-        });
-      }
-      if (!el.text && !el.a11y.ariaLabel) {
-        issues.push({
-          type: "MISSING_LABEL",
-          element: el.selector,
-          severity: "error",
-          description: `Button has no accessible label (no text or accessibility label)`
-        });
-      }
-    }
-    if (isLink) {
-      const link = {
-        selector: el.selector,
-        tagName: el.tagName,
-        text: el.text,
-        hasHandler: el.interactive.hasOnClick || el.interactive.hasHref,
-        isDisabled: el.interactive.isDisabled,
-        isVisible: el.bounds.width > 0 && el.bounds.height > 0,
-        a11y: {
-          role: el.a11y.role || void 0,
-          ariaLabel: el.a11y.ariaLabel || void 0,
-          tabIndex: el.interactive.tabIndex
-        },
-        href: "",
-        // Native links don't have traditional hrefs
-        isPlaceholder: false,
-        opensNewTab: false,
-        isExternal: false
-      };
-      links.push(link);
-      if (!el.text && !el.a11y.ariaLabel) {
-        issues.push({
-          type: "MISSING_LABEL",
-          element: el.selector,
-          severity: "error",
-          description: `Link has no accessible label (no text or accessibility label)`
-        });
-      }
-    }
-  }
-  const inputs = elements.filter(
-    (e) => ["input", "textarea", "select"].includes(e.tagName) || e.a11y.role === "textbox"
-  );
-  if (inputs.length > 0) {
-    const submitButton = buttons.find(
-      (b) => b.text?.toLowerCase().includes("submit") || b.text?.toLowerCase().includes("save") || b.text?.toLowerCase().includes("login") || b.text?.toLowerCase().includes("sign") || b.text?.toLowerCase().includes("unlock") || b.text?.toLowerCase().includes("confirm")
-    );
-    if (inputs.length >= 1) {
-      forms.push({
-        selector: "native-form",
-        hasSubmitHandler: !!submitButton,
-        fields: inputs.map((inp) => ({
-          selector: inp.selector,
-          name: inp.id || void 0,
-          type: inp.a11y.role === "textbox" ? "text" : inp.tagName,
-          label: inp.a11y.ariaLabel || inp.text || void 0,
-          required: false,
-          hasValidation: false
-        })),
-        hasValidation: false,
-        submitButton
-      });
-    }
-  }
-  const allInteractive = [...buttons, ...links];
-  const withHandlers = allInteractive.filter((e) => e.hasHandler).length;
-  return {
-    buttons,
-    links,
-    forms,
-    issues,
-    summary: {
-      totalInteractive: allInteractive.length,
-      withHandlers,
-      withoutHandlers: allInteractive.length - withHandlers,
-      issueCount: {
-        error: issues.filter((i) => i.severity === "error").length,
-        warning: issues.filter((i) => i.severity === "warning").length,
-        info: issues.filter((i) => i.severity === "info").length
-      }
-    }
-  };
-}
-
-// src/native/semantic.ts
-function buildNativeSemantic(elements, window2) {
-  const intent = classifyNativeIntent(elements, window2.title);
-  const issues = [];
-  const hasPasswordField = elements.some(
-    (e) => e.a11y.role === "textbox" && (e.text?.toLowerCase().includes("password") || e.a11y.ariaLabel?.toLowerCase().includes("password") || e.selector.toLowerCase().includes("secure"))
-  );
-  const hasLockIcon = elements.some(
-    (e) => e.text?.toLowerCase().includes("lock") || e.a11y.ariaLabel?.toLowerCase().includes("lock")
-  );
-  const hasUnlockButton = elements.some(
-    (e) => (e.tagName === "button" || e.a11y.role === "button") && (e.text?.toLowerCase().includes("unlock") || e.text?.toLowerCase().includes("sign in") || e.text?.toLowerCase().includes("log in"))
-  );
-  const isAuthScreen = hasPasswordField || hasLockIcon && hasUnlockButton;
-  const errorElements = elements.filter(
-    (e) => e.text?.toLowerCase().includes("error") || e.text?.toLowerCase().includes("failed") || e.a11y.ariaLabel?.toLowerCase().includes("error")
-  );
-  const hasErrors = errorElements.length > 0;
-  if (hasErrors) {
-    for (const el of errorElements.slice(0, 3)) {
-      issues.push({
-        severity: "major",
-        type: "error-indicator",
-        problem: `Error detected: "${el.text || el.a11y.ariaLabel}"`,
-        fix: "Investigate the error state in the native app"
-      });
-    }
-  }
-  const verdict = hasErrors ? "FAIL" : "PASS";
-  const availableActions = elements.filter((e) => e.interactive.hasOnClick && !e.interactive.isDisabled && e.text).slice(0, 10).map((e) => ({
-    action: e.text.toLowerCase().replace(/\s+/g, "-"),
-    selector: e.selector,
-    description: e.text
-  }));
-  const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
-  const authSignals = [];
-  if (hasPasswordField) authSignals.push("password-field");
-  if (hasLockIcon) authSignals.push("lock-icon");
-  if (hasUnlockButton) authSignals.push("unlock-button");
-  const summaryParts = [
-    `${intent.intent} window`,
-    `${elements.length} elements (${interactive} interactive)`,
-    isAuthScreen ? "auth required" : "ready"
-  ];
-  return {
-    verdict,
-    confidence: intent.confidence,
-    pageIntent: intent,
-    state: {
-      auth: {
-        authenticated: isAuthScreen ? false : null,
-        confidence: isAuthScreen ? 0.8 : 0.3,
-        signals: authSignals,
-        socialLoginProviders: [],
-        hasForgotPassword: false,
-        hasSignupLink: false,
-        hasPasswordToggle: false
-      },
-      loading: {
-        loading: false,
-        type: "none",
-        elements: 0
-      },
-      errors: {
-        hasErrors,
-        errors: errorElements.map((e) => ({
-          type: "unknown",
-          message: e.text || "Error"
-        })),
-        severity: hasErrors ? "error" : "none"
-      },
-      ready: !hasErrors
-    },
-    availableActions,
-    issues,
-    summary: summaryParts.join(", "),
-    url: `macos://${window2.title}`,
-    title: window2.title,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString()
-  };
-}
-function classifyNativeIntent(elements, windowTitle) {
-  const titleLower = windowTitle.toLowerCase();
-  const hasPasswordInput = elements.some(
-    (e) => e.selector.toLowerCase().includes("secure") || e.text?.toLowerCase().includes("password")
-  );
-  const hasLoginButton = elements.some(
-    (e) => e.tagName === "button" && (e.text?.toLowerCase().includes("login") || e.text?.toLowerCase().includes("sign in") || e.text?.toLowerCase().includes("unlock"))
-  );
-  if (hasPasswordInput || hasLoginButton) {
-    return { intent: "auth", confidence: 0.9, signals: ["password-field", "login-button"] };
-  }
-  if (titleLower.includes("settings") || titleLower.includes("preferences")) {
-    return { intent: "form", confidence: 0.85, signals: ["title-settings"] };
-  }
-  const listElements = elements.filter(
-    (e) => e.a11y.role === "list" || e.a11y.role === "listitem" || e.tagName === "ul" || e.tagName === "li"
-  );
-  if (listElements.length > 3) {
-    return { intent: "listing", confidence: 0.75, signals: ["list-elements"] };
-  }
-  const inputElements = elements.filter(
-    (e) => e.tagName === "input" || e.tagName === "textarea" || e.a11y.role === "textbox"
-  );
-  if (inputElements.length >= 2) {
-    return { intent: "form", confidence: 0.7, signals: ["multiple-inputs"] };
-  }
-  const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
-  if (interactive > 5) {
-    return { intent: "dashboard", confidence: 0.6, signals: ["many-interactive"] };
-  }
-  return { intent: "detail", confidence: 0.5, signals: ["default"] };
-}
-
-// src/native/scan.ts
-async function scanNative(options = {}) {
-  const { device: deviceQuery, screenshot = true, outputDir = ".ibr" } = options;
-  let device;
-  if (deviceQuery) {
-    device = await findDevice(deviceQuery);
-    if (!device) {
-      throw new Error(
-        `No simulator found matching "${deviceQuery}". Run \`xcrun simctl list devices available\` to see available simulators.`
-      );
-    }
-  } else {
-    const booted = await getBootedDevices();
-    if (booted.length === 0) {
-      throw new Error(
-        "No booted simulators found. Boot one with: xcrun simctl boot <device-name>"
-      );
-    }
-    device = booted[0];
-  }
-  if (device.state !== "Booted") {
-    await bootDevice(device.udid);
-    const refreshed = await findDevice(device.udid);
-    if (refreshed) device = refreshed;
-  }
-  const viewport = getDeviceViewport(device);
-  const url = `simulator://${device.name}/${options.bundleId || "current"}`;
-  let screenshotPath;
-  if (screenshot) {
-    const timestamp = Date.now();
-    const ssPath = (0, import_path13.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
-    const captureResult = await captureNativeScreenshot({
-      device,
-      outputPath: ssPath
-    });
-    if (captureResult.success) {
-      screenshotPath = captureResult.outputPath;
-    }
-  }
-  let elements = [];
-  let audit = {
-    totalElements: 0,
-    interactiveCount: 0,
-    withHandlers: 0,
-    withoutHandlers: 0,
-    issues: []
-  };
-  let extractionSucceeded = false;
-  const HOST_CHROME_TAGS = /* @__PURE__ */ new Set([
-    "application",
-    "menubaritem",
-    "nav"
-  ]);
-  let iosGuestUnreachable = false;
-  if (isExtractorAvailable()) {
-    try {
-      const nativeElements = await extractNativeElements(device);
-      const allMapped = mapToEnhancedElements(nativeElements);
-      const filtered = device.platform === "ios" ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase())) : allMapped;
-      elements = filtered;
-      if (device.platform === "ios" && allMapped.length > 0 && filtered.length === 0) {
-        iosGuestUnreachable = true;
-      }
-      audit = analyzeElements(elements, true);
-      extractionSucceeded = !iosGuestUnreachable;
-    } catch {
-    }
-  }
-  const nativeIssues = extractionSucceeded ? auditNativeElements(elements, device.platform, viewport) : [];
-  const issues = [];
-  for (const issue of audit.issues) {
-    issues.push({
-      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity",
-      severity: issue.severity,
-      description: issue.message
-    });
-  }
-  for (const issue of nativeIssues) {
-    issues.push({
-      category: issue.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
-      severity: issue.severity,
-      description: issue.message
-    });
-  }
-  if (iosGuestUnreachable) {
-    issues.push({
-      category: "structure",
-      severity: "error",
-      description: "iOS guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2)."
-    });
-  }
-  const designSystem = options.outputDir ? await applyDesignSystemCheck(
-    elements,
-    issues,
-    viewport,
-    url,
-    options.outputDir
-  ) : void 0;
-  const verdict = determineVerdict2(issues);
-  const summary = generateNativeSummary(device, elements, issues, extractionSucceeded);
-  return {
-    url,
-    route: `/${device.name}`,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    viewport,
-    platform: device.platform,
-    device: {
-      name: device.name,
-      udid: device.udid,
-      runtime: device.runtime
-    },
-    elements: { all: elements, audit },
-    nativeIssues,
-    screenshotPath,
-    designSystem,
-    verdict,
-    issues,
-    summary
-  };
-}
-function generateNativeSummary(device, elements, issues, extractionSucceeded) {
-  const parts = [];
-  parts.push(`${device.platform} simulator (${device.name})`);
-  if (extractionSucceeded) {
-    const interactive = elements.filter((e) => e.interactive.hasOnClick).length;
-    parts.push(`${elements.length} elements (${interactive} interactive)`);
-  } else {
-    parts.push("screenshot-only mode (element extraction unavailable)");
-  }
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.filter((i) => i.severity === "warning").length;
-  if (errorCount > 0 || warningCount > 0) {
-    const issueParts = [];
-    if (errorCount > 0) issueParts.push(`${errorCount} errors`);
-    if (warningCount > 0) issueParts.push(`${warningCount} warnings`);
-    parts.push(issueParts.join(", "));
-  }
-  return parts.join(", ");
-}
-async function scanMacOS(options) {
-  if (process.platform !== "darwin") {
-    throw new Error("macOS native scanning is only available on macOS");
-  }
-  const { app, bundleId, pid: directPid, screenshot } = options;
-  if (!app && !bundleId && !directPid) {
-    throw new Error("Provide --app, --bundle-id, or --pid to identify the target app");
-  }
-  let pid;
-  if (directPid) {
-    pid = directPid;
-  } else {
-    pid = await findProcess(app || bundleId);
-  }
-  const { elements: nativeElements, window: window2 } = await extractMacOSElements({
-    pid,
-    app: app || bundleId
-  });
-  const elements = mapMacOSToEnhancedElements(nativeElements);
-  const audit = analyzeElements(elements, false);
-  const interactivity = buildNativeInteractivity(elements);
-  const semantic = buildNativeSemantic(elements, window2);
-  if (screenshot && window2.windowId > 0) {
-    await captureMacOSScreenshot(window2.windowId, screenshot.path);
-  }
-  const url = `macos://${app || bundleId || `pid-${pid}`}/${window2.title}`;
-  const route = `/${window2.title}`;
-  const viewport = {
-    name: "native",
-    width: window2.width,
-    height: window2.height
-  };
-  const issues = aggregateIssues(audit, interactivity, semantic, []);
-  const designSystem = options.outputDir ? await applyDesignSystemCheck(
-    elements,
-    issues,
-    viewport,
-    url,
-    options.outputDir
-  ) : void 0;
-  const verdict = determineVerdict2(issues);
-  const summary = generateSummary2(
-    { all: elements, audit },
-    interactivity,
-    semantic,
-    issues,
-    []
-  );
-  return {
-    url,
-    route,
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    viewport,
-    elements: { all: elements, audit },
-    interactivity,
-    semantic,
-    console: { errors: [], warnings: [] },
-    designSystem,
-    verdict,
-    issues,
-    summary
-  };
-}
+init_rules2();
+init_scan2();
 
 // src/native/idb.ts
 var import_child_process7 = require("child_process");
@@ -12598,6 +12777,11 @@ async function idbOpenUrl(udid, url) {
     return { success: false, action: "openUrl", error: err.message, driver: "simctl" };
   }
 }
+
+// src/native/index.ts
+init_macos();
+init_interactivity2();
+init_semantic2();
 
 // src/native/annotate.ts
 var import_pngjs3 = require("pngjs");
@@ -15736,7 +15920,7 @@ async function handleScanStatic(args) {
     return errorResponse("The 'html_path' parameter is required.");
   }
   const cssPath = args.css_path;
-  const { scanStatic: scanStatic2 } = await Promise.resolve().then(() => (init_scan2(), scan_exports));
+  const { scanStatic: scanStatic2 } = await Promise.resolve().then(() => (init_scan3(), scan_exports2));
   const result = scanStatic2({ htmlPath, cssPath });
   const lines = [
     `Static Scan: ${result.htmlPath}`,

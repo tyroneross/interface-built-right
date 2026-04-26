@@ -22,7 +22,19 @@ import type { TokenViolation } from './tokens.js'
 
 // ── Public types ───────────────────────────────────────────────────────────────
 
-export type Verdict = 'PASS' | 'FAIL' | 'WARN' | 'UNCERTAIN'
+/**
+ * Verdict ladder:
+ *   PASS       — no findings; the question is answered cleanly
+ *   WARN       — findings exist at warning severity
+ *   FAIL       — findings exist at error severity
+ *   PARTIAL    — engine has *visual* evidence but couldn't run the rule
+ *                deterministically (e.g. iOS guest where AX tree is
+ *                unreachable). Vision-capable consumer should inspect the
+ *                screenshot.
+ *   UNCERTAIN  — engine couldn't answer. The agent should not act on this
+ *                as if it were PASS.
+ */
+export type Verdict = 'PASS' | 'FAIL' | 'WARN' | 'UNCERTAIN' | 'PARTIAL'
 
 export interface Finding {
   verdict: Verdict
@@ -123,6 +135,7 @@ function aggregateVerdict(findings: Finding[]): Verdict {
   if (findings.length === 0) return 'PASS'
   if (findings.some((f) => f.verdict === 'FAIL')) return 'FAIL'
   if (findings.some((f) => f.verdict === 'WARN')) return 'WARN'
+  if (findings.some((f) => f.verdict === 'PARTIAL')) return 'PARTIAL'
   if (findings.some((f) => f.verdict === 'UNCERTAIN')) return 'UNCERTAIN'
   return 'PASS'
 }
@@ -259,11 +272,81 @@ export async function* askStream(
     screenshotPath = options.screenshotPath
   }
 
+  // iOS-guest path: when the URL is `simulator://<device>/...`, route through
+  // native:scan to get a screenshot. The iOS guest AX tree is not reachable
+  // from the macOS host on Xcode 12+, so the deterministic rule loop can't run.
+  // Emit a single PARTIAL finding pointing at the screenshot so a vision-capable
+  // agent can verify visually. (Gap 3 Step 2.)
+  const isIosGuest = /^simulator:\/\//i.test(url)
+
   yield {
     type: 'start',
     question,
     engineVersion: ENGINE_VERSION,
     ...(screenshotPath ? { screenshotPath } : {}),
+  }
+
+  if (isIosGuest) {
+    const startMs = Date.now()
+    let nativeScreenshot: string | undefined = screenshotPath
+    try {
+      // Lazy import — avoids dragging native modules into web-only callers.
+      const { scanNative } = await import('./native/scan.js')
+      // Parse `simulator://<device>/<bundleOrCurrent>` — preserve the device
+      // identifier the caller used (name, UDID, or fragment).
+      const match = url.match(/^simulator:\/\/([^/]+)(?:\/(.+))?/i)
+      const device = match?.[1] ? decodeURIComponent(match[1]) : undefined
+      const result = await scanNative({
+        device,
+        screenshot: true,
+      })
+      if (result.screenshotPath) nativeScreenshot = result.screenshotPath
+    } catch (err) {
+      // Even if the native scan fails entirely, emit a useful PARTIAL so the
+      // caller knows what happened.
+      const finding: Finding = {
+        verdict: 'PARTIAL',
+        rule: 'ask/ios-guest-scan-failed',
+        summary:
+          'iOS guest scan failed; AX tree is unreachable from the host process on Xcode 12+. ' +
+          `Underlying error: ${err instanceof Error ? err.message : 'unknown'}.`,
+      }
+      yield { type: 'finding', ...finding }
+      yield {
+        type: 'end',
+        verdict: 'PARTIAL',
+        totalFindings: 1,
+        durationMs: Date.now() - startMs,
+        truncated: false,
+        rulesRun: [],
+        elementsScanned: 0,
+        ...(nativeScreenshot ? { screenshotPath: nativeScreenshot } : {}),
+      }
+      return
+    }
+
+    const finding: Finding = {
+      verdict: 'PARTIAL',
+      rule: 'ask/ios-guest-vision-required',
+      summary:
+        'iOS guest accessibility tree is unreachable from the macOS host (Xcode 12+). ' +
+        'Returned the screenshot as evidence — verify visually whether the answer to ' +
+        `"${question}" is satisfied. ` +
+        'Path forward for deterministic rules: XCUITest bundle (NATIVE_SUPPORT_PROPOSAL.md Phase 2).',
+      ...(nativeScreenshot ? { evidence: { screenshotPath: nativeScreenshot } } : {}),
+    }
+    yield { type: 'finding', ...finding }
+    yield {
+      type: 'end',
+      verdict: 'PARTIAL',
+      totalFindings: 1,
+      durationMs: Date.now() - startMs,
+      truncated: false,
+      rulesRun: [],
+      elementsScanned: 0,
+      ...(nativeScreenshot ? { screenshotPath: nativeScreenshot } : {}),
+    }
+    return
   }
 
   // Get elements: either supplied for tests, or via a fresh scan.
