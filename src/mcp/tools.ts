@@ -129,6 +129,44 @@ export const TOOLS = [
     },
   },
   {
+    name: "ask",
+    description:
+      "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages — designed for agent consumption.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to evaluate (e.g. http://localhost:3000/page)",
+        },
+        question: {
+          type: "string",
+          description:
+            "One of the supported questions (or an alias). Unknown questions return UNCERTAIN with the canonical list.",
+        },
+        viewport: {
+          type: "string",
+          enum: ["desktop", "mobile", "tablet"],
+          description:
+            "Viewport preset. Affects rules with mobile-vs-desktop thresholds (e.g. touch-target). Default 'desktop'.",
+        },
+        maxFindings: {
+          type: "number",
+          description:
+            "Cap on returned findings to keep responses tight. Default 25.",
+        },
+      },
+      required: ["url", "question"],
+    },
+    annotations: {
+      title: "Ask (Verdict Engine)",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
     name: "snapshot",
     description:
       "Capture a visual reference point of the current page state. Use before making UI changes so you can compare afterwards with the 'compare' tool.",
@@ -907,6 +945,8 @@ export async function handleToolCall(
     switch (name) {
       case "scan":
         return await handleScan(args);
+      case "ask":
+        return await handleAsk(args);
       case "snapshot":
         return await handleSnapshot(args);
       case "compare":
@@ -1845,6 +1885,29 @@ async function handleScan(
   }
 
   return textResponse(lines.join("\n"));
+}
+
+async function handleAsk(
+  args: Record<string, unknown>,
+): Promise<McpResponse> {
+  const url = args.url as string;
+  const question = args.question as string;
+  if (!url || !question) {
+    return textResponse(
+      'Error: `ask` requires `url` and `question`. ' +
+        'Supported questions: see the tool description.',
+    );
+  }
+  const viewport = (args.viewport as 'desktop' | 'mobile' | 'tablet' | undefined) ?? 'desktop';
+  const maxFindings = (args.maxFindings as number | undefined) ?? 25;
+
+  const { ask } = await import('../ask.js');
+  const response = await ask(url, question, { viewport, maxFindings });
+
+  // MCP responses are not streamed today; return the aggregated AskResponse as JSON.
+  // Streaming over MCP (SSE) is M2.5+; the askStream() async generator is already
+  // available to in-process consumers via `import { askStream } from 'interface-built-right'`.
+  return textResponse(JSON.stringify(response, null, 2));
 }
 
 async function handleSnapshot(

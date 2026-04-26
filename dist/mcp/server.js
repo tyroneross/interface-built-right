@@ -30,6 +30,421 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/design-system/config.ts
+async function loadDesignSystemConfig(projectDir) {
+  let configPath = (0, import_path.join)(projectDir, ".ibr", "design-system.json");
+  if (!(0, import_fs.existsSync)(configPath)) {
+    configPath = (0, import_path.join)(projectDir, "design-system.json");
+    if (!(0, import_fs.existsSync)(configPath)) {
+      return void 0;
+    }
+  }
+  const content = await (0, import_promises.readFile)(configPath, "utf-8");
+  const raw = JSON.parse(content);
+  return DesignSystemConfigSchema.parse(raw);
+}
+function getDefaultSeverity(principleId, config) {
+  const explicit = config.principles.calmPrecision.severity[principleId];
+  if (explicit) return explicit;
+  if (config.principles.calmPrecision.core.includes(principleId)) return "error";
+  if (config.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
+  return "warn";
+}
+var import_zod, import_promises, import_fs, import_path, CustomCheckSchema, CustomPrincipleSchema, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
+var init_config = __esm({
+  "src/design-system/config.ts"() {
+    "use strict";
+    import_zod = require("zod");
+    import_promises = require("fs/promises");
+    import_fs = require("fs");
+    import_path = require("path");
+    CustomCheckSchema = import_zod.z.object({
+      property: import_zod.z.string(),
+      operator: import_zod.z.enum(["equals", "in-set", "not-in-set", "gte", "lte", "contains"]),
+      values: import_zod.z.array(import_zod.z.union([import_zod.z.string(), import_zod.z.number()]))
+    });
+    CustomPrincipleSchema = import_zod.z.object({
+      id: import_zod.z.string(),
+      name: import_zod.z.string(),
+      description: import_zod.z.string(),
+      category: import_zod.z.string(),
+      severity: import_zod.z.enum(["error", "warn", "off"]),
+      checks: import_zod.z.array(CustomCheckSchema)
+    });
+    CalmPrecisionConfigSchema = import_zod.z.object({
+      core: import_zod.z.array(import_zod.z.string()).default(["gestalt", "signal-noise", "content-chrome", "cognitive-load"]),
+      stylistic: import_zod.z.array(import_zod.z.string()).default(["fitts", "hick"]),
+      severity: import_zod.z.record(import_zod.z.string(), import_zod.z.enum(["error", "warn", "off"])).default({})
+    });
+    TypographyTokensSchema = import_zod.z.object({
+      fontFamilies: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+      fontSizes: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
+      fontWeights: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
+      lineHeights: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional()
+    });
+    DesignSystemConfigSchema = import_zod.z.object({
+      version: import_zod.z.literal(1),
+      name: import_zod.z.string(),
+      principles: import_zod.z.object({
+        calmPrecision: CalmPrecisionConfigSchema.default({}),
+        custom: import_zod.z.array(CustomPrincipleSchema).default([])
+      }).default({}),
+      tokens: import_zod.z.object({
+        colors: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+        typography: TypographyTokensSchema.optional(),
+        spacing: import_zod.z.array(import_zod.z.number()).optional(),
+        borderRadius: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
+        shadows: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+        transitions: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
+        touchTargets: import_zod.z.object({ min: import_zod.z.number() }).optional()
+      }).default({})
+    });
+  }
+});
+
+// src/design-system/tokens/schema.ts
+function toDesignTokenSpec(extended, name) {
+  return {
+    name,
+    tokens: {
+      colors: extended.colors,
+      spacing: extended.spacing ? Object.fromEntries(extended.spacing.map((v, i) => [`${i}`, v])) : void 0,
+      fontSizes: extended.typography?.fontSizes,
+      touchTargets: extended.touchTargets,
+      cornerRadius: extended.borderRadius
+    }
+  };
+}
+var import_zod2, ExtendedTokenSpecSchema;
+var init_schema = __esm({
+  "src/design-system/tokens/schema.ts"() {
+    "use strict";
+    import_zod2 = require("zod");
+    ExtendedTokenSpecSchema = import_zod2.z.object({
+      colors: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+      typography: import_zod2.z.object({
+        fontFamilies: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+        fontSizes: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
+        fontWeights: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
+        lineHeights: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional()
+      }).optional(),
+      spacing: import_zod2.z.array(import_zod2.z.number()).optional(),
+      borderRadius: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
+      shadows: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+      transitions: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
+      touchTargets: import_zod2.z.object({ min: import_zod2.z.number() }).optional()
+    });
+  }
+});
+
+// src/tokens.ts
+function loadTokenSpec(specPath) {
+  if (!(0, import_fs2.existsSync)(specPath)) {
+    throw new Error(`Token spec not found: ${specPath}`);
+  }
+  let spec;
+  try {
+    const content = (0, import_fs2.readFileSync)(specPath, "utf-8");
+    spec = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
+  }
+  const { tokens } = spec;
+  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
+  if (!hasAnyTokens) {
+    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
+  }
+  return spec;
+}
+function normalizeColor(color) {
+  if (!color) return "";
+  if (color.startsWith("#")) {
+    return color.toLowerCase();
+  }
+  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1], 10);
+    const g = parseInt(rgbMatch[2], 10);
+    const b = parseInt(rgbMatch[3], 10);
+    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
+  }
+  return color.toLowerCase();
+}
+function parsePx(value) {
+  if (!value) return null;
+  const match = value.match(/^([\d.]+)px$/);
+  return match ? parseFloat(match[1]) : null;
+}
+function getStyle(styles, kebab) {
+  if (!styles) return void 0;
+  const val = styles[kebab];
+  if (val !== void 0) return val;
+  const camel = kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
+  return styles[camel];
+}
+function validateAgainstTokens(elements, spec) {
+  const violations = [];
+  for (const [key, validator] of tokenValidators) {
+    if (spec.tokens[key]) {
+      violations.push(...validator.validate(elements, spec));
+    }
+  }
+  return violations;
+}
+var import_fs2, touchTargetValidator, fontSizeValidator, colorValidator, cornerRadiusValidator, spacingValidator, tokenValidators;
+var init_tokens = __esm({
+  "src/tokens.ts"() {
+    "use strict";
+    import_fs2 = require("fs");
+    touchTargetValidator = {
+      name: "touchTargets",
+      validate(elements, spec) {
+        const violations = [];
+        if (!spec.tokens.touchTargets) return violations;
+        const minSize = spec.tokens.touchTargets.min;
+        for (const element of elements) {
+          const selector = element.selector || element.tagName || "unknown";
+          const isInteractive2 = element.interactive?.hasOnClick || element.interactive?.hasHref;
+          if (!isInteractive2) continue;
+          const actualSize = Math.min(element.bounds.width, element.bounds.height);
+          if (actualSize < minSize) {
+            violations.push({
+              element: selector,
+              property: "touch-target",
+              expected: minSize,
+              actual: actualSize,
+              severity: "error",
+              message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
+            });
+          }
+        }
+        return violations;
+      }
+    };
+    fontSizeValidator = {
+      name: "fontSizes",
+      validate(elements, spec) {
+        const violations = [];
+        if (!spec.tokens.fontSizes) return violations;
+        const tokenValues = Object.values(spec.tokens.fontSizes);
+        for (const element of elements) {
+          const selector = element.selector || element.tagName || "unknown";
+          if (!element.computedStyles) continue;
+          const fontSize = parsePx(getStyle(element.computedStyles, "font-size"));
+          if (fontSize === null) continue;
+          if (!tokenValues.includes(fontSize)) {
+            violations.push({
+              element: selector,
+              property: "font-size",
+              expected: `one of ${tokenValues.join(", ")}px`,
+              actual: fontSize,
+              severity: "warning",
+              message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+            });
+          }
+        }
+        return violations;
+      }
+    };
+    colorValidator = {
+      name: "colors",
+      validate(elements, spec) {
+        const violations = [];
+        if (!spec.tokens.colors) return violations;
+        const tokenColors = new Set(
+          Object.values(spec.tokens.colors).map(normalizeColor)
+        );
+        for (const element of elements) {
+          const selector = element.selector || element.tagName || "unknown";
+          if (!element.computedStyles) continue;
+          const textColor = getStyle(element.computedStyles, "color");
+          if (textColor) {
+            const normalized = normalizeColor(textColor);
+            if (!tokenColors.has(normalized)) {
+              violations.push({
+                element: selector,
+                property: "color",
+                expected: "token color",
+                actual: textColor,
+                severity: "warning",
+                message: `Non-token text color: ${textColor} (${selector})`
+              });
+            }
+          }
+          const bgColor = getStyle(element.computedStyles, "background-color");
+          if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
+            const normalized = normalizeColor(bgColor);
+            if (!tokenColors.has(normalized)) {
+              violations.push({
+                element: selector,
+                property: "color",
+                expected: "token color",
+                actual: bgColor,
+                severity: "warning",
+                message: `Non-token background color: ${bgColor} (${selector})`
+              });
+            }
+          }
+        }
+        return violations;
+      }
+    };
+    cornerRadiusValidator = {
+      name: "cornerRadius",
+      validate(elements, spec) {
+        const violations = [];
+        if (!spec.tokens.cornerRadius) return violations;
+        const tokenValues = Object.values(spec.tokens.cornerRadius);
+        for (const element of elements) {
+          const selector = element.selector || element.tagName || "unknown";
+          if (!element.computedStyles) continue;
+          const borderRadius = parsePx(getStyle(element.computedStyles, "border-radius"));
+          if (borderRadius === null || borderRadius === 0) continue;
+          if (!tokenValues.includes(borderRadius)) {
+            violations.push({
+              element: selector,
+              property: "corner-radius",
+              expected: `one of ${tokenValues.join(", ")}px`,
+              actual: borderRadius,
+              severity: "warning",
+              message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+            });
+          }
+        }
+        return violations;
+      }
+    };
+    spacingValidator = {
+      name: "spacing",
+      validate(elements, spec) {
+        const violations = [];
+        if (!spec.tokens.spacing) return violations;
+        const tokenValues = Object.values(spec.tokens.spacing);
+        for (const element of elements) {
+          const selector = element.selector || element.tagName || "unknown";
+          if (!element.computedStyles) continue;
+          for (const prop of ["gap", "padding", "margin"]) {
+            const raw = element.computedStyles[prop];
+            const value = parsePx(raw);
+            if (value === null || value === 0) continue;
+            if (!tokenValues.includes(value)) {
+              violations.push({
+                element: selector,
+                property: "spacing",
+                expected: `one of ${tokenValues.join(", ")}px`,
+                actual: value,
+                severity: "warning",
+                message: `Non-token ${prop}: ${value}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
+              });
+            }
+          }
+        }
+        return violations;
+      }
+    };
+    tokenValidators = /* @__PURE__ */ new Map([
+      ["touchTargets", touchTargetValidator],
+      ["fontSizes", fontSizeValidator],
+      ["colors", colorValidator],
+      ["cornerRadius", cornerRadiusValidator],
+      ["spacing", spacingValidator]
+    ]);
+  }
+});
+
+// src/design-system/tokens/validator.ts
+function validateFontWeights(elements, weights) {
+  const violations = [];
+  const validWeights = new Set(Object.values(weights));
+  for (const element of elements) {
+    const style = element.computedStyles;
+    if (!style) continue;
+    const fw = getStyle(style, "font-weight");
+    if (!fw) continue;
+    const weight = parseInt(fw, 10);
+    if (isNaN(weight)) continue;
+    if (!validWeights.has(weight)) {
+      violations.push({
+        element: element.selector || element.tagName || "unknown",
+        property: "font-weight",
+        expected: `one of ${Array.from(validWeights).join(", ")}`,
+        actual: weight,
+        severity: "warning",
+        message: `Non-token font weight: ${weight} (expected one of ${Array.from(validWeights).join(", ")}) (${element.selector || element.tagName})`
+      });
+    }
+  }
+  return violations;
+}
+function validateLineHeights(elements, lineHeights) {
+  const violations = [];
+  const validHeights = new Set(Object.values(lineHeights));
+  for (const element of elements) {
+    const style = element.computedStyles;
+    if (!style) continue;
+    const lh = getStyle(style, "line-height");
+    if (!lh || lh === "normal") continue;
+    let value;
+    const pxVal = parsePx(lh);
+    if (pxVal !== null) {
+      const fontSize = parsePx(getStyle(style, "font-size"));
+      if (fontSize && fontSize > 0) {
+        value = Math.round(pxVal / fontSize * 100) / 100;
+      } else {
+        continue;
+      }
+    } else {
+      value = parseFloat(lh);
+      if (isNaN(value)) continue;
+    }
+    const isValid = Array.from(validHeights).some((vh) => Math.abs(vh - value) < 0.05);
+    if (!isValid) {
+      violations.push({
+        element: element.selector || element.tagName || "unknown",
+        property: "line-height",
+        expected: `one of ${Array.from(validHeights).join(", ")}`,
+        actual: value,
+        severity: "warning",
+        message: `Non-token line height: ${value} (expected one of ${Array.from(validHeights).join(", ")}) (${element.selector || element.tagName})`
+      });
+    }
+  }
+  return violations;
+}
+function validateExtendedTokens(elements, tokens, systemName) {
+  const violations = [];
+  const oldSpec = toDesignTokenSpec(tokens, systemName);
+  violations.push(...validateAgainstTokens(elements, oldSpec));
+  if (tokens.typography?.fontWeights) {
+    violations.push(...validateFontWeights(elements, tokens.typography.fontWeights));
+  }
+  if (tokens.typography?.lineHeights) {
+    violations.push(...validateLineHeights(elements, tokens.typography.lineHeights));
+  }
+  return violations;
+}
+function calculateComplianceScore(totalChecked, violationCount) {
+  if (totalChecked === 0) return 100;
+  const passing = totalChecked - violationCount;
+  return Math.round(passing / totalChecked * 100);
+}
+var init_validator = __esm({
+  "src/design-system/tokens/validator.ts"() {
+    "use strict";
+    init_tokens();
+    init_schema();
+  }
+});
+
+// src/design-system/tokens/index.ts
+var init_tokens2 = __esm({
+  "src/design-system/tokens/index.ts"() {
+    "use strict";
+    init_schema();
+    init_validator();
+  }
+});
+
 // src/design-system/principles/gestalt.ts
 var gestaltRules;
 var init_gestalt = __esm({
@@ -284,6 +699,1514 @@ var init_calm_precision = __esm({
   }
 });
 
+// src/design-system/index.ts
+async function runDesignSystemCheck(elements, context, projectDir) {
+  const config = await loadDesignSystemConfig(projectDir);
+  if (!config) return void 0;
+  const principleViolations = [];
+  for (const rule of allCalmPrecisionRules) {
+    const principleId = Object.entries(principleToRules).find(
+      ([, ruleIds]) => ruleIds.includes(rule.id)
+    )?.[0];
+    if (!principleId) continue;
+    const severity = getDefaultSeverity(principleId, config);
+    if (severity === "off") continue;
+    for (const element of elements) {
+      const violation = rule.check(element, context);
+      if (violation) {
+        principleViolations.push({
+          principleId: rule.id,
+          principleName: rule.name,
+          severity: severity === "error" ? "error" : "warn",
+          message: violation.message,
+          element: violation.element,
+          bounds: violation.bounds,
+          fix: violation.fix
+        });
+      }
+    }
+  }
+  const customViolations = [];
+  for (const custom of config.principles.custom) {
+    if (custom.severity === "off") continue;
+    for (const element of elements) {
+      for (const check of custom.checks) {
+        const style = element.computedStyles;
+        if (!style) continue;
+        const actual = style[check.property];
+        if (!actual) continue;
+        let violated = false;
+        switch (check.operator) {
+          case "in-set":
+            violated = !check.values.map(String).includes(actual);
+            break;
+          case "not-in-set":
+            violated = check.values.map(String).includes(actual);
+            break;
+          case "equals":
+            violated = actual !== String(check.values[0]);
+            break;
+          case "gte":
+            violated = parseFloat(actual) < Number(check.values[0]);
+            break;
+          case "lte":
+            violated = parseFloat(actual) > Number(check.values[0]);
+            break;
+          case "contains":
+            violated = !String(check.values[0]).split(",").some((v) => actual.includes(v.trim()));
+            break;
+        }
+        if (violated) {
+          customViolations.push({
+            principleId: custom.id,
+            principleName: custom.name,
+            severity: custom.severity,
+            message: `${custom.name}: ${check.property} is "${actual}" (expected ${check.operator} ${check.values.join(", ")})`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: custom.description
+          });
+        }
+      }
+    }
+  }
+  const tokenViolations = config.tokens ? validateExtendedTokens(elements, config.tokens, config.name) : [];
+  const tokenCategories = Object.keys(config.tokens).filter(
+    (k) => config.tokens[k] !== void 0
+  ).length;
+  const totalChecked = elements.length * Math.max(tokenCategories, 1);
+  const complianceScore = calculateComplianceScore(totalChecked, tokenViolations.length);
+  return {
+    configName: config.name,
+    principleViolations,
+    tokenViolations,
+    customViolations,
+    complianceScore
+  };
+}
+var init_design_system = __esm({
+  "src/design-system/index.ts"() {
+    "use strict";
+    init_config();
+    init_tokens2();
+    init_calm_precision();
+    init_config();
+  }
+});
+
+// src/engine/cdp/connection.ts
+var DEFAULT_TIMEOUT_MS, CdpConnection;
+var init_connection = __esm({
+  "src/engine/cdp/connection.ts"() {
+    "use strict";
+    DEFAULT_TIMEOUT_MS = 3e4;
+    CdpConnection = class {
+      ws = null;
+      nextId = 0;
+      pending = /* @__PURE__ */ new Map();
+      eventHandlers = /* @__PURE__ */ new Map();
+      timeoutMs;
+      constructor(options) {
+        this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+      }
+      async connect(wsUrl) {
+        return new Promise((resolve3, reject) => {
+          const ws = new WebSocket(wsUrl);
+          let settled = false;
+          const onOpen = () => {
+            if (settled) return;
+            settled = true;
+            this.ws = ws;
+            ws.addEventListener("message", (event) => this.handleMessage(event));
+            ws.addEventListener("close", () => this.handleClose());
+            ws.addEventListener("error", () => this.handleClose());
+            resolve3();
+          };
+          const onError = () => {
+            if (settled) return;
+            settled = true;
+            reject(new Error(`WebSocket connection failed: ${wsUrl}`));
+          };
+          ws.addEventListener("open", onOpen);
+          ws.addEventListener("error", onError);
+        });
+      }
+      async send(method, params, sessionId) {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+          throw new Error("Not connected");
+        }
+        const id = ++this.nextId;
+        return new Promise((resolve3, reject) => {
+          const timer = setTimeout(() => {
+            if (this.pending.has(id)) {
+              this.pending.delete(id);
+              const secs = (this.timeoutMs / 1e3).toFixed(0);
+              reject(new Error(
+                `CDP request '${method}' timed out after ${secs}s. The browser may be unresponsive or the operation is taking too long.`
+              ));
+            }
+          }, this.timeoutMs);
+          this.pending.set(id, {
+            resolve: resolve3,
+            reject,
+            timer
+          });
+          const msg = { id, method };
+          if (params) msg.params = params;
+          if (sessionId) msg.sessionId = sessionId;
+          this.ws.send(JSON.stringify(msg));
+        });
+      }
+      on(method, handler) {
+        if (!this.eventHandlers.has(method)) {
+          this.eventHandlers.set(method, /* @__PURE__ */ new Set());
+        }
+        this.eventHandlers.get(method).add(handler);
+      }
+      off(method, handler) {
+        this.eventHandlers.get(method)?.delete(handler);
+      }
+      handleMessage(event) {
+        let data;
+        try {
+          data = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
+        if ("id" in data && this.pending.has(data.id)) {
+          const id = data.id;
+          const { resolve: resolve3, reject, timer } = this.pending.get(id);
+          clearTimeout(timer);
+          this.pending.delete(id);
+          if (data.error) {
+            const err = data.error;
+            reject(new Error(`CDP error ${err.code}: ${err.message}`));
+          } else {
+            resolve3(data.result);
+          }
+        } else if ("method" in data) {
+          const handlers = this.eventHandlers.get(data.method);
+          if (handlers) {
+            for (const handler of handlers) handler(data.params);
+          }
+        }
+      }
+      handleClose() {
+        for (const [, { reject, timer }] of this.pending) {
+          clearTimeout(timer);
+          reject(new Error("WebSocket closed"));
+        }
+        this.pending.clear();
+        this.ws = null;
+      }
+      async close() {
+        for (const [, { timer }] of this.pending) {
+          clearTimeout(timer);
+        }
+        if (this.ws) {
+          this.ws.close();
+          this.ws = null;
+        }
+        this.pending.clear();
+      }
+      get connected() {
+        return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/browser.ts
+function findChrome() {
+  for (const p of CHROME_PATHS) {
+    if ((0, import_node_fs.existsSync)(p)) return p;
+  }
+  return null;
+}
+function randomPort() {
+  return 49152 + Math.floor(Math.random() * (65535 - 49152));
+}
+async function findFreePort(maxAttempts = 10) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const port = randomPort();
+    const isFree = await checkPortFree(port);
+    if (isFree) return port;
+  }
+  return new Promise((resolve3, reject) => {
+    const srv = (0, import_node_net.createServer)();
+    srv.listen(0, () => {
+      const port = srv.address().port;
+      srv.close(() => resolve3(port));
+    });
+    srv.on("error", reject);
+  });
+}
+function checkPortFree(port) {
+  return new Promise((resolve3) => {
+    const srv = (0, import_node_net.createServer)();
+    srv.once("error", () => resolve3(false));
+    srv.listen(port, () => srv.close(() => resolve3(true)));
+  });
+}
+async function resolveWsEndpoint(cdpUrl) {
+  const res = await fetch(`${cdpUrl}/json/version`);
+  if (!res.ok) {
+    throw new Error(`CDP endpoint did not respond: ${cdpUrl}`);
+  }
+  const data = await res.json();
+  if (!data.webSocketDebuggerUrl) {
+    throw new Error(`CDP endpoint did not return a WebSocket URL: ${cdpUrl}`);
+  }
+  return data.webSocketDebuggerUrl;
+}
+function resolveBrowserConnectionOptions(options = {}, env = process.env) {
+  const wsEndpoint = options.wsEndpoint || env.IBR_WS_ENDPOINT;
+  const cdpUrl = options.cdpUrl || env.IBR_CDP_URL;
+  const requestedMode = options.mode || env.IBR_BROWSER_MODE;
+  const mode = requestedMode === "local" ? "local" : requestedMode === "connect" || wsEndpoint || cdpUrl ? "connect" : "local";
+  return {
+    mode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath: options.chromePath || env.IBR_CHROME_PATH
+  };
+}
+var import_node_child_process, import_node_fs, import_promises2, import_node_net, import_node_os, import_node_path, CHROME_PATHS, BrowserManager;
+var init_browser = __esm({
+  "src/engine/cdp/browser.ts"() {
+    "use strict";
+    import_node_child_process = require("child_process");
+    import_node_fs = require("fs");
+    import_promises2 = require("fs/promises");
+    import_node_net = require("net");
+    import_node_os = require("os");
+    import_node_path = require("path");
+    CHROME_PATHS = [
+      // macOS
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+      "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
+      "/Applications/Chromium.app/Contents/MacOS/Chromium",
+      // Linux
+      "/usr/bin/google-chrome",
+      "/usr/bin/google-chrome-stable",
+      "/usr/bin/chromium-browser",
+      "/usr/bin/chromium",
+      // Windows (WSL)
+      "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
+    ];
+    BrowserManager = class {
+      process = null;
+      _port = 0;
+      _mode = "local";
+      _cdpUrl = null;
+      _wsEndpoint = null;
+      async launch(options = {}) {
+        const connection = resolveBrowserConnectionOptions(options);
+        this._mode = connection.mode;
+        if (connection.mode === "connect") {
+          this.process = null;
+          this._port = 0;
+          this._cdpUrl = connection.cdpUrl ?? null;
+          if (connection.wsEndpoint) {
+            this._wsEndpoint = connection.wsEndpoint;
+            return connection.wsEndpoint;
+          }
+          if (connection.cdpUrl) {
+            const wsUrl2 = await resolveWsEndpoint(connection.cdpUrl);
+            this._wsEndpoint = wsUrl2;
+            return wsUrl2;
+          }
+          throw new Error(
+            "Connect mode requires a CDP endpoint.\nProvide --cdp-url http://127.0.0.1:9222 or --ws-endpoint ws://...\nYou can also set IBR_CDP_URL or IBR_WS_ENDPOINT."
+          );
+        }
+        const headless = options.headless ?? true;
+        this._port = options.port ?? await findFreePort();
+        let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
+        const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
+        if ((0, import_node_fs.existsSync)(lockPath)) {
+          userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
+        }
+        const chromePath = connection.chromePath ?? findChrome();
+        if (!chromePath) {
+          throw new Error(
+            `Chrome not found. Install Google Chrome or pass chromePath option.
+Checked: ${CHROME_PATHS.join(", ")}`
+          );
+        }
+        await (0, import_promises2.mkdir)(userDataDir, { recursive: true });
+        const args = [
+          `--remote-debugging-port=${this._port}`,
+          `--user-data-dir=${userDataDir}`,
+          "--no-first-run",
+          "--no-default-browser-check",
+          "--disable-background-networking",
+          "--disable-sync"
+        ];
+        if (headless) {
+          args.push("--headless=new");
+        }
+        if (options.normalize) {
+          args.push("--disable-lcd-text");
+          args.push("--force-device-scale-factor=1");
+        }
+        this.process = (0, import_node_child_process.spawn)(chromePath, args, { stdio: "pipe" });
+        this.process.on("error", (err) => {
+          console.error(`Chrome process error: ${err.message}`);
+        });
+        const wsUrl = await this.waitForDebugger();
+        this._cdpUrl = `http://127.0.0.1:${this._port}`;
+        this._wsEndpoint = wsUrl;
+        return wsUrl;
+      }
+      async waitForDebugger() {
+        const maxAttempts = 50;
+        for (let i = 0; i < maxAttempts; i++) {
+          try {
+            const res = await fetch(`http://127.0.0.1:${this._port}/json/version`);
+            const data = await res.json();
+            return data.webSocketDebuggerUrl;
+          } catch {
+            await new Promise((r) => setTimeout(r, 100));
+          }
+        }
+        throw new Error(
+          `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?
+If you are running inside a sandbox, retry with connect mode:
+  --browser-mode connect --cdp-url http://127.0.0.1:9222`
+        );
+      }
+      async close() {
+        if (this._mode !== "local" || !this.process) return;
+        const proc = this.process;
+        this.process = null;
+        await new Promise((resolve3) => {
+          const killTimer = setTimeout(() => {
+            try {
+              proc.kill("SIGKILL");
+            } catch {
+            }
+            resolve3();
+          }, 3e3);
+          proc.once("close", () => {
+            clearTimeout(killTimer);
+            resolve3();
+          });
+          proc.kill("SIGTERM");
+        });
+      }
+      get running() {
+        return this.process !== null && !this.process.killed;
+      }
+      get port() {
+        return this._port;
+      }
+      get pid() {
+        return this.process?.pid ?? null;
+      }
+      get mode() {
+        return this._mode;
+      }
+      get cdpUrl() {
+        return this._cdpUrl;
+      }
+      get wsEndpoint() {
+        return this._wsEndpoint;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/target.ts
+var TargetDomain;
+var init_target = __esm({
+  "src/engine/cdp/target.ts"() {
+    "use strict";
+    TargetDomain = class {
+      constructor(conn) {
+        this.conn = conn;
+      }
+      async createPage(url) {
+        const result = await this.conn.send(
+          "Target.createTarget",
+          { url }
+        );
+        return result.targetId;
+      }
+      async attach(targetId) {
+        const result = await this.conn.send(
+          "Target.attachToTarget",
+          { targetId, flatten: true }
+        );
+        return result.sessionId;
+      }
+      async close(targetId) {
+        await this.conn.send("Target.closeTarget", { targetId });
+      }
+      async list() {
+        const result = await this.conn.send("Target.getTargets");
+        return result.targetInfos;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/page.ts
+var PageDomain;
+var init_page = __esm({
+  "src/engine/cdp/page.ts"() {
+    "use strict";
+    PageDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async navigate(url) {
+        const result = await this.conn.send(
+          "Page.navigate",
+          { url },
+          this.sessionId
+        );
+        return result.frameId;
+      }
+      async screenshot(options = {}) {
+        const format = options.format ?? "png";
+        if (options.fullPage) {
+          return this.fullPageScreenshot(format, options.quality);
+        }
+        const params = { format };
+        if (options.quality !== void 0) params.quality = options.quality;
+        if (options.clip) {
+          params.clip = { ...options.clip, scale: options.clip.scale ?? 1 };
+        }
+        const result = await this.conn.send(
+          "Page.captureScreenshot",
+          params,
+          this.sessionId
+        );
+        return Buffer.from(result.data, "base64");
+      }
+      /**
+       * Full-page screenshot via getLayoutMetrics + device metrics override.
+       * Technique: get content size → override viewport to content size →
+       * capture with captureBeyondViewport → restore viewport.
+       */
+      async fullPageScreenshot(format, quality) {
+        const metrics = await this.getLayoutMetrics();
+        const { width, height } = metrics.contentSize;
+        await this.conn.send("Emulation.setDeviceMetricsOverride", {
+          width: Math.ceil(width),
+          height: Math.ceil(height),
+          deviceScaleFactor: 1,
+          mobile: false
+        }, this.sessionId);
+        try {
+          const params = {
+            format,
+            captureBeyondViewport: true,
+            clip: { x: 0, y: 0, width, height, scale: 1 }
+          };
+          if (quality !== void 0) params.quality = quality;
+          const result = await this.conn.send(
+            "Page.captureScreenshot",
+            params,
+            this.sessionId
+          );
+          return Buffer.from(result.data, "base64");
+        } finally {
+          await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
+        }
+      }
+      async getLayoutMetrics() {
+        return this.conn.send(
+          "Page.getLayoutMetrics",
+          {},
+          this.sessionId
+        );
+      }
+      async enableLifecycleEvents() {
+        await this.conn.send("Page.setLifecycleEventsEnabled", { enabled: true }, this.sessionId);
+        await this.conn.send("Page.enable", {}, this.sessionId);
+      }
+      /**
+       * Inject CSS into the page.
+       * Uses callFunctionOn with CSS passed as a proper argument (not interpolated)
+       * to avoid injection issues with special characters in CSS content.
+       */
+      async addStyleTag(css) {
+        const docResult = await this.conn.send("Runtime.evaluate", {
+          expression: "document",
+          returnByValue: false
+        }, this.sessionId);
+        await this.conn.send("Runtime.callFunctionOn", {
+          functionDeclaration: '(cssText) => { const style = document.createElement("style"); style.textContent = cssText; document.head.appendChild(style); }',
+          objectId: docResult.result.objectId,
+          arguments: [{ value: css }],
+          returnByValue: true
+        }, this.sessionId);
+      }
+      /**
+       * Inject script that runs on every navigation (including future ones).
+       * Uses Page.addScriptToEvaluateOnNewDocument.
+       */
+      async addScriptOnLoad(source) {
+        const result = await this.conn.send(
+          "Page.addScriptToEvaluateOnNewDocument",
+          { source },
+          this.sessionId
+        );
+        return result.identifier;
+      }
+    };
+  }
+});
+
+// src/engine/normalize.ts
+function normalizeRole(rawRole, platform) {
+  if (platform === "web") return WEB_ROLES[rawRole] ?? "group";
+  return MACOS_ROLES[rawRole] ?? "group";
+}
+var WEB_ROLES, MACOS_ROLES;
+var init_normalize = __esm({
+  "src/engine/normalize.ts"() {
+    "use strict";
+    WEB_ROLES = {
+      button: "button",
+      textbox: "textfield",
+      TextField: "textfield",
+      link: "link",
+      checkbox: "checkbox",
+      switch: "switch",
+      slider: "slider",
+      tab: "tab",
+      combobox: "select",
+      listbox: "select",
+      heading: "heading",
+      img: "image",
+      image: "image",
+      StaticText: "text",
+      group: "group",
+      generic: "group",
+      navigation: "group",
+      main: "group",
+      contentinfo: "group",
+      banner: "group",
+      form: "group",
+      search: "group",
+      region: "group",
+      article: "group",
+      section: "group",
+      complementary: "group"
+    };
+    MACOS_ROLES = {
+      AXButton: "button",
+      AXTextField: "textfield",
+      AXTextArea: "textfield",
+      AXLink: "link",
+      AXCheckBox: "checkbox",
+      AXSwitch: "switch",
+      AXSlider: "slider",
+      AXTab: "tab",
+      AXRadioButton: "tab",
+      AXPopUpButton: "select",
+      AXComboBox: "select",
+      AXStaticText: "text",
+      AXImage: "image",
+      AXGroup: "group",
+      AXWindow: "group",
+      AXScrollArea: "group",
+      AXToolbar: "group",
+      AXSplitGroup: "group",
+      AXList: "group",
+      AXOutline: "group",
+      AXTable: "group",
+      AXRow: "group",
+      AXColumn: "group",
+      AXCell: "group"
+    };
+  }
+});
+
+// src/engine/cdp/accessibility.ts
+var SKIP_ROLES, AccessibilityDomain;
+var init_accessibility = __esm({
+  "src/engine/cdp/accessibility.ts"() {
+    "use strict";
+    init_normalize();
+    SKIP_ROLES = /* @__PURE__ */ new Set(["WebArea", "RootWebArea", "GenericContainer", "none", "IgnoredRole"]);
+    AccessibilityDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      nodeMap = /* @__PURE__ */ new Map();
+      // elementId → backendDOMNodeId
+      loadCompleteHandlers = /* @__PURE__ */ new Set();
+      nodesUpdatedHandlers = /* @__PURE__ */ new Set();
+      enabled = false;
+      // Stored references for cleanup
+      loadCompleteListener = null;
+      nodesUpdatedListener = null;
+      async enable() {
+        if (this.enabled) return;
+        this.enabled = true;
+        await this.conn.send("Accessibility.enable", {}, this.sessionId);
+        this.loadCompleteListener = () => {
+          for (const handler of this.loadCompleteHandlers) handler();
+        };
+        this.nodesUpdatedListener = (params) => {
+          const { nodes } = params;
+          for (const handler of this.nodesUpdatedHandlers) handler(nodes);
+        };
+        this.conn.on("Accessibility.loadComplete", this.loadCompleteListener);
+        this.conn.on("Accessibility.nodesUpdated", this.nodesUpdatedListener);
+      }
+      async disable() {
+        if (!this.enabled) return;
+        this.enabled = false;
+        if (this.loadCompleteListener) {
+          this.conn.off("Accessibility.loadComplete", this.loadCompleteListener);
+          this.loadCompleteListener = null;
+        }
+        if (this.nodesUpdatedListener) {
+          this.conn.off("Accessibility.nodesUpdated", this.nodesUpdatedListener);
+          this.nodesUpdatedListener = null;
+        }
+      }
+      async getSnapshot() {
+        const result = await this.conn.send(
+          "Accessibility.getFullAXTree",
+          {},
+          this.sessionId
+        );
+        return this.convertToElements(result.nodes);
+      }
+      /**
+       * queryAXTree — CDP-native search by accessible name and/or role.
+       * Faster than getFullAXTree + filter for targeted element finding.
+       * Note: does NOT clear/repopulate nodeMap — merges into existing map.
+       */
+      async queryAXTree(options) {
+        const params = {};
+        if (options.accessibleName) params.accessibleName = options.accessibleName;
+        if (options.role) params.role = options.role;
+        if (options.backendNodeId) {
+          params.backendNodeId = options.backendNodeId;
+        } else {
+          const doc = await this.conn.send(
+            "DOM.getDocument",
+            {},
+            this.sessionId
+          );
+          params.nodeId = doc.root.nodeId;
+        }
+        try {
+          const result = await this.conn.send(
+            "Accessibility.queryAXTree",
+            params,
+            this.sessionId
+          );
+          return this.convertToElements(result.nodes, false);
+        } catch {
+          return [];
+        }
+      }
+      getBackendNodeId(elementId) {
+        return this.nodeMap.get(elementId);
+      }
+      /** Subscribe to Accessibility.loadComplete events. */
+      onLoadComplete(handler) {
+        this.loadCompleteHandlers.add(handler);
+      }
+      /** Subscribe to Accessibility.nodesUpdated events. */
+      onNodesUpdated(handler) {
+        this.nodesUpdatedHandlers.add(handler);
+      }
+      offLoadComplete(handler) {
+        this.loadCompleteHandlers.delete(handler);
+      }
+      offNodesUpdated(handler) {
+        this.nodesUpdatedHandlers.delete(handler);
+      }
+      /**
+       * Convert CDP AX nodes to Elements.
+       * @param clearMap If true (default), clears nodeMap first. Set false for queryAXTree
+       *   to merge results into existing map without invalidating prior IDs.
+       */
+      convertToElements(nodes, clearMap = true) {
+        const elements = [];
+        if (clearMap) {
+          this.nodeMap.clear();
+        }
+        for (const node of nodes) {
+          if (SKIP_ROLES.has(node.role.value)) continue;
+          const role = normalizeRole(node.role.value, "web");
+          const label = node.name?.value ?? "";
+          if (role === "group" && !label) continue;
+          const id = node.backendDOMNodeId ? `e${node.backendDOMNodeId}` : `ex${Math.random().toString(36).slice(2, 8)}`;
+          const el = {
+            id,
+            role,
+            label,
+            value: node.value?.value ?? null,
+            enabled: this.getProperty(node, "disabled") !== true,
+            focused: this.getProperty(node, "focused") === true,
+            actions: this.inferActions(role),
+            bounds: [0, 0, 0, 0],
+            parent: null
+          };
+          if (node.backendDOMNodeId) {
+            this.nodeMap.set(el.id, node.backendDOMNodeId);
+          }
+          elements.push(el);
+        }
+        return elements;
+      }
+      getProperty(node, name) {
+        return node.properties?.find((p) => p.name === name)?.value?.value;
+      }
+      inferActions(role) {
+        switch (role) {
+          case "button":
+          case "link":
+          case "checkbox":
+          case "tab":
+          case "switch":
+            return ["press"];
+          case "textfield":
+            return ["setValue"];
+          case "slider":
+            return ["increment", "decrement", "setValue"];
+          case "select":
+            return ["press", "showMenu"];
+          default:
+            return [];
+        }
+      }
+    };
+  }
+});
+
+// src/engine/cdp/dom.ts
+var DomDomain;
+var init_dom = __esm({
+  "src/engine/cdp/dom.ts"() {
+    "use strict";
+    DomDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async getElementCenter(backendNodeId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+        const q = result.model.content;
+        const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
+        const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
+        return { x, y };
+      }
+      async getBoxModel(backendNodeId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+        return result.model;
+      }
+      async getDocument() {
+        return this.conn.send("DOM.getDocument", {}, this.sessionId);
+      }
+      /**
+       * Find a single element by CSS selector.
+       * Returns the nodeId, or null if not found.
+       */
+      async querySelector(nodeId, selector) {
+        try {
+          const result = await this.conn.send(
+            "DOM.querySelector",
+            { nodeId, selector },
+            this.sessionId
+          );
+          return result.nodeId > 0 ? result.nodeId : null;
+        } catch {
+          return null;
+        }
+      }
+      /**
+       * Find all elements matching a CSS selector.
+       * Returns array of nodeIds.
+       */
+      async querySelectorAll(nodeId, selector) {
+        try {
+          const result = await this.conn.send(
+            "DOM.querySelectorAll",
+            { nodeId, selector },
+            this.sessionId
+          );
+          return result.nodeIds.filter((id) => id > 0);
+        } catch {
+          return [];
+        }
+      }
+      /**
+       * Get the outer HTML of a node.
+       */
+      async getOuterHTML(nodeId, backendNodeId) {
+        const params = {};
+        if (nodeId !== void 0) params.nodeId = nodeId;
+        if (backendNodeId !== void 0) params.backendNodeId = backendNodeId;
+        const result = await this.conn.send(
+          "DOM.getOuterHTML",
+          params,
+          this.sessionId
+        );
+        return result.outerHTML;
+      }
+      /**
+       * Get attributes of a node as key-value pairs.
+       */
+      async getAttributes(nodeId) {
+        const result = await this.conn.send(
+          "DOM.getAttributes",
+          { nodeId },
+          this.sessionId
+        );
+        const attrs = {};
+        for (let i = 0; i < result.attributes.length; i += 2) {
+          attrs[result.attributes[i]] = result.attributes[i + 1];
+        }
+        return attrs;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/input.ts
+function charToCode(char) {
+  if (SPECIAL_CODES[char]) return SPECIAL_CODES[char];
+  const upper = char.toUpperCase();
+  if (upper >= "A" && upper <= "Z") return `Key${upper}`;
+  return "";
+}
+var InputDomain, SPECIAL_KEYS, SPECIAL_CODES;
+var init_input = __esm({
+  "src/engine/cdp/input.ts"() {
+    "use strict";
+    InputDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async click(x, y) {
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x,
+          y,
+          button: "left",
+          clickCount: 1
+        }, this.sessionId);
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x,
+          y,
+          button: "left",
+          clickCount: 1
+        }, this.sessionId);
+      }
+      async type(text) {
+        for (const char of text) {
+          const code = charToCode(char);
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            text: char,
+            key: char,
+            code
+          }, this.sessionId);
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: char,
+            code
+          }, this.sessionId);
+        }
+      }
+      /**
+       * Press a special key (Enter, Tab, Escape, Backspace, etc.)
+       */
+      async pressKey(key) {
+        const keyDef = SPECIAL_KEYS[key];
+        if (!keyDef) {
+          await this.type(key);
+          return;
+        }
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyDown",
+          key: keyDef.key,
+          code: keyDef.code,
+          text: keyDef.text
+        }, this.sessionId);
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key: keyDef.key,
+          code: keyDef.code
+        }, this.sessionId);
+      }
+      async hover(x, y) {
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseMoved",
+          x,
+          y
+        }, this.sessionId);
+      }
+      async scroll(x, y, deltaX, deltaY) {
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseWheel",
+          x,
+          y,
+          deltaX,
+          deltaY
+        }, this.sessionId);
+      }
+    };
+    SPECIAL_KEYS = {
+      Enter: { key: "Enter", code: "Enter", text: "\r" },
+      Tab: { key: "Tab", code: "Tab", text: "	" },
+      Escape: { key: "Escape", code: "Escape" },
+      Backspace: { key: "Backspace", code: "Backspace" },
+      Delete: { key: "Delete", code: "Delete" },
+      ArrowUp: { key: "ArrowUp", code: "ArrowUp" },
+      ArrowDown: { key: "ArrowDown", code: "ArrowDown" },
+      ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft" },
+      ArrowRight: { key: "ArrowRight", code: "ArrowRight" },
+      Home: { key: "Home", code: "Home" },
+      End: { key: "End", code: "End" },
+      PageUp: { key: "PageUp", code: "PageUp" },
+      PageDown: { key: "PageDown", code: "PageDown" }
+    };
+    SPECIAL_CODES = {
+      " ": "Space",
+      "0": "Digit0",
+      "1": "Digit1",
+      "2": "Digit2",
+      "3": "Digit3",
+      "4": "Digit4",
+      "5": "Digit5",
+      "6": "Digit6",
+      "7": "Digit7",
+      "8": "Digit8",
+      "9": "Digit9",
+      "`": "Backquote",
+      "-": "Minus",
+      "=": "Equal",
+      "[": "BracketLeft",
+      "]": "BracketRight",
+      "\\": "Backslash",
+      ";": "Semicolon",
+      "'": "Quote",
+      ",": "Comma",
+      ".": "Period",
+      "/": "Slash",
+      "~": "Backquote",
+      "!": "Digit1",
+      "@": "Digit2",
+      "#": "Digit3",
+      "$": "Digit4",
+      "%": "Digit5",
+      "^": "Digit6",
+      "&": "Digit7",
+      "*": "Digit8",
+      "(": "Digit9",
+      ")": "Digit0",
+      "_": "Minus",
+      "+": "Equal",
+      "{": "BracketLeft",
+      "}": "BracketRight",
+      "|": "Backslash",
+      ":": "Semicolon",
+      '"': "Quote",
+      "<": "Comma",
+      ">": "Period",
+      "?": "Slash",
+      "	": "Tab",
+      "\n": "Enter"
+    };
+  }
+});
+
+// src/engine/cdp/runtime.ts
+var RuntimeDomain;
+var init_runtime = __esm({
+  "src/engine/cdp/runtime.ts"() {
+    "use strict";
+    RuntimeDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      /**
+       * Evaluate a JavaScript expression string in the page context.
+       */
+      async evaluate(expression) {
+        const result = await this.conn.send("Runtime.evaluate", {
+          expression,
+          returnByValue: true,
+          awaitPromise: true
+        }, this.sessionId);
+        if (result.exceptionDetails) {
+          const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+          throw new Error(`Evaluation failed: ${msg}`);
+        }
+        return result.result.value;
+      }
+      /**
+       * Call a function with structured arguments in the page context.
+       * This is the CDP equivalent of Playwright's page.evaluate(fn, ...args).
+       *
+       * The function declaration is serialized as a string, and arguments
+       * are passed as CDP CallArgument objects (primitives by value).
+       *
+       * Usage:
+       *   await runtime.callFunctionOn(
+       *     '(selector, prop) => getComputedStyle(document.querySelector(selector))[prop]',
+       *     ['.header', 'color']
+       *   )
+       */
+      async callFunctionOn(functionDeclaration, args) {
+        const docResult = await this.conn.send("Runtime.evaluate", {
+          expression: "document",
+          returnByValue: false
+        }, this.sessionId);
+        const callArgs = args?.map((arg) => {
+          if (arg === void 0) return { unserializableValue: "undefined" };
+          return { value: arg };
+        });
+        const result = await this.conn.send("Runtime.callFunctionOn", {
+          functionDeclaration,
+          objectId: docResult.result.objectId,
+          arguments: callArgs,
+          returnByValue: true,
+          awaitPromise: true
+        }, this.sessionId);
+        if (result.exceptionDetails) {
+          const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+          throw new Error(`callFunctionOn failed: ${msg}`);
+        }
+        return result.result.value;
+      }
+      /**
+       * Enable the Runtime domain to receive events (like consoleAPICalled).
+       */
+      async enable() {
+        await this.conn.send("Runtime.enable", {}, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/css.ts
+var CssDomain;
+var init_css = __esm({
+  "src/engine/cdp/css.ts"() {
+    "use strict";
+    CssDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async enable() {
+        await this.conn.send("CSS.enable", {}, this.sessionId);
+      }
+      /**
+       * Get computed styles for a DOM node.
+       * Returns all computed CSS properties as key-value pairs.
+       */
+      async getComputedStyle(nodeId) {
+        const result = await this.conn.send("CSS.getComputedStyleForNode", { nodeId }, this.sessionId);
+        const styles = {};
+        for (const { name, value } of result.computedStyle) {
+          styles[name] = value;
+        }
+        return styles;
+      }
+      /**
+       * Get computed styles filtered to specific properties.
+       * More efficient when you only need a few properties.
+       */
+      async getComputedStyleFiltered(nodeId, properties) {
+        const all = await this.getComputedStyle(nodeId);
+        const filtered = {};
+        for (const prop of properties) {
+          if (prop in all) {
+            filtered[prop] = all[prop];
+          }
+        }
+        return filtered;
+      }
+      /**
+       * Get matched CSS rules for a node — includes inline, attribute,
+       * inherited, pseudo-element, and keyframe styles.
+       */
+      async getMatchedStyles(nodeId) {
+        return this.conn.send("CSS.getMatchedStylesForNode", { nodeId }, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/snapshot.ts
+var SnapshotDomain;
+var init_snapshot = __esm({
+  "src/engine/cdp/snapshot.ts"() {
+    "use strict";
+    SnapshotDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async enable() {
+        await this.conn.send("DOMSnapshot.enable", {}, this.sessionId);
+      }
+      /**
+       * Capture full DOM snapshot — one call gets everything.
+       * Returns flattened arrays with string deduplication.
+       */
+      async captureSnapshot(options) {
+        return this.conn.send(
+          "DOMSnapshot.captureSnapshot",
+          {
+            computedStyles: options.computedStyles,
+            includePaintOrder: options.includePaintOrder,
+            includeDOMRects: options.includeDOMRects,
+            includeBlendedBackgroundColors: options.includeBlendedBackgroundColors,
+            includeTextColorOpacities: options.includeTextColorOpacities
+          },
+          this.sessionId
+        );
+      }
+      /**
+       * Helper: resolve a string index from the snapshot's strings array.
+       */
+      resolveString(strings, index) {
+        return strings[index] ?? "";
+      }
+      /**
+       * Helper: extract computed style values for a layout node.
+       *
+       * CDP format: `styles[nodeIndex]` is an array of string indices.
+       * Each index maps to the value of the corresponding property in the
+       * `computedStyles` parameter you passed to `captureSnapshot`.
+       * The property names are known — they're the strings you requested.
+       *
+       * @param strings The strings array from CaptureSnapshotResult
+       * @param styleIndices The style indices for one layout node (from LayoutTreeSnapshot.styles[n])
+       * @param requestedProperties The computedStyles array you passed to captureSnapshot
+       */
+      resolveStyles(strings, styleIndices, requestedProperties) {
+        const result = {};
+        for (let i = 0; i < styleIndices.length && i < requestedProperties.length; i++) {
+          const name = requestedProperties[i];
+          const value = strings[styleIndices[i]];
+          if (name) result[name] = value ?? "";
+        }
+        return result;
+      }
+    };
+  }
+});
+
+// src/engine/cdp/emulation.ts
+var EmulationDomain;
+var init_emulation = __esm({
+  "src/engine/cdp/emulation.ts"() {
+    "use strict";
+    EmulationDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      /**
+       * Override device metrics (viewport size, scale, mobile mode).
+       */
+      async setDeviceMetrics(config) {
+        await this.conn.send("Emulation.setDeviceMetricsOverride", {
+          width: config.width,
+          height: config.height,
+          deviceScaleFactor: config.deviceScaleFactor ?? 1,
+          mobile: config.mobile ?? false
+        }, this.sessionId);
+      }
+      /**
+       * Clear device metrics override (restore defaults).
+       */
+      async clearDeviceMetrics() {
+        await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
+      }
+      /**
+       * Hide scrollbars (useful for consistent screenshots).
+       */
+      async setScrollbarsHidden(hidden) {
+        await this.conn.send("Emulation.setScrollbarsHidden", { hidden }, this.sessionId);
+      }
+      /**
+       * Emulate reduced motion preference (disable animations for screenshots).
+       */
+      async setReducedMotion(enabled) {
+        await this.conn.send("Emulation.setEmulatedMedia", {
+          features: [{ name: "prefers-reduced-motion", value: enabled ? "reduce" : "" }]
+        }, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/network.ts
+var NetworkDomain;
+var init_network = __esm({
+  "src/engine/cdp/network.ts"() {
+    "use strict";
+    NetworkDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      async enable() {
+        await this.conn.send("Network.enable", {}, this.sessionId);
+      }
+      /**
+       * Get all cookies, optionally filtered by URLs.
+       */
+      async getCookies(urls) {
+        const params = {};
+        if (urls) params.urls = urls;
+        const result = await this.conn.send(
+          "Network.getCookies",
+          params,
+          this.sessionId
+        );
+        return result.cookies;
+      }
+      /**
+       * Set a cookie.
+       */
+      async setCookie(cookie) {
+        const result = await this.conn.send(
+          "Network.setCookie",
+          cookie,
+          this.sessionId
+        );
+        return result.success;
+      }
+      /**
+       * Set multiple cookies at once.
+       */
+      async setCookies(cookies) {
+        await this.conn.send("Network.setCookies", {
+          cookies
+        }, this.sessionId);
+      }
+      /**
+       * Clear all browser cookies.
+       */
+      async clearCookies() {
+        await this.conn.send("Network.clearBrowserCookies", {}, this.sessionId);
+      }
+      /**
+       * Delete specific cookies by name and optional URL/domain.
+       */
+      async deleteCookies(params) {
+        await this.conn.send("Network.deleteCookies", params, this.sessionId);
+      }
+    };
+  }
+});
+
+// src/engine/cdp/console.ts
+var ConsoleDomain;
+var init_console = __esm({
+  "src/engine/cdp/console.ts"() {
+    "use strict";
+    ConsoleDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      handlers = /* @__PURE__ */ new Set();
+      messages = [];
+      enabled = false;
+      /**
+       * Enable console capture.
+       * Must call Runtime.enable first to receive consoleAPICalled events.
+       */
+      async enable() {
+        if (this.enabled) return;
+        this.enabled = true;
+        await this.conn.send("Runtime.enable", {}, this.sessionId);
+        this.conn.on("Runtime.consoleAPICalled", (params) => {
+          const data = params;
+          const text = data.args.map((arg) => arg.value !== void 0 ? String(arg.value) : arg.description ?? "").join(" ");
+          const frame = data.stackTrace?.callFrames[0];
+          const message = {
+            type: data.type,
+            text,
+            url: frame?.url,
+            lineNumber: frame?.lineNumber,
+            timestamp: data.timestamp
+          };
+          this.messages.push(message);
+          for (const handler of this.handlers) {
+            handler(message);
+          }
+        });
+      }
+      /** Subscribe to console messages. */
+      onMessage(handler) {
+        this.handlers.add(handler);
+      }
+      offMessage(handler) {
+        this.handlers.delete(handler);
+      }
+      /** Get all captured messages. */
+      getMessages() {
+        return [...this.messages];
+      }
+      /** Get only errors and warnings. */
+      getErrors() {
+        return this.messages.filter((m) => m.type === "error" || m.type === "warning");
+      }
+      /** Clear captured messages. */
+      clear() {
+        this.messages = [];
+      }
+    };
+  }
+});
+
+// src/engine/cdp/wait.ts
+function buildFingerprint(elements) {
+  return elements.filter((e) => e.actions.length > 0).map((e) => `${e.role}:${e.label}:${e.enabled}`).sort().join("|");
+}
+async function waitForStableTree(getSnapshot, options) {
+  const interval = options?.interval ?? 100;
+  const stableTime = options?.stableTime ?? 300;
+  const timeout = options?.timeout ?? 1e4;
+  let lastFingerprint = "";
+  let stableSince = Date.now();
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const elements2 = await getSnapshot();
+    const fingerprint = buildFingerprint(elements2);
+    if (fingerprint === lastFingerprint) {
+      if (Date.now() - stableSince >= stableTime) {
+        return { elements: elements2, timedOut: false };
+      }
+    } else {
+      lastFingerprint = fingerprint;
+      stableSince = Date.now();
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  const elements = await getSnapshot();
+  return { elements, timedOut: true };
+}
+async function waitForHydration(_conn, getSnapshot, evaluate, options) {
+  const timeout = options?.timeout ?? 1e4;
+  const stableTime = options?.stableTime ?? 500;
+  const minElements = options?.minElements ?? 1;
+  const settleTime = options?.settleTime ?? 200;
+  const deadline = Date.now() + timeout;
+  let hydrationDetected = false;
+  let reason = "timeout";
+  try {
+    const marker = await evaluate(`(function(){
+      if (document.readyState !== 'complete') return null;
+      if (typeof window === 'undefined') return null;
+      var hasNext = typeof window.__NEXT_DATA__ !== 'undefined';
+      var hasReact = typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ !== 'undefined';
+      var rootHydrated = false;
+      try {
+        var root = document.querySelector('#__next, #root, [data-reactroot]');
+        rootHydrated = !!root && root.children.length > 0;
+      } catch(e) {}
+      return { hasNext: hasNext, hasReact: hasReact, rootHydrated: rootHydrated };
+    })()`);
+    if (marker && typeof marker === "object") {
+      const m = marker;
+      if (m.rootHydrated) {
+        hydrationDetected = true;
+        reason = m.hasNext ? "nextjs-marker" : m.hasReact ? "react-marker" : "root-populated";
+      }
+    }
+  } catch {
+  }
+  let lastFingerprint = "";
+  let stableSince = Date.now();
+  let lastElements = [];
+  while (Date.now() < deadline) {
+    const elements = await getSnapshot();
+    lastElements = elements;
+    const fingerprint = buildFingerprint(elements);
+    const hasEnough = elements.filter((e) => e.actions.length > 0).length >= minElements;
+    if (fingerprint === lastFingerprint && hasEnough) {
+      if (Date.now() - stableSince >= stableTime) {
+        if (settleTime > 0) {
+          await new Promise((r) => setTimeout(r, settleTime));
+        }
+        const finalElements = await getSnapshot();
+        return {
+          elements: finalElements,
+          timedOut: false,
+          hydrationDetected: true,
+          reason: hydrationDetected ? reason : "ax-tree-stable"
+        };
+      }
+    } else {
+      lastFingerprint = fingerprint;
+      stableSince = Date.now();
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return {
+    elements: lastElements,
+    timedOut: true,
+    hydrationDetected: false,
+    reason: "timeout"
+  };
+}
+async function waitForStable(conn, getSnapshot, options) {
+  const eventName = options?.eventName ?? "Accessibility.nodesUpdated";
+  const timeout = options?.timeout ?? 1e4;
+  const stableTime = options?.stableTime ?? 300;
+  const deadline = Date.now() + timeout;
+  let changed = false;
+  const handler = () => {
+    changed = true;
+  };
+  conn.on(eventName, handler);
+  let elements = await getSnapshot();
+  let lastFingerprint = buildFingerprint(elements);
+  let stableSince = Date.now();
+  try {
+    while (Date.now() < deadline) {
+      if (changed) {
+        changed = false;
+        elements = await getSnapshot();
+        const fingerprint = buildFingerprint(elements);
+        if (fingerprint !== lastFingerprint) {
+          lastFingerprint = fingerprint;
+          stableSince = Date.now();
+        }
+      }
+      if (Date.now() - stableSince >= stableTime) {
+        return { elements, timedOut: false };
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    elements = await getSnapshot();
+    return { elements, timedOut: true };
+  } finally {
+    conn.off(eventName, handler);
+  }
+}
+var init_wait = __esm({
+  "src/engine/cdp/wait.ts"() {
+    "use strict";
+  }
+});
+
 // src/engine/serialize.ts
 function serializeSnapshot(snapshot) {
   const target = snapshot.url ?? snapshot.appName ?? "unknown";
@@ -318,6 +2241,365 @@ function serializeElement(el) {
 }
 var init_serialize = __esm({
   "src/engine/serialize.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/observe.ts
+function observe(elements, options = {}) {
+  let filtered = elements.filter((e) => e.actions.length > 0);
+  if (options.role) {
+    const role = options.role.toLowerCase();
+    filtered = filtered.filter((e) => e.role === role);
+  }
+  if (options.intent) {
+    const words = options.intent.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+    if (words.length > 0) {
+      filtered = filtered.filter((e) => {
+        const labelLower = e.label.toLowerCase();
+        return words.some((w) => labelLower.includes(w));
+      });
+    }
+  }
+  const descriptors = filtered.map((el) => ({
+    elementId: el.id,
+    description: describeAction(el),
+    actions: el.actions,
+    role: el.role,
+    label: el.label,
+    serialized: serializeElement(el)
+  }));
+  if (options.limit && descriptors.length > options.limit) {
+    return descriptors.slice(0, options.limit);
+  }
+  return descriptors;
+}
+function describeAction(el) {
+  const actionVerb = el.actions[0] === "press" ? "Click" : el.actions[0] === "setValue" ? "Type into" : el.actions[0] === "showMenu" ? "Open" : "Interact with";
+  const state = el.enabled ? "" : " (disabled)";
+  return `${actionVerb} ${el.role} "${el.label}"${state}`;
+}
+var init_observe = __esm({
+  "src/engine/observe.ts"() {
+    "use strict";
+    init_serialize();
+  }
+});
+
+// src/engine/extract.ts
+function extractFromAXTree(elements, schema) {
+  const result = {};
+  for (const [fieldName, field] of Object.entries(schema)) {
+    const match = findMatchingElement(elements, field);
+    if (!match) {
+      result[fieldName] = field.extract === "exists" ? false : null;
+      continue;
+    }
+    switch (field.extract) {
+      case "text":
+        result[fieldName] = match.label || match.value || null;
+        break;
+      case "value":
+        result[fieldName] = match.value || null;
+        break;
+      case "exists":
+        result[fieldName] = true;
+        break;
+      default:
+        result[fieldName] = null;
+    }
+  }
+  return result;
+}
+function extractList(elements, options) {
+  let filtered = elements;
+  if (options.role) {
+    filtered = filtered.filter((e) => e.role === options.role);
+  }
+  if (options.labelPattern) {
+    filtered = filtered.filter((e) => options.labelPattern.test(e.label));
+  }
+  const items = filtered.map((e) => ({
+    label: e.label,
+    value: e.value,
+    id: e.id
+  }));
+  if (options.maxItems) {
+    return items.slice(0, options.maxItems);
+  }
+  return items;
+}
+function extractPageMeta(elements) {
+  return {
+    headings: elements.filter((e) => e.role === "heading").map((e) => e.label),
+    links: elements.filter((e) => e.role === "link").map((e) => ({ label: e.label, id: e.id })),
+    inputs: elements.filter((e) => e.role === "textfield").map((e) => ({ label: e.label, value: e.value, id: e.id })),
+    buttons: elements.filter((e) => e.role === "button").map((e) => ({ label: e.label, enabled: e.enabled, id: e.id }))
+  };
+}
+function findMatchingElement(elements, field) {
+  for (const el of elements) {
+    if (field.role && el.role !== field.role) continue;
+    if (field.label) {
+      if (!el.label.toLowerCase().includes(field.label.toLowerCase())) continue;
+    }
+    return el;
+  }
+  return null;
+}
+var init_extract = __esm({
+  "src/engine/extract.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/cache.ts
+var ResolutionCache;
+var init_cache = __esm({
+  "src/engine/cache.ts"() {
+    "use strict";
+    ResolutionCache = class {
+      cache = /* @__PURE__ */ new Map();
+      maxEntries;
+      ttl;
+      minConfidence;
+      constructor(options = {}) {
+        this.maxEntries = options.maxEntries ?? 100;
+        this.ttl = options.ttl ?? 5 * 60 * 1e3;
+        this.minConfidence = options.minConfidence ?? 0.7;
+      }
+      /**
+       * Look up a cached resolution for an intent.
+       * Returns the cached elementId if found and not expired, null otherwise.
+       */
+      get(intent) {
+        const key = this.normalizeKey(intent);
+        const entry = this.cache.get(key);
+        if (!entry) return null;
+        if (Date.now() - entry.createdAt > this.ttl) {
+          this.cache.delete(key);
+          return null;
+        }
+        entry.hits++;
+        entry.lastHit = Date.now();
+        return entry;
+      }
+      /**
+       * Cache a successful resolution.
+       * Only caches if confidence meets threshold.
+       */
+      set(intent, elementId, metadata) {
+        if (metadata.confidence < this.minConfidence) return;
+        const key = this.normalizeKey(intent);
+        if (this.cache.size >= this.maxEntries && !this.cache.has(key)) {
+          this.evictOldest();
+        }
+        this.cache.set(key, {
+          intent,
+          elementId,
+          role: metadata.role,
+          label: metadata.label,
+          confidence: metadata.confidence,
+          createdAt: Date.now(),
+          hits: 0,
+          lastHit: 0
+        });
+      }
+      /**
+       * Invalidate a specific cache entry (e.g., when element is gone).
+       */
+      invalidate(intent) {
+        this.cache.delete(this.normalizeKey(intent));
+      }
+      /**
+       * Clear all cache entries (e.g., after navigation).
+       */
+      clear() {
+        this.cache.clear();
+      }
+      /**
+       * Get cache statistics.
+       */
+      stats() {
+        let totalHits = 0;
+        let totalConfidence = 0;
+        for (const entry of this.cache.values()) {
+          totalHits += entry.hits;
+          totalConfidence += entry.confidence;
+        }
+        return {
+          entries: this.cache.size,
+          totalHits,
+          avgConfidence: this.cache.size > 0 ? totalConfidence / this.cache.size : 0
+        };
+      }
+      normalizeKey(intent) {
+        return intent.toLowerCase().trim();
+      }
+      evictOldest() {
+        let oldest = null;
+        let oldestTime = Infinity;
+        for (const [key, entry] of this.cache) {
+          const lastUsed = entry.lastHit || entry.createdAt;
+          if (lastUsed < oldestTime) {
+            oldestTime = lastUsed;
+            oldest = key;
+          }
+        }
+        if (oldest) this.cache.delete(oldest);
+      }
+    };
+  }
+});
+
+// src/engine/modality.ts
+function assessUnderstanding(elements, options = {}) {
+  const threshold = options.threshold ?? 0.6;
+  if (elements.length === 0) {
+    return {
+      score: 0,
+      needsScreenshot: true,
+      dimensions: { textQuality: 0, semanticRelevance: 0, structuralClarity: 0, specialCasePenalty: 0 },
+      reasoning: "Empty AX tree \u2014 screenshot required for any understanding"
+    };
+  }
+  const textQuality = scoreTextQuality(elements);
+  const semanticRelevance = scoreSemanticRelevance(elements);
+  const structuralClarity = scoreStructuralClarity(elements);
+  const specialCasePenalty = scoreSpecialCases(elements);
+  const raw = textQuality * 0.35 + semanticRelevance * 0.3 + structuralClarity * 0.2;
+  const score = Math.max(0, Math.min(1, raw - specialCasePenalty));
+  const needsScreenshot = score < threshold;
+  const reasoning = buildReasoning(score, threshold, { textQuality, semanticRelevance, structuralClarity, specialCasePenalty });
+  return {
+    score,
+    needsScreenshot,
+    dimensions: { textQuality, semanticRelevance, structuralClarity, specialCasePenalty },
+    reasoning
+  };
+}
+function scoreTextQuality(elements) {
+  if (elements.length === 0) return 0;
+  let labeled = 0;
+  let meaningful = 0;
+  for (const el of elements) {
+    if (el.label) {
+      labeled++;
+      if (el.label.length > 1 && /[a-zA-Z]/.test(el.label)) {
+        meaningful++;
+      }
+    }
+  }
+  const labelRatio = labeled / elements.length;
+  const meaningfulRatio = elements.length > 0 ? meaningful / elements.length : 0;
+  return labelRatio * 0.4 + meaningfulRatio * 0.6;
+}
+function scoreSemanticRelevance(elements) {
+  const interactive = elements.filter((e) => e.actions.length > 0);
+  if (interactive.length === 0) return 0.5;
+  let wellLabeled = 0;
+  for (const el of interactive) {
+    if (el.label && el.label.length > 1) {
+      wellLabeled++;
+    }
+  }
+  return wellLabeled / interactive.length;
+}
+function scoreStructuralClarity(elements) {
+  const roles = new Set(elements.map((e) => e.role));
+  const roleDiversity = Math.min(1, roles.size / 5);
+  const count = elements.length;
+  let countScore;
+  if (count < 3) {
+    countScore = count / 3;
+  } else if (count > 500) {
+    countScore = Math.max(0.3, 1 - (count - 500) / 2e3);
+  } else {
+    countScore = 1;
+  }
+  return roleDiversity * 0.5 + countScore * 0.5;
+}
+function scoreSpecialCases(elements) {
+  let penalty = 0;
+  const roles = new Set(elements.map((e) => e.role));
+  if (roles.size === 1 && elements.length > 5) {
+    penalty += 0.3;
+  }
+  if (elements.length < 3) {
+    penalty += 0.2;
+  }
+  const interactive = elements.filter((e) => e.actions.length > 0);
+  const unlabeled = interactive.filter((e) => !e.label || e.label.length <= 1);
+  if (interactive.length > 0 && unlabeled.length / interactive.length > 0.5) {
+    penalty += 0.2;
+  }
+  return Math.min(0.8, penalty);
+}
+function buildReasoning(score, threshold, dims) {
+  const parts = [];
+  if (dims.textQuality < 0.4) parts.push("low text quality (many unlabeled elements)");
+  if (dims.semanticRelevance < 0.5) parts.push("poor semantic relevance (interactive elements lack labels)");
+  if (dims.structuralClarity < 0.4) parts.push("weak structure (low role diversity)");
+  if (dims.specialCasePenalty > 0.1) parts.push("special case detected (possible Canvas/custom rendering)");
+  if (parts.length === 0) {
+    return score >= threshold ? "AX tree provides sufficient understanding \u2014 screenshot not needed" : "AX tree quality is borderline \u2014 screenshot recommended for accuracy";
+  }
+  const action = score >= threshold ? "AX tree usable despite" : "Screenshot recommended due to";
+  return `${action}: ${parts.join(", ")}`;
+}
+var init_modality = __esm({
+  "src/engine/modality.ts"() {
+    "use strict";
+  }
+});
+
+// src/engine/shadow-dom.ts
+async function extractShadowElements(runtime) {
+  const result = await runtime.evaluate(`
+    (function() {
+      const found = [];
+
+      function walk(root) {
+        const children = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
+        for (const el of children) {
+          // Descend into open shadow roots
+          if (el.shadowRoot) {
+            const shadowChildren = Array.from(el.shadowRoot.querySelectorAll('*'));
+            for (const shadowEl of shadowChildren) {
+              const rect = shadowEl.getBoundingClientRect();
+              found.push({
+                tagName: shadowEl.tagName.toLowerCase(),
+                role: shadowEl.getAttribute('role'),
+                label: shadowEl.getAttribute('aria-label') || shadowEl.getAttribute('aria-labelledby'),
+                textContent: (shadowEl.textContent || '').trim().slice(0, 200) || null,
+                bounds: rect.width > 0 || rect.height > 0
+                  ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+                  : null,
+              });
+              // Recurse into nested shadow roots
+              if (shadowEl.shadowRoot) {
+                walk(shadowEl.shadowRoot);
+              }
+            }
+          }
+        }
+      }
+
+      walk(document);
+      return found;
+    })()
+  `);
+  if (!Array.isArray(result)) return [];
+  return result.map((item) => ({
+    tagName: String(item.tagName ?? "unknown"),
+    role: item.role != null ? String(item.role) : null,
+    label: item.label != null ? String(item.label) : null,
+    textContent: item.textContent != null ? String(item.textContent) : null,
+    bounds: item.bounds != null ? item.bounds : null
+  }));
+}
+var init_shadow_dom = __esm({
+  "src/engine/shadow-dom.ts"() {
     "use strict";
   }
 });
@@ -572,6 +2854,1074 @@ function jaroDistance(s1, s2) {
 var init_resolve = __esm({
   "src/engine/resolve.ts"() {
     "use strict";
+  }
+});
+
+// src/engine/driver.ts
+function chunkElements(elements, maxTokens) {
+  const charsPerToken = 4;
+  const charsPerElement = 40;
+  const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
+  return elements.slice(0, maxElements);
+}
+var import_pixelmatch, import_pngjs, EngineDriver;
+var init_driver = __esm({
+  "src/engine/driver.ts"() {
+    "use strict";
+    init_connection();
+    init_browser();
+    init_target();
+    init_page();
+    init_accessibility();
+    init_dom();
+    init_input();
+    init_runtime();
+    init_css();
+    init_snapshot();
+    init_emulation();
+    init_network();
+    init_console();
+    init_wait();
+    import_pixelmatch = __toESM(require("pixelmatch"));
+    import_pngjs = require("pngjs");
+    init_serialize();
+    init_observe();
+    init_extract();
+    init_cache();
+    init_modality();
+    init_shadow_dom();
+    EngineDriver = class {
+      browser = new BrowserManager();
+      conn = new CdpConnection();
+      // Resolution cache initialized in constructor or with defaults
+      target;
+      _page;
+      ax;
+      dom;
+      input;
+      runtime;
+      css;
+      snapshot;
+      emulation;
+      network;
+      console;
+      targetId = null;
+      sessionId = null;
+      _currentUrl = "";
+      launched = false;
+      resolutionCache = new ResolutionCache();
+      // ─── Lifecycle ──────────────────────────────────────────
+      async launch(options = {}) {
+        const wsUrl = await this.browser.launch(options);
+        await this.conn.connect(wsUrl);
+        this.target = new TargetDomain(this.conn);
+        this.launched = true;
+        this.targetId = await this.target.createPage("about:blank");
+        this.sessionId = await this.target.attach(this.targetId);
+        this._page = new PageDomain(this.conn, this.sessionId);
+        this.ax = new AccessibilityDomain(this.conn, this.sessionId);
+        this.dom = new DomDomain(this.conn, this.sessionId);
+        this.input = new InputDomain(this.conn, this.sessionId);
+        this.runtime = new RuntimeDomain(this.conn, this.sessionId);
+        this.css = new CssDomain(this.conn, this.sessionId);
+        this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
+        this.emulation = new EmulationDomain(this.conn, this.sessionId);
+        this.network = new NetworkDomain(this.conn, this.sessionId);
+        this.console = new ConsoleDomain(this.conn, this.sessionId);
+        await this._page.enableLifecycleEvents();
+        await this.ax.enable();
+        await this.console.enable();
+        if (options.viewport) {
+          await this.emulation.setDeviceMetrics(options.viewport);
+        }
+      }
+      async close() {
+        if (this.targetId) {
+          await this.target.close(this.targetId).catch(() => {
+          });
+          this.targetId = null;
+        }
+        await this.conn.close();
+        await this.browser.close();
+        this.launched = false;
+      }
+      /**
+       * Release the CDP WebSocket for this driver without terminating the browser.
+       * Used by one-shot CLI commands that attach to a shared browser-server via
+       * connectExisting() — they must drop their WebSocket at the end of the
+       * command so the node process can exit, but the browser-server's Chrome
+       * process must keep running for subsequent commands.
+       *
+       * Closes the per-command tab that was spawned in connectExisting(), then
+       * closes the WebSocket. Does NOT call this.browser.close() (which would
+       * terminate the whole browser-server process).
+       */
+      async disconnect() {
+        if (this.targetId) {
+          await this.target.close(this.targetId).catch(() => {
+          });
+          this.targetId = null;
+        }
+        await this.conn.close().catch(() => {
+        });
+        this.launched = false;
+      }
+      get isLaunched() {
+        return this.launched;
+      }
+      // ─── Navigation ─────────────────────────────────────────
+      async navigate(url, options = {}) {
+        const waitFor = options.waitFor ?? "stable";
+        await this._page.navigate(url);
+        if (waitFor === "stable") {
+          await waitForStable(
+            this.conn,
+            () => this.ax.getSnapshot(),
+            { timeout: options.timeout ?? 1e4, eventName: "Accessibility.nodesUpdated" }
+          );
+        } else if (waitFor === "load") {
+          await waitForStableTree(
+            () => this.ax.getSnapshot(),
+            { timeout: options.timeout ?? 1e4 }
+          );
+        }
+        this._currentUrl = await this.runtime.evaluate("location.href") ?? url;
+        this.resolutionCache.clear();
+      }
+      get url() {
+        return this._currentUrl;
+      }
+      /** BrowserDriver interface: currentUrl alias */
+      get currentUrl() {
+        return this._currentUrl;
+      }
+      // ─── Element Discovery (LLM-native) ────────────────────
+      /**
+       * Discover elements on the page with filtering and chunking.
+       * Designed for LLM context windows — returns only actionable elements.
+       */
+      async discover(options = {}) {
+        const filter = options.filter ?? "interactive";
+        const elements = await this.ax.getSnapshot();
+        let filtered;
+        switch (filter) {
+          case "interactive":
+            filtered = elements.filter((e) => e.actions.length > 0);
+            break;
+          case "leaf":
+            filtered = elements.filter((e) => e.label && e.role !== "group");
+            break;
+          case "all":
+          default:
+            filtered = elements;
+        }
+        if (options.chunk && options.maxTokens) {
+          filtered = chunkElements(filtered, options.maxTokens);
+        }
+        if (options.serialize) {
+          const snap = {
+            url: this._currentUrl,
+            platform: "web",
+            elements: filtered,
+            timestamp: Date.now()
+          };
+          return serializeSnapshot(snap);
+        }
+        return filtered;
+      }
+      /**
+       * 3-tier element resolution with auto-caching:
+       * Tier 1: Check cache → Tier 2: queryAXTree → Tier 3: Jaro-Winkler → Tier 4: vision fallback.
+       * Delegates to findWithDiagnostics() and returns the matched element or null.
+       */
+      async find(name, options = {}) {
+        const diag = await this.findWithDiagnostics(name, options);
+        if (!diag.elementId) return null;
+        const elements = await this.ax.getSnapshot();
+        return elements.find((e) => e.id === diag.elementId) ?? null;
+      }
+      /**
+       * Like find(), but returns rich diagnostics for agent error feedback.
+       * Includes confidence, resolution tier, and fuzzy alternatives when not found.
+       */
+      async findWithDiagnostics(name, options = {}) {
+        const { jaroWinkler: jaroWinkler2 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
+        const cacheKey = options.role ? `${name}:${options.role}` : name;
+        const cached = this.resolutionCache.get(cacheKey);
+        if (cached) {
+          const elements = await this.ax.getSnapshot();
+          const match = elements.find((e) => e.id === cached.elementId);
+          if (match) {
+            const interactive2 = elements.filter((e) => e.actions.length > 0);
+            return {
+              elementId: cached.elementId,
+              confidence: cached.confidence,
+              tier: 1,
+              tierName: "cache",
+              alternatives: [],
+              totalInteractive: interactive2.length
+            };
+          }
+          this.resolutionCache.invalidate(cacheKey);
+        }
+        const queryResult = await this.ax.queryAXTree({
+          accessibleName: name,
+          role: options.role
+        });
+        if (queryResult.length > 0) {
+          const el = queryResult[0];
+          this.resolutionCache.set(cacheKey, el.id, {
+            role: el.role,
+            label: el.label,
+            confidence: 1
+          });
+          const allElements2 = await this.ax.getSnapshot();
+          const interactive2 = allElements2.filter((e) => e.actions.length > 0);
+          return {
+            elementId: el.id,
+            confidence: 0.95,
+            tier: 2,
+            tierName: "queryAXTree",
+            alternatives: [],
+            totalInteractive: interactive2.length
+          };
+        }
+        const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
+        const allElements = await this.ax.getSnapshot();
+        const interactive = allElements.filter((e) => e.actions.length > 0);
+        const result = resolve3({
+          intent: options.role ? `${name} ${options.role}` : name,
+          elements: allElements,
+          mode: "algorithmic"
+        });
+        if (result.confidence >= 0.5 && result.element) {
+          this.resolutionCache.set(cacheKey, result.element.id, {
+            role: result.element.role,
+            label: result.element.label,
+            confidence: result.confidence
+          });
+          return {
+            elementId: result.element.id,
+            confidence: result.confidence,
+            tier: 3,
+            tierName: "jaro-winkler",
+            alternatives: [],
+            totalInteractive: interactive.length
+          };
+        }
+        const nameLower = name.toLowerCase();
+        const scored = interactive.filter((e) => e.label).map((e) => ({
+          name: e.label,
+          role: e.role,
+          score: jaroWinkler2(nameLower, e.label.toLowerCase())
+        })).sort((a, b) => b.score - a.score).slice(0, 5);
+        let screenshot;
+        try {
+          const buf = await this.screenshot();
+          screenshot = buf.toString("base64");
+        } catch {
+        }
+        return {
+          elementId: null,
+          confidence: 0,
+          tier: 4,
+          tierName: "vision",
+          alternatives: scored,
+          totalInteractive: interactive.length,
+          screenshot
+        };
+      }
+      // ─── Interactions ───────────────────────────────────────
+      async click(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const sid = this.sessionId ?? void 0;
+        let domClickWorked = false;
+        try {
+          const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId }, sid);
+          if (resolved?.object?.objectId) {
+            await this.conn.send("Runtime.callFunctionOn", {
+              objectId: resolved.object.objectId,
+              functionDeclaration: "function() { this.click(); }"
+            }, sid);
+            domClickWorked = true;
+          }
+        } catch {
+        }
+        if (!domClickWorked) {
+          const { x, y } = await this.dom.getElementCenter(backendNodeId);
+          await this.input.click(x, y);
+        }
+      }
+      async type(elementId, text) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await this.input.type(text);
+      }
+      async fill(elementId, value) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await this.runtime.callFunctionOn(
+          '() => { if (document.activeElement) { document.activeElement.value = ""; document.activeElement.dispatchEvent(new Event("input", { bubbles: true })); } }'
+        );
+        await this.input.type(value);
+      }
+      async hover(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.hover(x, y);
+      }
+      async pressKey(key) {
+        await this.input.pressKey(key);
+      }
+      async scroll(deltaY, x = 0, y = 0) {
+        await this.input.scroll(x, y, 0, deltaY);
+      }
+      // ─── Interaction Assertions ─────────────────────────────
+      /**
+       * Before/after state capture around an action.
+       * Returns element diff and pixel diff.
+       */
+      async actAndCapture(action) {
+        const [beforeElements, beforeScreenshot] = await Promise.all([
+          this.ax.getSnapshot(),
+          this._page.screenshot()
+        ]);
+        await action();
+        await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+        await this.runtime.evaluate(
+          "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
+        ).catch(() => {
+        });
+        const [afterElements, afterScreenshot] = await Promise.all([
+          this.ax.getSnapshot(),
+          this._page.screenshot()
+        ]);
+        const beforeIds = new Set(beforeElements.map((e) => e.id));
+        const afterIds = new Set(afterElements.map((e) => e.id));
+        const addedElements = afterElements.filter((e) => !beforeIds.has(e.id));
+        const removedElements = beforeElements.filter((e) => !afterIds.has(e.id));
+        let pixelDiff = 0;
+        try {
+          const beforePng = import_pngjs.PNG.sync.read(beforeScreenshot);
+          const afterPng = import_pngjs.PNG.sync.read(afterScreenshot);
+          if (beforePng.width === afterPng.width && beforePng.height === afterPng.height) {
+            const { width, height } = beforePng;
+            const diffPng = new import_pngjs.PNG({ width, height });
+            pixelDiff = (0, import_pixelmatch.default)(beforePng.data, afterPng.data, diffPng.data, width, height, {
+              threshold: 0.1,
+              includeAA: false
+            });
+          }
+        } catch {
+        }
+        return {
+          before: { elements: beforeElements, screenshot: beforeScreenshot },
+          after: { elements: afterElements, screenshot: afterScreenshot },
+          diff: { addedElements, removedElements, pixelDiff }
+        };
+      }
+      /**
+       * Set a <select> element's value and dispatch change event.
+       */
+      async select(elementId, value) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await new Promise((r) => setTimeout(r, 100));
+        await this.runtime.callFunctionOn(
+          '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+          [value]
+        );
+      }
+      /**
+       * Toggle a checkbox element.
+       */
+      async check(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+      }
+      /**
+       * Double-click an element.
+       */
+      async doubleClick(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        await this.input.click(x, y);
+        await new Promise((r) => setTimeout(r, 50));
+        await this.input.click(x, y);
+      }
+      /**
+       * Right-click an element (opens context menu).
+       */
+      async rightClick(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const sid = this.sessionId ?? void 0;
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x,
+          y,
+          button: "right",
+          buttons: 2,
+          clickCount: 1
+        }, sid);
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x,
+          y,
+          button: "right",
+          buttons: 0,
+          clickCount: 1
+        }, sid);
+      }
+      /**
+       * Wait until an element with the given name (and optional role) appears in the AX tree.
+       * Polls at 200ms intervals. Throws on timeout.
+       */
+      async waitForElement(name, options) {
+        const timeout = options?.timeout ?? 1e4;
+        const deadline = Date.now() + timeout;
+        const interval = 200;
+        while (Date.now() < deadline) {
+          const elements = await this.ax.getSnapshot();
+          const match = elements.find((e) => {
+            const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase());
+            const roleMatch = !options?.role || e.role === options.role;
+            return nameMatch && roleMatch;
+          });
+          if (match) return match;
+          await new Promise((r) => setTimeout(r, interval));
+        }
+        throw new Error(
+          `waitForElement: element "${name}"${options?.role ? ` (role: ${options.role})` : ""} not found within ${timeout}ms`
+        );
+      }
+      // ─── Screenshots ────────────────────────────────────────
+      async screenshot(options = {}) {
+        return this._page.screenshot(options);
+      }
+      async screenshotElement(elementId) {
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
+        const model = await this.dom.getBoxModel(backendNodeId);
+        const q = model.content;
+        const x = Math.min(q[0], q[2], q[4], q[6]);
+        const y = Math.min(q[1], q[3], q[5], q[7]);
+        return this._page.screenshot({
+          clip: { x, y, width: model.width, height: model.height }
+        });
+      }
+      // ─── Page State ─────────────────────────────────────────
+      /**
+       * One-call page state capture — combines DOMSnapshot, AX tree, and screenshot.
+       */
+      async captureState(options = {}) {
+        const state = {
+          url: this._currentUrl,
+          timestamp: Date.now()
+        };
+        const promises = [];
+        if (options.computedStyles) {
+          promises.push(
+            this.snapshot.captureSnapshot({
+              computedStyles: options.computedStyles
+            }).then((result) => {
+              state.domSnapshot = result;
+            })
+          );
+        }
+        if (options.includeAXTree !== false) {
+          promises.push(
+            this.ax.getSnapshot().then((elements) => {
+              state.axTree = elements;
+            })
+          );
+        }
+        if (options.includeScreenshot) {
+          promises.push(
+            this._page.screenshot().then((buf) => {
+              state.screenshot = buf;
+            })
+          );
+        }
+        await Promise.all(promises);
+        return state;
+      }
+      /** Get AX tree snapshot. */
+      async getSnapshot() {
+        return this.ax.getSnapshot();
+      }
+      async evaluate(exprOrFn, ...args) {
+        if (args.length > 0) {
+          return this.runtime.callFunctionOn(exprOrFn, args);
+        }
+        return this.runtime.evaluate(exprOrFn);
+      }
+      // ─── DOM Queries ────────────────────────────────────────
+      async querySelector(selector) {
+        const doc = await this.dom.getDocument();
+        return this.dom.querySelector(doc.root.nodeId, selector);
+      }
+      async querySelectorAll(selector) {
+        const doc = await this.dom.getDocument();
+        return this.dom.querySelectorAll(doc.root.nodeId, selector);
+      }
+      async getOuterHTML(nodeId) {
+        return this.dom.getOuterHTML(nodeId);
+      }
+      async getAttributes(nodeId) {
+        return this.dom.getAttributes(nodeId);
+      }
+      async getComputedStyle(nodeId, properties) {
+        if (properties) {
+          return this.css.getComputedStyleFiltered(nodeId, properties);
+        }
+        return this.css.getComputedStyle(nodeId);
+      }
+      // ─── CSS Injection ──────────────────────────────────────
+      async addStyleTag(css) {
+        return this._page.addStyleTag(css);
+      }
+      // ─── Viewport ───────────────────────────────────────────
+      async setViewport(config) {
+        await this.emulation.setDeviceMetrics(config);
+      }
+      async clearViewport() {
+        await this.emulation.clearDeviceMetrics();
+      }
+      // ─── Cookies / Auth ─────────────────────────────────────
+      async getCookies(urls) {
+        return this.network.getCookies(urls);
+      }
+      async setCookies(cookies) {
+        return this.network.setCookies(cookies);
+      }
+      async clearCookies() {
+        return this.network.clearCookies();
+      }
+      // ─── Console ────────────────────────────────────────────
+      getConsoleMessages() {
+        return this.console.getMessages();
+      }
+      getConsoleErrors() {
+        return this.console.getErrors();
+      }
+      clearConsole() {
+        this.console.clear();
+      }
+      // ─── Content ────────────────────────────────────────────
+      async content() {
+        return this.runtime.evaluate("document.documentElement.outerHTML");
+      }
+      async title() {
+        return this.runtime.evaluate("document.title");
+      }
+      async textContent(selector) {
+        return this.runtime.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); return el ? el.textContent : null; }",
+          [selector]
+        );
+      }
+      async getAttribute(selector, attribute) {
+        return this.runtime.callFunctionOn(
+          "(sel, attr) => { const el = document.querySelector(sel); return el ? el.getAttribute(attr) : null; }",
+          [selector, attribute]
+        );
+      }
+      // ─── LLM-Native: Observe ─────────────────────────────────
+      /**
+       * Preview what actions are possible without executing.
+       * Returns serializable descriptors for act().
+       */
+      async observe(options) {
+        const elements = await this.ax.getSnapshot();
+        return observe(elements, options);
+      }
+      // ─── LLM-Native: Extract ───────────────────────────────
+      /**
+       * Extract structured data from AX tree using a schema.
+       */
+      async extract(schema) {
+        const elements = await this.ax.getSnapshot();
+        return extractFromAXTree(elements, schema);
+      }
+      /**
+       * Extract a list of repeated elements.
+       */
+      async extractItems(options) {
+        const elements = await this.ax.getSnapshot();
+        return extractList(elements, options);
+      }
+      /**
+       * Extract page-level metadata (headings, links, inputs, buttons).
+       */
+      async extractMeta() {
+        const elements = await this.ax.getSnapshot();
+        return extractPageMeta(elements);
+      }
+      // ─── LLM-Native: Adaptive Modality ─────────────────────
+      /**
+       * Assess how well the AX tree captures the page.
+       * Returns a score and whether a screenshot is recommended.
+       */
+      async assessUnderstanding(options) {
+        const elements = await this.ax.getSnapshot();
+        return assessUnderstanding(elements, options);
+      }
+      // ─── Coverage Reporting ────────────────────────────────
+      /**
+       * Report AX tree coverage against estimated visible DOM elements.
+       * Surfaces blind spots: shadow DOM, canvas, iframes.
+       */
+      async getCoverage() {
+        const gaps = [];
+        const axElements = await this.ax.getSnapshot();
+        const axTreeCount = axElements.length;
+        const estimatedVisible = await this.runtime.evaluate(`
+      (function() {
+        const all = document.querySelectorAll('*');
+        let count = 0;
+        for (const el of all) {
+          if (el.getAttribute('aria-hidden') === 'true') continue;
+          if (el.offsetWidth > 0 || el.offsetHeight > 0) count++;
+        }
+        return count;
+      })()
+    `);
+        const canvasCount = await this.runtime.evaluate(
+          `document.querySelectorAll('canvas').length`
+        );
+        const iframeCount = await this.runtime.evaluate(
+          `document.querySelectorAll('iframe').length`
+        );
+        const shadowElements = await extractShadowElements(this.runtime);
+        const shadowDomCount = shadowElements.length;
+        const recovered = shadowDomCount;
+        if (canvasCount > 0) {
+          gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? "s" : ""} (invisible to AX tree)`);
+        }
+        if (iframeCount > 0) {
+          gaps.push(`${iframeCount} iframe${iframeCount > 1 ? "s" : ""} (separate AX tree${iframeCount > 1 ? "s" : ""})`);
+        }
+        if (shadowDomCount > 0) {
+          gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? "s" : ""} (open shadow root \u2014 recovered via piercing)`);
+        }
+        const safeVisible = estimatedVisible > 0 ? estimatedVisible : 1;
+        const coveragePercent = Math.min(100, Math.round(axTreeCount / safeVisible * 100));
+        if (coveragePercent < 50) {
+          gaps.push(`Low AX coverage: ${coveragePercent}% of visible DOM captured`);
+        }
+        return {
+          axTreeCount,
+          estimatedVisible,
+          coveragePercent,
+          shadowDomCount,
+          canvasCount,
+          iframeCount,
+          recovered,
+          gaps
+        };
+      }
+      // ─── LLM-Native: Cache ─────────────────────────────────
+      /** Get resolution cache statistics. */
+      get cacheStats() {
+        return this.resolutionCache.stats();
+      }
+      /** Configure the resolution cache. */
+      configureCache(options) {
+        this.resolutionCache = new ResolutionCache(options);
+      }
+      // ─── Direct domain access (for advanced use) ───────────
+      get page() {
+        return this._page;
+      }
+      get accessibility() {
+        return this.ax;
+      }
+      get domDomain() {
+        return this.dom;
+      }
+      get runtimeDomain() {
+        return this.runtime;
+      }
+      get cssDomain() {
+        return this.css;
+      }
+      get snapshotDomain() {
+        return this.snapshot;
+      }
+      get emulationDomain() {
+        return this.emulation;
+      }
+      get networkDomain() {
+        return this.network;
+      }
+      get consoleDomain() {
+        return this.console;
+      }
+      get connection() {
+        return this.conn;
+      }
+      /** The CDP debug port Chrome is listening on. Only valid after launch(). */
+      get debugPort() {
+        return this.browser.port;
+      }
+      /** The OS PID of the Chrome process. Only valid after launch(). Null when connected to existing. */
+      get chromePid() {
+        return this.browser.pid;
+      }
+      /** The browser connection mode used for this driver. */
+      get browserMode() {
+        return this.browser.mode;
+      }
+      /** The resolved CDP HTTP endpoint, when available. */
+      get cdpUrl() {
+        return this.browser.cdpUrl;
+      }
+      /** The resolved browser WebSocket endpoint, when available. */
+      get wsEndpoint() {
+        return this.browser.wsEndpoint;
+      }
+      /**
+       * Connect to an already-running Chrome instance instead of launching a new one.
+       * Used by browser-server reconnection to attach to a persistent Chrome process.
+       */
+      async connectExisting(wsUrl) {
+        await this.conn.connect(wsUrl);
+        this.target = new TargetDomain(this.conn);
+        this.launched = true;
+        this.targetId = await this.target.createPage("about:blank");
+        this.sessionId = await this.target.attach(this.targetId);
+        this._page = new PageDomain(this.conn, this.sessionId);
+        this.ax = new AccessibilityDomain(this.conn, this.sessionId);
+        this.dom = new DomDomain(this.conn, this.sessionId);
+        this.input = new InputDomain(this.conn, this.sessionId);
+        this.runtime = new RuntimeDomain(this.conn, this.sessionId);
+        this.css = new CssDomain(this.conn, this.sessionId);
+        this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
+        this.emulation = new EmulationDomain(this.conn, this.sessionId);
+        this.network = new NetworkDomain(this.conn, this.sessionId);
+        this.console = new ConsoleDomain(this.conn, this.sessionId);
+        await this._page.enableLifecycleEvents();
+        await this.ax.enable();
+        await this.console.enable();
+      }
+    };
+  }
+});
+
+// src/engine/compat.ts
+var import_promises3, import_path2, CompatElementHandle, CompatLocator, CompatPage;
+var init_compat = __esm({
+  "src/engine/compat.ts"() {
+    "use strict";
+    import_promises3 = require("fs/promises");
+    import_path2 = require("path");
+    CompatElementHandle = class {
+      constructor(driver2, nodeId) {
+        this.driver = driver2;
+        this.nodeId = nodeId;
+      }
+      async screenshot(options) {
+        const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+        const q = model.content;
+        const x = Math.min(q[0], q[2], q[4], q[6]);
+        const y = Math.min(q[1], q[3], q[5], q[7]);
+        const buf = await this.driver.page.screenshot({
+          clip: { x, y, width: model.width, height: model.height }
+        });
+        if (options?.path) {
+          await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
+          await (0, import_promises3.writeFile)(options.path, buf);
+        }
+        return buf;
+      }
+      async textContent() {
+        const html = await this.driver.domDomain.getOuterHTML(this.nodeId);
+        return html.replace(/<[^>]*>/g, "").trim() || null;
+      }
+      async boundingBox() {
+        try {
+          const model = await this.driver.domDomain.getBoxModel(this.nodeId);
+          const q = model.content;
+          return {
+            x: Math.min(q[0], q[2], q[4], q[6]),
+            y: Math.min(q[1], q[3], q[5], q[7]),
+            width: model.width,
+            height: model.height
+          };
+        } catch {
+          return null;
+        }
+      }
+      async getAttribute(name) {
+        try {
+          const attrs = await this.driver.domDomain.getAttributes(this.nodeId);
+          return attrs[name] ?? null;
+        } catch {
+          return null;
+        }
+      }
+    };
+    CompatLocator = class _CompatLocator {
+      constructor(driver2, selector) {
+        this.driver = driver2;
+        this.selector = selector;
+      }
+      // Visible filter stored for potential future use in resolveNode
+      visible = false;
+      filter(options) {
+        const loc = new _CompatLocator(this.driver, this.selector);
+        loc.visible = options.visible ?? false;
+        return loc;
+      }
+      first() {
+        return this;
+      }
+      async click(_options) {
+        const nodeId = await this.resolveNode(_options?.timeout);
+        if (!nodeId) throw new Error(`Element not found: ${this.selector}`);
+        await this.driver.runtimeDomain.callFunctionOn(
+          '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
+          [this.selector]
+        );
+      }
+      async fill(text, _options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, val) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        el.value = val;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }`,
+          [this.selector, text]
+        );
+      }
+      async focus(_options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
+          [this.selector]
+        );
+      }
+      async press(key, _options) {
+        await this.focus();
+        await this.driver.pressKey(key);
+      }
+      async pressSequentially(text, _options) {
+        await this.focus();
+        for (const char of text) {
+          await this.driver.runtimeDomain.callFunctionOn(
+            '(sel, ch) => { const el = document.querySelector(sel); if (el) { el.value += ch; el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+            [this.selector, char]
+          );
+        }
+      }
+      async waitFor(options) {
+        const timeout = options?.timeout ?? 3e4;
+        const deadline = Date.now() + timeout;
+        while (Date.now() < deadline) {
+          const nodeId = await this.driver.querySelector(this.selector);
+          if (nodeId) return;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        throw new Error(`Timed out waiting for ${this.selector}`);
+      }
+      async resolveNode(timeout) {
+        const deadline = Date.now() + (timeout ?? 5e3);
+        while (Date.now() < deadline) {
+          const nodeId = await this.driver.querySelector(this.selector);
+          if (nodeId) return nodeId;
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        return null;
+      }
+    };
+    CompatPage = class {
+      constructor(driver2) {
+        this.driver = driver2;
+      }
+      consoleHandlers = [];
+      consoleListening = false;
+      async goto(url, options) {
+        await this.driver.navigate(url, {
+          waitFor: options?.waitUntil === "networkidle" ? "stable" : "load",
+          timeout: options?.timeout
+        });
+      }
+      async evaluate(fnOrExpr, ...args) {
+        if (typeof fnOrExpr === "function") {
+          const fnStr = fnOrExpr.toString();
+          if (args.length > 0) {
+            return this.driver.evaluate(`(${fnStr})`, ...args);
+          }
+          return this.driver.evaluate(`(${fnStr})()`);
+        }
+        if (args.length > 0) {
+          return this.driver.evaluate(fnOrExpr, ...args);
+        }
+        return this.driver.evaluate(fnOrExpr);
+      }
+      async $(selector) {
+        const nodeId = await this.driver.querySelector(selector);
+        if (!nodeId) return null;
+        return new CompatElementHandle(this.driver, nodeId);
+      }
+      async $$(selector) {
+        const nodeIds = await this.driver.querySelectorAll(selector);
+        return nodeIds.map((id) => new CompatElementHandle(this.driver, id));
+      }
+      async screenshot(options) {
+        const buf = await this.driver.screenshot({
+          fullPage: options?.fullPage
+        });
+        if (options?.path) {
+          await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
+          await (0, import_promises3.writeFile)(options.path, buf);
+        }
+        return buf;
+      }
+      async addStyleTag(options) {
+        await this.driver.addStyleTag(options.content);
+      }
+      async waitForSelector(selector, options) {
+        const timeout = options?.timeout ?? 3e4;
+        const deadline = Date.now() + timeout;
+        while (Date.now() < deadline) {
+          const nodeId = await this.driver.querySelector(selector);
+          if (nodeId) return new CompatElementHandle(this.driver, nodeId);
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        throw new Error(`Timed out waiting for selector: ${selector}`);
+      }
+      async waitForTimeout(ms) {
+        await new Promise((r) => setTimeout(r, ms));
+      }
+      async waitForLoadState(_state, _options) {
+        await this.driver.navigate(this.driver.url, { waitFor: "stable", timeout: _options?.timeout ?? 1e4 }).catch(() => {
+        });
+      }
+      async waitForNavigation() {
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      async content() {
+        return this.driver.content();
+      }
+      async title() {
+        return this.driver.title();
+      }
+      async textContent(selector) {
+        return this.driver.textContent(selector);
+      }
+      async innerText(selector) {
+        return this.driver.evaluate(
+          '(sel) => { const el = document.querySelector(sel); return el ? el.innerText : ""; }',
+          selector
+        );
+      }
+      async getAttribute(selector, name) {
+        return this.driver.getAttribute(selector, name);
+      }
+      async click(selector, _options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
+          [selector]
+        );
+      }
+      async fill(selector, value) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, val) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        el.value = val;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }`,
+          [selector, value]
+        );
+      }
+      async type(selector, text, _options) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
+          [selector]
+        );
+        for (const char of text) {
+          await this.driver.runtimeDomain.callFunctionOn(
+            '(sel, ch) => { const el = document.querySelector(sel); if (el) { el.value += ch; el.dispatchEvent(new Event("input", { bubbles: true })); } }',
+            [selector, char]
+          );
+        }
+      }
+      async check(selector) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el && !el.checked) el.click(); }",
+          [selector]
+        );
+      }
+      async uncheck(selector) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          "(sel) => { const el = document.querySelector(sel); if (el && el.checked) el.click(); }",
+          [selector]
+        );
+      }
+      async selectOption(selector, value) {
+        await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, val) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        el.value = val;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+      }`,
+          [selector, value]
+        );
+      }
+      async hover(selector, _options) {
+        const nodeId = await this.driver.querySelector(selector);
+        if (!nodeId) throw new Error(`Element not found: ${selector}`);
+        const center = await this.driver.domDomain.getElementCenter(nodeId);
+        await this.driver.runtimeDomain.callFunctionOn(
+          '(x, y) => { const el = document.elementFromPoint(x, y); if (el) el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true })); }',
+          [center.x, center.y]
+        );
+      }
+      locator(selector) {
+        return new CompatLocator(this.driver, selector);
+      }
+      on(event, handler) {
+        if (event === "console") {
+          this.consoleHandlers.push(handler);
+          if (!this.consoleListening) {
+            this.consoleListening = true;
+            this.driver.consoleDomain.onMessage((msg) => {
+              const compatMsg = {
+                type: () => msg.type,
+                text: () => msg.text
+              };
+              for (const h of this.consoleHandlers) h(compatMsg);
+            });
+          }
+        }
+      }
+      url() {
+        return this.driver.url;
+      }
+      keyboard = {
+        press: async (key) => {
+          await this.driver.pressKey(key);
+        }
+      };
+    };
   }
 });
 
@@ -891,6 +4241,206 @@ var init_schemas = __esm({
   }
 });
 
+// src/extract.ts
+async function extractInteractiveElements(page) {
+  return page.evaluate((selectors) => {
+    const seen = /* @__PURE__ */ new Set();
+    const elements = [];
+    const generateSelector = (el) => {
+      if (el.id) return `#${el.id}`;
+      const path = [];
+      let current = el;
+      while (current && current !== document.body) {
+        let selector = current.tagName.toLowerCase();
+        if (current.id) {
+          selector = `#${current.id}`;
+          path.unshift(selector);
+          break;
+        } else if (current.className && typeof current.className === "string") {
+          const classes = current.className.split(" ").filter((c) => c.trim() && !c.includes(":"));
+          if (classes.length > 0) {
+            selector += `.${classes[0]}`;
+          }
+        }
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            (c) => c.tagName === current.tagName
+          );
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+        }
+        path.unshift(selector);
+        current = current.parentElement;
+      }
+      return path.join(" > ").slice(0, 200);
+    };
+    const detectHandlers = (el) => {
+      const keys = Object.keys(el);
+      const reactPropsKey = keys.find((k) => k.startsWith("__reactProps$"));
+      let hasReactHandler = false;
+      if (reactPropsKey) {
+        const props = el[reactPropsKey];
+        hasReactHandler = !!(props?.onClick || props?.onSubmit || props?.onMouseDown);
+      }
+      const fiberKey = keys.find((k) => k.startsWith("__reactFiber$"));
+      if (!hasReactHandler && fiberKey) {
+        const fiber = el[fiberKey];
+        hasReactHandler = !!(fiber?.pendingProps?.onClick || fiber?.memoizedProps?.onClick);
+      }
+      const hasVueHandler = !!(el.__vue__?.$listeners?.click || el.__vnode?.props?.onClick);
+      const hasAngularHandler = !!el.__ngContext__ || el.hasAttribute("ng-click");
+      const hasVanillaHandler = typeof el.onclick === "function" || el.hasAttribute("onclick");
+      return {
+        hasReactHandler,
+        hasVueHandler,
+        hasAngularHandler,
+        hasVanillaHandler,
+        hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler
+      };
+    };
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          seen.add(el);
+          const htmlEl = el;
+          const rect = htmlEl.getBoundingClientRect();
+          const computed = window.getComputedStyle(htmlEl);
+          const handlers = detectHandlers(htmlEl);
+          const href = htmlEl.getAttribute("href");
+          const hasValidHref = href !== null && href !== "#" && href !== "" && !href.startsWith("javascript:");
+          elements.push({
+            selector: generateSelector(htmlEl),
+            tagName: htmlEl.tagName.toLowerCase(),
+            id: htmlEl.id || void 0,
+            className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
+            text: (htmlEl.textContent || "").trim().slice(0, 100) || void 0,
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            },
+            computedStyles: {
+              cursor: computed.cursor,
+              color: computed.color,
+              backgroundColor: computed.backgroundColor
+            },
+            interactive: {
+              hasOnClick: handlers.hasAnyHandler,
+              hasHref: hasValidHref,
+              isDisabled: htmlEl.hasAttribute("disabled") || htmlEl.getAttribute("aria-disabled") === "true" || computed.pointerEvents === "none",
+              tabIndex: parseInt(htmlEl.getAttribute("tabindex") || "0", 10),
+              cursor: computed.cursor,
+              hasReactHandler: handlers.hasReactHandler || void 0,
+              hasVueHandler: handlers.hasVueHandler || void 0,
+              hasAngularHandler: handlers.hasAngularHandler || void 0
+            },
+            a11y: {
+              role: htmlEl.getAttribute("role"),
+              ariaLabel: htmlEl.getAttribute("aria-label"),
+              ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
+              ariaHidden: htmlEl.getAttribute("aria-hidden") === "true" || void 0
+            },
+            sourceHint: {
+              dataTestId: htmlEl.getAttribute("data-testid")
+            }
+          });
+        });
+      } catch {
+      }
+    }
+    return elements;
+  }, INTERACTIVE_SELECTORS);
+}
+function analyzeElements(elements, isMobile = false) {
+  const issues = [];
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  const interactiveElements = elements.filter((el) => {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a";
+    const isInput = ["input", "select", "textarea"].includes(el.tagName);
+    const looksClickable = el.interactive.cursor === "pointer";
+    return isButton || isLink || isInput || looksClickable;
+  });
+  for (const el of interactiveElements) {
+    const isButton = el.tagName === "button" || el.a11y.role === "button";
+    const isLink = el.tagName === "a";
+    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref;
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+    }
+    if (isButton && !el.interactive.hasOnClick && !el.interactive.isDisabled) {
+      issues.push({
+        type: "NO_HANDLER",
+        severity: "error",
+        message: `Button "${el.text || el.selector}" has no click handler`
+      });
+    }
+    if (isLink && !el.interactive.hasHref && !el.interactive.hasOnClick) {
+      issues.push({
+        type: "PLACEHOLDER_LINK",
+        severity: "error",
+        message: `Link "${el.text || el.selector}" has placeholder href and no handler`
+      });
+    }
+    const minSize = isMobile ? 44 : 24;
+    if (el.bounds.width < minSize || el.bounds.height < minSize) {
+      issues.push({
+        type: "TOUCH_TARGET_SMALL",
+        severity: isMobile ? "error" : "warning",
+        message: `"${el.text || el.selector}" touch target is ${el.bounds.width}x${el.bounds.height}px (min: ${minSize}px)`
+      });
+    }
+    if (hasHandler && !el.text && !el.a11y.ariaLabel) {
+      issues.push({
+        type: "MISSING_ARIA_LABEL",
+        severity: "warning",
+        message: `"${el.selector}" is interactive but has no text or aria-label`
+      });
+    }
+  }
+  return {
+    totalElements: elements.length,
+    interactiveCount: interactiveElements.length,
+    withHandlers,
+    withoutHandlers,
+    issues
+  };
+}
+var INTERACTIVE_SELECTORS;
+var init_extract2 = __esm({
+  "src/extract.ts"() {
+    "use strict";
+    init_driver();
+    init_compat();
+    init_schemas();
+    INTERACTIVE_SELECTORS = [
+      "button",
+      "a[href]",
+      "a:not([href])",
+      // Links without href (potential issues)
+      'input[type="submit"]',
+      'input[type="button"]',
+      'input[type="text"]',
+      'input[type="email"]',
+      'input[type="password"]',
+      "select",
+      "textarea",
+      '[role="button"]',
+      '[role="link"]',
+      "[onclick]",
+      '[tabindex]:not([tabindex="-1"])'
+    ];
+  }
+});
+
 // src/interactivity.ts
 var interactivity_exports = {};
 __export(interactivity_exports, {
@@ -1138,6 +4688,2417 @@ function formatInteractivityResult(result) {
 var init_interactivity = __esm({
   "src/interactivity.ts"() {
     "use strict";
+  }
+});
+
+// src/semantic/page-intent.ts
+async function classifyPageIntent(page) {
+  const signals = [];
+  const scores = {
+    auth: 0,
+    form: 0,
+    listing: 0,
+    detail: 0,
+    dashboard: 0,
+    error: 0,
+    landing: 0,
+    empty: 0
+  };
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const body = doc.body;
+    const text = body?.innerText?.toLowerCase() || "";
+    const count = (selector) => doc.querySelectorAll(selector).length;
+    const exists = (selector) => count(selector) > 0;
+    const textContains = (terms) => terms.some((t) => text.includes(t));
+    return {
+      // Auth signals
+      hasPasswordField: exists('input[type="password"]'),
+      hasEmailField: exists('input[type="email"], input[name*="email"], input[name*="username"]'),
+      hasLoginText: textContains(["sign in", "log in", "login", "sign up", "register", "forgot password", "reset password"]),
+      hasRememberMe: exists('input[type="checkbox"][name*="remember"]') || Array.from(doc.querySelectorAll("label")).some((l) => l.textContent?.toLowerCase().includes("remember")),
+      hasOAuthButtons: exists('[class*="google"], [class*="facebook"], [class*="github"], [class*="oauth"], [class*="social"]'),
+      // Form signals
+      formCount: count("form"),
+      inputCount: count('input:not([type="hidden"]):not([type="search"])'),
+      textareaCount: count("textarea"),
+      selectCount: count("select"),
+      hasSubmitButton: exists('button[type="submit"], input[type="submit"]'),
+      hasFormLabels: count("label") > 2,
+      // Listing signals
+      listItemCount: count('li, [class*="item"], [class*="card"], [class*="row"]'),
+      hasGrid: exists('[class*="grid"], [class*="list"], [class*="feed"]'),
+      hasTable: exists("table tbody tr"),
+      hasPagination: exists('[class*="pagination"], [class*="pager"], nav[aria-label*="page"]'),
+      hasFilters: exists('[class*="filter"], [class*="sort"], [class*="facet"]'),
+      repeatingSimilarElements: (() => {
+        const cards = doc.querySelectorAll('[class*="card"], [class*="item"]');
+        if (cards.length < 3) return false;
+        const classes = Array.from(cards).map((c) => c.className);
+        const unique = new Set(classes);
+        return unique.size <= 3;
+      })(),
+      // Detail signals
+      hasMainArticle: exists('article, main > [class*="content"], [class*="detail"]'),
+      hasLongContent: text.length > 2e3,
+      hasSingleHeading: count("h1") === 1,
+      hasMetadata: exists('[class*="meta"], [class*="author"], [class*="date"], time'),
+      hasComments: exists('[class*="comment"], [id*="comment"]'),
+      hasSocialShare: exists('[class*="share"], [class*="social"]'),
+      // Dashboard signals
+      hasCharts: exists('canvas, svg[class*="chart"], [class*="chart"], [class*="graph"]'),
+      hasStats: exists('[class*="stat"], [class*="metric"], [class*="kpi"]'),
+      hasSidebar: exists('aside, [class*="sidebar"], nav[class*="side"]'),
+      hasWidgets: exists('[class*="widget"], [class*="panel"], [class*="tile"]'),
+      hasUserMenu: exists('[class*="user"], [class*="avatar"], [class*="profile"]'),
+      hasNavTabs: exists('[role="tablist"], [class*="tabs"]'),
+      // Error signals
+      hasErrorCode: textContains(["404", "500", "403", "401", "not found", "error", "denied", "forbidden"]),
+      hasErrorClass: exists('[class*="error"], [class*="404"], [class*="500"]'),
+      isMinimalContent: text.length < 200,
+      hasBackLink: textContains(["go back", "go home", "return"]),
+      // Landing signals
+      hasHero: exists('[class*="hero"], [class*="banner"], [class*="jumbotron"]'),
+      hasCTA: exists('[class*="cta"], [class*="call-to-action"], a[class*="primary"]'),
+      hasTestimonials: exists('[class*="testimonial"], [class*="review"], [class*="quote"]'),
+      hasPricing: exists('[class*="pricing"], [class*="plan"]'),
+      hasFeatures: exists('[class*="feature"], [class*="benefit"]'),
+      // Empty signals
+      hasEmptyState: exists('[class*="empty"], [class*="no-data"], [class*="no-results"]'),
+      hasEmptyText: textContains(["no results", "nothing here", "no items", "empty"]),
+      // General metrics
+      totalElements: count("*"),
+      interactiveElements: count("a, button, input, select, textarea")
+    };
+  });
+  if (checks.hasPasswordField) {
+    scores.auth += 40;
+    signals.push("password field present");
+  }
+  if (checks.hasEmailField && checks.hasPasswordField) {
+    scores.auth += 20;
+    signals.push("email + password combination");
+  }
+  if (checks.hasLoginText) {
+    scores.auth += 15;
+    signals.push("login-related text");
+  }
+  if (checks.hasRememberMe) {
+    scores.auth += 10;
+    signals.push("remember me checkbox");
+  }
+  if (checks.hasOAuthButtons) {
+    scores.auth += 10;
+    signals.push("OAuth buttons");
+  }
+  if (checks.formCount > 0 && !checks.hasPasswordField) {
+    scores.form += 20;
+    signals.push("form without password");
+  }
+  if (checks.inputCount > 3 && !checks.hasPasswordField) {
+    scores.form += 15;
+    signals.push("multiple input fields");
+  }
+  if (checks.textareaCount > 0) {
+    scores.form += 15;
+    signals.push("textarea present");
+  }
+  if (checks.hasFormLabels && checks.inputCount > 2) {
+    scores.form += 10;
+    signals.push("labeled form fields");
+  }
+  if (checks.listItemCount > 5) {
+    scores.listing += 25;
+    signals.push(`${checks.listItemCount} list items`);
+  }
+  if (checks.hasGrid) {
+    scores.listing += 15;
+    signals.push("grid/list layout");
+  }
+  if (checks.hasTable) {
+    scores.listing += 20;
+    signals.push("data table");
+  }
+  if (checks.hasPagination) {
+    scores.listing += 20;
+    signals.push("pagination");
+  }
+  if (checks.hasFilters) {
+    scores.listing += 15;
+    signals.push("filters/sorting");
+  }
+  if (checks.repeatingSimilarElements) {
+    scores.listing += 15;
+    signals.push("repeating card elements");
+  }
+  if (checks.hasMainArticle) {
+    scores.detail += 25;
+    signals.push("main article element");
+  }
+  if (checks.hasLongContent) {
+    scores.detail += 20;
+    signals.push("long content");
+  }
+  if (checks.hasSingleHeading && checks.hasMetadata) {
+    scores.detail += 20;
+    signals.push("single heading with metadata");
+  }
+  if (checks.hasComments) {
+    scores.detail += 15;
+    signals.push("comments section");
+  }
+  if (checks.hasSocialShare) {
+    scores.detail += 10;
+    signals.push("social share buttons");
+  }
+  if (checks.hasCharts) {
+    scores.dashboard += 30;
+    signals.push("charts/graphs");
+  }
+  if (checks.hasStats) {
+    scores.dashboard += 25;
+    signals.push("stats/metrics");
+  }
+  if (checks.hasSidebar && checks.hasWidgets) {
+    scores.dashboard += 20;
+    signals.push("sidebar with widgets");
+  }
+  if (checks.hasNavTabs) {
+    scores.dashboard += 10;
+    signals.push("navigation tabs");
+  }
+  if (checks.hasUserMenu) {
+    scores.dashboard += 10;
+    signals.push("user menu");
+  }
+  if (checks.hasErrorCode && checks.isMinimalContent) {
+    scores.error += 50;
+    signals.push("error code with minimal content");
+  }
+  if (checks.hasErrorClass) {
+    scores.error += 30;
+    signals.push("error CSS class");
+  }
+  if (checks.hasBackLink && checks.isMinimalContent) {
+    scores.error += 20;
+    signals.push("back link on minimal page");
+  }
+  if (checks.hasHero) {
+    scores.landing += 25;
+    signals.push("hero section");
+  }
+  if (checks.hasCTA) {
+    scores.landing += 20;
+    signals.push("call-to-action");
+  }
+  if (checks.hasTestimonials) {
+    scores.landing += 15;
+    signals.push("testimonials");
+  }
+  if (checks.hasPricing) {
+    scores.landing += 20;
+    signals.push("pricing section");
+  }
+  if (checks.hasFeatures) {
+    scores.landing += 15;
+    signals.push("features section");
+  }
+  if (checks.hasEmptyState) {
+    scores.empty += 40;
+    signals.push("empty state element");
+  }
+  if (checks.hasEmptyText && checks.listItemCount === 0) {
+    scores.empty += 30;
+    signals.push("empty text with no items");
+  }
+  const entries = Object.entries(scores);
+  entries.sort((a, b) => b[1] - a[1]);
+  const [topIntent, topScore] = entries[0];
+  const [secondIntent, secondScore] = entries[1];
+  const maxPossible = 100;
+  const confidence = Math.min(topScore / maxPossible, 1);
+  const hasSecondary = secondScore > 30 && secondScore > topScore * 0.5;
+  return {
+    intent: topScore > 20 ? topIntent : "unknown",
+    confidence,
+    signals: signals.slice(0, 5),
+    // Top 5 signals
+    secondaryIntent: hasSecondary ? secondIntent : void 0
+  };
+}
+var init_page_intent = __esm({
+  "src/semantic/page-intent.ts"() {
+    "use strict";
+  }
+});
+
+// src/semantic/state-detector.ts
+async function detectAuthState(page) {
+  const signals = [];
+  let authenticated = null;
+  let confidence = 0;
+  let username;
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const text = doc.body?.innerText?.toLowerCase() || "";
+    function findByText(tags, patterns) {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || "";
+          if (patterns.some((p) => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
+    const logoutButton = findByText(["button", "a"], ["logout", "sign out"]) || doc.querySelector('[class*="logout"], [data-testid*="logout"]');
+    const userMenu = doc.querySelector(
+      '[class*="user-menu"], [class*="avatar"], [class*="profile-menu"], [class*="account-menu"], [data-testid*="user"]'
+    );
+    const welcomeText = text.match(/welcome,?\s+(\w+)/i);
+    const userNameEl = doc.querySelector(
+      '[class*="username"], [class*="user-name"], [class*="display-name"]'
+    );
+    const loginLink = findByText(["a", "button"], ["login", "sign in"]) || doc.querySelector('[class*="login-link"], [href*="/login"], [href*="/signin"]');
+    const signupLink = findByText(["a"], ["sign up", "register"]) || doc.querySelector('[href*="/signup"], [href*="/register"]');
+    const authRequired = doc.querySelector(
+      '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
+    );
+    let hasAuthCookie = false;
+    try {
+      hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
+    } catch {
+    }
+    const socialProviderPatterns = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const socialProviders = [];
+    const socialElements = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialElements) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderPatterns) {
+        if (!socialProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const isTriggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || t === `sign in with ${provider}` || t === `continue with ${provider}` || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (isTriggered) socialProviders.push(provider);
+          }
+        }
+      }
+    }
+    const forgotPasswordPatterns = ["forgot", "reset password", "can't sign in", "trouble signing in", "lost password"];
+    const forgotEl = findByText(["a", "button"], forgotPasswordPatterns) || doc.querySelector('[href*="forgot"], [href*="reset-password"], [href*="password-reset"]');
+    const toggleEl = doc.querySelector(
+      '[aria-label*="show password" i], [aria-label*="hide password" i], [aria-label*="toggle password" i], [class*="eye"], [class*="visibility"], [class*="toggle-password"]'
+    );
+    let hasPasswordToggle = !!toggleEl;
+    if (!hasPasswordToggle) {
+      const passwordInput = doc.querySelector('input[type="password"]');
+      if (passwordInput) {
+        const parent = passwordInput.parentElement;
+        const sibling = passwordInput.nextElementSibling;
+        if (parent?.querySelector("button")) hasPasswordToggle = true;
+        if (sibling?.tagName === "BUTTON") hasPasswordToggle = true;
+      }
+    }
+    return {
+      hasLogoutButton: !!logoutButton,
+      hasUserMenu: !!userMenu,
+      hasWelcomeText: !!welcomeText,
+      welcomeName: welcomeText?.[1],
+      hasUserNameElement: !!userNameEl,
+      userName: userNameEl?.textContent?.trim(),
+      hasLoginLink: !!loginLink,
+      hasSignupLink: !!signupLink,
+      hasAuthRequired: !!authRequired,
+      hasAuthCookie,
+      socialLoginProviders: socialProviders,
+      hasForgotPassword: !!forgotEl,
+      hasPasswordToggle
+    };
+  });
+  if (checks.hasLogoutButton) {
+    authenticated = true;
+    confidence += 40;
+    signals.push("logout button present");
+  }
+  if (checks.hasUserMenu) {
+    authenticated = true;
+    confidence += 30;
+    signals.push("user menu present");
+  }
+  if (checks.hasWelcomeText) {
+    authenticated = true;
+    confidence += 20;
+    signals.push("welcome text");
+    username = checks.welcomeName;
+  }
+  if (checks.hasUserNameElement) {
+    authenticated = true;
+    confidence += 15;
+    signals.push("username displayed");
+    username = username || checks.userName;
+  }
+  if (checks.hasAuthCookie) {
+    confidence += 10;
+    signals.push("auth cookie present");
+  }
+  if (checks.hasLoginLink && !checks.hasLogoutButton) {
+    authenticated = false;
+    confidence += 30;
+    signals.push("login link visible");
+  }
+  if (checks.hasSignupLink && !checks.hasUserMenu) {
+    authenticated = false;
+    confidence += 20;
+    signals.push("signup link visible");
+  }
+  if (checks.hasAuthRequired) {
+    authenticated = false;
+    confidence += 25;
+    signals.push("auth-required message");
+  }
+  if (checks.socialLoginProviders.length > 0) {
+    signals.push(`social login: ${checks.socialLoginProviders.join(", ")}`);
+  }
+  if (checks.hasForgotPassword) {
+    signals.push("forgot password link present");
+  }
+  if (checks.hasPasswordToggle) {
+    signals.push("password visibility toggle present");
+  }
+  confidence = Math.min(confidence / 100, 1);
+  if (confidence < 0.3) {
+    authenticated = null;
+  }
+  return {
+    authenticated,
+    confidence,
+    signals,
+    username,
+    socialLoginProviders: checks.socialLoginProviders,
+    hasForgotPassword: checks.hasForgotPassword,
+    hasSignupLink: checks.hasSignupLink,
+    hasPasswordToggle: checks.hasPasswordToggle
+  };
+}
+async function detectLoadingState(page) {
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const spinners = doc.querySelectorAll(
+      '[class*="spinner"], [class*="loading"], [class*="loader"], [role="progressbar"][aria-busy="true"], .animate-spin, [class*="spin"]'
+    );
+    const skeletons = doc.querySelectorAll(
+      '[class*="skeleton"], [class*="shimmer"], [class*="placeholder"], [class*="pulse"], [aria-busy="true"]'
+    );
+    const progress = doc.querySelectorAll(
+      'progress, [role="progressbar"], [class*="progress-bar"], [class*="loading-bar"]'
+    );
+    const lazyImages = doc.querySelectorAll(
+      'img[loading="lazy"]:not([src]), [class*="lazy"]:not([src])'
+    );
+    const bodyLoading = doc.body?.classList.contains("loading") || doc.body?.getAttribute("aria-busy") === "true";
+    return {
+      spinnerCount: spinners.length,
+      skeletonCount: skeletons.length,
+      progressCount: progress.length,
+      lazyCount: lazyImages.length,
+      bodyLoading
+    };
+  });
+  let type = "none";
+  let elements = 0;
+  let loading = false;
+  if (checks.spinnerCount > 0) {
+    type = "spinner";
+    elements = checks.spinnerCount;
+    loading = true;
+  } else if (checks.skeletonCount > 0) {
+    type = "skeleton";
+    elements = checks.skeletonCount;
+    loading = true;
+  } else if (checks.progressCount > 0) {
+    type = "progress";
+    elements = checks.progressCount;
+    loading = true;
+  } else if (checks.lazyCount > 0) {
+    type = "lazy";
+    elements = checks.lazyCount;
+    loading = true;
+  } else if (checks.bodyLoading) {
+    type = "spinner";
+    loading = true;
+  }
+  return { loading, type, elements };
+}
+async function detectErrorState(page) {
+  const errors = [];
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    const text = doc.body?.innerText || "";
+    const validationErrors = doc.querySelectorAll(
+      '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
+    );
+    const apiErrors = doc.querySelectorAll(
+      '[class*="api-error"], [class*="server-error"], [class*="fetch-error"], [class*="network-error"]'
+    );
+    const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
+    const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
+    const serverText = text.match(/500|server error|something went wrong|internal error/i);
+    const toastErrors = doc.querySelectorAll(
+      '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
+    );
+    const extractText = (el) => el.textContent?.trim().slice(0, 200) || "";
+    return {
+      validationErrors: Array.from(validationErrors).map(extractText).filter(Boolean),
+      apiErrors: Array.from(apiErrors).map(extractText).filter(Boolean),
+      toastErrors: Array.from(toastErrors).map(extractText).filter(Boolean),
+      hasPermissionError: !!permissionText,
+      hasNotFoundError: !!notFoundText,
+      hasServerError: !!serverText
+    };
+  });
+  if (checks.hasPermissionError) {
+    errors.push({
+      type: "permission",
+      message: "Access denied or unauthorized"
+    });
+  }
+  if (checks.hasNotFoundError) {
+    errors.push({
+      type: "notfound",
+      message: "Page or resource not found"
+    });
+  }
+  if (checks.hasServerError) {
+    errors.push({
+      type: "server",
+      message: "Server error occurred"
+    });
+  }
+  for (const msg of checks.validationErrors) {
+    errors.push({
+      type: "validation",
+      message: msg
+    });
+  }
+  for (const msg of checks.apiErrors) {
+    errors.push({
+      type: "api",
+      message: msg
+    });
+  }
+  for (const msg of checks.toastErrors) {
+    errors.push({
+      type: "unknown",
+      message: msg
+    });
+  }
+  let severity = "none";
+  if (errors.length > 0) {
+    const hasCritical = errors.some(
+      (e) => e.type === "server" || e.type === "permission"
+    );
+    const hasError = errors.some(
+      (e) => e.type === "api" || e.type === "notfound"
+    );
+    const hasWarning = errors.some((e) => e.type === "validation");
+    if (hasCritical) severity = "critical";
+    else if (hasError) severity = "error";
+    else if (hasWarning) severity = "warning";
+  }
+  return {
+    hasErrors: errors.length > 0,
+    errors,
+    severity
+  };
+}
+async function detectPageState(page) {
+  const [auth, loading, errors] = await Promise.all([
+    detectAuthState(page),
+    detectLoadingState(page),
+    detectErrorState(page)
+  ]);
+  const ready = !loading.loading && errors.severity !== "critical" && errors.severity !== "error";
+  return {
+    auth,
+    loading,
+    errors,
+    ready
+  };
+}
+var init_state_detector = __esm({
+  "src/semantic/state-detector.ts"() {
+    "use strict";
+  }
+});
+
+// src/semantic/output.ts
+async function getSemanticOutput(page) {
+  const url = page.url?.() ?? "";
+  const title = await page.title();
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const [pageIntent, state] = await Promise.all([
+    classifyPageIntent(page),
+    detectPageState(page)
+  ]);
+  const availableActions = await detectAvailableActions(page, pageIntent.intent);
+  const issues = collectIssues(state, pageIntent, url);
+  const verdict = determineVerdict(state, issues);
+  const recovery = verdict === "FAIL" || verdict === "ERROR" ? generateRecoveryHint(state, pageIntent.intent) : void 0;
+  const summary = generateSummary(pageIntent, state, verdict, issues.length);
+  return {
+    verdict,
+    confidence: pageIntent.confidence,
+    pageIntent,
+    state,
+    availableActions,
+    issues,
+    recovery,
+    summary,
+    url,
+    title,
+    timestamp
+  };
+}
+async function detectAvailableActions(page, intent) {
+  const actions = [];
+  const checks = await page.evaluate(() => {
+    const doc = document;
+    function findByText(tags, patterns) {
+      for (const tag of tags) {
+        for (const el of Array.from(doc.querySelectorAll(tag))) {
+          const t = el.textContent?.trim().toLowerCase() || "";
+          if (patterns.some((p) => t === p || t.includes(p))) return el;
+        }
+      }
+      return null;
+    }
+    const submitButton = doc.querySelector('button[type="submit"], input[type="submit"]');
+    const searchInput = doc.querySelector('input[type="search"], input[name*="search"], input[placeholder*="search"]');
+    const loginForm = doc.querySelector('form input[type="password"]');
+    const mainNav = doc.querySelector("nav a, header a");
+    const backButton = findByText(["a", "button"], ["back"]);
+    const addButton = findByText(["button"], ["add", "create", "new"]);
+    const editButton = findByText(["button", "a"], ["edit"]);
+    const deleteButton = findByText(["button"], ["delete", "remove"]);
+    const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
+    const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
+    const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
+    const socialProviderNames = ["google", "github", "apple", "microsoft", "facebook", "discord"];
+    const socialTriggerPhrases = ["sign in with", "continue with"];
+    const detectedProviders = [];
+    const socialEls = Array.from(doc.querySelectorAll(
+      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
+    ));
+    for (const el of socialEls) {
+      const t = el.textContent?.trim().toLowerCase() || "";
+      const cls = el.className?.toLowerCase() || "";
+      for (const provider of socialProviderNames) {
+        if (!detectedProviders.includes(provider)) {
+          if (t.includes(provider) || cls.includes(provider)) {
+            const triggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
+            if (triggered) detectedProviders.push(provider);
+          }
+        }
+      }
+    }
+    return {
+      hasSubmit: !!submitButton,
+      submitSelector: submitButton ? getSelector(submitButton) : null,
+      hasSearch: !!searchInput,
+      searchSelector: searchInput ? getSelector(searchInput) : null,
+      hasLogin: !!loginForm,
+      hasNav: !!mainNav,
+      hasBack: !!backButton,
+      hasAdd: !!addButton,
+      addSelector: addButton ? getSelector(addButton) : null,
+      hasEdit: !!editButton,
+      hasDelete: !!deleteButton,
+      hasFilter: !!filterSelect,
+      hasSort: !!sortSelect,
+      hasPagination: !!pagination,
+      hasSocialLogin: detectedProviders.length > 0,
+      socialProviders: detectedProviders
+    };
+    function getSelector(el) {
+      if (el.id) return `#${el.id}`;
+      if (el.getAttribute("data-testid")) return `[data-testid="${el.getAttribute("data-testid")}"]`;
+      if (el.className) return `.${el.className.split(" ")[0]}`;
+      return el.tagName.toLowerCase();
+    }
+  });
+  if (intent === "auth" && checks.hasLogin) {
+    actions.push({
+      action: "login",
+      selector: "form",
+      description: "Submit login credentials"
+    });
+  }
+  if (intent === "auth" && checks.hasSocialLogin) {
+    for (const provider of checks.socialProviders) {
+      actions.push({
+        action: `login-with-${provider}`,
+        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
+      });
+    }
+  }
+  if (checks.hasSearch) {
+    actions.push({
+      action: "search",
+      selector: checks.searchSelector || 'input[type="search"]',
+      description: "Search for content"
+    });
+  }
+  if (checks.hasSubmit && intent !== "auth") {
+    actions.push({
+      action: "submit",
+      selector: checks.submitSelector || 'button[type="submit"]',
+      description: "Submit form"
+    });
+  }
+  if (checks.hasAdd) {
+    actions.push({
+      action: "create",
+      selector: checks.addSelector || "button",
+      description: "Create new item"
+    });
+  }
+  if (intent === "listing") {
+    if (checks.hasFilter) {
+      actions.push({
+        action: "filter",
+        description: "Filter results"
+      });
+    }
+    if (checks.hasSort) {
+      actions.push({
+        action: "sort",
+        description: "Sort results"
+      });
+    }
+    if (checks.hasPagination) {
+      actions.push({
+        action: "paginate",
+        description: "Navigate to next/previous page"
+      });
+    }
+  }
+  if (checks.hasBack) {
+    actions.push({
+      action: "back",
+      description: "Go back to previous page"
+    });
+  }
+  return actions;
+}
+function collectIssues(state, intent, url = "") {
+  const issues = [];
+  for (const error of state.errors.errors) {
+    issues.push({
+      severity: error.type === "server" || error.type === "permission" ? "critical" : "major",
+      type: error.type,
+      problem: error.message,
+      fix: getErrorFix(error.type)
+    });
+  }
+  if (state.loading.loading && state.loading.elements > 3) {
+    issues.push({
+      severity: "minor",
+      type: "slow-loading",
+      problem: `Page has ${state.loading.elements} loading indicators`,
+      fix: "Wait for content to load or check network"
+    });
+  }
+  if (state.auth.authenticated === false && intent.intent === "dashboard") {
+    issues.push({
+      severity: "major",
+      type: "auth-required",
+      problem: "Dashboard requires authentication",
+      fix: "Login first before accessing this page"
+    });
+  }
+  if (intent.intent === "auth") {
+    const socialProviders = state.auth.socialLoginProviders ?? [];
+    if (socialProviders.length === 0) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-social-login",
+        problem: "Auth page has no social login options (Google, GitHub, etc.)",
+        fix: "Add OAuth/social login buttons to reduce friction"
+      });
+    }
+    const signals = state.auth.signals;
+    const hasSignupLinkSignal = signals.includes("signup link visible") || (state.auth.hasSignupLink ?? false);
+    const hasLoginLinkSignal = signals.includes("login link visible");
+    const urlPath = (() => {
+      try {
+        return new URL(url).pathname.toLowerCase();
+      } catch {
+        return url.toLowerCase();
+      }
+    })();
+    const isSignUp = hasLoginLinkSignal || urlPath.includes("sign-up") || urlPath.includes("signup") || urlPath.includes("register");
+    const isSignIn = hasSignupLinkSignal || urlPath.includes("sign-in") || urlPath.includes("signin") || urlPath.includes("login");
+    if (!state.auth.hasForgotPassword && (isSignIn || !isSignIn && !isSignUp)) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-forgot-password",
+        problem: "Sign-in page has no forgot password option",
+        fix: 'Add a "Forgot your password?" link'
+      });
+    }
+    if (!state.auth.hasPasswordToggle) {
+      issues.push({
+        severity: "minor",
+        type: "auth-no-password-toggle",
+        problem: "Password field has no show/hide toggle",
+        fix: "Add a visibility toggle for the password field"
+      });
+    }
+  }
+  return issues;
+}
+function getErrorFix(errorType) {
+  const fixes = {
+    validation: "Fix the highlighted form fields",
+    api: "Retry the request or check API status",
+    permission: "Login with appropriate permissions",
+    notfound: "Check the URL or navigate to a valid page",
+    server: "Wait and retry, or contact support",
+    network: "Check internet connection",
+    unknown: "Investigate the error message"
+  };
+  return fixes[errorType] || "Investigate the issue";
+}
+function determineVerdict(state, issues) {
+  const hasCritical = issues.some((i) => i.severity === "critical");
+  if (hasCritical) return "ERROR";
+  if (state.loading.loading) return "LOADING";
+  if (state.errors.hasErrors) return "FAIL";
+  const hasMajor = issues.some((i) => i.severity === "major");
+  if (hasMajor) return "ISSUES";
+  return "PASS";
+}
+function generateRecoveryHint(state, _intent) {
+  if (state.auth.authenticated === false) {
+    return {
+      suggestion: "Login to access this page",
+      alternatives: ["Use ibr.flow.login()", "Navigate to /login first"],
+      waitFor: '[class*="user"], [class*="avatar"]'
+    };
+  }
+  if (state.errors.errors.some((e) => e.type === "server")) {
+    return {
+      suggestion: "Server error - wait and retry",
+      alternatives: ["Refresh the page", "Check server status"]
+    };
+  }
+  if (state.errors.errors.some((e) => e.type === "notfound")) {
+    return {
+      suggestion: "Page not found - check URL",
+      alternatives: ["Navigate to homepage", "Use search to find content"]
+    };
+  }
+  if (state.loading.loading) {
+    return {
+      suggestion: "Wait for page to finish loading",
+      waitFor: state.loading.type === "skeleton" ? ':not([class*="skeleton"])' : ':not([class*="loading"])'
+    };
+  }
+  return {
+    suggestion: "Investigate the page state and retry"
+  };
+}
+function generateSummary(intent, state, verdict, issueCount) {
+  const parts = [];
+  parts.push(`${intent.intent} page`);
+  if (intent.confidence < 0.5) {
+    parts.push("(low confidence)");
+  }
+  if (state.auth.authenticated === true) {
+    parts.push(`authenticated${state.auth.username ? ` as ${state.auth.username}` : ""}`);
+  } else if (state.auth.authenticated === false) {
+    parts.push("not authenticated");
+  }
+  if (state.loading.loading) {
+    parts.push(`loading (${state.loading.type})`);
+  }
+  if (verdict === "PASS") {
+    parts.push("ready for interaction");
+  } else if (verdict === "ISSUES") {
+    parts.push(`${issueCount} issue${issueCount > 1 ? "s" : ""} detected`);
+  } else if (verdict === "ERROR" || verdict === "FAIL") {
+    parts.push(`${issueCount} error${issueCount > 1 ? "s" : ""}`);
+  }
+  return parts.join(", ");
+}
+function formatSemanticText(result) {
+  const lines = [];
+  lines.push(`Verdict: ${result.verdict}`);
+  lines.push(`Page: ${result.pageIntent.intent} (${Math.round(result.confidence * 100)}% confidence)`);
+  lines.push(`Summary: ${result.summary}`);
+  if (result.state.auth.authenticated !== null) {
+    lines.push(`Auth: ${result.state.auth.authenticated ? "logged in" : "logged out"}`);
+  }
+  if (result.availableActions.length > 0) {
+    lines.push(`Actions: ${result.availableActions.map((a) => a.action).join(", ")}`);
+  }
+  if (result.issues.length > 0) {
+    lines.push(`Issues: ${result.issues.map((i) => i.problem).join("; ")}`);
+  }
+  if (result.recovery) {
+    lines.push(`Recovery: ${result.recovery.suggestion}`);
+  }
+  return lines.join("\n");
+}
+var init_output = __esm({
+  "src/semantic/output.ts"() {
+    "use strict";
+    init_page_intent();
+    init_state_detector();
+  }
+});
+
+// src/semantic/landmarks.ts
+async function detectLandmarks(page) {
+  const landmarks = [];
+  for (const [name, selector] of Object.entries(LANDMARK_SELECTORS)) {
+    try {
+      const element = await page.$(selector);
+      if (element) {
+        const box = await element.boundingBox();
+        landmarks.push({
+          name,
+          selector,
+          found: true,
+          bounds: box ? {
+            x: Math.round(box.x),
+            y: Math.round(box.y),
+            width: Math.round(box.width),
+            height: Math.round(box.height)
+          } : void 0
+        });
+      } else {
+        landmarks.push({
+          name,
+          selector,
+          found: false
+        });
+      }
+    } catch {
+      landmarks.push({
+        name,
+        selector,
+        found: false
+      });
+    }
+  }
+  return landmarks;
+}
+var LANDMARK_SELECTORS;
+var init_landmarks = __esm({
+  "src/semantic/landmarks.ts"() {
+    "use strict";
+    LANDMARK_SELECTORS = {
+      logo: 'img[src*="logo"], img[alt*="logo" i], [class*="logo"], [id*="logo"], svg[class*="logo"]',
+      header: 'header, [role="banner"], [class*="header"]:not([class*="subheader"])',
+      navigation: 'nav, [role="navigation"], [class*="nav"]:not([class*="subnav"])',
+      main: 'main, [role="main"], [class*="main-content"], #main',
+      footer: 'footer, [role="contentinfo"], [class*="footer"]',
+      sidebar: 'aside, [role="complementary"], [class*="sidebar"]',
+      search: 'input[type="search"], [role="search"], [class*="search-input"], input[name*="search"]',
+      heading: "h1",
+      userMenu: '[class*="user-menu"], [class*="avatar"], [class*="profile"], [class*="account"]',
+      loginForm: 'form:has(input[type="password"])',
+      heroSection: '[class*="hero"], [class*="banner"], [class*="jumbotron"]',
+      ctaButton: '[class*="cta"], a[class*="primary"], button[class*="primary"]'
+    };
+  }
+});
+
+// src/semantic/index.ts
+var init_semantic = __esm({
+  "src/semantic/index.ts"() {
+    "use strict";
+    init_page_intent();
+    init_state_detector();
+    init_output();
+    init_landmarks();
+  }
+});
+
+// src/layout-collision.ts
+function detectLayoutCollisions(elements) {
+  const textElements = elements.filter(
+    (el) => el.text && el.text.trim().length > 0 && el.bounds.width > 0 && el.bounds.height > 0
+  );
+  textElements.sort((a, b) => a.bounds.y !== b.bounds.y ? a.bounds.y - b.bounds.y : a.bounds.x - b.bounds.x);
+  const collisions = [];
+  for (let i = 0; i < textElements.length; i++) {
+    const a = textElements[i];
+    const aBottom = a.bounds.y + a.bounds.height;
+    for (let j = i + 1; j < textElements.length; j++) {
+      const b = textElements[j];
+      if (b.bounds.y > aBottom + 2) break;
+      if (b.selector.startsWith(a.selector) || a.selector.startsWith(b.selector)) continue;
+      const ix = Math.max(a.bounds.x, b.bounds.x);
+      const iy = Math.max(a.bounds.y, b.bounds.y);
+      const ix2 = Math.min(a.bounds.x + a.bounds.width, b.bounds.x + b.bounds.width);
+      const iy2 = Math.min(a.bounds.y + a.bounds.height, b.bounds.y + b.bounds.height);
+      const overlapW = ix2 - ix;
+      const overlapH = iy2 - iy;
+      if (overlapW <= 0 || overlapH <= 0) continue;
+      const overlapArea = overlapW * overlapH;
+      if (overlapW < 4 || overlapH < 4) continue;
+      const areaA = a.bounds.width * a.bounds.height;
+      const areaB = b.bounds.width * b.bounds.height;
+      const smallerArea = Math.min(areaA, areaB);
+      const overlapPercent = smallerArea > 0 ? overlapArea / smallerArea * 100 : 0;
+      if (overlapPercent < 5) continue;
+      collisions.push({
+        element1: {
+          selector: a.selector,
+          text: a.text,
+          bounds: { x: a.bounds.x, y: a.bounds.y, width: a.bounds.width, height: a.bounds.height }
+        },
+        element2: {
+          selector: b.selector,
+          text: b.text,
+          bounds: { x: b.bounds.x, y: b.bounds.y, width: b.bounds.width, height: b.bounds.height }
+        },
+        overlapArea,
+        overlapPercent
+      });
+    }
+  }
+  return {
+    collisions,
+    hasCollisions: collisions.length > 0
+  };
+}
+var init_layout_collision = __esm({
+  "src/layout-collision.ts"() {
+    "use strict";
+  }
+});
+
+// src/consistency.ts
+function parseColor(color) {
+  if (!color || color === "transparent") return null;
+  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return { r: Number(rgbMatch[1]), g: Number(rgbMatch[2]), b: Number(rgbMatch[3]) };
+  }
+  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
+  if (hexMatch) {
+    const hex = hexMatch[1];
+    if (hex.length === 3) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16)
+      };
+    }
+    if (hex.length >= 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16)
+      };
+    }
+  }
+  const named = {
+    white: { r: 255, g: 255, b: 255 },
+    black: { r: 0, g: 0, b: 0 },
+    red: { r: 255, g: 0, b: 0 },
+    green: { r: 0, g: 128, b: 0 },
+    blue: { r: 0, g: 0, b: 255 },
+    gray: { r: 128, g: 128, b: 128 },
+    grey: { r: 128, g: 128, b: 128 }
+  };
+  return named[color.toLowerCase()] ?? null;
+}
+function relativeLuminance(r, g, b) {
+  const linearize4 = (c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * linearize4(r) + 0.7152 * linearize4(g) + 0.0722 * linearize4(b);
+}
+async function analyzeThemeConsistency(page) {
+  const data = await page.evaluate(() => {
+    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
+    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
+    const pageBg = bodyBg && bodyBg !== "rgba(0, 0, 0, 0)" && bodyBg !== "transparent" ? bodyBg : htmlBg;
+    const containerSelectors = [
+      '[class*="card"]',
+      '[class*="form"]',
+      '[class*="dialog"]',
+      '[class*="modal"]',
+      '[class*="panel"]',
+      "main > *",
+      "form"
+    ];
+    const cards = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const sel of containerSelectors) {
+      let elements;
+      try {
+        elements = Array.from(document.querySelectorAll(sel));
+      } catch {
+        continue;
+      }
+      for (const el of elements) {
+        if (seen.has(el)) continue;
+        seen.add(el);
+        const bg = window.getComputedStyle(el).backgroundColor;
+        if (!bg || bg === "rgba(0, 0, 0, 0)" || bg === "transparent") continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width < 50 || rect.height < 50) continue;
+        cards.push({ selector: sel, color: bg });
+        if (cards.length >= 10) break;
+      }
+      if (cards.length >= 10) break;
+    }
+    return { pageBg, cards };
+  });
+  const pageParsed = parseColor(data.pageBg);
+  const pageLuminance = pageParsed ? relativeLuminance(pageParsed.r, pageParsed.g, pageParsed.b) : 0.5;
+  const pageBackground = { color: data.pageBg, luminance: pageLuminance };
+  const contentCards = data.cards.map((c) => {
+    const parsed = parseColor(c.color);
+    const luminance2 = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    return { selector: c.selector, color: c.color, luminance: luminance2 };
+  });
+  let themeMismatch = false;
+  let mismatchDetails;
+  const darkPage = pageLuminance < 0.2;
+  const lightPage = pageLuminance > 0.7;
+  for (const card of contentCards) {
+    if (darkPage && card.luminance > 0.7) {
+      themeMismatch = true;
+      mismatchDetails = `Page background is dark (luminance ${pageLuminance.toFixed(3)}) but a content container matched by "${card.selector}" has a light background (luminance ${card.luminance.toFixed(3)})`;
+      break;
+    }
+    if (lightPage && card.luminance < 0.2) {
+      themeMismatch = true;
+      mismatchDetails = `Page background is light (luminance ${pageLuminance.toFixed(3)}) but a content container matched by "${card.selector}" has a dark background (luminance ${card.luminance.toFixed(3)})`;
+      break;
+    }
+  }
+  return { pageBackground, contentCards, themeMismatch, mismatchDetails };
+}
+var init_consistency = __esm({
+  "src/consistency.ts"() {
+    "use strict";
+    init_driver();
+    init_compat();
+  }
+});
+
+// src/sensors/visual-patterns.ts
+function styleFingerprint(el) {
+  const s = el.computedStyles ?? {};
+  return {
+    backgroundColor: s.backgroundColor ?? "",
+    color: s.color ?? "",
+    borderRadius: s.borderRadius ?? "",
+    padding: s.padding ?? "",
+    fontSize: s.fontSize ?? "",
+    fontWeight: s.fontWeight ?? "",
+    borderWidth: s.borderWidth ?? "",
+    borderColor: s.borderColor ?? ""
+  };
+}
+function fingerprintKey(fp) {
+  return Object.entries(fp).map(([k, v]) => `${k}=${v}`).join("|");
+}
+function categorize(el) {
+  const tag = el.tagName.toLowerCase();
+  const role = el.a11y.role ?? "";
+  if (tag === "button" || role === "button") return "button";
+  if (tag === "a" || role === "link") return "link";
+  if (tag === "input" || tag === "textarea" || tag === "select" || role === "textbox" || role === "combobox") return "input";
+  if (/^h[1-6]$/.test(tag) || role === "heading") return "heading";
+  return null;
+}
+function collectVisualPatterns(ctx) {
+  const byCategory = /* @__PURE__ */ new Map();
+  for (const el of ctx.elements) {
+    const cat = categorize(el);
+    if (!cat) continue;
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat).push(el);
+  }
+  const reports = [];
+  for (const [category, els] of byCategory.entries()) {
+    const groupMap = /* @__PURE__ */ new Map();
+    for (const el of els) {
+      const fp = styleFingerprint(el);
+      const key = fingerprintKey(fp);
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          patternKey: key.slice(0, 80),
+          count: 0,
+          elements: [],
+          styleFingerprint: fp
+        });
+      }
+      const g = groupMap.get(key);
+      g.count++;
+      if (g.elements.length < 5) {
+        g.elements.push({
+          selector: el.selector,
+          text: (el.text ?? "").slice(0, 40)
+        });
+      }
+    }
+    const groups = Array.from(groupMap.values()).sort((a, b) => b.count - a.count);
+    const total = els.length;
+    const dominant = groups[0] && groups[0].count / total > 0.8 ? groups[0] : void 0;
+    reports.push({
+      category,
+      totalElements: total,
+      distinctPatterns: groups.length,
+      groups,
+      dominant
+    });
+  }
+  return reports;
+}
+var init_visual_patterns = __esm({
+  "src/sensors/visual-patterns.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/component-census.ts
+function detectComponentName(el) {
+  const attrs = el.attributes;
+  if (attrs?.["data-component"]) return attrs["data-component"];
+  const testId = el.sourceHint?.dataTestId;
+  if (testId) {
+    const name = testId.split(/[-_]/).filter(Boolean).map((p) => (p[0]?.toUpperCase() ?? "") + p.slice(1)).join("");
+    if (name.length > 0) return name;
+  }
+  const className = el.className ?? attrs?.["class"] ?? attrs?.["className"];
+  if (className) {
+    const match = className.match(/\b([A-Z][a-zA-Z0-9]+)(?:_|$|\s)/);
+    if (match) return match[1];
+  }
+  return null;
+}
+function collectComponentCensus(ctx) {
+  const byTag = {};
+  const byRole = {};
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  const orphanInteractive = [];
+  const componentMap = /* @__PURE__ */ new Map();
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    if (tag) byTag[tag] = (byTag[tag] ?? 0) + 1;
+    const role = el.a11y.role;
+    if (role) byRole[role] = (byRole[role] ?? 0) + 1;
+    const interactive = el.interactive;
+    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+      const cursor = el.computedStyles?.cursor;
+      if (cursor === "pointer" && (el.text ?? "").trim().length > 0) {
+        if (orphanInteractive.length < 20) {
+          orphanInteractive.push({
+            selector: el.selector,
+            text: (el.text ?? "").slice(0, 60),
+            reason: "cursor:pointer with no handler"
+          });
+        }
+      }
+    }
+    const componentName = detectComponentName(el) ?? el.tagName.toLowerCase();
+    const existing = componentMap.get(componentName);
+    if (existing) {
+      existing.count++;
+      if (existing.selectors.length < 5) existing.selectors.push(el.selector);
+    } else {
+      componentMap.set(componentName, { count: 1, selectors: [el.selector] });
+    }
+  }
+  const byComponent = {};
+  for (const [name, data] of componentMap) {
+    byComponent[name] = data.count;
+  }
+  const topComponents = Array.from(componentMap.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 20).map(([name, data]) => ({ name, count: data.count, selectors: data.selectors }));
+  return {
+    byTag,
+    byRole,
+    withHandlers,
+    withoutHandlers,
+    orphanInteractive,
+    byComponent,
+    topComponents
+  };
+}
+var init_component_census = __esm({
+  "src/sensors/component-census.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/interaction-map.ts
+function collectInteractionMap(ctx) {
+  const missingHandlers = [];
+  let total = 0;
+  let withHandlers = 0;
+  let withoutHandlers = 0;
+  let disabled = 0;
+  let formCount = 0;
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    const role = el.a11y.role ?? "";
+    const cursor = el.computedStyles?.cursor;
+    const looksInteractive2 = tag === "button" || tag === "a" || role === "button" || role === "link" || cursor === "pointer";
+    if (tag === "form") formCount++;
+    if (!looksInteractive2) continue;
+    total++;
+    const interactive = el.interactive;
+    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
+    if (hasHandler) {
+      withHandlers++;
+    } else {
+      withoutHandlers++;
+      if (missingHandlers.length < 25) {
+        missingHandlers.push({
+          selector: el.selector,
+          text: (el.text ?? "").slice(0, 60),
+          tagName: tag,
+          role: role || void 0
+        });
+      }
+    }
+    if (interactive.isDisabled) disabled++;
+  }
+  return { total, withHandlers, withoutHandlers, missingHandlers, disabled, formCount };
+}
+var init_interaction_map = __esm({
+  "src/sensors/interaction-map.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/contrast-report.ts
+function parseColor2(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6 = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6) {
+    const n = parseInt(hex6[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3 = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3) {
+    return [
+      parseInt(hex3[1][0], 16) * 17,
+      parseInt(hex3[1][1], 16) * 17,
+      parseInt(hex3[1][2], 16) * 17
+    ];
+  }
+  return null;
+}
+function linearize(c) {
+  const n = c / 255;
+  return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4);
+}
+function luminance([r, g, b]) {
+  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
+}
+function contrastRatio(fg, bg) {
+  const l1 = luminance(fg);
+  const l2 = luminance(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText(styles) {
+  const fontSize = parseFloat(styles.fontSize ?? "");
+  if (isNaN(fontSize)) return false;
+  const fw = styles.fontWeight ?? "400";
+  const isBold = fw === "bold" || parseInt(fw, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+function collectContrastReport(ctx) {
+  let pass = 0;
+  let fail = 0;
+  let passAAA = 0;
+  const failing = [];
+  let minRatio;
+  let lightOnDark = 0;
+  let darkOnLight = 0;
+  for (const el of ctx.elements) {
+    const text = (el.text ?? "").trim();
+    if (!text) continue;
+    const styles = el.computedStyles;
+    if (!styles) continue;
+    const fg = parseColor2(styles.color ?? "");
+    const bg = parseColor2(styles.backgroundColor ?? "");
+    if (!fg || !bg) continue;
+    const large = isLargeText(styles);
+    const ratio = contrastRatio(fg, bg);
+    const aaThreshold = large ? 3 : 4.5;
+    const aaaThreshold = large ? 4.5 : 7;
+    const fontSize = parseFloat(styles.fontSize ?? "16") || 16;
+    const entry = {
+      selector: el.selector,
+      text: text.slice(0, 60),
+      ratio: Number(ratio.toFixed(2)),
+      pass: ratio >= aaaThreshold ? "AAA" : ratio >= aaThreshold ? "AA" : "FAIL",
+      fontSize,
+      largeText: large
+    };
+    if (ratio >= aaThreshold) {
+      pass++;
+    } else {
+      fail++;
+      if (failing.length < 50) failing.push(entry);
+    }
+    if (ratio >= aaaThreshold) passAAA++;
+    if (!minRatio || ratio < minRatio.ratio) minRatio = entry;
+    const fgAvg = (fg[0] + fg[1] + fg[2]) / 3;
+    const bgAvg = (bg[0] + bg[1] + bg[2]) / 3;
+    if (fgAvg > bgAvg) lightOnDark++;
+    else darkOnLight++;
+  }
+  return {
+    totalChecked: pass + fail,
+    pass,
+    fail,
+    passAAA,
+    failing,
+    minRatio,
+    byTone: { lightOnDark, darkOnLight }
+  };
+}
+var init_contrast_report = __esm({
+  "src/sensors/contrast-report.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/navigation.ts
+function selectorDepth(selector) {
+  return (selector || "").split(/\s*>\s*/).length;
+}
+function isDescendantOf(childSelector, ancestorSelector) {
+  if (!ancestorSelector || !childSelector) return false;
+  return childSelector.startsWith(ancestorSelector + " ") || childSelector.startsWith(ancestorSelector + ">") || childSelector.startsWith(ancestorSelector + " >") || childSelector === ancestorSelector;
+}
+function linkLabel(el) {
+  return (el.text ?? el.a11y.ariaLabel ?? "").trim().slice(0, 60);
+}
+function buildTree(links, navSelector) {
+  const navDepth = selectorDepth(navSelector);
+  const sorted = [...links].sort((a, b) => a.selector.length - b.selector.length);
+  const roots = [];
+  const stack = [];
+  for (const el of sorted) {
+    const label = linkLabel(el);
+    if (!label) continue;
+    const absDepth = selectorDepth(el.selector);
+    const relDepth = absDepth - navDepth;
+    const node = {
+      label,
+      selector: el.selector,
+      depth: relDepth,
+      children: []
+    };
+    let parentEntry;
+    for (let i = stack.length - 1; i >= 0; i--) {
+      const candidate = stack[i];
+      if (candidate.absDepth < absDepth && isDescendantOf(el.selector, candidate.node.selector)) {
+        parentEntry = candidate;
+        break;
+      }
+    }
+    if (parentEntry) {
+      parentEntry.node.children.push(node);
+    } else {
+      roots.push(node);
+    }
+    stack.push({ node, absDepth });
+  }
+  function maxD(nodes, current) {
+    let m = current;
+    for (const n of nodes) m = Math.max(m, maxD(n.children, current + 1));
+    return m;
+  }
+  const maxDepth = roots.length > 0 ? maxD(roots, 1) : 0;
+  return { roots, maxDepth };
+}
+function flattenTree(nodes, depth, counts) {
+  for (const node of nodes) {
+    counts[depth] = (counts[depth] ?? 0) + 1;
+    flattenTree(node.children, depth + 1, counts);
+  }
+}
+function collectNavigationMap(ctx) {
+  const navElements = ctx.elements.filter((el) => {
+    const role = el.a11y.role ?? "";
+    const tag = el.tagName.toLowerCase();
+    return role === "navigation" || tag === "nav";
+  });
+  const links = ctx.elements.filter((el) => {
+    const role = el.a11y.role ?? "";
+    const tag = el.tagName.toLowerCase();
+    return role === "link" || tag === "a";
+  });
+  if (links.length === 0 && navElements.length === 0) return void 0;
+  if (navElements.length > 0) {
+    const navRegions = [];
+    const byDepth = [];
+    for (const nav of navElements) {
+      const navLinks = links.filter(
+        (link) => isDescendantOf(link.selector, nav.selector)
+      );
+      const { roots, maxDepth } = buildTree(navLinks, nav.selector);
+      flattenTree(roots, 0, byDepth);
+      navRegions.push({
+        rootSelector: nav.selector,
+        roots,
+        depth: maxDepth
+      });
+    }
+    const allRoots = navRegions.flatMap((r) => r.roots);
+    const overallMaxDepth = navRegions.reduce((m, r) => Math.max(m, r.depth), 0);
+    return {
+      navs: navRegions,
+      roots: allRoots.slice(0, 40),
+      depth: overallMaxDepth,
+      totalLinks: links.length,
+      byDepth
+    };
+  }
+  const flatRoots = [];
+  for (const link of links.slice(0, 60)) {
+    const label = linkLabel(link);
+    if (!label) continue;
+    flatRoots.push({
+      label,
+      selector: link.selector,
+      depth: 0,
+      children: []
+    });
+  }
+  return {
+    navs: [],
+    roots: flatRoots.slice(0, 40),
+    depth: 1,
+    totalLinks: links.length,
+    byDepth: [flatRoots.length]
+  };
+}
+var init_navigation = __esm({
+  "src/sensors/navigation.ts"() {
+    "use strict";
+  }
+});
+
+// src/sensors/index.ts
+function runSensors(ctx) {
+  const visualPatterns = collectVisualPatterns(ctx);
+  const componentCensus = collectComponentCensus(ctx);
+  const interactionMap = collectInteractionMap(ctx);
+  const contrast = collectContrastReport(ctx);
+  const navigation = collectNavigationMap(ctx);
+  const oneLiners = [];
+  for (const vp of visualPatterns) {
+    if (vp.distinctPatterns > 1) {
+      const dominantNote = vp.dominant ? ` (${vp.dominant.count}/${vp.totalElements} share dominant pattern)` : "";
+      oneLiners.push(
+        `${vp.category}: ${vp.totalElements} total, ${vp.distinctPatterns} distinct patterns${dominantNote}`
+      );
+    }
+  }
+  if (interactionMap.withoutHandlers > 0) {
+    oneLiners.push(
+      `${interactionMap.withoutHandlers}/${interactionMap.total} interactive-looking elements have no handler`
+    );
+  }
+  if (contrast.fail > 0) {
+    oneLiners.push(`Contrast: ${contrast.fail}/${contrast.totalChecked} text elements fail WCAG AA`);
+  }
+  if (componentCensus.orphanInteractive.length > 0) {
+    oneLiners.push(
+      `${componentCensus.orphanInteractive.length} cursor:pointer elements have no handler`
+    );
+  }
+  if (navigation) {
+    if (navigation.navs.length > 0) {
+      oneLiners.push(
+        `Nav: ${navigation.navs.length} nav region(s), max depth ${navigation.depth}, ${navigation.totalLinks} total links`
+      );
+    } else {
+      oneLiners.push(`Navigation: ${navigation.totalLinks} links, ${navigation.depth} level(s) deep`);
+    }
+  }
+  const namedComponents = componentCensus.topComponents.filter(
+    (c) => !/^[a-z]/.test(c.name) || c.name.includes("-")
+    // PascalCase or testid-derived names
+  );
+  if (namedComponents.length > 0) {
+    const top3 = namedComponents.slice(0, 3).map((c) => `${c.name}\xD7${c.count}`).join(", ");
+    const totalNamed = namedComponents.length;
+    oneLiners.push(`Components: ${top3}${totalNamed > 3 ? ` (top 3 of ${totalNamed})` : ""}`);
+  }
+  const report = {
+    visualPatterns,
+    navigation,
+    componentCensus,
+    interactionMap,
+    contrast,
+    oneLiners
+  };
+  if (ctx.semantic) {
+    const sem = ctx.semantic;
+    const states = [];
+    if (sem.state.auth.authenticated === true) states.push("authenticated");
+    if (sem.state.auth.authenticated === false) states.push("not authenticated");
+    if (sem.state.loading.loading) states.push(`loading:${sem.state.loading.type}`);
+    if (sem.state.errors.hasErrors) {
+      for (const e of sem.state.errors.errors) states.push(`error:${e.type}`);
+    }
+    report.semanticState = {
+      pageIntent: sem.pageIntent.intent,
+      states,
+      availableActions: sem.availableActions.map((a) => a.action)
+    };
+  }
+  return report;
+}
+var init_sensors = __esm({
+  "src/sensors/index.ts"() {
+    "use strict";
+    init_visual_patterns();
+    init_component_census();
+    init_interaction_map();
+    init_contrast_report();
+    init_navigation();
+  }
+});
+
+// src/rules/wcag-contrast.ts
+function parseColor3(color) {
+  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
+    return null;
+  }
+  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
+  if (rgbaMatch) {
+    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
+    if (alpha === 0) return null;
+    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  }
+  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
+  if (hex6Match) {
+    const n = parseInt(hex6Match[1], 16);
+    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  }
+  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
+  if (hex3Match) {
+    const r = parseInt(hex3Match[1][0], 16) * 17;
+    const g = parseInt(hex3Match[1][1], 16) * 17;
+    const b = parseInt(hex3Match[1][2], 16) * 17;
+    return [r, g, b];
+  }
+  return null;
+}
+function linearize2(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance2(r, g, b) {
+  return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
+}
+function contrastRatio2(l1, l2) {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function isLargeText2(styles) {
+  const fontSizeStr = styles.fontSize ?? "";
+  const fontWeightStr = styles.fontWeight ?? "";
+  const fontSize = parseFloat(fontSizeStr);
+  if (isNaN(fontSize)) return false;
+  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
+  return fontSize >= 18 || isBold && fontSize >= 14;
+}
+var wcagContrastRules;
+var init_wcag_contrast = __esm({
+  "src/rules/wcag-contrast.ts"() {
+    "use strict";
+    wcagContrastRules = [
+      {
+        id: "wcag/contrast",
+        name: "WCAG 2.1: Color Contrast",
+        description: "Text must meet WCAG 2.1 minimum contrast: 4.5:1 normal, 3:1 large text",
+        defaultSeverity: "error",
+        check: (element, _context) => {
+          const style = element.computedStyles;
+          if (!style) return null;
+          const hasText = element.text && element.text.trim().length > 0;
+          if (!hasText) return null;
+          const fgColor = parseColor3(style.color ?? "");
+          const bgColor = parseColor3(style.backgroundColor ?? "");
+          if (!fgColor || !bgColor) return null;
+          const fgL = relativeLuminance2(...fgColor);
+          const bgL = relativeLuminance2(...bgColor);
+          const ratio = contrastRatio2(fgL, bgL);
+          const largeText = isLargeText2(style);
+          const threshold = largeText ? 3 : 4.5;
+          if (ratio < threshold) {
+            const ratioStr = ratio.toFixed(2);
+            const textSnippet = (element.text ?? "").slice(0, 40);
+            return {
+              ruleId: "wcag/contrast",
+              ruleName: "WCAG 2.1: Color Contrast",
+              severity: "error",
+              message: `"${textSnippet}" has contrast ratio ${ratioStr}:1 (required ${threshold}:1 for ${largeText ? "large" : "normal"} text)`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/touch-targets.ts
+function isInteractiveElement(element) {
+  if (INTERACTIVE_TAGS.has(element.tagName.toLowerCase())) return true;
+  const role = element.a11y?.role;
+  if (role && INTERACTIVE_ROLES.has(role)) return true;
+  return false;
+}
+var INTERACTIVE_ROLES, INTERACTIVE_TAGS, touchTargetRules;
+var init_touch_targets = __esm({
+  "src/rules/touch-targets.ts"() {
+    "use strict";
+    INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
+      "button",
+      "link",
+      "textbox",
+      "checkbox",
+      "radio",
+      "combobox",
+      "listbox",
+      "menuitem",
+      "menuitemcheckbox",
+      "menuitemradio",
+      "option",
+      "searchbox",
+      "slider",
+      "spinbutton",
+      "switch",
+      "tab",
+      "treeitem"
+    ]);
+    INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
+    touchTargetRules = [
+      {
+        id: "touch-targets/minimum-size",
+        name: "Touch Target: Minimum Size",
+        description: "Interactive elements must meet minimum touch target size (44x44px mobile, 24x24px desktop)",
+        defaultSeverity: "warn",
+        check: (element, context, options) => {
+          if (!isInteractiveElement(element)) return null;
+          const isMobile = context.isMobile || context.viewportWidth < 768;
+          const minSize = isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+          const { width, height } = element.bounds;
+          if (width === 0 && height === 0) return null;
+          if (width < minSize || height < minSize) {
+            const label = element.text || element.a11y?.ariaLabel || element.selector;
+            return {
+              ruleId: "touch-targets/minimum-size",
+              ruleName: "Touch Target: Minimum Size",
+              severity: "warn",
+              message: `"${label.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: `Increase element size to at least ${minSize}x${minSize}px`
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/text-hierarchy.ts
+function inferLevel(element) {
+  const tag = element.tagName.toLowerCase();
+  const role = element.a11y?.role ?? "";
+  if (TITLE_TAGS.has(tag) || role === "heading") return "title";
+  if (DESCRIPTION_TAGS.has(tag) || role === "paragraph") return "description";
+  if (tag === "span" || tag === "small" || tag === "label") {
+    const size = parseFloat(element.computedStyles?.fontSize ?? "0");
+    if (size > 0 && size <= 12) return "metadata";
+  }
+  return "unknown";
+}
+function parseFontSize(element) {
+  const raw = element.computedStyles?.fontSize;
+  if (!raw) return null;
+  const val = parseFloat(raw);
+  return isNaN(val) ? null : val;
+}
+var TITLE_TAGS, DESCRIPTION_TAGS, textHierarchyRules;
+var init_text_hierarchy = __esm({
+  "src/rules/text-hierarchy.ts"() {
+    "use strict";
+    TITLE_TAGS = /* @__PURE__ */ new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
+    DESCRIPTION_TAGS = /* @__PURE__ */ new Set(["p", "blockquote", "figcaption", "li"]);
+    textHierarchyRules = [
+      {
+        id: "text-hierarchy/title-vs-description",
+        name: "Text Hierarchy: Title vs Description Size",
+        description: "Title-level elements must be visually larger than description-level elements",
+        defaultSeverity: "warn",
+        check: (element, context) => {
+          if (inferLevel(element) !== "title") return null;
+          const titleSize = parseFontSize(element);
+          if (titleSize === null) return null;
+          for (const other of context.allElements) {
+            if (inferLevel(other) !== "description") continue;
+            const descSize = parseFontSize(other);
+            if (descSize === null) continue;
+            if (descSize >= titleSize) {
+              const titleLabel = element.text?.slice(0, 30) || element.selector;
+              const descLabel = other.text?.slice(0, 30) || other.selector;
+              return {
+                ruleId: "text-hierarchy/title-vs-description",
+                ruleName: "Text Hierarchy: Title vs Description Size",
+                severity: "warn",
+                message: `Title "${titleLabel}" (${titleSize}px) is not larger than description "${descLabel}" (${descSize}px)`,
+                element: element.selector,
+                bounds: element.bounds,
+                fix: "Ensure heading/title font sizes are larger than body/description text"
+              };
+            }
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/handler-integrity.ts
+function looksInteractive(element) {
+  const tag = element.tagName.toLowerCase();
+  const role = element.a11y?.role ?? "";
+  const cursor = element.interactive?.cursor ?? "";
+  if (VISUALLY_INTERACTIVE_TAGS.has(tag)) return true;
+  if (VISUALLY_INTERACTIVE_ROLES.has(role)) return true;
+  if (cursor === "pointer") return true;
+  return false;
+}
+function hasAnyHandler(element) {
+  return !!(element.interactive.hasOnClick || element.interactive.hasHref || element.interactive.hasReactHandler || element.interactive.hasVueHandler || element.interactive.hasAngularHandler);
+}
+function hasDisabledVisual(element) {
+  const style = element.computedStyles;
+  if (!style) return false;
+  const opacity = parseFloat(style.opacity ?? "1");
+  if (!isNaN(opacity) && opacity <= 0.7) return true;
+  if (element.interactive.cursor === "not-allowed") return true;
+  const bg = style.backgroundColor ?? "";
+  const color = style.color ?? "";
+  const grayPattern = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/;
+  for (const c of [bg, color]) {
+    const m = c.match(grayPattern);
+    if (m) {
+      const r = parseInt(m[1], 10);
+      const g = parseInt(m[2], 10);
+      const b = parseInt(m[3], 10);
+      const range = Math.max(r, g, b) - Math.min(r, g, b);
+      if (range < 30 && r > 100 && r < 220) return true;
+    }
+  }
+  return false;
+}
+var VISUALLY_INTERACTIVE_ROLES, VISUALLY_INTERACTIVE_TAGS, handlerIntegrityRules;
+var init_handler_integrity = __esm({
+  "src/rules/handler-integrity.ts"() {
+    "use strict";
+    VISUALLY_INTERACTIVE_ROLES = /* @__PURE__ */ new Set(["button", "link", "menuitem", "tab", "option"]);
+    VISUALLY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a"]);
+    handlerIntegrityRules = [
+      {
+        id: "handler-integrity/fake-interactive",
+        name: "Handler Integrity: Fake Interactive Element",
+        description: "Elements that look interactive must have actual handlers",
+        defaultSeverity: "error",
+        check: (element, _context) => {
+          if (!looksInteractive(element)) return null;
+          if (element.interactive.isDisabled) return null;
+          if (hasAnyHandler(element)) return null;
+          const label = element.text || element.a11y?.ariaLabel || element.selector;
+          return {
+            ruleId: "handler-integrity/fake-interactive",
+            ruleName: "Handler Integrity: Fake Interactive Element",
+            severity: "error",
+            message: `"${label.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add an onClick handler, href, or remove interactive appearance"
+          };
+        }
+      },
+      {
+        id: "handler-integrity/disabled-no-visual",
+        name: "Handler Integrity: Disabled Without Visual State",
+        description: "Disabled elements must have a visible disabled appearance",
+        defaultSeverity: "warn",
+        check: (element, _context) => {
+          if (!element.interactive.isDisabled) return null;
+          if (hasDisabledVisual(element)) return null;
+          const label = element.text || element.a11y?.ariaLabel || element.selector;
+          return {
+            ruleId: "handler-integrity/disabled-no-visual",
+            ruleName: "Handler Integrity: Disabled Without Visual State",
+            severity: "warn",
+            message: `"${label.slice(0, 40)}" is disabled but shows no visual disabled state`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Apply opacity <= 0.7, cursor: not-allowed, or muted color to disabled elements"
+          };
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/spacing-grid.ts
+function parsePxValue(value) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "auto" || trimmed === "normal" || trimmed === "initial" || trimmed === "inherit") {
+    return null;
+  }
+  if (trimmed.endsWith("%")) return null;
+  if (trimmed.endsWith("em") || trimmed.endsWith("rem") || trimmed.endsWith("vw") || trimmed.endsWith("vh")) {
+    return null;
+  }
+  if (!trimmed.endsWith("px")) return null;
+  const n = parseFloat(trimmed);
+  return isNaN(n) ? null : n;
+}
+function isOnGrid(px) {
+  if (px === 0) return true;
+  return Math.round(px) % 4 === 0;
+}
+function parseSpacingShorthand(value) {
+  const parts = value.trim().split(/\s+/);
+  const results = [];
+  for (const part of parts) {
+    const px = parsePxValue(part);
+    if (px !== null) results.push(px);
+  }
+  return results;
+}
+var SPACING_PROPERTIES, spacingGridRules;
+var init_spacing_grid = __esm({
+  "src/rules/spacing-grid.ts"() {
+    "use strict";
+    SPACING_PROPERTIES = [
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft",
+      // Shorthand forms that may appear in computedStyles
+      "padding",
+      "margin",
+      "gap",
+      "rowGap",
+      "columnGap"
+    ];
+    spacingGridRules = [
+      {
+        id: "spacing-grid/off-grid",
+        name: "Spacing Grid: Off 8pt Grid",
+        description: "Padding and margin values should be multiples of 4px (half 8pt grid)",
+        defaultSeverity: "warn",
+        check: (element, _context) => {
+          const style = element.computedStyles;
+          if (!style) return null;
+          const offGridValues = [];
+          for (const prop of SPACING_PROPERTIES) {
+            const raw = style[prop];
+            if (!raw) continue;
+            const isShorthand = prop === "padding" || prop === "margin";
+            if (isShorthand) {
+              const values = parseSpacingShorthand(raw);
+              for (const v of values) {
+                if (!isOnGrid(v)) {
+                  offGridValues.push({ property: prop, value: raw });
+                  break;
+                }
+              }
+            } else {
+              const px = parsePxValue(raw);
+              if (px !== null && !isOnGrid(px)) {
+                offGridValues.push({ property: prop, value: raw });
+              }
+            }
+          }
+          if (offGridValues.length === 0) return null;
+          const detail = offGridValues.map((v) => `${v.property}: ${v.value}`).join(", ");
+          const label = element.text?.slice(0, 30) || element.selector;
+          return {
+            ruleId: "spacing-grid/off-grid",
+            ruleName: "Spacing Grid: Off 8pt Grid",
+            severity: "warn",
+            message: `"${label}" has off-grid spacing: ${detail}`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Use spacing values that are multiples of 4px (e.g., 4, 8, 12, 16, 20, 24, 32px)"
+          };
+        }
+      }
+    ];
+  }
+});
+
+// src/rules/index.ts
+function runAllRules(elements, context) {
+  const results = [];
+  for (const element of elements) {
+    for (const rule of allRules) {
+      const violation = rule.check(element, context);
+      if (!violation) continue;
+      const severity = violation.severity === "error" ? "error" : "warning";
+      results.push({
+        rule: violation.ruleId,
+        severity,
+        element: violation.element ?? element.selector,
+        expected: violation.fix ?? "",
+        actual: violation.message,
+        evidence: {
+          ruleName: violation.ruleName,
+          bounds: violation.bounds,
+          selector: element.selector,
+          tagName: element.tagName,
+          text: element.text
+        }
+      });
+    }
+  }
+  return results;
+}
+var allRules;
+var init_rules = __esm({
+  "src/rules/index.ts"() {
+    "use strict";
+    init_wcag_contrast();
+    init_touch_targets();
+    init_text_hierarchy();
+    init_handler_integrity();
+    init_spacing_grid();
+    init_wcag_contrast();
+    init_touch_targets();
+    init_text_hierarchy();
+    init_handler_integrity();
+    init_spacing_grid();
+    allRules = [
+      ...wcagContrastRules,
+      ...touchTargetRules,
+      ...textHierarchyRules,
+      ...handlerIntegrityRules,
+      ...spacingGridRules
+    ];
+  }
+});
+
+// src/summarize.ts
+function extractSignature(el) {
+  const s = el.computedStyles ?? {};
+  return {
+    fontSize: s["fontSize"] ?? "",
+    fontWeight: s["fontWeight"] ?? "",
+    color: s["color"] ?? "",
+    backgroundColor: s["backgroundColor"] ?? "",
+    borderRadius: s["borderRadius"] ?? "",
+    padding: s["padding"] ?? ""
+  };
+}
+function hashSignature(sig) {
+  return SIGNATURE_KEYS.map((k) => `${k}:${sig[k]}`).join("|");
+}
+function matchCount(a, b) {
+  let count = 0;
+  for (const key of SIGNATURE_KEYS) {
+    if (a[key] === b[key]) count++;
+  }
+  return count;
+}
+function elementLabel(el) {
+  return el.text?.trim() || el.a11y?.ariaLabel || el.id || el.selector.slice(0, 60);
+}
+function resolveRole(el) {
+  return el.a11y?.role ?? el.tagName ?? "unknown";
+}
+function parseColor4(color) {
+  if (!color || color === "transparent" || color === "none") return null;
+  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return {
+      r: Number(rgbMatch[1]),
+      g: Number(rgbMatch[2]),
+      b: Number(rgbMatch[3])
+    };
+  }
+  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
+  if (hexMatch) {
+    const h = hexMatch[1];
+    if (h.length === 3) {
+      return {
+        r: parseInt(h[0] + h[0], 16),
+        g: parseInt(h[1] + h[1], 16),
+        b: parseInt(h[2] + h[2], 16)
+      };
+    }
+    if (h.length >= 6) {
+      return {
+        r: parseInt(h.slice(0, 2), 16),
+        g: parseInt(h.slice(2, 4), 16),
+        b: parseInt(h.slice(4, 6), 16)
+      };
+    }
+  }
+  const named = {
+    white: { r: 255, g: 255, b: 255 },
+    black: { r: 0, g: 0, b: 0 },
+    red: { r: 255, g: 0, b: 0 },
+    green: { r: 0, g: 128, b: 0 },
+    blue: { r: 0, g: 0, b: 255 },
+    gray: { r: 128, g: 128, b: 128 },
+    grey: { r: 128, g: 128, b: 128 }
+  };
+  return named[color.toLowerCase()] ?? null;
+}
+function relativeLuminance3(r, g, b) {
+  const lin = (c) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function contrastRatio3(l1, l2) {
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  return (lighter + 0.05) / (darker + 0.05);
+}
+function buildVisualPatterns(elements) {
+  if (elements.length === 0) return [];
+  const groups = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const sig = extractSignature(el);
+    const key = hashSignature(sig);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.elements.push(el);
+    } else {
+      groups.set(key, { sig, elements: [el] });
+    }
+  }
+  const groupList = Array.from(groups.entries()).map(([key, { sig, elements: els }]) => ({
+    patternId: key.slice(0, 32),
+    // truncate for readability
+    styleSignature: sig,
+    count: els.length,
+    roles: [...new Set(els.map(resolveRole))],
+    memberElements: els
+  }));
+  const result = groupList.map((group) => {
+    const outliers = [];
+    for (const other of groupList) {
+      if (other.patternId === group.patternId) continue;
+      const matches = matchCount(group.styleSignature, other.styleSignature);
+      if (matches >= 5) {
+        for (const el of other.memberElements) {
+          outliers.push(elementLabel(el));
+        }
+      }
+    }
+    return {
+      patternId: group.patternId,
+      styleSignature: group.styleSignature,
+      count: group.count,
+      roles: group.roles,
+      outliers: [...new Set(outliers)].slice(0, 10)
+    };
+  });
+  return result.sort((a, b) => b.count - a.count);
+}
+function classifyElement(el) {
+  const testId = el.sourceHint?.dataTestId?.toLowerCase() ?? "";
+  for (const p of PRIMITIVE_PATTERNS) {
+    if (testId.includes(p.testIdIncludes)) {
+      return { pattern: p.name, compliance: "primitive" };
+    }
+  }
+  if (el.tagName === "button") {
+    return { pattern: "raw-button", compliance: "raw" };
+  }
+  if (["h1", "h2", "h3"].includes(el.tagName)) {
+    return { pattern: `raw-${el.tagName}`, compliance: "raw" };
+  }
+  if (["input", "select", "textarea"].includes(el.tagName)) {
+    return { pattern: "raw-input", compliance: "raw" };
+  }
+  if (el.tagName === "a") {
+    return { pattern: "raw-link", compliance: "raw" };
+  }
+  return { pattern: `raw-${el.tagName ?? "unknown"}`, compliance: "raw" };
+}
+function buildComponentCensus(elements, url) {
+  if (elements.length === 0) return [];
+  let route = "/";
+  try {
+    route = new URL(url).pathname;
+  } catch {
+    route = url;
+  }
+  const map = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const { pattern, compliance } = classifyElement(el);
+    const existing = map.get(pattern);
+    if (existing) {
+      existing.count++;
+      existing.pages.add(route);
+      existing.complianceCounts[compliance] = (existing.complianceCounts[compliance] ?? 0) + 1;
+    } else {
+      map.set(pattern, {
+        count: 1,
+        pages: /* @__PURE__ */ new Set([route]),
+        complianceCounts: { [compliance]: 1 }
+      });
+    }
+  }
+  return Array.from(map.entries()).map(([pattern, { count, pages, complianceCounts }]) => {
+    const primitiveCount = complianceCounts["primitive"] ?? 0;
+    const rawCount = complianceCounts["raw"] ?? 0;
+    let compliance;
+    if (primitiveCount > 0 && rawCount > 0) {
+      compliance = "mixed";
+    } else if (primitiveCount > 0) {
+      compliance = "primitive";
+    } else {
+      compliance = "raw";
+    }
+    return {
+      pattern,
+      count,
+      pages: [...pages],
+      compliance
+    };
+  }).sort((a, b) => b.count - a.count);
+}
+function buildNavigationMap(elements) {
+  if (elements.length === 0) return [];
+  const nodes = [];
+  for (const el of elements) {
+    const role = resolveRole(el);
+    const tag = el.tagName ?? "";
+    const isHeading = tag in HEADING_DEPTH;
+    const isNavRole = NAV_ROLES.has(role);
+    if (!isHeading && !isNavRole) continue;
+    const label = elementLabel(el);
+    if (!label) continue;
+    const depth = isHeading ? HEADING_DEPTH[tag] ?? 1 : 1;
+    const styles = el.computedStyles ?? {};
+    const hasFontWeightBold = styles["fontWeight"] === "bold" || parseInt(styles["fontWeight"] ?? "0", 10) >= 700;
+    const isActive = el.a11y?.role === "tab" ? hasFontWeightBold : void 0;
+    nodes.push({
+      label,
+      role,
+      depth,
+      isActive
+    });
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i];
+    let children = 0;
+    for (let j = i + 1; j < nodes.length; j++) {
+      if (nodes[j].depth <= node.depth) break;
+      if (nodes[j].depth === node.depth + 1) children++;
+    }
+    if (children > 0) {
+      node.childCount = children;
+    }
+  }
+  return nodes;
+}
+function buildContrastReport(elements) {
+  if (elements.length === 0) return [];
+  const pairMap = /* @__PURE__ */ new Map();
+  for (const el of elements) {
+    const styles = el.computedStyles ?? {};
+    const fg = styles["color"] ?? "";
+    const bg = styles["backgroundColor"] ?? "";
+    if (!fg && !bg) continue;
+    const key = `${fg}|${bg}`;
+    const existing = pairMap.get(key);
+    if (existing) {
+      existing.elements.push(el);
+    } else {
+      pairMap.set(key, { fg, bg, elements: [el] });
+    }
+  }
+  return Array.from(pairMap.values()).map(({ fg, bg, elements: els }) => {
+    const fgRgb = parseColor4(fg);
+    const bgRgb = parseColor4(bg);
+    let status = "unknown";
+    let ratio = 0;
+    if (fgRgb && bgRgb) {
+      const fgL = relativeLuminance3(fgRgb.r, fgRgb.g, fgRgb.b);
+      const bgL = relativeLuminance3(bgRgb.r, bgRgb.g, bgRgb.b);
+      ratio = contrastRatio3(fgL, bgL);
+      status = ratio >= 4.5 ? "pass" : "fail";
+    }
+    const sampleElements = els.slice(0, 3).map(elementLabel).filter(Boolean);
+    return {
+      status,
+      ratio: Math.round(ratio * 100) / 100,
+      foreground: fg,
+      background: bg,
+      elementCount: els.length,
+      sampleElements
+    };
+  });
+}
+function isLooksInteractive(el) {
+  const tag = el.tagName ?? "";
+  const role = el.a11y?.role ?? "";
+  const cursor = el.interactive?.cursor ?? el.computedStyles?.["cursor"] ?? "";
+  return INTERACTIVE_TAGS2.has(tag) || INTERACTIVE_ROLES2.has(role) || cursor === "pointer";
+}
+function buildInteractionMap(elements) {
+  if (elements.length === 0) return [];
+  const buckets = {
+    "has-handler": [],
+    "looks-interactive-no-handler": [],
+    "disabled-with-handler": [],
+    "properly-disabled": []
+  };
+  for (const el of elements) {
+    const inter = el.interactive;
+    if (!inter) continue;
+    const hasHandler = inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler;
+    const isDisabled = inter.isDisabled ?? false;
+    const looksInteractive2 = isLooksInteractive(el);
+    if (isDisabled && hasHandler) {
+      buckets["disabled-with-handler"].push(el);
+    } else if (isDisabled && !hasHandler) {
+      buckets["properly-disabled"].push(el);
+    } else if (hasHandler) {
+      buckets["has-handler"].push(el);
+    } else if (looksInteractive2) {
+      buckets["looks-interactive-no-handler"].push(el);
+    }
+  }
+  return Object.entries(buckets).filter(([, els]) => els.length > 0).map(([category, els]) => ({
+    category,
+    count: els.length,
+    elements: els.slice(0, 5).map(elementLabel)
+  }));
+}
+function estimateTokens(data) {
+  return Math.ceil(JSON.stringify(data).length / 4);
+}
+function summarizeScan(elements, url) {
+  const safeElements = elements ?? [];
+  const visualPatterns = buildVisualPatterns(safeElements);
+  const componentCensus = buildComponentCensus(safeElements, url);
+  const navigationMap = buildNavigationMap(safeElements);
+  const contrastReport = buildContrastReport(safeElements);
+  const interactionMap = buildInteractionMap(safeElements);
+  const summary = {
+    visualPatterns,
+    componentCensus,
+    navigationMap,
+    contrastReport,
+    interactionMap
+  };
+  const rawTokenEstimate = estimateTokens(safeElements);
+  const summaryTokenEstimate = estimateTokens(summary);
+  const reductionPercent = rawTokenEstimate > 0 ? Math.round(
+    (rawTokenEstimate - summaryTokenEstimate) / rawTokenEstimate * 100
+  ) : 0;
+  return {
+    ...summary,
+    tokenEfficiency: {
+      rawTokenEstimate,
+      summaryTokenEstimate,
+      reductionPercent
+    }
+  };
+}
+var SIGNATURE_KEYS, PRIMITIVE_PATTERNS, HEADING_DEPTH, NAV_ROLES, INTERACTIVE_TAGS2, INTERACTIVE_ROLES2;
+var init_summarize = __esm({
+  "src/summarize.ts"() {
+    "use strict";
+    SIGNATURE_KEYS = [
+      "fontSize",
+      "fontWeight",
+      "color",
+      "backgroundColor",
+      "borderRadius",
+      "padding"
+    ];
+    PRIMITIVE_PATTERNS = [
+      { testIdIncludes: "page-header", name: "PageHeader" },
+      { testIdIncludes: "page-title", name: "PageHeader" },
+      { testIdIncludes: "surface", name: "Surface+Row" },
+      { testIdIncludes: "card", name: "Surface+Row" },
+      { testIdIncludes: "nav-item", name: "NavItem" },
+      { testIdIncludes: "tab", name: "Tab" },
+      { testIdIncludes: "modal", name: "Modal" },
+      { testIdIncludes: "dialog", name: "Dialog" },
+      { testIdIncludes: "toast", name: "Toast" },
+      { testIdIncludes: "badge", name: "Badge" },
+      { testIdIncludes: "avatar", name: "Avatar" },
+      { testIdIncludes: "input", name: "Input" },
+      { testIdIncludes: "btn", name: "Button" },
+      { testIdIncludes: "button", name: "Button" }
+    ];
+    HEADING_DEPTH = {
+      h1: 1,
+      h2: 2,
+      h3: 3,
+      h4: 4,
+      h5: 5,
+      h6: 6
+    };
+    NAV_ROLES = /* @__PURE__ */ new Set(["navigation", "link", "tab", "menuitem", "option"]);
+    INTERACTIVE_TAGS2 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
+    INTERACTIVE_ROLES2 = /* @__PURE__ */ new Set(["button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem", "option", "tab"]);
   }
 });
 
@@ -1395,7 +7356,7 @@ function register3() {
   });
 }
 var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules;
-var init_wcag_contrast = __esm({
+var init_wcag_contrast2 = __esm({
   "src/rules/presets/wcag-contrast.ts"() {
     "use strict";
     init_engine();
@@ -1508,7 +7469,7 @@ function register4() {
   });
 }
 var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules;
-var init_touch_targets = __esm({
+var init_touch_targets2 = __esm({
   "src/rules/presets/touch-targets.ts"() {
     "use strict";
     init_engine();
@@ -1631,10 +7592,409 @@ var init_engine = __esm({
     });
     Promise.resolve().then(() => (init_calm_precision2(), calm_precision_exports)).then((m) => m.register()).catch(() => {
     });
-    Promise.resolve().then(() => (init_wcag_contrast(), wcag_contrast_exports)).then((m) => m.register()).catch(() => {
+    Promise.resolve().then(() => (init_wcag_contrast2(), wcag_contrast_exports)).then((m) => m.register()).catch(() => {
     });
-    Promise.resolve().then(() => (init_touch_targets(), touch_targets_exports)).then((m) => m.register()).catch(() => {
+    Promise.resolve().then(() => (init_touch_targets2(), touch_targets_exports)).then((m) => m.register()).catch(() => {
     });
+  }
+});
+
+// src/scan.ts
+async function scan(url, options = {}) {
+  const {
+    viewport: viewportOpt = "desktop",
+    timeout = 3e4,
+    waitFor,
+    screenshot,
+    networkIdleTimeout,
+    patience,
+    headed = false,
+    browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath,
+    hydrationStrategy = "auto",
+    rules: rulePresets
+  } = options;
+  const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
+  const driver2 = new EngineDriver();
+  await driver2.launch({
+    headless: !headed,
+    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    mode: browserMode,
+    cdpUrl,
+    wsEndpoint,
+    chromePath
+  });
+  const page = new CompatPage(driver2);
+  const consoleErrors = [];
+  const consoleWarnings = [];
+  page.on?.("console", (msg) => {
+    if (msg.type() === "error") {
+      consoleErrors.push(msg.text());
+    } else if (msg.type() === "warning") {
+      consoleWarnings.push(msg.text());
+    }
+  });
+  try {
+    await page.goto(url, {
+      waitUntil: "domcontentloaded",
+      timeout
+    });
+    let networkIdleTimedOut = false;
+    await page.waitForLoadState?.("networkidle", { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+      networkIdleTimedOut = true;
+    });
+    let waitForTimedOut = false;
+    if (waitFor) {
+      await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
+        waitForTimedOut = true;
+      });
+    }
+    let hydrationTimedOut = false;
+    let hydrationReason = "skipped";
+    if (hydrationStrategy !== "none") {
+      const shouldWaitForHydration = hydrationStrategy === "stable" || await detectSPAFramework(driver2);
+      if (shouldWaitForHydration) {
+        const hydrationResult = await waitForHydration(
+          driver2.connection,
+          () => driver2.getSnapshot(),
+          (expr) => driver2.evaluate(expr),
+          {
+            timeout: patience ?? 8e3,
+            stableTime: 500,
+            minElements: 1,
+            settleTime: 200
+          }
+        );
+        hydrationTimedOut = hydrationResult.timedOut;
+        hydrationReason = hydrationResult.reason;
+      }
+    }
+    const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
+      extractAndAudit(page, resolvedViewport),
+      testInteractivity(page),
+      getSemanticOutput(page),
+      driver2.getCoverage().catch(() => void 0),
+      analyzeThemeConsistency(page).catch(() => void 0)
+    ]);
+    if (screenshot) {
+      await page.screenshot({
+        path: screenshot.path,
+        fullPage: screenshot.fullPage ?? true
+      });
+    }
+    let route;
+    try {
+      route = new URL(url).pathname;
+    } catch {
+      route = url;
+    }
+    const layoutCollisions = detectLayoutCollisions(elements.all);
+    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
+    const designSystem = await applyDesignSystemCheck(
+      elements.all,
+      issues,
+      resolvedViewport,
+      url,
+      options.outputDir || process.cwd()
+    );
+    const verdict = determineVerdict2(issues);
+    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
+    const sensors = runSensors({
+      elements: elements.all,
+      interactivity,
+      semantic,
+      url,
+      viewport: resolvedViewport
+    });
+    const ruleContext = {
+      isMobile: resolvedViewport.width < 768,
+      viewportWidth: resolvedViewport.width,
+      viewportHeight: resolvedViewport.height,
+      url,
+      allElements: elements.all
+    };
+    const ruleEngine = runAllRules(elements.all, ruleContext);
+    if (rulePresets && rulePresets.length > 0) {
+      const presetConfig = { extends: rulePresets, rules: {} };
+      const presetViolations = runRules(elements.all, ruleContext, presetConfig);
+      for (const v of presetViolations) {
+        issues.push({
+          category: "interactivity",
+          severity: v.severity === "error" ? "error" : "warning",
+          element: v.element,
+          description: `[${v.ruleId}] ${v.message}`,
+          fix: v.fix
+        });
+      }
+    }
+    const summaries = summarizeScan(elements.all, url);
+    const baseResult = {
+      url,
+      route,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+      viewport: resolvedViewport,
+      elements,
+      interactivity,
+      semantic,
+      sensors,
+      ruleEngine,
+      summaries,
+      console: {
+        errors: consoleErrors,
+        warnings: consoleWarnings
+      },
+      coverage,
+      layoutCollisions,
+      themeAnalysis,
+      designSystem,
+      hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
+      verdict,
+      issues,
+      summary
+    };
+    if (patience && (networkIdleTimedOut || waitForTimedOut)) {
+      return {
+        ...baseResult,
+        verdict: "PARTIAL",
+        partialReason: `Page still loading after ${patience}ms \u2014 ${networkIdleTimedOut ? "network still active" : "selector not found"}. Re-scan when content has loaded.`
+      };
+    }
+    return baseResult;
+  } finally {
+    await driver2.close();
+  }
+}
+async function detectSPAFramework(driver2) {
+  try {
+    const result = await driver2.evaluate(`
+      !!(window.__NEXT_DATA__ || window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
+         window.__NUXT__ || window.__VUE_DEVTOOLS_GLOBAL_HOOK__ ||
+         document.querySelector('[data-reactroot]') ||
+         document.querySelector('#__next'))
+    `);
+    return result === true;
+  } catch {
+    return false;
+  }
+}
+async function extractAndAudit(page, viewport) {
+  const isMobile = viewport.width < 768;
+  const elements = await extractInteractiveElements(page);
+  const audit = analyzeElements(elements, isMobile);
+  return { all: elements, audit };
+}
+function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAnalysis) {
+  const collector = new IssueCollector();
+  collector.addFrom("interactivity", audit.issues.map((i) => ({
+    severity: i.severity,
+    message: i.message,
+    type: i.type
+  })), (item) => item.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity");
+  const auditMessages = new Set(audit.issues.map((i) => i.message));
+  const interactivityFiltered = interactivity.issues.filter((i) => !auditMessages.has(i.description));
+  collector.addFrom("interactivity", interactivityFiltered.map((i) => ({
+    severity: i.severity,
+    description: i.description,
+    element: i.element,
+    type: i.type,
+    fix: getFixSuggestion(i.type)
+  })), (item) => item.type === "MISSING_LABEL" ? "accessibility" : "interactivity");
+  collector.addFrom("semantic", semantic.issues.map((i) => ({
+    severity: i.severity,
+    problem: i.problem
+  })));
+  collector.addThemeAnalysis(themeAnalysis);
+  collector.addConsoleErrors(consoleErrors);
+  return collector.getIssues();
+}
+async function applyDesignSystemCheck(elements, issues, viewport, url, outputDir) {
+  const designSystem = await runDesignSystemCheck(
+    elements,
+    {
+      isMobile: viewport.width < 768,
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      url,
+      allElements: elements
+    },
+    outputDir
+  ).catch(() => void 0);
+  if (designSystem) {
+    for (const v of designSystem.principleViolations) {
+      issues.push({
+        category: "design-system",
+        severity: v.severity === "error" ? "error" : "warning",
+        element: v.element,
+        description: v.message,
+        fix: v.fix
+      });
+    }
+    for (const v of designSystem.tokenViolations) {
+      issues.push({
+        category: "design-system",
+        severity: v.severity === "error" ? "error" : "warning",
+        element: v.element,
+        description: v.message
+      });
+    }
+    for (const v of designSystem.customViolations) {
+      issues.push({
+        category: "design-system",
+        severity: v.severity === "error" ? "error" : "warning",
+        element: v.element,
+        description: v.message,
+        fix: v.fix
+      });
+    }
+  }
+  return designSystem;
+}
+function determineVerdict2(issues) {
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount >= 3) return "FAIL";
+  if (errorCount > 0 || warningCount >= 5) return "ISSUES";
+  return "PASS";
+}
+function generateSummary2(elements, interactivity, semantic, issues, consoleErrors) {
+  const parts = [];
+  parts.push(`${semantic.pageIntent.intent} page`);
+  parts.push(`${elements.audit.totalElements} elements (${elements.audit.interactiveCount} interactive)`);
+  const { buttons, links, forms } = interactivity;
+  const interactiveParts = [];
+  if (buttons.length > 0) interactiveParts.push(`${buttons.length} buttons`);
+  if (links.length > 0) interactiveParts.push(`${links.length} links`);
+  if (forms.length > 0) interactiveParts.push(`${forms.length} forms`);
+  if (interactiveParts.length > 0) {
+    parts.push(interactiveParts.join(", "));
+  }
+  if (interactivity.summary.withoutHandlers > 0) {
+    parts.push(`${interactivity.summary.withoutHandlers} elements without handlers`);
+  }
+  if (semantic.state.auth.authenticated) {
+    parts.push("authenticated");
+  }
+  if (semantic.state.loading.loading) {
+    parts.push(`loading (${semantic.state.loading.type})`);
+  }
+  if (semantic.state.errors.hasErrors) {
+    parts.push(`${semantic.state.errors.errors.length} page errors`);
+  }
+  if (consoleErrors.length > 0) {
+    parts.push(`${consoleErrors.length} console errors`);
+  }
+  const errorCount = issues.filter((i) => i.severity === "error").length;
+  const warningCount = issues.filter((i) => i.severity === "warning").length;
+  if (errorCount > 0 || warningCount > 0) {
+    const issueParts = [];
+    if (errorCount > 0) issueParts.push(`${errorCount} errors`);
+    if (warningCount > 0) issueParts.push(`${warningCount} warnings`);
+    parts.push(issueParts.join(", "));
+  }
+  return parts.join(", ");
+}
+function getFixSuggestion(type) {
+  switch (type) {
+    case "NO_HANDLER":
+      return "Add an onClick handler or remove the interactive appearance";
+    case "PLACEHOLDER_LINK":
+      return "Add a real href or an onClick handler";
+    case "MISSING_LABEL":
+      return "Add aria-label or visible text content";
+    case "FORM_NO_SUBMIT":
+      return "Add a submit handler or action attribute to the form";
+    case "ORPHAN_SUBMIT":
+      return "Ensure the submit button is inside a form";
+    case "SMALL_TOUCH_TARGET":
+      return "Increase element size to at least 44x44px for touch targets";
+    default:
+      return void 0;
+  }
+}
+var IssueCollector;
+var init_scan = __esm({
+  "src/scan.ts"() {
+    "use strict";
+    init_driver();
+    init_compat();
+    init_schemas();
+    init_extract2();
+    init_interactivity();
+    init_semantic();
+    init_layout_collision();
+    init_consistency();
+    init_design_system();
+    init_wait();
+    init_sensors();
+    init_rules();
+    init_summarize();
+    init_engine();
+    IssueCollector = class {
+      issues = [];
+      add(issue) {
+        this.issues.push(issue);
+      }
+      /**
+       * Add issues from a source array with varying shapes.
+       * Handles the different field names used across audit, interactivity, and semantic results.
+       */
+      addFrom(category, items, overrideCategory) {
+        for (const item of items) {
+          const description = item.message ?? item.description ?? item.problem ?? "";
+          const severity = item.severity ?? "info";
+          const resolvedCategory = overrideCategory ? overrideCategory(item) : category;
+          this.issues.push({
+            category: resolvedCategory,
+            severity,
+            element: item.element,
+            description,
+            fix: item.fix
+          });
+        }
+      }
+      /**
+       * Add console errors, skipping favicon/manifest noise.
+       */
+      addConsoleErrors(errors) {
+        for (const error of errors) {
+          if (error.includes("favicon") || error.includes("manifest")) continue;
+          this.issues.push({
+            category: "console",
+            severity: "error",
+            description: `Console error: ${error.slice(0, 200)}`
+          });
+        }
+      }
+      /**
+       * Add theme mismatch issue if present.
+       */
+      addThemeAnalysis(analysis) {
+        if (analysis?.themeMismatch) {
+          this.issues.push({
+            category: "semantic",
+            severity: "warning",
+            description: analysis.mismatchDetails ?? "Content card has different theme than page background",
+            fix: "Ensure content containers match the page theme (dark/light)"
+          });
+        }
+      }
+      /**
+       * Remove issues with identical descriptions, preserving first occurrence.
+       */
+      deduplicate() {
+        const seen = /* @__PURE__ */ new Set();
+        this.issues = this.issues.filter((issue) => {
+          if (seen.has(issue.description)) return false;
+          seen.add(issue.description);
+          return true;
+        });
+      }
+      getIssues() {
+        return [...this.issues];
+      }
+    };
   }
 });
 
@@ -2512,6 +8872,264 @@ var init_memory = __esm({
   }
 });
 
+// src/ask.ts
+var ask_exports = {};
+__export(ask_exports, {
+  _internal: () => _internal,
+  ask: () => ask,
+  askStream: () => askStream
+});
+function matchQuestion(input) {
+  const normalised = input.trim();
+  for (const def of QUESTIONS) {
+    if (def.canonical === normalised) return def;
+    if (def.aliases.some((re) => re.test(normalised))) return def;
+  }
+  return null;
+}
+function aggregateVerdict(findings) {
+  if (findings.length === 0) return "PASS";
+  if (findings.some((f) => f.verdict === "FAIL")) return "FAIL";
+  if (findings.some((f) => f.verdict === "WARN")) return "WARN";
+  if (findings.some((f) => f.verdict === "UNCERTAIN")) return "UNCERTAIN";
+  return "PASS";
+}
+function violationToFinding(v, kindSeverity) {
+  const evidence = {};
+  if (v.bounds) evidence.bounds = v.bounds;
+  return {
+    verdict: kindSeverity === "error" ? "FAIL" : "WARN",
+    rule: v.ruleId,
+    summary: v.message,
+    element: v.element,
+    evidence: Object.keys(evidence).length ? evidence : void 0,
+    fix: v.fix
+  };
+}
+function tokenViolationToFinding(t) {
+  return {
+    verdict: t.severity === "error" ? "FAIL" : "WARN",
+    rule: `tokens/${t.property}`,
+    summary: t.message,
+    element: t.element,
+    evidence: { expected: t.expected, actual: t.actual, property: t.property }
+  };
+}
+async function* askStream(url, question, options = {}) {
+  const start = Date.now();
+  const def = matchQuestion(question);
+  if (!def) {
+    yield {
+      type: "start",
+      question,
+      engineVersion: ENGINE_VERSION,
+      supportedQuestions: SUPPORTED_QUESTIONS
+    };
+    yield {
+      type: "finding",
+      verdict: "UNCERTAIN",
+      rule: "ask/unsupported-question",
+      summary: `Question is not in the supported vocabulary. Use one of: ${SUPPORTED_QUESTIONS.join("; ")}`
+    };
+    yield {
+      type: "end",
+      verdict: "UNCERTAIN",
+      totalFindings: 1,
+      durationMs: Date.now() - start,
+      truncated: false,
+      rulesRun: [],
+      elementsScanned: 0
+    };
+    return;
+  }
+  yield { type: "start", question, engineVersion: ENGINE_VERSION };
+  let elements;
+  let viewportWidth;
+  let viewportHeight;
+  if (options.preScannedElements) {
+    elements = options.preScannedElements;
+    viewportWidth = options.viewportMetrics?.width ?? 1280;
+    viewportHeight = options.viewportMetrics?.height ?? 800;
+  } else {
+    const result = await scan(url, {
+      viewport: options.viewport ?? "desktop",
+      timeout: options.timeout
+    });
+    elements = result.elements.all;
+    viewportWidth = result.viewport.width;
+    viewportHeight = result.viewport.height;
+  }
+  const context = {
+    isMobile: viewportWidth < 768,
+    viewportWidth,
+    viewportHeight,
+    url,
+    allElements: elements
+  };
+  const maxFindings = options.maxFindings ?? 25;
+  const rulesRun = [];
+  let emitted = 0;
+  let totalProduced = 0;
+  let aggregate = "PASS";
+  function bumpVerdict(next) {
+    if (aggregate === "FAIL") return;
+    if (next === "FAIL") aggregate = "FAIL";
+    else if (next === "WARN") aggregate = "WARN";
+    else if (next === "UNCERTAIN" && aggregate === "PASS") aggregate = "UNCERTAIN";
+  }
+  if (def.kind === "touch-target" || def.kind === "signal-noise") {
+    const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
+    for (const r of targetRules) rulesRun.push(r.id);
+    outer: for (const element of elements) {
+      for (const rule of targetRules) {
+        const v = rule.check(element, context);
+        if (!v) continue;
+        totalProduced++;
+        if (emitted < maxFindings) {
+          const finding = violationToFinding({ ...v, severity: def.severity }, def.severity);
+          bumpVerdict(finding.verdict);
+          emitted++;
+          yield { type: "finding", ...finding };
+        } else {
+          break outer;
+        }
+      }
+    }
+  } else if (def.kind === "token-compliance") {
+    const projectDir = options.projectDir ?? process.cwd();
+    const config = await loadDesignSystemConfig(projectDir);
+    if (!config) {
+      const f = {
+        verdict: "UNCERTAIN",
+        rule: "tokens/no-config",
+        summary: "No design-system config found. Initialise with `ibr design-system init` to define tokens, or skip this question."
+      };
+      bumpVerdict(f.verdict);
+      emitted++;
+      totalProduced++;
+      yield { type: "finding", ...f };
+    } else {
+      rulesRun.push("tokens/extended");
+      const tokens = config.tokens;
+      if (!tokens) {
+        const f = {
+          verdict: "UNCERTAIN",
+          rule: "tokens/no-tokens",
+          summary: "Design-system config exists but has no `tokens` defined."
+        };
+        bumpVerdict(f.verdict);
+        emitted++;
+        totalProduced++;
+        yield { type: "finding", ...f };
+      } else {
+        const tokenViolations = validateExtendedTokens(elements, tokens, config.name ?? "project");
+        for (const t of tokenViolations) {
+          totalProduced++;
+          if (emitted >= maxFindings) continue;
+          const finding = tokenViolationToFinding(t);
+          bumpVerdict(finding.verdict);
+          emitted++;
+          yield { type: "finding", ...finding };
+        }
+      }
+    }
+  }
+  yield {
+    type: "end",
+    verdict: aggregate,
+    totalFindings: emitted,
+    durationMs: Date.now() - start,
+    truncated: totalProduced > emitted,
+    rulesRun,
+    elementsScanned: elements.length
+  };
+}
+async function ask(url, question, options = {}) {
+  const findings = [];
+  let endEvent;
+  let supportedQuestions;
+  for await (const event of askStream(url, question, options)) {
+    if (event.type === "finding") {
+      const { type: _t, ...rest } = event;
+      findings.push(rest);
+    } else if (event.type === "start") {
+      supportedQuestions = event.supportedQuestions;
+    } else if (event.type === "end") {
+      endEvent = event;
+    }
+  }
+  if (!endEvent) {
+    throw new Error("askStream did not emit an end event");
+  }
+  return {
+    question,
+    verdict: endEvent.verdict,
+    findings,
+    truncated: endEvent.truncated || void 0,
+    meta: {
+      engineVersion: ENGINE_VERSION,
+      durationMs: endEvent.durationMs,
+      elementsScanned: endEvent.elementsScanned,
+      rulesRun: endEvent.rulesRun,
+      ...supportedQuestions ? { supportedQuestions } : {}
+    }
+  };
+}
+var QUESTIONS, SUPPORTED_QUESTIONS, ENGINE_VERSION, _internal;
+var init_ask = __esm({
+  "src/ask.ts"() {
+    "use strict";
+    init_scan();
+    init_touch_targets();
+    init_signal_noise();
+    init_design_system();
+    init_validator();
+    QUESTIONS = [
+      {
+        kind: "touch-target",
+        canonical: "is the touch-target compliant",
+        aliases: [
+          /touch[- ]?target/i,
+          /minimum\s+(tap|button|target)\s+size/i,
+          /\b44\s*px|\b24\s*px|\btap target\b/i
+        ],
+        severity: "warn"
+      },
+      {
+        kind: "signal-noise",
+        canonical: "do status indicators follow signal-to-noise",
+        aliases: [
+          /signal[- ]?(to[- ]?)?noise/i,
+          /(status|badge|pill).*(background|color|noise)/i,
+          /are status (badges|pills) okay/i,
+          /do badges follow calm[- ]?precision/i
+        ],
+        severity: "error"
+      },
+      {
+        kind: "token-compliance",
+        canonical: "is design-system token compliance okay",
+        aliases: [
+          /design[- ]?system\s+token/i,
+          /token\s+compliance/i,
+          /off[- ]?(system|token)/i,
+          /design tokens?\b/i
+        ],
+        severity: "warn"
+      }
+    ];
+    SUPPORTED_QUESTIONS = QUESTIONS.map((q) => q.canonical);
+    ENGINE_VERSION = "0.1.0-m1";
+    _internal = {
+      matchQuestion,
+      aggregateVerdict,
+      violationToFinding,
+      tokenViolationToFinding,
+      SUPPORTED_QUESTIONS
+    };
+  }
+});
+
 // src/native/simulator.ts
 var simulator_exports = {};
 __export(simulator_exports, {
@@ -2769,7 +9387,7 @@ function mapToEnhancedElements(nativeElements) {
   return enhanced;
 }
 var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
-var init_extract = __esm({
+var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
@@ -3048,14 +9666,14 @@ __export(driver_exports, {
   SafariDriver: () => SafariDriver
 });
 var import_child_process10, import_util9, execFileAsync9, SafariDriver;
-var init_driver = __esm({
+var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
     import_child_process10 = require("child_process");
     import_util9 = require("util");
     init_webdriver();
     init_session2();
-    init_extract();
+    init_extract3();
     init_serialize();
     execFileAsync9 = (0, import_util9.promisify)(import_child_process10.execFile);
     SafariDriver = class {
@@ -3734,7 +10352,7 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   return parts.join(", ") + ".";
 }
 var import_fs6;
-var init_scan = __esm({
+var init_scan2 = __esm({
   "src/static/scan.ts"() {
     "use strict";
     import_fs6 = require("fs");
@@ -3748,6030 +10366,15 @@ var import_readline = require("readline");
 // src/mcp/tools.ts
 var import_fs7 = require("fs");
 var import_path17 = require("path");
-
-// src/design-system/config.ts
-var import_zod = require("zod");
-var import_promises = require("fs/promises");
-var import_fs = require("fs");
-var import_path = require("path");
-var CustomCheckSchema = import_zod.z.object({
-  property: import_zod.z.string(),
-  operator: import_zod.z.enum(["equals", "in-set", "not-in-set", "gte", "lte", "contains"]),
-  values: import_zod.z.array(import_zod.z.union([import_zod.z.string(), import_zod.z.number()]))
-});
-var CustomPrincipleSchema = import_zod.z.object({
-  id: import_zod.z.string(),
-  name: import_zod.z.string(),
-  description: import_zod.z.string(),
-  category: import_zod.z.string(),
-  severity: import_zod.z.enum(["error", "warn", "off"]),
-  checks: import_zod.z.array(CustomCheckSchema)
-});
-var CalmPrecisionConfigSchema = import_zod.z.object({
-  core: import_zod.z.array(import_zod.z.string()).default(["gestalt", "signal-noise", "content-chrome", "cognitive-load"]),
-  stylistic: import_zod.z.array(import_zod.z.string()).default(["fitts", "hick"]),
-  severity: import_zod.z.record(import_zod.z.string(), import_zod.z.enum(["error", "warn", "off"])).default({})
-});
-var TypographyTokensSchema = import_zod.z.object({
-  fontFamilies: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
-  fontSizes: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
-  fontWeights: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
-  lineHeights: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional()
-});
-var DesignSystemConfigSchema = import_zod.z.object({
-  version: import_zod.z.literal(1),
-  name: import_zod.z.string(),
-  principles: import_zod.z.object({
-    calmPrecision: CalmPrecisionConfigSchema.default({}),
-    custom: import_zod.z.array(CustomPrincipleSchema).default([])
-  }).default({}),
-  tokens: import_zod.z.object({
-    colors: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
-    typography: TypographyTokensSchema.optional(),
-    spacing: import_zod.z.array(import_zod.z.number()).optional(),
-    borderRadius: import_zod.z.record(import_zod.z.string(), import_zod.z.number()).optional(),
-    shadows: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
-    transitions: import_zod.z.record(import_zod.z.string(), import_zod.z.string()).optional(),
-    touchTargets: import_zod.z.object({ min: import_zod.z.number() }).optional()
-  }).default({})
-});
-async function loadDesignSystemConfig(projectDir) {
-  let configPath = (0, import_path.join)(projectDir, ".ibr", "design-system.json");
-  if (!(0, import_fs.existsSync)(configPath)) {
-    configPath = (0, import_path.join)(projectDir, "design-system.json");
-    if (!(0, import_fs.existsSync)(configPath)) {
-      return void 0;
-    }
-  }
-  const content = await (0, import_promises.readFile)(configPath, "utf-8");
-  const raw = JSON.parse(content);
-  return DesignSystemConfigSchema.parse(raw);
-}
-function getDefaultSeverity(principleId, config) {
-  const explicit = config.principles.calmPrecision.severity[principleId];
-  if (explicit) return explicit;
-  if (config.principles.calmPrecision.core.includes(principleId)) return "error";
-  if (config.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
-  return "warn";
-}
-
-// src/design-system/tokens/schema.ts
-var import_zod2 = require("zod");
-var ExtendedTokenSpecSchema = import_zod2.z.object({
-  colors: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
-  typography: import_zod2.z.object({
-    fontFamilies: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
-    fontSizes: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
-    fontWeights: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
-    lineHeights: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional()
-  }).optional(),
-  spacing: import_zod2.z.array(import_zod2.z.number()).optional(),
-  borderRadius: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.number()).optional(),
-  shadows: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
-  transitions: import_zod2.z.record(import_zod2.z.string(), import_zod2.z.string()).optional(),
-  touchTargets: import_zod2.z.object({ min: import_zod2.z.number() }).optional()
-});
-function toDesignTokenSpec(extended, name) {
-  return {
-    name,
-    tokens: {
-      colors: extended.colors,
-      spacing: extended.spacing ? Object.fromEntries(extended.spacing.map((v, i) => [`${i}`, v])) : void 0,
-      fontSizes: extended.typography?.fontSizes,
-      touchTargets: extended.touchTargets,
-      cornerRadius: extended.borderRadius
-    }
-  };
-}
-
-// src/tokens.ts
-var import_fs2 = require("fs");
-function loadTokenSpec(specPath) {
-  if (!(0, import_fs2.existsSync)(specPath)) {
-    throw new Error(`Token spec not found: ${specPath}`);
-  }
-  let spec;
-  try {
-    const content = (0, import_fs2.readFileSync)(specPath, "utf-8");
-    spec = JSON.parse(content);
-  } catch (err) {
-    throw new Error(`Failed to parse token spec: ${err instanceof Error ? err.message : "Unknown error"}`);
-  }
-  const { tokens } = spec;
-  const hasAnyTokens = tokens.colors || tokens.spacing || tokens.fontSizes || tokens.touchTargets || tokens.cornerRadius;
-  if (!hasAnyTokens) {
-    throw new Error("Token spec must define at least one token category (colors, spacing, fontSizes, touchTargets, or cornerRadius)");
-  }
-  return spec;
-}
-function normalizeColor(color) {
-  if (!color) return "";
-  if (color.startsWith("#")) {
-    return color.toLowerCase();
-  }
-  const rgbMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
-  if (rgbMatch) {
-    const r = parseInt(rgbMatch[1], 10);
-    const g = parseInt(rgbMatch[2], 10);
-    const b = parseInt(rgbMatch[3], 10);
-    return `#${r.toString(16).padStart(2, "0")}${g.toString(16).padStart(2, "0")}${b.toString(16).padStart(2, "0")}`;
-  }
-  return color.toLowerCase();
-}
-function parsePx(value) {
-  if (!value) return null;
-  const match = value.match(/^([\d.]+)px$/);
-  return match ? parseFloat(match[1]) : null;
-}
-function getStyle(styles, kebab) {
-  if (!styles) return void 0;
-  const val = styles[kebab];
-  if (val !== void 0) return val;
-  const camel = kebab.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-  return styles[camel];
-}
-var touchTargetValidator = {
-  name: "touchTargets",
-  validate(elements, spec) {
-    const violations = [];
-    if (!spec.tokens.touchTargets) return violations;
-    const minSize = spec.tokens.touchTargets.min;
-    for (const element of elements) {
-      const selector = element.selector || element.tagName || "unknown";
-      const isInteractive2 = element.interactive?.hasOnClick || element.interactive?.hasHref;
-      if (!isInteractive2) continue;
-      const actualSize = Math.min(element.bounds.width, element.bounds.height);
-      if (actualSize < minSize) {
-        violations.push({
-          element: selector,
-          property: "touch-target",
-          expected: minSize,
-          actual: actualSize,
-          severity: "error",
-          message: `Touch target too small: ${actualSize}px < ${minSize}px (${selector})`
-        });
-      }
-    }
-    return violations;
-  }
-};
-var fontSizeValidator = {
-  name: "fontSizes",
-  validate(elements, spec) {
-    const violations = [];
-    if (!spec.tokens.fontSizes) return violations;
-    const tokenValues = Object.values(spec.tokens.fontSizes);
-    for (const element of elements) {
-      const selector = element.selector || element.tagName || "unknown";
-      if (!element.computedStyles) continue;
-      const fontSize = parsePx(getStyle(element.computedStyles, "font-size"));
-      if (fontSize === null) continue;
-      if (!tokenValues.includes(fontSize)) {
-        violations.push({
-          element: selector,
-          property: "font-size",
-          expected: `one of ${tokenValues.join(", ")}px`,
-          actual: fontSize,
-          severity: "warning",
-          message: `Non-token font size: ${fontSize}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
-        });
-      }
-    }
-    return violations;
-  }
-};
-var colorValidator = {
-  name: "colors",
-  validate(elements, spec) {
-    const violations = [];
-    if (!spec.tokens.colors) return violations;
-    const tokenColors = new Set(
-      Object.values(spec.tokens.colors).map(normalizeColor)
-    );
-    for (const element of elements) {
-      const selector = element.selector || element.tagName || "unknown";
-      if (!element.computedStyles) continue;
-      const textColor = getStyle(element.computedStyles, "color");
-      if (textColor) {
-        const normalized = normalizeColor(textColor);
-        if (!tokenColors.has(normalized)) {
-          violations.push({
-            element: selector,
-            property: "color",
-            expected: "token color",
-            actual: textColor,
-            severity: "warning",
-            message: `Non-token text color: ${textColor} (${selector})`
-          });
-        }
-      }
-      const bgColor = getStyle(element.computedStyles, "background-color");
-      if (bgColor && bgColor !== "rgba(0, 0, 0, 0)" && bgColor !== "transparent") {
-        const normalized = normalizeColor(bgColor);
-        if (!tokenColors.has(normalized)) {
-          violations.push({
-            element: selector,
-            property: "color",
-            expected: "token color",
-            actual: bgColor,
-            severity: "warning",
-            message: `Non-token background color: ${bgColor} (${selector})`
-          });
-        }
-      }
-    }
-    return violations;
-  }
-};
-var cornerRadiusValidator = {
-  name: "cornerRadius",
-  validate(elements, spec) {
-    const violations = [];
-    if (!spec.tokens.cornerRadius) return violations;
-    const tokenValues = Object.values(spec.tokens.cornerRadius);
-    for (const element of elements) {
-      const selector = element.selector || element.tagName || "unknown";
-      if (!element.computedStyles) continue;
-      const borderRadius = parsePx(getStyle(element.computedStyles, "border-radius"));
-      if (borderRadius === null || borderRadius === 0) continue;
-      if (!tokenValues.includes(borderRadius)) {
-        violations.push({
-          element: selector,
-          property: "corner-radius",
-          expected: `one of ${tokenValues.join(", ")}px`,
-          actual: borderRadius,
-          severity: "warning",
-          message: `Non-token border radius: ${borderRadius}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
-        });
-      }
-    }
-    return violations;
-  }
-};
-var spacingValidator = {
-  name: "spacing",
-  validate(elements, spec) {
-    const violations = [];
-    if (!spec.tokens.spacing) return violations;
-    const tokenValues = Object.values(spec.tokens.spacing);
-    for (const element of elements) {
-      const selector = element.selector || element.tagName || "unknown";
-      if (!element.computedStyles) continue;
-      for (const prop of ["gap", "padding", "margin"]) {
-        const raw = element.computedStyles[prop];
-        const value = parsePx(raw);
-        if (value === null || value === 0) continue;
-        if (!tokenValues.includes(value)) {
-          violations.push({
-            element: selector,
-            property: "spacing",
-            expected: `one of ${tokenValues.join(", ")}px`,
-            actual: value,
-            severity: "warning",
-            message: `Non-token ${prop}: ${value}px (expected one of ${tokenValues.join(", ")}px) (${selector})`
-          });
-        }
-      }
-    }
-    return violations;
-  }
-};
-var tokenValidators = /* @__PURE__ */ new Map([
-  ["touchTargets", touchTargetValidator],
-  ["fontSizes", fontSizeValidator],
-  ["colors", colorValidator],
-  ["cornerRadius", cornerRadiusValidator],
-  ["spacing", spacingValidator]
-]);
-function validateAgainstTokens(elements, spec) {
-  const violations = [];
-  for (const [key, validator] of tokenValidators) {
-    if (spec.tokens[key]) {
-      violations.push(...validator.validate(elements, spec));
-    }
-  }
-  return violations;
-}
-
-// src/design-system/tokens/validator.ts
-function validateFontWeights(elements, weights) {
-  const violations = [];
-  const validWeights = new Set(Object.values(weights));
-  for (const element of elements) {
-    const style = element.computedStyles;
-    if (!style) continue;
-    const fw = getStyle(style, "font-weight");
-    if (!fw) continue;
-    const weight = parseInt(fw, 10);
-    if (isNaN(weight)) continue;
-    if (!validWeights.has(weight)) {
-      violations.push({
-        element: element.selector || element.tagName || "unknown",
-        property: "font-weight",
-        expected: `one of ${Array.from(validWeights).join(", ")}`,
-        actual: weight,
-        severity: "warning",
-        message: `Non-token font weight: ${weight} (expected one of ${Array.from(validWeights).join(", ")}) (${element.selector || element.tagName})`
-      });
-    }
-  }
-  return violations;
-}
-function validateLineHeights(elements, lineHeights) {
-  const violations = [];
-  const validHeights = new Set(Object.values(lineHeights));
-  for (const element of elements) {
-    const style = element.computedStyles;
-    if (!style) continue;
-    const lh = getStyle(style, "line-height");
-    if (!lh || lh === "normal") continue;
-    let value;
-    const pxVal = parsePx(lh);
-    if (pxVal !== null) {
-      const fontSize = parsePx(getStyle(style, "font-size"));
-      if (fontSize && fontSize > 0) {
-        value = Math.round(pxVal / fontSize * 100) / 100;
-      } else {
-        continue;
-      }
-    } else {
-      value = parseFloat(lh);
-      if (isNaN(value)) continue;
-    }
-    const isValid = Array.from(validHeights).some((vh) => Math.abs(vh - value) < 0.05);
-    if (!isValid) {
-      violations.push({
-        element: element.selector || element.tagName || "unknown",
-        property: "line-height",
-        expected: `one of ${Array.from(validHeights).join(", ")}`,
-        actual: value,
-        severity: "warning",
-        message: `Non-token line height: ${value} (expected one of ${Array.from(validHeights).join(", ")}) (${element.selector || element.tagName})`
-      });
-    }
-  }
-  return violations;
-}
-function validateExtendedTokens(elements, tokens, systemName) {
-  const violations = [];
-  const oldSpec = toDesignTokenSpec(tokens, systemName);
-  violations.push(...validateAgainstTokens(elements, oldSpec));
-  if (tokens.typography?.fontWeights) {
-    violations.push(...validateFontWeights(elements, tokens.typography.fontWeights));
-  }
-  if (tokens.typography?.lineHeights) {
-    violations.push(...validateLineHeights(elements, tokens.typography.lineHeights));
-  }
-  return violations;
-}
-function calculateComplianceScore(totalChecked, violationCount) {
-  if (totalChecked === 0) return 100;
-  const passing = totalChecked - violationCount;
-  return Math.round(passing / totalChecked * 100);
-}
-
-// src/design-system/index.ts
-init_calm_precision();
-async function runDesignSystemCheck(elements, context, projectDir) {
-  const config = await loadDesignSystemConfig(projectDir);
-  if (!config) return void 0;
-  const principleViolations = [];
-  for (const rule of allCalmPrecisionRules) {
-    const principleId = Object.entries(principleToRules).find(
-      ([, ruleIds]) => ruleIds.includes(rule.id)
-    )?.[0];
-    if (!principleId) continue;
-    const severity = getDefaultSeverity(principleId, config);
-    if (severity === "off") continue;
-    for (const element of elements) {
-      const violation = rule.check(element, context);
-      if (violation) {
-        principleViolations.push({
-          principleId: rule.id,
-          principleName: rule.name,
-          severity: severity === "error" ? "error" : "warn",
-          message: violation.message,
-          element: violation.element,
-          bounds: violation.bounds,
-          fix: violation.fix
-        });
-      }
-    }
-  }
-  const customViolations = [];
-  for (const custom of config.principles.custom) {
-    if (custom.severity === "off") continue;
-    for (const element of elements) {
-      for (const check of custom.checks) {
-        const style = element.computedStyles;
-        if (!style) continue;
-        const actual = style[check.property];
-        if (!actual) continue;
-        let violated = false;
-        switch (check.operator) {
-          case "in-set":
-            violated = !check.values.map(String).includes(actual);
-            break;
-          case "not-in-set":
-            violated = check.values.map(String).includes(actual);
-            break;
-          case "equals":
-            violated = actual !== String(check.values[0]);
-            break;
-          case "gte":
-            violated = parseFloat(actual) < Number(check.values[0]);
-            break;
-          case "lte":
-            violated = parseFloat(actual) > Number(check.values[0]);
-            break;
-          case "contains":
-            violated = !String(check.values[0]).split(",").some((v) => actual.includes(v.trim()));
-            break;
-        }
-        if (violated) {
-          customViolations.push({
-            principleId: custom.id,
-            principleName: custom.name,
-            severity: custom.severity,
-            message: `${custom.name}: ${check.property} is "${actual}" (expected ${check.operator} ${check.values.join(", ")})`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: custom.description
-          });
-        }
-      }
-    }
-  }
-  const tokenViolations = config.tokens ? validateExtendedTokens(elements, config.tokens, config.name) : [];
-  const tokenCategories = Object.keys(config.tokens).filter(
-    (k) => config.tokens[k] !== void 0
-  ).length;
-  const totalChecked = elements.length * Math.max(tokenCategories, 1);
-  const complianceScore = calculateComplianceScore(totalChecked, tokenViolations.length);
-  return {
-    configName: config.name,
-    principleViolations,
-    tokenViolations,
-    customViolations,
-    complianceScore
-  };
-}
-
-// src/engine/cdp/connection.ts
-var DEFAULT_TIMEOUT_MS = 3e4;
-var CdpConnection = class {
-  ws = null;
-  nextId = 0;
-  pending = /* @__PURE__ */ new Map();
-  eventHandlers = /* @__PURE__ */ new Map();
-  timeoutMs;
-  constructor(options) {
-    this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  }
-  async connect(wsUrl) {
-    return new Promise((resolve3, reject) => {
-      const ws = new WebSocket(wsUrl);
-      let settled = false;
-      const onOpen = () => {
-        if (settled) return;
-        settled = true;
-        this.ws = ws;
-        ws.addEventListener("message", (event) => this.handleMessage(event));
-        ws.addEventListener("close", () => this.handleClose());
-        ws.addEventListener("error", () => this.handleClose());
-        resolve3();
-      };
-      const onError = () => {
-        if (settled) return;
-        settled = true;
-        reject(new Error(`WebSocket connection failed: ${wsUrl}`));
-      };
-      ws.addEventListener("open", onOpen);
-      ws.addEventListener("error", onError);
-    });
-  }
-  async send(method, params, sessionId) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      throw new Error("Not connected");
-    }
-    const id = ++this.nextId;
-    return new Promise((resolve3, reject) => {
-      const timer = setTimeout(() => {
-        if (this.pending.has(id)) {
-          this.pending.delete(id);
-          const secs = (this.timeoutMs / 1e3).toFixed(0);
-          reject(new Error(
-            `CDP request '${method}' timed out after ${secs}s. The browser may be unresponsive or the operation is taking too long.`
-          ));
-        }
-      }, this.timeoutMs);
-      this.pending.set(id, {
-        resolve: resolve3,
-        reject,
-        timer
-      });
-      const msg = { id, method };
-      if (params) msg.params = params;
-      if (sessionId) msg.sessionId = sessionId;
-      this.ws.send(JSON.stringify(msg));
-    });
-  }
-  on(method, handler) {
-    if (!this.eventHandlers.has(method)) {
-      this.eventHandlers.set(method, /* @__PURE__ */ new Set());
-    }
-    this.eventHandlers.get(method).add(handler);
-  }
-  off(method, handler) {
-    this.eventHandlers.get(method)?.delete(handler);
-  }
-  handleMessage(event) {
-    let data;
-    try {
-      data = JSON.parse(String(event.data));
-    } catch {
-      return;
-    }
-    if ("id" in data && this.pending.has(data.id)) {
-      const id = data.id;
-      const { resolve: resolve3, reject, timer } = this.pending.get(id);
-      clearTimeout(timer);
-      this.pending.delete(id);
-      if (data.error) {
-        const err = data.error;
-        reject(new Error(`CDP error ${err.code}: ${err.message}`));
-      } else {
-        resolve3(data.result);
-      }
-    } else if ("method" in data) {
-      const handlers = this.eventHandlers.get(data.method);
-      if (handlers) {
-        for (const handler of handlers) handler(data.params);
-      }
-    }
-  }
-  handleClose() {
-    for (const [, { reject, timer }] of this.pending) {
-      clearTimeout(timer);
-      reject(new Error("WebSocket closed"));
-    }
-    this.pending.clear();
-    this.ws = null;
-  }
-  async close() {
-    for (const [, { timer }] of this.pending) {
-      clearTimeout(timer);
-    }
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-    this.pending.clear();
-  }
-  get connected() {
-    return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
-  }
-};
-
-// src/engine/cdp/browser.ts
-var import_node_child_process = require("child_process");
-var import_node_fs = require("fs");
-var import_promises2 = require("fs/promises");
-var import_node_net = require("net");
-var import_node_os = require("os");
-var import_node_path = require("path");
-var CHROME_PATHS = [
-  // macOS
-  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-  "/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary",
-  "/Applications/Chromium.app/Contents/MacOS/Chromium",
-  // Linux
-  "/usr/bin/google-chrome",
-  "/usr/bin/google-chrome-stable",
-  "/usr/bin/chromium-browser",
-  "/usr/bin/chromium",
-  // Windows (WSL)
-  "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
-];
-function findChrome() {
-  for (const p of CHROME_PATHS) {
-    if ((0, import_node_fs.existsSync)(p)) return p;
-  }
-  return null;
-}
-function randomPort() {
-  return 49152 + Math.floor(Math.random() * (65535 - 49152));
-}
-async function findFreePort(maxAttempts = 10) {
-  for (let i = 0; i < maxAttempts; i++) {
-    const port = randomPort();
-    const isFree = await checkPortFree(port);
-    if (isFree) return port;
-  }
-  return new Promise((resolve3, reject) => {
-    const srv = (0, import_node_net.createServer)();
-    srv.listen(0, () => {
-      const port = srv.address().port;
-      srv.close(() => resolve3(port));
-    });
-    srv.on("error", reject);
-  });
-}
-function checkPortFree(port) {
-  return new Promise((resolve3) => {
-    const srv = (0, import_node_net.createServer)();
-    srv.once("error", () => resolve3(false));
-    srv.listen(port, () => srv.close(() => resolve3(true)));
-  });
-}
-async function resolveWsEndpoint(cdpUrl) {
-  const res = await fetch(`${cdpUrl}/json/version`);
-  if (!res.ok) {
-    throw new Error(`CDP endpoint did not respond: ${cdpUrl}`);
-  }
-  const data = await res.json();
-  if (!data.webSocketDebuggerUrl) {
-    throw new Error(`CDP endpoint did not return a WebSocket URL: ${cdpUrl}`);
-  }
-  return data.webSocketDebuggerUrl;
-}
-function resolveBrowserConnectionOptions(options = {}, env = process.env) {
-  const wsEndpoint = options.wsEndpoint || env.IBR_WS_ENDPOINT;
-  const cdpUrl = options.cdpUrl || env.IBR_CDP_URL;
-  const requestedMode = options.mode || env.IBR_BROWSER_MODE;
-  const mode = requestedMode === "local" ? "local" : requestedMode === "connect" || wsEndpoint || cdpUrl ? "connect" : "local";
-  return {
-    mode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath: options.chromePath || env.IBR_CHROME_PATH
-  };
-}
-var BrowserManager = class {
-  process = null;
-  _port = 0;
-  _mode = "local";
-  _cdpUrl = null;
-  _wsEndpoint = null;
-  async launch(options = {}) {
-    const connection = resolveBrowserConnectionOptions(options);
-    this._mode = connection.mode;
-    if (connection.mode === "connect") {
-      this.process = null;
-      this._port = 0;
-      this._cdpUrl = connection.cdpUrl ?? null;
-      if (connection.wsEndpoint) {
-        this._wsEndpoint = connection.wsEndpoint;
-        return connection.wsEndpoint;
-      }
-      if (connection.cdpUrl) {
-        const wsUrl2 = await resolveWsEndpoint(connection.cdpUrl);
-        this._wsEndpoint = wsUrl2;
-        return wsUrl2;
-      }
-      throw new Error(
-        "Connect mode requires a CDP endpoint.\nProvide --cdp-url http://127.0.0.1:9222 or --ws-endpoint ws://...\nYou can also set IBR_CDP_URL or IBR_WS_ENDPOINT."
-      );
-    }
-    const headless = options.headless ?? true;
-    this._port = options.port ?? await findFreePort();
-    let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
-    const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
-    if ((0, import_node_fs.existsSync)(lockPath)) {
-      userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
-    }
-    const chromePath = connection.chromePath ?? findChrome();
-    if (!chromePath) {
-      throw new Error(
-        `Chrome not found. Install Google Chrome or pass chromePath option.
-Checked: ${CHROME_PATHS.join(", ")}`
-      );
-    }
-    await (0, import_promises2.mkdir)(userDataDir, { recursive: true });
-    const args = [
-      `--remote-debugging-port=${this._port}`,
-      `--user-data-dir=${userDataDir}`,
-      "--no-first-run",
-      "--no-default-browser-check",
-      "--disable-background-networking",
-      "--disable-sync"
-    ];
-    if (headless) {
-      args.push("--headless=new");
-    }
-    if (options.normalize) {
-      args.push("--disable-lcd-text");
-      args.push("--force-device-scale-factor=1");
-    }
-    this.process = (0, import_node_child_process.spawn)(chromePath, args, { stdio: "pipe" });
-    this.process.on("error", (err) => {
-      console.error(`Chrome process error: ${err.message}`);
-    });
-    const wsUrl = await this.waitForDebugger();
-    this._cdpUrl = `http://127.0.0.1:${this._port}`;
-    this._wsEndpoint = wsUrl;
-    return wsUrl;
-  }
-  async waitForDebugger() {
-    const maxAttempts = 50;
-    for (let i = 0; i < maxAttempts; i++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${this._port}/json/version`);
-        const data = await res.json();
-        return data.webSocketDebuggerUrl;
-      } catch {
-        await new Promise((r) => setTimeout(r, 100));
-      }
-    }
-    throw new Error(
-      `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?
-If you are running inside a sandbox, retry with connect mode:
-  --browser-mode connect --cdp-url http://127.0.0.1:9222`
-    );
-  }
-  async close() {
-    if (this._mode !== "local" || !this.process) return;
-    const proc = this.process;
-    this.process = null;
-    await new Promise((resolve3) => {
-      const killTimer = setTimeout(() => {
-        try {
-          proc.kill("SIGKILL");
-        } catch {
-        }
-        resolve3();
-      }, 3e3);
-      proc.once("close", () => {
-        clearTimeout(killTimer);
-        resolve3();
-      });
-      proc.kill("SIGTERM");
-    });
-  }
-  get running() {
-    return this.process !== null && !this.process.killed;
-  }
-  get port() {
-    return this._port;
-  }
-  get pid() {
-    return this.process?.pid ?? null;
-  }
-  get mode() {
-    return this._mode;
-  }
-  get cdpUrl() {
-    return this._cdpUrl;
-  }
-  get wsEndpoint() {
-    return this._wsEndpoint;
-  }
-};
-
-// src/engine/cdp/target.ts
-var TargetDomain = class {
-  constructor(conn) {
-    this.conn = conn;
-  }
-  async createPage(url) {
-    const result = await this.conn.send(
-      "Target.createTarget",
-      { url }
-    );
-    return result.targetId;
-  }
-  async attach(targetId) {
-    const result = await this.conn.send(
-      "Target.attachToTarget",
-      { targetId, flatten: true }
-    );
-    return result.sessionId;
-  }
-  async close(targetId) {
-    await this.conn.send("Target.closeTarget", { targetId });
-  }
-  async list() {
-    const result = await this.conn.send("Target.getTargets");
-    return result.targetInfos;
-  }
-};
-
-// src/engine/cdp/page.ts
-var PageDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  async navigate(url) {
-    const result = await this.conn.send(
-      "Page.navigate",
-      { url },
-      this.sessionId
-    );
-    return result.frameId;
-  }
-  async screenshot(options = {}) {
-    const format = options.format ?? "png";
-    if (options.fullPage) {
-      return this.fullPageScreenshot(format, options.quality);
-    }
-    const params = { format };
-    if (options.quality !== void 0) params.quality = options.quality;
-    if (options.clip) {
-      params.clip = { ...options.clip, scale: options.clip.scale ?? 1 };
-    }
-    const result = await this.conn.send(
-      "Page.captureScreenshot",
-      params,
-      this.sessionId
-    );
-    return Buffer.from(result.data, "base64");
-  }
-  /**
-   * Full-page screenshot via getLayoutMetrics + device metrics override.
-   * Technique: get content size → override viewport to content size →
-   * capture with captureBeyondViewport → restore viewport.
-   */
-  async fullPageScreenshot(format, quality) {
-    const metrics = await this.getLayoutMetrics();
-    const { width, height } = metrics.contentSize;
-    await this.conn.send("Emulation.setDeviceMetricsOverride", {
-      width: Math.ceil(width),
-      height: Math.ceil(height),
-      deviceScaleFactor: 1,
-      mobile: false
-    }, this.sessionId);
-    try {
-      const params = {
-        format,
-        captureBeyondViewport: true,
-        clip: { x: 0, y: 0, width, height, scale: 1 }
-      };
-      if (quality !== void 0) params.quality = quality;
-      const result = await this.conn.send(
-        "Page.captureScreenshot",
-        params,
-        this.sessionId
-      );
-      return Buffer.from(result.data, "base64");
-    } finally {
-      await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
-    }
-  }
-  async getLayoutMetrics() {
-    return this.conn.send(
-      "Page.getLayoutMetrics",
-      {},
-      this.sessionId
-    );
-  }
-  async enableLifecycleEvents() {
-    await this.conn.send("Page.setLifecycleEventsEnabled", { enabled: true }, this.sessionId);
-    await this.conn.send("Page.enable", {}, this.sessionId);
-  }
-  /**
-   * Inject CSS into the page.
-   * Uses callFunctionOn with CSS passed as a proper argument (not interpolated)
-   * to avoid injection issues with special characters in CSS content.
-   */
-  async addStyleTag(css) {
-    const docResult = await this.conn.send("Runtime.evaluate", {
-      expression: "document",
-      returnByValue: false
-    }, this.sessionId);
-    await this.conn.send("Runtime.callFunctionOn", {
-      functionDeclaration: '(cssText) => { const style = document.createElement("style"); style.textContent = cssText; document.head.appendChild(style); }',
-      objectId: docResult.result.objectId,
-      arguments: [{ value: css }],
-      returnByValue: true
-    }, this.sessionId);
-  }
-  /**
-   * Inject script that runs on every navigation (including future ones).
-   * Uses Page.addScriptToEvaluateOnNewDocument.
-   */
-  async addScriptOnLoad(source) {
-    const result = await this.conn.send(
-      "Page.addScriptToEvaluateOnNewDocument",
-      { source },
-      this.sessionId
-    );
-    return result.identifier;
-  }
-};
-
-// src/engine/normalize.ts
-var WEB_ROLES = {
-  button: "button",
-  textbox: "textfield",
-  TextField: "textfield",
-  link: "link",
-  checkbox: "checkbox",
-  switch: "switch",
-  slider: "slider",
-  tab: "tab",
-  combobox: "select",
-  listbox: "select",
-  heading: "heading",
-  img: "image",
-  image: "image",
-  StaticText: "text",
-  group: "group",
-  generic: "group",
-  navigation: "group",
-  main: "group",
-  contentinfo: "group",
-  banner: "group",
-  form: "group",
-  search: "group",
-  region: "group",
-  article: "group",
-  section: "group",
-  complementary: "group"
-};
-var MACOS_ROLES = {
-  AXButton: "button",
-  AXTextField: "textfield",
-  AXTextArea: "textfield",
-  AXLink: "link",
-  AXCheckBox: "checkbox",
-  AXSwitch: "switch",
-  AXSlider: "slider",
-  AXTab: "tab",
-  AXRadioButton: "tab",
-  AXPopUpButton: "select",
-  AXComboBox: "select",
-  AXStaticText: "text",
-  AXImage: "image",
-  AXGroup: "group",
-  AXWindow: "group",
-  AXScrollArea: "group",
-  AXToolbar: "group",
-  AXSplitGroup: "group",
-  AXList: "group",
-  AXOutline: "group",
-  AXTable: "group",
-  AXRow: "group",
-  AXColumn: "group",
-  AXCell: "group"
-};
-function normalizeRole(rawRole, platform) {
-  if (platform === "web") return WEB_ROLES[rawRole] ?? "group";
-  return MACOS_ROLES[rawRole] ?? "group";
-}
-
-// src/engine/cdp/accessibility.ts
-var SKIP_ROLES = /* @__PURE__ */ new Set(["WebArea", "RootWebArea", "GenericContainer", "none", "IgnoredRole"]);
-var AccessibilityDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  nodeMap = /* @__PURE__ */ new Map();
-  // elementId → backendDOMNodeId
-  loadCompleteHandlers = /* @__PURE__ */ new Set();
-  nodesUpdatedHandlers = /* @__PURE__ */ new Set();
-  enabled = false;
-  // Stored references for cleanup
-  loadCompleteListener = null;
-  nodesUpdatedListener = null;
-  async enable() {
-    if (this.enabled) return;
-    this.enabled = true;
-    await this.conn.send("Accessibility.enable", {}, this.sessionId);
-    this.loadCompleteListener = () => {
-      for (const handler of this.loadCompleteHandlers) handler();
-    };
-    this.nodesUpdatedListener = (params) => {
-      const { nodes } = params;
-      for (const handler of this.nodesUpdatedHandlers) handler(nodes);
-    };
-    this.conn.on("Accessibility.loadComplete", this.loadCompleteListener);
-    this.conn.on("Accessibility.nodesUpdated", this.nodesUpdatedListener);
-  }
-  async disable() {
-    if (!this.enabled) return;
-    this.enabled = false;
-    if (this.loadCompleteListener) {
-      this.conn.off("Accessibility.loadComplete", this.loadCompleteListener);
-      this.loadCompleteListener = null;
-    }
-    if (this.nodesUpdatedListener) {
-      this.conn.off("Accessibility.nodesUpdated", this.nodesUpdatedListener);
-      this.nodesUpdatedListener = null;
-    }
-  }
-  async getSnapshot() {
-    const result = await this.conn.send(
-      "Accessibility.getFullAXTree",
-      {},
-      this.sessionId
-    );
-    return this.convertToElements(result.nodes);
-  }
-  /**
-   * queryAXTree — CDP-native search by accessible name and/or role.
-   * Faster than getFullAXTree + filter for targeted element finding.
-   * Note: does NOT clear/repopulate nodeMap — merges into existing map.
-   */
-  async queryAXTree(options) {
-    const params = {};
-    if (options.accessibleName) params.accessibleName = options.accessibleName;
-    if (options.role) params.role = options.role;
-    if (options.backendNodeId) {
-      params.backendNodeId = options.backendNodeId;
-    } else {
-      const doc = await this.conn.send(
-        "DOM.getDocument",
-        {},
-        this.sessionId
-      );
-      params.nodeId = doc.root.nodeId;
-    }
-    try {
-      const result = await this.conn.send(
-        "Accessibility.queryAXTree",
-        params,
-        this.sessionId
-      );
-      return this.convertToElements(result.nodes, false);
-    } catch {
-      return [];
-    }
-  }
-  getBackendNodeId(elementId) {
-    return this.nodeMap.get(elementId);
-  }
-  /** Subscribe to Accessibility.loadComplete events. */
-  onLoadComplete(handler) {
-    this.loadCompleteHandlers.add(handler);
-  }
-  /** Subscribe to Accessibility.nodesUpdated events. */
-  onNodesUpdated(handler) {
-    this.nodesUpdatedHandlers.add(handler);
-  }
-  offLoadComplete(handler) {
-    this.loadCompleteHandlers.delete(handler);
-  }
-  offNodesUpdated(handler) {
-    this.nodesUpdatedHandlers.delete(handler);
-  }
-  /**
-   * Convert CDP AX nodes to Elements.
-   * @param clearMap If true (default), clears nodeMap first. Set false for queryAXTree
-   *   to merge results into existing map without invalidating prior IDs.
-   */
-  convertToElements(nodes, clearMap = true) {
-    const elements = [];
-    if (clearMap) {
-      this.nodeMap.clear();
-    }
-    for (const node of nodes) {
-      if (SKIP_ROLES.has(node.role.value)) continue;
-      const role = normalizeRole(node.role.value, "web");
-      const label = node.name?.value ?? "";
-      if (role === "group" && !label) continue;
-      const id = node.backendDOMNodeId ? `e${node.backendDOMNodeId}` : `ex${Math.random().toString(36).slice(2, 8)}`;
-      const el = {
-        id,
-        role,
-        label,
-        value: node.value?.value ?? null,
-        enabled: this.getProperty(node, "disabled") !== true,
-        focused: this.getProperty(node, "focused") === true,
-        actions: this.inferActions(role),
-        bounds: [0, 0, 0, 0],
-        parent: null
-      };
-      if (node.backendDOMNodeId) {
-        this.nodeMap.set(el.id, node.backendDOMNodeId);
-      }
-      elements.push(el);
-    }
-    return elements;
-  }
-  getProperty(node, name) {
-    return node.properties?.find((p) => p.name === name)?.value?.value;
-  }
-  inferActions(role) {
-    switch (role) {
-      case "button":
-      case "link":
-      case "checkbox":
-      case "tab":
-      case "switch":
-        return ["press"];
-      case "textfield":
-        return ["setValue"];
-      case "slider":
-        return ["increment", "decrement", "setValue"];
-      case "select":
-        return ["press", "showMenu"];
-      default:
-        return [];
-    }
-  }
-};
-
-// src/engine/cdp/dom.ts
-var DomDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  async getElementCenter(backendNodeId) {
-    const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
-    const q = result.model.content;
-    const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
-    const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
-    return { x, y };
-  }
-  async getBoxModel(backendNodeId) {
-    const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
-    return result.model;
-  }
-  async getDocument() {
-    return this.conn.send("DOM.getDocument", {}, this.sessionId);
-  }
-  /**
-   * Find a single element by CSS selector.
-   * Returns the nodeId, or null if not found.
-   */
-  async querySelector(nodeId, selector) {
-    try {
-      const result = await this.conn.send(
-        "DOM.querySelector",
-        { nodeId, selector },
-        this.sessionId
-      );
-      return result.nodeId > 0 ? result.nodeId : null;
-    } catch {
-      return null;
-    }
-  }
-  /**
-   * Find all elements matching a CSS selector.
-   * Returns array of nodeIds.
-   */
-  async querySelectorAll(nodeId, selector) {
-    try {
-      const result = await this.conn.send(
-        "DOM.querySelectorAll",
-        { nodeId, selector },
-        this.sessionId
-      );
-      return result.nodeIds.filter((id) => id > 0);
-    } catch {
-      return [];
-    }
-  }
-  /**
-   * Get the outer HTML of a node.
-   */
-  async getOuterHTML(nodeId, backendNodeId) {
-    const params = {};
-    if (nodeId !== void 0) params.nodeId = nodeId;
-    if (backendNodeId !== void 0) params.backendNodeId = backendNodeId;
-    const result = await this.conn.send(
-      "DOM.getOuterHTML",
-      params,
-      this.sessionId
-    );
-    return result.outerHTML;
-  }
-  /**
-   * Get attributes of a node as key-value pairs.
-   */
-  async getAttributes(nodeId) {
-    const result = await this.conn.send(
-      "DOM.getAttributes",
-      { nodeId },
-      this.sessionId
-    );
-    const attrs = {};
-    for (let i = 0; i < result.attributes.length; i += 2) {
-      attrs[result.attributes[i]] = result.attributes[i + 1];
-    }
-    return attrs;
-  }
-};
-
-// src/engine/cdp/input.ts
-var InputDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  async click(x, y) {
-    await this.conn.send("Input.dispatchMouseEvent", {
-      type: "mousePressed",
-      x,
-      y,
-      button: "left",
-      clickCount: 1
-    }, this.sessionId);
-    await this.conn.send("Input.dispatchMouseEvent", {
-      type: "mouseReleased",
-      x,
-      y,
-      button: "left",
-      clickCount: 1
-    }, this.sessionId);
-  }
-  async type(text) {
-    for (const char of text) {
-      const code = charToCode(char);
-      await this.conn.send("Input.dispatchKeyEvent", {
-        type: "keyDown",
-        text: char,
-        key: char,
-        code
-      }, this.sessionId);
-      await this.conn.send("Input.dispatchKeyEvent", {
-        type: "keyUp",
-        key: char,
-        code
-      }, this.sessionId);
-    }
-  }
-  /**
-   * Press a special key (Enter, Tab, Escape, Backspace, etc.)
-   */
-  async pressKey(key) {
-    const keyDef = SPECIAL_KEYS[key];
-    if (!keyDef) {
-      await this.type(key);
-      return;
-    }
-    await this.conn.send("Input.dispatchKeyEvent", {
-      type: "keyDown",
-      key: keyDef.key,
-      code: keyDef.code,
-      text: keyDef.text
-    }, this.sessionId);
-    await this.conn.send("Input.dispatchKeyEvent", {
-      type: "keyUp",
-      key: keyDef.key,
-      code: keyDef.code
-    }, this.sessionId);
-  }
-  async hover(x, y) {
-    await this.conn.send("Input.dispatchMouseEvent", {
-      type: "mouseMoved",
-      x,
-      y
-    }, this.sessionId);
-  }
-  async scroll(x, y, deltaX, deltaY) {
-    await this.conn.send("Input.dispatchMouseEvent", {
-      type: "mouseWheel",
-      x,
-      y,
-      deltaX,
-      deltaY
-    }, this.sessionId);
-  }
-};
-var SPECIAL_KEYS = {
-  Enter: { key: "Enter", code: "Enter", text: "\r" },
-  Tab: { key: "Tab", code: "Tab", text: "	" },
-  Escape: { key: "Escape", code: "Escape" },
-  Backspace: { key: "Backspace", code: "Backspace" },
-  Delete: { key: "Delete", code: "Delete" },
-  ArrowUp: { key: "ArrowUp", code: "ArrowUp" },
-  ArrowDown: { key: "ArrowDown", code: "ArrowDown" },
-  ArrowLeft: { key: "ArrowLeft", code: "ArrowLeft" },
-  ArrowRight: { key: "ArrowRight", code: "ArrowRight" },
-  Home: { key: "Home", code: "Home" },
-  End: { key: "End", code: "End" },
-  PageUp: { key: "PageUp", code: "PageUp" },
-  PageDown: { key: "PageDown", code: "PageDown" }
-};
-var SPECIAL_CODES = {
-  " ": "Space",
-  "0": "Digit0",
-  "1": "Digit1",
-  "2": "Digit2",
-  "3": "Digit3",
-  "4": "Digit4",
-  "5": "Digit5",
-  "6": "Digit6",
-  "7": "Digit7",
-  "8": "Digit8",
-  "9": "Digit9",
-  "`": "Backquote",
-  "-": "Minus",
-  "=": "Equal",
-  "[": "BracketLeft",
-  "]": "BracketRight",
-  "\\": "Backslash",
-  ";": "Semicolon",
-  "'": "Quote",
-  ",": "Comma",
-  ".": "Period",
-  "/": "Slash",
-  "~": "Backquote",
-  "!": "Digit1",
-  "@": "Digit2",
-  "#": "Digit3",
-  "$": "Digit4",
-  "%": "Digit5",
-  "^": "Digit6",
-  "&": "Digit7",
-  "*": "Digit8",
-  "(": "Digit9",
-  ")": "Digit0",
-  "_": "Minus",
-  "+": "Equal",
-  "{": "BracketLeft",
-  "}": "BracketRight",
-  "|": "Backslash",
-  ":": "Semicolon",
-  '"': "Quote",
-  "<": "Comma",
-  ">": "Period",
-  "?": "Slash",
-  "	": "Tab",
-  "\n": "Enter"
-};
-function charToCode(char) {
-  if (SPECIAL_CODES[char]) return SPECIAL_CODES[char];
-  const upper = char.toUpperCase();
-  if (upper >= "A" && upper <= "Z") return `Key${upper}`;
-  return "";
-}
-
-// src/engine/cdp/runtime.ts
-var RuntimeDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  /**
-   * Evaluate a JavaScript expression string in the page context.
-   */
-  async evaluate(expression) {
-    const result = await this.conn.send("Runtime.evaluate", {
-      expression,
-      returnByValue: true,
-      awaitPromise: true
-    }, this.sessionId);
-    if (result.exceptionDetails) {
-      const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
-      throw new Error(`Evaluation failed: ${msg}`);
-    }
-    return result.result.value;
-  }
-  /**
-   * Call a function with structured arguments in the page context.
-   * This is the CDP equivalent of Playwright's page.evaluate(fn, ...args).
-   *
-   * The function declaration is serialized as a string, and arguments
-   * are passed as CDP CallArgument objects (primitives by value).
-   *
-   * Usage:
-   *   await runtime.callFunctionOn(
-   *     '(selector, prop) => getComputedStyle(document.querySelector(selector))[prop]',
-   *     ['.header', 'color']
-   *   )
-   */
-  async callFunctionOn(functionDeclaration, args) {
-    const docResult = await this.conn.send("Runtime.evaluate", {
-      expression: "document",
-      returnByValue: false
-    }, this.sessionId);
-    const callArgs = args?.map((arg) => {
-      if (arg === void 0) return { unserializableValue: "undefined" };
-      return { value: arg };
-    });
-    const result = await this.conn.send("Runtime.callFunctionOn", {
-      functionDeclaration,
-      objectId: docResult.result.objectId,
-      arguments: callArgs,
-      returnByValue: true,
-      awaitPromise: true
-    }, this.sessionId);
-    if (result.exceptionDetails) {
-      const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
-      throw new Error(`callFunctionOn failed: ${msg}`);
-    }
-    return result.result.value;
-  }
-  /**
-   * Enable the Runtime domain to receive events (like consoleAPICalled).
-   */
-  async enable() {
-    await this.conn.send("Runtime.enable", {}, this.sessionId);
-  }
-};
-
-// src/engine/cdp/css.ts
-var CssDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  async enable() {
-    await this.conn.send("CSS.enable", {}, this.sessionId);
-  }
-  /**
-   * Get computed styles for a DOM node.
-   * Returns all computed CSS properties as key-value pairs.
-   */
-  async getComputedStyle(nodeId) {
-    const result = await this.conn.send("CSS.getComputedStyleForNode", { nodeId }, this.sessionId);
-    const styles = {};
-    for (const { name, value } of result.computedStyle) {
-      styles[name] = value;
-    }
-    return styles;
-  }
-  /**
-   * Get computed styles filtered to specific properties.
-   * More efficient when you only need a few properties.
-   */
-  async getComputedStyleFiltered(nodeId, properties) {
-    const all = await this.getComputedStyle(nodeId);
-    const filtered = {};
-    for (const prop of properties) {
-      if (prop in all) {
-        filtered[prop] = all[prop];
-      }
-    }
-    return filtered;
-  }
-  /**
-   * Get matched CSS rules for a node — includes inline, attribute,
-   * inherited, pseudo-element, and keyframe styles.
-   */
-  async getMatchedStyles(nodeId) {
-    return this.conn.send("CSS.getMatchedStylesForNode", { nodeId }, this.sessionId);
-  }
-};
-
-// src/engine/cdp/snapshot.ts
-var SnapshotDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  async enable() {
-    await this.conn.send("DOMSnapshot.enable", {}, this.sessionId);
-  }
-  /**
-   * Capture full DOM snapshot — one call gets everything.
-   * Returns flattened arrays with string deduplication.
-   */
-  async captureSnapshot(options) {
-    return this.conn.send(
-      "DOMSnapshot.captureSnapshot",
-      {
-        computedStyles: options.computedStyles,
-        includePaintOrder: options.includePaintOrder,
-        includeDOMRects: options.includeDOMRects,
-        includeBlendedBackgroundColors: options.includeBlendedBackgroundColors,
-        includeTextColorOpacities: options.includeTextColorOpacities
-      },
-      this.sessionId
-    );
-  }
-  /**
-   * Helper: resolve a string index from the snapshot's strings array.
-   */
-  resolveString(strings, index) {
-    return strings[index] ?? "";
-  }
-  /**
-   * Helper: extract computed style values for a layout node.
-   *
-   * CDP format: `styles[nodeIndex]` is an array of string indices.
-   * Each index maps to the value of the corresponding property in the
-   * `computedStyles` parameter you passed to `captureSnapshot`.
-   * The property names are known — they're the strings you requested.
-   *
-   * @param strings The strings array from CaptureSnapshotResult
-   * @param styleIndices The style indices for one layout node (from LayoutTreeSnapshot.styles[n])
-   * @param requestedProperties The computedStyles array you passed to captureSnapshot
-   */
-  resolveStyles(strings, styleIndices, requestedProperties) {
-    const result = {};
-    for (let i = 0; i < styleIndices.length && i < requestedProperties.length; i++) {
-      const name = requestedProperties[i];
-      const value = strings[styleIndices[i]];
-      if (name) result[name] = value ?? "";
-    }
-    return result;
-  }
-};
-
-// src/engine/cdp/emulation.ts
-var EmulationDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  /**
-   * Override device metrics (viewport size, scale, mobile mode).
-   */
-  async setDeviceMetrics(config) {
-    await this.conn.send("Emulation.setDeviceMetricsOverride", {
-      width: config.width,
-      height: config.height,
-      deviceScaleFactor: config.deviceScaleFactor ?? 1,
-      mobile: config.mobile ?? false
-    }, this.sessionId);
-  }
-  /**
-   * Clear device metrics override (restore defaults).
-   */
-  async clearDeviceMetrics() {
-    await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
-  }
-  /**
-   * Hide scrollbars (useful for consistent screenshots).
-   */
-  async setScrollbarsHidden(hidden) {
-    await this.conn.send("Emulation.setScrollbarsHidden", { hidden }, this.sessionId);
-  }
-  /**
-   * Emulate reduced motion preference (disable animations for screenshots).
-   */
-  async setReducedMotion(enabled) {
-    await this.conn.send("Emulation.setEmulatedMedia", {
-      features: [{ name: "prefers-reduced-motion", value: enabled ? "reduce" : "" }]
-    }, this.sessionId);
-  }
-};
-
-// src/engine/cdp/network.ts
-var NetworkDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  async enable() {
-    await this.conn.send("Network.enable", {}, this.sessionId);
-  }
-  /**
-   * Get all cookies, optionally filtered by URLs.
-   */
-  async getCookies(urls) {
-    const params = {};
-    if (urls) params.urls = urls;
-    const result = await this.conn.send(
-      "Network.getCookies",
-      params,
-      this.sessionId
-    );
-    return result.cookies;
-  }
-  /**
-   * Set a cookie.
-   */
-  async setCookie(cookie) {
-    const result = await this.conn.send(
-      "Network.setCookie",
-      cookie,
-      this.sessionId
-    );
-    return result.success;
-  }
-  /**
-   * Set multiple cookies at once.
-   */
-  async setCookies(cookies) {
-    await this.conn.send("Network.setCookies", {
-      cookies
-    }, this.sessionId);
-  }
-  /**
-   * Clear all browser cookies.
-   */
-  async clearCookies() {
-    await this.conn.send("Network.clearBrowserCookies", {}, this.sessionId);
-  }
-  /**
-   * Delete specific cookies by name and optional URL/domain.
-   */
-  async deleteCookies(params) {
-    await this.conn.send("Network.deleteCookies", params, this.sessionId);
-  }
-};
-
-// src/engine/cdp/console.ts
-var ConsoleDomain = class {
-  constructor(conn, sessionId) {
-    this.conn = conn;
-    this.sessionId = sessionId;
-  }
-  handlers = /* @__PURE__ */ new Set();
-  messages = [];
-  enabled = false;
-  /**
-   * Enable console capture.
-   * Must call Runtime.enable first to receive consoleAPICalled events.
-   */
-  async enable() {
-    if (this.enabled) return;
-    this.enabled = true;
-    await this.conn.send("Runtime.enable", {}, this.sessionId);
-    this.conn.on("Runtime.consoleAPICalled", (params) => {
-      const data = params;
-      const text = data.args.map((arg) => arg.value !== void 0 ? String(arg.value) : arg.description ?? "").join(" ");
-      const frame = data.stackTrace?.callFrames[0];
-      const message = {
-        type: data.type,
-        text,
-        url: frame?.url,
-        lineNumber: frame?.lineNumber,
-        timestamp: data.timestamp
-      };
-      this.messages.push(message);
-      for (const handler of this.handlers) {
-        handler(message);
-      }
-    });
-  }
-  /** Subscribe to console messages. */
-  onMessage(handler) {
-    this.handlers.add(handler);
-  }
-  offMessage(handler) {
-    this.handlers.delete(handler);
-  }
-  /** Get all captured messages. */
-  getMessages() {
-    return [...this.messages];
-  }
-  /** Get only errors and warnings. */
-  getErrors() {
-    return this.messages.filter((m) => m.type === "error" || m.type === "warning");
-  }
-  /** Clear captured messages. */
-  clear() {
-    this.messages = [];
-  }
-};
-
-// src/engine/cdp/wait.ts
-function buildFingerprint(elements) {
-  return elements.filter((e) => e.actions.length > 0).map((e) => `${e.role}:${e.label}:${e.enabled}`).sort().join("|");
-}
-async function waitForStableTree(getSnapshot, options) {
-  const interval = options?.interval ?? 100;
-  const stableTime = options?.stableTime ?? 300;
-  const timeout = options?.timeout ?? 1e4;
-  let lastFingerprint = "";
-  let stableSince = Date.now();
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const elements2 = await getSnapshot();
-    const fingerprint = buildFingerprint(elements2);
-    if (fingerprint === lastFingerprint) {
-      if (Date.now() - stableSince >= stableTime) {
-        return { elements: elements2, timedOut: false };
-      }
-    } else {
-      lastFingerprint = fingerprint;
-      stableSince = Date.now();
-    }
-    await new Promise((r) => setTimeout(r, interval));
-  }
-  const elements = await getSnapshot();
-  return { elements, timedOut: true };
-}
-async function waitForHydration(_conn, getSnapshot, evaluate, options) {
-  const timeout = options?.timeout ?? 1e4;
-  const stableTime = options?.stableTime ?? 500;
-  const minElements = options?.minElements ?? 1;
-  const settleTime = options?.settleTime ?? 200;
-  const deadline = Date.now() + timeout;
-  let hydrationDetected = false;
-  let reason = "timeout";
-  try {
-    const marker = await evaluate(`(function(){
-      if (document.readyState !== 'complete') return null;
-      if (typeof window === 'undefined') return null;
-      var hasNext = typeof window.__NEXT_DATA__ !== 'undefined';
-      var hasReact = typeof window.__REACT_DEVTOOLS_GLOBAL_HOOK__ !== 'undefined';
-      var rootHydrated = false;
-      try {
-        var root = document.querySelector('#__next, #root, [data-reactroot]');
-        rootHydrated = !!root && root.children.length > 0;
-      } catch(e) {}
-      return { hasNext: hasNext, hasReact: hasReact, rootHydrated: rootHydrated };
-    })()`);
-    if (marker && typeof marker === "object") {
-      const m = marker;
-      if (m.rootHydrated) {
-        hydrationDetected = true;
-        reason = m.hasNext ? "nextjs-marker" : m.hasReact ? "react-marker" : "root-populated";
-      }
-    }
-  } catch {
-  }
-  let lastFingerprint = "";
-  let stableSince = Date.now();
-  let lastElements = [];
-  while (Date.now() < deadline) {
-    const elements = await getSnapshot();
-    lastElements = elements;
-    const fingerprint = buildFingerprint(elements);
-    const hasEnough = elements.filter((e) => e.actions.length > 0).length >= minElements;
-    if (fingerprint === lastFingerprint && hasEnough) {
-      if (Date.now() - stableSince >= stableTime) {
-        if (settleTime > 0) {
-          await new Promise((r) => setTimeout(r, settleTime));
-        }
-        const finalElements = await getSnapshot();
-        return {
-          elements: finalElements,
-          timedOut: false,
-          hydrationDetected: true,
-          reason: hydrationDetected ? reason : "ax-tree-stable"
-        };
-      }
-    } else {
-      lastFingerprint = fingerprint;
-      stableSince = Date.now();
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-  return {
-    elements: lastElements,
-    timedOut: true,
-    hydrationDetected: false,
-    reason: "timeout"
-  };
-}
-async function waitForStable(conn, getSnapshot, options) {
-  const eventName = options?.eventName ?? "Accessibility.nodesUpdated";
-  const timeout = options?.timeout ?? 1e4;
-  const stableTime = options?.stableTime ?? 300;
-  const deadline = Date.now() + timeout;
-  let changed = false;
-  const handler = () => {
-    changed = true;
-  };
-  conn.on(eventName, handler);
-  let elements = await getSnapshot();
-  let lastFingerprint = buildFingerprint(elements);
-  let stableSince = Date.now();
-  try {
-    while (Date.now() < deadline) {
-      if (changed) {
-        changed = false;
-        elements = await getSnapshot();
-        const fingerprint = buildFingerprint(elements);
-        if (fingerprint !== lastFingerprint) {
-          lastFingerprint = fingerprint;
-          stableSince = Date.now();
-        }
-      }
-      if (Date.now() - stableSince >= stableTime) {
-        return { elements, timedOut: false };
-      }
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    elements = await getSnapshot();
-    return { elements, timedOut: true };
-  } finally {
-    conn.off(eventName, handler);
-  }
-}
-
-// src/engine/driver.ts
-var import_pixelmatch = __toESM(require("pixelmatch"));
-var import_pngjs = require("pngjs");
-init_serialize();
-
-// src/engine/observe.ts
-init_serialize();
-function observe(elements, options = {}) {
-  let filtered = elements.filter((e) => e.actions.length > 0);
-  if (options.role) {
-    const role = options.role.toLowerCase();
-    filtered = filtered.filter((e) => e.role === role);
-  }
-  if (options.intent) {
-    const words = options.intent.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-    if (words.length > 0) {
-      filtered = filtered.filter((e) => {
-        const labelLower = e.label.toLowerCase();
-        return words.some((w) => labelLower.includes(w));
-      });
-    }
-  }
-  const descriptors = filtered.map((el) => ({
-    elementId: el.id,
-    description: describeAction(el),
-    actions: el.actions,
-    role: el.role,
-    label: el.label,
-    serialized: serializeElement(el)
-  }));
-  if (options.limit && descriptors.length > options.limit) {
-    return descriptors.slice(0, options.limit);
-  }
-  return descriptors;
-}
-function describeAction(el) {
-  const actionVerb = el.actions[0] === "press" ? "Click" : el.actions[0] === "setValue" ? "Type into" : el.actions[0] === "showMenu" ? "Open" : "Interact with";
-  const state = el.enabled ? "" : " (disabled)";
-  return `${actionVerb} ${el.role} "${el.label}"${state}`;
-}
-
-// src/engine/extract.ts
-function extractFromAXTree(elements, schema) {
-  const result = {};
-  for (const [fieldName, field] of Object.entries(schema)) {
-    const match = findMatchingElement(elements, field);
-    if (!match) {
-      result[fieldName] = field.extract === "exists" ? false : null;
-      continue;
-    }
-    switch (field.extract) {
-      case "text":
-        result[fieldName] = match.label || match.value || null;
-        break;
-      case "value":
-        result[fieldName] = match.value || null;
-        break;
-      case "exists":
-        result[fieldName] = true;
-        break;
-      default:
-        result[fieldName] = null;
-    }
-  }
-  return result;
-}
-function extractList(elements, options) {
-  let filtered = elements;
-  if (options.role) {
-    filtered = filtered.filter((e) => e.role === options.role);
-  }
-  if (options.labelPattern) {
-    filtered = filtered.filter((e) => options.labelPattern.test(e.label));
-  }
-  const items = filtered.map((e) => ({
-    label: e.label,
-    value: e.value,
-    id: e.id
-  }));
-  if (options.maxItems) {
-    return items.slice(0, options.maxItems);
-  }
-  return items;
-}
-function extractPageMeta(elements) {
-  return {
-    headings: elements.filter((e) => e.role === "heading").map((e) => e.label),
-    links: elements.filter((e) => e.role === "link").map((e) => ({ label: e.label, id: e.id })),
-    inputs: elements.filter((e) => e.role === "textfield").map((e) => ({ label: e.label, value: e.value, id: e.id })),
-    buttons: elements.filter((e) => e.role === "button").map((e) => ({ label: e.label, enabled: e.enabled, id: e.id }))
-  };
-}
-function findMatchingElement(elements, field) {
-  for (const el of elements) {
-    if (field.role && el.role !== field.role) continue;
-    if (field.label) {
-      if (!el.label.toLowerCase().includes(field.label.toLowerCase())) continue;
-    }
-    return el;
-  }
-  return null;
-}
-
-// src/engine/cache.ts
-var ResolutionCache = class {
-  cache = /* @__PURE__ */ new Map();
-  maxEntries;
-  ttl;
-  minConfidence;
-  constructor(options = {}) {
-    this.maxEntries = options.maxEntries ?? 100;
-    this.ttl = options.ttl ?? 5 * 60 * 1e3;
-    this.minConfidence = options.minConfidence ?? 0.7;
-  }
-  /**
-   * Look up a cached resolution for an intent.
-   * Returns the cached elementId if found and not expired, null otherwise.
-   */
-  get(intent) {
-    const key = this.normalizeKey(intent);
-    const entry = this.cache.get(key);
-    if (!entry) return null;
-    if (Date.now() - entry.createdAt > this.ttl) {
-      this.cache.delete(key);
-      return null;
-    }
-    entry.hits++;
-    entry.lastHit = Date.now();
-    return entry;
-  }
-  /**
-   * Cache a successful resolution.
-   * Only caches if confidence meets threshold.
-   */
-  set(intent, elementId, metadata) {
-    if (metadata.confidence < this.minConfidence) return;
-    const key = this.normalizeKey(intent);
-    if (this.cache.size >= this.maxEntries && !this.cache.has(key)) {
-      this.evictOldest();
-    }
-    this.cache.set(key, {
-      intent,
-      elementId,
-      role: metadata.role,
-      label: metadata.label,
-      confidence: metadata.confidence,
-      createdAt: Date.now(),
-      hits: 0,
-      lastHit: 0
-    });
-  }
-  /**
-   * Invalidate a specific cache entry (e.g., when element is gone).
-   */
-  invalidate(intent) {
-    this.cache.delete(this.normalizeKey(intent));
-  }
-  /**
-   * Clear all cache entries (e.g., after navigation).
-   */
-  clear() {
-    this.cache.clear();
-  }
-  /**
-   * Get cache statistics.
-   */
-  stats() {
-    let totalHits = 0;
-    let totalConfidence = 0;
-    for (const entry of this.cache.values()) {
-      totalHits += entry.hits;
-      totalConfidence += entry.confidence;
-    }
-    return {
-      entries: this.cache.size,
-      totalHits,
-      avgConfidence: this.cache.size > 0 ? totalConfidence / this.cache.size : 0
-    };
-  }
-  normalizeKey(intent) {
-    return intent.toLowerCase().trim();
-  }
-  evictOldest() {
-    let oldest = null;
-    let oldestTime = Infinity;
-    for (const [key, entry] of this.cache) {
-      const lastUsed = entry.lastHit || entry.createdAt;
-      if (lastUsed < oldestTime) {
-        oldestTime = lastUsed;
-        oldest = key;
-      }
-    }
-    if (oldest) this.cache.delete(oldest);
-  }
-};
-
-// src/engine/modality.ts
-function assessUnderstanding(elements, options = {}) {
-  const threshold = options.threshold ?? 0.6;
-  if (elements.length === 0) {
-    return {
-      score: 0,
-      needsScreenshot: true,
-      dimensions: { textQuality: 0, semanticRelevance: 0, structuralClarity: 0, specialCasePenalty: 0 },
-      reasoning: "Empty AX tree \u2014 screenshot required for any understanding"
-    };
-  }
-  const textQuality = scoreTextQuality(elements);
-  const semanticRelevance = scoreSemanticRelevance(elements);
-  const structuralClarity = scoreStructuralClarity(elements);
-  const specialCasePenalty = scoreSpecialCases(elements);
-  const raw = textQuality * 0.35 + semanticRelevance * 0.3 + structuralClarity * 0.2;
-  const score = Math.max(0, Math.min(1, raw - specialCasePenalty));
-  const needsScreenshot = score < threshold;
-  const reasoning = buildReasoning(score, threshold, { textQuality, semanticRelevance, structuralClarity, specialCasePenalty });
-  return {
-    score,
-    needsScreenshot,
-    dimensions: { textQuality, semanticRelevance, structuralClarity, specialCasePenalty },
-    reasoning
-  };
-}
-function scoreTextQuality(elements) {
-  if (elements.length === 0) return 0;
-  let labeled = 0;
-  let meaningful = 0;
-  for (const el of elements) {
-    if (el.label) {
-      labeled++;
-      if (el.label.length > 1 && /[a-zA-Z]/.test(el.label)) {
-        meaningful++;
-      }
-    }
-  }
-  const labelRatio = labeled / elements.length;
-  const meaningfulRatio = elements.length > 0 ? meaningful / elements.length : 0;
-  return labelRatio * 0.4 + meaningfulRatio * 0.6;
-}
-function scoreSemanticRelevance(elements) {
-  const interactive = elements.filter((e) => e.actions.length > 0);
-  if (interactive.length === 0) return 0.5;
-  let wellLabeled = 0;
-  for (const el of interactive) {
-    if (el.label && el.label.length > 1) {
-      wellLabeled++;
-    }
-  }
-  return wellLabeled / interactive.length;
-}
-function scoreStructuralClarity(elements) {
-  const roles = new Set(elements.map((e) => e.role));
-  const roleDiversity = Math.min(1, roles.size / 5);
-  const count = elements.length;
-  let countScore;
-  if (count < 3) {
-    countScore = count / 3;
-  } else if (count > 500) {
-    countScore = Math.max(0.3, 1 - (count - 500) / 2e3);
-  } else {
-    countScore = 1;
-  }
-  return roleDiversity * 0.5 + countScore * 0.5;
-}
-function scoreSpecialCases(elements) {
-  let penalty = 0;
-  const roles = new Set(elements.map((e) => e.role));
-  if (roles.size === 1 && elements.length > 5) {
-    penalty += 0.3;
-  }
-  if (elements.length < 3) {
-    penalty += 0.2;
-  }
-  const interactive = elements.filter((e) => e.actions.length > 0);
-  const unlabeled = interactive.filter((e) => !e.label || e.label.length <= 1);
-  if (interactive.length > 0 && unlabeled.length / interactive.length > 0.5) {
-    penalty += 0.2;
-  }
-  return Math.min(0.8, penalty);
-}
-function buildReasoning(score, threshold, dims) {
-  const parts = [];
-  if (dims.textQuality < 0.4) parts.push("low text quality (many unlabeled elements)");
-  if (dims.semanticRelevance < 0.5) parts.push("poor semantic relevance (interactive elements lack labels)");
-  if (dims.structuralClarity < 0.4) parts.push("weak structure (low role diversity)");
-  if (dims.specialCasePenalty > 0.1) parts.push("special case detected (possible Canvas/custom rendering)");
-  if (parts.length === 0) {
-    return score >= threshold ? "AX tree provides sufficient understanding \u2014 screenshot not needed" : "AX tree quality is borderline \u2014 screenshot recommended for accuracy";
-  }
-  const action = score >= threshold ? "AX tree usable despite" : "Screenshot recommended due to";
-  return `${action}: ${parts.join(", ")}`;
-}
-
-// src/engine/shadow-dom.ts
-async function extractShadowElements(runtime) {
-  const result = await runtime.evaluate(`
-    (function() {
-      const found = [];
-
-      function walk(root) {
-        const children = root.querySelectorAll ? Array.from(root.querySelectorAll('*')) : [];
-        for (const el of children) {
-          // Descend into open shadow roots
-          if (el.shadowRoot) {
-            const shadowChildren = Array.from(el.shadowRoot.querySelectorAll('*'));
-            for (const shadowEl of shadowChildren) {
-              const rect = shadowEl.getBoundingClientRect();
-              found.push({
-                tagName: shadowEl.tagName.toLowerCase(),
-                role: shadowEl.getAttribute('role'),
-                label: shadowEl.getAttribute('aria-label') || shadowEl.getAttribute('aria-labelledby'),
-                textContent: (shadowEl.textContent || '').trim().slice(0, 200) || null,
-                bounds: rect.width > 0 || rect.height > 0
-                  ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-                  : null,
-              });
-              // Recurse into nested shadow roots
-              if (shadowEl.shadowRoot) {
-                walk(shadowEl.shadowRoot);
-              }
-            }
-          }
-        }
-      }
-
-      walk(document);
-      return found;
-    })()
-  `);
-  if (!Array.isArray(result)) return [];
-  return result.map((item) => ({
-    tagName: String(item.tagName ?? "unknown"),
-    role: item.role != null ? String(item.role) : null,
-    label: item.label != null ? String(item.label) : null,
-    textContent: item.textContent != null ? String(item.textContent) : null,
-    bounds: item.bounds != null ? item.bounds : null
-  }));
-}
-
-// src/engine/driver.ts
-var EngineDriver = class {
-  browser = new BrowserManager();
-  conn = new CdpConnection();
-  // Resolution cache initialized in constructor or with defaults
-  target;
-  _page;
-  ax;
-  dom;
-  input;
-  runtime;
-  css;
-  snapshot;
-  emulation;
-  network;
-  console;
-  targetId = null;
-  sessionId = null;
-  _currentUrl = "";
-  launched = false;
-  resolutionCache = new ResolutionCache();
-  // ─── Lifecycle ──────────────────────────────────────────
-  async launch(options = {}) {
-    const wsUrl = await this.browser.launch(options);
-    await this.conn.connect(wsUrl);
-    this.target = new TargetDomain(this.conn);
-    this.launched = true;
-    this.targetId = await this.target.createPage("about:blank");
-    this.sessionId = await this.target.attach(this.targetId);
-    this._page = new PageDomain(this.conn, this.sessionId);
-    this.ax = new AccessibilityDomain(this.conn, this.sessionId);
-    this.dom = new DomDomain(this.conn, this.sessionId);
-    this.input = new InputDomain(this.conn, this.sessionId);
-    this.runtime = new RuntimeDomain(this.conn, this.sessionId);
-    this.css = new CssDomain(this.conn, this.sessionId);
-    this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
-    this.emulation = new EmulationDomain(this.conn, this.sessionId);
-    this.network = new NetworkDomain(this.conn, this.sessionId);
-    this.console = new ConsoleDomain(this.conn, this.sessionId);
-    await this._page.enableLifecycleEvents();
-    await this.ax.enable();
-    await this.console.enable();
-    if (options.viewport) {
-      await this.emulation.setDeviceMetrics(options.viewport);
-    }
-  }
-  async close() {
-    if (this.targetId) {
-      await this.target.close(this.targetId).catch(() => {
-      });
-      this.targetId = null;
-    }
-    await this.conn.close();
-    await this.browser.close();
-    this.launched = false;
-  }
-  /**
-   * Release the CDP WebSocket for this driver without terminating the browser.
-   * Used by one-shot CLI commands that attach to a shared browser-server via
-   * connectExisting() — they must drop their WebSocket at the end of the
-   * command so the node process can exit, but the browser-server's Chrome
-   * process must keep running for subsequent commands.
-   *
-   * Closes the per-command tab that was spawned in connectExisting(), then
-   * closes the WebSocket. Does NOT call this.browser.close() (which would
-   * terminate the whole browser-server process).
-   */
-  async disconnect() {
-    if (this.targetId) {
-      await this.target.close(this.targetId).catch(() => {
-      });
-      this.targetId = null;
-    }
-    await this.conn.close().catch(() => {
-    });
-    this.launched = false;
-  }
-  get isLaunched() {
-    return this.launched;
-  }
-  // ─── Navigation ─────────────────────────────────────────
-  async navigate(url, options = {}) {
-    const waitFor = options.waitFor ?? "stable";
-    await this._page.navigate(url);
-    if (waitFor === "stable") {
-      await waitForStable(
-        this.conn,
-        () => this.ax.getSnapshot(),
-        { timeout: options.timeout ?? 1e4, eventName: "Accessibility.nodesUpdated" }
-      );
-    } else if (waitFor === "load") {
-      await waitForStableTree(
-        () => this.ax.getSnapshot(),
-        { timeout: options.timeout ?? 1e4 }
-      );
-    }
-    this._currentUrl = await this.runtime.evaluate("location.href") ?? url;
-    this.resolutionCache.clear();
-  }
-  get url() {
-    return this._currentUrl;
-  }
-  /** BrowserDriver interface: currentUrl alias */
-  get currentUrl() {
-    return this._currentUrl;
-  }
-  // ─── Element Discovery (LLM-native) ────────────────────
-  /**
-   * Discover elements on the page with filtering and chunking.
-   * Designed for LLM context windows — returns only actionable elements.
-   */
-  async discover(options = {}) {
-    const filter = options.filter ?? "interactive";
-    const elements = await this.ax.getSnapshot();
-    let filtered;
-    switch (filter) {
-      case "interactive":
-        filtered = elements.filter((e) => e.actions.length > 0);
-        break;
-      case "leaf":
-        filtered = elements.filter((e) => e.label && e.role !== "group");
-        break;
-      case "all":
-      default:
-        filtered = elements;
-    }
-    if (options.chunk && options.maxTokens) {
-      filtered = chunkElements(filtered, options.maxTokens);
-    }
-    if (options.serialize) {
-      const snap = {
-        url: this._currentUrl,
-        platform: "web",
-        elements: filtered,
-        timestamp: Date.now()
-      };
-      return serializeSnapshot(snap);
-    }
-    return filtered;
-  }
-  /**
-   * 3-tier element resolution with auto-caching:
-   * Tier 1: Check cache → Tier 2: queryAXTree → Tier 3: Jaro-Winkler → Tier 4: vision fallback.
-   * Delegates to findWithDiagnostics() and returns the matched element or null.
-   */
-  async find(name, options = {}) {
-    const diag = await this.findWithDiagnostics(name, options);
-    if (!diag.elementId) return null;
-    const elements = await this.ax.getSnapshot();
-    return elements.find((e) => e.id === diag.elementId) ?? null;
-  }
-  /**
-   * Like find(), but returns rich diagnostics for agent error feedback.
-   * Includes confidence, resolution tier, and fuzzy alternatives when not found.
-   */
-  async findWithDiagnostics(name, options = {}) {
-    const { jaroWinkler: jaroWinkler2 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
-    const cacheKey = options.role ? `${name}:${options.role}` : name;
-    const cached = this.resolutionCache.get(cacheKey);
-    if (cached) {
-      const elements = await this.ax.getSnapshot();
-      const match = elements.find((e) => e.id === cached.elementId);
-      if (match) {
-        const interactive2 = elements.filter((e) => e.actions.length > 0);
-        return {
-          elementId: cached.elementId,
-          confidence: cached.confidence,
-          tier: 1,
-          tierName: "cache",
-          alternatives: [],
-          totalInteractive: interactive2.length
-        };
-      }
-      this.resolutionCache.invalidate(cacheKey);
-    }
-    const queryResult = await this.ax.queryAXTree({
-      accessibleName: name,
-      role: options.role
-    });
-    if (queryResult.length > 0) {
-      const el = queryResult[0];
-      this.resolutionCache.set(cacheKey, el.id, {
-        role: el.role,
-        label: el.label,
-        confidence: 1
-      });
-      const allElements2 = await this.ax.getSnapshot();
-      const interactive2 = allElements2.filter((e) => e.actions.length > 0);
-      return {
-        elementId: el.id,
-        confidence: 0.95,
-        tier: 2,
-        tierName: "queryAXTree",
-        alternatives: [],
-        totalInteractive: interactive2.length
-      };
-    }
-    const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
-    const allElements = await this.ax.getSnapshot();
-    const interactive = allElements.filter((e) => e.actions.length > 0);
-    const result = resolve3({
-      intent: options.role ? `${name} ${options.role}` : name,
-      elements: allElements,
-      mode: "algorithmic"
-    });
-    if (result.confidence >= 0.5 && result.element) {
-      this.resolutionCache.set(cacheKey, result.element.id, {
-        role: result.element.role,
-        label: result.element.label,
-        confidence: result.confidence
-      });
-      return {
-        elementId: result.element.id,
-        confidence: result.confidence,
-        tier: 3,
-        tierName: "jaro-winkler",
-        alternatives: [],
-        totalInteractive: interactive.length
-      };
-    }
-    const nameLower = name.toLowerCase();
-    const scored = interactive.filter((e) => e.label).map((e) => ({
-      name: e.label,
-      role: e.role,
-      score: jaroWinkler2(nameLower, e.label.toLowerCase())
-    })).sort((a, b) => b.score - a.score).slice(0, 5);
-    let screenshot;
-    try {
-      const buf = await this.screenshot();
-      screenshot = buf.toString("base64");
-    } catch {
-    }
-    return {
-      elementId: null,
-      confidence: 0,
-      tier: 4,
-      tierName: "vision",
-      alternatives: scored,
-      totalInteractive: interactive.length,
-      screenshot
-    };
-  }
-  // ─── Interactions ───────────────────────────────────────
-  async click(elementId) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const sid = this.sessionId ?? void 0;
-    let domClickWorked = false;
-    try {
-      const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId }, sid);
-      if (resolved?.object?.objectId) {
-        await this.conn.send("Runtime.callFunctionOn", {
-          objectId: resolved.object.objectId,
-          functionDeclaration: "function() { this.click(); }"
-        }, sid);
-        domClickWorked = true;
-      }
-    } catch {
-    }
-    if (!domClickWorked) {
-      const { x, y } = await this.dom.getElementCenter(backendNodeId);
-      await this.input.click(x, y);
-    }
-  }
-  async type(elementId, text) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.click(x, y);
-    await this.input.type(text);
-  }
-  async fill(elementId, value) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.click(x, y);
-    await this.runtime.callFunctionOn(
-      '() => { if (document.activeElement) { document.activeElement.value = ""; document.activeElement.dispatchEvent(new Event("input", { bubbles: true })); } }'
-    );
-    await this.input.type(value);
-  }
-  async hover(elementId) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.hover(x, y);
-  }
-  async pressKey(key) {
-    await this.input.pressKey(key);
-  }
-  async scroll(deltaY, x = 0, y = 0) {
-    await this.input.scroll(x, y, 0, deltaY);
-  }
-  // ─── Interaction Assertions ─────────────────────────────
-  /**
-   * Before/after state capture around an action.
-   * Returns element diff and pixel diff.
-   */
-  async actAndCapture(action) {
-    const [beforeElements, beforeScreenshot] = await Promise.all([
-      this.ax.getSnapshot(),
-      this._page.screenshot()
-    ]);
-    await action();
-    await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
-    await this.runtime.evaluate(
-      "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
-    ).catch(() => {
-    });
-    const [afterElements, afterScreenshot] = await Promise.all([
-      this.ax.getSnapshot(),
-      this._page.screenshot()
-    ]);
-    const beforeIds = new Set(beforeElements.map((e) => e.id));
-    const afterIds = new Set(afterElements.map((e) => e.id));
-    const addedElements = afterElements.filter((e) => !beforeIds.has(e.id));
-    const removedElements = beforeElements.filter((e) => !afterIds.has(e.id));
-    let pixelDiff = 0;
-    try {
-      const beforePng = import_pngjs.PNG.sync.read(beforeScreenshot);
-      const afterPng = import_pngjs.PNG.sync.read(afterScreenshot);
-      if (beforePng.width === afterPng.width && beforePng.height === afterPng.height) {
-        const { width, height } = beforePng;
-        const diffPng = new import_pngjs.PNG({ width, height });
-        pixelDiff = (0, import_pixelmatch.default)(beforePng.data, afterPng.data, diffPng.data, width, height, {
-          threshold: 0.1,
-          includeAA: false
-        });
-      }
-    } catch {
-    }
-    return {
-      before: { elements: beforeElements, screenshot: beforeScreenshot },
-      after: { elements: afterElements, screenshot: afterScreenshot },
-      diff: { addedElements, removedElements, pixelDiff }
-    };
-  }
-  /**
-   * Set a <select> element's value and dispatch change event.
-   */
-  async select(elementId, value) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.click(x, y);
-    await new Promise((r) => setTimeout(r, 100));
-    await this.runtime.callFunctionOn(
-      '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
-      [value]
-    );
-  }
-  /**
-   * Toggle a checkbox element.
-   */
-  async check(elementId) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.click(x, y);
-  }
-  /**
-   * Double-click an element.
-   */
-  async doubleClick(elementId) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    await this.input.click(x, y);
-    await new Promise((r) => setTimeout(r, 50));
-    await this.input.click(x, y);
-  }
-  /**
-   * Right-click an element (opens context menu).
-   */
-  async rightClick(elementId) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const { x, y } = await this.dom.getElementCenter(backendNodeId);
-    const sid = this.sessionId ?? void 0;
-    await this.conn.send("Input.dispatchMouseEvent", {
-      type: "mousePressed",
-      x,
-      y,
-      button: "right",
-      buttons: 2,
-      clickCount: 1
-    }, sid);
-    await this.conn.send("Input.dispatchMouseEvent", {
-      type: "mouseReleased",
-      x,
-      y,
-      button: "right",
-      buttons: 0,
-      clickCount: 1
-    }, sid);
-  }
-  /**
-   * Wait until an element with the given name (and optional role) appears in the AX tree.
-   * Polls at 200ms intervals. Throws on timeout.
-   */
-  async waitForElement(name, options) {
-    const timeout = options?.timeout ?? 1e4;
-    const deadline = Date.now() + timeout;
-    const interval = 200;
-    while (Date.now() < deadline) {
-      const elements = await this.ax.getSnapshot();
-      const match = elements.find((e) => {
-        const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase());
-        const roleMatch = !options?.role || e.role === options.role;
-        return nameMatch && roleMatch;
-      });
-      if (match) return match;
-      await new Promise((r) => setTimeout(r, interval));
-    }
-    throw new Error(
-      `waitForElement: element "${name}"${options?.role ? ` (role: ${options.role})` : ""} not found within ${timeout}ms`
-    );
-  }
-  // ─── Screenshots ────────────────────────────────────────
-  async screenshot(options = {}) {
-    return this._page.screenshot(options);
-  }
-  async screenshotElement(elementId) {
-    const backendNodeId = this.ax.getBackendNodeId(elementId);
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-    const model = await this.dom.getBoxModel(backendNodeId);
-    const q = model.content;
-    const x = Math.min(q[0], q[2], q[4], q[6]);
-    const y = Math.min(q[1], q[3], q[5], q[7]);
-    return this._page.screenshot({
-      clip: { x, y, width: model.width, height: model.height }
-    });
-  }
-  // ─── Page State ─────────────────────────────────────────
-  /**
-   * One-call page state capture — combines DOMSnapshot, AX tree, and screenshot.
-   */
-  async captureState(options = {}) {
-    const state = {
-      url: this._currentUrl,
-      timestamp: Date.now()
-    };
-    const promises = [];
-    if (options.computedStyles) {
-      promises.push(
-        this.snapshot.captureSnapshot({
-          computedStyles: options.computedStyles
-        }).then((result) => {
-          state.domSnapshot = result;
-        })
-      );
-    }
-    if (options.includeAXTree !== false) {
-      promises.push(
-        this.ax.getSnapshot().then((elements) => {
-          state.axTree = elements;
-        })
-      );
-    }
-    if (options.includeScreenshot) {
-      promises.push(
-        this._page.screenshot().then((buf) => {
-          state.screenshot = buf;
-        })
-      );
-    }
-    await Promise.all(promises);
-    return state;
-  }
-  /** Get AX tree snapshot. */
-  async getSnapshot() {
-    return this.ax.getSnapshot();
-  }
-  async evaluate(exprOrFn, ...args) {
-    if (args.length > 0) {
-      return this.runtime.callFunctionOn(exprOrFn, args);
-    }
-    return this.runtime.evaluate(exprOrFn);
-  }
-  // ─── DOM Queries ────────────────────────────────────────
-  async querySelector(selector) {
-    const doc = await this.dom.getDocument();
-    return this.dom.querySelector(doc.root.nodeId, selector);
-  }
-  async querySelectorAll(selector) {
-    const doc = await this.dom.getDocument();
-    return this.dom.querySelectorAll(doc.root.nodeId, selector);
-  }
-  async getOuterHTML(nodeId) {
-    return this.dom.getOuterHTML(nodeId);
-  }
-  async getAttributes(nodeId) {
-    return this.dom.getAttributes(nodeId);
-  }
-  async getComputedStyle(nodeId, properties) {
-    if (properties) {
-      return this.css.getComputedStyleFiltered(nodeId, properties);
-    }
-    return this.css.getComputedStyle(nodeId);
-  }
-  // ─── CSS Injection ──────────────────────────────────────
-  async addStyleTag(css) {
-    return this._page.addStyleTag(css);
-  }
-  // ─── Viewport ───────────────────────────────────────────
-  async setViewport(config) {
-    await this.emulation.setDeviceMetrics(config);
-  }
-  async clearViewport() {
-    await this.emulation.clearDeviceMetrics();
-  }
-  // ─── Cookies / Auth ─────────────────────────────────────
-  async getCookies(urls) {
-    return this.network.getCookies(urls);
-  }
-  async setCookies(cookies) {
-    return this.network.setCookies(cookies);
-  }
-  async clearCookies() {
-    return this.network.clearCookies();
-  }
-  // ─── Console ────────────────────────────────────────────
-  getConsoleMessages() {
-    return this.console.getMessages();
-  }
-  getConsoleErrors() {
-    return this.console.getErrors();
-  }
-  clearConsole() {
-    this.console.clear();
-  }
-  // ─── Content ────────────────────────────────────────────
-  async content() {
-    return this.runtime.evaluate("document.documentElement.outerHTML");
-  }
-  async title() {
-    return this.runtime.evaluate("document.title");
-  }
-  async textContent(selector) {
-    return this.runtime.callFunctionOn(
-      "(sel) => { const el = document.querySelector(sel); return el ? el.textContent : null; }",
-      [selector]
-    );
-  }
-  async getAttribute(selector, attribute) {
-    return this.runtime.callFunctionOn(
-      "(sel, attr) => { const el = document.querySelector(sel); return el ? el.getAttribute(attr) : null; }",
-      [selector, attribute]
-    );
-  }
-  // ─── LLM-Native: Observe ─────────────────────────────────
-  /**
-   * Preview what actions are possible without executing.
-   * Returns serializable descriptors for act().
-   */
-  async observe(options) {
-    const elements = await this.ax.getSnapshot();
-    return observe(elements, options);
-  }
-  // ─── LLM-Native: Extract ───────────────────────────────
-  /**
-   * Extract structured data from AX tree using a schema.
-   */
-  async extract(schema) {
-    const elements = await this.ax.getSnapshot();
-    return extractFromAXTree(elements, schema);
-  }
-  /**
-   * Extract a list of repeated elements.
-   */
-  async extractItems(options) {
-    const elements = await this.ax.getSnapshot();
-    return extractList(elements, options);
-  }
-  /**
-   * Extract page-level metadata (headings, links, inputs, buttons).
-   */
-  async extractMeta() {
-    const elements = await this.ax.getSnapshot();
-    return extractPageMeta(elements);
-  }
-  // ─── LLM-Native: Adaptive Modality ─────────────────────
-  /**
-   * Assess how well the AX tree captures the page.
-   * Returns a score and whether a screenshot is recommended.
-   */
-  async assessUnderstanding(options) {
-    const elements = await this.ax.getSnapshot();
-    return assessUnderstanding(elements, options);
-  }
-  // ─── Coverage Reporting ────────────────────────────────
-  /**
-   * Report AX tree coverage against estimated visible DOM elements.
-   * Surfaces blind spots: shadow DOM, canvas, iframes.
-   */
-  async getCoverage() {
-    const gaps = [];
-    const axElements = await this.ax.getSnapshot();
-    const axTreeCount = axElements.length;
-    const estimatedVisible = await this.runtime.evaluate(`
-      (function() {
-        const all = document.querySelectorAll('*');
-        let count = 0;
-        for (const el of all) {
-          if (el.getAttribute('aria-hidden') === 'true') continue;
-          if (el.offsetWidth > 0 || el.offsetHeight > 0) count++;
-        }
-        return count;
-      })()
-    `);
-    const canvasCount = await this.runtime.evaluate(
-      `document.querySelectorAll('canvas').length`
-    );
-    const iframeCount = await this.runtime.evaluate(
-      `document.querySelectorAll('iframe').length`
-    );
-    const shadowElements = await extractShadowElements(this.runtime);
-    const shadowDomCount = shadowElements.length;
-    const recovered = shadowDomCount;
-    if (canvasCount > 0) {
-      gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? "s" : ""} (invisible to AX tree)`);
-    }
-    if (iframeCount > 0) {
-      gaps.push(`${iframeCount} iframe${iframeCount > 1 ? "s" : ""} (separate AX tree${iframeCount > 1 ? "s" : ""})`);
-    }
-    if (shadowDomCount > 0) {
-      gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? "s" : ""} (open shadow root \u2014 recovered via piercing)`);
-    }
-    const safeVisible = estimatedVisible > 0 ? estimatedVisible : 1;
-    const coveragePercent = Math.min(100, Math.round(axTreeCount / safeVisible * 100));
-    if (coveragePercent < 50) {
-      gaps.push(`Low AX coverage: ${coveragePercent}% of visible DOM captured`);
-    }
-    return {
-      axTreeCount,
-      estimatedVisible,
-      coveragePercent,
-      shadowDomCount,
-      canvasCount,
-      iframeCount,
-      recovered,
-      gaps
-    };
-  }
-  // ─── LLM-Native: Cache ─────────────────────────────────
-  /** Get resolution cache statistics. */
-  get cacheStats() {
-    return this.resolutionCache.stats();
-  }
-  /** Configure the resolution cache. */
-  configureCache(options) {
-    this.resolutionCache = new ResolutionCache(options);
-  }
-  // ─── Direct domain access (for advanced use) ───────────
-  get page() {
-    return this._page;
-  }
-  get accessibility() {
-    return this.ax;
-  }
-  get domDomain() {
-    return this.dom;
-  }
-  get runtimeDomain() {
-    return this.runtime;
-  }
-  get cssDomain() {
-    return this.css;
-  }
-  get snapshotDomain() {
-    return this.snapshot;
-  }
-  get emulationDomain() {
-    return this.emulation;
-  }
-  get networkDomain() {
-    return this.network;
-  }
-  get consoleDomain() {
-    return this.console;
-  }
-  get connection() {
-    return this.conn;
-  }
-  /** The CDP debug port Chrome is listening on. Only valid after launch(). */
-  get debugPort() {
-    return this.browser.port;
-  }
-  /** The OS PID of the Chrome process. Only valid after launch(). Null when connected to existing. */
-  get chromePid() {
-    return this.browser.pid;
-  }
-  /** The browser connection mode used for this driver. */
-  get browserMode() {
-    return this.browser.mode;
-  }
-  /** The resolved CDP HTTP endpoint, when available. */
-  get cdpUrl() {
-    return this.browser.cdpUrl;
-  }
-  /** The resolved browser WebSocket endpoint, when available. */
-  get wsEndpoint() {
-    return this.browser.wsEndpoint;
-  }
-  /**
-   * Connect to an already-running Chrome instance instead of launching a new one.
-   * Used by browser-server reconnection to attach to a persistent Chrome process.
-   */
-  async connectExisting(wsUrl) {
-    await this.conn.connect(wsUrl);
-    this.target = new TargetDomain(this.conn);
-    this.launched = true;
-    this.targetId = await this.target.createPage("about:blank");
-    this.sessionId = await this.target.attach(this.targetId);
-    this._page = new PageDomain(this.conn, this.sessionId);
-    this.ax = new AccessibilityDomain(this.conn, this.sessionId);
-    this.dom = new DomDomain(this.conn, this.sessionId);
-    this.input = new InputDomain(this.conn, this.sessionId);
-    this.runtime = new RuntimeDomain(this.conn, this.sessionId);
-    this.css = new CssDomain(this.conn, this.sessionId);
-    this.snapshot = new SnapshotDomain(this.conn, this.sessionId);
-    this.emulation = new EmulationDomain(this.conn, this.sessionId);
-    this.network = new NetworkDomain(this.conn, this.sessionId);
-    this.console = new ConsoleDomain(this.conn, this.sessionId);
-    await this._page.enableLifecycleEvents();
-    await this.ax.enable();
-    await this.console.enable();
-  }
-};
-function chunkElements(elements, maxTokens) {
-  const charsPerToken = 4;
-  const charsPerElement = 40;
-  const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
-  return elements.slice(0, maxElements);
-}
-
-// src/engine/compat.ts
-var import_promises3 = require("fs/promises");
-var import_path2 = require("path");
-var CompatElementHandle = class {
-  constructor(driver2, nodeId) {
-    this.driver = driver2;
-    this.nodeId = nodeId;
-  }
-  async screenshot(options) {
-    const model = await this.driver.domDomain.getBoxModel(this.nodeId);
-    const q = model.content;
-    const x = Math.min(q[0], q[2], q[4], q[6]);
-    const y = Math.min(q[1], q[3], q[5], q[7]);
-    const buf = await this.driver.page.screenshot({
-      clip: { x, y, width: model.width, height: model.height }
-    });
-    if (options?.path) {
-      await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
-      await (0, import_promises3.writeFile)(options.path, buf);
-    }
-    return buf;
-  }
-  async textContent() {
-    const html = await this.driver.domDomain.getOuterHTML(this.nodeId);
-    return html.replace(/<[^>]*>/g, "").trim() || null;
-  }
-  async boundingBox() {
-    try {
-      const model = await this.driver.domDomain.getBoxModel(this.nodeId);
-      const q = model.content;
-      return {
-        x: Math.min(q[0], q[2], q[4], q[6]),
-        y: Math.min(q[1], q[3], q[5], q[7]),
-        width: model.width,
-        height: model.height
-      };
-    } catch {
-      return null;
-    }
-  }
-  async getAttribute(name) {
-    try {
-      const attrs = await this.driver.domDomain.getAttributes(this.nodeId);
-      return attrs[name] ?? null;
-    } catch {
-      return null;
-    }
-  }
-};
-var CompatLocator = class _CompatLocator {
-  constructor(driver2, selector) {
-    this.driver = driver2;
-    this.selector = selector;
-  }
-  // Visible filter stored for potential future use in resolveNode
-  visible = false;
-  filter(options) {
-    const loc = new _CompatLocator(this.driver, this.selector);
-    loc.visible = options.visible ?? false;
-    return loc;
-  }
-  first() {
-    return this;
-  }
-  async click(_options) {
-    const nodeId = await this.resolveNode(_options?.timeout);
-    if (!nodeId) throw new Error(`Element not found: ${this.selector}`);
-    await this.driver.runtimeDomain.callFunctionOn(
-      '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
-      [this.selector]
-    );
-  }
-  async fill(text, _options) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      `(sel, val) => {
-        const el = document.querySelector(sel);
-        if (!el) throw new Error('Not found: ' + sel);
-        el.value = val;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }`,
-      [this.selector, text]
-    );
-  }
-  async focus(_options) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
-      [this.selector]
-    );
-  }
-  async press(key, _options) {
-    await this.focus();
-    await this.driver.pressKey(key);
-  }
-  async pressSequentially(text, _options) {
-    await this.focus();
-    for (const char of text) {
-      await this.driver.runtimeDomain.callFunctionOn(
-        '(sel, ch) => { const el = document.querySelector(sel); if (el) { el.value += ch; el.dispatchEvent(new Event("input", { bubbles: true })); } }',
-        [this.selector, char]
-      );
-    }
-  }
-  async waitFor(options) {
-    const timeout = options?.timeout ?? 3e4;
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      const nodeId = await this.driver.querySelector(this.selector);
-      if (nodeId) return;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    throw new Error(`Timed out waiting for ${this.selector}`);
-  }
-  async resolveNode(timeout) {
-    const deadline = Date.now() + (timeout ?? 5e3);
-    while (Date.now() < deadline) {
-      const nodeId = await this.driver.querySelector(this.selector);
-      if (nodeId) return nodeId;
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    return null;
-  }
-};
-var CompatPage = class {
-  constructor(driver2) {
-    this.driver = driver2;
-  }
-  consoleHandlers = [];
-  consoleListening = false;
-  async goto(url, options) {
-    await this.driver.navigate(url, {
-      waitFor: options?.waitUntil === "networkidle" ? "stable" : "load",
-      timeout: options?.timeout
-    });
-  }
-  async evaluate(fnOrExpr, ...args) {
-    if (typeof fnOrExpr === "function") {
-      const fnStr = fnOrExpr.toString();
-      if (args.length > 0) {
-        return this.driver.evaluate(`(${fnStr})`, ...args);
-      }
-      return this.driver.evaluate(`(${fnStr})()`);
-    }
-    if (args.length > 0) {
-      return this.driver.evaluate(fnOrExpr, ...args);
-    }
-    return this.driver.evaluate(fnOrExpr);
-  }
-  async $(selector) {
-    const nodeId = await this.driver.querySelector(selector);
-    if (!nodeId) return null;
-    return new CompatElementHandle(this.driver, nodeId);
-  }
-  async $$(selector) {
-    const nodeIds = await this.driver.querySelectorAll(selector);
-    return nodeIds.map((id) => new CompatElementHandle(this.driver, id));
-  }
-  async screenshot(options) {
-    const buf = await this.driver.screenshot({
-      fullPage: options?.fullPage
-    });
-    if (options?.path) {
-      await (0, import_promises3.mkdir)((0, import_path2.dirname)(options.path), { recursive: true });
-      await (0, import_promises3.writeFile)(options.path, buf);
-    }
-    return buf;
-  }
-  async addStyleTag(options) {
-    await this.driver.addStyleTag(options.content);
-  }
-  async waitForSelector(selector, options) {
-    const timeout = options?.timeout ?? 3e4;
-    const deadline = Date.now() + timeout;
-    while (Date.now() < deadline) {
-      const nodeId = await this.driver.querySelector(selector);
-      if (nodeId) return new CompatElementHandle(this.driver, nodeId);
-      await new Promise((r) => setTimeout(r, 100));
-    }
-    throw new Error(`Timed out waiting for selector: ${selector}`);
-  }
-  async waitForTimeout(ms) {
-    await new Promise((r) => setTimeout(r, ms));
-  }
-  async waitForLoadState(_state, _options) {
-    await this.driver.navigate(this.driver.url, { waitFor: "stable", timeout: _options?.timeout ?? 1e4 }).catch(() => {
-    });
-  }
-  async waitForNavigation() {
-    await new Promise((r) => setTimeout(r, 500));
-  }
-  async content() {
-    return this.driver.content();
-  }
-  async title() {
-    return this.driver.title();
-  }
-  async textContent(selector) {
-    return this.driver.textContent(selector);
-  }
-  async innerText(selector) {
-    return this.driver.evaluate(
-      '(sel) => { const el = document.querySelector(sel); return el ? el.innerText : ""; }',
-      selector
-    );
-  }
-  async getAttribute(selector, name) {
-    return this.driver.getAttribute(selector, name);
-  }
-  async click(selector, _options) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
-      [selector]
-    );
-  }
-  async fill(selector, value) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      `(sel, val) => {
-        const el = document.querySelector(sel);
-        if (!el) throw new Error('Not found: ' + sel);
-        el.value = val;
-        el.dispatchEvent(new Event('input', { bubbles: true }));
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }`,
-      [selector, value]
-    );
-  }
-  async type(selector, text, _options) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
-      [selector]
-    );
-    for (const char of text) {
-      await this.driver.runtimeDomain.callFunctionOn(
-        '(sel, ch) => { const el = document.querySelector(sel); if (el) { el.value += ch; el.dispatchEvent(new Event("input", { bubbles: true })); } }',
-        [selector, char]
-      );
-    }
-  }
-  async check(selector) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      "(sel) => { const el = document.querySelector(sel); if (el && !el.checked) el.click(); }",
-      [selector]
-    );
-  }
-  async uncheck(selector) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      "(sel) => { const el = document.querySelector(sel); if (el && el.checked) el.click(); }",
-      [selector]
-    );
-  }
-  async selectOption(selector, value) {
-    await this.driver.runtimeDomain.callFunctionOn(
-      `(sel, val) => {
-        const el = document.querySelector(sel);
-        if (!el) throw new Error('Not found: ' + sel);
-        el.value = val;
-        el.dispatchEvent(new Event('change', { bubbles: true }));
-      }`,
-      [selector, value]
-    );
-  }
-  async hover(selector, _options) {
-    const nodeId = await this.driver.querySelector(selector);
-    if (!nodeId) throw new Error(`Element not found: ${selector}`);
-    const center = await this.driver.domDomain.getElementCenter(nodeId);
-    await this.driver.runtimeDomain.callFunctionOn(
-      '(x, y) => { const el = document.elementFromPoint(x, y); if (el) el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true })); }',
-      [center.x, center.y]
-    );
-  }
-  locator(selector) {
-    return new CompatLocator(this.driver, selector);
-  }
-  on(event, handler) {
-    if (event === "console") {
-      this.consoleHandlers.push(handler);
-      if (!this.consoleListening) {
-        this.consoleListening = true;
-        this.driver.consoleDomain.onMessage((msg) => {
-          const compatMsg = {
-            type: () => msg.type,
-            text: () => msg.text
-          };
-          for (const h of this.consoleHandlers) h(compatMsg);
-        });
-      }
-    }
-  }
-  url() {
-    return this.driver.url;
-  }
-  keyboard = {
-    press: async (key) => {
-      await this.driver.pressKey(key);
-    }
-  };
-};
-
-// src/scan.ts
-init_schemas();
-
-// src/extract.ts
-init_schemas();
-var INTERACTIVE_SELECTORS = [
-  "button",
-  "a[href]",
-  "a:not([href])",
-  // Links without href (potential issues)
-  'input[type="submit"]',
-  'input[type="button"]',
-  'input[type="text"]',
-  'input[type="email"]',
-  'input[type="password"]',
-  "select",
-  "textarea",
-  '[role="button"]',
-  '[role="link"]',
-  "[onclick]",
-  '[tabindex]:not([tabindex="-1"])'
-];
-async function extractInteractiveElements(page) {
-  return page.evaluate((selectors) => {
-    const seen = /* @__PURE__ */ new Set();
-    const elements = [];
-    const generateSelector = (el) => {
-      if (el.id) return `#${el.id}`;
-      const path = [];
-      let current = el;
-      while (current && current !== document.body) {
-        let selector = current.tagName.toLowerCase();
-        if (current.id) {
-          selector = `#${current.id}`;
-          path.unshift(selector);
-          break;
-        } else if (current.className && typeof current.className === "string") {
-          const classes = current.className.split(" ").filter((c) => c.trim() && !c.includes(":"));
-          if (classes.length > 0) {
-            selector += `.${classes[0]}`;
-          }
-        }
-        const parent = current.parentElement;
-        if (parent) {
-          const siblings = Array.from(parent.children).filter(
-            (c) => c.tagName === current.tagName
-          );
-          if (siblings.length > 1) {
-            const index = siblings.indexOf(current) + 1;
-            selector += `:nth-of-type(${index})`;
-          }
-        }
-        path.unshift(selector);
-        current = current.parentElement;
-      }
-      return path.join(" > ").slice(0, 200);
-    };
-    const detectHandlers = (el) => {
-      const keys = Object.keys(el);
-      const reactPropsKey = keys.find((k) => k.startsWith("__reactProps$"));
-      let hasReactHandler = false;
-      if (reactPropsKey) {
-        const props = el[reactPropsKey];
-        hasReactHandler = !!(props?.onClick || props?.onSubmit || props?.onMouseDown);
-      }
-      const fiberKey = keys.find((k) => k.startsWith("__reactFiber$"));
-      if (!hasReactHandler && fiberKey) {
-        const fiber = el[fiberKey];
-        hasReactHandler = !!(fiber?.pendingProps?.onClick || fiber?.memoizedProps?.onClick);
-      }
-      const hasVueHandler = !!(el.__vue__?.$listeners?.click || el.__vnode?.props?.onClick);
-      const hasAngularHandler = !!el.__ngContext__ || el.hasAttribute("ng-click");
-      const hasVanillaHandler = typeof el.onclick === "function" || el.hasAttribute("onclick");
-      return {
-        hasReactHandler,
-        hasVueHandler,
-        hasAngularHandler,
-        hasVanillaHandler,
-        hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler
-      };
-    };
-    for (const selector of selectors) {
-      try {
-        document.querySelectorAll(selector).forEach((el) => {
-          if (seen.has(el)) return;
-          seen.add(el);
-          const htmlEl = el;
-          const rect = htmlEl.getBoundingClientRect();
-          const computed = window.getComputedStyle(htmlEl);
-          const handlers = detectHandlers(htmlEl);
-          const href = htmlEl.getAttribute("href");
-          const hasValidHref = href !== null && href !== "#" && href !== "" && !href.startsWith("javascript:");
-          elements.push({
-            selector: generateSelector(htmlEl),
-            tagName: htmlEl.tagName.toLowerCase(),
-            id: htmlEl.id || void 0,
-            className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
-            text: (htmlEl.textContent || "").trim().slice(0, 100) || void 0,
-            bounds: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height)
-            },
-            computedStyles: {
-              cursor: computed.cursor,
-              color: computed.color,
-              backgroundColor: computed.backgroundColor
-            },
-            interactive: {
-              hasOnClick: handlers.hasAnyHandler,
-              hasHref: hasValidHref,
-              isDisabled: htmlEl.hasAttribute("disabled") || htmlEl.getAttribute("aria-disabled") === "true" || computed.pointerEvents === "none",
-              tabIndex: parseInt(htmlEl.getAttribute("tabindex") || "0", 10),
-              cursor: computed.cursor,
-              hasReactHandler: handlers.hasReactHandler || void 0,
-              hasVueHandler: handlers.hasVueHandler || void 0,
-              hasAngularHandler: handlers.hasAngularHandler || void 0
-            },
-            a11y: {
-              role: htmlEl.getAttribute("role"),
-              ariaLabel: htmlEl.getAttribute("aria-label"),
-              ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
-              ariaHidden: htmlEl.getAttribute("aria-hidden") === "true" || void 0
-            },
-            sourceHint: {
-              dataTestId: htmlEl.getAttribute("data-testid")
-            }
-          });
-        });
-      } catch {
-      }
-    }
-    return elements;
-  }, INTERACTIVE_SELECTORS);
-}
-function analyzeElements(elements, isMobile = false) {
-  const issues = [];
-  let withHandlers = 0;
-  let withoutHandlers = 0;
-  const interactiveElements = elements.filter((el) => {
-    const isButton = el.tagName === "button" || el.a11y.role === "button";
-    const isLink = el.tagName === "a";
-    const isInput = ["input", "select", "textarea"].includes(el.tagName);
-    const looksClickable = el.interactive.cursor === "pointer";
-    return isButton || isLink || isInput || looksClickable;
-  });
-  for (const el of interactiveElements) {
-    const isButton = el.tagName === "button" || el.a11y.role === "button";
-    const isLink = el.tagName === "a";
-    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref;
-    if (hasHandler) {
-      withHandlers++;
-    } else {
-      withoutHandlers++;
-    }
-    if (isButton && !el.interactive.hasOnClick && !el.interactive.isDisabled) {
-      issues.push({
-        type: "NO_HANDLER",
-        severity: "error",
-        message: `Button "${el.text || el.selector}" has no click handler`
-      });
-    }
-    if (isLink && !el.interactive.hasHref && !el.interactive.hasOnClick) {
-      issues.push({
-        type: "PLACEHOLDER_LINK",
-        severity: "error",
-        message: `Link "${el.text || el.selector}" has placeholder href and no handler`
-      });
-    }
-    const minSize = isMobile ? 44 : 24;
-    if (el.bounds.width < minSize || el.bounds.height < minSize) {
-      issues.push({
-        type: "TOUCH_TARGET_SMALL",
-        severity: isMobile ? "error" : "warning",
-        message: `"${el.text || el.selector}" touch target is ${el.bounds.width}x${el.bounds.height}px (min: ${minSize}px)`
-      });
-    }
-    if (hasHandler && !el.text && !el.a11y.ariaLabel) {
-      issues.push({
-        type: "MISSING_ARIA_LABEL",
-        severity: "warning",
-        message: `"${el.selector}" is interactive but has no text or aria-label`
-      });
-    }
-  }
-  return {
-    totalElements: elements.length,
-    interactiveCount: interactiveElements.length,
-    withHandlers,
-    withoutHandlers,
-    issues
-  };
-}
-
-// src/scan.ts
-init_interactivity();
-
-// src/semantic/page-intent.ts
-async function classifyPageIntent(page) {
-  const signals = [];
-  const scores = {
-    auth: 0,
-    form: 0,
-    listing: 0,
-    detail: 0,
-    dashboard: 0,
-    error: 0,
-    landing: 0,
-    empty: 0
-  };
-  const checks = await page.evaluate(() => {
-    const doc = document;
-    const body = doc.body;
-    const text = body?.innerText?.toLowerCase() || "";
-    const count = (selector) => doc.querySelectorAll(selector).length;
-    const exists = (selector) => count(selector) > 0;
-    const textContains = (terms) => terms.some((t) => text.includes(t));
-    return {
-      // Auth signals
-      hasPasswordField: exists('input[type="password"]'),
-      hasEmailField: exists('input[type="email"], input[name*="email"], input[name*="username"]'),
-      hasLoginText: textContains(["sign in", "log in", "login", "sign up", "register", "forgot password", "reset password"]),
-      hasRememberMe: exists('input[type="checkbox"][name*="remember"]') || Array.from(doc.querySelectorAll("label")).some((l) => l.textContent?.toLowerCase().includes("remember")),
-      hasOAuthButtons: exists('[class*="google"], [class*="facebook"], [class*="github"], [class*="oauth"], [class*="social"]'),
-      // Form signals
-      formCount: count("form"),
-      inputCount: count('input:not([type="hidden"]):not([type="search"])'),
-      textareaCount: count("textarea"),
-      selectCount: count("select"),
-      hasSubmitButton: exists('button[type="submit"], input[type="submit"]'),
-      hasFormLabels: count("label") > 2,
-      // Listing signals
-      listItemCount: count('li, [class*="item"], [class*="card"], [class*="row"]'),
-      hasGrid: exists('[class*="grid"], [class*="list"], [class*="feed"]'),
-      hasTable: exists("table tbody tr"),
-      hasPagination: exists('[class*="pagination"], [class*="pager"], nav[aria-label*="page"]'),
-      hasFilters: exists('[class*="filter"], [class*="sort"], [class*="facet"]'),
-      repeatingSimilarElements: (() => {
-        const cards = doc.querySelectorAll('[class*="card"], [class*="item"]');
-        if (cards.length < 3) return false;
-        const classes = Array.from(cards).map((c) => c.className);
-        const unique = new Set(classes);
-        return unique.size <= 3;
-      })(),
-      // Detail signals
-      hasMainArticle: exists('article, main > [class*="content"], [class*="detail"]'),
-      hasLongContent: text.length > 2e3,
-      hasSingleHeading: count("h1") === 1,
-      hasMetadata: exists('[class*="meta"], [class*="author"], [class*="date"], time'),
-      hasComments: exists('[class*="comment"], [id*="comment"]'),
-      hasSocialShare: exists('[class*="share"], [class*="social"]'),
-      // Dashboard signals
-      hasCharts: exists('canvas, svg[class*="chart"], [class*="chart"], [class*="graph"]'),
-      hasStats: exists('[class*="stat"], [class*="metric"], [class*="kpi"]'),
-      hasSidebar: exists('aside, [class*="sidebar"], nav[class*="side"]'),
-      hasWidgets: exists('[class*="widget"], [class*="panel"], [class*="tile"]'),
-      hasUserMenu: exists('[class*="user"], [class*="avatar"], [class*="profile"]'),
-      hasNavTabs: exists('[role="tablist"], [class*="tabs"]'),
-      // Error signals
-      hasErrorCode: textContains(["404", "500", "403", "401", "not found", "error", "denied", "forbidden"]),
-      hasErrorClass: exists('[class*="error"], [class*="404"], [class*="500"]'),
-      isMinimalContent: text.length < 200,
-      hasBackLink: textContains(["go back", "go home", "return"]),
-      // Landing signals
-      hasHero: exists('[class*="hero"], [class*="banner"], [class*="jumbotron"]'),
-      hasCTA: exists('[class*="cta"], [class*="call-to-action"], a[class*="primary"]'),
-      hasTestimonials: exists('[class*="testimonial"], [class*="review"], [class*="quote"]'),
-      hasPricing: exists('[class*="pricing"], [class*="plan"]'),
-      hasFeatures: exists('[class*="feature"], [class*="benefit"]'),
-      // Empty signals
-      hasEmptyState: exists('[class*="empty"], [class*="no-data"], [class*="no-results"]'),
-      hasEmptyText: textContains(["no results", "nothing here", "no items", "empty"]),
-      // General metrics
-      totalElements: count("*"),
-      interactiveElements: count("a, button, input, select, textarea")
-    };
-  });
-  if (checks.hasPasswordField) {
-    scores.auth += 40;
-    signals.push("password field present");
-  }
-  if (checks.hasEmailField && checks.hasPasswordField) {
-    scores.auth += 20;
-    signals.push("email + password combination");
-  }
-  if (checks.hasLoginText) {
-    scores.auth += 15;
-    signals.push("login-related text");
-  }
-  if (checks.hasRememberMe) {
-    scores.auth += 10;
-    signals.push("remember me checkbox");
-  }
-  if (checks.hasOAuthButtons) {
-    scores.auth += 10;
-    signals.push("OAuth buttons");
-  }
-  if (checks.formCount > 0 && !checks.hasPasswordField) {
-    scores.form += 20;
-    signals.push("form without password");
-  }
-  if (checks.inputCount > 3 && !checks.hasPasswordField) {
-    scores.form += 15;
-    signals.push("multiple input fields");
-  }
-  if (checks.textareaCount > 0) {
-    scores.form += 15;
-    signals.push("textarea present");
-  }
-  if (checks.hasFormLabels && checks.inputCount > 2) {
-    scores.form += 10;
-    signals.push("labeled form fields");
-  }
-  if (checks.listItemCount > 5) {
-    scores.listing += 25;
-    signals.push(`${checks.listItemCount} list items`);
-  }
-  if (checks.hasGrid) {
-    scores.listing += 15;
-    signals.push("grid/list layout");
-  }
-  if (checks.hasTable) {
-    scores.listing += 20;
-    signals.push("data table");
-  }
-  if (checks.hasPagination) {
-    scores.listing += 20;
-    signals.push("pagination");
-  }
-  if (checks.hasFilters) {
-    scores.listing += 15;
-    signals.push("filters/sorting");
-  }
-  if (checks.repeatingSimilarElements) {
-    scores.listing += 15;
-    signals.push("repeating card elements");
-  }
-  if (checks.hasMainArticle) {
-    scores.detail += 25;
-    signals.push("main article element");
-  }
-  if (checks.hasLongContent) {
-    scores.detail += 20;
-    signals.push("long content");
-  }
-  if (checks.hasSingleHeading && checks.hasMetadata) {
-    scores.detail += 20;
-    signals.push("single heading with metadata");
-  }
-  if (checks.hasComments) {
-    scores.detail += 15;
-    signals.push("comments section");
-  }
-  if (checks.hasSocialShare) {
-    scores.detail += 10;
-    signals.push("social share buttons");
-  }
-  if (checks.hasCharts) {
-    scores.dashboard += 30;
-    signals.push("charts/graphs");
-  }
-  if (checks.hasStats) {
-    scores.dashboard += 25;
-    signals.push("stats/metrics");
-  }
-  if (checks.hasSidebar && checks.hasWidgets) {
-    scores.dashboard += 20;
-    signals.push("sidebar with widgets");
-  }
-  if (checks.hasNavTabs) {
-    scores.dashboard += 10;
-    signals.push("navigation tabs");
-  }
-  if (checks.hasUserMenu) {
-    scores.dashboard += 10;
-    signals.push("user menu");
-  }
-  if (checks.hasErrorCode && checks.isMinimalContent) {
-    scores.error += 50;
-    signals.push("error code with minimal content");
-  }
-  if (checks.hasErrorClass) {
-    scores.error += 30;
-    signals.push("error CSS class");
-  }
-  if (checks.hasBackLink && checks.isMinimalContent) {
-    scores.error += 20;
-    signals.push("back link on minimal page");
-  }
-  if (checks.hasHero) {
-    scores.landing += 25;
-    signals.push("hero section");
-  }
-  if (checks.hasCTA) {
-    scores.landing += 20;
-    signals.push("call-to-action");
-  }
-  if (checks.hasTestimonials) {
-    scores.landing += 15;
-    signals.push("testimonials");
-  }
-  if (checks.hasPricing) {
-    scores.landing += 20;
-    signals.push("pricing section");
-  }
-  if (checks.hasFeatures) {
-    scores.landing += 15;
-    signals.push("features section");
-  }
-  if (checks.hasEmptyState) {
-    scores.empty += 40;
-    signals.push("empty state element");
-  }
-  if (checks.hasEmptyText && checks.listItemCount === 0) {
-    scores.empty += 30;
-    signals.push("empty text with no items");
-  }
-  const entries = Object.entries(scores);
-  entries.sort((a, b) => b[1] - a[1]);
-  const [topIntent, topScore] = entries[0];
-  const [secondIntent, secondScore] = entries[1];
-  const maxPossible = 100;
-  const confidence = Math.min(topScore / maxPossible, 1);
-  const hasSecondary = secondScore > 30 && secondScore > topScore * 0.5;
-  return {
-    intent: topScore > 20 ? topIntent : "unknown",
-    confidence,
-    signals: signals.slice(0, 5),
-    // Top 5 signals
-    secondaryIntent: hasSecondary ? secondIntent : void 0
-  };
-}
-
-// src/semantic/state-detector.ts
-async function detectAuthState(page) {
-  const signals = [];
-  let authenticated = null;
-  let confidence = 0;
-  let username;
-  const checks = await page.evaluate(() => {
-    const doc = document;
-    const text = doc.body?.innerText?.toLowerCase() || "";
-    function findByText(tags, patterns) {
-      for (const tag of tags) {
-        for (const el of Array.from(doc.querySelectorAll(tag))) {
-          const t = el.textContent?.trim().toLowerCase() || "";
-          if (patterns.some((p) => t === p || t.includes(p))) return el;
-        }
-      }
-      return null;
-    }
-    const logoutButton = findByText(["button", "a"], ["logout", "sign out"]) || doc.querySelector('[class*="logout"], [data-testid*="logout"]');
-    const userMenu = doc.querySelector(
-      '[class*="user-menu"], [class*="avatar"], [class*="profile-menu"], [class*="account-menu"], [data-testid*="user"]'
-    );
-    const welcomeText = text.match(/welcome,?\s+(\w+)/i);
-    const userNameEl = doc.querySelector(
-      '[class*="username"], [class*="user-name"], [class*="display-name"]'
-    );
-    const loginLink = findByText(["a", "button"], ["login", "sign in"]) || doc.querySelector('[class*="login-link"], [href*="/login"], [href*="/signin"]');
-    const signupLink = findByText(["a"], ["sign up", "register"]) || doc.querySelector('[href*="/signup"], [href*="/register"]');
-    const authRequired = doc.querySelector(
-      '[class*="auth-required"], [class*="login-required"], [class*="protected"]'
-    );
-    let hasAuthCookie = false;
-    try {
-      hasAuthCookie = document.cookie.includes("auth") || document.cookie.includes("session") || document.cookie.includes("token");
-    } catch {
-    }
-    const socialProviderPatterns = ["google", "github", "apple", "microsoft", "facebook", "discord"];
-    const socialTriggerPhrases = ["sign in with", "continue with"];
-    const socialProviders = [];
-    const socialElements = Array.from(doc.querySelectorAll(
-      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
-    ));
-    for (const el of socialElements) {
-      const t = el.textContent?.trim().toLowerCase() || "";
-      const cls = el.className?.toLowerCase() || "";
-      for (const provider of socialProviderPatterns) {
-        if (!socialProviders.includes(provider)) {
-          if (t.includes(provider) || cls.includes(provider)) {
-            const isTriggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || t === `sign in with ${provider}` || t === `continue with ${provider}` || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
-            if (isTriggered) socialProviders.push(provider);
-          }
-        }
-      }
-    }
-    const forgotPasswordPatterns = ["forgot", "reset password", "can't sign in", "trouble signing in", "lost password"];
-    const forgotEl = findByText(["a", "button"], forgotPasswordPatterns) || doc.querySelector('[href*="forgot"], [href*="reset-password"], [href*="password-reset"]');
-    const toggleEl = doc.querySelector(
-      '[aria-label*="show password" i], [aria-label*="hide password" i], [aria-label*="toggle password" i], [class*="eye"], [class*="visibility"], [class*="toggle-password"]'
-    );
-    let hasPasswordToggle = !!toggleEl;
-    if (!hasPasswordToggle) {
-      const passwordInput = doc.querySelector('input[type="password"]');
-      if (passwordInput) {
-        const parent = passwordInput.parentElement;
-        const sibling = passwordInput.nextElementSibling;
-        if (parent?.querySelector("button")) hasPasswordToggle = true;
-        if (sibling?.tagName === "BUTTON") hasPasswordToggle = true;
-      }
-    }
-    return {
-      hasLogoutButton: !!logoutButton,
-      hasUserMenu: !!userMenu,
-      hasWelcomeText: !!welcomeText,
-      welcomeName: welcomeText?.[1],
-      hasUserNameElement: !!userNameEl,
-      userName: userNameEl?.textContent?.trim(),
-      hasLoginLink: !!loginLink,
-      hasSignupLink: !!signupLink,
-      hasAuthRequired: !!authRequired,
-      hasAuthCookie,
-      socialLoginProviders: socialProviders,
-      hasForgotPassword: !!forgotEl,
-      hasPasswordToggle
-    };
-  });
-  if (checks.hasLogoutButton) {
-    authenticated = true;
-    confidence += 40;
-    signals.push("logout button present");
-  }
-  if (checks.hasUserMenu) {
-    authenticated = true;
-    confidence += 30;
-    signals.push("user menu present");
-  }
-  if (checks.hasWelcomeText) {
-    authenticated = true;
-    confidence += 20;
-    signals.push("welcome text");
-    username = checks.welcomeName;
-  }
-  if (checks.hasUserNameElement) {
-    authenticated = true;
-    confidence += 15;
-    signals.push("username displayed");
-    username = username || checks.userName;
-  }
-  if (checks.hasAuthCookie) {
-    confidence += 10;
-    signals.push("auth cookie present");
-  }
-  if (checks.hasLoginLink && !checks.hasLogoutButton) {
-    authenticated = false;
-    confidence += 30;
-    signals.push("login link visible");
-  }
-  if (checks.hasSignupLink && !checks.hasUserMenu) {
-    authenticated = false;
-    confidence += 20;
-    signals.push("signup link visible");
-  }
-  if (checks.hasAuthRequired) {
-    authenticated = false;
-    confidence += 25;
-    signals.push("auth-required message");
-  }
-  if (checks.socialLoginProviders.length > 0) {
-    signals.push(`social login: ${checks.socialLoginProviders.join(", ")}`);
-  }
-  if (checks.hasForgotPassword) {
-    signals.push("forgot password link present");
-  }
-  if (checks.hasPasswordToggle) {
-    signals.push("password visibility toggle present");
-  }
-  confidence = Math.min(confidence / 100, 1);
-  if (confidence < 0.3) {
-    authenticated = null;
-  }
-  return {
-    authenticated,
-    confidence,
-    signals,
-    username,
-    socialLoginProviders: checks.socialLoginProviders,
-    hasForgotPassword: checks.hasForgotPassword,
-    hasSignupLink: checks.hasSignupLink,
-    hasPasswordToggle: checks.hasPasswordToggle
-  };
-}
-async function detectLoadingState(page) {
-  const checks = await page.evaluate(() => {
-    const doc = document;
-    const spinners = doc.querySelectorAll(
-      '[class*="spinner"], [class*="loading"], [class*="loader"], [role="progressbar"][aria-busy="true"], .animate-spin, [class*="spin"]'
-    );
-    const skeletons = doc.querySelectorAll(
-      '[class*="skeleton"], [class*="shimmer"], [class*="placeholder"], [class*="pulse"], [aria-busy="true"]'
-    );
-    const progress = doc.querySelectorAll(
-      'progress, [role="progressbar"], [class*="progress-bar"], [class*="loading-bar"]'
-    );
-    const lazyImages = doc.querySelectorAll(
-      'img[loading="lazy"]:not([src]), [class*="lazy"]:not([src])'
-    );
-    const bodyLoading = doc.body?.classList.contains("loading") || doc.body?.getAttribute("aria-busy") === "true";
-    return {
-      spinnerCount: spinners.length,
-      skeletonCount: skeletons.length,
-      progressCount: progress.length,
-      lazyCount: lazyImages.length,
-      bodyLoading
-    };
-  });
-  let type = "none";
-  let elements = 0;
-  let loading = false;
-  if (checks.spinnerCount > 0) {
-    type = "spinner";
-    elements = checks.spinnerCount;
-    loading = true;
-  } else if (checks.skeletonCount > 0) {
-    type = "skeleton";
-    elements = checks.skeletonCount;
-    loading = true;
-  } else if (checks.progressCount > 0) {
-    type = "progress";
-    elements = checks.progressCount;
-    loading = true;
-  } else if (checks.lazyCount > 0) {
-    type = "lazy";
-    elements = checks.lazyCount;
-    loading = true;
-  } else if (checks.bodyLoading) {
-    type = "spinner";
-    loading = true;
-  }
-  return { loading, type, elements };
-}
-async function detectErrorState(page) {
-  const errors = [];
-  const checks = await page.evaluate(() => {
-    const doc = document;
-    const text = doc.body?.innerText || "";
-    const validationErrors = doc.querySelectorAll(
-      '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
-    );
-    const apiErrors = doc.querySelectorAll(
-      '[class*="api-error"], [class*="server-error"], [class*="fetch-error"], [class*="network-error"]'
-    );
-    const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
-    const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
-    const serverText = text.match(/500|server error|something went wrong|internal error/i);
-    const toastErrors = doc.querySelectorAll(
-      '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
-    );
-    const extractText = (el) => el.textContent?.trim().slice(0, 200) || "";
-    return {
-      validationErrors: Array.from(validationErrors).map(extractText).filter(Boolean),
-      apiErrors: Array.from(apiErrors).map(extractText).filter(Boolean),
-      toastErrors: Array.from(toastErrors).map(extractText).filter(Boolean),
-      hasPermissionError: !!permissionText,
-      hasNotFoundError: !!notFoundText,
-      hasServerError: !!serverText
-    };
-  });
-  if (checks.hasPermissionError) {
-    errors.push({
-      type: "permission",
-      message: "Access denied or unauthorized"
-    });
-  }
-  if (checks.hasNotFoundError) {
-    errors.push({
-      type: "notfound",
-      message: "Page or resource not found"
-    });
-  }
-  if (checks.hasServerError) {
-    errors.push({
-      type: "server",
-      message: "Server error occurred"
-    });
-  }
-  for (const msg of checks.validationErrors) {
-    errors.push({
-      type: "validation",
-      message: msg
-    });
-  }
-  for (const msg of checks.apiErrors) {
-    errors.push({
-      type: "api",
-      message: msg
-    });
-  }
-  for (const msg of checks.toastErrors) {
-    errors.push({
-      type: "unknown",
-      message: msg
-    });
-  }
-  let severity = "none";
-  if (errors.length > 0) {
-    const hasCritical = errors.some(
-      (e) => e.type === "server" || e.type === "permission"
-    );
-    const hasError = errors.some(
-      (e) => e.type === "api" || e.type === "notfound"
-    );
-    const hasWarning = errors.some((e) => e.type === "validation");
-    if (hasCritical) severity = "critical";
-    else if (hasError) severity = "error";
-    else if (hasWarning) severity = "warning";
-  }
-  return {
-    hasErrors: errors.length > 0,
-    errors,
-    severity
-  };
-}
-async function detectPageState(page) {
-  const [auth, loading, errors] = await Promise.all([
-    detectAuthState(page),
-    detectLoadingState(page),
-    detectErrorState(page)
-  ]);
-  const ready = !loading.loading && errors.severity !== "critical" && errors.severity !== "error";
-  return {
-    auth,
-    loading,
-    errors,
-    ready
-  };
-}
-
-// src/semantic/output.ts
-async function getSemanticOutput(page) {
-  const url = page.url?.() ?? "";
-  const title = await page.title();
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
-  const [pageIntent, state] = await Promise.all([
-    classifyPageIntent(page),
-    detectPageState(page)
-  ]);
-  const availableActions = await detectAvailableActions(page, pageIntent.intent);
-  const issues = collectIssues(state, pageIntent, url);
-  const verdict = determineVerdict(state, issues);
-  const recovery = verdict === "FAIL" || verdict === "ERROR" ? generateRecoveryHint(state, pageIntent.intent) : void 0;
-  const summary = generateSummary(pageIntent, state, verdict, issues.length);
-  return {
-    verdict,
-    confidence: pageIntent.confidence,
-    pageIntent,
-    state,
-    availableActions,
-    issues,
-    recovery,
-    summary,
-    url,
-    title,
-    timestamp
-  };
-}
-async function detectAvailableActions(page, intent) {
-  const actions = [];
-  const checks = await page.evaluate(() => {
-    const doc = document;
-    function findByText(tags, patterns) {
-      for (const tag of tags) {
-        for (const el of Array.from(doc.querySelectorAll(tag))) {
-          const t = el.textContent?.trim().toLowerCase() || "";
-          if (patterns.some((p) => t === p || t.includes(p))) return el;
-        }
-      }
-      return null;
-    }
-    const submitButton = doc.querySelector('button[type="submit"], input[type="submit"]');
-    const searchInput = doc.querySelector('input[type="search"], input[name*="search"], input[placeholder*="search"]');
-    const loginForm = doc.querySelector('form input[type="password"]');
-    const mainNav = doc.querySelector("nav a, header a");
-    const backButton = findByText(["a", "button"], ["back"]);
-    const addButton = findByText(["button"], ["add", "create", "new"]);
-    const editButton = findByText(["button", "a"], ["edit"]);
-    const deleteButton = findByText(["button"], ["delete", "remove"]);
-    const filterSelect = doc.querySelector('select[name*="filter"], [class*="filter"] select');
-    const sortSelect = doc.querySelector('select[name*="sort"], [class*="sort"] select');
-    const pagination = doc.querySelector('[class*="pagination"] a, [class*="pager"] button');
-    const socialProviderNames = ["google", "github", "apple", "microsoft", "facebook", "discord"];
-    const socialTriggerPhrases = ["sign in with", "continue with"];
-    const detectedProviders = [];
-    const socialEls = Array.from(doc.querySelectorAll(
-      'button, a, [class*="social"], [class*="oauth"], [class*="provider"]'
-    ));
-    for (const el of socialEls) {
-      const t = el.textContent?.trim().toLowerCase() || "";
-      const cls = el.className?.toLowerCase() || "";
-      for (const provider of socialProviderNames) {
-        if (!detectedProviders.includes(provider)) {
-          if (t.includes(provider) || cls.includes(provider)) {
-            const triggered = socialTriggerPhrases.some((ph) => t.includes(ph)) || t === provider || cls.includes("social") || cls.includes("oauth") || cls.includes("provider");
-            if (triggered) detectedProviders.push(provider);
-          }
-        }
-      }
-    }
-    return {
-      hasSubmit: !!submitButton,
-      submitSelector: submitButton ? getSelector(submitButton) : null,
-      hasSearch: !!searchInput,
-      searchSelector: searchInput ? getSelector(searchInput) : null,
-      hasLogin: !!loginForm,
-      hasNav: !!mainNav,
-      hasBack: !!backButton,
-      hasAdd: !!addButton,
-      addSelector: addButton ? getSelector(addButton) : null,
-      hasEdit: !!editButton,
-      hasDelete: !!deleteButton,
-      hasFilter: !!filterSelect,
-      hasSort: !!sortSelect,
-      hasPagination: !!pagination,
-      hasSocialLogin: detectedProviders.length > 0,
-      socialProviders: detectedProviders
-    };
-    function getSelector(el) {
-      if (el.id) return `#${el.id}`;
-      if (el.getAttribute("data-testid")) return `[data-testid="${el.getAttribute("data-testid")}"]`;
-      if (el.className) return `.${el.className.split(" ")[0]}`;
-      return el.tagName.toLowerCase();
-    }
-  });
-  if (intent === "auth" && checks.hasLogin) {
-    actions.push({
-      action: "login",
-      selector: "form",
-      description: "Submit login credentials"
-    });
-  }
-  if (intent === "auth" && checks.hasSocialLogin) {
-    for (const provider of checks.socialProviders) {
-      actions.push({
-        action: `login-with-${provider}`,
-        selector: `[class*="${provider}"], button:has-text("${provider}")`,
-        description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
-      });
-    }
-  }
-  if (checks.hasSearch) {
-    actions.push({
-      action: "search",
-      selector: checks.searchSelector || 'input[type="search"]',
-      description: "Search for content"
-    });
-  }
-  if (checks.hasSubmit && intent !== "auth") {
-    actions.push({
-      action: "submit",
-      selector: checks.submitSelector || 'button[type="submit"]',
-      description: "Submit form"
-    });
-  }
-  if (checks.hasAdd) {
-    actions.push({
-      action: "create",
-      selector: checks.addSelector || "button",
-      description: "Create new item"
-    });
-  }
-  if (intent === "listing") {
-    if (checks.hasFilter) {
-      actions.push({
-        action: "filter",
-        description: "Filter results"
-      });
-    }
-    if (checks.hasSort) {
-      actions.push({
-        action: "sort",
-        description: "Sort results"
-      });
-    }
-    if (checks.hasPagination) {
-      actions.push({
-        action: "paginate",
-        description: "Navigate to next/previous page"
-      });
-    }
-  }
-  if (checks.hasBack) {
-    actions.push({
-      action: "back",
-      description: "Go back to previous page"
-    });
-  }
-  return actions;
-}
-function collectIssues(state, intent, url = "") {
-  const issues = [];
-  for (const error of state.errors.errors) {
-    issues.push({
-      severity: error.type === "server" || error.type === "permission" ? "critical" : "major",
-      type: error.type,
-      problem: error.message,
-      fix: getErrorFix(error.type)
-    });
-  }
-  if (state.loading.loading && state.loading.elements > 3) {
-    issues.push({
-      severity: "minor",
-      type: "slow-loading",
-      problem: `Page has ${state.loading.elements} loading indicators`,
-      fix: "Wait for content to load or check network"
-    });
-  }
-  if (state.auth.authenticated === false && intent.intent === "dashboard") {
-    issues.push({
-      severity: "major",
-      type: "auth-required",
-      problem: "Dashboard requires authentication",
-      fix: "Login first before accessing this page"
-    });
-  }
-  if (intent.intent === "auth") {
-    const socialProviders = state.auth.socialLoginProviders ?? [];
-    if (socialProviders.length === 0) {
-      issues.push({
-        severity: "minor",
-        type: "auth-no-social-login",
-        problem: "Auth page has no social login options (Google, GitHub, etc.)",
-        fix: "Add OAuth/social login buttons to reduce friction"
-      });
-    }
-    const signals = state.auth.signals;
-    const hasSignupLinkSignal = signals.includes("signup link visible") || (state.auth.hasSignupLink ?? false);
-    const hasLoginLinkSignal = signals.includes("login link visible");
-    const urlPath = (() => {
-      try {
-        return new URL(url).pathname.toLowerCase();
-      } catch {
-        return url.toLowerCase();
-      }
-    })();
-    const isSignUp = hasLoginLinkSignal || urlPath.includes("sign-up") || urlPath.includes("signup") || urlPath.includes("register");
-    const isSignIn = hasSignupLinkSignal || urlPath.includes("sign-in") || urlPath.includes("signin") || urlPath.includes("login");
-    if (!state.auth.hasForgotPassword && (isSignIn || !isSignIn && !isSignUp)) {
-      issues.push({
-        severity: "minor",
-        type: "auth-no-forgot-password",
-        problem: "Sign-in page has no forgot password option",
-        fix: 'Add a "Forgot your password?" link'
-      });
-    }
-    if (!state.auth.hasPasswordToggle) {
-      issues.push({
-        severity: "minor",
-        type: "auth-no-password-toggle",
-        problem: "Password field has no show/hide toggle",
-        fix: "Add a visibility toggle for the password field"
-      });
-    }
-  }
-  return issues;
-}
-function getErrorFix(errorType) {
-  const fixes = {
-    validation: "Fix the highlighted form fields",
-    api: "Retry the request or check API status",
-    permission: "Login with appropriate permissions",
-    notfound: "Check the URL or navigate to a valid page",
-    server: "Wait and retry, or contact support",
-    network: "Check internet connection",
-    unknown: "Investigate the error message"
-  };
-  return fixes[errorType] || "Investigate the issue";
-}
-function determineVerdict(state, issues) {
-  const hasCritical = issues.some((i) => i.severity === "critical");
-  if (hasCritical) return "ERROR";
-  if (state.loading.loading) return "LOADING";
-  if (state.errors.hasErrors) return "FAIL";
-  const hasMajor = issues.some((i) => i.severity === "major");
-  if (hasMajor) return "ISSUES";
-  return "PASS";
-}
-function generateRecoveryHint(state, _intent) {
-  if (state.auth.authenticated === false) {
-    return {
-      suggestion: "Login to access this page",
-      alternatives: ["Use ibr.flow.login()", "Navigate to /login first"],
-      waitFor: '[class*="user"], [class*="avatar"]'
-    };
-  }
-  if (state.errors.errors.some((e) => e.type === "server")) {
-    return {
-      suggestion: "Server error - wait and retry",
-      alternatives: ["Refresh the page", "Check server status"]
-    };
-  }
-  if (state.errors.errors.some((e) => e.type === "notfound")) {
-    return {
-      suggestion: "Page not found - check URL",
-      alternatives: ["Navigate to homepage", "Use search to find content"]
-    };
-  }
-  if (state.loading.loading) {
-    return {
-      suggestion: "Wait for page to finish loading",
-      waitFor: state.loading.type === "skeleton" ? ':not([class*="skeleton"])' : ':not([class*="loading"])'
-    };
-  }
-  return {
-    suggestion: "Investigate the page state and retry"
-  };
-}
-function generateSummary(intent, state, verdict, issueCount) {
-  const parts = [];
-  parts.push(`${intent.intent} page`);
-  if (intent.confidence < 0.5) {
-    parts.push("(low confidence)");
-  }
-  if (state.auth.authenticated === true) {
-    parts.push(`authenticated${state.auth.username ? ` as ${state.auth.username}` : ""}`);
-  } else if (state.auth.authenticated === false) {
-    parts.push("not authenticated");
-  }
-  if (state.loading.loading) {
-    parts.push(`loading (${state.loading.type})`);
-  }
-  if (verdict === "PASS") {
-    parts.push("ready for interaction");
-  } else if (verdict === "ISSUES") {
-    parts.push(`${issueCount} issue${issueCount > 1 ? "s" : ""} detected`);
-  } else if (verdict === "ERROR" || verdict === "FAIL") {
-    parts.push(`${issueCount} error${issueCount > 1 ? "s" : ""}`);
-  }
-  return parts.join(", ");
-}
-function formatSemanticText(result) {
-  const lines = [];
-  lines.push(`Verdict: ${result.verdict}`);
-  lines.push(`Page: ${result.pageIntent.intent} (${Math.round(result.confidence * 100)}% confidence)`);
-  lines.push(`Summary: ${result.summary}`);
-  if (result.state.auth.authenticated !== null) {
-    lines.push(`Auth: ${result.state.auth.authenticated ? "logged in" : "logged out"}`);
-  }
-  if (result.availableActions.length > 0) {
-    lines.push(`Actions: ${result.availableActions.map((a) => a.action).join(", ")}`);
-  }
-  if (result.issues.length > 0) {
-    lines.push(`Issues: ${result.issues.map((i) => i.problem).join("; ")}`);
-  }
-  if (result.recovery) {
-    lines.push(`Recovery: ${result.recovery.suggestion}`);
-  }
-  return lines.join("\n");
-}
-
-// src/semantic/landmarks.ts
-var LANDMARK_SELECTORS = {
-  logo: 'img[src*="logo"], img[alt*="logo" i], [class*="logo"], [id*="logo"], svg[class*="logo"]',
-  header: 'header, [role="banner"], [class*="header"]:not([class*="subheader"])',
-  navigation: 'nav, [role="navigation"], [class*="nav"]:not([class*="subnav"])',
-  main: 'main, [role="main"], [class*="main-content"], #main',
-  footer: 'footer, [role="contentinfo"], [class*="footer"]',
-  sidebar: 'aside, [role="complementary"], [class*="sidebar"]',
-  search: 'input[type="search"], [role="search"], [class*="search-input"], input[name*="search"]',
-  heading: "h1",
-  userMenu: '[class*="user-menu"], [class*="avatar"], [class*="profile"], [class*="account"]',
-  loginForm: 'form:has(input[type="password"])',
-  heroSection: '[class*="hero"], [class*="banner"], [class*="jumbotron"]',
-  ctaButton: '[class*="cta"], a[class*="primary"], button[class*="primary"]'
-};
-async function detectLandmarks(page) {
-  const landmarks = [];
-  for (const [name, selector] of Object.entries(LANDMARK_SELECTORS)) {
-    try {
-      const element = await page.$(selector);
-      if (element) {
-        const box = await element.boundingBox();
-        landmarks.push({
-          name,
-          selector,
-          found: true,
-          bounds: box ? {
-            x: Math.round(box.x),
-            y: Math.round(box.y),
-            width: Math.round(box.width),
-            height: Math.round(box.height)
-          } : void 0
-        });
-      } else {
-        landmarks.push({
-          name,
-          selector,
-          found: false
-        });
-      }
-    } catch {
-      landmarks.push({
-        name,
-        selector,
-        found: false
-      });
-    }
-  }
-  return landmarks;
-}
-
-// src/layout-collision.ts
-function detectLayoutCollisions(elements) {
-  const textElements = elements.filter(
-    (el) => el.text && el.text.trim().length > 0 && el.bounds.width > 0 && el.bounds.height > 0
-  );
-  textElements.sort((a, b) => a.bounds.y !== b.bounds.y ? a.bounds.y - b.bounds.y : a.bounds.x - b.bounds.x);
-  const collisions = [];
-  for (let i = 0; i < textElements.length; i++) {
-    const a = textElements[i];
-    const aBottom = a.bounds.y + a.bounds.height;
-    for (let j = i + 1; j < textElements.length; j++) {
-      const b = textElements[j];
-      if (b.bounds.y > aBottom + 2) break;
-      if (b.selector.startsWith(a.selector) || a.selector.startsWith(b.selector)) continue;
-      const ix = Math.max(a.bounds.x, b.bounds.x);
-      const iy = Math.max(a.bounds.y, b.bounds.y);
-      const ix2 = Math.min(a.bounds.x + a.bounds.width, b.bounds.x + b.bounds.width);
-      const iy2 = Math.min(a.bounds.y + a.bounds.height, b.bounds.y + b.bounds.height);
-      const overlapW = ix2 - ix;
-      const overlapH = iy2 - iy;
-      if (overlapW <= 0 || overlapH <= 0) continue;
-      const overlapArea = overlapW * overlapH;
-      if (overlapW < 4 || overlapH < 4) continue;
-      const areaA = a.bounds.width * a.bounds.height;
-      const areaB = b.bounds.width * b.bounds.height;
-      const smallerArea = Math.min(areaA, areaB);
-      const overlapPercent = smallerArea > 0 ? overlapArea / smallerArea * 100 : 0;
-      if (overlapPercent < 5) continue;
-      collisions.push({
-        element1: {
-          selector: a.selector,
-          text: a.text,
-          bounds: { x: a.bounds.x, y: a.bounds.y, width: a.bounds.width, height: a.bounds.height }
-        },
-        element2: {
-          selector: b.selector,
-          text: b.text,
-          bounds: { x: b.bounds.x, y: b.bounds.y, width: b.bounds.width, height: b.bounds.height }
-        },
-        overlapArea,
-        overlapPercent
-      });
-    }
-  }
-  return {
-    collisions,
-    hasCollisions: collisions.length > 0
-  };
-}
-
-// src/consistency.ts
-function parseColor(color) {
-  if (!color || color === "transparent") return null;
-  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-  if (rgbMatch) {
-    return { r: Number(rgbMatch[1]), g: Number(rgbMatch[2]), b: Number(rgbMatch[3]) };
-  }
-  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
-  if (hexMatch) {
-    const hex = hexMatch[1];
-    if (hex.length === 3) {
-      return {
-        r: parseInt(hex[0] + hex[0], 16),
-        g: parseInt(hex[1] + hex[1], 16),
-        b: parseInt(hex[2] + hex[2], 16)
-      };
-    }
-    if (hex.length >= 6) {
-      return {
-        r: parseInt(hex.slice(0, 2), 16),
-        g: parseInt(hex.slice(2, 4), 16),
-        b: parseInt(hex.slice(4, 6), 16)
-      };
-    }
-  }
-  const named = {
-    white: { r: 255, g: 255, b: 255 },
-    black: { r: 0, g: 0, b: 0 },
-    red: { r: 255, g: 0, b: 0 },
-    green: { r: 0, g: 128, b: 0 },
-    blue: { r: 0, g: 0, b: 255 },
-    gray: { r: 128, g: 128, b: 128 },
-    grey: { r: 128, g: 128, b: 128 }
-  };
-  return named[color.toLowerCase()] ?? null;
-}
-function relativeLuminance(r, g, b) {
-  const linearize4 = (c) => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * linearize4(r) + 0.7152 * linearize4(g) + 0.0722 * linearize4(b);
-}
-async function analyzeThemeConsistency(page) {
-  const data = await page.evaluate(() => {
-    const bodyBg = window.getComputedStyle(document.body).backgroundColor;
-    const htmlBg = window.getComputedStyle(document.documentElement).backgroundColor;
-    const pageBg = bodyBg && bodyBg !== "rgba(0, 0, 0, 0)" && bodyBg !== "transparent" ? bodyBg : htmlBg;
-    const containerSelectors = [
-      '[class*="card"]',
-      '[class*="form"]',
-      '[class*="dialog"]',
-      '[class*="modal"]',
-      '[class*="panel"]',
-      "main > *",
-      "form"
-    ];
-    const cards = [];
-    const seen = /* @__PURE__ */ new Set();
-    for (const sel of containerSelectors) {
-      let elements;
-      try {
-        elements = Array.from(document.querySelectorAll(sel));
-      } catch {
-        continue;
-      }
-      for (const el of elements) {
-        if (seen.has(el)) continue;
-        seen.add(el);
-        const bg = window.getComputedStyle(el).backgroundColor;
-        if (!bg || bg === "rgba(0, 0, 0, 0)" || bg === "transparent") continue;
-        const rect = el.getBoundingClientRect();
-        if (rect.width < 50 || rect.height < 50) continue;
-        cards.push({ selector: sel, color: bg });
-        if (cards.length >= 10) break;
-      }
-      if (cards.length >= 10) break;
-    }
-    return { pageBg, cards };
-  });
-  const pageParsed = parseColor(data.pageBg);
-  const pageLuminance = pageParsed ? relativeLuminance(pageParsed.r, pageParsed.g, pageParsed.b) : 0.5;
-  const pageBackground = { color: data.pageBg, luminance: pageLuminance };
-  const contentCards = data.cards.map((c) => {
-    const parsed = parseColor(c.color);
-    const luminance2 = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
-    return { selector: c.selector, color: c.color, luminance: luminance2 };
-  });
-  let themeMismatch = false;
-  let mismatchDetails;
-  const darkPage = pageLuminance < 0.2;
-  const lightPage = pageLuminance > 0.7;
-  for (const card of contentCards) {
-    if (darkPage && card.luminance > 0.7) {
-      themeMismatch = true;
-      mismatchDetails = `Page background is dark (luminance ${pageLuminance.toFixed(3)}) but a content container matched by "${card.selector}" has a light background (luminance ${card.luminance.toFixed(3)})`;
-      break;
-    }
-    if (lightPage && card.luminance < 0.2) {
-      themeMismatch = true;
-      mismatchDetails = `Page background is light (luminance ${pageLuminance.toFixed(3)}) but a content container matched by "${card.selector}" has a dark background (luminance ${card.luminance.toFixed(3)})`;
-      break;
-    }
-  }
-  return { pageBackground, contentCards, themeMismatch, mismatchDetails };
-}
-
-// src/sensors/visual-patterns.ts
-function styleFingerprint(el) {
-  const s = el.computedStyles ?? {};
-  return {
-    backgroundColor: s.backgroundColor ?? "",
-    color: s.color ?? "",
-    borderRadius: s.borderRadius ?? "",
-    padding: s.padding ?? "",
-    fontSize: s.fontSize ?? "",
-    fontWeight: s.fontWeight ?? "",
-    borderWidth: s.borderWidth ?? "",
-    borderColor: s.borderColor ?? ""
-  };
-}
-function fingerprintKey(fp) {
-  return Object.entries(fp).map(([k, v]) => `${k}=${v}`).join("|");
-}
-function categorize(el) {
-  const tag = el.tagName.toLowerCase();
-  const role = el.a11y.role ?? "";
-  if (tag === "button" || role === "button") return "button";
-  if (tag === "a" || role === "link") return "link";
-  if (tag === "input" || tag === "textarea" || tag === "select" || role === "textbox" || role === "combobox") return "input";
-  if (/^h[1-6]$/.test(tag) || role === "heading") return "heading";
-  return null;
-}
-function collectVisualPatterns(ctx) {
-  const byCategory = /* @__PURE__ */ new Map();
-  for (const el of ctx.elements) {
-    const cat = categorize(el);
-    if (!cat) continue;
-    if (!byCategory.has(cat)) byCategory.set(cat, []);
-    byCategory.get(cat).push(el);
-  }
-  const reports = [];
-  for (const [category, els] of byCategory.entries()) {
-    const groupMap = /* @__PURE__ */ new Map();
-    for (const el of els) {
-      const fp = styleFingerprint(el);
-      const key = fingerprintKey(fp);
-      if (!groupMap.has(key)) {
-        groupMap.set(key, {
-          patternKey: key.slice(0, 80),
-          count: 0,
-          elements: [],
-          styleFingerprint: fp
-        });
-      }
-      const g = groupMap.get(key);
-      g.count++;
-      if (g.elements.length < 5) {
-        g.elements.push({
-          selector: el.selector,
-          text: (el.text ?? "").slice(0, 40)
-        });
-      }
-    }
-    const groups = Array.from(groupMap.values()).sort((a, b) => b.count - a.count);
-    const total = els.length;
-    const dominant = groups[0] && groups[0].count / total > 0.8 ? groups[0] : void 0;
-    reports.push({
-      category,
-      totalElements: total,
-      distinctPatterns: groups.length,
-      groups,
-      dominant
-    });
-  }
-  return reports;
-}
-
-// src/sensors/component-census.ts
-function detectComponentName(el) {
-  const attrs = el.attributes;
-  if (attrs?.["data-component"]) return attrs["data-component"];
-  const testId = el.sourceHint?.dataTestId;
-  if (testId) {
-    const name = testId.split(/[-_]/).filter(Boolean).map((p) => (p[0]?.toUpperCase() ?? "") + p.slice(1)).join("");
-    if (name.length > 0) return name;
-  }
-  const className = el.className ?? attrs?.["class"] ?? attrs?.["className"];
-  if (className) {
-    const match = className.match(/\b([A-Z][a-zA-Z0-9]+)(?:_|$|\s)/);
-    if (match) return match[1];
-  }
-  return null;
-}
-function collectComponentCensus(ctx) {
-  const byTag = {};
-  const byRole = {};
-  let withHandlers = 0;
-  let withoutHandlers = 0;
-  const orphanInteractive = [];
-  const componentMap = /* @__PURE__ */ new Map();
-  for (const el of ctx.elements) {
-    const tag = el.tagName.toLowerCase();
-    if (tag) byTag[tag] = (byTag[tag] ?? 0) + 1;
-    const role = el.a11y.role;
-    if (role) byRole[role] = (byRole[role] ?? 0) + 1;
-    const interactive = el.interactive;
-    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
-    if (hasHandler) {
-      withHandlers++;
-    } else {
-      withoutHandlers++;
-      const cursor = el.computedStyles?.cursor;
-      if (cursor === "pointer" && (el.text ?? "").trim().length > 0) {
-        if (orphanInteractive.length < 20) {
-          orphanInteractive.push({
-            selector: el.selector,
-            text: (el.text ?? "").slice(0, 60),
-            reason: "cursor:pointer with no handler"
-          });
-        }
-      }
-    }
-    const componentName = detectComponentName(el) ?? el.tagName.toLowerCase();
-    const existing = componentMap.get(componentName);
-    if (existing) {
-      existing.count++;
-      if (existing.selectors.length < 5) existing.selectors.push(el.selector);
-    } else {
-      componentMap.set(componentName, { count: 1, selectors: [el.selector] });
-    }
-  }
-  const byComponent = {};
-  for (const [name, data] of componentMap) {
-    byComponent[name] = data.count;
-  }
-  const topComponents = Array.from(componentMap.entries()).sort((a, b) => b[1].count - a[1].count).slice(0, 20).map(([name, data]) => ({ name, count: data.count, selectors: data.selectors }));
-  return {
-    byTag,
-    byRole,
-    withHandlers,
-    withoutHandlers,
-    orphanInteractive,
-    byComponent,
-    topComponents
-  };
-}
-
-// src/sensors/interaction-map.ts
-function collectInteractionMap(ctx) {
-  const missingHandlers = [];
-  let total = 0;
-  let withHandlers = 0;
-  let withoutHandlers = 0;
-  let disabled = 0;
-  let formCount = 0;
-  for (const el of ctx.elements) {
-    const tag = el.tagName.toLowerCase();
-    const role = el.a11y.role ?? "";
-    const cursor = el.computedStyles?.cursor;
-    const looksInteractive2 = tag === "button" || tag === "a" || role === "button" || role === "link" || cursor === "pointer";
-    if (tag === "form") formCount++;
-    if (!looksInteractive2) continue;
-    total++;
-    const interactive = el.interactive;
-    const hasHandler = !!(interactive.hasOnClick || interactive.hasHref || interactive.hasReactHandler || interactive.hasVueHandler || interactive.hasAngularHandler);
-    if (hasHandler) {
-      withHandlers++;
-    } else {
-      withoutHandlers++;
-      if (missingHandlers.length < 25) {
-        missingHandlers.push({
-          selector: el.selector,
-          text: (el.text ?? "").slice(0, 60),
-          tagName: tag,
-          role: role || void 0
-        });
-      }
-    }
-    if (interactive.isDisabled) disabled++;
-  }
-  return { total, withHandlers, withoutHandlers, missingHandlers, disabled, formCount };
-}
-
-// src/sensors/contrast-report.ts
-function parseColor2(color) {
-  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
-    return null;
-  }
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
-  }
-  const hex6 = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6) {
-    const n = parseInt(hex6[1], 16);
-    return [n >> 16 & 255, n >> 8 & 255, n & 255];
-  }
-  const hex3 = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3) {
-    return [
-      parseInt(hex3[1][0], 16) * 17,
-      parseInt(hex3[1][1], 16) * 17,
-      parseInt(hex3[1][2], 16) * 17
-    ];
-  }
-  return null;
-}
-function linearize(c) {
-  const n = c / 255;
-  return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4);
-}
-function luminance([r, g, b]) {
-  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
-}
-function contrastRatio(fg, bg) {
-  const l1 = luminance(fg);
-  const l2 = luminance(bg);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-function isLargeText(styles) {
-  const fontSize = parseFloat(styles.fontSize ?? "");
-  if (isNaN(fontSize)) return false;
-  const fw = styles.fontWeight ?? "400";
-  const isBold = fw === "bold" || parseInt(fw, 10) >= 700;
-  return fontSize >= 18 || isBold && fontSize >= 14;
-}
-function collectContrastReport(ctx) {
-  let pass = 0;
-  let fail = 0;
-  let passAAA = 0;
-  const failing = [];
-  let minRatio;
-  let lightOnDark = 0;
-  let darkOnLight = 0;
-  for (const el of ctx.elements) {
-    const text = (el.text ?? "").trim();
-    if (!text) continue;
-    const styles = el.computedStyles;
-    if (!styles) continue;
-    const fg = parseColor2(styles.color ?? "");
-    const bg = parseColor2(styles.backgroundColor ?? "");
-    if (!fg || !bg) continue;
-    const large = isLargeText(styles);
-    const ratio = contrastRatio(fg, bg);
-    const aaThreshold = large ? 3 : 4.5;
-    const aaaThreshold = large ? 4.5 : 7;
-    const fontSize = parseFloat(styles.fontSize ?? "16") || 16;
-    const entry = {
-      selector: el.selector,
-      text: text.slice(0, 60),
-      ratio: Number(ratio.toFixed(2)),
-      pass: ratio >= aaaThreshold ? "AAA" : ratio >= aaThreshold ? "AA" : "FAIL",
-      fontSize,
-      largeText: large
-    };
-    if (ratio >= aaThreshold) {
-      pass++;
-    } else {
-      fail++;
-      if (failing.length < 50) failing.push(entry);
-    }
-    if (ratio >= aaaThreshold) passAAA++;
-    if (!minRatio || ratio < minRatio.ratio) minRatio = entry;
-    const fgAvg = (fg[0] + fg[1] + fg[2]) / 3;
-    const bgAvg = (bg[0] + bg[1] + bg[2]) / 3;
-    if (fgAvg > bgAvg) lightOnDark++;
-    else darkOnLight++;
-  }
-  return {
-    totalChecked: pass + fail,
-    pass,
-    fail,
-    passAAA,
-    failing,
-    minRatio,
-    byTone: { lightOnDark, darkOnLight }
-  };
-}
-
-// src/sensors/navigation.ts
-function selectorDepth(selector) {
-  return (selector || "").split(/\s*>\s*/).length;
-}
-function isDescendantOf(childSelector, ancestorSelector) {
-  if (!ancestorSelector || !childSelector) return false;
-  return childSelector.startsWith(ancestorSelector + " ") || childSelector.startsWith(ancestorSelector + ">") || childSelector.startsWith(ancestorSelector + " >") || childSelector === ancestorSelector;
-}
-function linkLabel(el) {
-  return (el.text ?? el.a11y.ariaLabel ?? "").trim().slice(0, 60);
-}
-function buildTree(links, navSelector) {
-  const navDepth = selectorDepth(navSelector);
-  const sorted = [...links].sort((a, b) => a.selector.length - b.selector.length);
-  const roots = [];
-  const stack = [];
-  for (const el of sorted) {
-    const label = linkLabel(el);
-    if (!label) continue;
-    const absDepth = selectorDepth(el.selector);
-    const relDepth = absDepth - navDepth;
-    const node = {
-      label,
-      selector: el.selector,
-      depth: relDepth,
-      children: []
-    };
-    let parentEntry;
-    for (let i = stack.length - 1; i >= 0; i--) {
-      const candidate = stack[i];
-      if (candidate.absDepth < absDepth && isDescendantOf(el.selector, candidate.node.selector)) {
-        parentEntry = candidate;
-        break;
-      }
-    }
-    if (parentEntry) {
-      parentEntry.node.children.push(node);
-    } else {
-      roots.push(node);
-    }
-    stack.push({ node, absDepth });
-  }
-  function maxD(nodes, current) {
-    let m = current;
-    for (const n of nodes) m = Math.max(m, maxD(n.children, current + 1));
-    return m;
-  }
-  const maxDepth = roots.length > 0 ? maxD(roots, 1) : 0;
-  return { roots, maxDepth };
-}
-function flattenTree(nodes, depth, counts) {
-  for (const node of nodes) {
-    counts[depth] = (counts[depth] ?? 0) + 1;
-    flattenTree(node.children, depth + 1, counts);
-  }
-}
-function collectNavigationMap(ctx) {
-  const navElements = ctx.elements.filter((el) => {
-    const role = el.a11y.role ?? "";
-    const tag = el.tagName.toLowerCase();
-    return role === "navigation" || tag === "nav";
-  });
-  const links = ctx.elements.filter((el) => {
-    const role = el.a11y.role ?? "";
-    const tag = el.tagName.toLowerCase();
-    return role === "link" || tag === "a";
-  });
-  if (links.length === 0 && navElements.length === 0) return void 0;
-  if (navElements.length > 0) {
-    const navRegions = [];
-    const byDepth = [];
-    for (const nav of navElements) {
-      const navLinks = links.filter(
-        (link) => isDescendantOf(link.selector, nav.selector)
-      );
-      const { roots, maxDepth } = buildTree(navLinks, nav.selector);
-      flattenTree(roots, 0, byDepth);
-      navRegions.push({
-        rootSelector: nav.selector,
-        roots,
-        depth: maxDepth
-      });
-    }
-    const allRoots = navRegions.flatMap((r) => r.roots);
-    const overallMaxDepth = navRegions.reduce((m, r) => Math.max(m, r.depth), 0);
-    return {
-      navs: navRegions,
-      roots: allRoots.slice(0, 40),
-      depth: overallMaxDepth,
-      totalLinks: links.length,
-      byDepth
-    };
-  }
-  const flatRoots = [];
-  for (const link of links.slice(0, 60)) {
-    const label = linkLabel(link);
-    if (!label) continue;
-    flatRoots.push({
-      label,
-      selector: link.selector,
-      depth: 0,
-      children: []
-    });
-  }
-  return {
-    navs: [],
-    roots: flatRoots.slice(0, 40),
-    depth: 1,
-    totalLinks: links.length,
-    byDepth: [flatRoots.length]
-  };
-}
-
-// src/sensors/index.ts
-function runSensors(ctx) {
-  const visualPatterns = collectVisualPatterns(ctx);
-  const componentCensus = collectComponentCensus(ctx);
-  const interactionMap = collectInteractionMap(ctx);
-  const contrast = collectContrastReport(ctx);
-  const navigation = collectNavigationMap(ctx);
-  const oneLiners = [];
-  for (const vp of visualPatterns) {
-    if (vp.distinctPatterns > 1) {
-      const dominantNote = vp.dominant ? ` (${vp.dominant.count}/${vp.totalElements} share dominant pattern)` : "";
-      oneLiners.push(
-        `${vp.category}: ${vp.totalElements} total, ${vp.distinctPatterns} distinct patterns${dominantNote}`
-      );
-    }
-  }
-  if (interactionMap.withoutHandlers > 0) {
-    oneLiners.push(
-      `${interactionMap.withoutHandlers}/${interactionMap.total} interactive-looking elements have no handler`
-    );
-  }
-  if (contrast.fail > 0) {
-    oneLiners.push(`Contrast: ${contrast.fail}/${contrast.totalChecked} text elements fail WCAG AA`);
-  }
-  if (componentCensus.orphanInteractive.length > 0) {
-    oneLiners.push(
-      `${componentCensus.orphanInteractive.length} cursor:pointer elements have no handler`
-    );
-  }
-  if (navigation) {
-    if (navigation.navs.length > 0) {
-      oneLiners.push(
-        `Nav: ${navigation.navs.length} nav region(s), max depth ${navigation.depth}, ${navigation.totalLinks} total links`
-      );
-    } else {
-      oneLiners.push(`Navigation: ${navigation.totalLinks} links, ${navigation.depth} level(s) deep`);
-    }
-  }
-  const namedComponents = componentCensus.topComponents.filter(
-    (c) => !/^[a-z]/.test(c.name) || c.name.includes("-")
-    // PascalCase or testid-derived names
-  );
-  if (namedComponents.length > 0) {
-    const top3 = namedComponents.slice(0, 3).map((c) => `${c.name}\xD7${c.count}`).join(", ");
-    const totalNamed = namedComponents.length;
-    oneLiners.push(`Components: ${top3}${totalNamed > 3 ? ` (top 3 of ${totalNamed})` : ""}`);
-  }
-  const report = {
-    visualPatterns,
-    navigation,
-    componentCensus,
-    interactionMap,
-    contrast,
-    oneLiners
-  };
-  if (ctx.semantic) {
-    const sem = ctx.semantic;
-    const states = [];
-    if (sem.state.auth.authenticated === true) states.push("authenticated");
-    if (sem.state.auth.authenticated === false) states.push("not authenticated");
-    if (sem.state.loading.loading) states.push(`loading:${sem.state.loading.type}`);
-    if (sem.state.errors.hasErrors) {
-      for (const e of sem.state.errors.errors) states.push(`error:${e.type}`);
-    }
-    report.semanticState = {
-      pageIntent: sem.pageIntent.intent,
-      states,
-      availableActions: sem.availableActions.map((a) => a.action)
-    };
-  }
-  return report;
-}
-
-// src/rules/wcag-contrast.ts
-function parseColor3(color) {
-  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
-    return null;
-  }
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
-  }
-  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6Match) {
-    const n = parseInt(hex6Match[1], 16);
-    return [n >> 16 & 255, n >> 8 & 255, n & 255];
-  }
-  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3Match) {
-    const r = parseInt(hex3Match[1][0], 16) * 17;
-    const g = parseInt(hex3Match[1][1], 16) * 17;
-    const b = parseInt(hex3Match[1][2], 16) * 17;
-    return [r, g, b];
-  }
-  return null;
-}
-function linearize2(channel) {
-  const c = channel / 255;
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-}
-function relativeLuminance2(r, g, b) {
-  return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
-}
-function contrastRatio2(l1, l2) {
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-function isLargeText2(styles) {
-  const fontSizeStr = styles.fontSize ?? "";
-  const fontWeightStr = styles.fontWeight ?? "";
-  const fontSize = parseFloat(fontSizeStr);
-  if (isNaN(fontSize)) return false;
-  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
-  return fontSize >= 18 || isBold && fontSize >= 14;
-}
-var wcagContrastRules = [
-  {
-    id: "wcag/contrast",
-    name: "WCAG 2.1: Color Contrast",
-    description: "Text must meet WCAG 2.1 minimum contrast: 4.5:1 normal, 3:1 large text",
-    defaultSeverity: "error",
-    check: (element, _context) => {
-      const style = element.computedStyles;
-      if (!style) return null;
-      const hasText = element.text && element.text.trim().length > 0;
-      if (!hasText) return null;
-      const fgColor = parseColor3(style.color ?? "");
-      const bgColor = parseColor3(style.backgroundColor ?? "");
-      if (!fgColor || !bgColor) return null;
-      const fgL = relativeLuminance2(...fgColor);
-      const bgL = relativeLuminance2(...bgColor);
-      const ratio = contrastRatio2(fgL, bgL);
-      const largeText = isLargeText2(style);
-      const threshold = largeText ? 3 : 4.5;
-      if (ratio < threshold) {
-        const ratioStr = ratio.toFixed(2);
-        const textSnippet = (element.text ?? "").slice(0, 40);
-        return {
-          ruleId: "wcag/contrast",
-          ruleName: "WCAG 2.1: Color Contrast",
-          severity: "error",
-          message: `"${textSnippet}" has contrast ratio ${ratioStr}:1 (required ${threshold}:1 for ${largeText ? "large" : "normal"} text)`,
-          element: element.selector,
-          bounds: element.bounds,
-          fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
-        };
-      }
-      return null;
-    }
-  }
-];
-
-// src/rules/touch-targets.ts
-var INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
-  "button",
-  "link",
-  "textbox",
-  "checkbox",
-  "radio",
-  "combobox",
-  "listbox",
-  "menuitem",
-  "menuitemcheckbox",
-  "menuitemradio",
-  "option",
-  "searchbox",
-  "slider",
-  "spinbutton",
-  "switch",
-  "tab",
-  "treeitem"
-]);
-var INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
-function isInteractiveElement(element) {
-  if (INTERACTIVE_TAGS.has(element.tagName.toLowerCase())) return true;
-  const role = element.a11y?.role;
-  if (role && INTERACTIVE_ROLES.has(role)) return true;
-  return false;
-}
-var touchTargetRules = [
-  {
-    id: "touch-targets/minimum-size",
-    name: "Touch Target: Minimum Size",
-    description: "Interactive elements must meet minimum touch target size (44x44px mobile, 24x24px desktop)",
-    defaultSeverity: "warn",
-    check: (element, context, options) => {
-      if (!isInteractiveElement(element)) return null;
-      const isMobile = context.isMobile || context.viewportWidth < 768;
-      const minSize = isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
-      const { width, height } = element.bounds;
-      if (width === 0 && height === 0) return null;
-      if (width < minSize || height < minSize) {
-        const label = element.text || element.a11y?.ariaLabel || element.selector;
-        return {
-          ruleId: "touch-targets/minimum-size",
-          ruleName: "Touch Target: Minimum Size",
-          severity: "warn",
-          message: `"${label.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
-          element: element.selector,
-          bounds: element.bounds,
-          fix: `Increase element size to at least ${minSize}x${minSize}px`
-        };
-      }
-      return null;
-    }
-  }
-];
-
-// src/rules/text-hierarchy.ts
-var TITLE_TAGS = /* @__PURE__ */ new Set(["h1", "h2", "h3", "h4", "h5", "h6"]);
-var DESCRIPTION_TAGS = /* @__PURE__ */ new Set(["p", "blockquote", "figcaption", "li"]);
-function inferLevel(element) {
-  const tag = element.tagName.toLowerCase();
-  const role = element.a11y?.role ?? "";
-  if (TITLE_TAGS.has(tag) || role === "heading") return "title";
-  if (DESCRIPTION_TAGS.has(tag) || role === "paragraph") return "description";
-  if (tag === "span" || tag === "small" || tag === "label") {
-    const size = parseFloat(element.computedStyles?.fontSize ?? "0");
-    if (size > 0 && size <= 12) return "metadata";
-  }
-  return "unknown";
-}
-function parseFontSize(element) {
-  const raw = element.computedStyles?.fontSize;
-  if (!raw) return null;
-  const val = parseFloat(raw);
-  return isNaN(val) ? null : val;
-}
-var textHierarchyRules = [
-  {
-    id: "text-hierarchy/title-vs-description",
-    name: "Text Hierarchy: Title vs Description Size",
-    description: "Title-level elements must be visually larger than description-level elements",
-    defaultSeverity: "warn",
-    check: (element, context) => {
-      if (inferLevel(element) !== "title") return null;
-      const titleSize = parseFontSize(element);
-      if (titleSize === null) return null;
-      for (const other of context.allElements) {
-        if (inferLevel(other) !== "description") continue;
-        const descSize = parseFontSize(other);
-        if (descSize === null) continue;
-        if (descSize >= titleSize) {
-          const titleLabel = element.text?.slice(0, 30) || element.selector;
-          const descLabel = other.text?.slice(0, 30) || other.selector;
-          return {
-            ruleId: "text-hierarchy/title-vs-description",
-            ruleName: "Text Hierarchy: Title vs Description Size",
-            severity: "warn",
-            message: `Title "${titleLabel}" (${titleSize}px) is not larger than description "${descLabel}" (${descSize}px)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Ensure heading/title font sizes are larger than body/description text"
-          };
-        }
-      }
-      return null;
-    }
-  }
-];
-
-// src/rules/handler-integrity.ts
-var VISUALLY_INTERACTIVE_ROLES = /* @__PURE__ */ new Set(["button", "link", "menuitem", "tab", "option"]);
-var VISUALLY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a"]);
-function looksInteractive(element) {
-  const tag = element.tagName.toLowerCase();
-  const role = element.a11y?.role ?? "";
-  const cursor = element.interactive?.cursor ?? "";
-  if (VISUALLY_INTERACTIVE_TAGS.has(tag)) return true;
-  if (VISUALLY_INTERACTIVE_ROLES.has(role)) return true;
-  if (cursor === "pointer") return true;
-  return false;
-}
-function hasAnyHandler(element) {
-  return !!(element.interactive.hasOnClick || element.interactive.hasHref || element.interactive.hasReactHandler || element.interactive.hasVueHandler || element.interactive.hasAngularHandler);
-}
-function hasDisabledVisual(element) {
-  const style = element.computedStyles;
-  if (!style) return false;
-  const opacity = parseFloat(style.opacity ?? "1");
-  if (!isNaN(opacity) && opacity <= 0.7) return true;
-  if (element.interactive.cursor === "not-allowed") return true;
-  const bg = style.backgroundColor ?? "";
-  const color = style.color ?? "";
-  const grayPattern = /rgb\((\d+),\s*(\d+),\s*(\d+)\)/;
-  for (const c of [bg, color]) {
-    const m = c.match(grayPattern);
-    if (m) {
-      const r = parseInt(m[1], 10);
-      const g = parseInt(m[2], 10);
-      const b = parseInt(m[3], 10);
-      const range = Math.max(r, g, b) - Math.min(r, g, b);
-      if (range < 30 && r > 100 && r < 220) return true;
-    }
-  }
-  return false;
-}
-var handlerIntegrityRules = [
-  {
-    id: "handler-integrity/fake-interactive",
-    name: "Handler Integrity: Fake Interactive Element",
-    description: "Elements that look interactive must have actual handlers",
-    defaultSeverity: "error",
-    check: (element, _context) => {
-      if (!looksInteractive(element)) return null;
-      if (element.interactive.isDisabled) return null;
-      if (hasAnyHandler(element)) return null;
-      const label = element.text || element.a11y?.ariaLabel || element.selector;
-      return {
-        ruleId: "handler-integrity/fake-interactive",
-        ruleName: "Handler Integrity: Fake Interactive Element",
-        severity: "error",
-        message: `"${label.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: "Add an onClick handler, href, or remove interactive appearance"
-      };
-    }
-  },
-  {
-    id: "handler-integrity/disabled-no-visual",
-    name: "Handler Integrity: Disabled Without Visual State",
-    description: "Disabled elements must have a visible disabled appearance",
-    defaultSeverity: "warn",
-    check: (element, _context) => {
-      if (!element.interactive.isDisabled) return null;
-      if (hasDisabledVisual(element)) return null;
-      const label = element.text || element.a11y?.ariaLabel || element.selector;
-      return {
-        ruleId: "handler-integrity/disabled-no-visual",
-        ruleName: "Handler Integrity: Disabled Without Visual State",
-        severity: "warn",
-        message: `"${label.slice(0, 40)}" is disabled but shows no visual disabled state`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: "Apply opacity <= 0.7, cursor: not-allowed, or muted color to disabled elements"
-      };
-    }
-  }
-];
-
-// src/rules/spacing-grid.ts
-var SPACING_PROPERTIES = [
-  "paddingTop",
-  "paddingRight",
-  "paddingBottom",
-  "paddingLeft",
-  "marginTop",
-  "marginRight",
-  "marginBottom",
-  "marginLeft",
-  // Shorthand forms that may appear in computedStyles
-  "padding",
-  "margin",
-  "gap",
-  "rowGap",
-  "columnGap"
-];
-function parsePxValue(value) {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "auto" || trimmed === "normal" || trimmed === "initial" || trimmed === "inherit") {
-    return null;
-  }
-  if (trimmed.endsWith("%")) return null;
-  if (trimmed.endsWith("em") || trimmed.endsWith("rem") || trimmed.endsWith("vw") || trimmed.endsWith("vh")) {
-    return null;
-  }
-  if (!trimmed.endsWith("px")) return null;
-  const n = parseFloat(trimmed);
-  return isNaN(n) ? null : n;
-}
-function isOnGrid(px) {
-  if (px === 0) return true;
-  return Math.round(px) % 4 === 0;
-}
-function parseSpacingShorthand(value) {
-  const parts = value.trim().split(/\s+/);
-  const results = [];
-  for (const part of parts) {
-    const px = parsePxValue(part);
-    if (px !== null) results.push(px);
-  }
-  return results;
-}
-var spacingGridRules = [
-  {
-    id: "spacing-grid/off-grid",
-    name: "Spacing Grid: Off 8pt Grid",
-    description: "Padding and margin values should be multiples of 4px (half 8pt grid)",
-    defaultSeverity: "warn",
-    check: (element, _context) => {
-      const style = element.computedStyles;
-      if (!style) return null;
-      const offGridValues = [];
-      for (const prop of SPACING_PROPERTIES) {
-        const raw = style[prop];
-        if (!raw) continue;
-        const isShorthand = prop === "padding" || prop === "margin";
-        if (isShorthand) {
-          const values = parseSpacingShorthand(raw);
-          for (const v of values) {
-            if (!isOnGrid(v)) {
-              offGridValues.push({ property: prop, value: raw });
-              break;
-            }
-          }
-        } else {
-          const px = parsePxValue(raw);
-          if (px !== null && !isOnGrid(px)) {
-            offGridValues.push({ property: prop, value: raw });
-          }
-        }
-      }
-      if (offGridValues.length === 0) return null;
-      const detail = offGridValues.map((v) => `${v.property}: ${v.value}`).join(", ");
-      const label = element.text?.slice(0, 30) || element.selector;
-      return {
-        ruleId: "spacing-grid/off-grid",
-        ruleName: "Spacing Grid: Off 8pt Grid",
-        severity: "warn",
-        message: `"${label}" has off-grid spacing: ${detail}`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: "Use spacing values that are multiples of 4px (e.g., 4, 8, 12, 16, 20, 24, 32px)"
-      };
-    }
-  }
-];
-
-// src/rules/index.ts
-var allRules = [
-  ...wcagContrastRules,
-  ...touchTargetRules,
-  ...textHierarchyRules,
-  ...handlerIntegrityRules,
-  ...spacingGridRules
-];
-function runAllRules(elements, context) {
-  const results = [];
-  for (const element of elements) {
-    for (const rule of allRules) {
-      const violation = rule.check(element, context);
-      if (!violation) continue;
-      const severity = violation.severity === "error" ? "error" : "warning";
-      results.push({
-        rule: violation.ruleId,
-        severity,
-        element: violation.element ?? element.selector,
-        expected: violation.fix ?? "",
-        actual: violation.message,
-        evidence: {
-          ruleName: violation.ruleName,
-          bounds: violation.bounds,
-          selector: element.selector,
-          tagName: element.tagName,
-          text: element.text
-        }
-      });
-    }
-  }
-  return results;
-}
-
-// src/summarize.ts
-var SIGNATURE_KEYS = [
-  "fontSize",
-  "fontWeight",
-  "color",
-  "backgroundColor",
-  "borderRadius",
-  "padding"
-];
-function extractSignature(el) {
-  const s = el.computedStyles ?? {};
-  return {
-    fontSize: s["fontSize"] ?? "",
-    fontWeight: s["fontWeight"] ?? "",
-    color: s["color"] ?? "",
-    backgroundColor: s["backgroundColor"] ?? "",
-    borderRadius: s["borderRadius"] ?? "",
-    padding: s["padding"] ?? ""
-  };
-}
-function hashSignature(sig) {
-  return SIGNATURE_KEYS.map((k) => `${k}:${sig[k]}`).join("|");
-}
-function matchCount(a, b) {
-  let count = 0;
-  for (const key of SIGNATURE_KEYS) {
-    if (a[key] === b[key]) count++;
-  }
-  return count;
-}
-function elementLabel(el) {
-  return el.text?.trim() || el.a11y?.ariaLabel || el.id || el.selector.slice(0, 60);
-}
-function resolveRole(el) {
-  return el.a11y?.role ?? el.tagName ?? "unknown";
-}
-function parseColor4(color) {
-  if (!color || color === "transparent" || color === "none") return null;
-  const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-  if (rgbMatch) {
-    return {
-      r: Number(rgbMatch[1]),
-      g: Number(rgbMatch[2]),
-      b: Number(rgbMatch[3])
-    };
-  }
-  const hexMatch = color.match(/^#([0-9a-f]{3,8})$/i);
-  if (hexMatch) {
-    const h = hexMatch[1];
-    if (h.length === 3) {
-      return {
-        r: parseInt(h[0] + h[0], 16),
-        g: parseInt(h[1] + h[1], 16),
-        b: parseInt(h[2] + h[2], 16)
-      };
-    }
-    if (h.length >= 6) {
-      return {
-        r: parseInt(h.slice(0, 2), 16),
-        g: parseInt(h.slice(2, 4), 16),
-        b: parseInt(h.slice(4, 6), 16)
-      };
-    }
-  }
-  const named = {
-    white: { r: 255, g: 255, b: 255 },
-    black: { r: 0, g: 0, b: 0 },
-    red: { r: 255, g: 0, b: 0 },
-    green: { r: 0, g: 128, b: 0 },
-    blue: { r: 0, g: 0, b: 255 },
-    gray: { r: 128, g: 128, b: 128 },
-    grey: { r: 128, g: 128, b: 128 }
-  };
-  return named[color.toLowerCase()] ?? null;
-}
-function relativeLuminance3(r, g, b) {
-  const lin = (c) => {
-    const s = c / 255;
-    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-}
-function contrastRatio3(l1, l2) {
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-function buildVisualPatterns(elements) {
-  if (elements.length === 0) return [];
-  const groups = /* @__PURE__ */ new Map();
-  for (const el of elements) {
-    const sig = extractSignature(el);
-    const key = hashSignature(sig);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.elements.push(el);
-    } else {
-      groups.set(key, { sig, elements: [el] });
-    }
-  }
-  const groupList = Array.from(groups.entries()).map(([key, { sig, elements: els }]) => ({
-    patternId: key.slice(0, 32),
-    // truncate for readability
-    styleSignature: sig,
-    count: els.length,
-    roles: [...new Set(els.map(resolveRole))],
-    memberElements: els
-  }));
-  const result = groupList.map((group) => {
-    const outliers = [];
-    for (const other of groupList) {
-      if (other.patternId === group.patternId) continue;
-      const matches = matchCount(group.styleSignature, other.styleSignature);
-      if (matches >= 5) {
-        for (const el of other.memberElements) {
-          outliers.push(elementLabel(el));
-        }
-      }
-    }
-    return {
-      patternId: group.patternId,
-      styleSignature: group.styleSignature,
-      count: group.count,
-      roles: group.roles,
-      outliers: [...new Set(outliers)].slice(0, 10)
-    };
-  });
-  return result.sort((a, b) => b.count - a.count);
-}
-var PRIMITIVE_PATTERNS = [
-  { testIdIncludes: "page-header", name: "PageHeader" },
-  { testIdIncludes: "page-title", name: "PageHeader" },
-  { testIdIncludes: "surface", name: "Surface+Row" },
-  { testIdIncludes: "card", name: "Surface+Row" },
-  { testIdIncludes: "nav-item", name: "NavItem" },
-  { testIdIncludes: "tab", name: "Tab" },
-  { testIdIncludes: "modal", name: "Modal" },
-  { testIdIncludes: "dialog", name: "Dialog" },
-  { testIdIncludes: "toast", name: "Toast" },
-  { testIdIncludes: "badge", name: "Badge" },
-  { testIdIncludes: "avatar", name: "Avatar" },
-  { testIdIncludes: "input", name: "Input" },
-  { testIdIncludes: "btn", name: "Button" },
-  { testIdIncludes: "button", name: "Button" }
-];
-function classifyElement(el) {
-  const testId = el.sourceHint?.dataTestId?.toLowerCase() ?? "";
-  for (const p of PRIMITIVE_PATTERNS) {
-    if (testId.includes(p.testIdIncludes)) {
-      return { pattern: p.name, compliance: "primitive" };
-    }
-  }
-  if (el.tagName === "button") {
-    return { pattern: "raw-button", compliance: "raw" };
-  }
-  if (["h1", "h2", "h3"].includes(el.tagName)) {
-    return { pattern: `raw-${el.tagName}`, compliance: "raw" };
-  }
-  if (["input", "select", "textarea"].includes(el.tagName)) {
-    return { pattern: "raw-input", compliance: "raw" };
-  }
-  if (el.tagName === "a") {
-    return { pattern: "raw-link", compliance: "raw" };
-  }
-  return { pattern: `raw-${el.tagName ?? "unknown"}`, compliance: "raw" };
-}
-function buildComponentCensus(elements, url) {
-  if (elements.length === 0) return [];
-  let route = "/";
-  try {
-    route = new URL(url).pathname;
-  } catch {
-    route = url;
-  }
-  const map = /* @__PURE__ */ new Map();
-  for (const el of elements) {
-    const { pattern, compliance } = classifyElement(el);
-    const existing = map.get(pattern);
-    if (existing) {
-      existing.count++;
-      existing.pages.add(route);
-      existing.complianceCounts[compliance] = (existing.complianceCounts[compliance] ?? 0) + 1;
-    } else {
-      map.set(pattern, {
-        count: 1,
-        pages: /* @__PURE__ */ new Set([route]),
-        complianceCounts: { [compliance]: 1 }
-      });
-    }
-  }
-  return Array.from(map.entries()).map(([pattern, { count, pages, complianceCounts }]) => {
-    const primitiveCount = complianceCounts["primitive"] ?? 0;
-    const rawCount = complianceCounts["raw"] ?? 0;
-    let compliance;
-    if (primitiveCount > 0 && rawCount > 0) {
-      compliance = "mixed";
-    } else if (primitiveCount > 0) {
-      compliance = "primitive";
-    } else {
-      compliance = "raw";
-    }
-    return {
-      pattern,
-      count,
-      pages: [...pages],
-      compliance
-    };
-  }).sort((a, b) => b.count - a.count);
-}
-var HEADING_DEPTH = {
-  h1: 1,
-  h2: 2,
-  h3: 3,
-  h4: 4,
-  h5: 5,
-  h6: 6
-};
-var NAV_ROLES = /* @__PURE__ */ new Set(["navigation", "link", "tab", "menuitem", "option"]);
-function buildNavigationMap(elements) {
-  if (elements.length === 0) return [];
-  const nodes = [];
-  for (const el of elements) {
-    const role = resolveRole(el);
-    const tag = el.tagName ?? "";
-    const isHeading = tag in HEADING_DEPTH;
-    const isNavRole = NAV_ROLES.has(role);
-    if (!isHeading && !isNavRole) continue;
-    const label = elementLabel(el);
-    if (!label) continue;
-    const depth = isHeading ? HEADING_DEPTH[tag] ?? 1 : 1;
-    const styles = el.computedStyles ?? {};
-    const hasFontWeightBold = styles["fontWeight"] === "bold" || parseInt(styles["fontWeight"] ?? "0", 10) >= 700;
-    const isActive = el.a11y?.role === "tab" ? hasFontWeightBold : void 0;
-    nodes.push({
-      label,
-      role,
-      depth,
-      isActive
-    });
-  }
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    let children = 0;
-    for (let j = i + 1; j < nodes.length; j++) {
-      if (nodes[j].depth <= node.depth) break;
-      if (nodes[j].depth === node.depth + 1) children++;
-    }
-    if (children > 0) {
-      node.childCount = children;
-    }
-  }
-  return nodes;
-}
-function buildContrastReport(elements) {
-  if (elements.length === 0) return [];
-  const pairMap = /* @__PURE__ */ new Map();
-  for (const el of elements) {
-    const styles = el.computedStyles ?? {};
-    const fg = styles["color"] ?? "";
-    const bg = styles["backgroundColor"] ?? "";
-    if (!fg && !bg) continue;
-    const key = `${fg}|${bg}`;
-    const existing = pairMap.get(key);
-    if (existing) {
-      existing.elements.push(el);
-    } else {
-      pairMap.set(key, { fg, bg, elements: [el] });
-    }
-  }
-  return Array.from(pairMap.values()).map(({ fg, bg, elements: els }) => {
-    const fgRgb = parseColor4(fg);
-    const bgRgb = parseColor4(bg);
-    let status = "unknown";
-    let ratio = 0;
-    if (fgRgb && bgRgb) {
-      const fgL = relativeLuminance3(fgRgb.r, fgRgb.g, fgRgb.b);
-      const bgL = relativeLuminance3(bgRgb.r, bgRgb.g, bgRgb.b);
-      ratio = contrastRatio3(fgL, bgL);
-      status = ratio >= 4.5 ? "pass" : "fail";
-    }
-    const sampleElements = els.slice(0, 3).map(elementLabel).filter(Boolean);
-    return {
-      status,
-      ratio: Math.round(ratio * 100) / 100,
-      foreground: fg,
-      background: bg,
-      elementCount: els.length,
-      sampleElements
-    };
-  });
-}
-var INTERACTIVE_TAGS2 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
-var INTERACTIVE_ROLES2 = /* @__PURE__ */ new Set(["button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem", "option", "tab"]);
-function isLooksInteractive(el) {
-  const tag = el.tagName ?? "";
-  const role = el.a11y?.role ?? "";
-  const cursor = el.interactive?.cursor ?? el.computedStyles?.["cursor"] ?? "";
-  return INTERACTIVE_TAGS2.has(tag) || INTERACTIVE_ROLES2.has(role) || cursor === "pointer";
-}
-function buildInteractionMap(elements) {
-  if (elements.length === 0) return [];
-  const buckets = {
-    "has-handler": [],
-    "looks-interactive-no-handler": [],
-    "disabled-with-handler": [],
-    "properly-disabled": []
-  };
-  for (const el of elements) {
-    const inter = el.interactive;
-    if (!inter) continue;
-    const hasHandler = inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler;
-    const isDisabled = inter.isDisabled ?? false;
-    const looksInteractive2 = isLooksInteractive(el);
-    if (isDisabled && hasHandler) {
-      buckets["disabled-with-handler"].push(el);
-    } else if (isDisabled && !hasHandler) {
-      buckets["properly-disabled"].push(el);
-    } else if (hasHandler) {
-      buckets["has-handler"].push(el);
-    } else if (looksInteractive2) {
-      buckets["looks-interactive-no-handler"].push(el);
-    }
-  }
-  return Object.entries(buckets).filter(([, els]) => els.length > 0).map(([category, els]) => ({
-    category,
-    count: els.length,
-    elements: els.slice(0, 5).map(elementLabel)
-  }));
-}
-function estimateTokens(data) {
-  return Math.ceil(JSON.stringify(data).length / 4);
-}
-function summarizeScan(elements, url) {
-  const safeElements = elements ?? [];
-  const visualPatterns = buildVisualPatterns(safeElements);
-  const componentCensus = buildComponentCensus(safeElements, url);
-  const navigationMap = buildNavigationMap(safeElements);
-  const contrastReport = buildContrastReport(safeElements);
-  const interactionMap = buildInteractionMap(safeElements);
-  const summary = {
-    visualPatterns,
-    componentCensus,
-    navigationMap,
-    contrastReport,
-    interactionMap
-  };
-  const rawTokenEstimate = estimateTokens(safeElements);
-  const summaryTokenEstimate = estimateTokens(summary);
-  const reductionPercent = rawTokenEstimate > 0 ? Math.round(
-    (rawTokenEstimate - summaryTokenEstimate) / rawTokenEstimate * 100
-  ) : 0;
-  return {
-    ...summary,
-    tokenEfficiency: {
-      rawTokenEstimate,
-      summaryTokenEstimate,
-      reductionPercent
-    }
-  };
-}
-
-// src/scan.ts
-init_engine();
-var IssueCollector = class {
-  issues = [];
-  add(issue) {
-    this.issues.push(issue);
-  }
-  /**
-   * Add issues from a source array with varying shapes.
-   * Handles the different field names used across audit, interactivity, and semantic results.
-   */
-  addFrom(category, items, overrideCategory) {
-    for (const item of items) {
-      const description = item.message ?? item.description ?? item.problem ?? "";
-      const severity = item.severity ?? "info";
-      const resolvedCategory = overrideCategory ? overrideCategory(item) : category;
-      this.issues.push({
-        category: resolvedCategory,
-        severity,
-        element: item.element,
-        description,
-        fix: item.fix
-      });
-    }
-  }
-  /**
-   * Add console errors, skipping favicon/manifest noise.
-   */
-  addConsoleErrors(errors) {
-    for (const error of errors) {
-      if (error.includes("favicon") || error.includes("manifest")) continue;
-      this.issues.push({
-        category: "console",
-        severity: "error",
-        description: `Console error: ${error.slice(0, 200)}`
-      });
-    }
-  }
-  /**
-   * Add theme mismatch issue if present.
-   */
-  addThemeAnalysis(analysis) {
-    if (analysis?.themeMismatch) {
-      this.issues.push({
-        category: "semantic",
-        severity: "warning",
-        description: analysis.mismatchDetails ?? "Content card has different theme than page background",
-        fix: "Ensure content containers match the page theme (dark/light)"
-      });
-    }
-  }
-  /**
-   * Remove issues with identical descriptions, preserving first occurrence.
-   */
-  deduplicate() {
-    const seen = /* @__PURE__ */ new Set();
-    this.issues = this.issues.filter((issue) => {
-      if (seen.has(issue.description)) return false;
-      seen.add(issue.description);
-      return true;
-    });
-  }
-  getIssues() {
-    return [...this.issues];
-  }
-};
-async function scan(url, options = {}) {
-  const {
-    viewport: viewportOpt = "desktop",
-    timeout = 3e4,
-    waitFor,
-    screenshot,
-    networkIdleTimeout,
-    patience,
-    headed = false,
-    browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath,
-    hydrationStrategy = "auto",
-    rules: rulePresets
-  } = options;
-  const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
-  const driver2 = new EngineDriver();
-  await driver2.launch({
-    headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath
-  });
-  const page = new CompatPage(driver2);
-  const consoleErrors = [];
-  const consoleWarnings = [];
-  page.on?.("console", (msg) => {
-    if (msg.type() === "error") {
-      consoleErrors.push(msg.text());
-    } else if (msg.type() === "warning") {
-      consoleWarnings.push(msg.text());
-    }
-  });
-  try {
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout
-    });
-    let networkIdleTimedOut = false;
-    await page.waitForLoadState?.("networkidle", { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
-      networkIdleTimedOut = true;
-    });
-    let waitForTimedOut = false;
-    if (waitFor) {
-      await page.waitForSelector(waitFor, { timeout: patience ?? networkIdleTimeout ?? 1e4 }).catch(() => {
-        waitForTimedOut = true;
-      });
-    }
-    let hydrationTimedOut = false;
-    let hydrationReason = "skipped";
-    if (hydrationStrategy !== "none") {
-      const shouldWaitForHydration = hydrationStrategy === "stable" || await detectSPAFramework(driver2);
-      if (shouldWaitForHydration) {
-        const hydrationResult = await waitForHydration(
-          driver2.connection,
-          () => driver2.getSnapshot(),
-          (expr) => driver2.evaluate(expr),
-          {
-            timeout: patience ?? 8e3,
-            stableTime: 500,
-            minElements: 1,
-            settleTime: 200
-          }
-        );
-        hydrationTimedOut = hydrationResult.timedOut;
-        hydrationReason = hydrationResult.reason;
-      }
-    }
-    const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
-      extractAndAudit(page, resolvedViewport),
-      testInteractivity(page),
-      getSemanticOutput(page),
-      driver2.getCoverage().catch(() => void 0),
-      analyzeThemeConsistency(page).catch(() => void 0)
-    ]);
-    if (screenshot) {
-      await page.screenshot({
-        path: screenshot.path,
-        fullPage: screenshot.fullPage ?? true
-      });
-    }
-    let route;
-    try {
-      route = new URL(url).pathname;
-    } catch {
-      route = url;
-    }
-    const layoutCollisions = detectLayoutCollisions(elements.all);
-    const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
-    const designSystem = await applyDesignSystemCheck(
-      elements.all,
-      issues,
-      resolvedViewport,
-      url,
-      options.outputDir || process.cwd()
-    );
-    const verdict = determineVerdict2(issues);
-    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
-    const sensors = runSensors({
-      elements: elements.all,
-      interactivity,
-      semantic,
-      url,
-      viewport: resolvedViewport
-    });
-    const ruleContext = {
-      isMobile: resolvedViewport.width < 768,
-      viewportWidth: resolvedViewport.width,
-      viewportHeight: resolvedViewport.height,
-      url,
-      allElements: elements.all
-    };
-    const ruleEngine = runAllRules(elements.all, ruleContext);
-    if (rulePresets && rulePresets.length > 0) {
-      const presetConfig = { extends: rulePresets, rules: {} };
-      const presetViolations = runRules(elements.all, ruleContext, presetConfig);
-      for (const v of presetViolations) {
-        issues.push({
-          category: "interactivity",
-          severity: v.severity === "error" ? "error" : "warning",
-          element: v.element,
-          description: `[${v.ruleId}] ${v.message}`,
-          fix: v.fix
-        });
-      }
-    }
-    const summaries = summarizeScan(elements.all, url);
-    const baseResult = {
-      url,
-      route,
-      timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-      viewport: resolvedViewport,
-      elements,
-      interactivity,
-      semantic,
-      sensors,
-      ruleEngine,
-      summaries,
-      console: {
-        errors: consoleErrors,
-        warnings: consoleWarnings
-      },
-      coverage,
-      layoutCollisions,
-      themeAnalysis,
-      designSystem,
-      hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
-      verdict,
-      issues,
-      summary
-    };
-    if (patience && (networkIdleTimedOut || waitForTimedOut)) {
-      return {
-        ...baseResult,
-        verdict: "PARTIAL",
-        partialReason: `Page still loading after ${patience}ms \u2014 ${networkIdleTimedOut ? "network still active" : "selector not found"}. Re-scan when content has loaded.`
-      };
-    }
-    return baseResult;
-  } finally {
-    await driver2.close();
-  }
-}
-async function detectSPAFramework(driver2) {
-  try {
-    const result = await driver2.evaluate(`
-      !!(window.__NEXT_DATA__ || window.__REACT_DEVTOOLS_GLOBAL_HOOK__ ||
-         window.__NUXT__ || window.__VUE_DEVTOOLS_GLOBAL_HOOK__ ||
-         document.querySelector('[data-reactroot]') ||
-         document.querySelector('#__next'))
-    `);
-    return result === true;
-  } catch {
-    return false;
-  }
-}
-async function extractAndAudit(page, viewport) {
-  const isMobile = viewport.width < 768;
-  const elements = await extractInteractiveElements(page);
-  const audit = analyzeElements(elements, isMobile);
-  return { all: elements, audit };
-}
-function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAnalysis) {
-  const collector = new IssueCollector();
-  collector.addFrom("interactivity", audit.issues.map((i) => ({
-    severity: i.severity,
-    message: i.message,
-    type: i.type
-  })), (item) => item.type === "MISSING_ARIA_LABEL" ? "accessibility" : "interactivity");
-  const auditMessages = new Set(audit.issues.map((i) => i.message));
-  const interactivityFiltered = interactivity.issues.filter((i) => !auditMessages.has(i.description));
-  collector.addFrom("interactivity", interactivityFiltered.map((i) => ({
-    severity: i.severity,
-    description: i.description,
-    element: i.element,
-    type: i.type,
-    fix: getFixSuggestion(i.type)
-  })), (item) => item.type === "MISSING_LABEL" ? "accessibility" : "interactivity");
-  collector.addFrom("semantic", semantic.issues.map((i) => ({
-    severity: i.severity,
-    problem: i.problem
-  })));
-  collector.addThemeAnalysis(themeAnalysis);
-  collector.addConsoleErrors(consoleErrors);
-  return collector.getIssues();
-}
-async function applyDesignSystemCheck(elements, issues, viewport, url, outputDir) {
-  const designSystem = await runDesignSystemCheck(
-    elements,
-    {
-      isMobile: viewport.width < 768,
-      viewportWidth: viewport.width,
-      viewportHeight: viewport.height,
-      url,
-      allElements: elements
-    },
-    outputDir
-  ).catch(() => void 0);
-  if (designSystem) {
-    for (const v of designSystem.principleViolations) {
-      issues.push({
-        category: "design-system",
-        severity: v.severity === "error" ? "error" : "warning",
-        element: v.element,
-        description: v.message,
-        fix: v.fix
-      });
-    }
-    for (const v of designSystem.tokenViolations) {
-      issues.push({
-        category: "design-system",
-        severity: v.severity === "error" ? "error" : "warning",
-        element: v.element,
-        description: v.message
-      });
-    }
-    for (const v of designSystem.customViolations) {
-      issues.push({
-        category: "design-system",
-        severity: v.severity === "error" ? "error" : "warning",
-        element: v.element,
-        description: v.message,
-        fix: v.fix
-      });
-    }
-  }
-  return designSystem;
-}
-function determineVerdict2(issues) {
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.filter((i) => i.severity === "warning").length;
-  if (errorCount >= 3) return "FAIL";
-  if (errorCount > 0 || warningCount >= 5) return "ISSUES";
-  return "PASS";
-}
-function generateSummary2(elements, interactivity, semantic, issues, consoleErrors) {
-  const parts = [];
-  parts.push(`${semantic.pageIntent.intent} page`);
-  parts.push(`${elements.audit.totalElements} elements (${elements.audit.interactiveCount} interactive)`);
-  const { buttons, links, forms } = interactivity;
-  const interactiveParts = [];
-  if (buttons.length > 0) interactiveParts.push(`${buttons.length} buttons`);
-  if (links.length > 0) interactiveParts.push(`${links.length} links`);
-  if (forms.length > 0) interactiveParts.push(`${forms.length} forms`);
-  if (interactiveParts.length > 0) {
-    parts.push(interactiveParts.join(", "));
-  }
-  if (interactivity.summary.withoutHandlers > 0) {
-    parts.push(`${interactivity.summary.withoutHandlers} elements without handlers`);
-  }
-  if (semantic.state.auth.authenticated) {
-    parts.push("authenticated");
-  }
-  if (semantic.state.loading.loading) {
-    parts.push(`loading (${semantic.state.loading.type})`);
-  }
-  if (semantic.state.errors.hasErrors) {
-    parts.push(`${semantic.state.errors.errors.length} page errors`);
-  }
-  if (consoleErrors.length > 0) {
-    parts.push(`${consoleErrors.length} console errors`);
-  }
-  const errorCount = issues.filter((i) => i.severity === "error").length;
-  const warningCount = issues.filter((i) => i.severity === "warning").length;
-  if (errorCount > 0 || warningCount > 0) {
-    const issueParts = [];
-    if (errorCount > 0) issueParts.push(`${errorCount} errors`);
-    if (warningCount > 0) issueParts.push(`${warningCount} warnings`);
-    parts.push(issueParts.join(", "));
-  }
-  return parts.join(", ");
-}
-function getFixSuggestion(type) {
-  switch (type) {
-    case "NO_HANDLER":
-      return "Add an onClick handler or remove the interactive appearance";
-    case "PLACEHOLDER_LINK":
-      return "Add a real href or an onClick handler";
-    case "MISSING_LABEL":
-      return "Add aria-label or visible text content";
-    case "FORM_NO_SUBMIT":
-      return "Add a submit handler or action attribute to the form";
-    case "ORPHAN_SUBMIT":
-      return "Ensure the submit button is inside a form";
-    case "SMALL_TOUCH_TARGET":
-      return "Increase element size to at least 44x44px for touch targets";
-    default:
-      return void 0;
-  }
-}
+init_design_system();
+init_scan();
 
 // src/index.ts
 init_schemas();
 
 // src/capture.ts
+init_driver();
+init_compat();
 var import_promises5 = require("fs/promises");
 var import_path4 = require("path");
 init_schemas();
@@ -9804,6 +10407,8 @@ var DEFAULT_DYNAMIC_SELECTORS = [
 ];
 
 // src/auth.ts
+init_driver();
+init_compat();
 var import_promises4 = require("fs/promises");
 var import_path3 = require("path");
 var import_os = require("os");
@@ -9861,6 +10466,8 @@ async function clearAuthState(outputDir) {
 }
 
 // src/capture.ts
+init_landmarks();
+init_page_intent();
 async function applyMasking(page, mask) {
   const hideAnimations = mask?.hideAnimations !== false;
   const selectorsToHide = [];
@@ -10273,6 +10880,9 @@ function generateReport(session, comparison, analysis, outputDir, webViewPort) {
   return report;
 }
 
+// src/index.ts
+init_semantic();
+
 // src/flows/types.ts
 async function findFieldByLabel(page, labels) {
   for (const label of labels) {
@@ -10318,6 +10928,7 @@ async function waitForNavigation(page, timeout = 1e4) {
 }
 
 // src/flows/login.ts
+init_state_detector();
 async function loginFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -10593,6 +11204,8 @@ async function formFlow(page, options) {
 }
 
 // src/index.ts
+init_driver();
+init_compat();
 var import_promises14 = require("fs/promises");
 var import_path15 = require("path");
 var import_os3 = require("os");
@@ -10679,17 +11292,27 @@ async function maybeAutoClean(outputDir) {
 
 // src/index.ts
 init_schemas();
+init_consistency();
+
+// src/crawl.ts
+init_driver();
+init_compat();
+
+// src/index.ts
 init_session();
 
 // src/operation-tracker.ts
 var import_nanoid2 = require("nanoid");
 
 // src/index.ts
+init_semantic();
 init_performance();
 init_interactivity();
 init_api_timing();
 
 // src/responsive.ts
+init_driver();
+init_compat();
 init_schemas();
 
 // src/index.ts
@@ -10796,43 +11419,14 @@ var DecisionEntryWithChecksSchema = DecisionEntrySchema.extend({
 // src/context/compact.ts
 var import_nanoid5 = require("nanoid");
 
-// src/ask.ts
-init_signal_noise();
-var QUESTIONS = [
-  {
-    kind: "touch-target",
-    canonical: "is the touch-target compliant",
-    aliases: [
-      /touch[- ]?target/i,
-      /minimum\s+(tap|button|target)\s+size/i,
-      /\b44\s*px|\b24\s*px|\btap target\b/i
-    ],
-    severity: "warn"
-  },
-  {
-    kind: "signal-noise",
-    canonical: "do status indicators follow signal-to-noise",
-    aliases: [
-      /signal[- ]?(to[- ]?)?noise/i,
-      /(status|badge|pill).*(background|color|noise)/i,
-      /are status (badges|pills) okay/i,
-      /do badges follow calm[- ]?precision/i
-    ],
-    severity: "error"
-  },
-  {
-    kind: "token-compliance",
-    canonical: "is design-system token compliance okay",
-    aliases: [
-      /design[- ]?system\s+token/i,
-      /token\s+compliance/i,
-      /off[- ]?(system|token)/i,
-      /design tokens?\b/i
-    ],
-    severity: "warn"
-  }
-];
-var SUPPORTED_QUESTIONS = QUESTIONS.map((q) => q.canonical);
+// src/index.ts
+init_scan();
+init_ask();
+init_rules();
+init_summarize();
+init_tokens();
+init_design_system();
+init_tokens2();
 
 // src/design-system/principles/index.ts
 init_calm_precision();
@@ -10925,7 +11519,7 @@ async function captureNativeScreenshot(options) {
 }
 
 // src/native/index.ts
-init_extract();
+init_extract3();
 
 // src/native/rules.ts
 function auditNativeElements(elements, platform, viewport) {
@@ -10978,15 +11572,17 @@ function auditNativeElements(elements, platform, viewport) {
 
 // src/native/scan.ts
 var import_path13 = require("path");
+init_scan();
+init_extract2();
 init_simulator();
-init_extract();
+init_extract3();
 
 // src/native/macos.ts
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
 var import_promises12 = require("fs/promises");
 var import_path12 = require("path");
-init_extract();
+init_extract3();
 init_role_map();
 var execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
 var execAsync = (0, import_util4.promisify)(import_child_process5.exec);
@@ -12443,6 +13039,7 @@ var IBRSession = class {
 // src/mcp/tools.ts
 init_session();
 init_schemas();
+init_tokens();
 
 // src/native/bridge.ts
 var import_fs5 = require("fs");
@@ -12752,10 +13349,14 @@ function formatBridgeResult(result) {
   return lines.join("\n");
 }
 
+// src/mcp/tools.ts
+init_driver();
+init_compat();
+
 // src/native/actions.ts
 var import_child_process8 = require("child_process");
 var import_util7 = require("util");
-init_extract();
+init_extract3();
 var execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
 function elementCenter(element) {
   if (!element.frame) return null;
@@ -12884,6 +13485,40 @@ var TOOLS = [
     },
     annotations: {
       title: "UI Scan",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true
+    }
+  },
+  {
+    name: "ask",
+    description: "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages \u2014 designed for agent consumption.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to evaluate (e.g. http://localhost:3000/page)"
+        },
+        question: {
+          type: "string",
+          description: "One of the supported questions (or an alias). Unknown questions return UNCERTAIN with the canonical list."
+        },
+        viewport: {
+          type: "string",
+          enum: ["desktop", "mobile", "tablet"],
+          description: "Viewport preset. Affects rules with mobile-vs-desktop thresholds (e.g. touch-target). Default 'desktop'."
+        },
+        maxFindings: {
+          type: "number",
+          description: "Cap on returned findings to keep responses tight. Default 25."
+        }
+      },
+      required: ["url", "question"]
+    },
+    annotations: {
+      title: "Ask (Verdict Engine)",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -13626,6 +14261,8 @@ async function handleToolCall(name, args) {
     switch (name) {
       case "scan":
         return await handleScan(args);
+      case "ask":
+        return await handleAsk(args);
       case "snapshot":
         return await handleSnapshot(args);
       case "compare":
@@ -14069,7 +14706,7 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
         }
         if (browser === "safari") {
           try {
-            const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
+            const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports));
             const safariDriver = new SafariDriver2();
             await safariDriver.launch({});
             await safariDriver.navigate(url);
@@ -14215,7 +14852,7 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
             switch (what) {
               case "observe":
               case "extract": {
-                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
+                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract3(), extract_exports));
                 const elements = await extractNativeElements2({
                   name: entry.app,
                   udid: "",
@@ -14242,7 +14879,7 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
             switch (what) {
               case "observe":
               case "extract": {
-                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
+                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract3(), extract_exports));
                 const dev = entry.device;
                 const elements = await extractNativeElements2({
                   name: dev.name,
@@ -14474,6 +15111,20 @@ async function handleScan(args) {
     lines.push("Ask the user if the page has finished loading, then re-scan.");
   }
   return textResponse(lines.join("\n"));
+}
+async function handleAsk(args) {
+  const url = args.url;
+  const question = args.question;
+  if (!url || !question) {
+    return textResponse(
+      "Error: `ask` requires `url` and `question`. Supported questions: see the tool description."
+    );
+  }
+  const viewport = args.viewport ?? "desktop";
+  const maxFindings = args.maxFindings ?? 25;
+  const { ask: ask2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
+  const response = await ask2(url, question, { viewport, maxFindings });
+  return textResponse(JSON.stringify(response, null, 2));
 }
 async function handleSnapshot(args) {
   const url = args.url;
@@ -15026,7 +15677,7 @@ async function handleScanStatic(args) {
     return errorResponse("The 'html_path' parameter is required.");
   }
   const cssPath = args.css_path;
-  const { scanStatic: scanStatic2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
+  const { scanStatic: scanStatic2 } = await Promise.resolve().then(() => (init_scan2(), scan_exports));
   const result = scanStatic2({ htmlPath, cssPath });
   const lines = [
     `Static Scan: ${result.htmlPath}`,
@@ -15148,7 +15799,7 @@ async function handleSimAction(args) {
           }
         };
         var flattenElements = flattenElements2;
-        const { extractNativeElements: extractNativeElements2, isExtractorAvailable: isExtractorAvailable2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
+        const { extractNativeElements: extractNativeElements2, isExtractorAvailable: isExtractorAvailable2 } = await Promise.resolve().then(() => (init_extract3(), extract_exports));
         const { findDevice: fd } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
         if (!isExtractorAvailable2()) {
           return errorResponse(
