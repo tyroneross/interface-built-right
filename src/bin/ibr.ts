@@ -1501,15 +1501,37 @@ program
 
         console.log('Browser server running. Press Ctrl+C to stop.');
 
-        // Keep process alive until SIGINT
+        // Keep process alive until cleanup signal. Handlers cover:
+        //  - SIGINT/SIGTERM/SIGHUP: graceful async close (Ctrl+C, kill,
+        //    terminal close, SSH disconnect)
+        //  - 'exit' (sync only): last-ditch SIGTERM to chromePid for paths
+        //    that bypass async signal handlers (process.exit, throws)
+        //  - 'uncaughtException': log + sync reap + propagate exit
         await new Promise<void>((resolve) => {
+          let cleanedUp = false;
           const cleanup = async () => {
+            if (cleanedUp) return;
+            cleanedUp = true;
             console.log('\nShutting down browser server...');
-            await driver.close();
+            try { await driver.close(); } catch { /* best effort */ }
             resolve();
+          };
+          const syncReap = () => {
+            if (cleanedUp) return;
+            const pid = driver.chromePid;
+            if (pid) {
+              try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
+            }
           };
           process.on('SIGINT', cleanup);
           process.on('SIGTERM', cleanup);
+          process.on('SIGHUP', cleanup);
+          process.on('exit', syncReap);
+          process.on('uncaughtException', (err) => {
+            console.error('Uncaught exception in session:start:', err);
+            syncReap();
+            process.exit(1);
+          });
         });
       } else {
         // Browser server already running - just create new session

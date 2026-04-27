@@ -127,6 +127,22 @@ export async function isServerRunning(outputDir: string): Promise<boolean> {
     const content = await readFile(stateFile, 'utf-8');
     const state: BrowserServerState = JSON.parse(content);
 
+    // Reaper: if the parent ibr process that owned this server is gone, the
+    // Chrome it spawned is orphaned. Kill Chrome and treat the server as
+    // not-running so the next session:start can launch fresh.
+    // process.kill(pid, 0) is a free liveness check — no signal delivered.
+    if (state.pid && state.pid !== process.pid) {
+      try {
+        process.kill(state.pid, 0);
+      } catch {
+        if (state.chromePid) {
+          try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+        }
+        await cleanupServerState(outputDir);
+        return false;
+      }
+    }
+
     if (!state.cdpUrl) {
       return Boolean(state.wsEndpoint);
     }
@@ -137,7 +153,14 @@ export async function isServerRunning(outputDir: string): Promise<boolean> {
     });
     return res.ok;
   } catch {
-    // Server not running or can't connect - clean up stale file
+    // Server unreachable — reap orphan Chrome (if state recoverable) + clean up
+    try {
+      const content = await readFile(stateFile, 'utf-8');
+      const state = JSON.parse(content);
+      if (state.chromePid) {
+        try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+      }
+    } catch { /* state unreadable — best effort */ }
     await cleanupServerState(outputDir);
     return false;
   }
