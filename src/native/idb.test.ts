@@ -2,13 +2,35 @@
  * Unit tests for src/native/idb.ts
  *
  * All execFileAsync calls are mocked — tests run without IDB or xcrun installed.
+ *
+ * Driver chain under test:
+ *   tap   : native-window → idb → fail
+ *   swipe : native-window → idb → fail
+ *   type  : native-window → idb → fail
+ *   button: idb → simctl (HOME only) → fail
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import {
+  isIdbAvailable,
+  isIdbCliAvailable,
+  idbTap,
+  idbType,
+  idbSwipe,
+  idbButton,
+  idbOpenUrl,
+  simulatorAction,
+  getSimulatorInteractionDriverStatus,
+  SIMULATOR_DRIVER_ENV,
+} from './idb.js'
+import { elementCenter } from './actions.js'
+import * as simDriver from './sim-driver.js'
 
-// ── Mock child_process before importing the module under test ──────────────
+const mocks = vi.hoisted(() => ({
+  execFile: vi.fn(),
+}))
 
-const mockExecFile = vi.fn()
+const mockExecFile = mocks.execFile
 
 vi.mock('child_process', () => ({
   execFile: (...args: unknown[]) => mockExecFile(...args),
@@ -18,30 +40,26 @@ vi.mock('util', () => ({
   promisify: (fn: unknown) => fn,
 }))
 
-// Import after mock setup so the module uses the mock
-const {
-  isIdbAvailable,
-  isIdbCliAvailable,
-  idbTap,
-  idbType,
-  idbSwipe,
-  idbButton,
-  idbOpenUrl,
-  simulatorAction,
-} = await import('./idb.js')
-
-// elementCenter comes from actions.ts (no child_process calls, safe to import)
-const { elementCenter } = await import('./actions.js')
-
-// ── Constants ─────────────────────────────────────────────────────────────────
+// Stub the native-window driver — we don't want tests compiling the Swift binary.
+vi.mock('./sim-driver.js', () => ({
+  isSimDriverAvailable: vi.fn().mockReturnValue(false),
+  simDriverTap: vi.fn(),
+  simDriverSwipe: vi.fn(),
+  simDriverType: vi.fn(),
+}))
 
 const UDID = 'DEADBEEF-1234-5678-ABCD-000000000001'
 
-// ── isIdbAvailable ────────────────────────────────────────────────────────────
+beforeEach(() => {
+  vi.clearAllMocks()
+  delete process.env[SIMULATOR_DRIVER_ENV]
+  // Default: native-window is unavailable so all tests fall through to IDB.
+  vi.mocked(simDriver.isSimDriverAvailable).mockReturnValue(false)
+})
+
+// ── isIdbAvailable / isIdbCliAvailable ────────────────────────────────────────
 
 describe('isIdbAvailable', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('returns true when idb_companion is on PATH', async () => {
     mockExecFile.mockResolvedValueOnce({ stdout: '/usr/local/bin/idb_companion', stderr: '' })
     expect(await isIdbAvailable()).toBe(true)
@@ -55,11 +73,7 @@ describe('isIdbAvailable', () => {
   })
 })
 
-// ── isIdbCliAvailable ─────────────────────────────────────────────────────────
-
 describe('isIdbCliAvailable', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('returns true when idb CLI is on PATH', async () => {
     mockExecFile.mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
     expect(await isIdbCliAvailable()).toBe(true)
@@ -74,221 +88,150 @@ describe('isIdbCliAvailable', () => {
 // ── idbTap ────────────────────────────────────────────────────────────────────
 
 describe('idbTap', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it('uses IDB when available — constructs correct args', async () => {
-    // First call: which idb → found; second call: idb ui tap
+  it('uses IDB when native-window unavailable but IDB is on PATH', async () => {
     mockExecFile
-      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // isIdbCliAvailable
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // which idb
       .mockResolvedValueOnce({ stdout: '', stderr: '' })                    // idb ui tap
 
     const result = await idbTap(UDID, 100, 200)
 
     expect(result.success).toBe(true)
     expect(result.action).toBe('tap')
-    expect(mockExecFile).toHaveBeenCalledWith(
+    expect(result.driver).toBe('idb')
+    expect(mockExecFile).toHaveBeenLastCalledWith(
       'idb',
       ['ui', 'tap', '100', '200', '--udid', UDID],
-      { timeout: 10000 }
+      { timeout: 10000 },
     )
   })
 
-  it('falls back to simctl when IDB not available', async () => {
-    // isIdbCliAvailable → not found; simctl call succeeds
-    mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))  // which idb
-      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // xcrun simctl
+  it('prefers native-window when available', async () => {
+    vi.mocked(simDriver.isSimDriverAvailable).mockReturnValue(true)
+    vi.mocked(simDriver.simDriverTap).mockResolvedValue({
+      success: true,
+      action: 'tap',
+    })
 
-    const result = await idbTap(UDID, 50, 75)
+    const result = await idbTap(UDID, 10, 20)
 
     expect(result.success).toBe(true)
-    expect(result.action).toBe('tap')
-    expect(mockExecFile).toHaveBeenCalledWith(
-      'xcrun',
-      ['simctl', 'io', UDID, 'tap', '50', '75'],
-      { timeout: 10000 }
-    )
+    expect(result.driver).toBe('native-window')
+    expect(simDriver.simDriverTap).toHaveBeenCalledWith(UDID, 10, 20)
+    // IDB should not have been queried.
+    expect(mockExecFile).not.toHaveBeenCalled()
   })
 
-  it('returns failure when both IDB and simctl fail', async () => {
+  it('can force IDB even when native-window is available', async () => {
+    process.env[SIMULATOR_DRIVER_ENV] = 'idb'
+    vi.mocked(simDriver.isSimDriverAvailable).mockReturnValue(true)
     mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))              // which idb
-      .mockRejectedValueOnce(new Error('simctl error: no device')) // xcrun simctl
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+
+    const result = await idbTap(UDID, 10, 20)
+
+    expect(result.success).toBe(true)
+    expect(result.driver).toBe('idb')
+    expect(simDriver.simDriverTap).not.toHaveBeenCalled()
+  })
+
+  it('fails clearly when native-hid is forced before it is implemented', async () => {
+    process.env[SIMULATOR_DRIVER_ENV] = 'native-hid'
 
     const result = await idbTap(UDID, 10, 20)
 
     expect(result.success).toBe(false)
+    expect(result.driver).toBe('native-hid')
+    expect(result.error).toMatch(/not implemented in this build/)
+  })
+
+  it('returns clear install hint when neither native-window nor IDB is available', async () => {
+    mockExecFile.mockRejectedValueOnce(new Error('not found')) // which idb
+
+    const result = await idbTap(UDID, 50, 75)
+
+    expect(result.success).toBe(false)
     expect(result.action).toBe('tap')
-    expect(result.error).toMatch(/simctl error/)
+    expect(result.error).toMatch(/idb-companion/)
+    // Confirms we are NOT trying the broken `xcrun simctl io tap` anymore.
+    expect(mockExecFile.mock.calls.find((c) => c[0] === 'xcrun')).toBeUndefined()
+  })
+
+  it('reports IDB error when IDB call itself fails', async () => {
+    mockExecFile
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // which idb
+      .mockRejectedValueOnce(new Error('idb crashed'))                      // idb ui tap
+
+    const result = await idbTap(UDID, 10, 20)
+
+    expect(result.success).toBe(false)
+    expect(result.driver).toBe('idb')
+    expect(result.error).toMatch(/idb crashed/)
   })
 })
 
 // ── idbType ───────────────────────────────────────────────────────────────────
 
 describe('idbType', () => {
-  beforeEach(() => vi.clearAllMocks())
+  it('prefers native-window when available', async () => {
+    vi.mocked(simDriver.isSimDriverAvailable).mockReturnValue(true)
+    vi.mocked(simDriver.simDriverType).mockResolvedValue({
+      success: true,
+      action: 'type',
+    })
 
-  it('uses IDB when available — constructs correct args', async () => {
+    const result = await idbType(UDID, 'hello')
+
+    expect(result.success).toBe(true)
+    expect(result.driver).toBe('native-window')
+    expect(simDriver.simDriverType).toHaveBeenCalledWith(UDID, 'hello')
+    expect(mockExecFile).not.toHaveBeenCalled()
+  })
+
+  it('uses IDB when available', async () => {
     mockExecFile
-      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // isIdbCliAvailable
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // which idb
       .mockResolvedValueOnce({ stdout: '', stderr: '' })                    // idb ui text
 
     const result = await idbType(UDID, 'hello world')
 
     expect(result.success).toBe(true)
-    expect(result.action).toBe('type')
-    expect(mockExecFile).toHaveBeenCalledWith(
+    expect(result.driver).toBe('idb')
+    expect(mockExecFile).toHaveBeenLastCalledWith(
       'idb',
       ['ui', 'text', 'hello world', '--udid', UDID],
-      { timeout: 10000 }
+      { timeout: 10000 },
     )
   })
 
-  it('returns failure with install hint when IDB and AppleScript both fail', async () => {
-    mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))           // which idb
-      .mockRejectedValueOnce(new Error('osascript failed'))    // osascript
+  it('returns install hint when neither native-window nor IDB is available', async () => {
+    mockExecFile.mockRejectedValueOnce(new Error('not found')) // which idb
 
     const result = await idbType(UDID, 'some text')
 
     expect(result.success).toBe(false)
-    expect(result.action).toBe('type')
-    expect(result.error).toContain('brew install idb-companion')
-  })
-
-  it('succeeds via AppleScript when IDB not available', async () => {
-    mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))          // which idb
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })      // osascript
-
-    const result = await idbType(UDID, 'hello')
-
-    expect(result.success).toBe(true)
-    expect(result.action).toBe('type')
-    const osascriptCall = mockExecFile.mock.calls[1]
-    expect(osascriptCall[0]).toBe('osascript')
-  })
-
-  it('escapes double quotes in text for AppleScript', async () => {
-    mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))          // which idb
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })      // osascript
-
-    await idbType(UDID, 'say "hello"')
-
-    const osascriptCall = mockExecFile.mock.calls[1]
-    expect(osascriptCall[0]).toBe('osascript')
-    // The keystroke argument should contain escaped quotes
-    const keystrokeArg = (osascriptCall[1] as string[]).find((a: string) => a.includes('keystroke'))
-    expect(keystrokeArg).toContain('\\"')
-  })
-
-  it('returns failure when idb command throws', async () => {
-    mockExecFile
-      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // isIdbCliAvailable
-      .mockRejectedValueOnce(new Error('idb crashed'))                      // idb ui text
-
-    const result = await idbType(UDID, 'crash test')
-
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/idb crashed/)
-  })
-})
-
-// ── simulatorAction dispatch ──────────────────────────────────────────────────
-
-describe('simulatorAction', () => {
-  beforeEach(() => vi.clearAllMocks())
-
-  it('dispatches tap to idbTap', async () => {
-    mockExecFile
-      .mockRejectedValueOnce(new Error('no idb'))    // isIdbCliAvailable (for tap)
-      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // xcrun simctl fallback
-
-    const result = await simulatorAction({ udid: UDID, action: 'tap', x: 100, y: 200 })
-
-    expect(result.success).toBe(true)
-    expect(result.action).toBe('tap')
-  })
-
-  it('returns error for tap without coordinates', async () => {
-    const result = await simulatorAction({ udid: UDID, action: 'tap' })
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/x and y coordinates required/)
-  })
-
-  it('dispatches type to idbType', async () => {
-    mockExecFile
-      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // isIdbCliAvailable
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })                    // idb ui text
-
-    const result = await simulatorAction({ udid: UDID, action: 'type', text: 'abc' })
-
-    expect(result.success).toBe(true)
-    expect(result.action).toBe('type')
-  })
-
-  it('returns error for type without text', async () => {
-    const result = await simulatorAction({ udid: UDID, action: 'type' })
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/text required/)
-  })
-
-  it('dispatches scroll direction=up as swipe with correct y2 (greater than y1)', async () => {
-    mockExecFile
-      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // isIdbCliAvailable
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })                    // idb ui swipe
-
-    const result = await simulatorAction({ udid: UDID, action: 'scroll', direction: 'up' })
-
-    expect(result.success).toBe(true)
-    expect(result.action).toBe('swipe')
-
-    // Verify swipe args: up means y2 > y1 (swipe up = finger moves up = content moves down)
-    const swipeCall = mockExecFile.mock.calls[1]
-    expect(swipeCall[0]).toBe('idb')
-    const swipeArgs = swipeCall[1] as string[]
-    const y1 = parseFloat(swipeArgs[3])  // swipe args: [ui, swipe, x1, y1, x2, y2, --udid, ...]
-    const y2 = parseFloat(swipeArgs[5])
-    expect(y2).toBeGreaterThan(y1)
-  })
-
-  it('dispatches scroll direction=down as swipe with y2 < y1', async () => {
-    mockExecFile
-      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })
-
-    await simulatorAction({ udid: UDID, action: 'scroll', direction: 'down' })
-
-    const swipeArgs = mockExecFile.mock.calls[1][1] as string[]
-    const y1 = parseFloat(swipeArgs[3])
-    const y2 = parseFloat(swipeArgs[5])
-    expect(y2).toBeLessThan(y1)
-  })
-
-  it('dispatches type to AppleScript fallback when IDB unavailable', async () => {
-    mockExecFile
-      .mockRejectedValueOnce(new Error('no idb'))              // which idb
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })       // osascript
-
-    const result = await simulatorAction({ udid: UDID, action: 'type', text: 'hello' })
-
-    expect(result.success).toBe(true)
-    expect(result.action).toBe('type')
-  })
-
-  it('returns error for unknown action', async () => {
-    // @ts-expect-error intentional bad action for test
-    const result = await simulatorAction({ udid: UDID, action: 'unknown' })
-    expect(result.success).toBe(false)
-    expect(result.error).toMatch(/Unknown action/)
+    expect(result.error).toMatch(/idb-companion/)
+    expect(mockExecFile.mock.calls.find((c) => c[0] === 'osascript')).toBeUndefined()
   })
 })
 
 // ── idbSwipe ──────────────────────────────────────────────────────────────────
 
 describe('idbSwipe', () => {
-  beforeEach(() => vi.clearAllMocks())
+  it('prefers native-window when available', async () => {
+    vi.mocked(simDriver.isSimDriverAvailable).mockReturnValue(true)
+    vi.mocked(simDriver.simDriverSwipe).mockResolvedValue({
+      success: true,
+      action: 'swipe',
+    })
+
+    const result = await idbSwipe(UDID, 0, 0, 100, 100, 0.3)
+
+    expect(result.success).toBe(true)
+    expect(result.driver).toBe('native-window')
+    expect(simDriver.simDriverSwipe).toHaveBeenCalledWith(UDID, 0, 0, 100, 100, 0.3)
+    expect(mockExecFile).not.toHaveBeenCalled()
+  })
 
   it('includes duration arg when provided', async () => {
     mockExecFile
@@ -313,37 +256,47 @@ describe('idbSwipe', () => {
     expect(args).not.toContain('--duration')
   })
 
-  it('returns failure when IDB and simctl both not available', async () => {
-    mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))              // which idb
-      .mockRejectedValueOnce(new Error('simctl swipe unknown'))   // xcrun simctl io swipe
+  it('returns clear error when neither native-window nor IDB is available', async () => {
+    mockExecFile.mockRejectedValueOnce(new Error('not found')) // which idb
 
     const result = await idbSwipe(UDID, 0, 0, 100, 100)
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/IDB|simctl/)
+    expect(result.error).toMatch(/idb-companion/)
+    expect(mockExecFile.mock.calls.find((c) => c[0] === 'xcrun')).toBeUndefined()
   })
+})
 
-  it('succeeds via simctl swipe when IDB not available', async () => {
+// ── driver status ─────────────────────────────────────────────────────────────
+
+describe('getSimulatorInteractionDriverStatus', () => {
+  it('reports native HID target separately from the native-window fallback', async () => {
+    vi.mocked(simDriver.isSimDriverAvailable).mockReturnValue(true)
     mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))              // which idb
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })          // xcrun simctl io swipe
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // which idb
+      .mockResolvedValueOnce({ stdout: '/usr/bin/xcrun', stderr: '' })     // which xcrun
 
-    const result = await idbSwipe(UDID, 10, 20, 10, 300)
+    const status = await getSimulatorInteractionDriverStatus()
 
-    expect(result.success).toBe(true)
-    expect(result.action).toBe('swipe')
-    const simctlCall = mockExecFile.mock.calls[1]
-    expect(simctlCall[0]).toBe('xcrun')
-    expect((simctlCall[1] as string[])).toContain('swipe')
+    const nativeHid = status.find(s => s.driver === 'native-hid')
+    const nativeWindow = status.find(s => s.driver === 'native-window')
+    const idb = status.find(s => s.driver === 'idb')
+    const simctl = status.find(s => s.driver === 'simctl')
+
+    expect(nativeHid?.available).toBe(false)
+    expect(nativeHid?.headless).toBe(true)
+    expect(nativeHid?.reason).toMatch(/pending/)
+    expect(nativeWindow?.available).toBe(true)
+    expect(nativeWindow?.headless).toBe(false)
+    expect(nativeWindow?.constraints.join(' ')).toMatch(/visible Simulator/)
+    expect(idb?.available).toBe(true)
+    expect(simctl?.actions).toContain('openUrl')
   })
 })
 
 // ── idbButton ─────────────────────────────────────────────────────────────────
 
 describe('idbButton', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('uses idb for HOME when available', async () => {
     mockExecFile
       .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
@@ -356,15 +309,15 @@ describe('idbButton', () => {
     expect(mockExecFile.mock.calls[1][1]).toEqual(['ui', 'button', 'HOME', '--udid', UDID])
   })
 
-  it('falls back to simctl for HOME when IDB unavailable', async () => {
+  it('falls back to simctl SpringBoard restart for HOME when IDB unavailable', async () => {
     mockExecFile
-      .mockRejectedValueOnce(new Error('not found'))       // which idb
-      .mockResolvedValueOnce({ stdout: '', stderr: '' })   // xcrun simctl spawn
+      .mockRejectedValueOnce(new Error('not found'))     // which idb
+      .mockResolvedValueOnce({ stdout: '', stderr: '' }) // xcrun simctl spawn
 
     const result = await idbButton(UDID, 'HOME')
 
     expect(result.success).toBe(true)
-    expect(result.action).toBe('button:HOME')
+    expect(result.driver).toBe('simctl')
     expect(mockExecFile.mock.calls[1][0]).toBe('xcrun')
   })
 
@@ -374,26 +327,23 @@ describe('idbButton', () => {
     const result = await idbButton(UDID, 'LOCK')
 
     expect(result.success).toBe(false)
-    expect(result.error).toMatch(/IDB not available/)
+    expect(result.error).toMatch(/idb-companion/)
   })
 })
 
 // ── idbOpenUrl ────────────────────────────────────────────────────────────────
 
 describe('idbOpenUrl', () => {
-  beforeEach(() => vi.clearAllMocks())
-
   it('always uses xcrun simctl openurl', async () => {
     mockExecFile.mockResolvedValueOnce({ stdout: '', stderr: '' })
 
     const result = await idbOpenUrl(UDID, 'myapp://home')
 
     expect(result.success).toBe(true)
-    expect(result.action).toBe('openUrl')
     expect(mockExecFile).toHaveBeenCalledWith(
       'xcrun',
       ['simctl', 'openurl', UDID, 'myapp://home'],
-      { timeout: 10000 }
+      { timeout: 10000 },
     )
   })
 
@@ -404,6 +354,77 @@ describe('idbOpenUrl', () => {
 
     expect(result.success).toBe(false)
     expect(result.error).toMatch(/device not booted/)
+  })
+})
+
+// ── simulatorAction dispatch ──────────────────────────────────────────────────
+
+describe('simulatorAction', () => {
+  it('dispatches tap to idbTap', async () => {
+    mockExecFile
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+
+    const result = await simulatorAction({ udid: UDID, action: 'tap', x: 100, y: 200 })
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('tap')
+  })
+
+  it('returns error for tap without coordinates', async () => {
+    const result = await simulatorAction({ udid: UDID, action: 'tap' })
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/x and y coordinates required/)
+  })
+
+  it('dispatches type to idbType', async () => {
+    mockExecFile
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+
+    const result = await simulatorAction({ udid: UDID, action: 'type', text: 'abc' })
+
+    expect(result.success).toBe(true)
+    expect(result.action).toBe('type')
+  })
+
+  it('returns error for type without text', async () => {
+    const result = await simulatorAction({ udid: UDID, action: 'type' })
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/text required/)
+  })
+
+  it('scroll up produces y2 > y1 (finger moves up)', async () => {
+    mockExecFile
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+
+    await simulatorAction({ udid: UDID, action: 'scroll', direction: 'up' })
+
+    const swipeArgs = mockExecFile.mock.calls[1][1] as string[]
+    const y1 = parseFloat(swipeArgs[3])
+    const y2 = parseFloat(swipeArgs[5])
+    expect(y2).toBeGreaterThan(y1)
+  })
+
+  it('scroll down produces y2 < y1', async () => {
+    mockExecFile
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' })
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })
+
+    await simulatorAction({ udid: UDID, action: 'scroll', direction: 'down' })
+
+    const swipeArgs = mockExecFile.mock.calls[1][1] as string[]
+    const y1 = parseFloat(swipeArgs[3])
+    const y2 = parseFloat(swipeArgs[5])
+    expect(y2).toBeLessThan(y1)
+  })
+
+  it('returns error for unknown action', async () => {
+    // @ts-expect-error intentional bad action for test
+    const result = await simulatorAction({ udid: UDID, action: 'unknown' })
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/Unknown action/)
   })
 })
 
@@ -421,7 +442,6 @@ describe('elementCenter', () => {
 
   it('rounds to nearest integer for odd dimensions', () => {
     const result = elementCenter({ frame: { x: 0, y: 0, width: 101, height: 51 } })
-    // 0 + round(101/2) = round(50.5) = 51 in JS (Math.round rounds 0.5 up)
     expect(result).toEqual({ x: 51, y: 26 })
   })
 

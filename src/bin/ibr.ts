@@ -947,6 +947,86 @@ program
     }
   });
 
+// Ask command — verdict-engine surface (v3 thesis Milestone 1).
+//
+// Note: viewport is intentionally read from the global `-v/--viewport` flag
+// (declared on `program`) rather than redeclared here. Defining a local option
+// with the same long flag was confusing Commander — the parent's parser would
+// claim `--viewport mobile` and the child option would silently fall back to
+// its default. Mirror the `audit` command's pattern: read program.opts().
+program
+  .command('ask <url> <question...>')
+  .description('Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).')
+  .option('--timeout <ms>', 'Page load timeout in ms', '30000')
+  .option('--max-findings <n>', 'Cap returned findings (default 25)', '25')
+  .option('--stream', 'Emit NDJSON stream — one event per line (start, finding..., end). Findings arrive as the rule loop produces them.')
+  .option('--screenshot', 'Capture a page screenshot during the scan. Path is surfaced in response.meta.screenshotPath. Saves to .ibr/ask-screenshots/.')
+  .option('--screenshot-path <path>', 'Explicit screenshot output path. Implies --screenshot.')
+  .action(async (
+    url: string,
+    questionWords: string[],
+    options: {
+      timeout: string;
+      maxFindings: string;
+      stream?: boolean;
+      screenshot?: boolean;
+      screenshotPath?: string;
+    },
+  ) => {
+    try {
+      const { ask, askStream } = await import('../ask.js');
+      const resolvedUrl = await resolveBaseUrl(url);
+      const question = questionWords.join(' ');
+      const globalViewport = (program.opts().viewport as string | undefined) ?? 'desktop';
+      const viewport = globalViewport as 'desktop' | 'mobile' | 'tablet';
+      // Either bare --screenshot (boolean) or --screenshot-path <p> (string).
+      // Bracket-style ([path]) was consumed positionally by Commander's parser.
+      const screenshotOpt: boolean | string | undefined =
+        options.screenshotPath ? options.screenshotPath
+        : options.screenshot === true ? true
+        : undefined;
+      const askOpts = {
+        viewport,
+        timeout: parseInt(options.timeout, 10),
+        maxFindings: parseInt(options.maxFindings, 10),
+        ...(screenshotOpt !== undefined ? { screenshot: screenshotOpt } : {}),
+      };
+
+      if (options.stream) {
+        // SIGINT (Ctrl+C) cleanly aborts the rule loop. We still let askStream
+        // emit its `end` event (with aborted:true) before exiting so the
+        // consumer's NDJSON parser can finish a clean record.
+        const controller = new AbortController();
+        const onSig = () => controller.abort();
+        process.on('SIGINT', onSig);
+        process.on('SIGTERM', onSig);
+        let endVerdict: string = 'PASS';
+        try {
+          for await (const event of askStream(resolvedUrl, question, {
+            ...askOpts,
+            signal: controller.signal,
+          })) {
+            process.stdout.write(JSON.stringify(event) + '\n');
+            if (event.type === 'end') endVerdict = event.verdict;
+          }
+        } finally {
+          process.off('SIGINT', onSig);
+          process.off('SIGTERM', onSig);
+        }
+        if (endVerdict === 'FAIL') process.exit(1);
+        return;
+      }
+
+      const response = await ask(resolvedUrl, question, askOpts);
+      // Always JSON — `ask` is built for agent consumption.
+      console.log(JSON.stringify(response, null, 2));
+      if (response.verdict === 'FAIL') process.exit(1);
+    } catch (error) {
+      console.error('Ask error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Status command - show pending baselines
 program
   .command('status')

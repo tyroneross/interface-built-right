@@ -1972,7 +1972,7 @@ type Config = z.infer<typeof ConfigSchema>;
 type SessionQuery = z.infer<typeof SessionQuerySchema>;
 type ComparisonResult = z.infer<typeof ComparisonResultSchema>;
 type ChangedRegion = z.infer<typeof ChangedRegionSchema>;
-type Verdict = z.infer<typeof VerdictSchema>;
+type Verdict$1 = z.infer<typeof VerdictSchema>;
 type Analysis = z.infer<typeof AnalysisSchema>;
 type SessionStatus = z.infer<typeof SessionStatusSchema>;
 type LandmarkElement = z.infer<typeof LandmarkElementSchema>;
@@ -4587,7 +4587,7 @@ declare function analyzeComparison(result: ExtendedComparisonResult, thresholdPe
 /**
  * Get a human-readable verdict description
  */
-declare function getVerdictDescription(verdict: Verdict): string;
+declare function getVerdictDescription(verdict: Verdict$1): string;
 
 interface CrawlOptions {
     /** Starting URL */
@@ -5816,6 +5816,66 @@ declare function addKnownIssue(outputDir: string, issue: string): Promise<Compac
  */
 declare function isCompactContextOversize(outputDir: string): Promise<boolean>;
 
+/**
+ * BrowserPool — keeps a single warm EngineDriver alive across multiple scans
+ * in the same process.
+ *
+ * Cold launch is the single largest contributor to scan() latency (~600-800ms
+ * out of ~1.4s total measured against example.com). For long-running consumers
+ * — most importantly the MCP server, where every tool call shares a process —
+ * launching once and reusing for subsequent scans drops first-finding latency
+ * to roughly the cost of `goto` + extraction (~400-600ms total).
+ *
+ * Concurrency: the pool serialises scans through a simple async mutex. Two
+ * `scan()` calls against the same pool will not race on the shared page; the
+ * second call waits for the first to release. Concurrent scans are out of
+ * scope for this iteration; if we need them later, the pool can be extended
+ * with a max-pages knob and on-demand target.createPage().
+ *
+ * Lifecycle: pool.close() must be called by the host (e.g. on SIGTERM in the
+ * MCP server) to release the underlying browser process. The pool does not
+ * register exit handlers automatically — explicit lifecycle keeps test
+ * isolation clean.
+ */
+
+interface BrowserPoolOptions {
+    /** Launch options applied on the first acquire. Subsequent acquires reuse. */
+    launchOptions?: LaunchOptions;
+}
+declare class BrowserPool {
+    private driver;
+    private launchOptions;
+    private inUse;
+    private waiters;
+    private closed;
+    constructor(options?: BrowserPoolOptions);
+    /**
+     * Acquire the warm driver. Launches on first call. Awaits if another
+     * caller currently holds the driver.
+     *
+     * Ticket-lock pattern: when a waiter wakes, the lock is *theirs* — no
+     * re-check loop. release() hands ownership directly so the queue is
+     * strictly FIFO and a fresh caller cannot jump in between release() and
+     * the woken waiter's continuation.
+     */
+    acquire(): Promise<EngineDriver>;
+    /**
+     * Release the driver back to the pool. Hands off ownership to the next
+     * waiter directly (without resetting inUse) so the queue stays FIFO.
+     */
+    release(): void;
+    /**
+     * Close the underlying browser. Future acquire() calls throw. Already-
+     * waiting callers wake and observe `closed`, so no one hangs.
+     *
+     * Note: a current holder is *not* forcibly evicted. Their next release()
+     * is still valid (it just falls through the no-waiters branch).
+     */
+    close(): Promise<void>;
+    /** True if the pool has a live driver. Useful for diagnostics. */
+    hasWarmDriver(): boolean;
+}
+
 interface LayoutCollision {
     element1: {
         selector: string;
@@ -6138,6 +6198,14 @@ interface ScanOptions extends BrowserLaunchOptions {
     hydrationStrategy?: 'auto' | 'stable' | 'none';
     /** Rule preset names to enable for this scan (e.g. ['wcag-contrast', 'touch-targets']) */
     rules?: string[];
+    /**
+     * Optional warm-browser pool. When supplied, scan() reuses the pool's
+     * EngineDriver instead of launching a fresh browser. Drops first-finding
+     * latency dramatically for the second-and-onwards call in the same process
+     * (e.g. an MCP server fielding multiple `ask` calls). The pool's lifecycle
+     * is the caller's responsibility — scan() does not close it.
+     */
+    pool?: BrowserPool;
 }
 /**
  * Run a comprehensive UI scan on a URL.
@@ -6201,6 +6269,111 @@ declare function normalizeColor(color: string): string;
  * Validate UI elements against a design token specification
  */
 declare function validateAgainstTokens(elements: EnhancedElement[], spec: DesignTokenSpec): TokenViolation[];
+
+/**
+ * Verdict ladder:
+ *   PASS       — no findings; the question is answered cleanly
+ *   WARN       — findings exist at warning severity
+ *   FAIL       — findings exist at error severity
+ *   PARTIAL    — engine has *visual* evidence but couldn't run the rule
+ *                deterministically (e.g. iOS guest where AX tree is
+ *                unreachable). Vision-capable consumer should inspect the
+ *                screenshot.
+ *   UNCERTAIN  — engine couldn't answer. The agent should not act on this
+ *                as if it were PASS.
+ */
+type Verdict = 'PASS' | 'FAIL' | 'WARN' | 'UNCERTAIN' | 'PARTIAL';
+interface Finding {
+    verdict: Verdict;
+    rule: string;
+    summary: string;
+    element?: string;
+    evidence?: Record<string, unknown>;
+    fix?: string;
+    confidence?: number;
+}
+interface AskResponse {
+    question: string;
+    verdict: Verdict;
+    findings: Finding[];
+    truncated?: boolean;
+    meta: {
+        engineVersion: string;
+        durationMs: number;
+        elementsScanned: number;
+        rulesRun: string[];
+        /** When verdict is UNCERTAIN, list of supported question phrasings. */
+        supportedQuestions?: string[];
+        /**
+         * Path to a captured screenshot, when `screenshot` was requested and
+         * a scan was actually performed (not bypassed via preScannedElements).
+         * Vision-capable agents can fuse the screenshot with the verdict.
+         */
+        screenshotPath?: string;
+    };
+}
+interface AskOptions {
+    /** CDP scan options. Forwarded to scan(url, ...). */
+    viewport?: 'desktop' | 'mobile' | 'tablet';
+    timeout?: number;
+    /** Cap findings to keep responses tight. Default 25. */
+    maxFindings?: number;
+    /** Pre-scanned elements (skip CDP). Test/host-friendly. */
+    preScannedElements?: EnhancedElement[];
+    /** Override viewport metrics when supplying preScannedElements. */
+    viewportMetrics?: {
+        width: number;
+        height: number;
+    };
+    /** Project dir for design-system config lookup. Defaults to cwd. */
+    projectDir?: string;
+    /** Abort the rule loop (and any in-flight scan) when this signal fires. */
+    signal?: AbortSignal;
+    /**
+     * Capture a screenshot during the scan and surface its path on the
+     * response. Useful for vision-required verdicts (Gap 3 from
+     * `docs/strategy/v3-m1-eval.md`): the agent can reason over pixels +
+     * structure together.
+     *   - `true`  — auto path under `.ibr/ask-screenshots/<timestamp>.png`
+     *   - string  — explicit path
+     *   - omitted — no screenshot (default; preserves token-minimality)
+     */
+    screenshot?: boolean | string;
+    /**
+     * Pre-existing screenshot path to attach to the response when
+     * `preScannedElements` is supplied. Lets test fixtures and native iOS
+     * scans (where scan() can't run) still attach evidence.
+     */
+    screenshotPath?: string;
+    /**
+     * Warm-browser pool forwarded to scan(). When set, the second-and-onwards
+     * ask() call in the same process avoids a fresh browser launch — drops
+     * first-finding latency by ~600-800ms (the browser-launch share).
+     */
+    pool?: BrowserPool;
+}
+type AskStreamEvent = {
+    type: 'start';
+    question: string;
+    engineVersion: string;
+    supportedQuestions?: string[];
+    screenshotPath?: string;
+} | ({
+    type: 'finding';
+} & Finding) | {
+    type: 'end';
+    verdict: Verdict;
+    totalFindings: number;
+    durationMs: number;
+    truncated: boolean;
+    rulesRun: string[];
+    elementsScanned: number;
+    screenshotPath?: string;
+    /** Set when the rule loop halted because options.signal fired. */
+    aborted?: boolean;
+};
+declare function askStream(url: string, question: string, options?: AskOptions): AsyncGenerator<AskStreamEvent, void, void>;
+declare function ask(url: string, question: string, options?: AskOptions): Promise<AskResponse>;
 
 declare const DesignSystemConfigSchema: z.ZodObject<{
     version: z.ZodLiteral<1>;
@@ -6816,6 +6989,23 @@ declare function formatMacOSScanResult(result: MacOSScanResult): string;
  */
 declare function formatNativeScanResult(result: NativeScanResult): string;
 
+declare const SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
+type SimulatorInteractionDriver = 'native-hid' | 'native-window' | 'idb' | 'simctl';
+type SimulatorDriverPreference = 'auto' | SimulatorInteractionDriver;
+interface SimulatorInteractionDriverStatus {
+    driver: SimulatorInteractionDriver;
+    label: string;
+    available: boolean;
+    headless: boolean;
+    bundled: boolean;
+    actions: Array<'tap' | 'type' | 'swipe' | 'button' | 'openUrl' | 'accessibility'>;
+    constraints: string[];
+    reason?: string;
+    selected: boolean;
+}
+declare function formatSimulatorDriver(driver?: SimulatorInteractionDriver): string;
+declare function getSimulatorInteractionDriverStatus(): Promise<SimulatorInteractionDriverStatus[]>;
+
 /**
  * Find the PID of a running macOS app by name or bundle ID
  *
@@ -7280,4 +7470,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

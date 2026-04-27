@@ -20,6 +20,16 @@ export { captureNativeScreenshot } from './capture.js';
 export { extractNativeElements, mapToEnhancedElements, isExtractorAvailable, ensureExtractor } from './extract.js';
 export { auditNativeElements } from './rules.js';
 export { scanNative, formatNativeScanResult, scanMacOS, formatMacOSScanResult } from './scan.js';
+export {
+  getSimulatorInteractionDriverStatus,
+  formatSimulatorDriver,
+  SIMULATOR_DRIVER_ENV,
+} from './idb.js';
+export type {
+  SimulatorInteractionDriver,
+  SimulatorDriverPreference,
+  SimulatorInteractionDriverStatus,
+} from './idb.js';
 
 // macOS native app scanning
 export { findProcess, extractMacOSElements, mapMacOSToEnhancedElements, captureMacOSScreenshot } from './macos.js';
