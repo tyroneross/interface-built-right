@@ -1,13 +1,13 @@
 ---
 name: ui-brainstorm-preamble
-description: Capture UI-specific context (platform, scope, template, references, gallery selection, density) before delegating to superpowers:brainstorming. Use at the start of `/ibr:build`. Writes preamble.json to `.ibr/builds/<topic>/preamble.json`.
+description: Capture UI-specific context (platform, scope, template, references, mockup workflow, density, and open questions) before `/ibr:build` creates a design target. Writes preamble.json to `.ibr/builds/<topic>/preamble.json`.
 version: 0.1.0
 user-invocable: false
 ---
 
 # UI Brainstorm Preamble
 
-Six-question UI-context capture. Pre-fills superpowers:brainstorming so the open-ended dialogue starts from locked-in UI axes.
+UI-context capture. It gathers only the information needed to create a design brief and decide whether Mockup Gallery should provide a wireframe or high-fidelity target.
 
 ## When to Activate
 
@@ -20,8 +20,26 @@ Six-question UI-context capture. Pre-fills superpowers:brainstorming so the open
 2. **Scope** — component / page / flow / app
 3. **UI Guidance template** — list via `ui-guidance-library` skill; user picks one by name, or "new"
 4. **External references** — any URLs/images to capture now? If yes, run `/ibr:capture` per URL
-5. **Mockup-gallery selection** — if `mockup-gallery-bridge` reports `present: true`, show gallery selections for the scope. User picks one or "none"
-6. **Density/intent** — compact-dense / balanced / spacious-marketing
+5. **Mockup workflow** — off / use existing selection / create wireframes / create wireframes plus high fidelity / auto
+6. **Mockup-gallery selection** — if `mockup-gallery-bridge` reports selections for the scope, show them. User picks one or "none"
+7. **Density/intent** — compact-dense / balanced / spacious-marketing
+
+## Ask-When-Unsure Rule
+
+Ask the user when the answer changes layout, flow, fidelity, or validation method. Do not ask when repository state already answers the question.
+
+Ask when:
+- platform or scope is unclear
+- the target user outcome is not stated
+- `mockupWorkflow` is `auto` but there are multiple plausible wireframe directions
+- high fidelity may affect implementation and no visual target exists
+- a selected mockup conflicts with UI Guidance or the existing design system
+- a validation target lacks the artifact needed by its validation method
+
+Do not ask when:
+- `.mockup-gallery/selected.json` has one clear selection for the topic
+- `refs.json` already tags one required target
+- the change is a small edit to an existing component with stable design conventions
 
 ## Platform skill routing
 
@@ -62,7 +80,9 @@ Write `.ibr/builds/<topic>/preamble.json`:
   "iosDefaults": {},
   "template": {"name": "...", "source": "central|project|new"},
   "references": [],
+  "mockupWorkflow": "off|existing|wireframe|wireframe+hifi|auto",
   "mockupSelection": null,
+  "openQuestions": [],
   "density": "...",
   "capturedAt": "ISO8601"
 }
@@ -72,7 +92,9 @@ Write `.ibr/builds/<topic>/preamble.json`:
 
 ## Handoff
 
-After capturing, invoke `superpowers:brainstorming` with the preamble as context block:
+After capturing, `/ibr:build` creates `brief.json` and resolves the design target before invoking `superpowers:brainstorming`.
+
+When handing off, include the preamble, selected references, Mockup Gallery status, and unresolved questions:
 
 > "Here's what's locked in for this UI build: [preamble summary]. What's still open about goals, edge cases, or architecture?"
 

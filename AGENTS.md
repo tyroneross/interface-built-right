@@ -69,8 +69,8 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 |---|---|
 | `.claude-plugin/plugin.json` | Plugin manifest (name, version, hooks, mcpServers, skills refs) |
 | `.mcp.json` | MCP server configuration |
-| `skills/` | 8 skill definitions (markdown, auto-triggered by Claude) |
-| `commands/` | 27 slash command definitions |
+| `skills/` | 19 skill definitions (markdown, auto-triggered by Claude) |
+| `commands/` | 31 slash command definitions |
 | `hooks/hooks.json` | Hook configuration |
 | `hooks/ibr-pre-change.sh` | PreToolUse handler |
 | `hooks/ibr-post-change.sh` | PostToolUse handler |
@@ -78,7 +78,7 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 | `agents/visual-iterator.md` | Design validator agent definition |
 | `references/` | iOS/macOS design reference files (domain option catalogs) |
 
-### Skills (14)
+### Skills (19)
 
 | Directory | Purpose |
 |---|---|
@@ -141,11 +141,11 @@ npm run mcp          # run MCP server (node dist/mcp/server.js)
 
 ### CDP Engine — `src/engine/cdp/`
 
-The core browser communication layer. Each file maps to a CDP domain. Changes here affect all web scanning, interaction, and screenshot functionality. The 8 skills depend on scan output structure — any field renames or removals in `src/scan.ts` must be reflected in skill docs and in downstream consumers (`src/compare.ts`, `src/report.ts`).
+The core browser communication layer. Each file maps to a CDP domain. Changes here affect all web scanning, interaction, and screenshot functionality. Scan-facing skills depend on scan output structure — any field renames or removals in `src/scan.ts` must be reflected in skill docs and in downstream consumers (`src/compare.ts`, `src/report.ts`).
 
 ### Scan Logic — `src/scan.ts`
 
-Central scan pipeline. Output structure is consumed by all 8 skills, the `compare` tool, `design-validator` agent, and test generation. Validate output shape changes against `src/scan.test.ts` and confirm skill docs still match.
+Central scan pipeline. Output structure is consumed by scan-facing skills, the `compare` tool, `design-validator` agent, and test generation. Validate output shape changes against `src/scan.test.ts` and confirm skill docs still match.
 
 ### Interaction — `src/engine/observe.ts`, `src/engine/resolve.ts`
 
