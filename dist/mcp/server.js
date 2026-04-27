@@ -2688,17 +2688,14 @@ async function ensureExtractor() {
   }
   await (0, import_promises11.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
-    await execFileAsync3("swift", ["build", "-c", "release"], {
-      cwd: SWIFT_SOURCE_DIR,
-      timeout: 12e4
-      // 2 minutes for first compile
-    });
-    const buildPath = (0, import_path11.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs3.existsSync)(buildPath)) {
+    if (!(0, import_fs3.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
+      await buildSwiftExtractor();
+    }
+    if (!(0, import_fs3.existsSync)(SWIFT_BUILD_PATH)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
-    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
-    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
+    await (0, import_promises11.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
+    await (0, import_promises11.chmod)(EXTRACTOR_PATH, 493);
     return EXTRACTOR_PATH;
   } catch (err) {
     throw new Error(
@@ -2706,9 +2703,25 @@ async function ensureExtractor() {
     );
   }
 }
-function isExtractorCacheFresh() {
+async function buildSwiftExtractor() {
   try {
-    const binaryMtime = (0, import_fs3.statSync)(EXTRACTOR_PATH).mtimeMs;
+    await execFileAsync3("swift", ["build", "-c", "release"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+    });
+  } catch {
+    await execFileAsync3("swift", ["build", "-c", "release", "--disable-sandbox"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+    });
+  }
+}
+function isExtractorCacheFresh() {
+  return isFileFresh(EXTRACTOR_PATH);
+}
+function isFileFresh(path) {
+  try {
+    const binaryMtime = (0, import_fs3.statSync)(path).mtimeMs;
     const sourceMtime = Math.max(
       (0, import_fs3.statSync)(SWIFT_MAIN_PATH).mtimeMs,
       (0, import_fs3.statSync)(SWIFT_PACKAGE_PATH).mtimeMs
@@ -2780,7 +2793,7 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH;
+var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract = __esm({
   "src/native/extract.ts"() {
     "use strict";
@@ -2796,6 +2809,7 @@ var init_extract = __esm({
     SWIFT_SOURCE_DIR = (0, import_path11.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
     SWIFT_MAIN_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
     SWIFT_PACKAGE_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, "Package.swift");
+    SWIFT_BUILD_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }
 });
 
@@ -13359,6 +13373,10 @@ var TOOLS = [
           type: "string",
           description: "macOS app name, bundle ID, or process-name fragment (e.g. 'Finder', 'Calculator', 'com.apple.TextEdit')."
         },
+        pid: {
+          type: "number",
+          description: "Direct macOS process ID. Use when the agent already knows the PID or app-name discovery is blocked."
+        },
         simulator: {
           type: "string",
           description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro')."
@@ -14166,18 +14184,38 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
 }
 async function handleNativeSessionStart(args) {
   const app = args.app;
+  const pid = args.pid;
   const simulator = args.simulator;
-  if (app && simulator) {
-    return errorResponse("Provide either 'app' or 'simulator', not both.");
+  const providedTargets = [app !== void 0, pid !== void 0, simulator !== void 0].filter(Boolean).length;
+  if (providedTargets > 1) {
+    return errorResponse("Provide only one native target: 'app', 'pid', or 'simulator'.");
   }
-  if (!app && !simulator) {
-    return errorResponse("native_session_start requires 'app' for macOS or 'simulator' for iOS/watchOS.");
+  if (providedTargets === 0) {
+    return errorResponse("native_session_start requires 'app' or 'pid' for macOS, or 'simulator' for iOS/watchOS.");
   }
   const sessionId = crypto.randomUUID();
+  if (pid !== void 0) {
+    return startMacOSPidSession(sessionId, pid, "native_session_start (macos)");
+  }
   if (app) {
     return await startMacOSSession(sessionId, app, "native_session_start (macos)");
   }
   return await startSimulatorSession(sessionId, simulator, "native_session_start (simulator)");
+}
+function startMacOSPidSession(sessionId, pid, errorPrefix) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return errorResponse(`${errorPrefix} failed: 'pid' must be a positive integer.`);
+  }
+  sessions.set(sessionId, { driver: null, type: "macos", app: `pid-${pid}`, pid, createdAt: Date.now() });
+  return textResponse(JSON.stringify({
+    sessionId,
+    type: "macos",
+    backend: "macos-ax",
+    app: `pid-${pid}`,
+    pid,
+    hostCursorAffected: false,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString()
+  }, null, 2));
 }
 async function handleNativeSessionRead(args) {
   const sessionId = args.sessionId;

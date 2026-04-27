@@ -1,7 +1,7 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { existsSync, statSync } from 'fs';
-import { mkdir } from 'fs/promises';
+import { copyFile, chmod, mkdir } from 'fs/promises';
 import { join } from 'path';
 import type { NativeElement } from './types.js';
 import type { SimulatorDevice } from './types.js';
@@ -18,6 +18,7 @@ const EXTRACTOR_PATH = join(EXTRACTOR_DIR, 'ibr-ax-extract');
 const SWIFT_SOURCE_DIR = join(__dirname, '..', '..', 'src', 'native', 'swift', 'ibr-ax-extract');
 const SWIFT_MAIN_PATH = join(SWIFT_SOURCE_DIR, 'Sources', 'main.swift');
 const SWIFT_PACKAGE_PATH = join(SWIFT_SOURCE_DIR, 'Package.swift');
+const SWIFT_BUILD_PATH = join(SWIFT_SOURCE_DIR, '.build', 'release', 'ibr-ax-extract');
 
 /**
  * Ensure the Swift AXUIElement extractor is compiled
@@ -31,21 +32,16 @@ export async function ensureExtractor(): Promise<string> {
   await mkdir(EXTRACTOR_DIR, { recursive: true });
 
   try {
-    // Build the Swift package
-    await execFileAsync('swift', ['build', '-c', 'release'], {
-      cwd: SWIFT_SOURCE_DIR,
-      timeout: 120000, // 2 minutes for first compile
-    });
+    if (!existsSync(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
+      await buildSwiftExtractor();
+    }
 
-    // Copy the built binary
-    const buildPath = join(SWIFT_SOURCE_DIR, '.build', 'release', 'ibr-ax-extract');
-
-    if (!existsSync(buildPath)) {
+    if (!existsSync(SWIFT_BUILD_PATH)) {
       throw new Error('Swift build succeeded but binary not found at expected path');
     }
 
-    await execFileAsync('cp', [buildPath, EXTRACTOR_PATH]);
-    await execFileAsync('chmod', ['+x', EXTRACTOR_PATH]);
+    await copyFile(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
+    await chmod(EXTRACTOR_PATH, 0o755);
 
     return EXTRACTOR_PATH;
   } catch (err) {
@@ -56,9 +52,27 @@ export async function ensureExtractor(): Promise<string> {
   }
 }
 
-function isExtractorCacheFresh(): boolean {
+async function buildSwiftExtractor(): Promise<void> {
   try {
-    const binaryMtime = statSync(EXTRACTOR_PATH).mtimeMs;
+    await execFileAsync('swift', ['build', '-c', 'release'], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 120000,
+    });
+  } catch {
+    await execFileAsync('swift', ['build', '-c', 'release', '--disable-sandbox'], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 120000,
+    });
+  }
+}
+
+function isExtractorCacheFresh(): boolean {
+  return isFileFresh(EXTRACTOR_PATH);
+}
+
+function isFileFresh(path: string): boolean {
+  try {
+    const binaryMtime = statSync(path).mtimeMs;
     const sourceMtime = Math.max(
       statSync(SWIFT_MAIN_PATH).mtimeMs,
       statSync(SWIFT_PACKAGE_PATH).mtimeMs

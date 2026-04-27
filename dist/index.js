@@ -12290,23 +12290,21 @@ var EXTRACTOR_PATH = path.join(EXTRACTOR_DIR, "ibr-ax-extract");
 var SWIFT_SOURCE_DIR = path.join(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
 var SWIFT_MAIN_PATH = path.join(SWIFT_SOURCE_DIR, "Sources", "main.swift");
 var SWIFT_PACKAGE_PATH = path.join(SWIFT_SOURCE_DIR, "Package.swift");
+var SWIFT_BUILD_PATH = path.join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
 async function ensureExtractor() {
   if (fs$1.existsSync(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
     return EXTRACTOR_PATH;
   }
   await fs.mkdir(EXTRACTOR_DIR, { recursive: true });
   try {
-    await execFileAsync3("swift", ["build", "-c", "release"], {
-      cwd: SWIFT_SOURCE_DIR,
-      timeout: 12e4
-      // 2 minutes for first compile
-    });
-    const buildPath = path.join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!fs$1.existsSync(buildPath)) {
+    if (!fs$1.existsSync(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
+      await buildSwiftExtractor();
+    }
+    if (!fs$1.existsSync(SWIFT_BUILD_PATH)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
-    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
-    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
+    await fs.copyFile(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
+    await fs.chmod(EXTRACTOR_PATH, 493);
     return EXTRACTOR_PATH;
   } catch (err) {
     throw new Error(
@@ -12314,9 +12312,25 @@ async function ensureExtractor() {
     );
   }
 }
-function isExtractorCacheFresh() {
+async function buildSwiftExtractor() {
   try {
-    const binaryMtime = fs$1.statSync(EXTRACTOR_PATH).mtimeMs;
+    await execFileAsync3("swift", ["build", "-c", "release"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+    });
+  } catch {
+    await execFileAsync3("swift", ["build", "-c", "release", "--disable-sandbox"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+    });
+  }
+}
+function isExtractorCacheFresh() {
+  return isFileFresh(EXTRACTOR_PATH);
+}
+function isFileFresh(path2) {
+  try {
+    const binaryMtime = fs$1.statSync(path2).mtimeMs;
     const sourceMtime = Math.max(
       fs$1.statSync(SWIFT_MAIN_PATH).mtimeMs,
       fs$1.statSync(SWIFT_PACKAGE_PATH).mtimeMs

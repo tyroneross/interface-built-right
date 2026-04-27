@@ -13772,17 +13772,14 @@ async function ensureExtractor() {
   }
   await (0, import_promises18.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
-    await execFileAsync3("swift", ["build", "-c", "release"], {
-      cwd: SWIFT_SOURCE_DIR,
-      timeout: 12e4
-      // 2 minutes for first compile
-    });
-    const buildPath = (0, import_path17.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
-    if (!(0, import_fs9.existsSync)(buildPath)) {
+    if (!(0, import_fs9.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
+      await buildSwiftExtractor();
+    }
+    if (!(0, import_fs9.existsSync)(SWIFT_BUILD_PATH)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
-    await execFileAsync3("cp", [buildPath, EXTRACTOR_PATH]);
-    await execFileAsync3("chmod", ["+x", EXTRACTOR_PATH]);
+    await (0, import_promises18.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
+    await (0, import_promises18.chmod)(EXTRACTOR_PATH, 493);
     return EXTRACTOR_PATH;
   } catch (err) {
     throw new Error(
@@ -13790,9 +13787,25 @@ async function ensureExtractor() {
     );
   }
 }
-function isExtractorCacheFresh() {
+async function buildSwiftExtractor() {
   try {
-    const binaryMtime = (0, import_fs9.statSync)(EXTRACTOR_PATH).mtimeMs;
+    await execFileAsync3("swift", ["build", "-c", "release"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+    });
+  } catch {
+    await execFileAsync3("swift", ["build", "-c", "release", "--disable-sandbox"], {
+      cwd: SWIFT_SOURCE_DIR,
+      timeout: 12e4
+    });
+  }
+}
+function isExtractorCacheFresh() {
+  return isFileFresh(EXTRACTOR_PATH);
+}
+function isFileFresh(path2) {
+  try {
+    const binaryMtime = (0, import_fs9.statSync)(path2).mtimeMs;
     const sourceMtime = Math.max(
       (0, import_fs9.statSync)(SWIFT_MAIN_PATH).mtimeMs,
       (0, import_fs9.statSync)(SWIFT_PACKAGE_PATH).mtimeMs
@@ -13864,7 +13877,7 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs9, import_promises18, import_path17, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH;
+var import_child_process4, import_util3, import_fs9, import_promises18, import_path17, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
@@ -13880,6 +13893,7 @@ var init_extract3 = __esm({
     SWIFT_SOURCE_DIR = (0, import_path17.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
     SWIFT_MAIN_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
     SWIFT_PACKAGE_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, "Package.swift");
+    SWIFT_BUILD_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }
 });
 

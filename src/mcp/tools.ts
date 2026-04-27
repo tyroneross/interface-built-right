@@ -853,6 +853,10 @@ export const TOOLS = [
           type: "string",
           description: "macOS app name, bundle ID, or process-name fragment (e.g. 'Finder', 'Calculator', 'com.apple.TextEdit').",
         },
+        pid: {
+          type: "number",
+          description: "Direct macOS process ID. Use when the agent already knows the PID or app-name discovery is blocked.",
+        },
         simulator: {
           type: "string",
           description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro').",
@@ -1749,20 +1753,46 @@ export async function handleToolCall(
 
 async function handleNativeSessionStart(args: Record<string, unknown>): Promise<McpResponse> {
   const app = args.app as string | undefined
+  const pid = args.pid as number | undefined
   const simulator = args.simulator as string | undefined
 
-  if (app && simulator) {
-    return errorResponse("Provide either 'app' or 'simulator', not both.")
+  const providedTargets = [app !== undefined, pid !== undefined, simulator !== undefined].filter(Boolean).length
+  if (providedTargets > 1) {
+    return errorResponse("Provide only one native target: 'app', 'pid', or 'simulator'.")
   }
-  if (!app && !simulator) {
-    return errorResponse("native_session_start requires 'app' for macOS or 'simulator' for iOS/watchOS.")
+  if (providedTargets === 0) {
+    return errorResponse("native_session_start requires 'app' or 'pid' for macOS, or 'simulator' for iOS/watchOS.")
   }
 
   const sessionId = crypto.randomUUID()
+  if (pid !== undefined) {
+    return startMacOSPidSession(sessionId, pid, 'native_session_start (macos)')
+  }
   if (app) {
     return await startMacOSSession(sessionId, app, 'native_session_start (macos)')
   }
   return await startSimulatorSession(sessionId, simulator!, 'native_session_start (simulator)')
+}
+
+function startMacOSPidSession(
+  sessionId: string,
+  pid: number,
+  errorPrefix: string
+): McpResponse {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return errorResponse(`${errorPrefix} failed: 'pid' must be a positive integer.`)
+  }
+
+  sessions.set(sessionId, { driver: null, type: 'macos', app: `pid-${pid}`, pid, createdAt: Date.now() })
+  return textResponse(JSON.stringify({
+    sessionId,
+    type: 'macos',
+    backend: 'macos-ax',
+    app: `pid-${pid}`,
+    pid,
+    hostCursorAffected: false,
+    timestamp: new Date().toISOString(),
+  }, null, 2))
 }
 
 async function handleNativeSessionRead(args: Record<string, unknown>): Promise<McpResponse> {
