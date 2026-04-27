@@ -363,6 +363,7 @@ let args = CommandLine.arguments
 var deviceName: String? = nil
 var targetPid: pid_t? = nil
 var targetApp: String? = nil
+var resolveApp: String? = nil
 var outputMode: String = "auto" // "auto", "legacy", "full"
 var actionName: String? = nil
 var elementPathStr: String? = nil
@@ -380,6 +381,9 @@ while i < args.count {
     case "--app":
         i += 1
         if i < args.count { targetApp = args[i] }
+    case "--resolve-app":
+        i += 1
+        if i < args.count { resolveApp = args[i] }
     case "--format":
         i += 1
         if i < args.count { outputMode = args[i] }
@@ -396,6 +400,27 @@ while i < args.count {
         break
     }
     i += 1
+}
+
+// --- Mode: Resolve a running macOS app without AX permission ---
+if let appName = resolveApp {
+    guard let app = findAppByName(appName) else {
+        fputs("Error: No running app found matching \"\(appName)\"\n", stderr)
+        exit(1)
+    }
+
+    let payload: [String: Any] = [
+        "pid": Int(app.processIdentifier),
+        "name": app.localizedName ?? "",
+        "bundleIdentifier": app.bundleIdentifier ?? ""
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: payload),
+       let str = String(data: data, encoding: .utf8) {
+        print(str)
+        exit(0)
+    }
+    fputs("Error: Failed to encode app resolution JSON\n", stderr)
+    exit(1)
 }
 
 // Check accessibility permission

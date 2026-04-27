@@ -15,7 +15,8 @@ const execAsync = promisify(exec);
  *
  * Strategy:
  * 1. Try lsappinfo for exact bundle ID match
- * 2. Fall back to pgrep for process name match
+ * 2. Fall back to the Swift helper's NSWorkspace app lookup
+ * 3. Fall back to pgrep for process name match
  */
 export async function findProcess(appNameOrBundleId: string): Promise<number> {
   // Try lsappinfo for bundle ID
@@ -29,6 +30,21 @@ export async function findProcess(appNameOrBundleId: string): Promise<number> {
     }
   } catch {
     // Not found via lsappinfo
+  }
+
+  // Try NSWorkspace via the Swift helper. This avoids pgrep/sysmond restrictions
+  // in sandboxed agent environments and matches the extractor's app lookup.
+  try {
+    const extractorPath = await ensureExtractor();
+    const { stdout } = await execFileAsync(extractorPath, ['--resolve-app', appNameOrBundleId], {
+      timeout: 10000,
+    });
+    const resolved = JSON.parse(stdout) as { pid?: number };
+    if (typeof resolved.pid === 'number' && resolved.pid > 0) {
+      return resolved.pid;
+    }
+  } catch {
+    // Not found via NSWorkspace
   }
 
   // Try pgrep for process name
@@ -201,4 +217,3 @@ export async function captureMacOSScreenshot(
     timeout: 10000,
   });
 }
-

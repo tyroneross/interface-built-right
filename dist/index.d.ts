@@ -6823,7 +6823,8 @@ declare function formatNativeScanResult(result: NativeScanResult): string;
  *
  * Strategy:
  * 1. Try lsappinfo for exact bundle ID match
- * 2. Fall back to pgrep for process name match
+ * 2. Fall back to the Swift helper's NSWorkspace app lookup
+ * 3. Fall back to pgrep for process name match
  */
 declare function findProcess(appNameOrBundleId: string): Promise<number>;
 /**

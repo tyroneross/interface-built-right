@@ -12451,6 +12451,17 @@ async function findProcess(appNameOrBundleId) {
   } catch {
   }
   try {
+    const extractorPath = await ensureExtractor();
+    const { stdout } = await execFileAsync4(extractorPath, ["--resolve-app", appNameOrBundleId], {
+      timeout: 1e4
+    });
+    const resolved = JSON.parse(stdout);
+    if (typeof resolved.pid === "number" && resolved.pid > 0) {
+      return resolved.pid;
+    }
+  } catch {
+  }
+  try {
     const { stdout } = await execAsync(
       `pgrep -f "${appNameOrBundleId}" 2>/dev/null | head -1`
     );
