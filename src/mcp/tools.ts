@@ -1766,7 +1766,7 @@ async function handleNativeSessionStart(args: Record<string, unknown>): Promise<
 
   const sessionId = crypto.randomUUID()
   if (pid !== undefined) {
-    return startMacOSPidSession(sessionId, pid, 'native_session_start (macos)')
+    return startMacOSPidSession(sessionId, pid)
   }
   if (app) {
     return await startMacOSSession(sessionId, app, 'native_session_start (macos)')
@@ -1776,11 +1776,10 @@ async function handleNativeSessionStart(args: Record<string, unknown>): Promise<
 
 function startMacOSPidSession(
   sessionId: string,
-  pid: number,
-  errorPrefix: string
+  pid: number
 ): McpResponse {
   if (!Number.isInteger(pid) || pid <= 0) {
-    return errorResponse(`${errorPrefix} failed: 'pid' must be a positive integer.`)
+    return errorResponse("native_session_start (macos) failed: 'pid' must be a positive integer.")
   }
 
   sessions.set(sessionId, { driver: null, type: 'macos', app: `pid-${pid}`, pid, createdAt: Date.now() })

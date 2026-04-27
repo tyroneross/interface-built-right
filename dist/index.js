@@ -12292,7 +12292,7 @@ var SWIFT_MAIN_PATH = path.join(SWIFT_SOURCE_DIR, "Sources", "main.swift");
 var SWIFT_PACKAGE_PATH = path.join(SWIFT_SOURCE_DIR, "Package.swift");
 var SWIFT_BUILD_PATH = path.join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
 async function ensureExtractor() {
-  if (fs$1.existsSync(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
+  if (fs$1.existsSync(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
   await fs.mkdir(EXTRACTOR_DIR, { recursive: true });
@@ -12324,9 +12324,6 @@ async function buildSwiftExtractor() {
       timeout: 12e4
     });
   }
-}
-function isExtractorCacheFresh() {
-  return isFileFresh(EXTRACTOR_PATH);
 }
 function isFileFresh(path2) {
   try {

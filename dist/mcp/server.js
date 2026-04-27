@@ -2683,7 +2683,7 @@ __export(extract_exports, {
   mapToEnhancedElements: () => mapToEnhancedElements
 });
 async function ensureExtractor() {
-  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
+  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
   await (0, import_promises11.mkdir)(EXTRACTOR_DIR, { recursive: true });
@@ -2715,9 +2715,6 @@ async function buildSwiftExtractor() {
       timeout: 12e4
     });
   }
-}
-function isExtractorCacheFresh() {
-  return isFileFresh(EXTRACTOR_PATH);
 }
 function isFileFresh(path) {
   try {
@@ -14195,16 +14192,16 @@ async function handleNativeSessionStart(args) {
   }
   const sessionId = crypto.randomUUID();
   if (pid !== void 0) {
-    return startMacOSPidSession(sessionId, pid, "native_session_start (macos)");
+    return startMacOSPidSession(sessionId, pid);
   }
   if (app) {
     return await startMacOSSession(sessionId, app, "native_session_start (macos)");
   }
   return await startSimulatorSession(sessionId, simulator, "native_session_start (simulator)");
 }
-function startMacOSPidSession(sessionId, pid, errorPrefix) {
+function startMacOSPidSession(sessionId, pid) {
   if (!Number.isInteger(pid) || pid <= 0) {
-    return errorResponse(`${errorPrefix} failed: 'pid' must be a positive integer.`);
+    return errorResponse("native_session_start (macos) failed: 'pid' must be a positive integer.");
   }
   sessions.set(sessionId, { driver: null, type: "macos", app: `pid-${pid}`, pid, createdAt: Date.now() });
   return textResponse(JSON.stringify({

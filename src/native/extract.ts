@@ -25,7 +25,7 @@ const SWIFT_BUILD_PATH = join(SWIFT_SOURCE_DIR, '.build', 'release', 'ibr-ax-ext
  * Compiles on first use, then caches at .ibr/bin/ibr-ax-extract
  */
 export async function ensureExtractor(): Promise<string> {
-  if (existsSync(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
+  if (existsSync(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
 
@@ -64,10 +64,6 @@ async function buildSwiftExtractor(): Promise<void> {
       timeout: 120000,
     });
   }
-}
-
-function isExtractorCacheFresh(): boolean {
-  return isFileFresh(EXTRACTOR_PATH);
 }
 
 function isFileFresh(path: string): boolean {

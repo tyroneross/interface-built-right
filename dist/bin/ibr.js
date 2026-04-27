@@ -13767,7 +13767,7 @@ var init_role_map = __esm({
 
 // src/native/extract.ts
 async function ensureExtractor() {
-  if ((0, import_fs9.existsSync)(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
+  if ((0, import_fs9.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
   await (0, import_promises18.mkdir)(EXTRACTOR_DIR, { recursive: true });
@@ -13799,9 +13799,6 @@ async function buildSwiftExtractor() {
       timeout: 12e4
     });
   }
-}
-function isExtractorCacheFresh() {
-  return isFileFresh(EXTRACTOR_PATH);
 }
 function isFileFresh(path2) {
   try {

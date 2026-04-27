@@ -1,0 +1,15 @@
+{
+  "target": "simplify-native-pid",
+  "scope": "src/native/extract.ts src/mcp/tools.ts src/engine/session-tools.test.ts skills/native-testing/SKILL.md",
+  "metric_cmd": "wc -l src/native/extract.ts src/mcp/tools.ts src/engine/session-tools.test.ts skills/native-testing/SKILL.md | tail -1 | awk '{print $1}'",
+  "guard_cmd": "npm run typecheck && npm test -- src/engine/session-tools.test.ts src/native/actions.test.ts",
+  "budget": 3,
+  "direction": "lower",
+  "baseline_commit": "47c6e02",
+  "baseline_value": 3980.0,
+  "best_value": 3955.0,
+  "prompt_version": "v1",
+  "started_at": "2026-04-27T09:38:33.684912+00:00Z",
+  "iterations_kept": 1,
+  "iterations_total": 1
+}
