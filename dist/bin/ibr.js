@@ -13767,7 +13767,7 @@ var init_role_map = __esm({
 
 // src/native/extract.ts
 async function ensureExtractor() {
-  if ((0, import_fs9.existsSync)(EXTRACTOR_PATH)) {
+  if ((0, import_fs9.existsSync)(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
     return EXTRACTOR_PATH;
   }
   await (0, import_promises18.mkdir)(EXTRACTOR_DIR, { recursive: true });
@@ -13788,6 +13788,18 @@ async function ensureExtractor() {
     throw new Error(
       `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
     );
+  }
+}
+function isExtractorCacheFresh() {
+  try {
+    const binaryMtime = (0, import_fs9.statSync)(EXTRACTOR_PATH).mtimeMs;
+    const sourceMtime = Math.max(
+      (0, import_fs9.statSync)(SWIFT_MAIN_PATH).mtimeMs,
+      (0, import_fs9.statSync)(SWIFT_PACKAGE_PATH).mtimeMs
+    );
+    return binaryMtime >= sourceMtime;
+  } catch {
+    return false;
   }
 }
 function isExtractorAvailable() {
@@ -13852,7 +13864,7 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs9, import_promises18, import_path17, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var import_child_process4, import_util3, import_fs9, import_promises18, import_path17, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
@@ -13866,6 +13878,8 @@ var init_extract3 = __esm({
     EXTRACTOR_DIR = (0, import_path17.join)(process.cwd(), ".ibr", "bin");
     EXTRACTOR_PATH = (0, import_path17.join)(EXTRACTOR_DIR, "ibr-ax-extract");
     SWIFT_SOURCE_DIR = (0, import_path17.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    SWIFT_MAIN_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+    SWIFT_PACKAGE_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, "Package.swift");
   }
 });
 

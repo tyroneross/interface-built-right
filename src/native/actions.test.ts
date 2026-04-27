@@ -14,7 +14,12 @@ vi.mock('./extract.js', () => ({
 }));
 
 // Import after mocks are registered
-import { performNativeAction, findElementPath } from './actions.js';
+import {
+  performNativeAction,
+  findElementPath,
+  resolveMacOSElement,
+  resolveSimulatorElement,
+} from './actions.js';
 import { execFile } from 'child_process';
 
 // Grab the mocked execFile
@@ -81,6 +86,21 @@ describe('performNativeAction', () => {
     expect(passedArgs).toContain('3,0,1');
   });
 
+  it('passes --device-name when provided for simulator window actions', async () => {
+    mockExecFileSuccess(JSON.stringify({ success: true, action: 'press' }));
+
+    await performNativeAction({
+      pid: 9999,
+      deviceName: 'iPhone 16 Pro',
+      elementPath: [3, 0, 1],
+      action: 'press',
+    });
+
+    const passedArgs = execFileMock.mock.calls[0][1] as string[];
+    expect(passedArgs).toContain('--device-name');
+    expect(passedArgs).toContain('iPhone 16 Pro');
+  });
+
   it('includes --value when value is provided', async () => {
     mockExecFileSuccess(JSON.stringify({ success: true, action: 'setValue' }));
 
@@ -140,7 +160,7 @@ describe('performNativeAction', () => {
   });
 
   it('handles all supported action types without error', async () => {
-    const actions = ['press', 'setValue', 'increment', 'decrement', 'showMenu', 'confirm', 'cancel', 'focus'] as const;
+    const actions = ['press', 'setValue', 'increment', 'decrement', 'showMenu', 'confirm', 'cancel', 'focus', 'scrollToVisible'] as const;
 
     for (const action of actions) {
       mockExecFileSuccess(JSON.stringify({ success: true, action }));
@@ -276,5 +296,63 @@ describe('findElementPath', () => {
     }
     const root = makeElement({ role: 'AXGroup', path: [0], children: [wrapper] });
     expect(findElementPath([root], 'DeepTarget')).toEqual([0, 0, 0, 0, 0]);
+  });
+});
+
+// ─── Semantic target resolution ───────────────────────────
+
+describe('resolveMacOSElement', () => {
+  it('resolves by AX identifier with role aliases', () => {
+    const elements: MacOSAXElement[] = [
+      makeElement({ identifier: 'save-button', title: 'Save', path: [0] }),
+    ];
+
+    const result = resolveMacOSElement(elements, 'save-button', { role: 'button' });
+
+    expect(result?.element.path).toEqual([0]);
+    expect(result?.tier).toBe('identifier');
+    expect(result?.confidence).toBe(1);
+  });
+
+  it('resolves by visible label using contains fallback', () => {
+    const elements: MacOSAXElement[] = [
+      makeElement({ title: 'Create new project', path: [2] }),
+    ];
+
+    const result = resolveMacOSElement(elements, 'new project');
+
+    expect(result?.element.path).toEqual([2]);
+    expect(result?.tier).toBe('contains');
+  });
+
+  it('returns null when the role filter excludes the candidate', () => {
+    const elements: MacOSAXElement[] = [
+      makeElement({ role: 'AXButton', title: 'Save', path: [0] }),
+    ];
+
+    expect(resolveMacOSElement(elements, 'Save', { role: 'textbox' })).toBeNull();
+  });
+});
+
+describe('resolveSimulatorElement', () => {
+  it('resolves simulator legacy elements by label and preserves path', () => {
+    const elements = [
+      {
+        identifier: 'continue',
+        label: 'Continue',
+        role: 'AXButton',
+        traits: ['button'],
+        frame: { x: 0, y: 0, width: 100, height: 44 },
+        isEnabled: true,
+        value: null,
+        path: [1, 2],
+        children: [],
+      },
+    ];
+
+    const result = resolveSimulatorElement(elements, 'Continue');
+
+    expect(result?.element.path).toEqual([1, 2]);
+    expect(result?.element.actions).toEqual(['AXPress']);
   });
 });

@@ -4,7 +4,7 @@
  * All execFileAsync calls are mocked — tests run without IDB or xcrun installed.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 
 // ── Mock child_process before importing the module under test ──────────────
 
@@ -18,20 +18,30 @@ vi.mock('util', () => ({
   promisify: (fn: unknown) => fn,
 }))
 
-// Import after mock setup so the module uses the mock
-const {
-  isIdbAvailable,
-  isIdbCliAvailable,
-  idbTap,
-  idbType,
-  idbSwipe,
-  idbButton,
-  idbOpenUrl,
-  simulatorAction,
-} = await import('./idb.js')
+let isIdbAvailable: typeof import('./idb.js').isIdbAvailable
+let isIdbCliAvailable: typeof import('./idb.js').isIdbCliAvailable
+let idbTap: typeof import('./idb.js').idbTap
+let idbType: typeof import('./idb.js').idbType
+let idbSwipe: typeof import('./idb.js').idbSwipe
+let idbButton: typeof import('./idb.js').idbButton
+let idbOpenUrl: typeof import('./idb.js').idbOpenUrl
+let simulatorAction: typeof import('./idb.js').simulatorAction
+let elementCenter: typeof import('./actions.js').elementCenter
 
-// elementCenter comes from actions.ts (no child_process calls, safe to import)
-const { elementCenter } = await import('./actions.js')
+beforeAll(async () => {
+  const idb = await import('./idb.js')
+  isIdbAvailable = idb.isIdbAvailable
+  isIdbCliAvailable = idb.isIdbCliAvailable
+  idbTap = idb.idbTap
+  idbType = idb.idbType
+  idbSwipe = idb.idbSwipe
+  idbButton = idb.idbButton
+  idbOpenUrl = idb.idbOpenUrl
+  simulatorAction = idb.simulatorAction
+
+  const actions = await import('./actions.js')
+  elementCenter = actions.elementCenter
+})
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

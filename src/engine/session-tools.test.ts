@@ -120,6 +120,10 @@ describe('TOOLS array completeness', () => {
     expect(names).toContain('session_action')
     expect(names).toContain('session_read')
     expect(names).toContain('session_close')
+    expect(names).toContain('native_session_start')
+    expect(names).toContain('native_session_action')
+    expect(names).toContain('native_session_read')
+    expect(names).toContain('native_session_close')
   })
 
   it('session_start has no required fields (all params are platform-dependent)', async () => {
@@ -164,6 +168,15 @@ describe('TOOLS array completeness', () => {
     const tool = TOOLS.find(t => t.name === 'session_read')!
     expect(tool.inputSchema.required).toContain('sessionId')
     expect(tool.inputSchema.required).toContain('what')
+  })
+
+  it('native_session_action supports cursor-free AX action verbs', async () => {
+    const { TOOLS } = await import('../mcp/tools.js')
+    const tool = TOOLS.find(t => t.name === 'native_session_action')!
+    const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>
+    expect(props.action.enum).toContain('showMenu')
+    expect(props.action.enum).toContain('scrollToVisible')
+    expect(tool.inputSchema.required).toEqual(['sessionId', 'action', 'target'])
   })
 })
 

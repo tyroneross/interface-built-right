@@ -24,6 +24,10 @@ IBR scans native Apple UI via the accessibility tree — iOS/watchOS through sim
 | `native_compare` | Compare simulator state against reference point |
 | `native_devices` | List available simulators with boot status |
 | `scan_macos` | Scan a running macOS app via accessibility tree |
+| `native_session_start` | Start a cursor-free native session for a macOS app or simulator |
+| `native_session_read` | Observe/extract native AX elements from an active native session |
+| `native_session_action` | Press, fill, focus, show menus, and scroll via AX without moving the user's cursor |
+| `native_session_close` | Close the native session record without quitting the app |
 
 ## CLI Reference
 
@@ -46,6 +50,17 @@ npx ibr native:check                              # compare current vs reference
 npx ibr scan:macos --app "Terminal"               # scan by app name
 npx ibr scan:macos --app "MyApp"                  # scan your own app
 ```
+
+## Cursor-Free Native Sessions
+
+Use `native_session_*` MCP tools when the agent needs to navigate a running macOS app without taking over the user's mouse cursor.
+
+1. `native_session_start` with `app: "MyApp"` or `simulator: "iPhone 16 Pro"`
+2. `native_session_read` with `what: "observe"` to list actionable AX elements
+3. `native_session_action` with accessible `target` and action (`click`, `fill`, `focus`, `showMenu`, `increment`, `decrement`, `confirm`, `cancel`, `scrollToVisible`)
+4. `native_session_close` when done
+
+These actions use Accessibility APIs (`AXPress`, `AXSetValue`, focus/menu actions) rather than CGEvent pointer movement. They require macOS Accessibility permission for the terminal/IDE running IBR. Custom canvas controls or simulator guest controls that do not expose AX actions may still require the simulator HID/IDB path.
 
 ## Automated Native Checks
 

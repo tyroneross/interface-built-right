@@ -113,7 +113,7 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 
 ### MCP Tools
 
-`scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `validate_tokens` | `scan_static` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `sim_action`
+`scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `native_session_start` | `native_session_read` | `native_session_action` | `native_session_close` | `validate_tokens` | `scan_static` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `sim_action`
 
 ### Slash Commands (30)
 
@@ -149,7 +149,7 @@ Central scan pipeline. Output structure is consumed by all 8 skills, the `compar
 
 ### Interaction — `src/engine/observe.ts`, `src/engine/resolve.ts`
 
-Element resolution by accessible name. Changes affect `interact`, `observe`, `interact_and_verify`, `session_action`, and `sim_action`. The resolution strategy is tiered — exact name match, partial match, role fallback — document any tier changes.
+Element resolution by accessible name. Changes affect `interact`, `observe`, `interact_and_verify`, `session_action`, `native_session_action`, and `sim_action`. The resolution strategy is tiered — exact name match, partial match, role fallback — document any tier changes.
 
 ### Native Scanning — `src/native/`
 

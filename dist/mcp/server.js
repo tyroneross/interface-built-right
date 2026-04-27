@@ -2683,7 +2683,7 @@ __export(extract_exports, {
   mapToEnhancedElements: () => mapToEnhancedElements
 });
 async function ensureExtractor() {
-  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) {
+  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
     return EXTRACTOR_PATH;
   }
   await (0, import_promises11.mkdir)(EXTRACTOR_DIR, { recursive: true });
@@ -2704,6 +2704,18 @@ async function ensureExtractor() {
     throw new Error(
       `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
     );
+  }
+}
+function isExtractorCacheFresh() {
+  try {
+    const binaryMtime = (0, import_fs3.statSync)(EXTRACTOR_PATH).mtimeMs;
+    const sourceMtime = Math.max(
+      (0, import_fs3.statSync)(SWIFT_MAIN_PATH).mtimeMs,
+      (0, import_fs3.statSync)(SWIFT_PACKAGE_PATH).mtimeMs
+    );
+    return binaryMtime >= sourceMtime;
+  } catch {
+    return false;
   }
 }
 function isExtractorAvailable() {
@@ -2768,7 +2780,7 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR;
+var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH;
 var init_extract = __esm({
   "src/native/extract.ts"() {
     "use strict";
@@ -2782,6 +2794,8 @@ var init_extract = __esm({
     EXTRACTOR_DIR = (0, import_path11.join)(process.cwd(), ".ibr", "bin");
     EXTRACTOR_PATH = (0, import_path11.join)(EXTRACTOR_DIR, "ibr-ax-extract");
     SWIFT_SOURCE_DIR = (0, import_path11.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    SWIFT_MAIN_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+    SWIFT_PACKAGE_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, "Package.swift");
   }
 });
 
@@ -12383,7 +12397,146 @@ async function idbOpenUrl(udid, url) {
 var import_child_process7 = require("child_process");
 var import_util6 = require("util");
 init_extract();
+init_role_map();
 var execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+async function performNativeAction(options) {
+  const extractorPath = await ensureExtractor();
+  const args = [
+    "--pid",
+    String(options.pid),
+    "--action",
+    options.action,
+    "--element-path",
+    options.elementPath.join(",")
+  ];
+  if (options.deviceName !== void 0) {
+    args.push("--device-name", options.deviceName);
+  }
+  if (options.value !== void 0) {
+    args.push("--value", options.value);
+  }
+  try {
+    const { stdout } = await execFileAsync6(extractorPath, args, { timeout: 1e4 });
+    return JSON.parse(stdout);
+  } catch (err) {
+    if (err && typeof err === "object" && "stdout" in err) {
+      const execErr = err;
+      const raw = (execErr.stdout ?? "").trim();
+      if (raw) {
+        try {
+          return JSON.parse(raw);
+        } catch {
+        }
+      }
+    }
+    const message = err instanceof Error ? err.message : "Action failed";
+    return {
+      success: false,
+      action: options.action,
+      error: message
+    };
+  }
+}
+function resolveMacOSElement(elements, target, options = {}) {
+  return resolveNativeCandidate(flattenMacOSElements(elements), target, options);
+}
+function resolveSimulatorElement(elements, target, options = {}) {
+  return resolveNativeCandidate(flattenSimulatorElements(elements), target, options);
+}
+function flattenMacOSElements(elements) {
+  const candidates = [];
+  function visit(nodes) {
+    for (const el of nodes) {
+      const label = el.title || el.description || el.value || el.identifier || "";
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label,
+        identifier: el.identifier,
+        value: el.value,
+        enabled: el.enabled,
+        actions: el.actions,
+        frame: el.position && el.size ? {
+          x: el.position.x,
+          y: el.position.y,
+          width: el.size.width,
+          height: el.size.height
+        } : void 0
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+  visit(elements);
+  return candidates;
+}
+function flattenSimulatorElements(elements) {
+  const candidates = [];
+  function visit(nodes) {
+    for (const el of nodes) {
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label: el.label || el.value || el.identifier || "",
+        identifier: el.identifier || null,
+        value: el.value,
+        enabled: el.isEnabled,
+        actions: el.traits.includes("button") || el.role === "AXButton" ? ["AXPress"] : [],
+        frame: el.frame
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+  visit(elements);
+  return candidates;
+}
+function resolveNativeCandidate(candidates, target, options) {
+  const needle = normalize(target);
+  if (!needle) return null;
+  const scored = candidates.map((candidate) => {
+    const score = scoreCandidate(candidate, needle, options.role);
+    return { candidate, score };
+  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (!best) return null;
+  const tier = scoreTier(best.candidate, needle);
+  return {
+    element: best.candidate,
+    confidence: best.score,
+    tier,
+    alternatives: scored.slice(1, 6).map((item) => ({
+      label: item.candidate.label,
+      role: normalizeRole2(item.candidate.role),
+      identifier: item.candidate.identifier,
+      confidence: item.score
+    })),
+    totalCandidates: candidates.length
+  };
+}
+function scoreCandidate(candidate, needle, role) {
+  if (role && normalizeRole2(candidate.role) !== normalizeRole2(role)) return 0;
+  const identifier = normalize(candidate.identifier);
+  const label = normalize(candidate.label);
+  const value = normalize(candidate.value);
+  if (identifier && identifier === needle) return 1;
+  if (label && label === needle) return 0.96;
+  if (value && value === needle) return 0.9;
+  if (identifier && identifier.includes(needle)) return 0.82;
+  if (label && label.includes(needle)) return 0.76;
+  if (value && value.includes(needle)) return 0.7;
+  return 0;
+}
+function scoreTier(candidate, needle) {
+  if (normalize(candidate.identifier) === needle) return "identifier";
+  if (normalize(candidate.label) === needle) return "label";
+  if (normalize(candidate.value) === needle) return "value";
+  return "contains";
+}
+function normalize(value) {
+  return (value ?? "").trim().toLowerCase();
+}
+function normalizeRole2(role) {
+  return (mapRoleToAriaRole(role) ?? role.replace(/^AX/, "")).toLowerCase();
+}
 function elementCenter(element) {
   if (!element.frame) return null;
   return {
@@ -13185,6 +13338,98 @@ var TOOLS = [
       openWorldHint: false
     }
   },
+  {
+    name: "native_session_start",
+    description: "Start a cursor-free native UI session for a running macOS app or iOS/watchOS simulator. macOS uses AXUIElement actions; simulator uses the Simulator.app accessibility tree when available. Does not move the user's mouse cursor.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        app: {
+          type: "string",
+          description: "macOS app name, bundle ID, or process-name fragment (e.g. 'Finder', 'Calculator', 'com.apple.TextEdit')."
+        },
+        simulator: {
+          type: "string",
+          description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro')."
+        }
+      }
+    },
+    annotations: {
+      title: "Start Native Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false
+    }
+  },
+  {
+    name: "native_session_read",
+    description: "Read a cursor-free native session. Modes: observe (interactive elements), extract (AX element summary), state (session metadata), screenshot (when supported).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by native_session_start" },
+        what: {
+          type: "string",
+          enum: ["observe", "extract", "screenshot", "state"],
+          description: "What to read from the native session"
+        },
+        limit: { type: "number", description: "Maximum elements to return for observe/extract (default: 50)" }
+      },
+      required: ["sessionId", "what"]
+    },
+    annotations: {
+      title: "Read Native Session",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  {
+    name: "native_session_action",
+    description: "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, or scrollToVisible. Uses Accessibility APIs instead of moving the host cursor.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by native_session_start" },
+        action: {
+          type: "string",
+          enum: ["click", "press", "fill", "type", "focus", "showMenu", "increment", "decrement", "confirm", "cancel", "scroll", "scrollToVisible", "check", "select"],
+          description: "Native action to perform"
+        },
+        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target" },
+        value: { type: "string", description: "Text for fill/type/setValue actions" },
+        role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" }
+      },
+      required: ["sessionId", "action", "target"]
+    },
+    annotations: {
+      title: "Native Session Action",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false
+    }
+  },
+  {
+    name: "native_session_close",
+    description: "Close a native session record. This does not quit the target app or simulator.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by native_session_start" }
+      },
+      required: ["sessionId"]
+    },
+    annotations: {
+      title: "Close Native Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
   // --- iOS/watchOS simulator interaction ---
   {
     name: "design_system",
@@ -13279,6 +13524,14 @@ async function handleToolCall(name, args) {
         return await handleScanStatic(args);
       case "bridge_to_source":
         return await handleBridgeToSource(args);
+      case "native_session_start":
+        return await handleNativeSessionStart(args);
+      case "native_session_read":
+        return await handleNativeSessionRead(args);
+      case "native_session_action":
+        return await handleNativeSessionAction(args);
+      case "native_session_close":
+        return await handleNativeSessionClose(args);
       case "interact": {
         const { url, action, target, value, role, screenshot: wantScreenshot = true } = args;
         const driver2 = new EngineDriver();
@@ -13368,7 +13621,7 @@ async function handleToolCall(name, args) {
               id: a.elementId ?? "",
               role: a.role ?? "",
               label: a.description ?? a.label ?? "",
-              actions: a.action ? [a.action] : []
+              actions: a.actions
             })));
             return textResponse(formatCompressed(compressed));
           }
@@ -13649,47 +13902,10 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
         const { url, headless = true, viewport, browser, app, simulator } = args;
         const sessionId = crypto.randomUUID();
         if (app) {
-          try {
-            const { execFile: execFile9 } = await import("child_process");
-            const { promisify: promisify9 } = await import("util");
-            const execFileAsync9 = promisify9(execFile9);
-            const { stdout } = await execFileAsync9("pgrep", ["-x", app]);
-            const pid = parseInt(stdout.trim(), 10);
-            if (isNaN(pid)) throw new Error(`App "${app}" is not running`);
-            sessions.set(sessionId, { driver: null, type: "macos", app, pid, createdAt: Date.now() });
-            return textResponse(JSON.stringify({
-              sessionId,
-              type: "macos",
-              app,
-              pid,
-              timestamp: (/* @__PURE__ */ new Date()).toISOString()
-            }, null, 2));
-          } catch (err) {
-            return errorResponse(`session_start (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
-          }
+          return await startMacOSSession(sessionId, app, "session_start (macos)");
         }
         if (simulator) {
-          try {
-            const { listDevices: listDevices2, bootDevice: bootDevice2 } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
-            const devices = await listDevices2();
-            const device = devices.find((d) => d.name.includes(simulator) || d.udid === simulator);
-            if (!device) throw new Error(`Simulator not found: ${simulator}`);
-            if (device.state !== "Booted") await bootDevice2(device.udid);
-            sessions.set(sessionId, {
-              driver: null,
-              type: "simulator",
-              device: { udid: device.udid, name: device.name },
-              createdAt: Date.now()
-            });
-            return textResponse(JSON.stringify({
-              sessionId,
-              type: "simulator",
-              device: { udid: device.udid, name: device.name },
-              timestamp: (/* @__PURE__ */ new Date()).toISOString()
-            }, null, 2));
-          } catch (err) {
-            return errorResponse(`session_start (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
-          }
+          return await startSimulatorSession(sessionId, simulator, "session_start (simulator)");
         }
         if (!url) {
           return errorResponse(`session_start requires 'url' for web sessions, 'app' for macOS native, or 'simulator' for iOS/watchOS`);
@@ -13748,12 +13964,10 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
           return errorResponse("Session not found. Use session_start first.");
         }
         if (entry.type === "macos") {
-          const msg = `macOS native session for "${entry.app}". Native interactions require the ibr-ax-extract binary with --action support. Use session_read to observe the app's accessibility tree.`;
-          return textResponse(msg);
+          return await runMacOSSessionAction(entry, { action, target, value, role });
         }
         if (entry.type === "simulator") {
-          const msg = `Simulator session for "${entry.device?.name}". Simulator tap requires coordinates. Use native_scan to find element positions, then sim_action to interact.`;
-          return textResponse(msg);
+          return await runSimulatorSessionAction(entry, { action, target, value, role });
         }
         const driver2 = entry.driver;
         try {
@@ -13838,59 +14052,10 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
           return errorResponse("Session not found. Use session_start first.");
         }
         if (entry.type === "macos") {
-          try {
-            switch (what) {
-              case "observe":
-              case "extract": {
-                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
-                const elements = await extractNativeElements2({
-                  name: entry.app,
-                  udid: "",
-                  state: "Booted",
-                  runtime: "",
-                  platform: "ios",
-                  isAvailable: true
-                });
-                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2));
-              }
-              case "screenshot":
-                return textResponse("macOS screenshot: use native_scan with screenshot option");
-              case "state":
-                return textResponse(JSON.stringify({ type: "macos", app: entry.app, pid: entry.pid }));
-              default:
-                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
-            }
-          } catch (err) {
-            return errorResponse(`session_read (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
-          }
+          return await readMacOSSession(entry, what, Number(args.limit) || 50);
         }
         if (entry.type === "simulator") {
-          try {
-            switch (what) {
-              case "observe":
-              case "extract": {
-                const { extractNativeElements: extractNativeElements2 } = await Promise.resolve().then(() => (init_extract(), extract_exports));
-                const dev = entry.device;
-                const elements = await extractNativeElements2({
-                  name: dev.name,
-                  udid: dev.udid,
-                  state: "Booted",
-                  runtime: "",
-                  platform: "ios",
-                  isAvailable: true
-                });
-                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2));
-              }
-              case "screenshot":
-                return textResponse("Simulator screenshot: use native_scan with screenshot option");
-              case "state":
-                return textResponse(JSON.stringify({ type: "simulator", device: entry.device }));
-              default:
-                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
-            }
-          } catch (err) {
-            return errorResponse(`session_read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
-          }
+          return await readSimulatorSession(entry, what, Number(args.limit) || 50);
         }
         const driver2 = entry.driver;
         try {
@@ -13905,7 +14070,7 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
                   id: a.elementId ?? "",
                   role: a.role ?? "",
                   label: a.description ?? a.label ?? "",
-                  actions: a.action ? [a.action] : []
+                  actions: a.actions
                 })));
                 return textResponse(formatCompressed(compressed));
               }
@@ -13987,6 +14152,310 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
       err instanceof Error ? err.message : "Tool execution failed"
     );
   }
+}
+async function handleNativeSessionStart(args) {
+  const app = args.app;
+  const simulator = args.simulator;
+  if (app && simulator) {
+    return errorResponse("Provide either 'app' or 'simulator', not both.");
+  }
+  if (!app && !simulator) {
+    return errorResponse("native_session_start requires 'app' for macOS or 'simulator' for iOS/watchOS.");
+  }
+  const sessionId = crypto.randomUUID();
+  if (app) {
+    return await startMacOSSession(sessionId, app, "native_session_start (macos)");
+  }
+  return await startSimulatorSession(sessionId, simulator, "native_session_start (simulator)");
+}
+async function handleNativeSessionRead(args) {
+  const sessionId = args.sessionId;
+  const what = args.what;
+  const limit = Number(args.limit) || 50;
+  const entry = sessions.get(sessionId);
+  if (!entry) return errorResponse("Session not found. Use native_session_start first.");
+  if (entry.type === "macos") return await readMacOSSession(entry, what, limit);
+  if (entry.type === "simulator") return await readSimulatorSession(entry, what, limit);
+  return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_read for web sessions.`);
+}
+async function handleNativeSessionAction(args) {
+  const {
+    sessionId,
+    action,
+    target,
+    value,
+    role
+  } = args;
+  const entry = sessions.get(sessionId);
+  if (!entry) return errorResponse("Session not found. Use native_session_start first.");
+  if (entry.type === "macos") return await runMacOSSessionAction(entry, { action, target, value, role });
+  if (entry.type === "simulator") return await runSimulatorSessionAction(entry, { action, target, value, role });
+  return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`);
+}
+async function handleNativeSessionClose(args) {
+  const sessionId = args.sessionId;
+  const entry = sessions.get(sessionId);
+  if (!entry) return errorResponse("Session not found.");
+  if (entry.type !== "macos" && entry.type !== "simulator") {
+    return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_close for web sessions.`);
+  }
+  sessions.delete(sessionId);
+  return textResponse(`Native session ${sessionId} closed.`);
+}
+async function startMacOSSession(sessionId, app, errorPrefix) {
+  try {
+    const pid = await findProcess(app);
+    sessions.set(sessionId, { driver: null, type: "macos", app, pid, createdAt: Date.now() });
+    return textResponse(JSON.stringify({
+      sessionId,
+      type: "macos",
+      backend: "macos-ax",
+      app,
+      pid,
+      hostCursorAffected: false,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    }, null, 2));
+  } catch (err) {
+    return errorResponse(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+async function startSimulatorSession(sessionId, simulator, errorPrefix) {
+  try {
+    let device = await findDevice(simulator);
+    if (!device) throw new Error(`Simulator not found: ${simulator}`);
+    if (device.state !== "Booted") {
+      await bootDevice(device.udid);
+      device = await findDevice(device.udid) ?? device;
+    }
+    sessions.set(sessionId, {
+      driver: null,
+      type: "simulator",
+      device: { udid: device.udid, name: device.name },
+      createdAt: Date.now()
+    });
+    return textResponse(JSON.stringify({
+      sessionId,
+      type: "simulator",
+      backend: "simulator-ax",
+      device: { udid: device.udid, name: device.name },
+      hostCursorAffected: false,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    }, null, 2));
+  } catch (err) {
+    return errorResponse(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+async function readMacOSSession(entry, what, limit) {
+  try {
+    if (what === "screenshot") {
+      return textResponse("macOS screenshot capture is available through scan_macos with a screenshot path.");
+    }
+    const { elements, window: window2 } = await extractMacOSElements({ pid: entry.pid });
+    const candidates = flattenMacOSElements(elements);
+    const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+    if (what === "state") {
+      return textResponse(JSON.stringify({
+        type: "macos",
+        backend: "macos-ax",
+        app: entry.app,
+        pid: entry.pid,
+        window: window2,
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        hostCursorAffected: false
+      }, null, 2));
+    }
+    if (what !== "observe" && what !== "extract") {
+      return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+    }
+    const source = what === "observe" ? interactive : candidates;
+    return textResponse(JSON.stringify({
+      type: "macos",
+      backend: "macos-ax",
+      app: entry.app,
+      pid: entry.pid,
+      window: window2,
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      returned: Math.min(source.length, limit),
+      hostCursorAffected: false,
+      elements: source.slice(0, limit).map(formatNativeCandidate)
+    }, null, 2));
+  } catch (err) {
+    return errorResponse(`native session read (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+async function readSimulatorSession(entry, what, limit) {
+  try {
+    if (what === "screenshot") {
+      return textResponse("Simulator screenshot capture is available through native_scan or native_snapshot.");
+    }
+    const device = await findDevice(entry.device.udid);
+    if (!device) return errorResponse(`Simulator not found: ${entry.device.udid}`);
+    const elements = await extractNativeElements(device);
+    const candidates = flattenSimulatorElements(elements);
+    const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+    if (what === "state") {
+      return textResponse(JSON.stringify({
+        type: "simulator",
+        backend: "simulator-ax",
+        device: entry.device,
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        hostCursorAffected: false
+      }, null, 2));
+    }
+    if (what !== "observe" && what !== "extract") {
+      return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+    }
+    const source = what === "observe" ? interactive : candidates;
+    return textResponse(JSON.stringify({
+      type: "simulator",
+      backend: "simulator-ax",
+      device: entry.device,
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      returned: Math.min(source.length, limit),
+      hostCursorAffected: false,
+      elements: source.slice(0, limit).map(formatNativeCandidate)
+    }, null, 2));
+  } catch (err) {
+    return errorResponse(`native session read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+async function runMacOSSessionAction(entry, request) {
+  try {
+    const { elements } = await extractMacOSElements({ pid: entry.pid });
+    const resolution = resolveMacOSElement(elements, request.target, request.role ? { role: request.role } : {});
+    if (!resolution) {
+      return nativeTargetNotFound(request.target, flattenMacOSElements(elements));
+    }
+    if (!resolution.element.path) {
+      return errorResponse(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
+    }
+    const mapped = mapSessionActionToNative(request.action, request.value);
+    if ("error" in mapped) return errorResponse(mapped.error);
+    const actionResult = await performNativeAction({
+      pid: entry.pid,
+      elementPath: resolution.element.path,
+      action: mapped.action,
+      value: mapped.value
+    });
+    return nativeActionResponse(actionResult.success, {
+      backend: "macos-ax",
+      app: entry.app,
+      pid: entry.pid,
+      requestedAction: request.action,
+      axAction: mapped.action,
+      target: request.target,
+      resolved: formatNativeCandidate(resolution.element),
+      confidence: resolution.confidence,
+      tier: resolution.tier,
+      alternatives: resolution.alternatives,
+      hostCursorAffected: false,
+      error: actionResult.error
+    });
+  } catch (err) {
+    return errorResponse(`native session action (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+async function runSimulatorSessionAction(entry, request) {
+  try {
+    const device = await findDevice(entry.device.udid);
+    if (!device) return errorResponse(`Simulator not found: ${entry.device.udid}`);
+    const elements = await extractNativeElements(device);
+    const resolution = resolveSimulatorElement(elements, request.target, request.role ? { role: request.role } : {});
+    if (!resolution) {
+      return nativeTargetNotFound(request.target, flattenSimulatorElements(elements));
+    }
+    if (!resolution.element.path) {
+      return errorResponse(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
+    }
+    const mapped = mapSessionActionToNative(request.action, request.value);
+    if ("error" in mapped) return errorResponse(mapped.error);
+    const simulatorPid = await findProcess("com.apple.iphonesimulator");
+    const actionResult = await performNativeAction({
+      pid: simulatorPid,
+      deviceName: device.name,
+      elementPath: resolution.element.path,
+      action: mapped.action,
+      value: mapped.value
+    });
+    return nativeActionResponse(actionResult.success, {
+      backend: "simulator-ax",
+      device: entry.device,
+      requestedAction: request.action,
+      axAction: mapped.action,
+      target: request.target,
+      resolved: formatNativeCandidate(resolution.element),
+      confidence: resolution.confidence,
+      tier: resolution.tier,
+      alternatives: resolution.alternatives,
+      hostCursorAffected: false,
+      error: actionResult.error
+    });
+  } catch (err) {
+    return errorResponse(`native session action (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+function mapSessionActionToNative(action, value) {
+  switch (action) {
+    case "click":
+    case "press":
+    case "check":
+    case "select":
+      return { action: "press" };
+    case "fill":
+    case "type":
+      if (value === void 0) return { error: `${action} requires 'value'.` };
+      return { action: "setValue", value };
+    case "focus":
+      return { action: "focus" };
+    case "showMenu":
+      return { action: "showMenu" };
+    case "increment":
+      return { action: "increment" };
+    case "decrement":
+      return { action: "decrement" };
+    case "confirm":
+      return { action: "confirm" };
+    case "cancel":
+      return { action: "cancel" };
+    case "scroll":
+    case "scrollToVisible":
+      return { action: "scrollToVisible" };
+    case "hover":
+    case "doubleClick":
+    case "rightClick":
+      return { error: `${action} would require pointer-style event injection. Use AX actions for cursor-free native sessions.` };
+    default:
+      return { error: `Unknown native action: ${action}` };
+  }
+}
+function nativeTargetNotFound(target, candidates) {
+  const alternatives = candidates.filter((candidate) => candidate.label || candidate.identifier).slice(0, 10).map(formatNativeCandidate);
+  return errorResponse(JSON.stringify({
+    success: false,
+    error: `Element "${target}" not found`,
+    alternatives,
+    hint: 'Use native_session_read with what="observe" to inspect actionable AX elements.'
+  }, null, 2));
+}
+function nativeActionResponse(success, payload) {
+  const response = textResponse(JSON.stringify({ success, ...payload }, null, 2));
+  if (!success) response.isError = true;
+  return response;
+}
+function formatNativeCandidate(candidate) {
+  return {
+    role: candidate.role,
+    label: candidate.label || null,
+    identifier: candidate.identifier || null,
+    enabled: candidate.enabled,
+    actions: candidate.actions,
+    path: candidate.path,
+    frame: candidate.frame
+  };
 }
 async function handleScan(args) {
   const url = args.url;

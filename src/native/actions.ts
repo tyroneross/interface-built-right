@@ -8,7 +8,8 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { ensureExtractor } from './extract.js';
-import type { MacOSAXElement } from './types.js';
+import { mapRoleToAriaRole } from './role-map.js';
+import type { MacOSAXElement, NativeElement } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -22,10 +23,12 @@ export type NativeAction =
   | 'showMenu'
   | 'confirm'
   | 'cancel'
-  | 'focus';
+  | 'focus'
+  | 'scrollToVisible';
 
 export interface NativeActionOptions {
   pid: number;
+  deviceName?: string;
   elementPath: number[];
   action: NativeAction;
   value?: string;
@@ -35,6 +38,30 @@ export interface NativeActionResult {
   success: boolean;
   action: string;
   error?: string;
+}
+
+export interface NativeElementCandidate {
+  path?: number[];
+  role: string;
+  label: string;
+  identifier?: string | null;
+  value?: string | null;
+  enabled: boolean;
+  actions: string[];
+  frame?: { x: number; y: number; width: number; height: number };
+}
+
+export interface NativeElementResolution {
+  element: NativeElementCandidate;
+  confidence: number;
+  tier: 'identifier' | 'label' | 'value' | 'contains';
+  alternatives: Array<{
+    label: string;
+    role: string;
+    identifier?: string | null;
+    confidence: number;
+  }>;
+  totalCandidates: number;
 }
 
 /**
@@ -56,6 +83,10 @@ export async function performNativeAction(
     '--action', options.action,
     '--element-path', options.elementPath.join(','),
   ];
+
+  if (options.deviceName !== undefined) {
+    args.push('--device-name', options.deviceName);
+  }
 
   if (options.value !== undefined) {
     args.push('--value', options.value);
@@ -118,6 +149,146 @@ export function findElementPath(
   }
 
   return search(elements);
+}
+
+export function resolveMacOSElement(
+  elements: MacOSAXElement[],
+  target: string,
+  options: { role?: string } = {}
+): NativeElementResolution | null {
+  return resolveNativeCandidate(flattenMacOSElements(elements), target, options);
+}
+
+export function resolveSimulatorElement(
+  elements: NativeElement[],
+  target: string,
+  options: { role?: string } = {}
+): NativeElementResolution | null {
+  return resolveNativeCandidate(flattenSimulatorElements(elements), target, options);
+}
+
+export function flattenMacOSElements(elements: MacOSAXElement[]): NativeElementCandidate[] {
+  const candidates: NativeElementCandidate[] = [];
+
+  function visit(nodes: MacOSAXElement[]): void {
+    for (const el of nodes) {
+      const label = el.title || el.description || el.value || el.identifier || '';
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label,
+        identifier: el.identifier,
+        value: el.value,
+        enabled: el.enabled,
+        actions: el.actions,
+        frame: el.position && el.size ? {
+          x: el.position.x,
+          y: el.position.y,
+          width: el.size.width,
+          height: el.size.height,
+        } : undefined,
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+
+  visit(elements);
+  return candidates;
+}
+
+export function flattenSimulatorElements(elements: NativeElement[]): NativeElementCandidate[] {
+  const candidates: NativeElementCandidate[] = [];
+
+  function visit(nodes: NativeElement[]): void {
+    for (const el of nodes) {
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label: el.label || el.value || el.identifier || '',
+        identifier: el.identifier || null,
+        value: el.value,
+        enabled: el.isEnabled,
+        actions: el.traits.includes('button') || el.role === 'AXButton' ? ['AXPress'] : [],
+        frame: el.frame,
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+
+  visit(elements);
+  return candidates;
+}
+
+function resolveNativeCandidate(
+  candidates: NativeElementCandidate[],
+  target: string,
+  options: { role?: string }
+): NativeElementResolution | null {
+  const needle = normalize(target);
+  if (!needle) return null;
+
+  const scored = candidates
+    .map(candidate => {
+      const score = scoreCandidate(candidate, needle, options.role);
+      return { candidate, score };
+    })
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  const best = scored[0];
+  if (!best) return null;
+
+  const tier = scoreTier(best.candidate, needle);
+  return {
+    element: best.candidate,
+    confidence: best.score,
+    tier,
+    alternatives: scored.slice(1, 6).map(item => ({
+      label: item.candidate.label,
+      role: normalizeRole(item.candidate.role),
+      identifier: item.candidate.identifier,
+      confidence: item.score,
+    })),
+    totalCandidates: candidates.length,
+  };
+}
+
+function scoreCandidate(
+  candidate: NativeElementCandidate,
+  needle: string,
+  role?: string
+): number {
+  if (role && normalizeRole(candidate.role) !== normalizeRole(role)) return 0;
+
+  const identifier = normalize(candidate.identifier);
+  const label = normalize(candidate.label);
+  const value = normalize(candidate.value);
+
+  if (identifier && identifier === needle) return 1;
+  if (label && label === needle) return 0.96;
+  if (value && value === needle) return 0.9;
+  if (identifier && identifier.includes(needle)) return 0.82;
+  if (label && label.includes(needle)) return 0.76;
+  if (value && value.includes(needle)) return 0.7;
+  return 0;
+}
+
+function scoreTier(
+  candidate: NativeElementCandidate,
+  needle: string
+): NativeElementResolution['tier'] {
+  if (normalize(candidate.identifier) === needle) return 'identifier';
+  if (normalize(candidate.label) === needle) return 'label';
+  if (normalize(candidate.value) === needle) return 'value';
+  return 'contains';
+}
+
+function normalize(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+function normalizeRole(role: string): string {
+  return (mapRoleToAriaRole(role) ?? role.replace(/^AX/, '')).toLowerCase();
 }
 
 // ─── Coordinate Helpers ───────────────────────────────────

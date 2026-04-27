@@ -3,25 +3,6 @@ import { promisify } from 'util'
 
 const execFileAsync = promisify(execFile)
 
-// ── simctl capability cache ────────────────────────────────────────────────────
-
-let simctlCapabilities: Set<string> | null = null
-
-async function getSimctlCapabilities(): Promise<Set<string>> {
-  if (simctlCapabilities) return simctlCapabilities
-  try {
-    const { stdout } = await execFileAsync('xcrun', ['simctl', 'io', '--help'], { timeout: 5000 })
-    const caps = new Set<string>()
-    if (stdout.includes('swipe')) caps.add('swipe')
-    if (stdout.includes('tap')) caps.add('tap')
-    simctlCapabilities = caps
-    return caps
-  } catch {
-    simctlCapabilities = new Set()
-    return simctlCapabilities
-  }
-}
-
 /**
  * Check if IDB companion is available
  */

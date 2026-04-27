@@ -6631,6 +6631,8 @@ interface NativeElement {
     isEnabled: boolean;
     /** Current value (for inputs, sliders, etc.) */
     value: string | null;
+    /** Index path from the simulator window root — used for cursor-free AX actions */
+    path?: number[];
     /** Child elements */
     children: NativeElement[];
 }

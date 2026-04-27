@@ -25,15 +25,21 @@ import {
   scanMacOS,
   listDevices,
   findDevice,
+  bootDevice,
   captureNativeScreenshot,
   getDeviceViewport,
   formatDevice,
+  findProcess,
+  extractMacOSElements,
+  extractNativeElements,
 } from "../native/index.js";
 import { captureScreenshot } from "../capture.js";
 import { VIEWPORTS } from "../schemas.js";
 import { loadTokenSpec, validateAgainstTokens } from '../tokens.js';
 import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
-import { EngineDriver } from '../engine/driver.js';
+import { EngineDriver, type FindDiagnostics } from '../engine/driver.js';
+import type { ActionDescriptor } from '../engine/observe.js';
+import type { Element as EngineElement } from '../engine/types.js';
 import { searchFlow } from '../flows/search.js';
 import { formFlow } from '../flows/form.js';
 import { loginFlow } from '../flows/login.js';
@@ -46,11 +52,20 @@ import {
   idbOpenUrl,
   isIdbCliAvailable,
 } from '../native/idb.js';
-import { elementCenter, findElementByLabel } from '../native/actions.js'
+import {
+  elementCenter,
+  findElementByLabel,
+  flattenMacOSElements,
+  flattenSimulatorElements,
+  performNativeAction,
+  resolveMacOSElement,
+  resolveSimulatorElement,
+  type NativeAction,
+  type NativeElementCandidate,
+} from '../native/actions.js'
 import { compressSnapshot, formatCompressed } from '../engine/compress.js';
 
-// Session store — persistent browser instances (Chrome, Safari, macOS native, iOS/watchOS simulator)
-const sessions = new Map<string, {
+type SessionEntry = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   driver: any  // EngineDriver | SafariDriver | null (null for native/simulator sessions)
   type: 'chrome' | 'safari' | 'macos' | 'simulator'
@@ -59,7 +74,17 @@ const sessions = new Map<string, {
   device?: { udid: string; name: string }
   pid?: number
   createdAt: number
-}>()
+}
+
+type ExtractedMeta = {
+  headings: string[]
+  buttons: Array<{ label: string; enabled?: boolean }>
+  inputs: Array<{ label: string; value?: string | null }>
+  links: Array<{ label: string }>
+}
+
+// Session store — persistent browser instances (Chrome, Safari, macOS native, iOS/watchOS simulator)
+const sessions = new Map<string, SessionEntry>()
 
 // --- Content types ---
 
@@ -817,6 +842,101 @@ export const TOOLS = [
       openWorldHint: false,
     },
   },
+  {
+    name: "native_session_start",
+    description:
+      "Start a cursor-free native UI session for a running macOS app or iOS/watchOS simulator. macOS uses AXUIElement actions; simulator uses the Simulator.app accessibility tree when available. Does not move the user's mouse cursor.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        app: {
+          type: "string",
+          description: "macOS app name, bundle ID, or process-name fragment (e.g. 'Finder', 'Calculator', 'com.apple.TextEdit').",
+        },
+        simulator: {
+          type: "string",
+          description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro').",
+        },
+      },
+    },
+    annotations: {
+      title: "Start Native Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "native_session_read",
+    description:
+      "Read a cursor-free native session. Modes: observe (interactive elements), extract (AX element summary), state (session metadata), screenshot (when supported).",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by native_session_start" },
+        what: {
+          type: "string",
+          enum: ["observe", "extract", "screenshot", "state"],
+          description: "What to read from the native session",
+        },
+        limit: { type: "number", description: "Maximum elements to return for observe/extract (default: 50)" },
+      },
+      required: ["sessionId", "what"],
+    },
+    annotations: {
+      title: "Read Native Session",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "native_session_action",
+    description:
+      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, or scrollToVisible. Uses Accessibility APIs instead of moving the host cursor.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by native_session_start" },
+        action: {
+          type: "string",
+          enum: ["click", "press", "fill", "type", "focus", "showMenu", "increment", "decrement", "confirm", "cancel", "scroll", "scrollToVisible", "check", "select"],
+          description: "Native action to perform",
+        },
+        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target" },
+        value: { type: "string", description: "Text for fill/type/setValue actions" },
+        role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+      },
+      required: ["sessionId", "action", "target"],
+    },
+    annotations: {
+      title: "Native Session Action",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: false,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "native_session_close",
+    description: "Close a native session record. This does not quit the target app or simulator.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        sessionId: { type: "string", description: "Session ID returned by native_session_start" },
+      },
+      required: ["sessionId"],
+    },
+    annotations: {
+      title: "Close Native Session",
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
   // --- iOS/watchOS simulator interaction ---
   {
     name: "design_system",
@@ -931,6 +1051,14 @@ export async function handleToolCall(
         return await handleScanStatic(args);
       case "bridge_to_source":
         return await handleBridgeToSource(args);
+      case "native_session_start":
+        return await handleNativeSessionStart(args);
+      case "native_session_read":
+        return await handleNativeSessionRead(args);
+      case "native_session_action":
+        return await handleNativeSessionAction(args);
+      case "native_session_close":
+        return await handleNativeSessionClose(args);
       case "interact": {
         const { url, action, target, value, role, screenshot: wantScreenshot = true } = args as {
           url: string; action: string; target: string; value?: string; role?: string; screenshot?: boolean
@@ -942,7 +1070,7 @@ export async function handleToolCall(
           await driver.navigate(url)
 
           // Find element with diagnostics
-          const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined)
+          const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined) as FindDiagnostics
           if (!diag.elementId) {
             const altNames = diag.alternatives.map(a => `"${a.name}" (${a.role}, score: ${a.score.toFixed(2)})`).join(', ')
             const notFoundContent: McpContent[] = [
@@ -1019,7 +1147,7 @@ export async function handleToolCall(
               id: a.elementId ?? '',
               role: a.role ?? '',
               label: a.description ?? a.label ?? '',
-              actions: a.action ? [a.action] : [],
+              actions: a.actions,
             })))
             return textResponse(formatCompressed(compressed))
           }
@@ -1335,53 +1463,12 @@ export async function handleToolCall(
 
         // ── macOS native session ──────────────────────────────────────────
         if (app) {
-          try {
-            const { execFile } = await import('child_process')
-            const { promisify } = await import('util')
-            const execFileAsync = promisify(execFile)
-            const { stdout } = await execFileAsync('pgrep', ['-x', app])
-            const pid = parseInt(stdout.trim(), 10)
-            if (isNaN(pid)) throw new Error(`App "${app}" is not running`)
-
-            sessions.set(sessionId, { driver: null, type: 'macos', app, pid, createdAt: Date.now() })
-
-            return textResponse(JSON.stringify({
-              sessionId,
-              type: 'macos',
-              app,
-              pid,
-              timestamp: new Date().toISOString(),
-            }, null, 2))
-          } catch (err) {
-            return errorResponse(`session_start (macos) failed: ${err instanceof Error ? err.message : String(err)}`)
-          }
+          return await startMacOSSession(sessionId, app, 'session_start (macos)')
         }
 
         // ── iOS/watchOS simulator session ─────────────────────────────────
         if (simulator) {
-          try {
-            const { listDevices, bootDevice } = await import('../native/simulator.js')
-            const devices = await listDevices()
-            const device = devices.find(d => d.name.includes(simulator) || d.udid === simulator)
-            if (!device) throw new Error(`Simulator not found: ${simulator}`)
-            if (device.state !== 'Booted') await bootDevice(device.udid)
-
-            sessions.set(sessionId, {
-              driver: null,
-              type: 'simulator',
-              device: { udid: device.udid, name: device.name },
-              createdAt: Date.now(),
-            })
-
-            return textResponse(JSON.stringify({
-              sessionId,
-              type: 'simulator',
-              device: { udid: device.udid, name: device.name },
-              timestamp: new Date().toISOString(),
-            }, null, 2))
-          } catch (err) {
-            return errorResponse(`session_start (simulator) failed: ${err instanceof Error ? err.message : String(err)}`)
-          }
+          return await startSimulatorSession(sessionId, simulator, 'session_start (simulator)')
         }
 
         // ── Web sessions (Chrome or Safari) ──────────────────────────────
@@ -1457,32 +1544,26 @@ export async function handleToolCall(
 
         // ── macOS native session ──────────────────────────────────────────
         if (entry.type === 'macos') {
-          const msg = `macOS native session for "${entry.app}". `
-            + `Native interactions require the ibr-ax-extract binary with --action support. `
-            + `Use session_read to observe the app's accessibility tree.`
-          return textResponse(msg)
+          return await runMacOSSessionAction(entry, { action, target, value, role })
         }
 
         // ── Simulator session ─────────────────────────────────────────────
         if (entry.type === 'simulator') {
-          const msg = `Simulator session for "${entry.device?.name}". `
-            + `Simulator tap requires coordinates. Use native_scan to find element positions, `
-            + `then sim_action to interact.`
-          return textResponse(msg)
+          return await runSimulatorSessionAction(entry, { action, target, value, role })
         }
 
         // ── Browser session (Chrome or Safari) ───────────────────────────
         const driver = entry.driver
 
         try {
-          const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined)
+          const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined) as FindDiagnostics
           if (!diag.elementId) {
             const notFoundPayload = JSON.stringify({
               success: false,
               error: `Element "${target}" not found`,
               alternatives: diag.alternatives,
               hint: diag.alternatives.length > 0
-                ? `Try one of these: ${diag.alternatives.map(a => `"${a.name}" (${a.role})`).join(', ')}`
+                ? `Try one of these: ${diag.alternatives.map((a) => `"${a.name}" (${a.role})`).join(', ')}`
                 : 'Use session_read with what="observe" to see all interactive elements',
             }, null, 2)
             const notFoundContent: McpContent[] = [{ type: 'text', text: notFoundPayload }]
@@ -1492,8 +1573,8 @@ export async function handleToolCall(
             return { content: notFoundContent }
           }
 
-          const allElements = await driver.getSnapshot()
-          const element = allElements.find(e => e.id === diag.elementId)
+          const allElements = await driver.getSnapshot() as EngineElement[]
+          const element = allElements.find((e) => e.id === diag.elementId)
 
           switch (action) {
             case 'click': await driver.click(diag.elementId); break
@@ -1509,8 +1590,8 @@ export async function handleToolCall(
 
           await new Promise(r => setTimeout(r, 500))
 
-          const afterElements = await driver.getSnapshot()
-          const afterCount = afterElements.filter(e => e.actions.length > 0).length
+          const afterElements = await driver.getSnapshot() as EngineElement[]
+          const afterCount = afterElements.filter((e) => e.actions.length > 0).length
           entry.url = driver.url
 
           const actionResult: Record<string, unknown> = {
@@ -1552,51 +1633,12 @@ export async function handleToolCall(
 
         // ── macOS native session ──────────────────────────────────────────
         if (entry.type === 'macos') {
-          try {
-            switch (what) {
-              case 'observe':
-              case 'extract': {
-                const { extractNativeElements } = await import('../native/extract.js')
-                const elements = await extractNativeElements({
-                  name: entry.app!, udid: '', state: 'Booted', runtime: '', platform: 'ios', isAvailable: true,
-                })
-                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2))
-              }
-              case 'screenshot':
-                return textResponse('macOS screenshot: use native_scan with screenshot option')
-              case 'state':
-                return textResponse(JSON.stringify({ type: 'macos', app: entry.app, pid: entry.pid }))
-              default:
-                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`)
-            }
-          } catch (err) {
-            return errorResponse(`session_read (macos) failed: ${err instanceof Error ? err.message : String(err)}`)
-          }
+          return await readMacOSSession(entry, what, Number(args.limit) || 50)
         }
 
         // ── Simulator session ─────────────────────────────────────────────
         if (entry.type === 'simulator') {
-          try {
-            switch (what) {
-              case 'observe':
-              case 'extract': {
-                const { extractNativeElements } = await import('../native/extract.js')
-                const dev = entry.device!
-                const elements = await extractNativeElements({
-                  name: dev.name, udid: dev.udid, state: 'Booted', runtime: '', platform: 'ios', isAvailable: true,
-                })
-                return textResponse(JSON.stringify({ elements: elements.slice(0, 50), total: elements.length }, null, 2))
-              }
-              case 'screenshot':
-                return textResponse('Simulator screenshot: use native_scan with screenshot option')
-              case 'state':
-                return textResponse(JSON.stringify({ type: 'simulator', device: entry.device }))
-              default:
-                return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`)
-            }
-          } catch (err) {
-            return errorResponse(`session_read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`)
-          }
+          return await readSimulatorSession(entry, what, Number(args.limit) || 50)
         }
 
         // ── Browser session (Chrome or Safari) ───────────────────────────
@@ -1605,18 +1647,18 @@ export async function handleToolCall(
         try {
           switch (what) {
             case 'observe': {
-              const actions = await driver.observe()
+              const actions = await driver.observe() as ActionDescriptor[]
 
               if (actions.length === 0) {
                 return textResponse('No interactive elements found on this page.')
               }
 
               if (actions.length > 80) {
-                const compressed = compressSnapshot(actions.map(a => ({
+                const compressed = compressSnapshot(actions.map((a) => ({
                   id: a.elementId ?? '',
                   role: a.role ?? '',
                   label: a.description ?? a.label ?? '',
-                  actions: a.action ? [a.action] : [],
+                  actions: a.actions,
                 })))
                 return textResponse(formatCompressed(compressed))
               }
@@ -1626,19 +1668,19 @@ export async function handleToolCall(
             }
 
             case 'extract': {
-              const meta = await driver.extractMeta()
+              const meta = await driver.extractMeta() as ExtractedMeta
               const sections: string[] = []
               if (meta.headings.length > 0) {
-                sections.push(`Headings:\n${meta.headings.map(h => `  ${h}`).join('\n')}`)
+                sections.push(`Headings:\n${meta.headings.map((h) => `  ${h}`).join('\n')}`)
               }
               if (meta.buttons.length > 0) {
-                sections.push(`Buttons (${meta.buttons.length}):\n${meta.buttons.map(b => `  • ${b.label}${b.enabled === false ? ' (disabled)' : ''}`).join('\n')}`)
+                sections.push(`Buttons (${meta.buttons.length}):\n${meta.buttons.map((b) => `  • ${b.label}${b.enabled === false ? ' (disabled)' : ''}`).join('\n')}`)
               }
               if (meta.inputs.length > 0) {
-                sections.push(`Inputs (${meta.inputs.length}):\n${meta.inputs.map(inp => `  • ${inp.label}${inp.value ? ` = "${inp.value}"` : ''}`).join('\n')}`)
+                sections.push(`Inputs (${meta.inputs.length}):\n${meta.inputs.map((inp) => `  • ${inp.label}${inp.value ? ` = "${inp.value}"` : ''}`).join('\n')}`)
               }
               if (meta.links.length > 0) {
-                sections.push(`Links (${meta.links.length}):\n${meta.links.slice(0, 20).map(l => `  • ${l.label}`).join('\n')}${meta.links.length > 20 ? `\n  ... and ${meta.links.length - 20} more` : ''}`)
+                sections.push(`Links (${meta.links.length}):\n${meta.links.slice(0, 20).map((l) => `  • ${l.label}`).join('\n')}${meta.links.length > 20 ? `\n  ... and ${meta.links.length - 20} more` : ''}`)
               }
               return textResponse(sections.join('\n\n') || 'No structured data found on page.')
             }
@@ -1650,9 +1692,9 @@ export async function handleToolCall(
             }
 
             case 'state': {
-              const elements = await driver.getSnapshot()
-              const elementCount = elements.filter(e => e.actions.length > 0).length
-              const consoleErrors = driver.getConsoleErrors().map(m => m.text)
+              const elements = await driver.getSnapshot() as EngineElement[]
+              const elementCount = elements.filter((e) => e.actions.length > 0).length
+              const consoleErrors = (driver.getConsoleErrors() as Array<{ text: string }>).map((m) => m.text)
               return textResponse(JSON.stringify({
                 url: driver.url,
                 elementCount,
@@ -1702,6 +1744,368 @@ export async function handleToolCall(
     return errorResponse(
       err instanceof Error ? err.message : "Tool execution failed"
     );
+  }
+}
+
+async function handleNativeSessionStart(args: Record<string, unknown>): Promise<McpResponse> {
+  const app = args.app as string | undefined
+  const simulator = args.simulator as string | undefined
+
+  if (app && simulator) {
+    return errorResponse("Provide either 'app' or 'simulator', not both.")
+  }
+  if (!app && !simulator) {
+    return errorResponse("native_session_start requires 'app' for macOS or 'simulator' for iOS/watchOS.")
+  }
+
+  const sessionId = crypto.randomUUID()
+  if (app) {
+    return await startMacOSSession(sessionId, app, 'native_session_start (macos)')
+  }
+  return await startSimulatorSession(sessionId, simulator!, 'native_session_start (simulator)')
+}
+
+async function handleNativeSessionRead(args: Record<string, unknown>): Promise<McpResponse> {
+  const sessionId = args.sessionId as string
+  const what = args.what as string
+  const limit = Number(args.limit) || 50
+  const entry = sessions.get(sessionId)
+
+  if (!entry) return errorResponse('Session not found. Use native_session_start first.')
+  if (entry.type === 'macos') return await readMacOSSession(entry, what, limit)
+  if (entry.type === 'simulator') return await readSimulatorSession(entry, what, limit)
+  return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_read for web sessions.`)
+}
+
+async function handleNativeSessionAction(args: Record<string, unknown>): Promise<McpResponse> {
+  const {
+    sessionId,
+    action,
+    target,
+    value,
+    role,
+  } = args as { sessionId: string; action: string; target: string; value?: string; role?: string }
+
+  const entry = sessions.get(sessionId)
+  if (!entry) return errorResponse('Session not found. Use native_session_start first.')
+  if (entry.type === 'macos') return await runMacOSSessionAction(entry, { action, target, value, role })
+  if (entry.type === 'simulator') return await runSimulatorSessionAction(entry, { action, target, value, role })
+  return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`)
+}
+
+async function handleNativeSessionClose(args: Record<string, unknown>): Promise<McpResponse> {
+  const sessionId = args.sessionId as string
+  const entry = sessions.get(sessionId)
+  if (!entry) return errorResponse('Session not found.')
+  if (entry.type !== 'macos' && entry.type !== 'simulator') {
+    return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_close for web sessions.`)
+  }
+  sessions.delete(sessionId)
+  return textResponse(`Native session ${sessionId} closed.`)
+}
+
+async function startMacOSSession(
+  sessionId: string,
+  app: string,
+  errorPrefix: string
+): Promise<McpResponse> {
+  try {
+    const pid = await findProcess(app)
+    sessions.set(sessionId, { driver: null, type: 'macos', app, pid, createdAt: Date.now() })
+
+    return textResponse(JSON.stringify({
+      sessionId,
+      type: 'macos',
+      backend: 'macos-ax',
+      app,
+      pid,
+      hostCursorAffected: false,
+      timestamp: new Date().toISOString(),
+    }, null, 2))
+  } catch (err) {
+    return errorResponse(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function startSimulatorSession(
+  sessionId: string,
+  simulator: string,
+  errorPrefix: string
+): Promise<McpResponse> {
+  try {
+    let device = await findDevice(simulator)
+    if (!device) throw new Error(`Simulator not found: ${simulator}`)
+    if (device.state !== 'Booted') {
+      await bootDevice(device.udid)
+      device = await findDevice(device.udid) ?? device
+    }
+
+    sessions.set(sessionId, {
+      driver: null,
+      type: 'simulator',
+      device: { udid: device.udid, name: device.name },
+      createdAt: Date.now(),
+    })
+
+    return textResponse(JSON.stringify({
+      sessionId,
+      type: 'simulator',
+      backend: 'simulator-ax',
+      device: { udid: device.udid, name: device.name },
+      hostCursorAffected: false,
+      timestamp: new Date().toISOString(),
+    }, null, 2))
+  } catch (err) {
+    return errorResponse(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function readMacOSSession(entry: SessionEntry, what: string, limit: number): Promise<McpResponse> {
+  try {
+    if (what === 'screenshot') {
+      return textResponse('macOS screenshot capture is available through scan_macos with a screenshot path.')
+    }
+
+    const { elements, window } = await extractMacOSElements({ pid: entry.pid! })
+    const candidates = flattenMacOSElements(elements)
+    const interactive = candidates.filter(candidate => candidate.actions.length > 0)
+
+    if (what === 'state') {
+      return textResponse(JSON.stringify({
+        type: 'macos',
+        backend: 'macos-ax',
+        app: entry.app,
+        pid: entry.pid,
+        window,
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        hostCursorAffected: false,
+      }, null, 2))
+    }
+
+    if (what !== 'observe' && what !== 'extract') {
+      return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`)
+    }
+
+    const source = what === 'observe' ? interactive : candidates
+    return textResponse(JSON.stringify({
+      type: 'macos',
+      backend: 'macos-ax',
+      app: entry.app,
+      pid: entry.pid,
+      window,
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      returned: Math.min(source.length, limit),
+      hostCursorAffected: false,
+      elements: source.slice(0, limit).map(formatNativeCandidate),
+    }, null, 2))
+  } catch (err) {
+    return errorResponse(`native session read (macos) failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function readSimulatorSession(entry: SessionEntry, what: string, limit: number): Promise<McpResponse> {
+  try {
+    if (what === 'screenshot') {
+      return textResponse('Simulator screenshot capture is available through native_scan or native_snapshot.')
+    }
+
+    const device = await findDevice(entry.device!.udid)
+    if (!device) return errorResponse(`Simulator not found: ${entry.device!.udid}`)
+
+    const elements = await extractNativeElements(device)
+    const candidates = flattenSimulatorElements(elements)
+    const interactive = candidates.filter(candidate => candidate.actions.length > 0)
+
+    if (what === 'state') {
+      return textResponse(JSON.stringify({
+        type: 'simulator',
+        backend: 'simulator-ax',
+        device: entry.device,
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        hostCursorAffected: false,
+      }, null, 2))
+    }
+
+    if (what !== 'observe' && what !== 'extract') {
+      return errorResponse(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`)
+    }
+
+    const source = what === 'observe' ? interactive : candidates
+    return textResponse(JSON.stringify({
+      type: 'simulator',
+      backend: 'simulator-ax',
+      device: entry.device,
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      returned: Math.min(source.length, limit),
+      hostCursorAffected: false,
+      elements: source.slice(0, limit).map(formatNativeCandidate),
+    }, null, 2))
+  } catch (err) {
+    return errorResponse(`native session read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function runMacOSSessionAction(
+  entry: SessionEntry,
+  request: { action: string; target: string; value?: string; role?: string }
+): Promise<McpResponse> {
+  try {
+    const { elements } = await extractMacOSElements({ pid: entry.pid! })
+    const resolution = resolveMacOSElement(elements, request.target, request.role ? { role: request.role } : {})
+    if (!resolution) {
+      return nativeTargetNotFound(request.target, flattenMacOSElements(elements))
+    }
+    if (!resolution.element.path) {
+      return errorResponse(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`)
+    }
+
+    const mapped = mapSessionActionToNative(request.action, request.value)
+    if ('error' in mapped) return errorResponse(mapped.error)
+
+    const actionResult = await performNativeAction({
+      pid: entry.pid!,
+      elementPath: resolution.element.path,
+      action: mapped.action,
+      value: mapped.value,
+    })
+
+    return nativeActionResponse(actionResult.success, {
+      backend: 'macos-ax',
+      app: entry.app,
+      pid: entry.pid,
+      requestedAction: request.action,
+      axAction: mapped.action,
+      target: request.target,
+      resolved: formatNativeCandidate(resolution.element),
+      confidence: resolution.confidence,
+      tier: resolution.tier,
+      alternatives: resolution.alternatives,
+      hostCursorAffected: false,
+      error: actionResult.error,
+    })
+  } catch (err) {
+    return errorResponse(`native session action (macos) failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function runSimulatorSessionAction(
+  entry: SessionEntry,
+  request: { action: string; target: string; value?: string; role?: string }
+): Promise<McpResponse> {
+  try {
+    const device = await findDevice(entry.device!.udid)
+    if (!device) return errorResponse(`Simulator not found: ${entry.device!.udid}`)
+
+    const elements = await extractNativeElements(device)
+    const resolution = resolveSimulatorElement(elements, request.target, request.role ? { role: request.role } : {})
+    if (!resolution) {
+      return nativeTargetNotFound(request.target, flattenSimulatorElements(elements))
+    }
+    if (!resolution.element.path) {
+      return errorResponse(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`)
+    }
+
+    const mapped = mapSessionActionToNative(request.action, request.value)
+    if ('error' in mapped) return errorResponse(mapped.error)
+
+    const simulatorPid = await findProcess('com.apple.iphonesimulator')
+    const actionResult = await performNativeAction({
+      pid: simulatorPid,
+      deviceName: device.name,
+      elementPath: resolution.element.path,
+      action: mapped.action,
+      value: mapped.value,
+    })
+
+    return nativeActionResponse(actionResult.success, {
+      backend: 'simulator-ax',
+      device: entry.device,
+      requestedAction: request.action,
+      axAction: mapped.action,
+      target: request.target,
+      resolved: formatNativeCandidate(resolution.element),
+      confidence: resolution.confidence,
+      tier: resolution.tier,
+      alternatives: resolution.alternatives,
+      hostCursorAffected: false,
+      error: actionResult.error,
+    })
+  } catch (err) {
+    return errorResponse(`native session action (simulator) failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+function mapSessionActionToNative(
+  action: string,
+  value?: string
+): { action: NativeAction; value?: string } | { error: string } {
+  switch (action) {
+    case 'click':
+    case 'press':
+    case 'check':
+    case 'select':
+      return { action: 'press' }
+    case 'fill':
+    case 'type':
+      if (value === undefined) return { error: `${action} requires 'value'.` }
+      return { action: 'setValue', value }
+    case 'focus':
+      return { action: 'focus' }
+    case 'showMenu':
+      return { action: 'showMenu' }
+    case 'increment':
+      return { action: 'increment' }
+    case 'decrement':
+      return { action: 'decrement' }
+    case 'confirm':
+      return { action: 'confirm' }
+    case 'cancel':
+      return { action: 'cancel' }
+    case 'scroll':
+    case 'scrollToVisible':
+      return { action: 'scrollToVisible' }
+    case 'hover':
+    case 'doubleClick':
+    case 'rightClick':
+      return { error: `${action} would require pointer-style event injection. Use AX actions for cursor-free native sessions.` }
+    default:
+      return { error: `Unknown native action: ${action}` }
+  }
+}
+
+function nativeTargetNotFound(target: string, candidates: NativeElementCandidate[]): McpResponse {
+  const alternatives = candidates
+    .filter(candidate => candidate.label || candidate.identifier)
+    .slice(0, 10)
+    .map(formatNativeCandidate)
+
+  return errorResponse(JSON.stringify({
+    success: false,
+    error: `Element "${target}" not found`,
+    alternatives,
+    hint: 'Use native_session_read with what="observe" to inspect actionable AX elements.',
+  }, null, 2))
+}
+
+function nativeActionResponse(success: boolean, payload: Record<string, unknown>): McpResponse {
+  const response = textResponse(JSON.stringify({ success, ...payload }, null, 2))
+  if (!success) response.isError = true
+  return response
+}
+
+function formatNativeCandidate(candidate: NativeElementCandidate): Record<string, unknown> {
+  return {
+    role: candidate.role,
+    label: candidate.label || null,
+    identifier: candidate.identifier || null,
+    enabled: candidate.enabled,
+    actions: candidate.actions,
+    path: candidate.path,
+    frame: candidate.frame,
   }
 }
 

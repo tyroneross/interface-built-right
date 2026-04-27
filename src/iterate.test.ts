@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { analyzeIssues, classifyIssue, iterate } from './iterate.js'
+import { analyzeIssues, classifyIssue } from './iterate.js'
 import type { IterationState, IterateOptions } from './iterate.js'
 import type { ScanIssue } from './scan.js'
 import { mkdir, rm } from 'fs/promises'

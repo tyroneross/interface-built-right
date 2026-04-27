@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, unlink, readdir, copyFile, rm, access, appendFile, stat } from 'fs/promises';
-import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'fs';
+import { existsSync, readFileSync, statSync, writeFileSync, mkdtempSync } from 'fs';
 import * as path from 'path';
 import { join, dirname } from 'path';
 import { homedir, tmpdir, userInfo } from 'os';
@@ -12264,8 +12264,10 @@ var execFileAsync3 = promisify(execFile);
 var EXTRACTOR_DIR = join(process.cwd(), ".ibr", "bin");
 var EXTRACTOR_PATH = join(EXTRACTOR_DIR, "ibr-ax-extract");
 var SWIFT_SOURCE_DIR = join(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+var SWIFT_MAIN_PATH = join(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+var SWIFT_PACKAGE_PATH = join(SWIFT_SOURCE_DIR, "Package.swift");
 async function ensureExtractor() {
-  if (existsSync(EXTRACTOR_PATH)) {
+  if (existsSync(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
     return EXTRACTOR_PATH;
   }
   await mkdir(EXTRACTOR_DIR, { recursive: true });
@@ -12286,6 +12288,18 @@ async function ensureExtractor() {
     throw new Error(
       `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
     );
+  }
+}
+function isExtractorCacheFresh() {
+  try {
+    const binaryMtime = statSync(EXTRACTOR_PATH).mtimeMs;
+    const sourceMtime = Math.max(
+      statSync(SWIFT_MAIN_PATH).mtimeMs,
+      statSync(SWIFT_PACKAGE_PATH).mtimeMs
+    );
+    return binaryMtime >= sourceMtime;
+  } catch {
+    return false;
   }
 }
 function isExtractorAvailable() {

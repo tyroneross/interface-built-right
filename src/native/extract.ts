@@ -1,6 +1,6 @@
 import { execFile } from 'child_process';
 import { promisify } from 'util';
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { mkdir } from 'fs/promises';
 import { join } from 'path';
 import type { NativeElement } from './types.js';
@@ -16,13 +16,15 @@ const EXTRACTOR_PATH = join(EXTRACTOR_DIR, 'ibr-ax-extract');
 // Resolve Swift source dir: walk up from compiled output (dist/) or source (src/) to package root
 // __dirname works in CJS (which all 3 build targets produce)
 const SWIFT_SOURCE_DIR = join(__dirname, '..', '..', 'src', 'native', 'swift', 'ibr-ax-extract');
+const SWIFT_MAIN_PATH = join(SWIFT_SOURCE_DIR, 'Sources', 'main.swift');
+const SWIFT_PACKAGE_PATH = join(SWIFT_SOURCE_DIR, 'Package.swift');
 
 /**
  * Ensure the Swift AXUIElement extractor is compiled
  * Compiles on first use, then caches at .ibr/bin/ibr-ax-extract
  */
 export async function ensureExtractor(): Promise<string> {
-  if (existsSync(EXTRACTOR_PATH)) {
+  if (existsSync(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
     return EXTRACTOR_PATH;
   }
 
@@ -51,6 +53,19 @@ export async function ensureExtractor(): Promise<string> {
       `Failed to compile Swift extractor: ${err instanceof Error ? err.message : 'Unknown error'}. ` +
       'Ensure Xcode Command Line Tools are installed: xcode-select --install'
     );
+  }
+}
+
+function isExtractorCacheFresh(): boolean {
+  try {
+    const binaryMtime = statSync(EXTRACTOR_PATH).mtimeMs;
+    const sourceMtime = Math.max(
+      statSync(SWIFT_MAIN_PATH).mtimeMs,
+      statSync(SWIFT_PACKAGE_PATH).mtimeMs
+    );
+    return binaryMtime >= sourceMtime;
+  } catch {
+    return false;
   }
 }
 
@@ -146,4 +161,3 @@ export function mapToEnhancedElements(nativeElements: NativeElement[]): Enhanced
   flatten(nativeElements);
   return enhanced;
 }
-

@@ -12288,8 +12288,10 @@ var execFileAsync3 = util.promisify(child_process.execFile);
 var EXTRACTOR_DIR = path.join(process.cwd(), ".ibr", "bin");
 var EXTRACTOR_PATH = path.join(EXTRACTOR_DIR, "ibr-ax-extract");
 var SWIFT_SOURCE_DIR = path.join(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+var SWIFT_MAIN_PATH = path.join(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+var SWIFT_PACKAGE_PATH = path.join(SWIFT_SOURCE_DIR, "Package.swift");
 async function ensureExtractor() {
-  if (fs$1.existsSync(EXTRACTOR_PATH)) {
+  if (fs$1.existsSync(EXTRACTOR_PATH) && isExtractorCacheFresh()) {
     return EXTRACTOR_PATH;
   }
   await fs.mkdir(EXTRACTOR_DIR, { recursive: true });
@@ -12310,6 +12312,18 @@ async function ensureExtractor() {
     throw new Error(
       `Failed to compile Swift extractor: ${err instanceof Error ? err.message : "Unknown error"}. Ensure Xcode Command Line Tools are installed: xcode-select --install`
     );
+  }
+}
+function isExtractorCacheFresh() {
+  try {
+    const binaryMtime = fs$1.statSync(EXTRACTOR_PATH).mtimeMs;
+    const sourceMtime = Math.max(
+      fs$1.statSync(SWIFT_MAIN_PATH).mtimeMs,
+      fs$1.statSync(SWIFT_PACKAGE_PATH).mtimeMs
+    );
+    return binaryMtime >= sourceMtime;
+  } catch {
+    return false;
   }
 }
 function isExtractorAvailable() {

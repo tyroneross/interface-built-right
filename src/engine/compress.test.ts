@@ -7,14 +7,6 @@ import { compressSnapshot, formatCompressed } from './compress.js'
 
 // ─── Helpers ────────────────────────────────────────────────
 
-function makeButton(id: string, label = 'Button') {
-  return { id, role: 'button', label, actions: ['click'] }
-}
-
-function makeText(id: string, label = 'Some text') {
-  return { id, role: 'text', label, actions: [] }
-}
-
 function makeElements(
   counts: Array<{ role: string; n: number; actions?: string[] }>
 ) {

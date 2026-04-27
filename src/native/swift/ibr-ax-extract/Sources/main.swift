@@ -38,6 +38,7 @@ struct LegacyElement: Codable {
     let frame: Frame
     let isEnabled: Bool
     let value: String?
+    let path: [Int]
     let children: [LegacyElement]
 
     struct Frame: Codable {
@@ -156,7 +157,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
 }
 
 /// Walk element tree — legacy format for simulator compatibility
-func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15) -> LegacyElement? {
+func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = []) -> LegacyElement? {
     guard depth < maxDepth else { return nil }
 
     let role = getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown"
@@ -175,8 +176,9 @@ func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 1
 
     let axChildren = getChildren(element)
     var childElements: [LegacyElement] = []
-    for child in axChildren {
-        if let childEl = walkElementLegacy(child, depth: depth + 1, maxDepth: maxDepth) {
+    for (index, child) in axChildren.enumerated() {
+        let childPath = currentPath + [index]
+        if let childEl = walkElementLegacy(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath) {
             childElements.append(childEl)
         }
     }
@@ -196,6 +198,7 @@ func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 1
         frame: frame,
         isEnabled: isEnabled,
         value: value,
+        path: currentPath,
         children: childElements
     )
 }
@@ -235,6 +238,10 @@ func findAppByName(_ name: String) -> NSRunningApplication? {
         let bundleId = app.bundleIdentifier?.lowercased() ?? ""
         return appName.contains(lowered) || bundleId.contains(lowered)
     }
+}
+
+func findAppByPid(_ pid: pid_t) -> NSRunningApplication? {
+    return NSWorkspace.shared.runningApplications.first { $0.processIdentifier == pid }
 }
 
 /// Find the frontmost/main window for a given app
@@ -281,8 +288,8 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
 // MARK: - Action Execution
 
 /// Traverse the AX tree by numeric index path from the app root
-func navigateToElement(app: AXUIElement, path: [Int]) -> AXUIElement? {
-    var current = app
+func navigateToElement(root: AXUIElement, path: [Int]) -> AXUIElement? {
+    var current = root
     for index in path {
         var childrenRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(current, kAXChildrenAttribute as CFString, &childrenRef) == .success,
@@ -294,37 +301,57 @@ func navigateToElement(app: AXUIElement, path: [Int]) -> AXUIElement? {
 }
 
 /// Execute an accessibility action on the element at the given path
-func performAction(pid: pid_t, elementPath: [Int], action: String, value: String?) -> Bool {
-    let app = AXUIElementCreateApplication(pid)
-    guard let element = navigateToElement(app: app, path: elementPath) else {
-        fputs("{\"error\":\"Element not found at path\"}\n", stderr)
-        return false
+func performAction(pid: pid_t, deviceName: String?, elementPath: [Int], action: String, value: String?) -> (Bool, String?) {
+    let root: AXUIElement?
+    if let app = findAppByPid(pid),
+       app.bundleIdentifier == "com.apple.iphonesimulator",
+       let simulatorWindow = findSimulatorWindow(app: app, deviceName: deviceName) {
+        root = simulatorWindow
+    } else {
+        root = findMainWindow(pid: pid)?.window
+    }
+
+    guard let actionRoot = root else {
+        return (false, "No action root window found for pid \(pid)")
+    }
+
+    guard let element = navigateToElement(root: actionRoot, path: elementPath) else {
+        return (false, "Element not found at path")
     }
 
     switch action {
     case "press":
-        return AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+        let ok = AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
+        return (ok, ok ? nil : "AXPress failed")
     case "setValue":
         guard let value = value else {
-            fputs("{\"error\":\"setValue requires --value\"}\n", stderr)
-            return false
+            return (false, "setValue requires --value")
         }
-        return AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFTypeRef) == .success
+        let ok = AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, value as CFTypeRef) == .success
+        return (ok, ok ? nil : "AXSetValue failed")
     case "increment":
-        return AXUIElementPerformAction(element, kAXIncrementAction as CFString) == .success
+        let ok = AXUIElementPerformAction(element, kAXIncrementAction as CFString) == .success
+        return (ok, ok ? nil : "AXIncrement failed")
     case "decrement":
-        return AXUIElementPerformAction(element, kAXDecrementAction as CFString) == .success
+        let ok = AXUIElementPerformAction(element, kAXDecrementAction as CFString) == .success
+        return (ok, ok ? nil : "AXDecrement failed")
     case "showMenu":
-        return AXUIElementPerformAction(element, kAXShowMenuAction as CFString) == .success
+        let ok = AXUIElementPerformAction(element, kAXShowMenuAction as CFString) == .success
+        return (ok, ok ? nil : "AXShowMenu failed")
     case "confirm":
-        return AXUIElementPerformAction(element, kAXConfirmAction as CFString) == .success
+        let ok = AXUIElementPerformAction(element, kAXConfirmAction as CFString) == .success
+        return (ok, ok ? nil : "AXConfirm failed")
     case "cancel":
-        return AXUIElementPerformAction(element, kAXCancelAction as CFString) == .success
+        let ok = AXUIElementPerformAction(element, kAXCancelAction as CFString) == .success
+        return (ok, ok ? nil : "AXCancel failed")
     case "focus":
-        return AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, true as CFTypeRef) == .success
+        let ok = AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, true as CFTypeRef) == .success
+        return (ok, ok ? nil : "AXFocus failed")
+    case "scrollToVisible":
+        let ok = AXUIElementPerformAction(element, "AXScrollToVisible" as CFString) == .success
+        return (ok, ok ? nil : "AXScrollToVisible failed")
     default:
-        fputs("{\"error\":\"Unknown action: \(action)\"}\n", stderr)
-        return false
+        return (false, "Unknown action: \(action)")
     }
 }
 
@@ -388,8 +415,11 @@ if let actionName = actionName, let pathStr = elementPathStr {
         exit(1)
     }
     let path = pathStr.split(separator: ",").compactMap { Int($0) }
-    let success = performAction(pid: pid, elementPath: path, action: actionName, value: actionValue)
-    let result: [String: Any] = ["success": success, "action": actionName]
+    let (success, error) = performAction(pid: pid, deviceName: deviceName, elementPath: path, action: actionName, value: actionValue)
+    var result: [String: Any] = ["success": success, "action": actionName]
+    if let error = error {
+        result["error"] = error
+    }
     if let data = try? JSONSerialization.data(withJSONObject: result),
        let str = String(data: data, encoding: .utf8) {
         print(str)
@@ -463,7 +493,7 @@ guard let window = findSimulatorWindow(app: simApp, deviceName: deviceName) else
 }
 
 // Walk the accessibility tree with legacy format
-guard let rootElement = walkElementLegacy(window) else {
+guard let rootElement = walkElementLegacy(window, currentPath: []) else {
     fputs("Error: Failed to walk accessibility tree\n", stderr)
     exit(1)
 }

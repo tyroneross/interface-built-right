@@ -25,6 +25,8 @@
   },
   "files": [
     "dist",
+    "src/native/swift/ibr-ax-extract/Package.swift",
+    "src/native/swift/ibr-ax-extract/Sources",
     ".claude-plugin",
     ".mcp.json",
     "adapters",
