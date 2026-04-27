@@ -16865,6 +16865,20 @@ async function isServerRunning(outputDir) {
   try {
     const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
+    if (state.pid && state.pid !== process.pid) {
+      try {
+        process.kill(state.pid, 0);
+      } catch {
+        if (state.chromePid) {
+          try {
+            process.kill(state.chromePid, "SIGKILL");
+          } catch {
+          }
+        }
+        await cleanupServerState(outputDir);
+        return false;
+      }
+    }
     if (!state.cdpUrl) {
       return Boolean(state.wsEndpoint);
     }
@@ -16873,6 +16887,17 @@ async function isServerRunning(outputDir) {
     });
     return res.ok;
   } catch {
+    try {
+      const content = await (0, import_promises22.readFile)(stateFile, "utf-8");
+      const state = JSON.parse(content);
+      if (state.chromePid) {
+        try {
+          process.kill(state.chromePid, "SIGKILL");
+        } catch {
+        }
+      }
+    } catch {
+    }
     await cleanupServerState(outputDir);
     return false;
   }
@@ -22022,13 +22047,36 @@ program.command("session:start [url]").description("Start an interactive browser
       }
       console.log("Browser server running. Press Ctrl+C to stop.");
       await new Promise((resolve5) => {
+        let cleanedUp = false;
         const cleanup = async () => {
+          if (cleanedUp) return;
+          cleanedUp = true;
           console.log("\nShutting down browser server...");
-          await driver3.close();
+          try {
+            await driver3.close();
+          } catch {
+          }
           resolve5();
+        };
+        const syncReap = () => {
+          if (cleanedUp) return;
+          const pid = driver3.chromePid;
+          if (pid) {
+            try {
+              process.kill(pid, "SIGTERM");
+            } catch {
+            }
+          }
         };
         process.on("SIGINT", cleanup);
         process.on("SIGTERM", cleanup);
+        process.on("SIGHUP", cleanup);
+        process.on("exit", syncReap);
+        process.on("uncaughtException", (err) => {
+          console.error("Uncaught exception in session:start:", err);
+          syncReap();
+          process.exit(1);
+        });
       });
     } else {
       console.log("Connecting to existing browser server...");
