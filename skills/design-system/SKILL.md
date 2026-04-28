@@ -1,6 +1,6 @@
 ---
 name: design-system
-description: Configure and manage IBR's design system. Initialize design tokens, view active principles, add custom rules, update token values. Use when setting up a project's design system or modifying design constraints.
+description: Use when setting up a project's design system or modifying design constraints. Initialize design tokens, view active principles, add custom rules, update token values.
 user-invocable: true
 ---
 

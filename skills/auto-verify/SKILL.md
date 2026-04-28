@@ -1,6 +1,6 @@
 ---
 name: auto-verify
-description: Use when configuring or troubleshooting IBR's automatic before/after scan workflow — captures a baseline before every UI file edit, re-scans after, and reports verdict. Triggers on "enable auto verify", "turn on auto scan", "configure auto-verify", or questions about the pre/post-change hooks.
+description: Use when configuring or troubleshooting IBR's automatic before/after scan workflow on UI file edits. Triggers on "enable auto verify", "turn on auto scan", or pre/post-change hook questions.
 ---
 
 # IBR Auto-Verify Workflow

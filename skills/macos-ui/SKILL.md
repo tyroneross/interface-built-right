@@ -1,6 +1,6 @@
 ---
 name: macos-ui
-description: macOS native UI best practices — window/toolbar/sidebar patterns, menu bar discipline, keyboard-first, NSVisualEffectView materials, multi-window, Liquid Glass (macOS 26). Includes Apple documentation entry points for notarization, Developer ID, App Store and direct distribution. Use when building AppKit/SwiftUI apps for Mac, or when `/ibr:build` preamble returns platform=macOS.
+description: Use when building AppKit/SwiftUI apps for Mac, or when /ibr:build preamble returns platform=macOS. Covers windows, toolbars, menu bar, materials, Liquid Glass, notarization, distribution.
 version: 0.1.0
 user-invocable: false
 ---

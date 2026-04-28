@@ -1,6 +1,6 @@
 ---
 name: design-reference
-description: This skill should be used when the user asks to "screenshot this page", "capture this design", "use this as reference", "look at this UI", "show me this page", "save this design", shares a design URL (Mobbin, Dribbble, Figma screenshots, Behance, Awwwards, or any design site), or when visual inspection of a web page is needed to guide UI implementation.
+description: Use when the user asks to screenshot a page, capture a design, save a reference, or shares a design URL (Mobbin, Dribbble, Figma, Behance, Awwwards) for visual inspection.
 version: 0.1.0
 user-invocable: false
 ---

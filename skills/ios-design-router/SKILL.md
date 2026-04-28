@@ -1,6 +1,6 @@
 ---
 name: ios-design-router
-description: Routes iOS design tasks to domain reference files based on app archetype classification. Classifies apps as Utility, Content/Feed, Productivity, Consumer/Habit, Editorial, or Tool/Pro, then loads archetype-specific defaults and routes to domain-specific references for navigation, lists, buttons, color, motion, and task economy. Entry point for all iOS UI design work within IBR.
+description: Use as the entry point for iOS UI design work in IBR. Classifies apps into 6 archetypes (Utility, Content, Productivity, Consumer, Editorial, Tool/Pro) and routes to domain references.
 version: 0.1.0
 user-invocable: false
 ---

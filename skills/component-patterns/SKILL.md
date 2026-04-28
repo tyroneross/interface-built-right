@@ -1,6 +1,6 @@
 ---
 name: component-patterns
-description: Opinionated component patterns with Calm Precision principles built in. Use when building cards, navs, forms, dashboards, modals, tables, or lists — provides structure, spacing rules, accessibility requirements, and anti-patterns.
+description: Use when building cards, navs, forms, dashboards, modals, tables, or lists. Opinionated patterns with Calm Precision principles, spacing, accessibility, and anti-patterns.
 user-invocable: true
 ---
 

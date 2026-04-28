@@ -1,7 +1,7 @@
 {
   "name": "ibr",
   "version": "1.0.1",
-  "description": "End-to-end design tool for AI coding agents \u2014 guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching (SSIM), test generation, cross-browser (Chrome + Safari), and native scanning",
+  "description": "End-to-end UI design and validation \u2014 guided builds, visual checks, mockup matching, native scanning",
   "author": {
     "name": "Tyrone Ross"
   },

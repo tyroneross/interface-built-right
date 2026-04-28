@@ -1,6 +1,6 @@
 ---
 name: ios-design
-description: iOS native design rules (HIG): navigation, colors, SF Symbols, Dynamic Type, haptics, materials, Liquid Glass. What to build. For architecture/deployment, see apple-platform. For design option catalogs, see ios-design-router. Use when building SwiftUI/UIKit apps for iPhone/iPad, or when /ibr:build preamble returns platform=iOS.
+description: Use when building SwiftUI/UIKit apps for iPhone/iPad, or when /ibr:build preamble returns platform=iOS. HIG rules: navigation, colors, SF Symbols, Dynamic Type, haptics, Liquid Glass.
 version: 0.1.0
 user-invocable: false
 ---

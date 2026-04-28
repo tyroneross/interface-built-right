@@ -1,6 +1,6 @@
 ---
 name: ui-guidance-library
-description: Index and manage IBR UI Guidance templates — list central library (default `/Users/tyroneross/Desktop/git-folder/UI Guidance/`) and project-local drafts (`.ibr/ui-guidance/drafts/`), snapshot a pick to `.ibr/ui-guidance/active.md`. Use when `/ibr:build` asks the user to pick a template, or when showing available UI guidance.
+description: Use when /ibr:build asks the user to pick a template or to show available UI guidance. Indexes central + project-local templates and snapshots a pick to .ibr/ui-guidance/active.md.
 version: 0.1.0
 user-invocable: false
 ---

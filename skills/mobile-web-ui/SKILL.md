@@ -1,6 +1,6 @@
 ---
 name: mobile-web-ui
-description: Mobile web UI best practices — viewport/safe-area, thumb zones, touch vs hover, Material 3 color and type roles, iOS Safari gotchas, PWA limits, WCAG 2.2 targets. Use when building responsive web UI for phones, or when `/ibr:build` preamble returns platform=web with mobile scope.
+description: Use when building responsive web UI for phones, or when /ibr:build preamble returns platform=web mobile. Covers viewport/safe-area, thumb zones, touch, Material 3, iOS Safari, WCAG 2.2.
 version: 0.1.0
 user-invocable: false
 ---

@@ -1,6 +1,6 @@
 ---
 name: design-guidance
-description: Pre-build design creation guidance using Calm Precision principles and active design tokens. Use when building UI components, pages, or layouts — provides aesthetic direction and pattern selection before implementation.
+description: Use when building UI components, pages, or layouts. Pre-build design direction and pattern selection using Calm Precision principles and active design tokens.
 ---
 
 # Design Guidance

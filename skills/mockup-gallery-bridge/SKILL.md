@@ -1,6 +1,6 @@
 ---
 name: mockup-gallery-bridge
-description: Read mockup-gallery data (ratings, selected mockups, session memories) and write implementation completion. Use when `/ibr:build` detects `.mockup-gallery/` in the project, or when IBR needs to tie a build to a gallery-selected mockup. Never spawns the gallery server — filesystem only.
+description: Use when /ibr:build detects .mockup-gallery/ or IBR needs to tie a build to a gallery-selected mockup. Reads ratings/selections, writes implementation completion. Filesystem only.
 version: 0.1.0
 user-invocable: false
 ---

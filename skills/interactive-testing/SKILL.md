@@ -1,6 +1,6 @@
 ---
 name: interactive-testing
-description: This skill should be used when the user asks to "test my form", "click through the flow", "test search functionality", "test the login", "interact with the page", "click on", "type in", "what can I click", or when browser interaction testing is needed.
+description: Use when the user asks to test a form, click through a flow, test search or login, interact with a page, or needs browser interaction testing.
 version: 0.8.0
 user-invocable: true
 argument-hint: <url>

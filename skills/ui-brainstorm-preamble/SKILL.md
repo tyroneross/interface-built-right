@@ -1,6 +1,6 @@
 ---
 name: ui-brainstorm-preamble
-description: Capture UI-specific context (platform, scope, template, references, gallery selection, density) before delegating to superpowers:brainstorming. Use at the start of `/ibr:build`. Writes preamble.json to `.ibr/builds/<topic>/preamble.json`.
+description: Use at the start of /ibr:build to capture UI context (platform, scope, template, references, gallery, density) before delegating to superpowers:brainstorming. Writes preamble.json.
 version: 0.1.0
 user-invocable: false
 ---

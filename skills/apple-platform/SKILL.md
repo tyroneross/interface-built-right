@@ -1,6 +1,6 @@
 ---
 name: apple-platform
-description: Apple platform architecture and deployment within IBR: project structure, platform delegates, SwiftData, Swift concurrency, CI/CD, TestFlight. How to build it. For HIG design rules, see ios-design. For design option catalogs, see ios-design-router. Use when building iOS/watchOS/macOS apps.
+description: Use when building iOS, watchOS, or macOS apps — architecture, SwiftData, Swift concurrency, CI/CD, TestFlight. How to build. For HIG design rules see ios-design.
 version: 0.1.0
 user-invocable: true
 argument-hint: "[ios|watchos|macos|multiplatform] [feature description]"

@@ -1,6 +1,6 @@
 ---
 name: design-implementation
-description: This skill should be used when the user asks to "build this UI", "implement this design", "make it look like", "check my progress", "does this match what I described", "build this component", "make this work", "implement the layout", "set up this page", or when frontend files (.tsx, .jsx, .vue, .svelte, .css, .scss, .swift) are being actively edited and implementation needs to stay aligned with user intent.
+description: Use when the user asks to build UI, implement a design, match a mockup, or when frontend files (.tsx/.jsx/.vue/.svelte/.css/.swift) are being edited and implementation must align with intent.
 version: 0.5.0
 user-invocable: false
 ---

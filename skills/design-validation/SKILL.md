@@ -1,6 +1,6 @@
 ---
 name: design-validation
-description: This skill should be used when the user asks to "audit my UI", "check accessibility", "validate the build", "run a UI audit", "check for regressions", "compare before and after", "is this accessible", "find broken buttons", "check handlers", "review what changed", "run a full scan", or when a post-build verification pass is needed across the full interface.
+description: Use when the user asks to audit UI, validate the build, check accessibility, find regressions, compare before/after, or run a full scan — post-build verification pass across the interface.
 version: 0.5.0
 user-invocable: false
 ---

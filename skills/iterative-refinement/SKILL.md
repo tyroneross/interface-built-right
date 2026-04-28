@@ -1,6 +1,6 @@
 ---
 name: iterative-refinement
-description: This skill should be used when an IBR iterative refinement loop is active (.ibr/loop-state.json exists with active=true), when the Stop hook re-feeds a prompt with iteration context, or when the user asks to "iterate until it passes", "keep fixing until scan is clean", "refine this UI".
+description: Use when an IBR refinement loop is active (.ibr/loop-state.json active=true), the Stop hook re-feeds iteration context, or user asks to "iterate until it passes" or "refine this UI".
 version: 0.1.0
 user-invocable: false
 ---
