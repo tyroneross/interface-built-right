@@ -2895,7 +2895,8 @@ var BrowserManager = class {
     this._port = options.port ?? await findFreePort();
     let userDataDir = options.userDataDir ?? path.join(os.homedir(), ".ibr", "chromium-profile");
     const lockPath = path.join(userDataDir, "SingletonLock");
-    if (fs$1.existsSync(lockPath)) {
+    const lockStat = fs$1.lstatSync(lockPath, { throwIfNoEntry: false });
+    if (lockStat) {
       userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
     }
     const chromePath = connection.chromePath ?? findChrome();

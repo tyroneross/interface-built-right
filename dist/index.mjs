@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, unlink, readdir, copyFile, rm, access, appendFile, stat, chmod } from 'fs/promises';
-import { existsSync, readFileSync, statSync, writeFileSync, mkdtempSync } from 'fs';
+import { existsSync, readFileSync, statSync, writeFileSync, lstatSync, mkdtempSync } from 'fs';
 import * as path from 'path';
 import { join, dirname } from 'path';
 import { homedir, tmpdir, userInfo } from 'os';
@@ -2871,7 +2871,8 @@ var BrowserManager = class {
     this._port = options.port ?? await findFreePort();
     let userDataDir = options.userDataDir ?? join(homedir(), ".ibr", "chromium-profile");
     const lockPath = join(userDataDir, "SingletonLock");
-    if (existsSync(lockPath)) {
+    const lockStat = lstatSync(lockPath, { throwIfNoEntry: false });
+    if (lockStat) {
       userDataDir = mkdtempSync(join(tmpdir(), "ibr-chrome-"));
     }
     const chromePath = connection.chromePath ?? findChrome();

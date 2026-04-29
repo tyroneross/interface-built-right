@@ -4,7 +4,7 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, lstatSync, mkdtempSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir, tmpdir } from 'node:os'
@@ -157,9 +157,17 @@ export class BrowserManager {
     this._port = options.port ?? await findFreePort()
     let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
 
+    // Chrome creates `SingletonLock` as a SYMLINK whose target is `<hostname>-<pid>`.
+    // After a crash, the symlink remains but its target host/pid is gone, so
+    // `existsSync` (which follows symlinks) returns false even though the link
+    // is present. Chrome itself sees the link, refuses to acquire the singleton,
+    // and aborts immediately ("Failed to create a ProcessSingleton... Aborting").
+    // We must detect the symlink itself via `lstat`, not `stat`.
     const lockPath = join(userDataDir, 'SingletonLock')
-    if (existsSync(lockPath)) {
-      // Profile is locked by another Chrome — use temp profile to avoid conflict
+    const lockStat = lstatSync(lockPath, { throwIfNoEntry: false })
+    if (lockStat) {
+      // Profile is locked (or has a stale crash-leftover lock symlink).
+      // Use a temp profile to avoid conflict.
       userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
     }
 

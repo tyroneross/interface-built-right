@@ -260,7 +260,8 @@ var init_browser = __esm({
         this._port = options.port ?? await findFreePort();
         let userDataDir = options.userDataDir ?? (0, import_node_path.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
         const lockPath = (0, import_node_path.join)(userDataDir, "SingletonLock");
-        if ((0, import_node_fs.existsSync)(lockPath)) {
+        const lockStat = (0, import_node_fs.lstatSync)(lockPath, { throwIfNoEntry: false });
+        if (lockStat) {
           userDataDir = (0, import_node_fs.mkdtempSync)((0, import_node_path.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
         }
         const chromePath = connection.chromePath ?? findChrome();
