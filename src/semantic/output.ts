@@ -209,7 +209,11 @@ async function detectAvailableActions(
     for (const provider of checks.socialProviders) {
       actions.push({
         action: `login-with-${provider}`,
-        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        // Valid-CSS only — the previous form mixed `:has-text(...)` (a
+        // Playwright pseudo) with valid CSS, which made any consumer that
+        // ran `querySelector` blow up. Callers wanting a text-based fallback
+        // should use the helpers in `flows/types.ts`.
+        selector: `[class*="${provider}"]`,
         description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`,
       });
     }

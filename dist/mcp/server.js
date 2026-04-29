@@ -2022,6 +2022,162 @@ var init_session = __esm({
   }
 });
 
+// src/flows/types.ts
+var types_exports = {};
+__export(types_exports, {
+  combinedTextOrCssQuery: () => combinedTextOrCssQuery,
+  findButton: () => findButton,
+  findFieldByLabel: () => findFieldByLabel,
+  waitForNavigation: () => waitForNavigation
+});
+async function findFieldByLabel(page, labels) {
+  for (const label of labels) {
+    const attrSelectors = [
+      `input[name*="${label}" i]`,
+      `input[id*="${label}" i]`,
+      `input[placeholder*="${label}" i]`,
+      `input[aria-label*="${label}" i]`
+    ];
+    for (const selector of attrSelectors) {
+      const element = await page.$(selector);
+      if (element) return element;
+    }
+    const selectorPath = await page.evaluate(
+      `(function() {
+        ${PATH_BUILDER_SOURCE}
+        const needle = ${JSON.stringify(label.toLowerCase())};
+        const labels = document.querySelectorAll('label');
+        for (const l of labels) {
+          const t = (l.textContent || '').trim().toLowerCase();
+          if (!t.includes(needle)) continue;
+          // <label for="x">: find #x.
+          const forId = l.getAttribute('for');
+          if (forId) {
+            const direct = document.getElementById(forId);
+            if (direct && direct.tagName === 'INPUT') {
+              return buildSelectorPath(direct);
+            }
+          }
+          // <label>...<input>...</label>
+          const inside = l.querySelector('input, textarea, select');
+          if (inside) return buildSelectorPath(inside);
+          // <label>...</label><input> sibling
+          const sib = l.nextElementSibling;
+          if (sib && (sib.tagName === 'INPUT' || sib.tagName === 'TEXTAREA' || sib.tagName === 'SELECT')) {
+            return buildSelectorPath(sib);
+          }
+        }
+        return null;
+      })()`
+    );
+    if (typeof selectorPath === "string" && selectorPath) {
+      const handle = await page.$(selectorPath);
+      if (handle) return handle;
+    }
+  }
+  return null;
+}
+async function findButton(page, patterns) {
+  for (const pattern of patterns) {
+    const cssSelectors = [
+      `input[type="submit"][value*="${pattern}" i]`
+    ];
+    for (const selector of cssSelectors) {
+      const element = await page.$(selector);
+      if (element) return element;
+    }
+    const selectorPath = await page.evaluate(
+      `(function() {
+        ${PATH_BUILDER_SOURCE}
+        const needle = ${JSON.stringify(pattern.toLowerCase())};
+        const candidates = document.querySelectorAll('button, a, [role="button"]');
+        for (const el of candidates) {
+          const t = (el.textContent || '').trim().toLowerCase();
+          if (t.includes(needle)) return buildSelectorPath(el);
+        }
+        return null;
+      })()`
+    );
+    if (typeof selectorPath === "string" && selectorPath) {
+      const handle = await page.$(selectorPath);
+      if (handle) return handle;
+    }
+  }
+  return page.$('button[type="submit"], input[type="submit"]');
+}
+async function combinedTextOrCssQuery(page, options) {
+  const { cssSelectors, tags, textNeedles } = options;
+  return await page.evaluate(
+    `(function() {
+      ${PATH_BUILDER_SOURCE}
+      const cssList = ${JSON.stringify(cssSelectors)};
+      const tags = ${JSON.stringify(tags)};
+      const needles = ${JSON.stringify(textNeedles.map((n) => n.toLowerCase()))};
+      // CSS round first \u2014 preserves the historical preference order.
+      for (const sel of cssList) {
+        try {
+          const m = document.querySelector(sel);
+          if (m) return buildSelectorPath(m);
+        } catch (e) {
+          // Skip a selector that the host's CSS engine rejects
+          // (e.g. CSS-4-only pseudo-classes). The text round below
+          // is the safety net.
+        }
+      }
+      // Text round
+      for (const tag of tags) {
+        const els = document.querySelectorAll(tag);
+        for (const el of els) {
+          const t = (el.textContent || '').trim().toLowerCase();
+          if (needles.some(n => t.includes(n))) return buildSelectorPath(el);
+        }
+      }
+      return null;
+    })()`
+  );
+}
+async function waitForNavigation(page, timeout = 1e4) {
+  try {
+    await Promise.race([
+      page.waitForNavigation?.(),
+      page.waitForLoadState?.("networkidle", { timeout })
+    ]);
+  } catch {
+  }
+}
+var PATH_BUILDER_SOURCE;
+var init_types = __esm({
+  "src/flows/types.ts"() {
+    "use strict";
+    PATH_BUILDER_SOURCE = `
+function buildSelectorPath(el) {
+  if (!(el instanceof Element)) return null;
+  const path = [];
+  let cur = el;
+  while (cur && cur.nodeType === 1 && cur !== document.body) {
+    let sel = cur.nodeName.toLowerCase();
+    if (cur.id) {
+      // ID alone is unique enough \u2014 short-circuit.
+      const safeId = cur.id.replace(/(["\\\\])/g, '\\\\$1');
+      path.unshift(sel + '[id="' + safeId + '"]');
+      break;
+    }
+    const parent = cur.parentElement;
+    if (parent) {
+      const sibs = Array.from(parent.children).filter(c => c.nodeName === cur.nodeName);
+      if (sibs.length > 1) {
+        sel += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+      }
+    }
+    path.unshift(sel);
+    cur = cur.parentElement;
+  }
+  return path.length ? path.join(' > ') : null;
+}
+`;
+  }
+});
+
 // src/performance.ts
 var performance_exports = {};
 __export(performance_exports, {
@@ -7773,7 +7929,11 @@ async function detectAvailableActions(page, intent) {
     for (const provider of checks.socialProviders) {
       actions.push({
         action: `login-with-${provider}`,
-        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        // Valid-CSS only — the previous form mixed `:has-text(...)` (a
+        // Playwright pseudo) with valid CSS, which made any consumer that
+        // ran `querySelector` blow up. Callers wanting a text-based fallback
+        // should use the helpers in `flows/types.ts`.
+        selector: `[class*="${provider}"]`,
         description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
       });
     }
@@ -10298,51 +10458,8 @@ function generateReport(session, comparison, analysis, outputDir, webViewPort) {
   return report;
 }
 
-// src/flows/types.ts
-async function findFieldByLabel(page, labels) {
-  for (const label of labels) {
-    const selectors = [
-      `input[name*="${label}" i]`,
-      `input[id*="${label}" i]`,
-      `input[placeholder*="${label}" i]`,
-      `input[aria-label*="${label}" i]`,
-      `label:has-text("${label}") + input`,
-      `label:has-text("${label}") input`
-    ];
-    for (const selector of selectors) {
-      const element = await page.$(selector);
-      if (element) return element;
-    }
-  }
-  return null;
-}
-async function findButton(page, patterns) {
-  for (const pattern of patterns) {
-    const selectors = [
-      `button:has-text("${pattern}")`,
-      `input[type="submit"][value*="${pattern}" i]`,
-      `button[type="submit"]:has-text("${pattern}")`,
-      `a:has-text("${pattern}")`,
-      `[role="button"]:has-text("${pattern}")`
-    ];
-    for (const selector of selectors) {
-      const element = await page.$(selector);
-      if (element) return element;
-    }
-  }
-  return page.$('button[type="submit"], input[type="submit"]');
-}
-async function waitForNavigation(page, timeout = 1e4) {
-  try {
-    await Promise.race([
-      page.waitForNavigation?.(),
-      page.waitForLoadState?.("networkidle", { timeout })
-    ]);
-  } catch {
-  }
-}
-
 // src/flows/login.ts
+init_types();
 async function loginFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -10379,9 +10496,48 @@ async function loginFlow(page, options) {
     await passwordField.fill?.(options.password);
     steps.push({ action: "fill password", success: true });
     if (options.rememberMe) {
-      const rememberCheckbox = await page.$(
-        'input[type="checkbox"][name*="remember"], input[type="checkbox"][id*="remember"], label:has-text("remember") input[type="checkbox"]'
+      let rememberCheckbox = await page.$(
+        'input[type="checkbox"][name*="remember"], input[type="checkbox"][id*="remember"]'
       );
+      if (!rememberCheckbox) {
+        const path = await page.evaluate(`(function() {
+          function buildSelectorPath(el) {
+            if (!(el instanceof Element)) return null;
+            const path = [];
+            let cur = el;
+            while (cur && cur.nodeType === 1 && cur !== document.body) {
+              let sel = cur.nodeName.toLowerCase();
+              if (cur.id) {
+                const safeId = cur.id.replace(/(["\\\\])/g, '\\\\$1');
+                path.unshift(sel + '[id="' + safeId + '"]');
+                break;
+              }
+              const parent = cur.parentElement;
+              if (parent) {
+                const sibs = Array.from(parent.children).filter(c => c.nodeName === cur.nodeName);
+                if (sibs.length > 1) sel += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+              }
+              path.unshift(sel);
+              cur = cur.parentElement;
+            }
+            return path.length ? path.join(' > ') : null;
+          }
+          for (const label of document.querySelectorAll('label')) {
+            if (!(label.textContent || '').toLowerCase().includes('remember')) continue;
+            const inside = label.querySelector('input[type="checkbox"]');
+            if (inside) return buildSelectorPath(inside);
+            const forId = label.getAttribute('for');
+            if (forId) {
+              const direct = document.getElementById(forId);
+              if (direct && direct.tagName === 'INPUT') return buildSelectorPath(direct);
+            }
+          }
+          return null;
+        })()`);
+        if (typeof path === "string" && path) {
+          rememberCheckbox = await page.$(path);
+        }
+      }
       if (rememberCheckbox) {
         await rememberCheckbox.check?.();
         steps.push({ action: "check remember me", success: true });
@@ -10439,6 +10595,7 @@ async function loginFlow(page, options) {
 }
 
 // src/flows/search.ts
+init_types();
 async function searchFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -10479,9 +10636,13 @@ async function searchFlow(page, options) {
     const results = await page.$$(resultsSelector);
     const resultCount = results.length;
     const hasResults = resultCount > 0;
-    const emptyState = await page.$(
-      '[class*="no-results"], [class*="empty"], :has-text("no results"), :has-text("nothing found")'
-    );
+    const { combinedTextOrCssQuery: combinedTextOrCssQuery2 } = await Promise.resolve().then(() => (init_types(), types_exports));
+    const emptyStatePath = await combinedTextOrCssQuery2(page, {
+      cssSelectors: ['[class*="no-results"]', '[class*="empty"]'],
+      tags: ["div", "p", "span", "section"],
+      textNeedles: ["no results", "nothing found"]
+    });
+    const emptyState = emptyStatePath ? await page.$(emptyStatePath) : null;
     steps.push({
       action: `found ${resultCount} results`,
       success: hasResults || !!emptyState
@@ -10506,6 +10667,7 @@ async function searchFlow(page, options) {
 }
 
 // src/flows/form.ts
+init_types();
 async function formFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -10616,6 +10778,9 @@ async function formFlow(page, options) {
     };
   }
 }
+
+// src/flows/index.ts
+init_types();
 
 // src/index.ts
 var import_promises13 = require("fs/promises");

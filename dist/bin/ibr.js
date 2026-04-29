@@ -5659,7 +5659,11 @@ async function detectAvailableActions(page, intent) {
     for (const provider of checks.socialProviders) {
       actions.push({
         action: `login-with-${provider}`,
-        selector: `[class*="${provider}"], button:has-text("${provider}")`,
+        // Valid-CSS only — the previous form mixed `:has-text(...)` (a
+        // Playwright pseudo) with valid CSS, which made any consumer that
+        // ran `querySelector` blow up. Callers wanting a text-based fallback
+        // should use the helpers in `flows/types.ts`.
+        selector: `[class*="${provider}"]`,
         description: `Sign in with ${provider.charAt(0).toUpperCase() + provider.slice(1)}`
       });
     }
@@ -5925,38 +5929,118 @@ var init_semantic = __esm({
 });
 
 // src/flows/types.ts
+var types_exports = {};
+__export(types_exports, {
+  combinedTextOrCssQuery: () => combinedTextOrCssQuery,
+  findButton: () => findButton,
+  findFieldByLabel: () => findFieldByLabel,
+  waitForNavigation: () => waitForNavigation
+});
 async function findFieldByLabel(page, labels) {
   for (const label of labels) {
-    const selectors = [
+    const attrSelectors = [
       `input[name*="${label}" i]`,
       `input[id*="${label}" i]`,
       `input[placeholder*="${label}" i]`,
-      `input[aria-label*="${label}" i]`,
-      `label:has-text("${label}") + input`,
-      `label:has-text("${label}") input`
+      `input[aria-label*="${label}" i]`
     ];
-    for (const selector of selectors) {
+    for (const selector of attrSelectors) {
       const element = await page.$(selector);
       if (element) return element;
+    }
+    const selectorPath = await page.evaluate(
+      `(function() {
+        ${PATH_BUILDER_SOURCE}
+        const needle = ${JSON.stringify(label.toLowerCase())};
+        const labels = document.querySelectorAll('label');
+        for (const l of labels) {
+          const t = (l.textContent || '').trim().toLowerCase();
+          if (!t.includes(needle)) continue;
+          // <label for="x">: find #x.
+          const forId = l.getAttribute('for');
+          if (forId) {
+            const direct = document.getElementById(forId);
+            if (direct && direct.tagName === 'INPUT') {
+              return buildSelectorPath(direct);
+            }
+          }
+          // <label>...<input>...</label>
+          const inside = l.querySelector('input, textarea, select');
+          if (inside) return buildSelectorPath(inside);
+          // <label>...</label><input> sibling
+          const sib = l.nextElementSibling;
+          if (sib && (sib.tagName === 'INPUT' || sib.tagName === 'TEXTAREA' || sib.tagName === 'SELECT')) {
+            return buildSelectorPath(sib);
+          }
+        }
+        return null;
+      })()`
+    );
+    if (typeof selectorPath === "string" && selectorPath) {
+      const handle = await page.$(selectorPath);
+      if (handle) return handle;
     }
   }
   return null;
 }
 async function findButton(page, patterns) {
   for (const pattern of patterns) {
-    const selectors = [
-      `button:has-text("${pattern}")`,
-      `input[type="submit"][value*="${pattern}" i]`,
-      `button[type="submit"]:has-text("${pattern}")`,
-      `a:has-text("${pattern}")`,
-      `[role="button"]:has-text("${pattern}")`
+    const cssSelectors = [
+      `input[type="submit"][value*="${pattern}" i]`
     ];
-    for (const selector of selectors) {
+    for (const selector of cssSelectors) {
       const element = await page.$(selector);
       if (element) return element;
     }
+    const selectorPath = await page.evaluate(
+      `(function() {
+        ${PATH_BUILDER_SOURCE}
+        const needle = ${JSON.stringify(pattern.toLowerCase())};
+        const candidates = document.querySelectorAll('button, a, [role="button"]');
+        for (const el of candidates) {
+          const t = (el.textContent || '').trim().toLowerCase();
+          if (t.includes(needle)) return buildSelectorPath(el);
+        }
+        return null;
+      })()`
+    );
+    if (typeof selectorPath === "string" && selectorPath) {
+      const handle = await page.$(selectorPath);
+      if (handle) return handle;
+    }
   }
   return page.$('button[type="submit"], input[type="submit"]');
+}
+async function combinedTextOrCssQuery(page, options) {
+  const { cssSelectors, tags, textNeedles } = options;
+  return await page.evaluate(
+    `(function() {
+      ${PATH_BUILDER_SOURCE}
+      const cssList = ${JSON.stringify(cssSelectors)};
+      const tags = ${JSON.stringify(tags)};
+      const needles = ${JSON.stringify(textNeedles.map((n) => n.toLowerCase()))};
+      // CSS round first \u2014 preserves the historical preference order.
+      for (const sel of cssList) {
+        try {
+          const m = document.querySelector(sel);
+          if (m) return buildSelectorPath(m);
+        } catch (e) {
+          // Skip a selector that the host's CSS engine rejects
+          // (e.g. CSS-4-only pseudo-classes). The text round below
+          // is the safety net.
+        }
+      }
+      // Text round
+      for (const tag of tags) {
+        const els = document.querySelectorAll(tag);
+        for (const el of els) {
+          const t = (el.textContent || '').trim().toLowerCase();
+          if (needles.some(n => t.includes(n))) return buildSelectorPath(el);
+        }
+      }
+      return null;
+    })()`
+  );
 }
 async function waitForNavigation(page, timeout = 1e4) {
   try {
@@ -5967,9 +6051,36 @@ async function waitForNavigation(page, timeout = 1e4) {
   } catch {
   }
 }
+var PATH_BUILDER_SOURCE;
 var init_types2 = __esm({
   "src/flows/types.ts"() {
     "use strict";
+    PATH_BUILDER_SOURCE = `
+function buildSelectorPath(el) {
+  if (!(el instanceof Element)) return null;
+  const path = [];
+  let cur = el;
+  while (cur && cur.nodeType === 1 && cur !== document.body) {
+    let sel = cur.nodeName.toLowerCase();
+    if (cur.id) {
+      // ID alone is unique enough \u2014 short-circuit.
+      const safeId = cur.id.replace(/(["\\\\])/g, '\\\\$1');
+      path.unshift(sel + '[id="' + safeId + '"]');
+      break;
+    }
+    const parent = cur.parentElement;
+    if (parent) {
+      const sibs = Array.from(parent.children).filter(c => c.nodeName === cur.nodeName);
+      if (sibs.length > 1) {
+        sel += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+      }
+    }
+    path.unshift(sel);
+    cur = cur.parentElement;
+  }
+  return path.length ? path.join(' > ') : null;
+}
+`;
   }
 });
 
@@ -6014,9 +6125,48 @@ async function loginFlow(page, options) {
     await passwordField.fill?.(options.password);
     steps.push({ action: "fill password", success: true });
     if (options.rememberMe) {
-      const rememberCheckbox = await page.$(
-        'input[type="checkbox"][name*="remember"], input[type="checkbox"][id*="remember"], label:has-text("remember") input[type="checkbox"]'
+      let rememberCheckbox = await page.$(
+        'input[type="checkbox"][name*="remember"], input[type="checkbox"][id*="remember"]'
       );
+      if (!rememberCheckbox) {
+        const path2 = await page.evaluate(`(function() {
+          function buildSelectorPath(el) {
+            if (!(el instanceof Element)) return null;
+            const path = [];
+            let cur = el;
+            while (cur && cur.nodeType === 1 && cur !== document.body) {
+              let sel = cur.nodeName.toLowerCase();
+              if (cur.id) {
+                const safeId = cur.id.replace(/(["\\\\])/g, '\\\\$1');
+                path.unshift(sel + '[id="' + safeId + '"]');
+                break;
+              }
+              const parent = cur.parentElement;
+              if (parent) {
+                const sibs = Array.from(parent.children).filter(c => c.nodeName === cur.nodeName);
+                if (sibs.length > 1) sel += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+              }
+              path.unshift(sel);
+              cur = cur.parentElement;
+            }
+            return path.length ? path.join(' > ') : null;
+          }
+          for (const label of document.querySelectorAll('label')) {
+            if (!(label.textContent || '').toLowerCase().includes('remember')) continue;
+            const inside = label.querySelector('input[type="checkbox"]');
+            if (inside) return buildSelectorPath(inside);
+            const forId = label.getAttribute('for');
+            if (forId) {
+              const direct = document.getElementById(forId);
+              if (direct && direct.tagName === 'INPUT') return buildSelectorPath(direct);
+            }
+          }
+          return null;
+        })()`);
+        if (typeof path2 === "string" && path2) {
+          rememberCheckbox = await page.$(path2);
+        }
+      }
       if (rememberCheckbox) {
         await rememberCheckbox.check?.();
         steps.push({ action: "check remember me", success: true });
@@ -6126,9 +6276,13 @@ async function searchFlow(page, options) {
     const results = await page.$$(resultsSelector);
     const resultCount = results.length;
     const hasResults = resultCount > 0;
-    const emptyState = await page.$(
-      '[class*="no-results"], [class*="empty"], :has-text("no results"), :has-text("nothing found")'
-    );
+    const { combinedTextOrCssQuery: combinedTextOrCssQuery2 } = await Promise.resolve().then(() => (init_types2(), types_exports));
+    const emptyStatePath = await combinedTextOrCssQuery2(page, {
+      cssSelectors: ['[class*="no-results"]', '[class*="empty"]'],
+      tags: ["div", "p", "span", "section"],
+      textNeedles: ["no results", "nothing found"]
+    });
+    const emptyState = emptyStatePath ? await page.$(emptyStatePath) : null;
     steps.push({
       action: `found ${resultCount} results`,
       success: hasResults || !!emptyState
@@ -9426,8 +9580,8 @@ var init_memory = __esm({
 });
 
 // src/context/types.ts
-var types_exports = {};
-__export(types_exports, {
+var types_exports2 = {};
+__export(types_exports2, {
   CompactContextSchema: () => CompactContextSchema,
   CompactionRequestSchema: () => CompactionRequestSchema,
   CompactionResultSchema: () => CompactionResultSchema,
@@ -21837,32 +21991,38 @@ program.command("delete <sessionId>").description("Delete a specific session").a
 program.command("serve").description("Start the comparison viewer web UI").option("-p, --port <port>", `Port number (default: ${IBR_DEFAULT_PORT}, auto-scans for available)`).option("--no-open", "Do not open browser automatically").action(async (options) => {
   const { spawn: spawn4 } = await import("child_process");
   const { resolve: resolve5 } = await import("path");
-  const packageRoot = resolve5(process.cwd());
-  let webUiDir = (0, import_path32.join)(packageRoot, "web-ui");
-  if (!(0, import_fs17.existsSync)(webUiDir)) {
-    const possiblePaths = [
-      (0, import_path32.join)(packageRoot, "node_modules", "interface-built-right", "web-ui"),
-      (0, import_path32.join)(packageRoot, "..", "interface-built-right", "web-ui")
-    ];
-    for (const p of possiblePaths) {
-      if ((0, import_fs17.existsSync)(p)) {
-        webUiDir = p;
-        break;
-      }
+  const distBinRoot = resolve5(__dirname, "..", "..");
+  const candidates = [
+    (0, import_path32.join)(distBinRoot, "web-ui"),
+    (0, import_path32.join)(process.cwd(), "web-ui"),
+    (0, import_path32.join)(process.cwd(), "node_modules", "@tyroneross", "interface-built-right", "web-ui"),
+    (0, import_path32.join)(process.cwd(), "node_modules", "interface-built-right", "web-ui")
+  ];
+  let webUiDir = null;
+  for (const c of candidates) {
+    if ((0, import_fs17.existsSync)(c)) {
+      webUiDir = c;
+      break;
     }
   }
-  if (!(0, import_fs17.existsSync)(webUiDir)) {
-    console.log("Web UI not found. Please ensure web-ui directory exists.");
+  if (!webUiDir) {
+    console.log("Web UI not bundled in this install.");
     console.log("");
-    console.log("For now, you can view the comparison images directly:");
+    console.log("IBR ships the comparison viewer only via the source repo \u2014");
+    console.log("the `web-ui/` directory is not packaged for npm.");
+    console.log("");
+    console.log("Alternatives:");
+    console.log("  - Clone the IBR repo and run `npm run ui`.");
+    console.log("  - Use `mcp__plugin_ibr_ibr__screenshot` for visual checks.");
+    console.log("  - Open the comparison artifacts directly:");
     try {
       const ibr = await createIBR(program.opts());
       const session = await ibr.getMostRecentSession();
       if (session) {
         const config = ibr.getConfig();
-        console.log(`  Baseline: ${config.outputDir}/sessions/${session.id}/baseline.png`);
-        console.log(`  Current:  ${config.outputDir}/sessions/${session.id}/current.png`);
-        console.log(`  Diff:     ${config.outputDir}/sessions/${session.id}/diff.png`);
+        console.log(`      Baseline: ${config.outputDir}/sessions/${session.id}/baseline.png`);
+        console.log(`      Current:  ${config.outputDir}/sessions/${session.id}/current.png`);
+        console.log(`      Diff:     ${config.outputDir}/sessions/${session.id}/diff.png`);
       }
     } catch {
     }
@@ -23925,7 +24085,7 @@ Mockup Match: ${label}`);
 program.command("record-change <url>").description("Record a design change specification for later verification").option("--element <name>", "Accessible name or CSS selector of the target element").option("--description <text>", "Human-readable description of the change").option("--checks <json>", "JSON array of check objects: [{property,operator,value,confidence}]").option("--platform <platform>", "Target platform: web, ios, macos", "web").action(async (url, options) => {
   try {
     const { saveChange: saveChange2 } = await Promise.resolve().then(() => (init_design_verifier(), design_verifier_exports));
-    const { DesignChangeSchema: DesignChangeSchema2 } = await Promise.resolve().then(() => (init_types3(), types_exports));
+    const { DesignChangeSchema: DesignChangeSchema2 } = await Promise.resolve().then(() => (init_types3(), types_exports2));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     if (!options.element) {

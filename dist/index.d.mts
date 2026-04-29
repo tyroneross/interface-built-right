@@ -389,11 +389,21 @@ interface FlowOptions {
     debug?: boolean;
 }
 /**
- * Find a form field by common label patterns
+ * Find a form field by common label patterns.
+ *
+ * Order:
+ *  1. Plain attribute selectors (name/id/placeholder/aria-label).
+ *  2. In-page <label>-association walk: find a label whose textContent
+ *     contains the term (case-insensitive), then return its associated
+ *     input via `for=` lookup or DOM proximity.
  */
 declare function findFieldByLabel(page: PageLike, labels: string[]): Promise<ReturnType<PageLike['$']>>;
 /**
- * Find a button by common patterns
+ * Find a button by common patterns.
+ *
+ * Order:
+ *  1. Plain attribute selectors (input[type=submit][value], etc.).
+ *  2. In-page text walk over button / a / [role=button] candidates.
  */
 declare function findButton(page: PageLike, patterns: string[]): Promise<ReturnType<PageLike['$']>>;
 /**

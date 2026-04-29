@@ -28,56 +28,203 @@ export interface FlowOptions {
   debug?: boolean;
 }
 
+// `:has-text(...)` is Playwright pseudo-syntax — it's NOT valid CSS.
+// Native `document.querySelector` rejects the whole selector list when one
+// component is invalid (the entire string fails to parse). Calls coming from
+// the CDP engine therefore crashed with:
+//   Failed to execute 'querySelector': '...:has-text("X")...' is not a valid selector.
+//
+// Helpers below split the work in two:
+//   1. Valid-CSS selectors run through `page.$` directly.
+//   2. Text-based fallback runs in-page via `page.evaluate`, walking
+//      candidate tags and matching `textContent` (or attributes for
+//      `<label>` ↔ `<input>` association). The first hit returns a
+//      handle obtained via a generated, structurally-unique selector.
+//
+// The signatures stay the same so callers don't change.
+
 /**
- * Find a form field by common label patterns
+ * Build a unique CSS path for an element by walking up to <body>.
+ * Used inside the in-page evaluator to hand a stable selector back to
+ * the page-like layer's `$()` so we still return an ElementHandleLike.
+ */
+const PATH_BUILDER_SOURCE = `
+function buildSelectorPath(el) {
+  if (!(el instanceof Element)) return null;
+  const path = [];
+  let cur = el;
+  while (cur && cur.nodeType === 1 && cur !== document.body) {
+    let sel = cur.nodeName.toLowerCase();
+    if (cur.id) {
+      // ID alone is unique enough — short-circuit.
+      const safeId = cur.id.replace(/(["\\\\])/g, '\\\\$1');
+      path.unshift(sel + '[id="' + safeId + '"]');
+      break;
+    }
+    const parent = cur.parentElement;
+    if (parent) {
+      const sibs = Array.from(parent.children).filter(c => c.nodeName === cur.nodeName);
+      if (sibs.length > 1) {
+        sel += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+      }
+    }
+    path.unshift(sel);
+    cur = cur.parentElement;
+  }
+  return path.length ? path.join(' > ') : null;
+}
+`;
+
+/**
+ * Find a form field by common label patterns.
+ *
+ * Order:
+ *  1. Plain attribute selectors (name/id/placeholder/aria-label).
+ *  2. In-page <label>-association walk: find a label whose textContent
+ *     contains the term (case-insensitive), then return its associated
+ *     input via `for=` lookup or DOM proximity.
  */
 export async function findFieldByLabel(
   page: Page,
   labels: string[]
 ): Promise<ReturnType<Page['$']>> {
   for (const label of labels) {
-    // Try various selector patterns
-    const selectors = [
+    // Plain CSS round
+    const attrSelectors = [
       `input[name*="${label}" i]`,
       `input[id*="${label}" i]`,
       `input[placeholder*="${label}" i]`,
       `input[aria-label*="${label}" i]`,
-      `label:has-text("${label}") + input`,
-      `label:has-text("${label}") input`,
     ];
-
-    for (const selector of selectors) {
+    for (const selector of attrSelectors) {
       const element = await page.$(selector);
       if (element) return element;
+    }
+
+    // Text-association fallback — does what `label:has-text("X") input`
+    // would have meant in Playwright, but with native DOM walking.
+    const selectorPath = await page.evaluate(
+      `(function() {
+        ${PATH_BUILDER_SOURCE}
+        const needle = ${JSON.stringify(label.toLowerCase())};
+        const labels = document.querySelectorAll('label');
+        for (const l of labels) {
+          const t = (l.textContent || '').trim().toLowerCase();
+          if (!t.includes(needle)) continue;
+          // <label for="x">: find #x.
+          const forId = l.getAttribute('for');
+          if (forId) {
+            const direct = document.getElementById(forId);
+            if (direct && direct.tagName === 'INPUT') {
+              return buildSelectorPath(direct);
+            }
+          }
+          // <label>...<input>...</label>
+          const inside = l.querySelector('input, textarea, select');
+          if (inside) return buildSelectorPath(inside);
+          // <label>...</label><input> sibling
+          const sib = l.nextElementSibling;
+          if (sib && (sib.tagName === 'INPUT' || sib.tagName === 'TEXTAREA' || sib.tagName === 'SELECT')) {
+            return buildSelectorPath(sib);
+          }
+        }
+        return null;
+      })()`
+    );
+    if (typeof selectorPath === 'string' && selectorPath) {
+      const handle = await page.$(selectorPath);
+      if (handle) return handle;
     }
   }
   return null;
 }
 
 /**
- * Find a button by common patterns
+ * Find a button by common patterns.
+ *
+ * Order:
+ *  1. Plain attribute selectors (input[type=submit][value], etc.).
+ *  2. In-page text walk over button / a / [role=button] candidates.
  */
 export async function findButton(
   page: Page,
   patterns: string[]
 ): Promise<ReturnType<Page['$']>> {
   for (const pattern of patterns) {
-    const selectors = [
-      `button:has-text("${pattern}")`,
+    // CSS-only round (no :has-text).
+    const cssSelectors = [
       `input[type="submit"][value*="${pattern}" i]`,
-      `button[type="submit"]:has-text("${pattern}")`,
-      `a:has-text("${pattern}")`,
-      `[role="button"]:has-text("${pattern}")`,
     ];
-
-    for (const selector of selectors) {
+    for (const selector of cssSelectors) {
       const element = await page.$(selector);
       if (element) return element;
+    }
+
+    // Text-content round — what `:has-text(...)` was trying to express.
+    const selectorPath = await page.evaluate(
+      `(function() {
+        ${PATH_BUILDER_SOURCE}
+        const needle = ${JSON.stringify(pattern.toLowerCase())};
+        const candidates = document.querySelectorAll('button, a, [role="button"]');
+        for (const el of candidates) {
+          const t = (el.textContent || '').trim().toLowerCase();
+          if (t.includes(needle)) return buildSelectorPath(el);
+        }
+        return null;
+      })()`
+    );
+    if (typeof selectorPath === 'string' && selectorPath) {
+      const handle = await page.$(selectorPath);
+      if (handle) return handle;
     }
   }
 
   // Fallback to generic submit button
   return page.$('button[type="submit"], input[type="submit"]');
+}
+
+/**
+ * Combine valid-CSS selectors with a JS textContent search.
+ *
+ * Use when a Playwright-style pseudo-selector list mixes valid CSS
+ * (`[class*="logout"]`) with `:has-text(...)`. The CSS portion runs
+ * through `querySelectorAll`; the text portion runs in-page over the
+ * supplied tag set; results are deduped and a stable selector path is
+ * returned so callers can `page.$(...)` it.
+ */
+export async function combinedTextOrCssQuery(
+  page: Page,
+  options: { cssSelectors: string[]; tags: string[]; textNeedles: string[] }
+): Promise<string | null> {
+  const { cssSelectors, tags, textNeedles } = options;
+  return await page.evaluate(
+    `(function() {
+      ${PATH_BUILDER_SOURCE}
+      const cssList = ${JSON.stringify(cssSelectors)};
+      const tags = ${JSON.stringify(tags)};
+      const needles = ${JSON.stringify(textNeedles.map(n => n.toLowerCase()))};
+      // CSS round first — preserves the historical preference order.
+      for (const sel of cssList) {
+        try {
+          const m = document.querySelector(sel);
+          if (m) return buildSelectorPath(m);
+        } catch (e) {
+          // Skip a selector that the host's CSS engine rejects
+          // (e.g. CSS-4-only pseudo-classes). The text round below
+          // is the safety net.
+        }
+      }
+      // Text round
+      for (const tag of tags) {
+        const els = document.querySelectorAll(tag);
+        for (const el of els) {
+          const t = (el.textContent || '').trim().toLowerCase();
+          if (needles.some(n => t.includes(n))) return buildSelectorPath(el);
+        }
+      }
+      return null;
+    })()`
+  ) as string | null;
 }
 
 /**

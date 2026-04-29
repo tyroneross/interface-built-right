@@ -1150,31 +1150,44 @@ program
     const { spawn } = await import('child_process');
     const { resolve } = await import('path');
 
-    // Find web-ui directory relative to package root
-    // In CJS build, use process.cwd() or resolve from known location
-    const packageRoot = resolve(process.cwd());
-    let webUiDir = join(packageRoot, 'web-ui');
-
-    // If not found in cwd, try relative to node_modules install
-    if (!existsSync(webUiDir)) {
-      // Try finding it relative to this package when installed as dependency
-      const possiblePaths = [
-        join(packageRoot, 'node_modules', 'interface-built-right', 'web-ui'),
-        join(packageRoot, '..', 'interface-built-right', 'web-ui'),
-      ];
-      for (const p of possiblePaths) {
-        if (existsSync(p)) {
-          webUiDir = p;
-          break;
-        }
+    // Find web-ui directory. Resolution order:
+    //   1. <package-root>/web-ui — installed-package layout. dist/bin/ibr.js
+    //      → ../../web-ui. This is the path that matters in production
+    //      because web-ui is NOT shipped via npm (not in package.json#files);
+    //      it ships only via the symlinked dev install or a user clone.
+    //   2. <cwd>/web-ui — legacy fallback for users running from a clone.
+    //   3. nearest node_modules/@tyroneross/interface-built-right/web-ui —
+    //      defensive cross-package case.
+    //
+    // The previous logic used `process.cwd()` as the root, which made the
+    // command falsely report "Web UI not found" any time the user ran it
+    // from a project that consumed IBR rather than from the IBR repo itself.
+    const distBinRoot = resolve(__dirname, '..', '..');
+    const candidates = [
+      join(distBinRoot, 'web-ui'),
+      join(process.cwd(), 'web-ui'),
+      join(process.cwd(), 'node_modules', '@tyroneross', 'interface-built-right', 'web-ui'),
+      join(process.cwd(), 'node_modules', 'interface-built-right', 'web-ui'),
+    ];
+    let webUiDir: string | null = null;
+    for (const c of candidates) {
+      if (existsSync(c)) {
+        webUiDir = c;
+        break;
       }
     }
 
     // Check if web-ui exists
-    if (!existsSync(webUiDir)) {
-      console.log('Web UI not found. Please ensure web-ui directory exists.');
+    if (!webUiDir) {
+      console.log('Web UI not bundled in this install.');
       console.log('');
-      console.log('For now, you can view the comparison images directly:');
+      console.log('IBR ships the comparison viewer only via the source repo —');
+      console.log('the `web-ui/` directory is not packaged for npm.');
+      console.log('');
+      console.log('Alternatives:');
+      console.log('  - Clone the IBR repo and run `npm run ui`.');
+      console.log('  - Use `mcp__plugin_ibr_ibr__screenshot` for visual checks.');
+      console.log('  - Open the comparison artifacts directly:');
 
       try {
         const ibr = await createIBR(program.opts());
@@ -1182,9 +1195,9 @@ program
 
         if (session) {
           const config = ibr.getConfig();
-          console.log(`  Baseline: ${config.outputDir}/sessions/${session.id}/baseline.png`);
-          console.log(`  Current:  ${config.outputDir}/sessions/${session.id}/current.png`);
-          console.log(`  Diff:     ${config.outputDir}/sessions/${session.id}/diff.png`);
+          console.log(`      Baseline: ${config.outputDir}/sessions/${session.id}/baseline.png`);
+          console.log(`      Current:  ${config.outputDir}/sessions/${session.id}/current.png`);
+          console.log(`      Diff:     ${config.outputDir}/sessions/${session.id}/diff.png`);
         }
       } catch {
         // Ignore errors

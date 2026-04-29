@@ -78,11 +78,53 @@ export async function loginFlow(
 
     // Step 3: Handle remember me (optional)
     if (options.rememberMe) {
-      const rememberCheckbox = await page.$(
+      // First try the valid-CSS forms.
+      let rememberCheckbox = await page.$(
         'input[type="checkbox"][name*="remember"], ' +
-        'input[type="checkbox"][id*="remember"], ' +
-        'label:has-text("remember") input[type="checkbox"]'
+        'input[type="checkbox"][id*="remember"]'
       );
+      if (!rememberCheckbox) {
+        // Walk labels for "remember" and grab the associated checkbox.
+        // Replaces `label:has-text("remember") input[type="checkbox"]`,
+        // which was Playwright-only and crashed native querySelector.
+        const path = await page.evaluate(`(function() {
+          function buildSelectorPath(el) {
+            if (!(el instanceof Element)) return null;
+            const path = [];
+            let cur = el;
+            while (cur && cur.nodeType === 1 && cur !== document.body) {
+              let sel = cur.nodeName.toLowerCase();
+              if (cur.id) {
+                const safeId = cur.id.replace(/(["\\\\])/g, '\\\\$1');
+                path.unshift(sel + '[id="' + safeId + '"]');
+                break;
+              }
+              const parent = cur.parentElement;
+              if (parent) {
+                const sibs = Array.from(parent.children).filter(c => c.nodeName === cur.nodeName);
+                if (sibs.length > 1) sel += ':nth-of-type(' + (sibs.indexOf(cur) + 1) + ')';
+              }
+              path.unshift(sel);
+              cur = cur.parentElement;
+            }
+            return path.length ? path.join(' > ') : null;
+          }
+          for (const label of document.querySelectorAll('label')) {
+            if (!(label.textContent || '').toLowerCase().includes('remember')) continue;
+            const inside = label.querySelector('input[type="checkbox"]');
+            if (inside) return buildSelectorPath(inside);
+            const forId = label.getAttribute('for');
+            if (forId) {
+              const direct = document.getElementById(forId);
+              if (direct && direct.tagName === 'INPUT') return buildSelectorPath(direct);
+            }
+          }
+          return null;
+        })()`);
+        if (typeof path === 'string' && path) {
+          rememberCheckbox = await page.$(path);
+        }
+      }
       if (rememberCheckbox) {
         await rememberCheckbox.check?.();
         steps.push({ action: 'check remember me', success: true });

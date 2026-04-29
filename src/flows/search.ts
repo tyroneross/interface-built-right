@@ -106,11 +106,17 @@ export async function searchFlow(
     const resultCount = results.length;
     const hasResults = resultCount > 0;
 
-    // Check for empty state
-    const emptyState = await page.$(
-      '[class*="no-results"], [class*="empty"], ' +
-      ':has-text("no results"), :has-text("nothing found")'
-    );
+    // Check for empty state. Combines a valid-CSS round
+    // ([class*="no-results"], [class*="empty"]) with an in-page text walk
+    // for "no results" / "nothing found" — the prior `:has-text(...)`
+    // form was Playwright-only syntax and crashed native querySelector.
+    const { combinedTextOrCssQuery } = await import('./types.js');
+    const emptyStatePath = await combinedTextOrCssQuery(page, {
+      cssSelectors: ['[class*="no-results"]', '[class*="empty"]'],
+      tags: ['div', 'p', 'span', 'section'],
+      textNeedles: ['no results', 'nothing found'],
+    });
+    const emptyState = emptyStatePath ? await page.$(emptyStatePath) : null;
 
     steps.push({
       action: `found ${resultCount} results`,
