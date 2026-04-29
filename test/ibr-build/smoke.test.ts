@@ -2,10 +2,16 @@ import { describe, it, expect } from 'vitest';
 import { indexTemplates } from '../../src/ui-guidance/library.js';
 import { readGallery } from '../../src/mockup-gallery/reader.js';
 import { recordImplementation } from '../../src/mockup-gallery/writer.js';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { readFileSync } from 'fs';
 
 const fixture = join(__dirname, 'fixture-project');
+// Small repo-local fixture so the smoke test doesn't depend on whatever a
+// developer happens to have under their home directory. The previous path
+// `~/Desktop/git-folder/UI Guidance` stopped existing when the project tree
+// moved to `~/dev/git-folder/...`; rather than re-pin that absolute path,
+// use a checked-in markdown directory the test owns.
+const centralFixture = resolve(__dirname, 'fixture-templates');
 
 describe('/ibr:build smoke — primitives wire together', () => {
   it('reads gallery and index templates from the same fixture project', async () => {
@@ -14,7 +20,7 @@ describe('/ibr:build smoke — primitives wire together', () => {
     expect(gallery.selected.dashboard).toBe('dashboard-1.html');
 
     const templates = await indexTemplates({
-      centralDir: '/Users/tyroneross/Desktop/git-folder/UI Guidance',
+      centralDir: centralFixture,
       projectDir: null,
     });
     expect(templates.templates.length).toBeGreaterThan(0);
