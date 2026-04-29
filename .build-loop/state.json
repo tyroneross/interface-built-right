@@ -1,25 +1,43 @@
 {
-  "goal": "IBR evolution for Opus 4.7+ era: hydration fix, rule engine, sensor layer, interaction reliability",
+  "goal": "Make IBR stronger as a primary design agent by adding Design Director planning, web archetype routing, Calm Precision 6.4.1 guidance, Mockup Gallery target roles, and data visualization guidance.",
   "projectType": "claude-code-plugin",
-  "uiTarget": null,
+  "uiTarget": "web",
   "platform": "node",
   "testRunner": "vitest",
-  "currentVersion": "0.10.0-alpha",
-  "targetVersion": "0.11.0-alpha",
-  "execution": {
-    "mode": "subagent-driven",
-    "implementerModel": "sonnet",
-    "reviewerModel": "opus"
+  "availablePlugins": {
+    "ibr": true,
+    "showcase": true,
+    "scraperApp": true,
+    "agentBuilder": true,
+    "claudeCodeDebugger": true,
+    "pyramidPrinciple": true,
+    "pluginDev": true,
+    "replitMigrate": false,
+    "promptBuilder": true,
+    "appleDev": true
   },
+  "triggers": {
+    "pluginWork": true,
+    "structuredWriting": true,
+    "uiGuidance": true,
+    "newSkills": true
+  },
+  "scoringCriteria": [
+    "Design-agent completeness",
+    "Guidance selection determinism",
+    "Mockup Gallery target safety",
+    "Skill quality",
+    "Validation evidence"
+  ],
   "phases": {
     "assess": "complete",
-    "define": "in-progress",
-    "plan": "pending",
-    "execute": "pending",
-    "critic": "pending",
-    "validate": "pending",
-    "iterate": "pending",
-    "factcheck": "pending",
-    "report": "pending"
+    "define": "complete",
+    "plan": "complete",
+    "execute": "complete",
+    "critic": "complete",
+    "validate": "complete",
+    "iterate": "complete",
+    "factcheck": "complete",
+    "report": "complete"
   }
 }

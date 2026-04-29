@@ -6,11 +6,11 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 ## What IBR Is
 
-IBR is an end-to-end design tool for Claude Code. It guides UI builds with archetype-based design routing and platform-specific best practices, then validates implementations with visual scanning and interaction testing.
+IBR is an end-to-end design tool for AI coding agents, with first-class Claude Code and Codex packaging. It guides UI builds with Design Director planning, archetype-based design routing, Calm Precision rules, and platform-specific best practices, then validates implementations with visual scanning and interaction testing.
 
 - **Package:** `@tyroneross/interface-built-right` v1.0.0
 - **Runtime:** Node.js >= 22, TypeScript
-- **Dual distribution:** npm package + Claude Code plugin (`.claude-plugin/plugin.json`)
+- **Dual distribution:** npm package + Claude Code plugin (`.claude-plugin/plugin.json`) + Codex plugin (`.codex-plugin/plugin.json`)
 - **License:** MIT
 
 ---
@@ -67,21 +67,30 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 
 | Path | Purpose |
 |---|---|
-| `.claude-plugin/plugin.json` | Plugin manifest (name, version, hooks, mcpServers, skills refs) |
-| `.mcp.json` | MCP server configuration |
-| `skills/` | 8 skill definitions (markdown, auto-triggered by Claude) |
+| `.claude-plugin/plugin.json` | Claude Code plugin manifest metadata |
+| `.codex-plugin/plugin.json` | Codex plugin manifest metadata, compact Codex skills path, and Codex MCP path |
+| `.mcp.json` | Claude-shaped MCP server configuration |
+| `.codex-plugin/mcp.json` | Codex-shaped MCP server configuration |
+| `skills/` | 22 detailed skill definitions (markdown guidance loaded by Claude Code and source workflows) |
+| `.codex-plugin/skills/` | Compact Codex routing skills for lower token activation cost |
 | `commands/` | 27 slash command definitions |
 | `hooks/hooks.json` | Hook configuration |
 | `hooks/ibr-pre-change.sh` | PreToolUse handler |
 | `hooks/ibr-post-change.sh` | PostToolUse handler |
 | `hooks/ibr-loop-hook.sh` | Stop handler |
 | `agents/visual-iterator.md` | Design validator agent definition |
-| `references/` | iOS/macOS design reference files (domain option catalogs) |
+| `references/` | iOS/macOS/web design reference files (domain option catalogs) |
 
-### Skills (14)
+### Skills (22)
 
 | Directory | Purpose |
 |---|---|
+| `skills/design-director/` | Primary design-agent planner — design intent, specialist passes, target roles, validation criteria |
+| `skills/web-design-router/` | Web archetype classifier — dashboards, research tools, workbenches, AI chat, checkout, content, admin |
+| `skills/data-visualization/` | Chart-worthiness, chart routing, metrics, data storytelling, source attribution |
+| `skills/design-guidance/` | Pre-build design direction, Calm Precision rules, token and pattern selection |
+| `skills/component-patterns/` | Reusable component blueprints for cards, nav, forms, dashboards, modals, tables, lists |
+| `skills/design-system/` | Design token extraction, validation, and design system compliance |
 | `skills/design-implementation/` | Building UI from user descriptions |
 | `skills/design-validation/` | Verifying implementation matches intent |
 | `skills/design-reference/` | Capturing and comparing design references |
@@ -107,9 +116,13 @@ Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landin
 | `PostToolUse` | `Write\|Edit` | `ibr-post-change.sh` | 30000ms |
 | `Stop` | (all) | `ibr-loop-hook.sh` | — |
 
-### Agents (1)
+### Agent Approach
+
+Claude Code has one bundled Claude-style subagent:
 
 `agents/visual-iterator.md` — `design-validator`: scans live page, compares against user intent, fixes mismatches, re-scans. Max 5 iterations. Invoked for "check my UI", "verify the design", post-component builds.
+
+Codex uses compact `.codex-plugin/skills/` routing guidance plus MCP/session tools. The larger `skills/` library remains the detailed Claude/source guidance surface. Do not assume Claude-style agent frontmatter is loaded by Codex; use Codex-native subagents only as the host orchestration layer, with IBR skills and MCP tools as the shared contract.
 
 ### MCP Tools
 
@@ -157,7 +170,7 @@ iOS/watchOS/macOS specific code. Simulator scanning requires a booted device and
 
 ### Skills — `skills/*.md`
 
-Each skill has different auto-trigger patterns defined in the skill frontmatter. When updating scan output fields or adding tools, update the relevant skill docs. Skills are injected into Claude's context at load time — keep them concise.
+Each skill has different auto-trigger patterns defined in the skill frontmatter. When updating scan output fields or adding tools, update the relevant skill docs. Skills are loaded by supported agent runtimes as markdown guidance, not compiled code — keep them concise.
 
 ### Hook Matchers — `hooks/hooks.json`
 
@@ -175,4 +188,4 @@ WebDriver-based Safari driver. Requires `safaridriver --enable` once per machine
 - Element targeting is always by accessible name + role, never by CSS selector. This is intentional — CSS selectors break; accessibility names reflect what users see.
 - The MCP server communicates over stdio (JSON-RPC 2.0). Do not change the transport.
 - Node.js >= 22 is required. The codebase uses modern ES module syntax throughout.
-- Skills are markdown files loaded by the Claude Code plugin runtime. They are not compiled.
+- Skills are markdown files loaded by supported plugin runtimes. They are not compiled.

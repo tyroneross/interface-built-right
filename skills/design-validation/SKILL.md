@@ -13,6 +13,7 @@ Run structured post-build audits against live pages and native simulators. Valid
 
 A full validation pass covers:
 
+- **Design contract** — implementation matches `design-intent.json`, platform archetype, target roles, and validation plan
 - **Interactivity** — all buttons, links, and forms have wired handlers and real targets
 - **Accessibility** — all interactive elements have labels, touch targets meet size minimums, keyboard access works
 - **Semantic state** — page intent is correct, no stuck loading or error states, available actions match expectations
@@ -135,12 +136,14 @@ Call `ibr scan_macos` to audit a running macOS application via its accessibility
 
 A complete post-build validation pass:
 
-1. **Scan all routes** — call `ibr scan` on each page in the application, not just the primary route
-2. **Triage the issue list** — sort by severity; address all high-severity issues before moving to medium
-3. **Accessibility pass** — verify every interactive element has a label, role, and adequate touch target
-4. **Interactivity pass** — confirm every button, link, and form has a working handler and real target
-5. **Console pass** — confirm zero JavaScript errors on page load for every route
-6. **Regression check** — call `ibr compare` if baselines exist; verify no unexpected changes
+1. **Read design intent** — load `.ibr/builds/<topic>/design-intent.json` and `specialists/validation-plan.md` when present
+2. **Scan all routes** — call `ibr scan` on each page in the application, not just the primary route
+3. **Triage the issue list** — sort by severity; address all high-severity issues before moving to medium
+4. **Accessibility pass** — verify every interactive element has a label, role, and adequate touch target
+5. **Interactivity pass** — confirm every button, link, and form has a working handler and real target
+6. **Console pass** — confirm zero JavaScript errors on page load for every route
+7. **Reference pass** — validate `wireframe-target` semantically and `visual-target` visually when target roles exist
+8. **Regression check** — call `ibr compare` if baselines exist; verify no unexpected changes
 
 Do not close the audit until all high-severity issues are resolved or explicitly accepted with documented rationale.
 
@@ -156,6 +159,10 @@ When `.ibr/design-system.json` is active, the scan automatically enforces Calm P
 | Cognitive Load | More than 7 interactive elements in a visual group | warn |
 | Fitts | Primary action buttons below 120px width | warn |
 | Hick | More than 5 visible choices without progressive disclosure | warn |
+| Functional Integrity | Interactive-looking elements without real action/destination | error |
+| Mobile-First | Touch targets, input sizing, and mobile ordering issues | error/warn |
+| Voice | Generic errors, vague loading, long button labels | warn |
+| Data Resilience | Missing empty/error/loading states or unlabeled metrics | warn |
 
 Principle violations appear in the `designSystem.principleViolations` array of the scan result. Each violation includes the rule ID, element selector, and a fix suggestion.
 
@@ -193,9 +200,11 @@ When reporting audit results, use this structure:
 
 ```
 Route: /example
+  Design contract: PASS | ISSUES | not available
   Scan verdict: PASS | ISSUES | FAIL
   Issues: [count] ([high] high, [med] medium, [low] low)
   Regression: MATCH | EXPECTED_CHANGE | UNEXPECTED_CHANGE | LAYOUT_BROKEN | no baseline
+  References: wireframe PASS|ISSUES|n/a; visual MATCH|ISSUES|n/a
   Blockers: [list high-severity issues or "none"]
 ```
 

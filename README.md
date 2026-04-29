@@ -19,7 +19,7 @@
 
 ---
 
-IBR is an end-to-end design tool for AI coding agents. It guides UI builds with archetype-based iOS design routing, Calm Precision principles, and platform-specific best practices. Built-in visual validation scans live pages, runs interaction assertions, matches mockups, and verifies design intent — Chrome and Safari.
+IBR is an end-to-end design tool for AI coding agents. It guides UI builds with Design Director planning, web and iOS archetype routing, Calm Precision principles, and platform-specific best practices. Built-in visual validation scans live pages, runs interaction assertions, matches mockups, and verifies design intent — Chrome and Safari.
 
 Built on a custom CDP engine — no Playwright. Works from terminal, Codex, Claude Code slash commands, or code. Zero config.
 
@@ -27,11 +27,28 @@ Built on a custom CDP engine — no Playwright. Works from terminal, Codex, Clau
 
 `/ibr:build <topic>` orchestrates the full design-to-validation flow:
 
-1. **Preamble** — Platform, scope, app archetype (iOS: Utility/Content/Productivity/Consumer/Editorial/Tool), UI template, density
-2. **Brainstorm** — Guided exploration with platform-specific design rules
-3. **Plan** — Implementation plan with component sequence
-4. **Implement** — Build with design guidance: HIG rules (`ios-design`), architecture patterns (`apple-platform`), domain-specific option catalogs (`references/ios-design/`)
-5. **Validate** — Scan, match mockups, test interactions, iterate until passing
+1. **Preamble** — Platform, scope, design mode, archetype hints, UI template, references, density
+2. **Optional imagegen concepts** — Generates visual concepts only when useful, then requires approval before any concept becomes a `visual-target`
+3. **Design Director** — Produces `design-intent.json`, specialist planning passes, target roles, and validation criteria
+4. **Brainstorm & Plan** — Guided exploration with platform-specific design rules and a concrete implementation plan
+5. **Implement** — Build with design guidance: Calm Precision, web/iOS/macOS routers, component patterns, data-viz guidance when needed
+6. **Validate** — Scan, match wireframe/visual targets, test interactions, iterate until passing
+
+### Design Director
+
+The `design-director` skill is the primary planning layer for page, flow, app, dashboard, and reference-heavy UI work. It selects guidance in a deterministic order, resolves Mockup Gallery references into roles (`wireframe-target`, `visual-target`, `inspiration`, `data-reference`), and writes specialist planning artifacts under `.ibr/builds/<topic>/specialists/`.
+
+Specialist passes are used for flow, visual system, interaction states, content states, Mockup Gallery targets, data visualization, and validation. IBR does not create separate tiny agents for buttons, fonts, or individual visual atoms; those stay inside component patterns and design tokens.
+
+### Imagegen Concepts
+
+IBR can use imagegen as an upstream concept pass for mood, style, hero/product imagery, and hi-fi variants. Generated concepts are saved under `.ibr/builds/<topic>/references/imagegen/` when they are project-bound. They remain `inspiration` until the user explicitly approves one as a `visual-target`.
+
+Imagegen does not replace wireframes, accessibility semantics, interaction requirements, or validation. IBR still validates the rendered implementation with scan, interaction, match, and native tools.
+
+### Web Design Routing
+
+The `web-design-router` skill classifies web interfaces into archetypes: SaaS dashboard, data/research tool, editor/workbench, AI agent chat, commerce/checkout, content/publication, and internal admin. Each archetype sets defaults for navigation, density, primary content, mobile behavior, and validation focus.
 
 ### iOS Design System
 
@@ -167,6 +184,9 @@ See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 | Feature | Command / Usage | What it does |
 |---------|----------------|-------------|
 | **End-to-end design tool** | Positioning update | From "visual testing platform" to design + build + validate |
+| **Design Director** | `/ibr:build` | Primary design-agent layer with design intent, specialist planning passes, target roles, and validation criteria |
+| **Web design router** | skill: `web-design-router` | 7 web archetypes covering dashboards, research tools, workbenches, AI chat, checkout, content, and admin |
+| **Data visualization guidance** | skill: `data-visualization` | Chart-worthiness gate, chart routing, attribution, accessibility, and validation rules |
 | **iOS design system** | `/ibr:build` with platform=iOS | 6-archetype router, 7 domain reference files covering navigation, lists, buttons, color, motion, task economy |
 | **apple-platform skill** | Loaded during iOS builds | Architecture, SwiftData, concurrency, CI/CD, TestFlight — integrated from standalone apple-dev |
 | **Deterministic rule engine** | `ibr scan --rules wcag-contrast,touch-targets` | WCAG AA/AAA contrast, touch target sizes. No LLM tokens |
@@ -278,9 +298,11 @@ IBR_CHROME_PATH=/path/to/chrome
 
 `--headed` is now the preferred flag for a visible browser window. `--sandbox` remains as a deprecated alias for backwards compatibility.
 
-## Setup as Claude Code Plugin
+## Setup as Agent Plugins
 
-IBR works standalone, but it's built for Claude Code. As a plugin, it guides UI builds with archetype-based routing and validates implementations automatically.
+IBR works standalone and ships plugin metadata for both Claude Code and Codex. Claude Code gets slash commands, hooks, and the `design-validator` agent; Codex gets compact routing skills plus MCP/session tools for the same scan, navigation, search, and validation contract.
+
+### Claude Code
 
 **1. Add the marketplace (one-time):**
 
@@ -312,6 +334,39 @@ IBR works standalone, but it's built for Claude Code. As a plugin, it guides UI 
 
 The plugin hooks run automatic pre/post scans around UI file edits and surface console errors immediately when interactions trigger them.
 
+### Codex
+
+Codex consumes `.codex-plugin/plugin.json`, compact skills under `.codex-plugin/skills/`, and `.codex-plugin/mcp.json`. The Codex-compatible agent approach is skills plus MCP tools; Claude-style files under `commands/`, `hooks/`, and `agents/` are retained for Claude Code and should not be treated as Codex-loaded routing.
+
+Install this checkout as a local Codex plugin:
+
+```bash
+npm run build
+npm run plugin:install-codex
+```
+
+This syncs a slim Codex bundle to `~/plugins/ibr` and registers it in `~/.agents/plugins/marketplace.json`. Restart Codex after installing. See [Codex Plugin Setup](docs/codex-plugin-setup.md) for validation steps and failure modes.
+
+Starter prompts:
+
+```text
+$ibr Plan this UI with IBR.
+$ibr Scan this UI with IBR.
+$ibr Validate this design intent.
+```
+
+Use MCP sessions when the agent needs to navigate the current UI state:
+
+```json
+{
+  "tool": "flow_search",
+  "sessionId": "<session id>",
+  "query": "pricing plan",
+  "userIntent": "Find the plan a buyer would choose",
+  "aiValidation": true
+}
+```
+
 ## What IBR Does For You (Plugin Hooks)
 
 When installed as a Claude Code plugin, IBR provides:
@@ -322,7 +377,7 @@ When installed as a Claude Code plugin, IBR provides:
 - **Bash safety** — blocks destructive commands (`rm -rf /`, `git push --force`, etc.)
 - **Sensitive path protection** — prevents writes to `~/.ssh`, `~/.aws`, `/etc/`
 
-All hooks use prompt-based evaluation (not shell scripts), so they never crash or show error messages.
+Hooks are command-based and live in `hooks/hooks.json`. They call the repo-local shell scripts under `hooks/`, which are designed to fail softly when no UI work, no config, or no reachable dev server is present.
 
 ## What IBR Scan Returns
 

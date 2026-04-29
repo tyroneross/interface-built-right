@@ -1,79 +1,89 @@
 ---
 name: design-guidance
-description: Use when building UI components, pages, or layouts. Pre-build design direction and pattern selection using Calm Precision principles and active design tokens.
+description: Use when building UI components, pages, flows, or layouts. Provides pre-build design direction, guidance selection, Calm Precision 6.4.1 rules, component pattern selection, active design tokens, and validation handoff.
 ---
 
 # Design Guidance
 
-Activate this skill before building any UI component, page, or layout. It provides design direction, selects the right component pattern, and applies the active design system — so implementation starts aligned, not corrected after.
+Activate before building UI. This skill turns intent into design constraints so implementation starts aligned instead of relying on visual cleanup afterward.
 
 ## When This Activates
 
-This skill is relevant when the user says things like:
+Use for:
 
 - "build a component", "create a page", "design a form"
 - "what should this look like", "how should I structure this"
 - "add a card", "build a dashboard", "create a nav"
-- "make this look good", "give me a layout for..."
+- "make this look good", "give me a layout for"
+- frontend files that affect visible structure, interaction, or state
 
-Load this skill first, before writing any code. Design direction up front prevents accumulated mismatches.
+For page, flow, app, dashboard, or reference-heavy work, load `design-director` first. For a small isolated component, use this skill directly.
+
+## Guidance Selection
+
+Resolve guidance in this order:
+
+1. User-stated requirements
+2. `.ibr/design-system.json` tokens and project overrides
+3. `design-intent.json` from Design Director, when present
+4. Mockup Gallery target roles, when present
+5. Platform router: `web-design-router`, `ios-design-router`, `macos-ui`, `mobile-web-ui`
+6. Calm Precision 6.4.1 structural defaults
+7. Component pattern files in `templates/patterns/`
+8. Data visualization guidance, only when metrics/charts are in scope
+
+If two rules conflict, preserve functional integrity, accessibility, real data constraints, and platform conventions unless the user explicitly chooses a different tradeoff.
 
 ## Design System Check
 
-Before providing guidance, check for a project-level design system config:
+Before guidance:
 
-1. Look for `.ibr/design-system.json` in the project root
-2. If present — use its `tokens` and `principles` for all guidance in this session
-3. If absent — fall back to Calm Precision defaults (documented below) and recommend running `design_system` tool to initialize one
+1. Look for `.ibr/design-system.json` in the project root.
+2. If present, use its `tokens` and `principles`.
+3. If absent, fall back to Calm Precision defaults and recommend initializing a design system only when repeated off-system choices are likely.
 
-When a config is active, reference its token values by name (e.g. `spacing.lg`, `colors.primary`) rather than raw values. This ensures implementation stays on-system and passes token compliance checks during scan.
+Reference token names, not raw values, where the project supports tokens. Rendered computed values are what IBR scan validates.
 
 ## Component Selection
 
-Map user intent to the appropriate pattern before building:
+Map user intent to the relevant pattern:
 
 | User says | Pattern file | Notes |
-|-----------|-------------|-------|
-| "card", "tile", "item card" | `templates/patterns/card.md` | Use for any contained content unit |
-| "nav", "sidebar", "menu", "navigation" | `templates/patterns/nav.md` | Load when adding navigation structure |
-| "form", "input", "fields" | `templates/patterns/form.md` | Covers layout, validation states, submit |
-| "dashboard", "overview page" | `templates/patterns/dashboard.md` | Grid layout, stat cards, data areas |
+|---|---|---|
+| "card", "tile", "item card" | `templates/patterns/card.md` | Contained content unit |
+| "nav", "sidebar", "menu", "navigation" | `templates/patterns/nav.md` | Navigation structure |
+| "form", "input", "fields" | `templates/patterns/form.md` | Layout, validation states, submit |
+| "dashboard", "overview page" | `templates/patterns/dashboard.md` | Grid, metrics, data areas |
 | "modal", "dialog", "overlay" | `templates/patterns/modal.md` | Focus trap, backdrop, close behavior |
-| "table", "data grid", "list of records" | `templates/patterns/table.md` | Column structure, row states, sorting |
-| "list", "feed", "items" | `templates/patterns/list.md` | Spacing rules, dividers, empty states |
+| "table", "data grid", "list of records" | `templates/patterns/table.md` | Columns, row states, sorting |
+| "list", "feed", "items" | `templates/patterns/list.md` | Spacing, dividers, empty states |
 
-Read the relevant pattern file before implementing. Patterns include spacing rules, typography hierarchy, accessibility requirements, and anti-patterns to avoid.
+Read the relevant pattern file before implementing.
 
-Note: Only `templates/patterns/card.md` exists today. Reference the component-patterns skill for the full pattern index as more are added.
+## Calm Precision 6.4.1 Quick Reference
 
-## Calm Precision Quick Reference
+Apply these during design, not after:
 
-Six principles that govern all IBR-validated UI. Apply them during design, not after.
-
-**Gestalt — Grouping**
-Single border around a related group. Dividers between items. Never individual borders on list items. Related elements must share a visual container.
-
-**Fitts — Target Size**
-Button size signals intent weight. Primary/conversion actions: full-width or minimum 120px. Secondary/quick actions: compact. Do not make all buttons the same size.
-
-**Hick — Progressive Disclosure**
-Show the minimum. Reveal on demand. Advanced options go behind expand or action triggers. Max 5-7 visible choices before disclosure is required.
-
-**Signal-to-Noise — Status Display**
-Status is communicated through text color only — no background badges, no heavy color fills for state. Color and weight hierarchy replace boxes. A success state is green text, not a green pill.
-
-**Content >= Chrome**
-Content area must be at least 70% of the visible viewport. Navigation, sidebars, headers, and decorative chrome occupy the remaining 30% or less.
-
-**Cognitive Load**
-5-7 items maximum per visual group. When a group exceeds 7, split it or use progressive disclosure. Keep decision points minimal per screen.
+1. **Group, Don't Isolate** — one border around related groups, dividers inside.
+2. **Size = Importance** — button size matches user intent weight.
+3. **Three-Line Hierarchy + Page Cascade** — title, description, metadata inside components; L1/L2/L3/L4 across pages.
+4. **Progressive Disclosure** — show essentials, reveal secondary choices on demand.
+5. **Text Over Decoration** — color and weight create hierarchy before boxes.
+6. **Content Over Chrome** — aim for at least 70% content and no more than 30% chrome.
+7. **Natural Language** — labels match user vocabulary, not implementation jargon.
+8. **Rhythm & Alignment** — 8pt rhythm, aligned baselines, stable dimensions.
+9. **Functional Integrity** — interactive UI needs a real action, destination, or explicit demo/disabled state.
+10. **Content Resilience + Error Strategy** — handle variable content and use what -> why -> fix errors.
+11. **Mobile-First Structure** — base styles target mobile; breakpoints add complexity.
+12. **Purposeful Motion** — motion communicates state/interactivity and respects reduced motion.
+13. **Voice Calibration** — buttons use Verb + Object, tooltips are short, loading says what is happening.
 
 ## Token Application
 
-When `.ibr/design-system.json` is active, resolve values from these token paths:
+When `.ibr/design-system.json` is active:
 
 | Design decision | Token path |
-|----------------|-----------|
+|---|---|
 | Text colors | `tokens.colors.text.*` |
 | Background colors | `tokens.colors.background.*` |
 | Brand/accent colors | `tokens.colors.primary`, `tokens.colors.secondary` |
@@ -86,17 +96,17 @@ When `.ibr/design-system.json` is active, resolve values from these token paths:
 | Button radius | `tokens.borderRadius.sm`, `.md` |
 | Minimum touch target | `tokens.touchTargets.min` |
 
-Use these token names in implementation code (as CSS variables or design token references). The scan pipeline checks rendered computed values against these token definitions and reports `tokenViolations` for off-system values.
-
 ## After Building
 
-Run `ibr scan` on the rendered component to verify implementation matches design intent. The scan will:
+Run `ibr scan` on the rendered component or page. Check:
 
-- Check Calm Precision principle compliance when a design system config is active
-- Report `designSystem.principleViolations` for rule failures
-- Report `designSystem.tokenViolations` for off-system values
-- Output a `designSystem.complianceScore` (0-100)
+- Calm Precision principle violations
+- Token violations
+- Accessible names and roles
+- Handler/destination coverage
+- Mobile/touch sizing
+- Layout and content hierarchy against `design-intent.json`, when present
 
-Load the design-validation skill for a structured post-build audit workflow. Load the component-patterns skill to reference the full pattern library.
+Load `design-validation` for a full post-build audit.
 
-*ibr — design guidance*
+*ibr - design guidance*

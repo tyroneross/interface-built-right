@@ -38,7 +38,7 @@ Every pattern file follows the same structure:
 
 **Structure** — The semantic HTML/component hierarchy. What elements are required, what is optional, nesting order.
 
-**Calm Precision Rules** — Which of the six principles apply to this component and how. Specific, measurable — "do not add a border to each list item, use a divider instead."
+**Calm Precision Rules** — Which Calm Precision 6.4.1 principles apply to this component and how. Specific, measurable — "do not add a border to each list item, use a divider instead."
 
 **Spacing** — Token-referenced padding, gap, and margin values. Includes responsive breakpoints when relevant.
 

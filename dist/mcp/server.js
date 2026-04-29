@@ -2655,16 +2655,16 @@ var init_api_timing = __esm({
 });
 
 // src/memory.ts
-var import_path9, import_os2, import_nanoid3, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY;
+var import_path10, import_os2, import_nanoid3, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY;
 var init_memory = __esm({
   "src/memory.ts"() {
     "use strict";
-    import_path9 = require("path");
+    import_path10 = require("path");
     import_os2 = require("os");
     import_nanoid3 = require("nanoid");
-    GLOBAL_DIR = (0, import_path9.join)((0, import_os2.homedir)(), ".ibr", "global-memory");
-    GLOBAL_PREFS_DIR = (0, import_path9.join)(GLOBAL_DIR, "preferences");
-    GLOBAL_SUMMARY = (0, import_path9.join)(GLOBAL_DIR, "summary.json");
+    GLOBAL_DIR = (0, import_path10.join)((0, import_os2.homedir)(), ".ibr", "global-memory");
+    GLOBAL_PREFS_DIR = (0, import_path10.join)(GLOBAL_DIR, "preferences");
+    GLOBAL_SUMMARY = (0, import_path10.join)(GLOBAL_DIR, "summary.json");
   }
 });
 
@@ -2842,7 +2842,7 @@ async function ensureExtractor() {
   if ((0, import_fs3.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
-  await (0, import_promises11.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  await (0, import_promises12.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
     if (!(0, import_fs3.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
       await buildSwiftExtractor();
@@ -2850,8 +2850,8 @@ async function ensureExtractor() {
     if (!(0, import_fs3.existsSync)(SWIFT_BUILD_PATH)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
-    await (0, import_promises11.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
-    await (0, import_promises11.chmod)(EXTRACTOR_PATH, 493);
+    await (0, import_promises12.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
+    await (0, import_promises12.chmod)(EXTRACTOR_PATH, 493);
     return EXTRACTOR_PATH;
   } catch (err) {
     throw new Error(
@@ -2886,7 +2886,7 @@ function isFileFresh(path) {
 }
 function isExtractorAvailable() {
   if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs3.existsSync)((0, import_path11.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  return (0, import_fs3.existsSync)((0, import_path12.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -2946,23 +2946,23 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs3, import_promises11, import_path11, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var import_child_process4, import_util3, import_fs3, import_promises12, import_path12, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util3 = require("util");
     import_fs3 = require("fs");
-    import_promises11 = require("fs/promises");
-    import_path11 = require("path");
+    import_promises12 = require("fs/promises");
+    import_path12 = require("path");
     init_role_map();
     execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path11.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path11.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = (0, import_path11.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
-    SWIFT_MAIN_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
-    SWIFT_PACKAGE_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, "Package.swift");
-    SWIFT_BUILD_PATH = (0, import_path11.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    EXTRACTOR_DIR = (0, import_path12.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path12.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = (0, import_path12.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    SWIFT_MAIN_PATH = (0, import_path12.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+    SWIFT_PACKAGE_PATH = (0, import_path12.join)(SWIFT_SOURCE_DIR, "Package.swift");
+    SWIFT_BUILD_PATH = (0, import_path12.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }
 });
 
@@ -3928,7 +3928,7 @@ var import_readline = require("readline");
 
 // src/mcp/tools.ts
 var import_fs6 = require("fs");
-var import_path16 = require("path");
+var import_path17 = require("path");
 
 // src/design-system/config.ts
 var import_zod = require("zod");
@@ -10596,6 +10596,8 @@ async function loginFlow(page, options) {
 }
 
 // src/flows/search.ts
+var import_promises9 = require("fs/promises");
+var import_path8 = require("path");
 init_types();
 async function searchFlow(page, options) {
   const startTime = Date.now();
@@ -10663,6 +10665,194 @@ async function searchFlow(page, options) {
       steps,
       error: error instanceof Error ? error.message : "Unknown error",
       duration: Date.now() - startTime
+    };
+  }
+}
+async function captureStepScreenshot(page, step, artifactDir, startTime) {
+  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const timing = Date.now() - startTime;
+  const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
+  const filename = `${stepNum}-${step}.png`;
+  const path = (0, import_path8.join)(artifactDir, filename);
+  await page.addStyleTag({
+    content: `
+      *, *::before, *::after {
+        animation-duration: 0s !important;
+        animation-delay: 0s !important;
+        transition-duration: 0s !important;
+        transition-delay: 0s !important;
+      }
+    `
+  });
+  await page.screenshot({
+    path,
+    fullPage: false,
+    type: "png"
+  });
+  return { step, path, timestamp, timing };
+}
+async function extractResultContent(page, resultsSelector) {
+  return page.evaluate((selector) => {
+    const elements = document.querySelectorAll(selector);
+    const results = [];
+    elements.forEach((el, index) => {
+      const htmlEl = el;
+      const rect = htmlEl.getBoundingClientRect();
+      const titleEl = htmlEl.querySelector('h1, h2, h3, h4, h5, h6, strong, b, [class*="title"]');
+      const title = titleEl?.textContent?.trim();
+      const snippetEl = htmlEl.querySelector('p, [class*="snippet"], [class*="description"], [class*="summary"]');
+      const snippet = snippetEl?.textContent?.trim();
+      const fullText = htmlEl.textContent?.trim() || "";
+      let selector2 = el.tagName.toLowerCase();
+      if (el.id) {
+        selector2 = `#${el.id}`;
+      } else if (el.className && typeof el.className === "string") {
+        const classes = el.className.split(" ").filter((c) => c.trim())[0];
+        if (classes) selector2 += `.${classes}`;
+        selector2 += `:nth-of-type(${index + 1})`;
+      }
+      results.push({
+        index,
+        title: title || void 0,
+        snippet: snippet || void 0,
+        fullText: fullText.slice(0, 500),
+        // Limit length
+        selector: selector2,
+        visible: rect.top >= 0 && rect.top < window.innerHeight
+      });
+    });
+    return results;
+  }, resultsSelector);
+}
+async function aiSearchFlow(page, options) {
+  const startTime = Date.now();
+  const steps = [];
+  const screenshots = [];
+  const timeout = options.timeout || 1e4;
+  const captureSteps = options.captureSteps !== false;
+  const extractContent = options.extractContent !== false;
+  const timing = {
+    total: 0,
+    typing: 0,
+    waiting: 0,
+    rendering: 0
+  };
+  let artifactDir;
+  if (captureSteps && options.sessionDir) {
+    artifactDir = (0, import_path8.join)(options.sessionDir, `search-${Date.now()}`);
+    await (0, import_promises9.mkdir)(artifactDir, { recursive: true });
+  }
+  try {
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "before", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture before screenshot", success: true, duration: shot.timing });
+    }
+    const searchInput = await findFieldByLabel(page, ["search", "query", "q", "find"]);
+    const searchField = searchInput || await page.$(
+      'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
+    );
+    if (!searchField) {
+      return {
+        success: false,
+        query: options.query,
+        userIntent: options.userIntent,
+        resultCount: 0,
+        hasResults: false,
+        steps,
+        screenshots,
+        extractedResults: [],
+        timing: { ...timing, total: Date.now() - startTime },
+        error: "Could not find search input",
+        duration: Date.now() - startTime,
+        artifactDir
+      };
+    }
+    const typingStart = Date.now();
+    await searchField.fill?.("");
+    await searchField.fill?.(options.query);
+    timing.typing = Date.now() - typingStart;
+    steps.push({ action: `type "${options.query}"`, success: true, duration: timing.typing });
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "after-query", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture after-query screenshot", success: true });
+    }
+    const waitingStart = Date.now();
+    if (options.submit !== false) {
+      await searchField.press?.("Enter");
+      steps.push({ action: "submit search", success: true });
+      await waitForNavigation(page, timeout);
+      steps.push({ action: "wait for results", success: true });
+    } else {
+      await page.waitForTimeout(500);
+      steps.push({ action: "wait for autocomplete", success: true });
+    }
+    timing.waiting = Date.now() - waitingStart;
+    const renderingStart = Date.now();
+    if (captureSteps && artifactDir) {
+      const shot = await captureStepScreenshot(page, "results", artifactDir, startTime);
+      screenshots.push(shot);
+      steps.push({ action: "capture results screenshot", success: true });
+    }
+    const resultsSelector = options.resultsSelector || '[class*="result"], [class*="item"], [class*="card"], [data-testid*="result"], li[class*="search"]';
+    const resultElements = await page.$$(resultsSelector);
+    const resultCount = resultElements.length;
+    const hasResults = resultCount > 0;
+    let extractedResults = [];
+    if (extractContent && hasResults) {
+      extractedResults = await extractResultContent(page, resultsSelector);
+      steps.push({ action: `extracted ${extractedResults.length} results`, success: true });
+    }
+    timing.rendering = Date.now() - renderingStart;
+    timing.total = Date.now() - startTime;
+    if (artifactDir) {
+      const resultsData = {
+        query: options.query,
+        userIntent: options.userIntent,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+        resultCount,
+        hasResults,
+        timing,
+        extractedResults
+      };
+      await (0, import_promises9.writeFile)(
+        (0, import_path8.join)(artifactDir, "results.json"),
+        JSON.stringify(resultsData, null, 2)
+      );
+    }
+    steps.push({
+      action: `found ${resultCount} results`,
+      success: hasResults
+    });
+    return {
+      success: true,
+      query: options.query,
+      userIntent: options.userIntent,
+      resultCount,
+      hasResults,
+      steps,
+      screenshots,
+      extractedResults,
+      timing,
+      duration: timing.total,
+      artifactDir
+    };
+  } catch (error) {
+    timing.total = Date.now() - startTime;
+    return {
+      success: false,
+      query: options.query,
+      userIntent: options.userIntent,
+      resultCount: 0,
+      hasResults: false,
+      steps,
+      screenshots,
+      extractedResults: [],
+      timing,
+      error: error instanceof Error ? error.message : "Unknown error",
+      duration: timing.total,
+      artifactDir
     };
   }
 }
@@ -10783,14 +10973,85 @@ async function formFlow(page, options) {
 // src/flows/index.ts
 init_types();
 
+// src/flows/search-validation.ts
+function generateValidationContext(result) {
+  return {
+    query: result.query,
+    userIntent: result.userIntent || `Find results related to: ${result.query}`,
+    results: result.extractedResults,
+    screenshotPaths: result.screenshots.map((s) => s.path),
+    timing: result.timing,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    hasResults: result.hasResults,
+    resultCount: result.resultCount
+  };
+}
+function generateQuickSummary(context) {
+  const lines = [];
+  lines.push(`Search: "${context.query}"`);
+  lines.push(`Intent: ${context.userIntent}`);
+  lines.push(`Results: ${context.resultCount} found in ${context.timing.total}ms`);
+  if (context.results.length > 0) {
+    lines.push("");
+    lines.push("Top results:");
+    for (const result of context.results.slice(0, 3)) {
+      const title = result.title || result.fullText.slice(0, 50);
+      lines.push(`  ${result.index + 1}. ${title}`);
+    }
+  }
+  return lines.join("\n");
+}
+function analyzeForObviousIssues(context) {
+  const issues = [];
+  if (!context.hasResults) {
+    issues.push({
+      type: "empty",
+      description: "Search returned no results",
+      severity: "high"
+    });
+  }
+  if (context.timing.total > 5e3) {
+    issues.push({
+      type: "slow",
+      description: `Search took ${context.timing.total}ms (>5s)`,
+      severity: context.timing.total > 1e4 ? "high" : "medium"
+    });
+  }
+  for (const result of context.results) {
+    if (!result.fullText || result.fullText.trim().length < 10) {
+      issues.push({
+        type: "error",
+        resultIndex: result.index,
+        description: `Result ${result.index + 1} has no meaningful content`,
+        severity: "medium"
+      });
+    }
+  }
+  const queryTerms = context.query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
+  for (const result of context.results) {
+    const textLower = result.fullText.toLowerCase();
+    const matchCount2 = queryTerms.filter((term) => textLower.includes(term)).length;
+    const matchRatio = matchCount2 / queryTerms.length;
+    if (matchRatio < 0.2 && queryTerms.length > 1) {
+      issues.push({
+        type: "irrelevant",
+        resultIndex: result.index,
+        description: `Result ${result.index + 1} may not match query (low keyword overlap)`,
+        severity: "low"
+      });
+    }
+  }
+  return issues;
+}
+
 // src/index.ts
-var import_promises13 = require("fs/promises");
-var import_path14 = require("path");
+var import_promises14 = require("fs/promises");
+var import_path15 = require("path");
 var import_os3 = require("os");
 
 // src/cleanup.ts
-var import_promises9 = require("fs/promises");
-var import_path8 = require("path");
+var import_promises10 = require("fs/promises");
+var import_path9 = require("path");
 init_session();
 var DEFAULT_RETENTION = {
   maxSessions: void 0,
@@ -10799,10 +11060,10 @@ var DEFAULT_RETENTION = {
   autoClean: false
 };
 async function loadRetentionConfig(outputDir) {
-  const configPath = (0, import_path8.join)(outputDir, "..", ".ibrrc.json");
+  const configPath = (0, import_path9.join)(outputDir, "..", ".ibrrc.json");
   try {
-    await (0, import_promises9.access)(configPath);
-    const content = await (0, import_promises9.readFile)(configPath, "utf-8");
+    await (0, import_promises10.access)(configPath);
+    const content = await (0, import_promises10.readFile)(configPath, "utf-8");
     const config = JSON.parse(content);
     return {
       ...DEFAULT_RETENTION,
@@ -11043,14 +11304,14 @@ init_simulator();
 // src/native/capture.ts
 var import_child_process3 = require("child_process");
 var import_util2 = require("util");
-var import_promises10 = require("fs/promises");
-var import_path10 = require("path");
+var import_promises11 = require("fs/promises");
+var import_path11 = require("path");
 var execFileAsync2 = (0, import_util2.promisify)(import_child_process3.execFile);
 async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises10.mkdir)((0, import_path10.dirname)(outputPath), { recursive: true });
+    await (0, import_promises11.mkdir)((0, import_path11.dirname)(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -11130,15 +11391,15 @@ function auditNativeElements(elements, platform, viewport) {
 }
 
 // src/native/scan.ts
-var import_path13 = require("path");
+var import_path14 = require("path");
 init_simulator();
 init_extract();
 
 // src/native/macos.ts
 var import_child_process5 = require("child_process");
 var import_util4 = require("util");
-var import_promises12 = require("fs/promises");
-var import_path12 = require("path");
+var import_promises13 = require("fs/promises");
+var import_path13 = require("path");
 init_extract();
 init_role_map();
 var execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
@@ -11276,7 +11537,7 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises12.mkdir)((0, import_path12.dirname)(outputPath), { recursive: true });
+  await (0, import_promises13.mkdir)((0, import_path13.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
@@ -11542,7 +11803,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp = Date.now();
-    const ssPath = (0, import_path13.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const ssPath = (0, import_path14.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -11707,7 +11968,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path14.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path15.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -11722,11 +11983,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises13.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises14.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path14.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path14.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path14.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path15.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path15.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path15.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -11758,12 +12019,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises13.access)(actualBaselinePath);
+    await (0, import_promises14.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises13.access)(actualCurrentPath);
+    await (0, import_promises14.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -12170,7 +12431,7 @@ init_schemas();
 
 // src/native/bridge.ts
 var import_fs4 = require("fs");
-var import_path15 = require("path");
+var import_path16 = require("path");
 function findSwiftFiles(dir, rootDir) {
   const SKIP_DIRS = /* @__PURE__ */ new Set([
     "node_modules",
@@ -12192,7 +12453,7 @@ function findSwiftFiles(dir, rootDir) {
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path15.join)(currentDir, entry);
+      const fullPath = (0, import_path16.join)(currentDir, entry);
       let stat2;
       try {
         stat2 = (0, import_fs4.statSync)(fullPath);
@@ -12202,7 +12463,7 @@ function findSwiftFiles(dir, rootDir) {
       if (stat2.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path15.relative)(rootDir, fullPath));
+        results.push((0, import_path16.relative)(rootDir, fullPath));
       }
     }
   }
@@ -12218,7 +12479,7 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path15.join)(projectRoot, filePath);
+    const fullPath = (0, import_path16.join)(projectRoot, filePath);
     let content;
     try {
       content = (0, import_fs4.readFileSync)(fullPath, "utf-8");
@@ -12304,13 +12565,13 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   return matches;
 }
 var NAVGATOR_PATHS = [
-  (0, import_path15.join)(".navgator", "architecture"),
-  (0, import_path15.join)(".claude", "architecture")
+  (0, import_path16.join)(".navgator", "architecture"),
+  (0, import_path16.join)(".claude", "architecture")
   // legacy — NavGator < 0.3
 ];
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path15.join)(projectRoot, navPath, "file_map.json");
+    const fileMapPath = (0, import_path16.join)(projectRoot, navPath, "file_map.json");
     if (!(0, import_fs4.existsSync)(fileMapPath)) continue;
     try {
       const content = (0, import_fs4.readFileSync)(fileMapPath, "utf-8");
@@ -13333,15 +13594,19 @@ var TOOLS = [
   // --- Flow tools ---
   {
     name: "flow_search",
-    description: "Execute a full search flow \u2014 finds the search box, enters query, submits, and returns results. Use for testing search functionality end-to-end.",
+    description: "Execute a full search flow \u2014 finds the search box, enters query, submits, and returns results. Use for testing search functionality end-to-end, including semantic/AI search on the current screen via sessionId.",
     inputSchema: {
       type: "object",
       properties: {
-        url: { type: "string", description: "URL of the page with search" },
+        url: { type: "string", description: "URL of the page with search. Optional when sessionId is provided." },
         query: { type: "string", description: "Search query to enter" },
-        sessionId: { type: "string", description: "Optional: use existing session instead of launching new browser" }
+        sessionId: { type: "string", description: "Optional: use existing session instead of launching new browser" },
+        userIntent: { type: "string", description: "Optional semantic intent to validate result relevance against" },
+        resultsSelector: { type: "string", description: "Optional CSS selector for result elements" },
+        submit: { type: "boolean", description: "Submit the query with Enter (default: true). Set false for autocomplete/search-as-you-type." },
+        aiValidation: { type: "boolean", description: "Return extracted result content and validation context for AI relevance review" }
       },
-      required: ["url", "query"]
+      required: ["query"]
     },
     annotations: {
       title: "Search Flow",
@@ -13921,16 +14186,76 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
         }
       }
       case "flow_search": {
-        const { url, query } = args;
-        const driver2 = new EngineDriver();
+        const {
+          url,
+          query,
+          sessionId,
+          userIntent,
+          resultsSelector,
+          submit = true,
+          aiValidation = false
+        } = args;
+        let driver2 = null;
+        let launchedDriver = null;
         try {
-          await driver2.launch();
-          await driver2.navigate(url);
+          if (sessionId) {
+            const entry = sessions.get(sessionId);
+            if (!entry) {
+              return errorResponse("Session not found. Use session_start first.");
+            }
+            if (entry.type !== "chrome") {
+              return errorResponse(`flow_search currently requires a Chrome web session. Session ${sessionId} is ${entry.type}.`);
+            }
+            driver2 = entry.driver;
+          } else {
+            if (!url) {
+              return errorResponse("flow_search requires either url or sessionId.");
+            }
+            launchedDriver = new EngineDriver();
+            driver2 = launchedDriver;
+            await driver2.launch();
+            await driver2.navigate(url);
+          }
+          if (!driver2) {
+            return errorResponse("flow_search could not initialize a browser driver.");
+          }
           const page = new CompatPage(driver2);
-          const result = await searchFlow(page, { query });
+          if (aiValidation) {
+            const artifactDir = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "mcp-search", `${Date.now()}`);
+            (0, import_fs6.mkdirSync)(artifactDir, { recursive: true });
+            const result2 = await aiSearchFlow(page, {
+              query,
+              userIntent: userIntent || `Find results related to: ${query}`,
+              resultsSelector,
+              submit,
+              extractContent: true,
+              captureSteps: true,
+              sessionDir: artifactDir
+            });
+            const validationContext = generateValidationContext(result2);
+            const obviousIssues = analyzeForObviousIssues(validationContext);
+            return textResponse(JSON.stringify({
+              status: result2.success ? "success" : "failed",
+              query,
+              userIntent: validationContext.userIntent,
+              url: driver2.url,
+              resultCount: result2.resultCount,
+              hasResults: result2.hasResults,
+              timing: result2.timing,
+              summary: generateQuickSummary(validationContext),
+              obviousIssues,
+              screenshotPaths: validationContext.screenshotPaths,
+              extractedResults: validationContext.results,
+              steps: result2.steps,
+              artifactDir: result2.artifactDir,
+              error: result2.error
+            }, null, 2));
+          }
+          const result = await searchFlow(page, { query, resultsSelector, submit });
           const lines = [
             result.success ? `Search flow succeeded` : `Search flow failed`,
             `Query: "${query}"`,
+            sessionId ? `Session: ${sessionId}` : `URL: ${url}`,
             `Results found: ${result.resultCount}`,
             `Has results: ${result.hasResults}`
           ];
@@ -13945,7 +14270,7 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
         } catch (err) {
           return errorResponse(`flow_search failed: ${err instanceof Error ? err.message : String(err)}`);
         } finally {
-          await driver2.close().catch(() => {
+          await launchedDriver?.close().catch(() => {
           });
         }
       }
@@ -14867,8 +15192,8 @@ async function handleListSessions() {
   );
   return textResponse(lines.join("\n"));
 }
-var REFERENCES_DIR = (0, import_path16.join)(DEFAULT_OUTPUT_DIR, "references");
-var REFERENCES_INDEX = (0, import_path16.join)(REFERENCES_DIR, "index.json");
+var REFERENCES_DIR = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "references");
+var REFERENCES_INDEX = (0, import_path17.join)(REFERENCES_DIR, "index.json");
 function readReferencesIndex() {
   if (!(0, import_fs6.existsSync)(REFERENCES_INDEX)) {
     return { references: [] };
@@ -14893,9 +15218,9 @@ async function handleScreenshot(args) {
   const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp = Date.now();
-  const screenshotsDir = (0, import_path16.join)(DEFAULT_OUTPUT_DIR, "screenshots");
+  const screenshotsDir = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "screenshots");
   (0, import_fs6.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path16.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const tempPath = (0, import_path17.join)(screenshotsDir, `capture-${timestamp}.png`);
   await captureScreenshot({
     url,
     outputPath: tempPath,
@@ -14913,7 +15238,7 @@ async function handleScreenshot(args) {
   let savedPath = "not saved";
   if (saveAs) {
     (0, import_fs6.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path16.join)(REFERENCES_DIR, `${saveAs}.png`);
+    const refPath = (0, import_path17.join)(REFERENCES_DIR, `${saveAs}.png`);
     (0, import_fs6.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
@@ -14969,7 +15294,7 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path16.join)(REFERENCES_DIR, ref.path);
+      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
       if (!(0, import_fs6.existsSync)(refPath)) {
         return errorResponse(`Reference file missing: ${refPath}`);
       }
@@ -14995,7 +15320,7 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path16.join)(REFERENCES_DIR, ref.path);
+      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
       if ((0, import_fs6.existsSync)(refPath)) {
         (0, import_fs6.unlinkSync)(refPath);
       }
@@ -15556,15 +15881,15 @@ async function handleSimAction(args) {
 async function handleDesignSystem(args) {
   const action = args.action;
   const projectDir = args.projectDir || process.cwd();
-  const ibrDir = (0, import_path16.join)(projectDir, ".ibr");
-  const configPath = (0, import_path16.join)(ibrDir, "design-system.json");
+  const ibrDir = (0, import_path17.join)(projectDir, ".ibr");
+  const configPath = (0, import_path17.join)(ibrDir, "design-system.json");
   switch (action) {
     case "init": {
       const templateCandidates = [
-        (0, import_path16.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
-        (0, import_path16.join)(projectDir, "templates", "design-system.json"),
+        (0, import_path17.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path17.join)(projectDir, "templates", "design-system.json"),
         // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
-        (0, import_path16.join)(__dirname, "..", "..", "templates", "design-system.json")
+        (0, import_path17.join)(__dirname, "..", "..", "templates", "design-system.json")
       ];
       const templatePath = templateCandidates.find((p) => (0, import_fs6.existsSync)(p));
       if (!templatePath) {

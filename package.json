@@ -28,6 +28,7 @@
     "src/native/swift/ibr-ax-extract/Package.swift",
     "src/native/swift/ibr-ax-extract/Sources",
     ".claude-plugin",
+    ".codex-plugin",
     ".mcp.json",
     "adapters",
     "agents",
@@ -57,7 +58,8 @@
     "sessions": "node dist/bin/ibr.js list",
     "login": "node dist/bin/ibr.js login",
     "logout": "node dist/bin/ibr.js logout",
-    "mcp": "node dist/mcp/server.js"
+    "mcp": "node dist/mcp/server.js",
+    "plugin:install-codex": "node scripts/install-codex-plugin.mjs"
   },
   "keywords": [
     "design-tool",

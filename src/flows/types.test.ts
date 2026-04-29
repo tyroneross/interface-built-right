@@ -13,7 +13,7 @@
  *  3. `combinedTextOrCssQuery` exists and accepts cssSelectors + tags.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { findButton, findFieldByLabel, combinedTextOrCssQuery } from './types.js';
 
 function makePage(opts: {

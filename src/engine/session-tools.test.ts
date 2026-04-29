@@ -167,6 +167,22 @@ describe('TOOLS array completeness', () => {
     expect(tool.inputSchema.required).toContain('what')
   })
 
+  it('flow_search supports current-session semantic search without requiring url', async () => {
+    const tool = await getTool('flow_search')
+    expect(tool.inputSchema.required).toEqual(['query'])
+    const props = tool.inputSchema.properties as Record<string, unknown>
+    expect(props).toHaveProperty('sessionId')
+    expect(props).toHaveProperty('userIntent')
+    expect(props).toHaveProperty('aiValidation')
+  })
+
+  it('flow_search validates that url or sessionId is present before launching Chrome', async () => {
+    const result = await callTool('flow_search', { query: 'pricing plan' })
+    expect(result.isError).toBe(true)
+    const text = (result.content[0] as { text: string }).text
+    expect(text).toContain('requires either url or sessionId')
+  })
+
   it('native_session_action supports cursor-free AX action verbs', async () => {
     const tool = await getTool('native_session_action')
     const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>

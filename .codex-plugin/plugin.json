@@ -1,7 +1,7 @@
 {
   "name": "ibr",
   "version": "1.0.0",
-  "description": "End-to-end design tool for AI coding agents \u2014 guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching (SSIM), test generation, cross-browser (Chrome + Safari), and native scanning",
+  "description": "UI design planning and validation for Codex using IBR skills and MCP scans.",
   "author": {
     "name": "Tyrone Ross"
   },
@@ -18,19 +18,31 @@
     "accessibility",
     "cdp",
     "safari",
-    "claude-code"
+    "claude-code",
+    "codex"
   ],
-  "skills": "./skills",
-  "mcpServers": "./.mcp.json",
+  "skills": "./.codex-plugin/skills",
+  "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "Interface Built Right",
-    "shortDescription": "End-to-end design tool for AI coding agents \u2014 guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching (SSIM), test generation, cross-browser (Chrome + Safari), and native scanning",
-    "longDescription": "End-to-end design tool for AI coding agents \u2014 guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching (SSIM), test generation, cross-browser (Chrome + Safari), and native scanning",
+    "shortDescription": "Plan, build, scan, and iterate UI work from Codex.",
+    "longDescription": "Interface Built Right gives Codex a UI design partner and validation toolchain. Use it to plan interface direction, route to web/iOS/macOS guidance, resolve Mockup Gallery targets, scan rendered pages, test interactions, compare snapshots, match visual targets, and inspect native simulator or macOS app surfaces.",
     "developerName": "Ross Labs",
     "category": "Coding",
     "capabilities": [
+      "Interactive",
       "Read",
       "Write"
-    ]
+    ],
+    "websiteURL": "https://github.com/tyroneross/interface-built-right",
+    "privacyPolicyURL": "https://github.com/tyroneross/interface-built-right",
+    "termsOfServiceURL": "https://github.com/tyroneross/interface-built-right",
+    "defaultPrompt": [
+      "Plan this UI with IBR.",
+      "Scan this UI with IBR.",
+      "Validate this design intent."
+    ],
+    "brandColor": "#0F766E",
+    "screenshots": []
   }
 }

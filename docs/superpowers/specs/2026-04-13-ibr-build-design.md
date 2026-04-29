@@ -14,20 +14,21 @@
 
 - Not a general-purpose build loop. `/build-loop` covers that.
 - Not a runtime server for mockup-gallery. IBR reads gallery data from the filesystem.
-- Not a replacement for `/ibr:scan`, `/ibr:iterate`, `/ibr:replicate`, `/ibr:match`. It calls them.
+- Not a replacement for `/ibr:scan`, `/ibr:iterate`, `/ibr:replicate`, `/ibr:match`, or imagegen. It routes to them when useful.
 - Not a rewrite of `superpowers:brainstorming`. It pre-fills context and delegates.
 
 ## Shape
 
-Five phases, all stateful under `.ibr/builds/<topic>/`:
+Six phases, all stateful under `.ibr/builds/<topic>/`:
 
 | Phase | What happens | Primary skill/command |
 |---|---|---|
 | 1. Preamble | Pick UI Guidance template, capture external refs, detect mockup-gallery selections, answer 4–6 UI axes | `ibr:ui-brainstorm-preamble` (new) |
-| 2. Brainstorm | Delegate to superpowers with preamble pre-filled | `superpowers:brainstorming` |
-| 3. Plan | Write implementation plan | `superpowers:writing-plans` |
-| 4. Implement | Code with IBR design guidance in scope | `ibr:design-implementation`, `ibr:component-patterns`, `ibr:replicate` |
-| 5. Validate & Iterate | Scan + mockup match + native-scan, loop up to 5× | `ibr:scan`, `ibr:match`, `ibr:native-scan`, `ibr:iterate` |
+| 2. Imagegen concepts | Optional visual concept pass when no approved visual target exists | `imagegen` |
+| 3. Brainstorm | Delegate to superpowers with preamble pre-filled | `superpowers:brainstorming` |
+| 4. Plan | Write implementation plan | `superpowers:writing-plans` |
+| 5. Implement | Code with IBR design guidance in scope | `ibr:design-implementation`, `ibr:component-patterns`, `ibr:replicate` |
+| 6. Validate & Iterate | Scan + mockup match + native-scan, loop up to 5× | `ibr:scan`, `ibr:match`, `ibr:native-scan`, `ibr:iterate` |
 
 Subordinate mode (`--from=build-loop` or `BUILD_LOOP_CONTEXT=1`) skips phases 1–3 and reads `spec.md` from `.build-loop/specs/<topic>.md`. Build-loop has already brainstormed and planned; IBR only implements and validates.
 
@@ -62,6 +63,7 @@ IBR already has the primitives. `/ibr:build` wires them into Preamble as first-c
 | URL screenshot (Mobbin, Dribbble, any site) | `/ibr:screenshot` + `design-reference` skill | Reference image, optional validation target |
 | URL full extract (HTML + computed CSS + element tree) | `/ibr:replicate` URL mode → `reference.png` + `reference.html` + `reference.json` | Structured data for token derivation and component mapping |
 | Uploaded image (Figma screenshot, sketch) | `/ibr:replicate` image mode | Reference image only, no HTML/CSS |
+| Generated visual concept | `imagegen` skill | `inspiration` by default; `visual-target` only after user approval |
 | Multi-page site / sitemap crawl | **Gap — new helper** | Multi-page reference set |
 
 **New command `/ibr:capture <url>`:** convenience wrapper that offers screenshot-only, extract-full, or crawl-sitemap in one entry point. `/ibr:screenshot` stays as the low-level primitive.
@@ -76,12 +78,35 @@ IBR already has the primitives. `/ibr:build` wires them into Preamble as first-c
 {
   "refs": [
     {"id": "mobbin-dashboard-1", "source": "https://...", "capturedAt": "2026-04-13T...", "tags": ["inspiration"], "path": "references/mobbin-dashboard-1.png"},
-    {"id": "selected-dashboard", "source": "mockup-gallery", "tags": ["validation-target"], "path": "references/mockups/dashboard.html"}
+    {"id": "wireframe-dashboard", "source": "mockup-gallery", "role": "wireframe-target", "path": "references/mockups/00-scratch-dashboard.html"},
+    {"id": "selected-dashboard", "source": "mockup-gallery", "role": "visual-target", "path": "references/mockups/dashboard.html"},
+    {"id": "concept-dashboard-v1", "source": "imagegen", "role": "inspiration", "path": "references/imagegen/concept-dashboard-v1.png", "approved": false}
   ]
 }
 ```
 
-Brainstorm and plan phases see this manifest. `ibr:match` uses `validation-target`-tagged refs as the pass/fail baseline.
+Brainstorm and plan phases see this manifest. `wireframe-target` refs validate layout, hierarchy, and semantic structure. `visual-target` refs use `ibr:match` as the visual pass/fail baseline.
+
+Generated imagegen concepts are never `wireframe-target`. They stay `inspiration` unless the user explicitly approves one as a `visual-target`.
+
+---
+
+## Imagegen concept pass
+
+IBR can use imagegen before Design Director planning when visual exploration would materially help:
+
+- mood or style direction
+- hero/product imagery
+- hi-fi visual variants
+- campaign/editorial visual treatment
+
+Rules:
+
+1. Load the `imagegen` skill only when the user asks for visual concepts or the preamble records `imagegenConcepts.requested: true`.
+2. Save project-bound generated concepts under `.ibr/builds/<topic>/references/imagegen/`.
+3. Record generated concepts in `refs.json` with `source: "imagegen"`.
+4. Treat concepts as `inspiration` until the user approves one as a `visual-target`.
+5. Do not use generated images for deterministic wireframes, exact text-heavy UI, accessibility semantics, or validation evidence.
 
 ---
 
@@ -101,9 +126,11 @@ Writes (only on clean build completion):
 - `.mockup-gallery/implemented.json` — entry linking build topic → selected mockup → commit hash → pass status
 
 Behavior:
-1. **Preamble detection:** if project has `mockups/` or `.mockup-gallery/`, offer to pull selections. If a mockup is selected for the page being built, auto-add to `refs.json` as `validation-target`. Gallery rating notes join brainstorm context as "user feedback on candidates."
-2. **Validation:** `ibr:match` runs with the selected mockup as reference. SSIM threshold pulled from `.ibr/tokens.json` (default 0.85).
+1. **Preamble detection:** if project has `mockups/` or `.mockup-gallery/`, offer to pull selections. If a mockup is selected for the page being built, classify it as `wireframe-target`, `visual-target`, `inspiration`, or `data-reference`. Gallery rating notes join brainstorm context as "user feedback on candidates."
+2. **Validation:** `wireframe-target` checks layout and semantic structure. `visual-target` runs `ibr:match` with SSIM threshold pulled from `.ibr/tokens.json` (default 0.85).
 3. **Write-back:** on clean pass, append to `implemented.json` so the gallery's implementation tracking reflects reality.
+
+Unrated or rejected gallery items are not binding targets unless the user explicitly approves them.
 
 IBR never spawns the gallery server. User runs `npx mockup-gallery` when they want to review.
 
@@ -115,22 +142,27 @@ Two layers, single user-facing experience.
 
 **Layer 1 — IBR preamble** (new skill `ibr:ui-brainstorm-preamble`)
 
-Asks ≤6 questions, multi-choice where possible:
+Asks focused questions, multi-choice where possible:
 
 1. **Platform** — web / iOS / macOS / cross-platform
 2. **Scope** — component / page / flow / app
-3. **UI Guidance template** — list from library + project drafts, or "new"
-4. **External references** — URLs/images to capture now? (loops through `/ibr:capture`)
-5. **Mockup-gallery selection** — auto-filled if detected, else "none"
-6. **Density/intent** — compact-dense / balanced / spacious-marketing
+3. **Design mode** — scratch / wireframe / hi-fi / implementation-only
+4. **Primary user goal** — what should the user accomplish first?
+5. **UI Guidance template** — list from library + project drafts, or "new"
+6. **External references** — URLs/images to capture now? (loops through `/ibr:capture`)
+7. **Imagegen concept need** — none / inspiration / visual-target candidate
+8. **Mockup-gallery selection** — auto-filled if detected, else "none"
+9. **Density/intent** — compact-dense / balanced / spacious-marketing
 
 Outputs: `preamble.json` + a brainstorm context block ready for injection.
+
+**Design Director layer:** after preamble and optional imagegen concept generation, IBR writes `design-intent.json` and specialist planning files for flow, visual system, interaction states, content states, validation, and optional mockup/imagegen/data-viz planning.
 
 **Layer 2 — superpowers delegation**
 
 Invoke `superpowers:brainstorming` with preamble pre-filled. Superpowers opens with "Here's what's locked in: [preamble]. What's still open?" and runs its normal dialogue for goals, edge cases, isolation, architecture. Design doc lands at `.ibr/builds/<topic>/spec.md` (override of superpowers' default `docs/superpowers/specs/` path). Plan lands at `.ibr/builds/<topic>/plan.md`.
 
-**Subordinate mode:** `/ibr:build --from=build-loop` skips both layers. Spec read from `.build-loop/specs/<topic>.md`; IBR jumps straight to Implement.
+**Subordinate mode:** `/ibr:build --from=build-loop` skips open-ended brainstorming when a spec exists. IBR still runs Design Director target resolution before Implement.
 
 ---
 
@@ -138,16 +170,19 @@ Invoke `superpowers:brainstorming` with preamble pre-filled. Superpowers opens w
 
 **Implement phase** dispatches existing skills in order:
 
-1. `ibr:design-system` — sync tokens from `.ibr/ui-guidance/active.md` to `.ibr/tokens.json` if not present
-2. `ibr:component-patterns` + `ibr:design-implementation` — guide the write (Claude edits code, no new engine)
-3. If `refs.json` has `validation-target` — `ibr:replicate` seeds initial markup from `reference.json` structured data
+1. `ibr:design-director` — read `design-intent.json` and specialist files
+2. `ibr:design-system` — sync tokens from `.ibr/ui-guidance/active.md` to `.ibr/tokens.json` if not present
+3. Platform router — `web-design-router`, `ios-design-router`, or `macos-ui`
+4. `ibr:component-patterns` + `ibr:design-implementation` — guide the write (Claude edits code, no new engine)
+5. If `refs.json` has an approved target role, use it according to `wireframe-target` or `visual-target` semantics. Imagegen refs require `approved: true` before they can be binding visual targets.
 
 **Validate phase** runs automatically after implement:
 
 1. `ibr:scan` — accessibility, handlers, token compliance, computed CSS
-2. `ibr:match` (SSIM) — only if `validation-target` exists; threshold from tokens
-3. `ibr:native-scan` — if platform is iOS/macOS
-4. Merge into `.ibr/builds/<topic>/iterations/<n>/report.json`
+2. layout/semantic comparison — only if `wireframe-target` exists
+3. `ibr:match` (SSIM) — only if `visual-target` exists; threshold from tokens
+4. `ibr:native-scan` — if platform is iOS/macOS
+5. Merge into `.ibr/builds/<topic>/iterations/<n>/report.json`
 
 **Iterate** uses existing `ibr:iterate` — stagnant / oscillating / regressing detection already in place. Hard cap at 5 iterations (matches `debug-loop`). On cap hit: surface failing items, ask user. Never silently stop.
 

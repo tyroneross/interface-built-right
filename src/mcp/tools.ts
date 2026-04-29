@@ -40,7 +40,8 @@ import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
 import { EngineDriver, type FindDiagnostics } from '../engine/driver.js';
 import type { ActionDescriptor } from '../engine/observe.js';
 import type { Element as EngineElement } from '../engine/types.js';
-import { searchFlow } from '../flows/search.js';
+import { aiSearchFlow, searchFlow } from '../flows/search.js';
+import { analyzeForObviousIssues, generateQuickSummary, generateValidationContext } from '../flows/search-validation.js';
 import { formFlow } from '../flows/form.js';
 import { loginFlow } from '../flows/login.js';
 import { CompatPage } from '../engine/compat.js';
@@ -649,15 +650,19 @@ export const TOOLS = [
   // --- Flow tools ---
   {
     name: "flow_search",
-    description: "Execute a full search flow — finds the search box, enters query, submits, and returns results. Use for testing search functionality end-to-end.",
+    description: "Execute a full search flow — finds the search box, enters query, submits, and returns results. Use for testing search functionality end-to-end, including semantic/AI search on the current screen via sessionId.",
     inputSchema: {
       type: "object" as const,
       properties: {
-        url: { type: "string", description: "URL of the page with search" },
+        url: { type: "string", description: "URL of the page with search. Optional when sessionId is provided." },
         query: { type: "string", description: "Search query to enter" },
         sessionId: { type: "string", description: "Optional: use existing session instead of launching new browser" },
+        userIntent: { type: "string", description: "Optional semantic intent to validate result relevance against" },
+        resultsSelector: { type: "string", description: "Optional CSS selector for result elements" },
+        submit: { type: "boolean", description: "Submit the query with Enter (default: true). Set false for autocomplete/search-as-you-type." },
+        aiValidation: { type: "boolean", description: "Return extracted result content and validation context for AI relevance review" },
       },
-      required: ["url", "query"],
+      required: ["query"],
     },
     annotations: {
       title: "Search Flow",
@@ -1252,19 +1257,89 @@ export async function handleToolCall(
       }
 
       case "flow_search": {
-        const { url, query } = args as { url: string; query: string }
+        const {
+          url,
+          query,
+          sessionId,
+          userIntent,
+          resultsSelector,
+          submit = true,
+          aiValidation = false,
+        } = args as {
+          url?: string
+          query: string
+          sessionId?: string
+          userIntent?: string
+          resultsSelector?: string
+          submit?: boolean
+          aiValidation?: boolean
+        }
 
-        const driver = new EngineDriver()
+        let driver: EngineDriver | null = null
+        let launchedDriver: EngineDriver | null = null
         try {
-          await driver.launch()
-          await driver.navigate(url)
+          if (sessionId) {
+            const entry = sessions.get(sessionId)
+            if (!entry) {
+              return errorResponse('Session not found. Use session_start first.')
+            }
+            if (entry.type !== 'chrome') {
+              return errorResponse(`flow_search currently requires a Chrome web session. Session ${sessionId} is ${entry.type}.`)
+            }
+            driver = entry.driver as EngineDriver
+          } else {
+            if (!url) {
+              return errorResponse('flow_search requires either url or sessionId.')
+            }
+            launchedDriver = new EngineDriver()
+            driver = launchedDriver
+            await driver.launch()
+            await driver.navigate(url)
+          }
+          if (!driver) {
+            return errorResponse('flow_search could not initialize a browser driver.')
+          }
 
           const page = new CompatPage(driver)
-          const result = await searchFlow(page, { query })
+          if (aiValidation) {
+            const artifactDir = join(DEFAULT_OUTPUT_DIR, 'mcp-search', `${Date.now()}`)
+            mkdirSync(artifactDir, { recursive: true })
+            const result = await aiSearchFlow(page, {
+              query,
+              userIntent: userIntent || `Find results related to: ${query}`,
+              resultsSelector,
+              submit,
+              extractContent: true,
+              captureSteps: true,
+              sessionDir: artifactDir,
+            })
+            const validationContext = generateValidationContext(result)
+            const obviousIssues = analyzeForObviousIssues(validationContext)
+
+            return textResponse(JSON.stringify({
+              status: result.success ? 'success' : 'failed',
+              query,
+              userIntent: validationContext.userIntent,
+              url: driver.url,
+              resultCount: result.resultCount,
+              hasResults: result.hasResults,
+              timing: result.timing,
+              summary: generateQuickSummary(validationContext),
+              obviousIssues,
+              screenshotPaths: validationContext.screenshotPaths,
+              extractedResults: validationContext.results,
+              steps: result.steps,
+              artifactDir: result.artifactDir,
+              error: result.error,
+            }, null, 2))
+          }
+
+          const result = await searchFlow(page, { query, resultsSelector, submit })
 
           const lines = [
             result.success ? `Search flow succeeded` : `Search flow failed`,
             `Query: "${query}"`,
+            sessionId ? `Session: ${sessionId}` : `URL: ${url}`,
             `Results found: ${result.resultCount}`,
             `Has results: ${result.hasResults}`,
           ]
@@ -1280,7 +1355,7 @@ export async function handleToolCall(
         } catch (err) {
           return errorResponse(`flow_search failed: ${err instanceof Error ? err.message : String(err)}`)
         } finally {
-          await driver.close().catch(() => {})
+          await launchedDriver?.close().catch(() => {})
         }
       }
 

@@ -17,10 +17,17 @@ Route this request to the appropriate ibr subcommand or skill based on the user'
 3. If the request clearly doesn't fit any subcommand but matches a `ibr` skill (listed in your available skills), load the skill and follow its guidance instead.
 4. If nothing fits, say so and list the subcommands. Do NOT guess.
 
+## Design skill routing
+
+- If the request is to initiate, plan, or direct a UI build, route to `/ibr:build` or load `design-director` when the user is not asking to implement yet.
+- If the request is web-specific design planning, load `web-design-router` with `design-guidance`.
+- If the request includes charts, KPIs, metrics, dashboard data, or analytical visuals, load `data-visualization`.
+- If the request references Mockup Gallery selections, load `mockup-gallery-bridge` before choosing a validation target.
+
 ## Available subcommands
 
 - **`/ibr:build-baseline`** — Create baselines for all pages and identify key UI elements across the app
-- **`/ibr:build`** — UI-focused build orchestrator. Sequences preamble → superpowers brainstorming → 
+- **`/ibr:build`** — UI-focused build orchestrator. Sequences preamble → Design Director → plan → implement → validate
 - **`/ibr:cancel-iterate`** — Cancel an active IBR iterative refinement loop
 - **`/ibr:capture`** — Capture external design references — screenshot a URL, extract full HTML/CSS, or
 - **`/ibr:compare-browsers`** — Scan a URL in both Chrome and Safari, then diff screenshots and element counts t

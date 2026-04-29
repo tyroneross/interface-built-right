@@ -37,6 +37,29 @@ Use IBR interact_and_verify tool: click "FlowDoro" on http://localhost:3000/proj
 ```
 Captures before/after AX tree snapshots, reports elements added/removed and pixel diff.
 
+### `session_*` — Navigate and test current screen state
+Use persistent sessions when the test depends on current UI context:
+
+1. `session_start` with a URL.
+2. `session_read` with `what: "observe"` to inspect interactive elements.
+3. `session_action` to click, type, fill, or press by accessible name.
+4. `session_read` with `what: "extract"` or `what: "state"` to verify.
+5. `session_close` when done.
+
+### `flow_search` — Search/semantic search flow
+Use `flow_search` for search and semantic AI search. It can run against a URL or an existing Chrome session:
+
+```json
+{
+  "sessionId": "<session id>",
+  "query": "pricing plan",
+  "userIntent": "Find the plan page a buyer would choose",
+  "aiValidation": true
+}
+```
+
+With `aiValidation: true`, IBR captures step screenshots, extracts result content, and returns relevance-validation context for the agent to judge.
+
 ## CLI Commands
 
 ```bash
@@ -63,6 +86,11 @@ npx ibr extract http://localhost:3000
 npx ibr observe http://localhost:3000        # Find the search input name
 npx ibr interact http://localhost:3000 --action fill --target "Search tools" --value "debug"
 npx ibr extract http://localhost:3000         # Verify filtered results
+```
+
+### Test semantic AI search
+```bash
+npx ibr search-test http://localhost:3000 --query "pricing plan" --intent "Find the plan page a buyer would choose"
 ```
 
 ### Test modal popup

@@ -11,6 +11,8 @@ arguments:
 
 Test search functionality on a live page. Finds the search input, types a query, submits it, and reports back the number of results found.
 
+For semantic or AI search, prefer `npx ibr search-test` or MCP `flow_search` with `aiValidation: true`. Those paths capture step screenshots, extract result content, and return validation context for relevance review.
+
 ## Usage
 
 ```bash
@@ -25,6 +27,9 @@ npx ibr test-search http://localhost:3000 --query "test" --results-selector ".pr
 
 # JSON output for programmatic use
 npx ibr test-search http://localhost:3000 --query "test" --json
+
+# Semantic/AI search validation with screenshots and extracted result content
+npx ibr search-test http://localhost:3000 --query "pricing plan" --intent "Find the plan page a buyer would choose"
 ```
 
 ## Options
@@ -35,6 +40,21 @@ npx ibr test-search http://localhost:3000 --query "test" --json
 | `--expect-count <n>` | Assert that at least N results are returned |
 | `--results-selector <css>` | CSS selector for result elements |
 | `--json` | Output as JSON |
+
+## MCP Current-Screen Flow
+
+When an agent already has a browser session open:
+
+```json
+{
+  "sessionId": "<session id>",
+  "query": "pricing plan",
+  "userIntent": "Find the plan page a buyer would choose",
+  "aiValidation": true
+}
+```
+
+This keeps the query test anchored to the current screen instead of launching a separate page.
 
 ## What It Tests
 

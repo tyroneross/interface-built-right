@@ -13,6 +13,18 @@ Use IBR as a planning partner during the build — scan live pages to confirm im
 
 IBR does not replace judgment during implementation — it informs it. Scan early and often to close the gap between intent and output. When the user describes what they want, map those descriptions to measurable properties in the scan output. Address gaps immediately rather than accumulating them.
 
+For page, flow, app, dashboard, or reference-heavy work, read `.ibr/builds/<topic>/design-intent.json` before editing code. Treat it as the UI contract. Also read the relevant specialist files under `.ibr/builds/<topic>/specialists/`:
+
+- `flow.md` for user path, navigation, and step count
+- `visual-system.md` for hierarchy, density, tokens, and surfaces
+- `interaction-states.md` for actions and state behavior
+- `content-states.md` for empty/loading/error copy and resilience
+- `mockup-targets.md` for target roles and rating guardrails
+- `data-viz.md` for charts, metrics, and source attribution
+- `validation-plan.md` for acceptance gates
+
+If the design intent conflicts with current implementation, update the implementation or surface the conflict. Do not silently ignore the design contract.
+
 ### Validating Against User Intent
 
 Every description the user provides is a testable assertion. Extract the claim and find the corresponding scan field:
@@ -171,11 +183,14 @@ Repeat for each distinct UI requirement. Do not accumulate debt by skipping scan
 When the user provides a reference design (via `ibr screenshot` or an external URL):
 
 1. Capture the reference with `ibr screenshot` (save_as if it should persist)
-2. Identify measurable properties: colors, spacing, font sizes, layout structure
-3. Implement the component targeting those properties
-4. Scan with `ibr scan` and compare computed values against the reference
-5. Fix gaps and re-scan
-6. Take a screenshot of the implementation and compare visually
+2. Assign a target role: `wireframe-target`, `visual-target`, `inspiration`, or `data-reference`
+3. Identify measurable properties: colors, spacing, font sizes, layout structure, hierarchy, and content order
+4. Implement the component targeting only the properties required by that role
+5. Scan with `ibr scan` and compare computed values against the role-specific target
+6. Fix gaps and re-scan
+7. Take a screenshot of the implementation and compare visually when the role is `visual-target`
+
+Wireframes are layout and semantic targets, not pixel-perfect visual targets. Hi-fi approved mockups are visual targets.
 
 ## Design System Integration
 
@@ -183,7 +198,7 @@ When a project has `.ibr/design-system.json`, the design system is active during
 
 1. **Before building** — Load the design-guidance skill for aesthetic direction and component pattern selection
 2. **Token reference** — Use token values from the config instead of arbitrary values. Check `tokens.colors` for palette, `tokens.typography` for font scale, `tokens.spacing` for gaps/padding.
-3. **Principle enforcement** — The scan pipeline automatically checks Calm Precision principles when the design system is active. Core principles (Gestalt, signal-to-noise) surface as errors. Stylistic (Fitts, Hick) surface as warnings.
+3. **Principle enforcement** — The scan pipeline automatically checks Calm Precision principles when the design system is active. Functional integrity, accessibility, grouping, and signal-to-noise failures should block completion. Stylistic/density issues can be warnings unless the user made them explicit.
 4. **During scan** — The `designSystem` field in scan output reports:
    - `principleViolations` — Calm Precision rule failures
    - `tokenViolations` — Off-system values (wrong font size, non-token color)
