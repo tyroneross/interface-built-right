@@ -9,6 +9,7 @@ Codex uses:
 - `.codex-plugin/plugin.json` for plugin identity, marketplace metadata, skills, and MCP config.
 - `.codex-plugin/skills/` for the agent-facing design, validation, and native routing guidance.
 - `.codex-plugin/mcp.json` for the `ibr` MCP server.
+- `references/` for detailed UI/UX reference files used by the compact Codex skills.
 
 Codex does not load Claude slash-command routing from `commands/`, Claude hooks from `hooks/`, or Claude-style agent frontmatter from `agents/`. The larger shared `skills/` directory remains the source library for Claude/source workflows; the Codex manifest intentionally points at the compact `.codex-plugin/skills/` layer to keep activation costs low.
 
@@ -72,6 +73,8 @@ Expected hard requirements:
 - Manifest has `interface.websiteURL`, `privacyPolicyURL`, `termsOfServiceURL`, and `defaultPrompt`.
 - `skills` points to `./.codex-plugin/skills`.
 - `mcpServers` points to `./.codex-plugin/mcp.json`.
+- Installed skills include `design`, `ui-ux-guidance`, `validate`, and `native`.
+- Installed references include `references/web-design/`.
 - The MCP server command resolves to `dist/mcp/server.js` after build.
 
 ## Use From Codex
@@ -87,6 +90,7 @@ $ibr Validate this design intent.
 The primary Codex path is skills plus MCP tools:
 
 - Start design and implementation work with `design`.
+- Use `ui-ux-guidance` for the current IBR UI/UX rules: Calm Precision, web archetypes, target roles, imagegen gates, states, mobile, and data visualization.
 - Validate web UI with `validate`.
 - Validate simulator or macOS UI with `native`.
 - Use MCP tools such as `scan`, `snapshot`, `compare`, `observe`, `interact`, `flow_search`, `flow_form`, `native_scan`, and `scan_macos` for live evidence.

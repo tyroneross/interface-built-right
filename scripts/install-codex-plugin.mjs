@@ -121,6 +121,7 @@ const bundlePaths = [
   "dist",
   "package.json",
   "package-lock.json",
+  "references",
   path.join("templates", "design-system.json"),
   path.join("src", "native", "swift", "ibr-ax-extract"),
 ];

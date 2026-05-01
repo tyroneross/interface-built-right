@@ -10,12 +10,13 @@ Use IBR as the design planner before editing non-trivial UI. The output should b
 ## Flow
 
 1. Capture user intent: platform, scope, primary user goal, primary action, data needs, references, and constraints.
-2. Classify the surface: web, mobile web, iOS, macOS, or cross-platform; then choose the product archetype.
-3. Decide design mode: scratch, wireframe, hi-fi target, or implementation against an existing design.
-4. If visual exploration would help and no approved target exists, use imagegen only for concepts. User approval is required before a generated image becomes a `visual-target`.
-5. Write a compact plan before code. For page, flow, app, or dashboard work, create `.ibr/builds/<topic>/design-intent.json`.
-6. Implement only after the design intent is concrete enough to test.
-7. Validate with IBR MCP tools before calling the work done.
+2. Load `ui-ux-guidance` for current IBR design guidance: Calm Precision, web archetypes, target roles, imagegen gates, states, mobile, and data visualization.
+3. Classify the surface: web, mobile web, iOS, macOS, or cross-platform; then choose the product archetype.
+4. Decide design mode: scratch, wireframe, hi-fi target, or implementation against an existing design.
+5. If visual exploration would help and no approved target exists, use imagegen only for concepts. User approval is required before a generated image becomes a `visual-target`.
+6. Write a compact plan before code. For page, flow, app, or dashboard work, create `.ibr/builds/<topic>/design-intent.json`.
+7. Implement only after the design intent is concrete enough to test.
+8. Validate with IBR MCP tools before calling the work done.
 
 ## Design Intent
 
@@ -39,6 +40,7 @@ For substantial UI work, record:
 ## Routing Rules
 
 - Web apps: prioritize hierarchy, density, responsive behavior, states, accessibility, and real interaction paths.
+- For web detail, use installed references under `references/web-design/`: router, information architecture, interaction states, visual system, voice/content states, and data visualization.
 - iOS/macOS: follow platform navigation, safe areas/window chrome, touch or pointer conventions, and native accessibility expectations.
 - Dashboards and analytical UI: use charts only when comparison, trend, distribution, relationship, or composition is clearer than text.
 - Mockup Gallery references: treat approved wireframes as layout targets and approved hi-fi mockups as visual targets. Do not treat unrated or rejected mockups as binding.
