@@ -3,6 +3,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -89,6 +90,13 @@ function syncBundle(pluginRoot, paths) {
   return existing ? "replaced" : "created";
 }
 
+function installRuntimeDependencies(pluginRoot) {
+  execFileSync("npm", ["install", "--omit=dev", "--ignore-scripts"], {
+    cwd: pluginRoot,
+    stdio: "inherit",
+  });
+}
+
 function marketplaceRoot(marketplacePath) {
   return path.resolve(path.dirname(marketplacePath), "..", "..");
 }
@@ -111,6 +119,8 @@ const marketplacePath = path.resolve(
 const bundlePaths = [
   ".codex-plugin",
   "dist",
+  "package.json",
+  "package-lock.json",
   path.join("templates", "design-system.json"),
   path.join("src", "native", "swift", "ibr-ax-extract"),
 ];
@@ -122,6 +132,7 @@ assertRequiredPaths([
 ]);
 
 const bundleStatus = syncBundle(pluginRoot, bundlePaths);
+installRuntimeDependencies(pluginRoot);
 
 if (skipMarketplace) {
   console.log(`Codex plugin bundle: ${pluginRoot} (${bundleStatus})`);
