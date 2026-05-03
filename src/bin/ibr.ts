@@ -446,7 +446,9 @@ program
   .option('--full', 'Run all checks: functional + visual + semantic (default)')
   .option('--json', 'Output as JSON')
   .option('--fail-on <level>', 'Exit non-zero on errors/warnings', 'error')
-  .action(async (url: string | undefined, options: { rules?: string; showFramework?: boolean; checkApis?: string | boolean; visual?: boolean; baseline?: string; semantic?: boolean; full?: boolean; json?: boolean; failOn: string }) => {
+  .option('--cookie <pairs>', 'Cookies to set before audit (e.g. "session=abc; csrf=xyz"). Audited URL is used as the cookie origin.')
+  .option('--cookie-jar <file>', 'Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).')
+  .action(async (url: string | undefined, options: { rules?: string; showFramework?: boolean; checkApis?: string | boolean; visual?: boolean; baseline?: string; semantic?: boolean; full?: boolean; json?: boolean; failOn: string; cookie?: string; cookieJar?: string }) => {
     try {
       const resolvedUrl = await resolveBaseUrl(url);
       const globalOpts = program.opts();
@@ -509,6 +511,19 @@ program
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
       const driver = new EngineDriver();
       await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+
+      // Inject cookies (if any) BEFORE navigation so the first request carries
+      // the auth/session header. Audited URL is the default origin for pair
+      // entries; jar entries pass through their own url/domain when present.
+      if (options.cookie || options.cookieJar) {
+        const { resolveCookies } = await import('./cookie-parser.js');
+        const cookies = resolveCookies({ cookie: options.cookie, cookieJar: options.cookieJar }, resolvedUrl);
+        if (cookies.length > 0) {
+          await driver.setCookies(cookies);
+          console.log(`Injected ${cookies.length} cookie${cookies.length === 1 ? '' : 's'} (${cookies.map((c) => c.name).join(', ')})`);
+        }
+      }
+
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -4578,11 +4593,21 @@ program
   .description('Preview available actions on a page without executing them')
   .option('-r, --role <role>', 'Filter by ARIA role')
   .option('-l, --limit <n>', 'Max results', '30')
+  .option('--cookie <pairs>', 'Cookies to set before observe (e.g. "session=abc; csrf=xyz"). Audited URL is used as the cookie origin.')
+  .option('--cookie-jar <file>', 'Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).')
   .action(async (url: string, opts: any) => {
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
       await driver.launch(withBrowserOptions({ headless: true }))
+      if (opts.cookie || opts.cookieJar) {
+        const { resolveCookies } = await import('./cookie-parser.js');
+        const cookies = resolveCookies({ cookie: opts.cookie, cookieJar: opts.cookieJar }, url);
+        if (cookies.length > 0) {
+          await driver.setCookies(cookies);
+          console.error(`Injected ${cookies.length} cookie${cookies.length === 1 ? '' : 's'} (${cookies.map((c) => c.name).join(', ')})`);
+        }
+      }
       await driver.navigate(url)
       const actions = await driver.observe({ role: opts.role, limit: Number(opts.limit) })
 
@@ -4606,11 +4631,21 @@ program
 program
   .command('extract <url>')
   .description('Extract structured data from a page — headings, buttons, inputs, links')
-  .action(async (url: string) => {
+  .option('--cookie <pairs>', 'Cookies to set before extract (e.g. "session=abc; csrf=xyz"). Audited URL is used as the cookie origin.')
+  .option('--cookie-jar <file>', 'Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).')
+  .action(async (url: string, opts: any) => {
     const { EngineDriver } = await import('../engine/driver.js')
     const driver = new EngineDriver()
     try {
       await driver.launch(withBrowserOptions({ headless: true }))
+      if (opts.cookie || opts.cookieJar) {
+        const { resolveCookies } = await import('./cookie-parser.js');
+        const cookies = resolveCookies({ cookie: opts.cookie, cookieJar: opts.cookieJar }, url);
+        if (cookies.length > 0) {
+          await driver.setCookies(cookies);
+          console.error(`Injected ${cookies.length} cookie${cookies.length === 1 ? '' : 's'} (${cookies.map((c) => c.name).join(', ')})`);
+        }
+      }
       await driver.navigate(url)
       const meta = await driver.extractMeta()
 

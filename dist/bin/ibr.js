@@ -17031,6 +17031,90 @@ var init_dynamic_rules = __esm({
   }
 });
 
+// src/bin/cookie-parser.ts
+var cookie_parser_exports = {};
+__export(cookie_parser_exports, {
+  parseCookieJar: () => parseCookieJar,
+  parseCookiePairs: () => parseCookiePairs,
+  resolveCookies: () => resolveCookies
+});
+function parseCookiePairs(pairs, defaultUrl) {
+  if (!pairs || !pairs.trim()) return [];
+  const out = [];
+  for (const raw of pairs.split(";")) {
+    const piece = raw.trim();
+    if (!piece) continue;
+    const eq = piece.indexOf("=");
+    if (eq <= 0) {
+      throw new Error(
+        `Cookie pair "${piece}" is missing a name=value separator. Expected format: name=value;name2=value2`
+      );
+    }
+    const name = piece.slice(0, eq).trim();
+    const value = piece.slice(eq + 1).trim();
+    if (!name) {
+      throw new Error(`Cookie entry "${piece}" has an empty name`);
+    }
+    out.push({ name, value, url: defaultUrl });
+  }
+  return out;
+}
+function parseCookieJar(path2, defaultUrl) {
+  const raw = (0, import_node_fs2.readFileSync)(path2, "utf8");
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`Cookie jar at ${path2} is not valid JSON: ${reason}`);
+  }
+  if (!Array.isArray(parsed)) {
+    throw new Error(`Cookie jar at ${path2} must be a JSON array of cookie objects`);
+  }
+  const out = [];
+  for (let i = 0; i < parsed.length; i++) {
+    const entry = parsed[i];
+    if (!entry || typeof entry !== "object") {
+      throw new Error(`Cookie jar entry at index ${i} is not an object`);
+    }
+    const obj = entry;
+    const name = obj.name;
+    const value = obj.value;
+    if (typeof name !== "string" || !name) {
+      throw new Error(`Cookie jar entry at index ${i} is missing a non-empty "name"`);
+    }
+    if (typeof value !== "string") {
+      throw new Error(`Cookie jar entry at index ${i} is missing a string "value"`);
+    }
+    const cookie = { name, value };
+    if (typeof obj.url === "string") cookie.url = obj.url;
+    if (typeof obj.domain === "string") cookie.domain = obj.domain;
+    if (typeof obj.path === "string") cookie.path = obj.path;
+    if (typeof obj.secure === "boolean") cookie.secure = obj.secure;
+    if (typeof obj.httpOnly === "boolean") cookie.httpOnly = obj.httpOnly;
+    if (obj.sameSite === "Strict" || obj.sameSite === "Lax" || obj.sameSite === "None") {
+      cookie.sameSite = obj.sameSite;
+    }
+    if (typeof obj.expires === "number") cookie.expires = obj.expires;
+    if (!cookie.url && !cookie.domain) cookie.url = defaultUrl;
+    out.push(cookie);
+  }
+  return out;
+}
+function resolveCookies(options, defaultUrl) {
+  const out = [];
+  if (options.cookieJar) out.push(...parseCookieJar(options.cookieJar, defaultUrl));
+  if (options.cookie) out.push(...parseCookiePairs(options.cookie, defaultUrl));
+  return out;
+}
+var import_node_fs2;
+var init_cookie_parser = __esm({
+  "src/bin/cookie-parser.ts"() {
+    "use strict";
+    import_node_fs2 = require("fs");
+  }
+});
+
 // src/browser-server.ts
 var browser_server_exports = {};
 __export(browser_server_exports, {
@@ -21516,7 +21600,7 @@ program.command("check [sessionId]").description("Compare current state against 
     process.exit(1);
   }
 });
-program.command("audit [url]").description("Full audit: functional checks + visual comparison + semantic verification").option("-r, --rules <preset>", "Override with preset (minimal). Auto-detects from CLAUDE.md by default").option("--show-framework", "Display detected design framework").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--visual", "Include visual comparison against most recent baseline").option("--baseline <session>", "Compare against specific baseline session").option("--semantic", "Include semantic verification (expected elements, page intent)").option("--full", "Run all checks: functional + visual + semantic (default)").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").action(async (url, options) => {
+program.command("audit [url]").description("Full audit: functional checks + visual comparison + semantic verification").option("-r, --rules <preset>", "Override with preset (minimal). Auto-detects from CLAUDE.md by default").option("--show-framework", "Display detected design framework").option("--check-apis [dir]", "Cross-reference UI API calls against backend routes").option("--visual", "Include visual comparison against most recent baseline").option("--baseline <session>", "Compare against specific baseline session").option("--semantic", "Include semantic verification (expected elements, page intent)").option("--full", "Run all checks: functional + visual + semantic (default)").option("--json", "Output as JSON").option("--fail-on <level>", "Exit non-zero on errors/warnings", "error").option("--cookie <pairs>", 'Cookies to set before audit (e.g. "session=abc; csrf=xyz"). Audited URL is used as the cookie origin.').option("--cookie-jar <file>", "Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const globalOpts = program.opts();
@@ -21560,6 +21644,14 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const driver3 = new EngineDriver();
     await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    if (options.cookie || options.cookieJar) {
+      const { resolveCookies: resolveCookies2 } = await Promise.resolve().then(() => (init_cookie_parser(), cookie_parser_exports));
+      const cookies = resolveCookies2({ cookie: options.cookie, cookieJar: options.cookieJar }, resolvedUrl);
+      if (cookies.length > 0) {
+        await driver3.setCookies(cookies);
+        console.log(`Injected ${cookies.length} cookie${cookies.length === 1 ? "" : "s"} (${cookies.map((c) => c.name).join(", ")})`);
+      }
+    }
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     await page.waitForTimeout(1e3);
@@ -24486,11 +24578,19 @@ program.command("interact <url>").description("Click, type, fill, or interact wi
     });
   }
 });
-program.command("observe <url>").description("Preview available actions on a page without executing them").option("-r, --role <role>", "Filter by ARIA role").option("-l, --limit <n>", "Max results", "30").action(async (url, opts) => {
+program.command("observe <url>").description("Preview available actions on a page without executing them").option("-r, --role <role>", "Filter by ARIA role").option("-l, --limit <n>", "Max results", "30").option("--cookie <pairs>", 'Cookies to set before observe (e.g. "session=abc; csrf=xyz"). Audited URL is used as the cookie origin.').option("--cookie-jar <file>", "Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).").action(async (url, opts) => {
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
     await driver3.launch(withBrowserOptions({ headless: true }));
+    if (opts.cookie || opts.cookieJar) {
+      const { resolveCookies: resolveCookies2 } = await Promise.resolve().then(() => (init_cookie_parser(), cookie_parser_exports));
+      const cookies = resolveCookies2({ cookie: opts.cookie, cookieJar: opts.cookieJar }, url);
+      if (cookies.length > 0) {
+        await driver3.setCookies(cookies);
+        console.error(`Injected ${cookies.length} cookie${cookies.length === 1 ? "" : "s"} (${cookies.map((c) => c.name).join(", ")})`);
+      }
+    }
     await driver3.navigate(url);
     const actions = await driver3.observe({ role: opts.role, limit: Number(opts.limit) });
     if (actions.length === 0) {
@@ -24510,11 +24610,19 @@ program.command("observe <url>").description("Preview available actions on a pag
     });
   }
 });
-program.command("extract <url>").description("Extract structured data from a page \u2014 headings, buttons, inputs, links").action(async (url) => {
+program.command("extract <url>").description("Extract structured data from a page \u2014 headings, buttons, inputs, links").option("--cookie <pairs>", 'Cookies to set before extract (e.g. "session=abc; csrf=xyz"). Audited URL is used as the cookie origin.').option("--cookie-jar <file>", "Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).").action(async (url, opts) => {
   const { EngineDriver: EngineDriver2 } = await Promise.resolve().then(() => (init_driver(), driver_exports));
   const driver3 = new EngineDriver2();
   try {
     await driver3.launch(withBrowserOptions({ headless: true }));
+    if (opts.cookie || opts.cookieJar) {
+      const { resolveCookies: resolveCookies2 } = await Promise.resolve().then(() => (init_cookie_parser(), cookie_parser_exports));
+      const cookies = resolveCookies2({ cookie: opts.cookie, cookieJar: opts.cookieJar }, url);
+      if (cookies.length > 0) {
+        await driver3.setCookies(cookies);
+        console.error(`Injected ${cookies.length} cookie${cookies.length === 1 ? "" : "s"} (${cookies.map((c) => c.name).join(", ")})`);
+      }
+    }
     await driver3.navigate(url);
     const meta = await driver3.extractMeta();
     if (meta.headings.length > 0) {
