@@ -1766,16 +1766,19 @@ declare const A11yAttributesSchema: z.ZodObject<{
     ariaLabel: z.ZodNullable<z.ZodString>;
     ariaDescribedBy: z.ZodNullable<z.ZodString>;
     ariaHidden: z.ZodOptional<z.ZodBoolean>;
+    ariaHaspopup: z.ZodOptional<z.ZodNullable<z.ZodString>>;
 }, "strip", z.ZodTypeAny, {
     role: string | null;
     ariaLabel: string | null;
     ariaDescribedBy: string | null;
     ariaHidden?: boolean | undefined;
+    ariaHaspopup?: string | null | undefined;
 }, {
     role: string | null;
     ariaLabel: string | null;
     ariaDescribedBy: string | null;
     ariaHidden?: boolean | undefined;
+    ariaHaspopup?: string | null | undefined;
 }>;
 /**
  * Enhanced element with interactivity and accessibility
@@ -1831,21 +1834,26 @@ declare const EnhancedElementSchema: z.ZodObject<{
         hasVueHandler?: boolean | undefined;
         hasAngularHandler?: boolean | undefined;
     }>;
+    inForm: z.ZodOptional<z.ZodBoolean>;
+    buttonType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     a11y: z.ZodObject<{
         role: z.ZodNullable<z.ZodString>;
         ariaLabel: z.ZodNullable<z.ZodString>;
         ariaDescribedBy: z.ZodNullable<z.ZodString>;
         ariaHidden: z.ZodOptional<z.ZodBoolean>;
+        ariaHaspopup: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     }, "strip", z.ZodTypeAny, {
         role: string | null;
         ariaLabel: string | null;
         ariaDescribedBy: string | null;
         ariaHidden?: boolean | undefined;
+        ariaHaspopup?: string | null | undefined;
     }, {
         role: string | null;
         ariaLabel: string | null;
         ariaDescribedBy: string | null;
         ariaHidden?: boolean | undefined;
+        ariaHaspopup?: string | null | undefined;
     }>;
     sourceHint: z.ZodOptional<z.ZodObject<{
         dataTestId: z.ZodNullable<z.ZodString>;
@@ -1878,11 +1886,14 @@ declare const EnhancedElementSchema: z.ZodObject<{
         ariaLabel: string | null;
         ariaDescribedBy: string | null;
         ariaHidden?: boolean | undefined;
+        ariaHaspopup?: string | null | undefined;
     };
     id?: string | undefined;
     className?: string | undefined;
     text?: string | undefined;
     computedStyles?: Record<string, string> | undefined;
+    inForm?: boolean | undefined;
+    buttonType?: string | null | undefined;
     sourceHint?: {
         dataTestId: string | null;
     } | undefined;
@@ -1910,11 +1921,14 @@ declare const EnhancedElementSchema: z.ZodObject<{
         ariaLabel: string | null;
         ariaDescribedBy: string | null;
         ariaHidden?: boolean | undefined;
+        ariaHaspopup?: string | null | undefined;
     };
     id?: string | undefined;
     className?: string | undefined;
     text?: string | undefined;
     computedStyles?: Record<string, string> | undefined;
+    inForm?: boolean | undefined;
+    buttonType?: string | null | undefined;
     sourceHint?: {
         dataTestId: string | null;
     } | undefined;

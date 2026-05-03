@@ -1863,12 +1863,25 @@ var init_calm_precision = __esm({
 // src/rules/presets/minimal.ts
 var minimal_exports = {};
 __export(minimal_exports, {
+  hasPopupTrigger: () => hasPopupTrigger,
+  isFormSubmitButton: () => isFormSubmitButton,
   isLayoutCollapsed: () => isLayoutCollapsed,
   register: () => register,
   rules: () => rules
 });
 function isLayoutCollapsed(element) {
   return element.bounds.width === 0 && element.bounds.height === 0;
+}
+function hasPopupTrigger(element) {
+  const v = element.a11y.ariaHaspopup;
+  if (!v) return false;
+  return v !== "false";
+}
+function isFormSubmitButton(element) {
+  if (element.tagName !== "button") return false;
+  if (!element.inForm) return false;
+  const t = element.buttonType;
+  return t == null || t === "submit" || t === "";
 }
 function register() {
   registerPreset(minimalPreset);
@@ -1884,6 +1897,8 @@ var init_minimal = __esm({
       defaultSeverity: "error",
       check: (element, _context) => {
         if (isLayoutCollapsed(element)) return null;
+        if (hasPopupTrigger(element)) return null;
+        if (isFormSubmitButton(element)) return null;
         const isButton = element.tagName === "button" || element.a11y.role === "button";
         const isDisabled = element.interactive.isDisabled;
         const hasHandler = element.interactive.hasOnClick;
@@ -2501,7 +2516,13 @@ var A11yAttributesSchema = z.object({
   role: z.string().nullable(),
   ariaLabel: z.string().nullable(),
   ariaDescribedBy: z.string().nullable(),
-  ariaHidden: z.boolean().optional()
+  ariaHidden: z.boolean().optional(),
+  // WAI-ARIA aria-haspopup signals that activating the element opens a
+  // menu/dialog/listbox/tree/grid. Headless component libraries (Radix,
+  // Headless UI, Reach) wire the click via portal/event delegation rather
+  // than a direct `onClick`, which trips the `no-handler` rule's heuristic.
+  // Captured here so rules can opt out of grading these as orphans.
+  ariaHaspopup: z.string().nullable().optional()
 });
 var EnhancedElementSchema = z.object({
   // Identity
@@ -2516,6 +2537,13 @@ var EnhancedElementSchema = z.object({
   computedStyles: z.record(z.string(), z.string()).optional(),
   // Interactivity
   interactive: InteractiveStateSchema,
+  // True when the element is descendant of a <form>. A `<button>` inside a
+  // form defaults to `type="submit"`, so its click is wired by the form's
+  // submit pipeline rather than a direct onClick prop. Rules that check for
+  // orphan handlers should treat in-form buttons as "wired by form" unless
+  // their type is explicitly "button".
+  inForm: z.boolean().optional(),
+  buttonType: z.string().nullable().optional(),
   // Accessibility
   a11y: A11yAttributesSchema,
   // Source hints for debugging
@@ -9946,11 +9974,14 @@ async function extractInteractiveElements(page) {
               role: htmlEl.getAttribute("role"),
               ariaLabel: htmlEl.getAttribute("aria-label"),
               ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
-              ariaHidden: htmlEl.getAttribute("aria-hidden") === "true" || void 0
+              ariaHidden: htmlEl.getAttribute("aria-hidden") === "true" || void 0,
+              ariaHaspopup: htmlEl.getAttribute("aria-haspopup")
             },
             sourceHint: {
               dataTestId: htmlEl.getAttribute("data-testid")
-            }
+            },
+            inForm: htmlEl instanceof HTMLButtonElement ? htmlEl.form !== null : !!htmlEl.closest?.("form"),
+            buttonType: htmlEl instanceof HTMLButtonElement ? htmlEl.getAttribute("type") ?? "submit" : null
           });
         });
       } catch {

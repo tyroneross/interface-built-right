@@ -378,10 +378,17 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               ariaLabel: htmlEl.getAttribute('aria-label'),
               ariaDescribedBy: htmlEl.getAttribute('aria-describedby'),
               ariaHidden: htmlEl.getAttribute('aria-hidden') === 'true' || undefined,
+              ariaHaspopup: htmlEl.getAttribute('aria-haspopup'),
             },
             sourceHint: {
               dataTestId: htmlEl.getAttribute('data-testid'),
             },
+            inForm: htmlEl instanceof HTMLButtonElement
+              ? htmlEl.form !== null
+              : !!htmlEl.closest?.('form'),
+            buttonType: htmlEl instanceof HTMLButtonElement
+              ? (htmlEl.getAttribute('type') ?? 'submit')
+              : null,
           });
         });
       } catch {

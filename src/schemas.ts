@@ -200,6 +200,12 @@ export const A11yAttributesSchema = z.object({
   ariaLabel: z.string().nullable(),
   ariaDescribedBy: z.string().nullable(),
   ariaHidden: z.boolean().optional(),
+  // WAI-ARIA aria-haspopup signals that activating the element opens a
+  // menu/dialog/listbox/tree/grid. Headless component libraries (Radix,
+  // Headless UI, Reach) wire the click via portal/event delegation rather
+  // than a direct `onClick`, which trips the `no-handler` rule's heuristic.
+  // Captured here so rules can opt out of grading these as orphans.
+  ariaHaspopup: z.string().nullable().optional(),
 });
 
 /**
@@ -221,6 +227,14 @@ export const EnhancedElementSchema = z.object({
 
   // Interactivity
   interactive: InteractiveStateSchema,
+
+  // True when the element is descendant of a <form>. A `<button>` inside a
+  // form defaults to `type="submit"`, so its click is wired by the form's
+  // submit pipeline rather than a direct onClick prop. Rules that check for
+  // orphan handlers should treat in-form buttons as "wired by form" unless
+  // their type is explicitly "button".
+  inForm: z.boolean().optional(),
+  buttonType: z.string().nullable().optional(),
 
   // Accessibility
   a11y: A11yAttributesSchema,

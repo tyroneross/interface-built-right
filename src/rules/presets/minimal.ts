@@ -19,6 +19,43 @@ export function isLayoutCollapsed(element: EnhancedElement): boolean {
 }
 
 /**
+ * `aria-haspopup` (any of `menu | listbox | tree | grid | dialog | true`)
+ * indicates the element opens a popup. Headless component libraries
+ * (Radix, Headless UI, Reach UI, Ariakit) wire the click via portal /
+ * event delegation rather than a direct `onClick` prop, which the
+ * `no-handler` heuristic doesn't see. Treating any element with a
+ * non-null aria-haspopup as "wired by intent" stops the rule from
+ * flagging library-managed popup triggers as orphans.
+ *
+ * Conservative: aria-haspopup="false" is treated as no popup (per spec)
+ * and the rule still grades the element normally.
+ */
+export function hasPopupTrigger(element: EnhancedElement): boolean {
+  const v = element.a11y.ariaHaspopup;
+  if (!v) return false;
+  return v !== 'false';
+}
+
+/**
+ * A `<button>` inside a `<form>` defaults to `type="submit"` and submits the
+ * form on click — the form's onSubmit handler is the wired path, not the
+ * button's onClick. Treat such buttons as wired-by-form unless their type is
+ * explicitly `"button"` (which opts out of the submit pipeline and so does
+ * need its own onClick).
+ *
+ * Buttons OUTSIDE a form are still graded normally — there's no form pipeline
+ * to wire them.
+ */
+export function isFormSubmitButton(element: EnhancedElement): boolean {
+  if (element.tagName !== 'button') return false;
+  if (!element.inForm) return false;
+  // Default type for a <button> in a <form> is "submit".
+  // Only opt-out when type is explicitly "button" (or "reset").
+  const t = element.buttonType;
+  return t == null || t === 'submit' || t === '';
+}
+
+/**
  * Rule: Buttons must have click handlers
  */
 const noHandlerRule: Rule = {
@@ -28,6 +65,8 @@ const noHandlerRule: Rule = {
   defaultSeverity: 'error',
   check: (element: EnhancedElement, _context: RuleContext): Violation | null => {
     if (isLayoutCollapsed(element)) return null;
+    if (hasPopupTrigger(element)) return null;
+    if (isFormSubmitButton(element)) return null;
     const isButton = element.tagName === 'button' || element.a11y.role === 'button';
     const isDisabled = element.interactive.isDisabled;
     const hasHandler = element.interactive.hasOnClick;
