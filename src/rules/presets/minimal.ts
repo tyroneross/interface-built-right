@@ -2,6 +2,23 @@ import { registerPreset, type Rule, type RuleContext, type RulePreset } from '..
 import type { EnhancedElement, Violation } from '../../schemas.js';
 
 /**
+ * An element is treated as "not present to the user" when its layout box has
+ * collapsed to zero. This catches the most common false-positive class for the
+ * minimal preset: responsive toggles (`.show-mobile` / `.hidden-mobile`) that
+ * keep the element in the DOM but hide it via `display:none` in the off-active
+ * viewport, which produces a {0,0,0,0} bounding box. Such elements are not
+ * tappable, not visible, and shouldn't be graded against handler / touch-target
+ * / a11y-label rules in the active viewport.
+ *
+ * `visibility:hidden` and `opacity:0` deliberately are NOT filtered here —
+ * those preserve layout, the element is still in the tab order, and the rule
+ * should fire (the author probably forgot to remove it).
+ */
+export function isLayoutCollapsed(element: EnhancedElement): boolean {
+  return element.bounds.width === 0 && element.bounds.height === 0;
+}
+
+/**
  * Rule: Buttons must have click handlers
  */
 const noHandlerRule: Rule = {
@@ -10,6 +27,7 @@ const noHandlerRule: Rule = {
   description: 'Interactive elements like buttons must have click handlers',
   defaultSeverity: 'error',
   check: (element: EnhancedElement, _context: RuleContext): Violation | null => {
+    if (isLayoutCollapsed(element)) return null;
     const isButton = element.tagName === 'button' || element.a11y.role === 'button';
     const isDisabled = element.interactive.isDisabled;
     const hasHandler = element.interactive.hasOnClick;
@@ -39,6 +57,7 @@ const placeholderLinkRule: Rule = {
   description: 'Links must have valid hrefs or click handlers',
   defaultSeverity: 'error',
   check: (element: EnhancedElement, _context: RuleContext): Violation | null => {
+    if (isLayoutCollapsed(element)) return null;
     const isLink = element.tagName === 'a';
     const hasValidHref = element.interactive.hasHref;
     const hasHandler = element.interactive.hasOnClick;
@@ -68,6 +87,7 @@ const touchTargetRule: Rule = {
   description: 'Interactive elements must meet minimum touch target size',
   defaultSeverity: 'warn',
   check: (element: EnhancedElement, context: RuleContext, options?: Record<string, unknown>): Violation | null => {
+    if (isLayoutCollapsed(element)) return null;
     const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
     if (!isInteractive) return null;
 
@@ -102,6 +122,7 @@ const missingAriaLabelRule: Rule = {
   description: 'Interactive elements without text need aria-label',
   defaultSeverity: 'warn',
   check: (element: EnhancedElement, _context: RuleContext): Violation | null => {
+    if (isLayoutCollapsed(element)) return null;
     const isInteractive = element.interactive.hasOnClick || element.interactive.hasHref;
     if (!isInteractive) return null;
 

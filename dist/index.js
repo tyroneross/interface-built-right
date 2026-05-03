@@ -1887,9 +1887,13 @@ var init_calm_precision = __esm({
 // src/rules/presets/minimal.ts
 var minimal_exports = {};
 __export(minimal_exports, {
+  isLayoutCollapsed: () => isLayoutCollapsed,
   register: () => register,
   rules: () => rules
 });
+function isLayoutCollapsed(element) {
+  return element.bounds.width === 0 && element.bounds.height === 0;
+}
 function register() {
   registerPreset(minimalPreset);
 }
@@ -1903,6 +1907,7 @@ var init_minimal = __esm({
       description: "Interactive elements like buttons must have click handlers",
       defaultSeverity: "error",
       check: (element, _context) => {
+        if (isLayoutCollapsed(element)) return null;
         const isButton = element.tagName === "button" || element.a11y.role === "button";
         const isDisabled = element.interactive.isDisabled;
         const hasHandler = element.interactive.hasOnClick;
@@ -1926,6 +1931,7 @@ var init_minimal = __esm({
       description: "Links must have valid hrefs or click handlers",
       defaultSeverity: "error",
       check: (element, _context) => {
+        if (isLayoutCollapsed(element)) return null;
         const isLink = element.tagName === "a";
         const hasValidHref = element.interactive.hasHref;
         const hasHandler = element.interactive.hasOnClick;
@@ -1949,6 +1955,7 @@ var init_minimal = __esm({
       description: "Interactive elements must meet minimum touch target size",
       defaultSeverity: "warn",
       check: (element, context, options) => {
+        if (isLayoutCollapsed(element)) return null;
         const isInteractive2 = element.interactive.hasOnClick || element.interactive.hasHref;
         if (!isInteractive2) return null;
         const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
@@ -1973,6 +1980,7 @@ var init_minimal = __esm({
       description: "Interactive elements without text need aria-label",
       defaultSeverity: "warn",
       check: (element, _context) => {
+        if (isLayoutCollapsed(element)) return null;
         const isInteractive2 = element.interactive.hasOnClick || element.interactive.hasHref;
         if (!isInteractive2) return null;
         const hasText = element.text && element.text.trim().length > 0;
