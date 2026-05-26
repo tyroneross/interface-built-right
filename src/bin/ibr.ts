@@ -23,7 +23,47 @@ import {
   formatPendingOperations,
 } from '../operation-tracker.js';
 import type { FixGuide } from '../native/fix-guide.js';
-import { viewportToConfig } from '../devices.js';
+import {
+  DEVICE_NAMES,
+  deviceToViewport,
+  resolveDevice,
+  viewportToConfig,
+} from '../devices.js';
+import type { Viewport } from '../schemas.js';
+
+/**
+ * Resolve final viewport from CLI flags. `--device` wins over `--viewport`
+ * when both are given (documented precedence). Returns a Viewport-shaped
+ * object so existing call sites that read `.width`/`.height`/etc. keep
+ * working.
+ *
+ * Throws when --device names an unknown profile so the user sees a clear
+ * error instead of silently rendering at desktop (the pre-1.1.0 footgun).
+ */
+function resolveViewportFromFlags(
+  deviceName: string | undefined,
+  viewportName: string | undefined,
+  viewports: Record<string, Viewport>,
+  fallback: Viewport,
+): Viewport {
+  if (deviceName) {
+    const profile = resolveDevice(deviceName);
+    const config = deviceToViewport(profile);
+    return {
+      name: profile.name,
+      width: config.width,
+      height: config.height,
+      deviceScaleFactor: config.deviceScaleFactor,
+      mobile: config.mobile,
+      userAgent: config.userAgent,
+      hasTouch: config.hasTouch,
+    };
+  }
+  if (viewportName && viewports[viewportName]) {
+    return viewports[viewportName];
+  }
+  return fallback;
+}
 
 // =============================================================================
 // FORMAT HELPERS
@@ -915,6 +955,10 @@ program
   .command('scan <url>')
   .description('Full UI scan: elements + interactivity + semantic + console errors')
   .option('-v, --viewport <preset>', 'Viewport preset (desktop, mobile, tablet)', 'desktop')
+  .option(
+    '-d, --device <name>',
+    `Canonical device profile (overrides --viewport). One of: ${DEVICE_NAMES.join(', ')}`,
+  )
   .option('--wait-for <selector>', 'Wait for selector before scanning')
   .option('--screenshot <path>', 'Save screenshot to path')
   .option('--json', 'Output as JSON')
@@ -923,7 +967,7 @@ program
   .option('--network-idle-timeout <ms>', 'Network idle timeout in ms (default: 10000)')
   .option('--rules <presets>', 'Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)')
   .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
-  .action(async (url: string, options: { viewport: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string; output: string }) => {
+  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string; output: string }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
@@ -935,8 +979,18 @@ program
         ? options.rules.split(',').map(s => s.trim()).filter(Boolean)
         : undefined;
 
+      // --device wins over --viewport. resolveDevice throws on unknown
+      // names so the user sees a useful error rather than silently
+      // rendering at desktop.
+      const resolvedViewport = resolveViewportFromFlags(
+        options.device,
+        options.viewport,
+        VIEWPORTS,
+        VIEWPORTS.desktop,
+      );
+
       const result = await scan(resolvedUrl, {
-        viewport: options.viewport as 'desktop' | 'mobile' | 'tablet',
+        viewport: resolvedViewport,
         waitFor: options.waitFor,
         timeout: parseInt(options.timeout, 10),
         patience: options.patience ? parseInt(options.patience, 10) : undefined,
@@ -1459,6 +1513,10 @@ program
   .option('--debug', 'Visible browser + slow motion + devtools')
   .option('--low-memory', 'Reduce memory usage for lower-powered machines (4GB RAM)')
   .option('--auto-capture', 'Auto-capture screenshot + scan after every interaction')
+  .option(
+    '-d, --device <name>',
+    `Canonical device profile (overrides global --viewport). One of: ${DEVICE_NAMES.join(', ')}`,
+  )
   .action(async (url: string | undefined, options: {
     name?: string;
     waitFor?: string;
@@ -1467,6 +1525,7 @@ program
     debug?: boolean;
     lowMemory?: boolean;
     autoCapture?: boolean;
+    device?: string;
   }) => {
     try {
       const {
@@ -1478,6 +1537,14 @@ program
       const outputDir = globalOpts.output || './.ibr';
       const resolvedUrl = await resolveBaseUrl(url);
       const headed = Boolean(options.headed || options.sandbox || options.debug);
+
+      // Resolve session viewport once. --device wins over global --viewport.
+      const sessionViewport = resolveViewportFromFlags(
+        options.device,
+        globalOpts.viewport as string | undefined,
+        VIEWPORTS,
+        VIEWPORTS.desktop,
+      );
       const headless = !headed;
 
       // Check if browser server is already running
@@ -1501,7 +1568,7 @@ program
           url: resolvedUrl,
           name: options.name,
           waitFor: options.waitFor,
-          viewport: VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop,
+          viewport: sessionViewport,
         });
 
         console.log('');
@@ -1570,7 +1637,7 @@ program
           url: resolvedUrl,
           name: options.name,
           waitFor: options.waitFor,
-          viewport: VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop,
+          viewport: sessionViewport,
         });
 
         console.log('');
