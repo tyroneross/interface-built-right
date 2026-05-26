@@ -172,6 +172,48 @@ describe('EngineDriver integration', () => {
     expect(text).toBe('Viewport test')
   })
 
+  it('applies UA override + mobile metrics + touch from a device profile (1.1.0)', async () => {
+    await ensureLaunched()
+    // Re-baseline using emulation domain directly (the driver is shared
+    // by tests, so we apply on top — applyDeviceProfile is idempotent).
+    await driver.emulationDomain.applyDeviceProfile({
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 3,
+      mobile: true,
+      userAgent:
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      hasTouch: true,
+    })
+    // Include the standard mobile viewport meta so window.innerWidth
+    // reflects the CSS-pixel device width (390). Without the meta, Chrome
+    // falls back to the legacy ~980px layout viewport even when
+    // setDeviceMetricsOverride{mobile:true} is in effect.
+    await driver.navigate(
+      'data:text/html,' +
+        encodeURIComponent(
+          '<!doctype html><html><head>' +
+            '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+            '</head><body><p>UA test</p></body></html>',
+        ),
+      { waitFor: 'load' },
+    )
+
+    const ua = (await driver.evaluate('navigator.userAgent')) as string
+    expect(ua, 'mobile UA must reach the page after applyDeviceProfile').toMatch(/iPhone/)
+
+    const innerWidth = (await driver.evaluate('window.innerWidth')) as number
+    expect(innerWidth, 'iPhone 14 layout viewport is 390 CSS px').toBe(390)
+
+    const maxTouchPoints = (await driver.evaluate('navigator.maxTouchPoints')) as number
+    expect(maxTouchPoints, 'touch emulation must be active').toBeGreaterThan(0)
+
+    // Clean up for downstream tests in this suite.
+    await driver.emulationDomain.setUserAgent('')
+    await driver.emulationDomain.setTouchEmulation(false)
+    await driver.clearViewport()
+  })
+
   it('manages cookies', async () => {
     await driver.navigate('data:text/html,<p>Cookie test</p>', { waitFor: 'none' })
     await driver.clearCookies()
