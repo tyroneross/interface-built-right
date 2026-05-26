@@ -176,9 +176,18 @@ describe('SessionSchema', () => {
 
 describe('VIEWPORTS', () => {
   it('has expected preset viewports', () => {
+    // Desktop unchanged. Mobile + tablet realigned in 1.1.0 to current
+    // baselines (iPhone 14 / iPad Air) with mobile:true so CDP emulation
+    // can actually render mobile layouts — pre-1.1.0 these were
+    // 375x667 / 768x1024 with no mobile flag, which read as "desktop"
+    // to Chrome and was the silently-broken --viewport mobile bug.
     expect(VIEWPORTS.desktop.width).toBe(1920);
-    expect(VIEWPORTS.mobile.width).toBe(375);
-    expect(VIEWPORTS.tablet.width).toBe(768);
+    expect(VIEWPORTS.mobile.width).toBe(390);
+    expect(VIEWPORTS.mobile.height).toBe(844);
+    expect(VIEWPORTS.mobile.mobile).toBe(true);
+    expect(VIEWPORTS.tablet.width).toBe(820);
+    expect(VIEWPORTS.tablet.height).toBe(1180);
+    expect(VIEWPORTS.tablet.mobile).toBe(true);
   });
 
   it('all presets pass schema validation', () => {

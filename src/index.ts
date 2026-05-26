@@ -1,4 +1,5 @@
 import { ConfigSchema, VIEWPORTS, type Config, type Session, type SessionQuery, type ComparisonReport, type Viewport } from './schemas.js';
+import { viewportToConfig } from './devices.js';
 import { captureScreenshot, captureWithLandmarks, closeBrowser } from './capture.js';
 import { compareImages, analyzeComparison } from './compare.js';
 import {
@@ -584,7 +585,7 @@ export class InterfaceBuiltRight {
     const driver = new EngineDriver();
     await driver.launch({
       headless: !options.headed,
-      viewport: { width: viewport.width, height: viewport.height },
+      viewport: viewportToConfig(viewport),
       mode: this.config.browserMode,
       cdpUrl: this.config.cdpUrl,
       wsEndpoint: this.config.wsEndpoint,
@@ -1029,3 +1030,17 @@ export * from './native/index.js';
 // Browser transport exports
 export type { BrowserMode, BrowserConnectionOptions, BrowserOptions } from './engine/cdp/browser.js';
 export type { BrowserLaunchOptions } from './types.js';
+
+// Device emulation exports (CDP-direct, no Playwright dependency)
+export {
+  DEVICES,
+  DEVICE_NAMES,
+  resolveDevice,
+  deviceToViewport,
+  viewportToConfig,
+  MOBILE_SAFARI_UA,
+  TABLET_SAFARI_UA,
+  ANDROID_CHROME_UA,
+} from './devices.js';
+export type { DeviceProfile, DeviceName } from './devices.js';
+export type { ViewportConfig } from './engine/cdp/emulation.js';

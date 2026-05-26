@@ -2,6 +2,7 @@ import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
 import type { PageLike } from './engine/page-like.js';
 import { VIEWPORTS, type Viewport } from './schemas.js';
+import { viewportToConfig } from './devices.js';
 
 /**
  * Layout issue detected during responsive testing
@@ -111,7 +112,7 @@ export async function testResponsive(
     const driver = new EngineDriver();
     await driver.launch({
       headless: true,
-      viewport: { width: viewport.width, height: viewport.height },
+      viewport: viewportToConfig(viewport),
     });
     const page = new CompatPage(driver);
 

@@ -240,11 +240,22 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop
     : viewportOpt;
 
-  // Launch browser
+  // Launch browser. Pass the full resolved viewport (including
+  // deviceScaleFactor, mobile, userAgent, hasTouch) so EngineDriver.launch
+  // can apply the full device profile via CDP Emulation BEFORE navigate.
+  // Passing only {width, height} was the source of the "--viewport mobile
+  // is silently ignored" bug (pre-1.1.0).
   const driver = new EngineDriver();
   await driver.launch({
     headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    viewport: {
+      width: resolvedViewport.width,
+      height: resolvedViewport.height,
+      deviceScaleFactor: resolvedViewport.deviceScaleFactor,
+      mobile: resolvedViewport.mobile,
+      userAgent: resolvedViewport.userAgent,
+      hasTouch: resolvedViewport.hasTouch,
+    },
     mode: browserMode,
     cdpUrl,
     wsEndpoint,

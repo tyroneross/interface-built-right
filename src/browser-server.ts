@@ -5,6 +5,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { VIEWPORTS, type Viewport, type EnhancedElement, type AuditResult } from './schemas.js';
+import { viewportToConfig } from './devices.js';
 import type { BrowserConnectionOptions, BrowserMode } from './engine/cdp/browser.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
 import {
@@ -404,11 +405,10 @@ export class PersistentSession {
     const sessionDir = join(sessionsDir, sessionId);
     await mkdir(sessionDir, { recursive: true });
 
-    // Set viewport on the driver
-    await driver.setViewport({
-      width: viewport.width,
-      height: viewport.height,
-    });
+    // Apply full device profile (metrics + UA + touch) so a session
+    // started with --device or --viewport mobile actually renders as
+    // mobile, not the pre-1.1.0 silently-desktop behavior.
+    await driver.emulationDomain.applyDeviceProfile(viewportToConfig(viewport));
 
     // Enable reduced motion via emulation domain
     await driver.emulationDomain.setReducedMotion(true);
@@ -486,11 +486,9 @@ export class PersistentSession {
     // so we navigate the new driver connection to the session's last known URL.
     const page = new CompatPage(driver);
 
-    // Set viewport to match session
-    await driver.setViewport({
-      width: state.viewport.width,
-      height: state.viewport.height,
-    });
+    // Re-apply the device profile so a session reattach preserves the
+    // original --device / --viewport mobile behavior.
+    await driver.emulationDomain.applyDeviceProfile(viewportToConfig(state.viewport));
 
     await page.goto(state.url, { waitUntil: 'networkidle' });
 

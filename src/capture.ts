@@ -4,6 +4,7 @@ import type { PageLike } from './engine/page-like.js';
 import { mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { VIEWPORTS, type Viewport, type LandmarkElement } from './schemas.js';
+import { viewportToConfig } from './devices.js';
 import type { CaptureOptions, MaskOptions } from './types.js';
 import { DEFAULT_DYNAMIC_SELECTORS } from './types.js';
 import { loadAuthState, isDeployedEnvironment } from './auth.js';
@@ -175,7 +176,7 @@ export async function captureScreenshot(
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
     headless: !headed,
-    viewport: { width: viewport.width, height: viewport.height },
+    viewport: viewportToConfig(viewport),
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -273,7 +274,7 @@ export async function captureWithLandmarks(
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
     headless: !headed,
-    viewport: { width: viewport.width, height: viewport.height },
+    viewport: viewportToConfig(viewport),
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -410,7 +411,7 @@ export async function captureWithDiagnostics(
     const driverInstance = new EngineDriver();
     await driverInstance.launch({
       headless: !headed,
-      viewport: { width: viewport.width, height: viewport.height },
+      viewport: viewportToConfig(viewport),
       mode: browserMode,
       cdpUrl,
       wsEndpoint,

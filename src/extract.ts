@@ -6,6 +6,7 @@ import { existsSync } from 'fs';
 import { join } from 'path';
 import type { Viewport, EnhancedElement, ElementIssue, AuditResult } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
+import { viewportToConfig } from './devices.js';
 
 /**
  * Lock file to prevent concurrent extractions
@@ -569,7 +570,7 @@ export async function extractFromURL(
       const driverInstance = new EngineDriver();
       await driverInstance.launch({
         headless: true,
-        viewport: { width: viewport.width, height: viewport.height },
+        viewport: viewportToConfig(viewport),
       });
       const page = new CompatPage(driverInstance);
 

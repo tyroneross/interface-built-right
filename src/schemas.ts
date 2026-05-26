@@ -1,29 +1,45 @@
 import { z } from 'zod';
 
 /**
- * Viewport configuration for screenshot capture
- * Supports predefined names or custom dimensions
+ * Viewport configuration for screenshot capture and CDP device emulation.
+ *
+ * Supports predefined names or custom dimensions. Optional fields control
+ * full device emulation via Emulation.setDeviceMetricsOverride +
+ * setUserAgentOverride + setTouchEmulationEnabled. When the preset has
+ * `mobile: true` and no `userAgent`, callers (e.g. devices.ts) should
+ * supply a mobile UA — leaving Chrome's desktop UA on a mobile viewport
+ * is the documented "renders at desktop" bug pre-1.1.0.
  */
 export const ViewportSchema = z.object({
   name: z.string().min(1).max(50),
   width: z.number().min(100).max(3840),
   height: z.number().min(100).max(2160),
+  deviceScaleFactor: z.number().min(0.5).max(5).optional(),
+  mobile: z.boolean().optional(),
+  userAgent: z.string().optional(),
+  hasTouch: z.boolean().optional(),
 });
 
 /**
- * Predefined viewport configurations
+ * Predefined viewport configurations.
+ *
+ * `mobile` and `tablet` baselines were realigned in 1.1.0:
+ *   - mobile: 375x667 (iPhone SE) -> 390x844 (iPhone 14) with mobile:true
+ *   - tablet: 768x1024 (iPad Mini) -> 820x1180 (iPad Air) with mobile:true
+ * Pre-1.1.0 these presets were missing the `mobile` flag entirely so Chrome
+ * laid the page out as desktop. See VERSIONING.md.
  */
 export const VIEWPORTS = {
-  desktop: { name: 'desktop', width: 1920, height: 1080 },
-  'desktop-lg': { name: 'desktop-lg', width: 2560, height: 1440 },
-  'desktop-sm': { name: 'desktop-sm', width: 1440, height: 900 },
-  laptop: { name: 'laptop', width: 1366, height: 768 },
-  tablet: { name: 'tablet', width: 768, height: 1024 },
-  'tablet-landscape': { name: 'tablet-landscape', width: 1024, height: 768 },
-  mobile: { name: 'mobile', width: 375, height: 667 },
-  'mobile-lg': { name: 'mobile-lg', width: 414, height: 896 },
-  'iphone-14': { name: 'iphone-14', width: 390, height: 844 },
-  'iphone-14-pro-max': { name: 'iphone-14-pro-max', width: 430, height: 932 },
+  desktop: { name: 'desktop', width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false },
+  'desktop-lg': { name: 'desktop-lg', width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false },
+  'desktop-sm': { name: 'desktop-sm', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+  laptop: { name: 'laptop', width: 1366, height: 768, deviceScaleFactor: 1, mobile: false },
+  tablet: { name: 'tablet', width: 820, height: 1180, deviceScaleFactor: 2, mobile: true },
+  'tablet-landscape': { name: 'tablet-landscape', width: 1180, height: 820, deviceScaleFactor: 2, mobile: true },
+  mobile: { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+  'mobile-lg': { name: 'mobile-lg', width: 430, height: 932, deviceScaleFactor: 3, mobile: true },
+  'iphone-14': { name: 'iphone-14', width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+  'iphone-14-pro-max': { name: 'iphone-14-pro-max', width: 430, height: 932, deviceScaleFactor: 3, mobile: true },
   // Native simulator viewports
   'iphone-16': { name: 'iphone-16', width: 393, height: 852 },
   'iphone-16-plus': { name: 'iphone-16-plus', width: 430, height: 932 },

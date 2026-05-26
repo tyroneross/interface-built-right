@@ -151,9 +151,10 @@ export class EngineDriver implements BrowserDriver {
     await this.ax.enable()
     await this.console.enable()
 
-    // Set viewport if specified
+    // Apply device emulation (metrics + UA + touch) BEFORE the first
+    // navigate so the initial document request sees the emulated device.
     if (options.viewport) {
-      await this.emulation.setDeviceMetrics(options.viewport)
+      await this.emulation.applyDeviceProfile(options.viewport)
     }
   }
 

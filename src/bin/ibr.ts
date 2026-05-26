@@ -23,6 +23,7 @@ import {
   formatPendingOperations,
 } from '../operation-tracker.js';
 import type { FixGuide } from '../native/fix-guide.js';
+import { viewportToConfig } from '../devices.js';
 
 // =============================================================================
 // FORMAT HELPERS
@@ -510,7 +511,7 @@ program
       // Launch browser for audit
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
       const driver = new EngineDriver();
-      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
 
       // Inject cookies (if any) BEFORE navigation so the first request carries
       // the auth/session header. Audited URL is the default origin for pair
@@ -2484,7 +2485,7 @@ program
       // Launch browser
       const viewport = VIEWPORTS[globalOpts.viewport as keyof typeof VIEWPORTS] || VIEWPORTS.desktop;
       const driver = new EngineDriver();
-      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
       const page = new CompatPage(driver);
       await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3671,7 +3672,7 @@ program
 
       const { searchFlow } = await import('../flows/search.js');
 
-      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3735,7 +3736,7 @@ program
         }
       }
 
-      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3792,7 +3793,7 @@ program
         process.exit(1);
       }
 
-      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
       const page = new CompatPage(driver);
       await page.goto(resolvedUrl, { waitUntil: 'networkidle', timeout: 30000 });
 
@@ -3990,7 +3991,7 @@ program
         selector: options.selector,
         maskDynamic: options.maskDynamic ?? false,
         headless: options.headless ?? true,
-        ...(viewportPreset ? { viewport: { width: viewportPreset.width, height: viewportPreset.height } } : {}),
+        ...(viewportPreset ? { viewport: viewportToConfig(viewportPreset) } : {}),
       })
 
       // Save diff image if requested
@@ -4163,7 +4164,7 @@ program
       console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
       console.log('');
 
-      await driver.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+      await driver.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
       await driver.navigate(resolvedUrl);
 
       // Small wait for hydration
@@ -4382,7 +4383,7 @@ program
     try {
       await chromeDriver.launch(withBrowserOptions({
         headless: true,
-        viewport: { width: viewport.width, height: viewport.height },
+        viewport: viewportToConfig(viewport),
       }))
       await chromeDriver.navigate(resolvedUrl, { waitFor: 'stable', timeout })
       chromeScreenshot = await chromeDriver.screenshot()
@@ -4412,7 +4413,7 @@ program
         safariError = 'safaridriver not enabled. Run: sudo safaridriver --enable'
         if (!options.json) console.log(`Safari: skipped — ${safariError}`)
       } else {
-        await safariDriver.launch({ viewport: { width: viewport.width, height: viewport.height } })
+        await safariDriver.launch({ viewport: viewportToConfig(viewport) })
         await safariDriver.navigate(resolvedUrl, { waitFor: 'load', timeout })
         safariScreenshot = await safariDriver.screenshot()
         const discovered = await safariDriver.discover({ filter: 'interactive' })
