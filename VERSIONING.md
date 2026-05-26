@@ -2,12 +2,24 @@
 
 ## Current
 
-- **Version:** 1.0.0
-- **Source of truth:** Local dev (`~/Desktop/git-folder/interface-built-right`)
+- **Version:** 1.1.0
+- **Source of truth:** Local dev (`~/dev/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npm: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.0.0/`
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.1.0/`
+
+## Key changes in 1.1.0
+
+### Mobile / device emulation fix (CDP-direct)
+
+- **`--viewport mobile|tablet|desktop` honored end-to-end via CDP.** Pre-1.1.0 the flag parsed cleanly but Chrome rendered the page at desktop because `EngineDriver.launch` only called `Emulation.setDeviceMetricsOverride` (without UA or touch), and the `mobile` / `tablet` presets were 375x667 / 768x1024 with no `mobile` flag. Surfaced via an atomize-ai UI audit 2026-05-25.
+- **Realigned baselines:** `mobile` -> 390x844 iPhone 14 (DPR 3, mobile:true); `tablet` -> 820x1180 iPad Air (DPR 2, mobile:true).
+- **New `EmulationDomain.applyDeviceProfile()`** wraps `setUserAgentOverride` -> `setDeviceMetricsOverride` -> `setTouchEmulationEnabled` and is invoked from `EngineDriver.launch()` BEFORE the first navigate so the initial document request sees the mobile UA.
+- **New `-d, --device <name>` flag** on `ibr scan` and `ibr session:start`. Canonical set: `iphone-14`, `iphone-14-pro-max`, `pixel-7`, `ipad-air`, `ipad-pro-11`, `desktop-1440`. `--device` wins over `--viewport` when both supplied; unknown names throw with the known list.
+- **`src/devices.ts`** module is the single source for canonical UA strings and profile shape. `viewportToConfig()` helper replaces 10 call sites that stripped viewport down to `{width, height}` and dropped the emulation metadata on the floor.
+- **Library exports:** `DEVICES`, `DEVICE_NAMES`, `resolveDevice`, `deviceToViewport`, `viewportToConfig`, `MOBILE_SAFARI_UA`, `TABLET_SAFARI_UA`, `ANDROID_CHROME_UA`, `DeviceProfile`, `DeviceName`, `ViewportConfig` from the package root.
+- **Tests:** +21 vitest cases (8 emulation CDP-call-recorder, 16 devices module, 1 live-Chrome integration asserting `navigator.userAgent` matches `/iPhone/` and `window.innerWidth === 390` after `applyDeviceProfile`).
 
 ## Key changes in 1.0.0
 
@@ -73,6 +85,7 @@ When "latest" is ambiguous, trust **local dev** first, then cross-check the regi
 
 ## Version history
 
+- **1.1.0** (2026-05-25): CDP-direct mobile/device emulation. `--viewport mobile` now actually emulates mobile (UA + metrics + touch via Emulation domain BEFORE navigate). New `--device` flag with canonical profiles (iphone-14, pixel-7, ipad-air, ...). Mobile and tablet baselines realigned to iPhone 14 / iPad Air.
 - **1.0.0** (2026-04-17): Repositioned as end-to-end design tool. iOS archetype router, 6 domain references, apple-platform skill, ios-ui → ios-design rename.
 - **0.8.0** (2026-04-07): Design system extension — Calm Precision enforcement, tokens, patterns, global memory. Commit `80653a6`.
 - **0.7.0** (2026-04-04): Context optimization, auto-verify hooks, patience mode, new skills. Commit `07e0a82`.

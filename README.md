@@ -617,6 +617,65 @@ Optional — create `.ibrrc.json` in your project root:
 
 Available viewports: `desktop`, `laptop`, `tablet`, `mobile`, `iphone-14`, `iphone-14-pro-max`
 
+## Mobile and device emulation (1.1.0+)
+
+IBR emulates mobile and tablet devices end-to-end via CDP (no Playwright dependency). Three things happen on `driver.launch()`, in order, BEFORE the first navigate:
+
+1. `Emulation.setUserAgentOverride` — so the initial HTML response sees a mobile UA
+2. `Emulation.setDeviceMetricsOverride` — width, height, DPR, `mobile: true`
+3. `Emulation.setTouchEmulationEnabled` — so `navigator.maxTouchPoints > 0` and CSS `@media (pointer: coarse)` matches
+
+### `--viewport` presets
+
+```bash
+npx ibr scan https://example.com --viewport mobile --json
+# viewport in JSON: { name: "mobile", width: 390, height: 844, deviceScaleFactor: 3, mobile: true }
+```
+
+| Preset | Size | DPR | Mobile |
+|--------|------|-----|--------|
+| `desktop` | 1920 x 1080 | 1 | false |
+| `desktop-lg` | 2560 x 1440 | 1 | false |
+| `desktop-sm` | 1440 x 900 | 1 | false |
+| `laptop` | 1366 x 768 | 1 | false |
+| `tablet` | 820 x 1180 (iPad Air baseline) | 2 | true |
+| `tablet-landscape` | 1180 x 820 | 2 | true |
+| `mobile` | 390 x 844 (iPhone 14 baseline) | 3 | true |
+| `mobile-lg` | 430 x 932 | 3 | true |
+
+Pre-1.1.0 `--viewport mobile` parsed cleanly but rendered desktop (375 x 667 with no mobile flag and no UA override). If you previously worked around this by passing custom widths, you can switch to the preset.
+
+### `--device <name>` — canonical profiles
+
+`--device` carries a full CDP profile (viewport + DPR + mobile + UA + touch). It wins over `--viewport` when both are given.
+
+```bash
+npx ibr scan http://localhost:3000 --device iphone-14 --json
+npx ibr session:start http://localhost:3000 --device pixel-7
+```
+
+| Device | Size | DPR | UA |
+|--------|------|-----|----|
+| `iphone-14` | 390 x 844 | 3 | iOS 17 Safari |
+| `iphone-14-pro-max` | 430 x 932 | 3 | iOS 17 Safari |
+| `pixel-7` | 412 x 915 | 2.625 | Android 14 Chrome |
+| `ipad-air` | 820 x 1180 | 2 | iPad iOS 17 Safari |
+| `ipad-pro-11` | 834 x 1194 | 2 | iPad iOS 17 Safari |
+| `desktop-1440` | 1440 x 900 | 1 | (default Chrome) |
+
+Unknown `--device` names fail loudly: `Error: Unknown --device "iphone-99". Known devices: iphone-14, ...`. Add more profiles in `src/devices.ts`.
+
+### Library use
+
+```ts
+import { EngineDriver, resolveDevice, deviceToViewport } from '@tyroneross/interface-built-right'
+
+const profile = resolveDevice('iphone-14')
+const driver = new EngineDriver()
+await driver.launch({ headless: true, viewport: deviceToViewport(profile) })
+await driver.navigate('https://example.com')
+```
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -625,6 +684,8 @@ Available viewports: `desktop`, `laptop`, `tablet`, `mobile`, `iphone-14`, `ipho
 | Chrome not found | Install Google Chrome, or pass `chromePath` option |
 | Auth state expired | `npx ibr login <url>` |
 | Session not found | `npx ibr list` to see available sessions |
+| `--viewport mobile` renders desktop (pre-1.1.0) | Upgrade to >= 1.1.0; mobile presets now set the CDP mobile flag + UA + touch |
+| `Unknown --device "..."` | Run `npx ibr scan --help` to see the canonical device list, or add a profile to `src/devices.ts` |
 
 ## Requirements
 

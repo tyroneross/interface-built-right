@@ -1,4 +1,4 @@
-<!-- Plugin: ibr · Version: 1.0.0 · Source of truth: local (~/Desktop/git-folder/interface-built-right) -->
+<!-- Plugin: ibr · Version: 1.1.0 · Source of truth: local (~/dev/git-folder/interface-built-right) -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
 # IBR — End-to-End Design Tool
@@ -44,6 +44,20 @@ npx ibr extract <url>                        # verify page state
 ```
 
 Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
+
+## Mobile / device emulation (1.1.0)
+
+CDP-direct device emulation. Pre-1.1.0 `--viewport mobile` parsed cleanly but rendered desktop; 1.1.0 fixes the preset and adds `--device`.
+
+```bash
+npx ibr scan <url> --viewport mobile          # 390 x 844, DPR 3, mobile UA, touch on
+npx ibr scan <url> --device iphone-14         # same, explicit
+npx ibr session:start <url> --device pixel-7  # session emulating Android Chrome
+```
+
+Precedence: `--device` wins over `--viewport`. Canonical devices: `iphone-14`, `iphone-14-pro-max`, `pixel-7`, `ipad-air`, `ipad-pro-11`, `desktop-1440`. Add more in `src/devices.ts`.
+
+Library entry: `import { resolveDevice, deviceToViewport } from '@tyroneross/interface-built-right'`.
 
 ## Scan Output Reference
 

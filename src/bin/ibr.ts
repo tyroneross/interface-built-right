@@ -276,7 +276,7 @@ function withBrowserOptions<T extends Record<string, unknown>>(opts: T): T & {
 program
   .name('ibr')
   .description('End-to-end design tool for AI coding agents')
-  .version('1.0.0');
+  .version('1.1.0');
 
 // Global options
 program
