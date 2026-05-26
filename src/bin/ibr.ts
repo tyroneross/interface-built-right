@@ -37,12 +37,21 @@ import type { Viewport } from '../schemas.js';
  * object so existing call sites that read `.width`/`.height`/etc. keep
  * working.
  *
+ * Two viewport names are accepted because commander stores `--viewport`
+ * passed AFTER the subcommand name on the GLOBAL parser (since the global
+ * option was declared first), while `--viewport` passed BEFORE the
+ * subcommand lives on the subcommand's options. We accept both inputs and
+ * prefer the non-default value. Pre-1.1.0 the scan command only read
+ * `options.viewport`, so `npx ibr scan url --viewport mobile` silently
+ * stayed at desktop — that was the second layer of the silent-failure bug.
+ *
  * Throws when --device names an unknown profile so the user sees a clear
  * error instead of silently rendering at desktop (the pre-1.1.0 footgun).
  */
 function resolveViewportFromFlags(
   deviceName: string | undefined,
-  viewportName: string | undefined,
+  subcommandViewport: string | undefined,
+  globalViewport: string | undefined,
   viewports: Record<string, Viewport>,
   fallback: Viewport,
 ): Viewport {
@@ -59,8 +68,18 @@ function resolveViewportFromFlags(
       hasTouch: config.hasTouch,
     };
   }
-  if (viewportName && viewports[viewportName]) {
-    return viewports[viewportName];
+  // Prefer whichever of {subcommand, global} is non-default. Both default
+  // to 'desktop' in commander, so if the user passed --viewport mobile in
+  // either position, that value reaches us via exactly one of the two and
+  // the other stays at 'desktop'.
+  const pick =
+    subcommandViewport && subcommandViewport !== 'desktop'
+      ? subcommandViewport
+      : globalViewport && globalViewport !== 'desktop'
+        ? globalViewport
+        : subcommandViewport ?? globalViewport;
+  if (pick && viewports[pick]) {
+    return viewports[pick];
   }
   return fallback;
 }
@@ -981,10 +1000,13 @@ program
 
       // --device wins over --viewport. resolveDevice throws on unknown
       // names so the user sees a useful error rather than silently
-      // rendering at desktop.
+      // rendering at desktop. We pass BOTH the subcommand and global
+      // --viewport because commander attaches the post-subcommand
+      // --viewport flag to whichever scope declared it first (the global).
       const resolvedViewport = resolveViewportFromFlags(
         options.device,
         options.viewport,
+        program.opts().viewport as string | undefined,
         VIEWPORTS,
         VIEWPORTS.desktop,
       );
@@ -1539,8 +1561,11 @@ program
       const headed = Boolean(options.headed || options.sandbox || options.debug);
 
       // Resolve session viewport once. --device wins over global --viewport.
+      // session:start has no subcommand-level --viewport (only global), so
+      // we pass undefined for the subcommand position.
       const sessionViewport = resolveViewportFromFlags(
         options.device,
+        undefined,
         globalOpts.viewport as string | undefined,
         VIEWPORTS,
         VIEWPORTS.desktop,
