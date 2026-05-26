@@ -1156,7 +1156,9 @@ var init_emulation = __esm({
         this.sessionId = sessionId;
       }
       /**
-       * Override device metrics (viewport size, scale, mobile mode).
+       * Override device metrics (viewport size, scale, mobile layout mode).
+       * Does NOT set UA or touch — for a full device emulation, use
+       * `applyDeviceProfile()` instead.
        */
       async setDeviceMetrics(config) {
         await this.conn.send("Emulation.setDeviceMetricsOverride", {
@@ -1171,6 +1173,41 @@ var init_emulation = __esm({
        */
       async clearDeviceMetrics() {
         await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
+      }
+      /**
+       * Override the User-Agent string for subsequent requests. Pages already
+       * loaded keep their original UA; navigate after calling this.
+       */
+      async setUserAgent(userAgent) {
+        await this.conn.send("Emulation.setUserAgentOverride", {
+          userAgent
+        }, this.sessionId);
+      }
+      /**
+       * Enable or disable touch event emulation. When enabled, `maxTouchPoints`
+       * defaults to 5 (matches modern phones).
+       */
+      async setTouchEmulation(enabled, maxTouchPoints = 5) {
+        await this.conn.send("Emulation.setTouchEmulationEnabled", {
+          enabled,
+          maxTouchPoints: enabled ? maxTouchPoints : 1
+        }, this.sessionId);
+      }
+      /**
+       * Apply a full device profile in one call: metrics + UA + touch. Use this
+       * from `EngineDriver.launch()` BEFORE the first navigate so the page sees
+       * the device emulation on its initial request, not after.
+       *
+       * Order matters: UA override first (some sites branch on UA during the
+       * initial HTML response), then metrics, then touch.
+       */
+      async applyDeviceProfile(config) {
+        if (config.userAgent) {
+          await this.setUserAgent(config.userAgent);
+        }
+        await this.setDeviceMetrics(config);
+        const wantsTouch = config.hasTouch ?? config.mobile ?? false;
+        await this.setTouchEmulation(wantsTouch);
       }
       /**
        * Hide scrollbars (useful for consistent screenshots).
@@ -2173,7 +2210,7 @@ var init_driver = __esm({
         await this.ax.enable();
         await this.console.enable();
         if (options.viewport) {
-          await this.emulation.setDeviceMetrics(options.viewport);
+          await this.emulation.applyDeviceProfile(options.viewport);
         }
       }
       async close() {
@@ -3181,19 +3218,23 @@ var init_schemas = __esm({
     ViewportSchema = import_zod.z.object({
       name: import_zod.z.string().min(1).max(50),
       width: import_zod.z.number().min(100).max(3840),
-      height: import_zod.z.number().min(100).max(2160)
+      height: import_zod.z.number().min(100).max(2160),
+      deviceScaleFactor: import_zod.z.number().min(0.5).max(5).optional(),
+      mobile: import_zod.z.boolean().optional(),
+      userAgent: import_zod.z.string().optional(),
+      hasTouch: import_zod.z.boolean().optional()
     });
     VIEWPORTS = {
-      desktop: { name: "desktop", width: 1920, height: 1080 },
-      "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440 },
-      "desktop-sm": { name: "desktop-sm", width: 1440, height: 900 },
-      laptop: { name: "laptop", width: 1366, height: 768 },
-      tablet: { name: "tablet", width: 768, height: 1024 },
-      "tablet-landscape": { name: "tablet-landscape", width: 1024, height: 768 },
-      mobile: { name: "mobile", width: 375, height: 667 },
-      "mobile-lg": { name: "mobile-lg", width: 414, height: 896 },
-      "iphone-14": { name: "iphone-14", width: 390, height: 844 },
-      "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 },
+      desktop: { name: "desktop", width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false },
+      "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false },
+      "desktop-sm": { name: "desktop-sm", width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+      laptop: { name: "laptop", width: 1366, height: 768, deviceScaleFactor: 1, mobile: false },
+      tablet: { name: "tablet", width: 820, height: 1180, deviceScaleFactor: 2, mobile: true },
+      "tablet-landscape": { name: "tablet-landscape", width: 1180, height: 820, deviceScaleFactor: 2, mobile: true },
+      mobile: { name: "mobile", width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+      "mobile-lg": { name: "mobile-lg", width: 430, height: 932, deviceScaleFactor: 3, mobile: true },
+      "iphone-14": { name: "iphone-14", width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+      "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932, deviceScaleFactor: 3, mobile: true },
       // Native simulator viewports
       "iphone-16": { name: "iphone-16", width: 393, height: 852 },
       "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
@@ -3498,6 +3539,105 @@ var init_schemas = __esm({
       customViolations: import_zod.z.array(DesignSystemViolationSchema),
       complianceScore: import_zod.z.number().min(0).max(100)
     });
+  }
+});
+
+// src/devices.ts
+function resolveDevice(name) {
+  const profile = DEVICES[name];
+  if (!profile) {
+    const known = DEVICE_NAMES.join(", ");
+    throw new Error(
+      `Unknown --device "${name}". Known devices: ${known}.`
+    );
+  }
+  return profile;
+}
+function deviceToViewport(profile) {
+  return {
+    width: profile.width,
+    height: profile.height,
+    deviceScaleFactor: profile.deviceScaleFactor,
+    mobile: profile.mobile,
+    userAgent: profile.userAgent,
+    hasTouch: profile.hasTouch ?? profile.mobile
+  };
+}
+function viewportToConfig(viewport) {
+  return {
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: viewport.deviceScaleFactor,
+    mobile: viewport.mobile,
+    userAgent: viewport.userAgent,
+    hasTouch: viewport.hasTouch
+  };
+}
+var MOBILE_SAFARI_UA, TABLET_SAFARI_UA, ANDROID_CHROME_UA, DEVICES, DEVICE_NAMES;
+var init_devices = __esm({
+  "src/devices.ts"() {
+    "use strict";
+    MOBILE_SAFARI_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+    TABLET_SAFARI_UA = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+    ANDROID_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
+    DEVICES = {
+      "iphone-14": {
+        name: "iphone-14",
+        width: 390,
+        height: 844,
+        deviceScaleFactor: 3,
+        mobile: true,
+        userAgent: MOBILE_SAFARI_UA,
+        hasTouch: true
+      },
+      "iphone-14-pro-max": {
+        name: "iphone-14-pro-max",
+        width: 430,
+        height: 932,
+        deviceScaleFactor: 3,
+        mobile: true,
+        userAgent: MOBILE_SAFARI_UA,
+        hasTouch: true
+      },
+      "pixel-7": {
+        name: "pixel-7",
+        width: 412,
+        height: 915,
+        deviceScaleFactor: 2.625,
+        mobile: true,
+        userAgent: ANDROID_CHROME_UA,
+        hasTouch: true
+      },
+      "ipad-air": {
+        name: "ipad-air",
+        width: 820,
+        height: 1180,
+        deviceScaleFactor: 2,
+        mobile: true,
+        userAgent: TABLET_SAFARI_UA,
+        hasTouch: true
+      },
+      "ipad-pro-11": {
+        name: "ipad-pro-11",
+        width: 834,
+        height: 1194,
+        deviceScaleFactor: 2,
+        mobile: true,
+        userAgent: TABLET_SAFARI_UA,
+        hasTouch: true
+      },
+      "desktop-1440": {
+        name: "desktop-1440",
+        width: 1440,
+        height: 900,
+        deviceScaleFactor: 1,
+        mobile: false,
+        hasTouch: false
+      }
+    };
+    DEVICE_NAMES = Object.freeze(
+      Object.keys(DEVICES)
+    );
   }
 });
 
@@ -4257,7 +4397,7 @@ async function captureScreenshot(options) {
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
     headless: !headed,
-    viewport: { width: viewport.width, height: viewport.height },
+    viewport: viewportToConfig(viewport),
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -4322,7 +4462,7 @@ async function captureWithLandmarks(options) {
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
     headless: !headed,
-    viewport: { width: viewport.width, height: viewport.height },
+    viewport: viewportToConfig(viewport),
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -4415,7 +4555,7 @@ async function captureWithDiagnostics(options) {
     const driverInstance = new EngineDriver();
     await driverInstance.launch({
       headless: !headed,
-      viewport: { width: viewport.width, height: viewport.height },
+      viewport: viewportToConfig(viewport),
       mode: browserMode,
       cdpUrl,
       wsEndpoint,
@@ -4554,6 +4694,7 @@ var init_capture = __esm({
     import_promises4 = require("fs/promises");
     import_path3 = require("path");
     init_schemas();
+    init_devices();
     init_types();
     init_auth();
     init_landmarks();
@@ -8893,7 +9034,7 @@ async function testResponsive(url, options = {}) {
     const driver3 = new EngineDriver();
     await driver3.launch({
       headless: true,
-      viewport: { width: viewport.width, height: viewport.height }
+      viewport: viewportToConfig(viewport)
     });
     const page = new CompatPage(driver3);
     try {
@@ -9098,6 +9239,7 @@ var init_responsive = __esm({
     init_driver();
     init_compat();
     init_schemas();
+    init_devices();
   }
 });
 
@@ -10327,7 +10469,7 @@ async function extractFromURL(options) {
       const driverInstance = new EngineDriver();
       await driverInstance.launch({
         headless: true,
-        viewport: { width: viewport.width, height: viewport.height }
+        viewport: viewportToConfig(viewport)
       });
       const page = new CompatPage(driverInstance);
       try {
@@ -10409,6 +10551,7 @@ var init_extract2 = __esm({
     import_fs5 = require("fs");
     import_path13 = require("path");
     init_schemas();
+    init_devices();
     LOCK_FILE = ".extracting";
     LOCK_TIMEOUT_MS = 18e4;
     EXTRACTION_TIMEOUT_MS = 12e4;
@@ -13234,7 +13377,14 @@ async function scan(url, options = {}) {
   const driver3 = new EngineDriver();
   await driver3.launch({
     headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    viewport: {
+      width: resolvedViewport.width,
+      height: resolvedViewport.height,
+      deviceScaleFactor: resolvedViewport.deviceScaleFactor,
+      mobile: resolvedViewport.mobile,
+      userAgent: resolvedViewport.userAgent,
+      hasTouch: resolvedViewport.hasTouch
+    },
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -15164,6 +15314,7 @@ var init_native = __esm({
 var index_exports = {};
 __export(index_exports, {
   A11yAttributesSchema: () => A11yAttributesSchema,
+  ANDROID_CHROME_UA: () => ANDROID_CHROME_UA,
   ActivePreferenceSchema: () => ActivePreferenceSchema,
   AnalysisSchema: () => AnalysisSchema,
   AuditResultSchema: () => AuditResultSchema,
@@ -15178,6 +15329,8 @@ __export(index_exports, {
   CurrentUIStateSchema: () => CurrentUIStateSchema,
   DEFAULT_DYNAMIC_SELECTORS: () => DEFAULT_DYNAMIC_SELECTORS,
   DEFAULT_RETENTION: () => DEFAULT_RETENTION,
+  DEVICES: () => DEVICES,
+  DEVICE_NAMES: () => DEVICE_NAMES,
   DecisionEntrySchema: () => DecisionEntrySchema,
   DecisionEntryWithChecksSchema: () => DecisionEntryWithChecksSchema,
   DecisionStateSchema: () => DecisionStateSchema,
@@ -15198,6 +15351,7 @@ __export(index_exports, {
   LANDMARK_SELECTORS: () => LANDMARK_SELECTORS,
   LandmarkElementSchema: () => LandmarkElementSchema,
   LearnedExpectationSchema: () => LearnedExpectationSchema,
+  MOBILE_SAFARI_UA: () => MOBILE_SAFARI_UA,
   MemorySourceSchema: () => MemorySourceSchema,
   MemorySummarySchema: () => MemorySummarySchema,
   NATIVE_VIEWPORTS: () => NATIVE_VIEWPORTS,
@@ -15212,6 +15366,7 @@ __export(index_exports, {
   SessionQuerySchema: () => SessionQuerySchema,
   SessionSchema: () => SessionSchema,
   SessionStatusSchema: () => SessionStatusSchema,
+  TABLET_SAFARI_UA: () => TABLET_SAFARI_UA,
   VIEWPORTS: () => VIEWPORTS,
   VerdictSchema: () => VerdictSchema,
   ViewportSchema: () => ViewportSchema,
@@ -15255,6 +15410,7 @@ __export(index_exports, {
   detectLandmarks: () => detectLandmarks,
   detectLoadingState: () => detectLoadingState,
   detectPageState: () => detectPageState,
+  deviceToViewport: () => deviceToViewport,
   discoverApiRoutes: () => discoverApiRoutes,
   discoverPages: () => discoverPages,
   enforceRetentionPolicy: () => enforceRetentionPolicy,
@@ -15360,6 +15516,7 @@ __export(index_exports, {
   registerOperation: () => registerOperation,
   removeGlobalPreference: () => removeGlobalPreference,
   removePreference: () => removePreference,
+  resolveDevice: () => resolveDevice,
   runAllRules: () => runAllRules,
   runDesignSystemCheck: () => runDesignSystemCheck,
   saveCompactContext: () => saveCompactContext,
@@ -15379,6 +15536,7 @@ __export(index_exports, {
   updateSession: () => updateSession,
   validateAgainstTokens: () => validateAgainstTokens,
   validateExtendedTokens: () => validateExtendedTokens,
+  viewportToConfig: () => viewportToConfig,
   waitForCompletion: () => waitForCompletion,
   waitForNavigation: () => waitForNavigation,
   waitForPageReady: () => waitForPageReady,
@@ -15530,6 +15688,7 @@ var init_index = __esm({
   "src/index.ts"() {
     "use strict";
     init_schemas();
+    init_devices();
     init_capture();
     init_compare();
     init_session();
@@ -15573,6 +15732,7 @@ var init_index = __esm({
     init_principles();
     init_memory();
     init_native();
+    init_devices();
     InterfaceBuiltRight = class {
       config;
       constructor(options = {}) {
@@ -15756,7 +15916,7 @@ var init_index = __esm({
         const driver3 = new EngineDriver();
         await driver3.launch({
           headless: !options.headed,
-          viewport: { width: viewport.width, height: viewport.height },
+          viewport: viewportToConfig(viewport),
           mode: this.config.browserMode,
           cdpUrl: this.config.cdpUrl,
           wsEndpoint: this.config.wsEndpoint,
@@ -17380,6 +17540,7 @@ var init_browser_server = __esm({
     import_path22 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
+    init_devices();
     init_extract2();
     init_scan();
     init_interactivity();
@@ -17414,10 +17575,7 @@ var init_browser_server = __esm({
         const sessionsDir = (0, import_path22.join)(outputDir, "sessions");
         const sessionDir = (0, import_path22.join)(sessionsDir, sessionId);
         await (0, import_promises22.mkdir)(sessionDir, { recursive: true });
-        await driver3.setViewport({
-          width: viewport.width,
-          height: viewport.height
-        });
+        await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(viewport));
         await driver3.emulationDomain.setReducedMotion(true);
         const page = new CompatPage(driver3);
         const navStart = Date.now();
@@ -17470,10 +17628,7 @@ var init_browser_server = __esm({
         const content = await (0, import_promises22.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const page = new CompatPage(driver3);
-        await driver3.setViewport({
-          width: state.viewport.width,
-          height: state.viewport.height
-        });
+        await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(state.viewport));
         await page.goto(state.url, { waitUntil: "networkidle" });
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
       }
@@ -21356,6 +21511,27 @@ init_driver();
 init_compat();
 init_index();
 init_operation_tracker();
+init_devices();
+function resolveViewportFromFlags(deviceName, subcommandViewport, globalViewport, viewports, fallback) {
+  if (deviceName) {
+    const profile = resolveDevice(deviceName);
+    const config = deviceToViewport(profile);
+    return {
+      name: profile.name,
+      width: config.width,
+      height: config.height,
+      deviceScaleFactor: config.deviceScaleFactor,
+      mobile: config.mobile,
+      userAgent: config.userAgent,
+      hasTouch: config.hasTouch
+    };
+  }
+  const pick = subcommandViewport && subcommandViewport !== "desktop" ? subcommandViewport : globalViewport && globalViewport !== "desktop" ? globalViewport : subcommandViewport ?? globalViewport;
+  if (pick && viewports[pick]) {
+    return viewports[pick];
+  }
+  return fallback;
+}
 function formatFixGuide(guide) {
   const lines = [];
   const count = guide.issues.length;
@@ -21509,7 +21685,7 @@ function withBrowserOptions(opts) {
     ...getBrowserConnectionOptions()
   };
 }
-program.name("ibr").description("End-to-end design tool for AI coding agents").version("1.0.0");
+program.name("ibr").description("End-to-end design tool for AI coding agents").version("1.1.0");
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
@@ -21682,7 +21858,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     console.log("");
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const driver3 = new EngineDriver();
-    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     if (options.cookie || options.cookieJar) {
       const { resolveCookies: resolveCookies2 } = await Promise.resolve().then(() => (init_cookie_parser(), cookie_parser_exports));
       const cookies = resolveCookies2({ cookie: options.cookie, cookieJar: options.cookieJar }, resolvedUrl);
@@ -21952,14 +22128,24 @@ function applyOutputMode(result, mode) {
   }
   return result;
 }
-program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", "Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").action(async (url, options) => {
+program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option(
+  "-d, --device <name>",
+  `Canonical device profile (overrides --viewport). One of: ${DEVICE_NAMES.join(", ")}`
+).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", "Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").action(async (url, options) => {
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url);
     console.log(`Scanning ${resolvedUrl}...`);
     const rulePresets = options.rules ? options.rules.split(",").map((s) => s.trim()).filter(Boolean) : void 0;
+    const resolvedViewport = resolveViewportFromFlags(
+      options.device,
+      options.viewport,
+      program.opts().viewport,
+      VIEWPORTS,
+      VIEWPORTS.desktop
+    );
     const result = await scan2(resolvedUrl, {
-      viewport: options.viewport,
+      viewport: resolvedViewport,
       waitFor: options.waitFor,
       timeout: parseInt(options.timeout, 10),
       patience: options.patience ? parseInt(options.patience, 10) : void 0,
@@ -22320,7 +22506,10 @@ flowCmd.command("login <url>").description("Execute login flow").requiredOption(
     process.exit(1);
   }
 });
-program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--auto-capture", "Auto-capture screenshot + scan after every interaction").action(async (url, options) => {
+program.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--auto-capture", "Auto-capture screenshot + scan after every interaction").option(
+  "-d, --device <name>",
+  `Canonical device profile (overrides global --viewport). One of: ${DEVICE_NAMES.join(", ")}`
+).action(async (url, options) => {
   try {
     const {
       startBrowserServer: startBrowserServer2,
@@ -22331,6 +22520,13 @@ program.command("session:start [url]").description("Start an interactive browser
     const outputDir = globalOpts.output || "./.ibr";
     const resolvedUrl = await resolveBaseUrl(url);
     const headed = Boolean(options.headed || options.sandbox || options.debug);
+    const sessionViewport = resolveViewportFromFlags(
+      options.device,
+      void 0,
+      globalOpts.viewport,
+      VIEWPORTS,
+      VIEWPORTS.desktop
+    );
     const headless = !headed;
     const serverRunning = await isServerRunning2(outputDir);
     if (!serverRunning) {
@@ -22348,7 +22544,7 @@ program.command("session:start [url]").description("Start an interactive browser
         url: resolvedUrl,
         name: options.name,
         waitFor: options.waitFor,
-        viewport: VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop
+        viewport: sessionViewport
       });
       console.log("");
       console.log(`Session started: ${session.id}`);
@@ -22412,7 +22608,7 @@ program.command("session:start [url]").description("Start an interactive browser
         url: resolvedUrl,
         name: options.name,
         waitFor: options.waitFor,
-        viewport: VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop
+        viewport: sessionViewport
       });
       console.log("");
       console.log(`Session started: ${session.id}`);
@@ -23086,7 +23282,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     console.log("");
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const driver3 = new EngineDriver();
-    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
     const sessionDir = (0, import_path32.join)(outputDir, "sessions", `search-${Date.now()}`);
@@ -23958,7 +24154,7 @@ program.command("test-search <url>").description("Test search functionality on a
     const globalOpts = program.opts();
     const viewport = VIEWPORTS[globalOpts.viewport] || VIEWPORTS.desktop;
     const { searchFlow: searchFlow2 } = await Promise.resolve().then(() => (init_search(), search_exports));
-    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await searchFlow2(page, {
@@ -24003,7 +24199,7 @@ program.command("test-form <url>").description("Test form submission on a page u
         process.exit(1);
       }
     }
-    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await formFlow2(page, {
@@ -24040,7 +24236,7 @@ program.command("test-login <url>").description("Test login flow on a page using
       console.error("Error: --email and --password are required");
       process.exit(1);
     }
-    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     const result = await loginFlow2(page, {
@@ -24171,7 +24367,7 @@ program.command("match <mockup> <url>").description("Compare a design mockup PNG
       selector: options.selector,
       maskDynamic: options.maskDynamic ?? false,
       headless: options.headless ?? true,
-      ...viewportPreset ? { viewport: { width: viewportPreset.width, height: viewportPreset.height } } : {}
+      ...viewportPreset ? { viewport: viewportToConfig(viewportPreset) } : {}
     });
     if (options.saveDiff) {
       await saveDiffImage2(result.pixelDiff.diffImage, options.saveDiff);
@@ -24290,7 +24486,7 @@ program.command("verify-changes <url>").description("Verify all recorded design 
     }
     console.log(`Verifying ${changes.length} design change(s) against ${resolvedUrl}...`);
     console.log("");
-    await driver3.launch(withBrowserOptions({ headless: true, viewport: { width: viewport.width, height: viewport.height } }));
+    await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     await driver3.navigate(resolvedUrl);
     await new Promise((r) => setTimeout(r, 500));
     const results = await verifyAllChanges2(changes, driver3);
@@ -24432,7 +24628,7 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
   try {
     await chromeDriver.launch(withBrowserOptions({
       headless: true,
-      viewport: { width: viewport.width, height: viewport.height }
+      viewport: viewportToConfig(viewport)
     }));
     await chromeDriver.navigate(resolvedUrl, { waitFor: "stable", timeout });
     chromeScreenshot = await chromeDriver.screenshot();
@@ -24459,7 +24655,7 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
       safariError = "safaridriver not enabled. Run: sudo safaridriver --enable";
       if (!options.json) console.log(`Safari: skipped \u2014 ${safariError}`);
     } else {
-      await safariDriver.launch({ viewport: { width: viewport.width, height: viewport.height } });
+      await safariDriver.launch({ viewport: viewportToConfig(viewport) });
       await safariDriver.navigate(resolvedUrl, { waitFor: "load", timeout });
       safariScreenshot = await safariDriver.screenshot();
       const discovered = await safariDriver.discover({ filter: "interactive" });

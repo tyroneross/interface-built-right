@@ -2401,19 +2401,23 @@ var init_engine = __esm({
 var ViewportSchema = zod.z.object({
   name: zod.z.string().min(1).max(50),
   width: zod.z.number().min(100).max(3840),
-  height: zod.z.number().min(100).max(2160)
+  height: zod.z.number().min(100).max(2160),
+  deviceScaleFactor: zod.z.number().min(0.5).max(5).optional(),
+  mobile: zod.z.boolean().optional(),
+  userAgent: zod.z.string().optional(),
+  hasTouch: zod.z.boolean().optional()
 });
 var VIEWPORTS = {
-  desktop: { name: "desktop", width: 1920, height: 1080 },
-  "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440 },
-  "desktop-sm": { name: "desktop-sm", width: 1440, height: 900 },
-  laptop: { name: "laptop", width: 1366, height: 768 },
-  tablet: { name: "tablet", width: 768, height: 1024 },
-  "tablet-landscape": { name: "tablet-landscape", width: 1024, height: 768 },
-  mobile: { name: "mobile", width: 375, height: 667 },
-  "mobile-lg": { name: "mobile-lg", width: 414, height: 896 },
-  "iphone-14": { name: "iphone-14", width: 390, height: 844 },
-  "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932 },
+  desktop: { name: "desktop", width: 1920, height: 1080, deviceScaleFactor: 1, mobile: false },
+  "desktop-lg": { name: "desktop-lg", width: 2560, height: 1440, deviceScaleFactor: 1, mobile: false },
+  "desktop-sm": { name: "desktop-sm", width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+  laptop: { name: "laptop", width: 1366, height: 768, deviceScaleFactor: 1, mobile: false },
+  tablet: { name: "tablet", width: 820, height: 1180, deviceScaleFactor: 2, mobile: true },
+  "tablet-landscape": { name: "tablet-landscape", width: 1180, height: 820, deviceScaleFactor: 2, mobile: true },
+  mobile: { name: "mobile", width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+  "mobile-lg": { name: "mobile-lg", width: 430, height: 932, deviceScaleFactor: 3, mobile: true },
+  "iphone-14": { name: "iphone-14", width: 390, height: 844, deviceScaleFactor: 3, mobile: true },
+  "iphone-14-pro-max": { name: "iphone-14-pro-max", width: 430, height: 932, deviceScaleFactor: 3, mobile: true },
   // Native simulator viewports
   "iphone-16": { name: "iphone-16", width: 393, height: 852 },
   "iphone-16-plus": { name: "iphone-16-plus", width: 430, height: 932 },
@@ -2718,6 +2722,99 @@ var DesignSystemResultSchema = zod.z.object({
   customViolations: zod.z.array(DesignSystemViolationSchema),
   complianceScore: zod.z.number().min(0).max(100)
 });
+
+// src/devices.ts
+var MOBILE_SAFARI_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+var TABLET_SAFARI_UA = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+var ANDROID_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
+var DEVICES = {
+  "iphone-14": {
+    name: "iphone-14",
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 3,
+    mobile: true,
+    userAgent: MOBILE_SAFARI_UA,
+    hasTouch: true
+  },
+  "iphone-14-pro-max": {
+    name: "iphone-14-pro-max",
+    width: 430,
+    height: 932,
+    deviceScaleFactor: 3,
+    mobile: true,
+    userAgent: MOBILE_SAFARI_UA,
+    hasTouch: true
+  },
+  "pixel-7": {
+    name: "pixel-7",
+    width: 412,
+    height: 915,
+    deviceScaleFactor: 2.625,
+    mobile: true,
+    userAgent: ANDROID_CHROME_UA,
+    hasTouch: true
+  },
+  "ipad-air": {
+    name: "ipad-air",
+    width: 820,
+    height: 1180,
+    deviceScaleFactor: 2,
+    mobile: true,
+    userAgent: TABLET_SAFARI_UA,
+    hasTouch: true
+  },
+  "ipad-pro-11": {
+    name: "ipad-pro-11",
+    width: 834,
+    height: 1194,
+    deviceScaleFactor: 2,
+    mobile: true,
+    userAgent: TABLET_SAFARI_UA,
+    hasTouch: true
+  },
+  "desktop-1440": {
+    name: "desktop-1440",
+    width: 1440,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false,
+    hasTouch: false
+  }
+};
+var DEVICE_NAMES = Object.freeze(
+  Object.keys(DEVICES)
+);
+function resolveDevice(name) {
+  const profile = DEVICES[name];
+  if (!profile) {
+    const known = DEVICE_NAMES.join(", ");
+    throw new Error(
+      `Unknown --device "${name}". Known devices: ${known}.`
+    );
+  }
+  return profile;
+}
+function deviceToViewport(profile) {
+  return {
+    width: profile.width,
+    height: profile.height,
+    deviceScaleFactor: profile.deviceScaleFactor,
+    mobile: profile.mobile,
+    userAgent: profile.userAgent,
+    hasTouch: profile.hasTouch ?? profile.mobile
+  };
+}
+function viewportToConfig(viewport) {
+  return {
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: viewport.deviceScaleFactor,
+    mobile: viewport.mobile,
+    userAgent: viewport.userAgent,
+    hasTouch: viewport.hasTouch
+  };
+}
 
 // src/engine/cdp/connection.ts
 var DEFAULT_TIMEOUT_MS = 3e4;
@@ -3739,7 +3836,9 @@ var EmulationDomain = class {
     this.sessionId = sessionId;
   }
   /**
-   * Override device metrics (viewport size, scale, mobile mode).
+   * Override device metrics (viewport size, scale, mobile layout mode).
+   * Does NOT set UA or touch — for a full device emulation, use
+   * `applyDeviceProfile()` instead.
    */
   async setDeviceMetrics(config) {
     await this.conn.send("Emulation.setDeviceMetricsOverride", {
@@ -3754,6 +3853,41 @@ var EmulationDomain = class {
    */
   async clearDeviceMetrics() {
     await this.conn.send("Emulation.clearDeviceMetricsOverride", {}, this.sessionId);
+  }
+  /**
+   * Override the User-Agent string for subsequent requests. Pages already
+   * loaded keep their original UA; navigate after calling this.
+   */
+  async setUserAgent(userAgent) {
+    await this.conn.send("Emulation.setUserAgentOverride", {
+      userAgent
+    }, this.sessionId);
+  }
+  /**
+   * Enable or disable touch event emulation. When enabled, `maxTouchPoints`
+   * defaults to 5 (matches modern phones).
+   */
+  async setTouchEmulation(enabled, maxTouchPoints = 5) {
+    await this.conn.send("Emulation.setTouchEmulationEnabled", {
+      enabled,
+      maxTouchPoints: enabled ? maxTouchPoints : 1
+    }, this.sessionId);
+  }
+  /**
+   * Apply a full device profile in one call: metrics + UA + touch. Use this
+   * from `EngineDriver.launch()` BEFORE the first navigate so the page sees
+   * the device emulation on its initial request, not after.
+   *
+   * Order matters: UA override first (some sites branch on UA during the
+   * initial HTML response), then metrics, then touch.
+   */
+  async applyDeviceProfile(config) {
+    if (config.userAgent) {
+      await this.setUserAgent(config.userAgent);
+    }
+    await this.setDeviceMetrics(config);
+    const wantsTouch = config.hasTouch ?? config.mobile ?? false;
+    await this.setTouchEmulation(wantsTouch);
   }
   /**
    * Hide scrollbars (useful for consistent screenshots).
@@ -4416,7 +4550,7 @@ var EngineDriver = class {
     await this.ax.enable();
     await this.console.enable();
     if (options.viewport) {
-      await this.emulation.setDeviceMetrics(options.viewport);
+      await this.emulation.applyDeviceProfile(options.viewport);
     }
   }
   async close() {
@@ -5954,7 +6088,7 @@ async function captureScreenshot(options) {
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
     headless: !headed,
-    viewport: { width: viewport.width, height: viewport.height },
+    viewport: viewportToConfig(viewport),
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -6019,7 +6153,7 @@ async function captureWithLandmarks(options) {
   const driverInstance = new EngineDriver();
   await driverInstance.launch({
     headless: !headed,
-    viewport: { width: viewport.width, height: viewport.height },
+    viewport: viewportToConfig(viewport),
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -6097,7 +6231,7 @@ async function captureWithDiagnostics(options) {
     const driverInstance = new EngineDriver();
     await driverInstance.launch({
       headless: !headed,
-      viewport: { width: viewport.width, height: viewport.height },
+      viewport: viewportToConfig(viewport),
       mode: browserMode,
       cdpUrl,
       wsEndpoint,
@@ -9315,7 +9449,7 @@ async function testResponsive(url, options = {}) {
     const driver2 = new EngineDriver();
     await driver2.launch({
       headless: true,
-      viewport: { width: viewport.width, height: viewport.height }
+      viewport: viewportToConfig(viewport)
     });
     const page = new CompatPage(driver2);
     try {
@@ -11885,7 +12019,14 @@ async function scan(url, options = {}) {
   const driver2 = new EngineDriver();
   await driver2.launch({
     headless: !headed,
-    viewport: { width: resolvedViewport.width, height: resolvedViewport.height },
+    viewport: {
+      width: resolvedViewport.width,
+      height: resolvedViewport.height,
+      deviceScaleFactor: resolvedViewport.deviceScaleFactor,
+      mobile: resolvedViewport.mobile,
+      userAgent: resolvedViewport.userAgent,
+      hasTouch: resolvedViewport.hasTouch
+    },
     mode: browserMode,
     cdpUrl,
     wsEndpoint,
@@ -13887,7 +14028,7 @@ var InterfaceBuiltRight = class {
     const driver2 = new EngineDriver();
     await driver2.launch({
       headless: !options.headed,
-      viewport: { width: viewport.width, height: viewport.height },
+      viewport: viewportToConfig(viewport),
       mode: this.config.browserMode,
       cdpUrl: this.config.cdpUrl,
       wsEndpoint: this.config.wsEndpoint,
@@ -14075,6 +14216,7 @@ var IBRSession = class {
 };
 
 exports.A11yAttributesSchema = A11yAttributesSchema;
+exports.ANDROID_CHROME_UA = ANDROID_CHROME_UA;
 exports.ActivePreferenceSchema = ActivePreferenceSchema;
 exports.AnalysisSchema = AnalysisSchema;
 exports.AuditResultSchema = AuditResultSchema;
@@ -14089,6 +14231,8 @@ exports.ConfigSchema = ConfigSchema;
 exports.CurrentUIStateSchema = CurrentUIStateSchema;
 exports.DEFAULT_DYNAMIC_SELECTORS = DEFAULT_DYNAMIC_SELECTORS;
 exports.DEFAULT_RETENTION = DEFAULT_RETENTION;
+exports.DEVICES = DEVICES;
+exports.DEVICE_NAMES = DEVICE_NAMES;
 exports.DecisionEntrySchema = DecisionEntrySchema;
 exports.DecisionEntryWithChecksSchema = DecisionEntryWithChecksSchema;
 exports.DecisionStateSchema = DecisionStateSchema;
@@ -14109,6 +14253,7 @@ exports.InterfaceBuiltRight = InterfaceBuiltRight;
 exports.LANDMARK_SELECTORS = LANDMARK_SELECTORS;
 exports.LandmarkElementSchema = LandmarkElementSchema;
 exports.LearnedExpectationSchema = LearnedExpectationSchema;
+exports.MOBILE_SAFARI_UA = MOBILE_SAFARI_UA;
 exports.MemorySourceSchema = MemorySourceSchema;
 exports.MemorySummarySchema = MemorySummarySchema;
 exports.NATIVE_VIEWPORTS = NATIVE_VIEWPORTS;
@@ -14122,6 +14267,7 @@ exports.RulesConfigSchema = RulesConfigSchema;
 exports.SessionQuerySchema = SessionQuerySchema;
 exports.SessionSchema = SessionSchema;
 exports.SessionStatusSchema = SessionStatusSchema;
+exports.TABLET_SAFARI_UA = TABLET_SAFARI_UA;
 exports.VIEWPORTS = VIEWPORTS;
 exports.VerdictSchema = VerdictSchema;
 exports.ViewportSchema = ViewportSchema;
@@ -14163,6 +14309,7 @@ exports.detectErrorState = detectErrorState;
 exports.detectLandmarks = detectLandmarks;
 exports.detectLoadingState = detectLoadingState;
 exports.detectPageState = detectPageState;
+exports.deviceToViewport = deviceToViewport;
 exports.discoverApiRoutes = discoverApiRoutes;
 exports.discoverPages = discoverPages;
 exports.enforceRetentionPolicy = enforceRetentionPolicy;
@@ -14268,6 +14415,7 @@ exports.recordDecision = recordDecision;
 exports.registerOperation = registerOperation;
 exports.removeGlobalPreference = removeGlobalPreference;
 exports.removePreference = removePreference;
+exports.resolveDevice = resolveDevice;
 exports.runAllRules = runAllRules;
 exports.runDesignSystemCheck = runDesignSystemCheck;
 exports.saveCompactContext = saveCompactContext;
@@ -14286,6 +14434,7 @@ exports.updateCompactContext = updateCompactContext;
 exports.updateSession = updateSession;
 exports.validateAgainstTokens = validateAgainstTokens;
 exports.validateExtendedTokens = validateExtendedTokens;
+exports.viewportToConfig = viewportToConfig;
 exports.waitForCompletion = waitForCompletion;
 exports.waitForNavigation = waitForNavigation;
 exports.waitForPageReady = waitForPageReady;

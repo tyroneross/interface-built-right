@@ -591,75 +591,119 @@ interface LoginResult extends FlowResult {
 declare function loginFlow(page: PageLike, options: FlowLoginOptions): Promise<LoginResult>;
 
 /**
- * Viewport configuration for screenshot capture
- * Supports predefined names or custom dimensions
+ * Viewport configuration for screenshot capture and CDP device emulation.
+ *
+ * Supports predefined names or custom dimensions. Optional fields control
+ * full device emulation via Emulation.setDeviceMetricsOverride +
+ * setUserAgentOverride + setTouchEmulationEnabled. When the preset has
+ * `mobile: true` and no `userAgent`, callers (e.g. devices.ts) should
+ * supply a mobile UA — leaving Chrome's desktop UA on a mobile viewport
+ * is the documented "renders at desktop" bug pre-1.1.0.
  */
 declare const ViewportSchema: z.ZodObject<{
     name: z.ZodString;
     width: z.ZodNumber;
     height: z.ZodNumber;
+    deviceScaleFactor: z.ZodOptional<z.ZodNumber>;
+    mobile: z.ZodOptional<z.ZodBoolean>;
+    userAgent: z.ZodOptional<z.ZodString>;
+    hasTouch: z.ZodOptional<z.ZodBoolean>;
 }, "strip", z.ZodTypeAny, {
     name: string;
     width: number;
     height: number;
+    deviceScaleFactor?: number | undefined;
+    mobile?: boolean | undefined;
+    userAgent?: string | undefined;
+    hasTouch?: boolean | undefined;
 }, {
     name: string;
     width: number;
     height: number;
+    deviceScaleFactor?: number | undefined;
+    mobile?: boolean | undefined;
+    userAgent?: string | undefined;
+    hasTouch?: boolean | undefined;
 }>;
 /**
- * Predefined viewport configurations
+ * Predefined viewport configurations.
+ *
+ * `mobile` and `tablet` baselines were realigned in 1.1.0:
+ *   - mobile: 375x667 (iPhone SE) -> 390x844 (iPhone 14) with mobile:true
+ *   - tablet: 768x1024 (iPad Mini) -> 820x1180 (iPad Air) with mobile:true
+ * Pre-1.1.0 these presets were missing the `mobile` flag entirely so Chrome
+ * laid the page out as desktop. See VERSIONING.md.
  */
 declare const VIEWPORTS: {
     readonly desktop: {
         readonly name: "desktop";
         readonly width: 1920;
         readonly height: 1080;
+        readonly deviceScaleFactor: 1;
+        readonly mobile: false;
     };
     readonly 'desktop-lg': {
         readonly name: "desktop-lg";
         readonly width: 2560;
         readonly height: 1440;
+        readonly deviceScaleFactor: 1;
+        readonly mobile: false;
     };
     readonly 'desktop-sm': {
         readonly name: "desktop-sm";
         readonly width: 1440;
         readonly height: 900;
+        readonly deviceScaleFactor: 1;
+        readonly mobile: false;
     };
     readonly laptop: {
         readonly name: "laptop";
         readonly width: 1366;
         readonly height: 768;
+        readonly deviceScaleFactor: 1;
+        readonly mobile: false;
     };
     readonly tablet: {
         readonly name: "tablet";
-        readonly width: 768;
-        readonly height: 1024;
+        readonly width: 820;
+        readonly height: 1180;
+        readonly deviceScaleFactor: 2;
+        readonly mobile: true;
     };
     readonly 'tablet-landscape': {
         readonly name: "tablet-landscape";
-        readonly width: 1024;
-        readonly height: 768;
+        readonly width: 1180;
+        readonly height: 820;
+        readonly deviceScaleFactor: 2;
+        readonly mobile: true;
     };
     readonly mobile: {
         readonly name: "mobile";
-        readonly width: 375;
-        readonly height: 667;
+        readonly width: 390;
+        readonly height: 844;
+        readonly deviceScaleFactor: 3;
+        readonly mobile: true;
     };
     readonly 'mobile-lg': {
         readonly name: "mobile-lg";
-        readonly width: 414;
-        readonly height: 896;
+        readonly width: 430;
+        readonly height: 932;
+        readonly deviceScaleFactor: 3;
+        readonly mobile: true;
     };
     readonly 'iphone-14': {
         readonly name: "iphone-14";
         readonly width: 390;
         readonly height: 844;
+        readonly deviceScaleFactor: 3;
+        readonly mobile: true;
     };
     readonly 'iphone-14-pro-max': {
         readonly name: "iphone-14-pro-max";
         readonly width: 430;
         readonly height: 932;
+        readonly deviceScaleFactor: 3;
+        readonly mobile: true;
     };
     readonly 'iphone-16': {
         readonly name: "iphone-16";
@@ -707,27 +751,51 @@ declare const ConfigSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
+        deviceScaleFactor: z.ZodOptional<z.ZodNumber>;
+        mobile: z.ZodOptional<z.ZodBoolean>;
+        userAgent: z.ZodOptional<z.ZodString>;
+        hasTouch: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }>>;
     viewports: z.ZodOptional<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
+        deviceScaleFactor: z.ZodOptional<z.ZodNumber>;
+        mobile: z.ZodOptional<z.ZodBoolean>;
+        userAgent: z.ZodOptional<z.ZodString>;
+        hasTouch: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }>, "many">>;
     threshold: z.ZodDefault<z.ZodNumber>;
     fullPage: z.ZodDefault<z.ZodBoolean>;
@@ -744,6 +812,10 @@ declare const ConfigSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     };
     fullPage: boolean;
     waitForNetworkIdle: boolean;
@@ -757,6 +829,10 @@ declare const ConfigSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }[] | undefined;
 }, {
     baseUrl: string;
@@ -766,6 +842,10 @@ declare const ConfigSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     } | undefined;
     fullPage?: boolean | undefined;
     waitForNetworkIdle?: boolean | undefined;
@@ -778,6 +858,10 @@ declare const ConfigSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }[] | undefined;
 }>;
 /**
@@ -1101,14 +1185,26 @@ declare const SessionSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
+        deviceScaleFactor: z.ZodOptional<z.ZodNumber>;
+        mobile: z.ZodOptional<z.ZodBoolean>;
+        userAgent: z.ZodOptional<z.ZodString>;
+        hasTouch: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }>;
     status: z.ZodEnum<["baseline", "compared", "pending"]>;
     platform: z.ZodOptional<z.ZodEnum<["web", "ios", "watchos"]>>;
@@ -1320,6 +1416,10 @@ declare const SessionSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     };
     name: string;
     status: "baseline" | "compared" | "pending";
@@ -1379,6 +1479,10 @@ declare const SessionSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     };
     name: string;
     status: "baseline" | "compared" | "pending";
@@ -1445,14 +1549,26 @@ declare const ComparisonReportSchema: z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
         height: z.ZodNumber;
+        deviceScaleFactor: z.ZodOptional<z.ZodNumber>;
+        mobile: z.ZodOptional<z.ZodBoolean>;
+        userAgent: z.ZodOptional<z.ZodString>;
+        hasTouch: z.ZodOptional<z.ZodBoolean>;
     }, "strip", z.ZodTypeAny, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }, {
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     }>;
     comparison: z.ZodObject<{
         match: z.ZodBoolean;
@@ -1632,6 +1748,10 @@ declare const ComparisonReportSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     };
     sessionId: string;
     comparison: {
@@ -1682,6 +1802,10 @@ declare const ComparisonReportSchema: z.ZodObject<{
         name: string;
         width: number;
         height: number;
+        deviceScaleFactor?: number | undefined;
+        mobile?: boolean | undefined;
+        userAgent?: string | undefined;
+        hasTouch?: boolean | undefined;
     };
     sessionId: string;
     comparison: {
@@ -3702,28 +3826,56 @@ declare class SnapshotDomain {
 }
 
 /**
- * CDP Emulation domain — viewport, device metrics, media features.
- * NEW for IBR — responsive testing via device metrics override.
+ * CDP Emulation domain — viewport, device metrics, UA, touch, media features.
+ * Used by EngineDriver to make a page render as if it were a specific device
+ * BEFORE the first navigate. See ../driver.ts and ../../devices.ts.
  */
 
 interface ViewportConfig {
     width: number;
     height: number;
+    /** Device pixel ratio. Default: 1. */
     deviceScaleFactor?: number;
+    /** True for mobile/tablet layout viewports. Default: false. */
     mobile?: boolean;
+    /** Override User-Agent string. Omit to keep Chrome's default. */
+    userAgent?: string;
+    /** Enable touch emulation. Default: derived from `mobile`. */
+    hasTouch?: boolean;
 }
 declare class EmulationDomain {
     private conn;
     private sessionId?;
     constructor(conn: CdpConnection, sessionId?: string | undefined);
     /**
-     * Override device metrics (viewport size, scale, mobile mode).
+     * Override device metrics (viewport size, scale, mobile layout mode).
+     * Does NOT set UA or touch — for a full device emulation, use
+     * `applyDeviceProfile()` instead.
      */
     setDeviceMetrics(config: ViewportConfig): Promise<void>;
     /**
      * Clear device metrics override (restore defaults).
      */
     clearDeviceMetrics(): Promise<void>;
+    /**
+     * Override the User-Agent string for subsequent requests. Pages already
+     * loaded keep their original UA; navigate after calling this.
+     */
+    setUserAgent(userAgent: string): Promise<void>;
+    /**
+     * Enable or disable touch event emulation. When enabled, `maxTouchPoints`
+     * defaults to 5 (matches modern phones).
+     */
+    setTouchEmulation(enabled: boolean, maxTouchPoints?: number): Promise<void>;
+    /**
+     * Apply a full device profile in one call: metrics + UA + touch. Use this
+     * from `EngineDriver.launch()` BEFORE the first navigate so the page sees
+     * the device emulation on its initial request, not after.
+     *
+     * Order matters: UA override first (some sites branch on UA during the
+     * initial HTML response), then metrics, then touch.
+     */
+    applyDeviceProfile(config: ViewportConfig): Promise<void>;
     /**
      * Hide scrollbars (useful for consistent screenshots).
      */
@@ -6986,6 +7138,140 @@ interface FixGuide {
 declare function generateFixGuide(scanResult: NativeScanResult, bridgeResult: BridgeResult | null, annotatedScreenshot: string | null): FixGuide;
 
 /**
+ * Canonical device profiles for CDP-direct emulation.
+ *
+ * IBR has no Playwright dependency, so we keep our own profile table
+ * (viewport + DPR + mobile flag + UA + touch). Profiles are applied via
+ * Emulation.setDeviceMetricsOverride + setUserAgentOverride +
+ * setTouchEmulationEnabled BEFORE Page.navigate.
+ *
+ * Adding a device: pick a representative real product, copy width/height
+ * from its CSS-pixel viewport, DPR from its screen, and UA from a current
+ * release of the default browser. Keep the table small — exhaustiveness
+ * is not the goal; covering the common breakpoints is.
+ */
+
+/**
+ * Canonical mobile Safari UA (iOS 17). Used when a profile does not
+ * specify its own UA.
+ */
+declare const MOBILE_SAFARI_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+/**
+ * Canonical iPad Safari UA (iOS 17).
+ */
+declare const TABLET_SAFARI_UA = "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+/**
+ * Canonical Android Chrome UA (Chrome 121 / Android 14).
+ */
+declare const ANDROID_CHROME_UA = "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
+/**
+ * A device profile — everything the CDP Emulation domain needs to make
+ * the page render as if it were that device.
+ */
+interface DeviceProfile {
+    /** Canonical slug (e.g. "iphone-14"). */
+    name: string;
+    /** CSS-pixel viewport width. */
+    width: number;
+    /** CSS-pixel viewport height. */
+    height: number;
+    /** Device pixel ratio (default 1). */
+    deviceScaleFactor: number;
+    /** True for phones + tablets (controls layout-viewport behavior). */
+    mobile: boolean;
+    /** User-Agent override (omit to keep Chrome's default). */
+    userAgent?: string;
+    /** Whether to enable touch emulation (default: derived from `mobile`). */
+    hasTouch?: boolean;
+}
+/**
+ * Canonical device set. Keep small + obvious; favor "one per common
+ * breakpoint" over completeness. Slugs are stable contract surface — do
+ * not rename without a deprecation entry.
+ */
+declare const DEVICES: {
+    readonly 'iphone-14': {
+        readonly name: "iphone-14";
+        readonly width: 390;
+        readonly height: 844;
+        readonly deviceScaleFactor: 3;
+        readonly mobile: true;
+        readonly userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+        readonly hasTouch: true;
+    };
+    readonly 'iphone-14-pro-max': {
+        readonly name: "iphone-14-pro-max";
+        readonly width: 430;
+        readonly height: 932;
+        readonly deviceScaleFactor: 3;
+        readonly mobile: true;
+        readonly userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+        readonly hasTouch: true;
+    };
+    readonly 'pixel-7': {
+        readonly name: "pixel-7";
+        readonly width: 412;
+        readonly height: 915;
+        readonly deviceScaleFactor: 2.625;
+        readonly mobile: true;
+        readonly userAgent: "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Mobile Safari/537.36";
+        readonly hasTouch: true;
+    };
+    readonly 'ipad-air': {
+        readonly name: "ipad-air";
+        readonly width: 820;
+        readonly height: 1180;
+        readonly deviceScaleFactor: 2;
+        readonly mobile: true;
+        readonly userAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+        readonly hasTouch: true;
+    };
+    readonly 'ipad-pro-11': {
+        readonly name: "ipad-pro-11";
+        readonly width: 834;
+        readonly height: 1194;
+        readonly deviceScaleFactor: 2;
+        readonly mobile: true;
+        readonly userAgent: "Mozilla/5.0 (iPad; CPU OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1";
+        readonly hasTouch: true;
+    };
+    readonly 'desktop-1440': {
+        readonly name: "desktop-1440";
+        readonly width: 1440;
+        readonly height: 900;
+        readonly deviceScaleFactor: 1;
+        readonly mobile: false;
+        readonly hasTouch: false;
+    };
+};
+type DeviceName = keyof typeof DEVICES;
+/**
+ * Known device slugs, in declaration order. Use this for `--help` and
+ * docs to keep them in sync with `DEVICES`.
+ */
+declare const DEVICE_NAMES: ReadonlyArray<DeviceName>;
+/**
+ * Resolve a device by slug. Throws when the slug is unknown so the
+ * caller can surface a useful CLI error rather than silently rendering
+ * at desktop (the pre-fix behavior of `--viewport mobile`).
+ */
+declare function resolveDevice(name: string): DeviceProfile;
+/**
+ * Convert a DeviceProfile into the ViewportConfig shape EngineDriver.launch
+ * and EmulationDomain.applyDeviceProfile both expect. Keeps the field
+ * names consistent across CLI, scan(), and driver.launch().
+ */
+declare function deviceToViewport(profile: DeviceProfile): ViewportConfig;
+/**
+ * Normalize a Viewport preset (from VIEWPORTS) into the ViewportConfig
+ * shape EngineDriver.launch expects. Use this at every driver.launch call
+ * site that previously did `{ width: viewport.width, height: viewport.height }`
+ * — that pattern silently dropped the mobile/UA/touch metadata and was
+ * the proximate cause of the "--viewport mobile renders desktop" bug.
+ */
+declare function viewportToConfig(viewport: Viewport): ViewportConfig;
+
+/**
  * Options for standalone compare function
  */
 interface CompareInput extends BrowserLaunchOptions {
@@ -7307,4 +7593,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type StartSessionOptions, type StartSessionResult, type StepScreenshot, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, annotateScreenshot, applyDesignSystemCheck, archiveSummary, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, resolveDevice, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
