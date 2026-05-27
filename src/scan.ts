@@ -368,9 +368,15 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       cssExtract = undefined;
     }
 
-    // Run sensor layer — condense raw elements into model-friendly summaries
+    // Run sensor layer — condense raw elements into model-friendly summaries.
+    // Merge structuralElements (headings/landmarks/text-bearing tags with
+    // typography fields) into the sensor input WITHOUT touching elements.all
+    // or scan.elements — those remain the existing interactive-only payload.
+    const sensorElements = cssExtract
+      ? [...elements.all, ...cssExtract.structuralElements]
+      : elements.all;
     const sensors = runSensors({
-      elements: elements.all,
+      elements: sensorElements,
       interactivity,
       semantic,
       url,

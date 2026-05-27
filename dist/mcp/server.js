@@ -9668,12 +9668,120 @@ async function extractCssRulesAndMeta(page) {
     if (fontsApi && typeof fontsApi.status === "string") {
       fontsStatus = fontsApi.status === "loading" ? "loading" : "loaded";
     }
+    const STRUCTURAL_SELECTORS = [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "header",
+      "nav",
+      "main",
+      "aside",
+      "footer",
+      "section",
+      "form",
+      '[role="heading"]',
+      '[role="navigation"]',
+      '[role="main"]',
+      '[role="complementary"]',
+      '[role="banner"]',
+      '[role="contentinfo"]',
+      '[role="region"]',
+      '[role="form"]',
+      "p",
+      "span",
+      "li"
+      // typography: text-bearing content
+    ];
+    function buildStructuralSelector(el) {
+      const path = [];
+      let cur = el;
+      while (cur && cur !== document.body) {
+        let s = cur.tagName.toLowerCase();
+        if (cur.id) {
+          path.unshift(`#${cur.id}`);
+          break;
+        }
+        if (typeof cur.className === "string" && cur.className.trim()) {
+          const c = cur.className.split(" ").filter((x) => x.trim() && !x.includes(":"))[0];
+          if (c) s += `.${c}`;
+        }
+        path.unshift(s);
+        cur = cur.parentElement;
+      }
+      return path.join(" > ").slice(0, 200);
+    }
+    const seenStructural = /* @__PURE__ */ new Set();
+    const structuralElements = [];
+    for (const sel of STRUCTURAL_SELECTORS) {
+      let found;
+      try {
+        found = document.querySelectorAll(sel);
+      } catch {
+        continue;
+      }
+      found.forEach((el) => {
+        if (seenStructural.has(el)) return;
+        seenStructural.add(el);
+        const htmlEl = el;
+        const rect = htmlEl.getBoundingClientRect();
+        const computed = window.getComputedStyle(htmlEl);
+        const text = (htmlEl.textContent || "").trim().slice(0, 100) || "";
+        const tagLower = htmlEl.tagName.toLowerCase();
+        const isTextBearing2 = /^h[1-6]$/.test(tagLower) || tagLower === "p" || tagLower === "span" || tagLower === "li";
+        const styles = {
+          color: computed.color,
+          backgroundColor: computed.backgroundColor
+        };
+        if (isTextBearing2) {
+          styles.fontFamily = computed.fontFamily;
+          styles.fontSize = computed.fontSize.replace(/px$/, "");
+          styles.fontWeight = computed.fontWeight;
+          styles.lineHeight = computed.lineHeight;
+        }
+        const ariaLevel = htmlEl.getAttribute("aria-level");
+        structuralElements.push({
+          selector: buildStructuralSelector(htmlEl),
+          tagName: tagLower,
+          id: htmlEl.id || void 0,
+          className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
+          text,
+          bounds: {
+            x: Math.round(rect.x),
+            y: Math.round(rect.y),
+            width: Math.round(rect.width),
+            height: Math.round(rect.height)
+          },
+          computedStyles: styles,
+          interactive: {
+            hasOnClick: false,
+            hasHref: false,
+            hasReactHandler: false,
+            hasVueHandler: false,
+            hasAngularHandler: false,
+            isDisabled: false,
+            tabIndex: -1,
+            cursor: computed.cursor
+          },
+          a11y: {
+            role: htmlEl.getAttribute("role"),
+            ariaLabel: htmlEl.getAttribute("aria-label"),
+            ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
+            ...ariaLevel !== null ? { ariaLevel: parseInt(ariaLevel, 10) } : {}
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          }
+        });
+      });
+    }
     return {
       cssRules: allRules2,
       documentMeta: {
         rootFontSizePx: Number.isFinite(rootFontSize) ? rootFontSize : 16,
         fontsStatus
-      }
+      },
+      structuralElements
     };
   });
 }
@@ -10612,8 +10720,9 @@ async function scan(url, options = {}) {
     } catch {
       cssExtract = void 0;
     }
+    const sensorElements = cssExtract ? [...elements.all, ...cssExtract.structuralElements] : elements.all;
     const sensors = runSensors({
-      elements: elements.all,
+      elements: sensorElements,
       interactivity,
       semantic,
       url,
