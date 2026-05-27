@@ -1,4 +1,5 @@
 import type { EnhancedElement } from '../schemas.js';
+import type { ExtractedCSSRule, DocumentMeta, SensorContext } from './types.js';
 
 export function makeElement(overrides: Partial<EnhancedElement> = {}): EnhancedElement {
   return {
@@ -78,10 +79,68 @@ export function makeLink(text: string, overrides: Partial<EnhancedElement> = {})
   });
 }
 
-export function makeCtx(elements: EnhancedElement[], viewportWidth = 1920, viewportHeight = 1080) {
+export function makeCtx(
+  elements: EnhancedElement[],
+  viewportWidth = 1920,
+  viewportHeight = 1080,
+  extras: { cssRules?: ExtractedCSSRule[]; documentMeta?: DocumentMeta } = {},
+): SensorContext {
   return {
     elements,
     url: 'http://localhost:3000',
     viewport: { width: viewportWidth, height: viewportHeight },
+    ...(extras.cssRules ? { cssRules: extras.cssRules } : {}),
+    ...(extras.documentMeta ? { documentMeta: extras.documentMeta } : {}),
+  };
+}
+
+/**
+ * Build a CSS style rule for tests.
+ */
+export function makeStyleRule(
+  selector: string,
+  declarations: Record<string, string>,
+  sourceUrl?: string,
+): ExtractedCSSRule {
+  return { kind: 'style', selector, declarations, ...(sourceUrl ? { sourceUrl } : {}) };
+}
+
+/**
+ * Build a CSS @media rule for tests.
+ */
+export function makeMediaRule(
+  conditionText: string,
+  rules: ExtractedCSSRule[] = [],
+  sourceUrl?: string,
+): ExtractedCSSRule {
+  return { kind: 'media', conditionText, rules, ...(sourceUrl ? { sourceUrl } : {}) };
+}
+
+/**
+ * Build a CSS @keyframes rule for tests.
+ */
+export function makeKeyframesRule(
+  name: string,
+  steps: Array<{ keyText: string; declarations: Record<string, string> }>,
+  sourceUrl?: string,
+): ExtractedCSSRule {
+  return { kind: 'keyframes', name, steps, ...(sourceUrl ? { sourceUrl } : {}) };
+}
+
+/**
+ * Build a CSS @container rule for tests.
+ */
+export function makeContainerRule(
+  conditionText: string,
+  rules: ExtractedCSSRule[] = [],
+  containerName?: string,
+  sourceUrl?: string,
+): ExtractedCSSRule {
+  return {
+    kind: 'container',
+    conditionText,
+    rules,
+    ...(containerName ? { containerName } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
   };
 }

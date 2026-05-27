@@ -4,6 +4,61 @@ import type { SemanticResult } from '../semantic/output.js';
 // Re-export for consumers
 export type { EnhancedElement };
 
+/**
+ * A single CSS rule extracted from the page's stylesheets at scan time.
+ * Used by sensors that need to inspect declared CSS rather than computed style:
+ * breakpoints (`@media`), motion (`transition`, `@keyframes`, `prefers-reduced-motion`),
+ * interaction-states (`:hover`, `:focus`, `:focus-visible`, `:active`, `:disabled`).
+ *
+ * `kind` discriminates the rule type. Style rules carry their selector and decls;
+ * at-rules (media/keyframes/container/supports) carry their condition and nested rules.
+ */
+export type ExtractedCSSRule =
+  | {
+      kind: 'style';
+      selector: string;             // raw selectorText
+      declarations: Record<string, string>;
+      sourceUrl?: string;           // owning stylesheet href
+    }
+  | {
+      kind: 'media';
+      conditionText: string;        // raw mediaText
+      rules: ExtractedCSSRule[];    // nested rules inside this @media
+      sourceUrl?: string;
+    }
+  | {
+      kind: 'keyframes';
+      name: string;
+      steps: Array<{ keyText: string; declarations: Record<string, string> }>;
+      sourceUrl?: string;
+    }
+  | {
+      kind: 'container';
+      conditionText: string;
+      containerName?: string;
+      rules: ExtractedCSSRule[];
+      sourceUrl?: string;
+    }
+  | {
+      kind: 'supports';
+      conditionText: string;
+      rules: ExtractedCSSRule[];
+      sourceUrl?: string;
+    };
+
+/**
+ * Document-level metadata for sensors that need page context beyond elements.
+ * Optional and additive — sensors degrade gracefully when absent.
+ */
+export interface DocumentMeta {
+  /** Resolved root font-size in pixels (default 16). Used to resolve rem-based values. */
+  rootFontSizePx?: number;
+  /** Web-font loading state at scan time (`document.fonts.status`). */
+  fontsStatus?: 'loading' | 'loaded' | 'unsupported';
+  /** Selector → original/spec values that getComputedStyle resolves away (e.g. `line-height: normal`). */
+  rawSpecValues?: Record<string, Record<string, string>>;
+}
+
 export interface SensorContext {
   elements: EnhancedElement[];
   interactivity?: {
@@ -15,6 +70,10 @@ export interface SensorContext {
   semantic?: SemanticResult;
   url: string;
   viewport: { width: number; height: number };
+  /** Declared CSS rules from page stylesheets (cross-origin sheets may be missing). */
+  cssRules?: ExtractedCSSRule[];
+  /** Document-level metadata (root font size, fonts status, raw spec values). */
+  documentMeta?: DocumentMeta;
 }
 
 export interface VisualPatternGroup {
