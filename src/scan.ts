@@ -13,6 +13,7 @@ import type { DesignSystemResult } from './schemas.js';
 import type { BrowserLaunchOptions } from './types.js'
 import { waitForHydration } from './engine/cdp/wait.js';
 import { runSensors, type SensorReport } from './sensors/index.js';
+import { extractCssRulesAndMeta } from './sensors/css-extract.js';
 import { runAllRules, type RuleEngineResult } from './rules/index.js';
 import { summarizeScan, type ScanSummary } from './summarize.js';
 import { runRules, type RuleContext as PresetRuleContext } from './rules/engine.js';
@@ -357,6 +358,16 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     const verdict = determineVerdict(issues);
     const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
 
+    // Extract live CSS rules + document meta for the typography, breakpoints,
+    // motion, hierarchy, and interaction-states sensors. Best-effort — on
+    // failure (e.g. browser detach), sensors degrade to empty results.
+    let cssExtract: Awaited<ReturnType<typeof extractCssRulesAndMeta>> | undefined;
+    try {
+      cssExtract = await extractCssRulesAndMeta(page);
+    } catch {
+      cssExtract = undefined;
+    }
+
     // Run sensor layer — condense raw elements into model-friendly summaries
     const sensors = runSensors({
       elements: elements.all,
@@ -364,6 +375,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       semantic,
       url,
       viewport: resolvedViewport,
+      ...(cssExtract ? { cssRules: cssExtract.cssRules, documentMeta: cssExtract.documentMeta } : {}),
     });
 
     // Run deterministic rule engine

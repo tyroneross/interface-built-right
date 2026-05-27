@@ -2,12 +2,34 @@
 
 ## Current
 
-- **Version:** 1.1.0
+- **Version:** 1.2.0
 - **Source of truth:** Local dev (`~/dev/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npm: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.1.0/`
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.2.0/`
+
+## Key changes in 1.2.0
+
+### Five new sensors close URL-capture gaps (2026-05-27)
+
+Surfaced by the 2026-05-27 linear.app smoke test of `Skill("ui-guidance:ingest-url")`. Pre-1.2.0 the URL → 7-section capture pipeline had Typography / Hierarchy / Motion / Breakpoints / Interaction-states sections that read `(not detectable in ibr-scan)` for most fields. The data existed in DOM/cssRules but the sensor layer didn't bubble it up.
+
+- **`typography` sensor** — fingerprints text-bearing elements by family + size + weight + lineHeight, aggregates duplicates into one row with a frequency count. Resolves font-weight keywords (`bold`→700) to numbers. Preserves full font-family fallback chains. Returns `line_height: "normal"` as a sentinel string (no false-precision guesses). Resolves `1.25rem` → `size_px: 20` against `documentMeta.rootFontSizePx`. Flags `font_loading_pending: true` when `document.fonts.status === "loading"`.
+- **`breakpoints` sensor** — enumerates declared `@media` and `@container` queries from `document.styleSheets`. Types: `min-width`, `max-width`, `range`, `container-*`, `print`, `other`. Dedupes identical conditions across stylesheets and sums `rule_count`.
+- **`motion` sensor** — parses declared `transition` shorthand (multi-property comma-split into separate entries), `@keyframes` (with `step_count` + `used_by_selectors`), and `prefers-reduced-motion: reduce` overrides routed to a separate `reduced_motion_overrides` field. Sensor reads the page's DECLARED motion, independent of IBR's scan-time animation disable.
+- **`hierarchy` sensor** — per-level `h1..h6` counts + `first_text` + `all_texts`, ARIA landmarks (`nav`, `main`, `aside`, `header`, `footer`, `section`, `form`). `role="heading"` counted separately under `aria_headings`. Findings: `no_h1_on_page`, `multiple_h1s_on_page`, `level_skips` (h1 → h3).
+- **`interaction-states` sensor** — enumerates declared `:hover`, `:focus`, `:focus-visible`, `:active`, `:disabled`, `:focus-within` rules. Flags interactive selectors with `:hover` but no `:focus` indicator (a11y). Marks rules nested inside `@media (hover: hover)` with `conditional_hover: true`.
+
+### Sensor layer plumbing
+
+- **`SensorContext` extended (additive)** with `cssRules?: ExtractedCSSRule[]` (discriminated union: style/media/keyframes/container/supports) and `documentMeta?: DocumentMeta` (rootFontSizePx, fontsStatus, rawSpecValues). Backward compatible — existing sensors don't read them; new sensors degrade gracefully when absent.
+- **`src/sensors/css-extract.ts`** — single live-page extractor walks `document.styleSheets` (silently skips cross-origin) and pulls `document.fonts.status`. Runs once per scan, feeds all five new sensors.
+- **`SensorReport`** now carries `typography`, `breakpoints`, `motion`, `hierarchy`, `interactionStates`. New one-liners surface in `oneLiners[]`.
+
+### Tests
+
++33 new vitest cases (8 typography + 6 breakpoints + 6 motion + 6 hierarchy + 6 interaction-states + 1 fixture validation). Baseline 622 still pass; total 655.
 
 ## Key changes in 1.1.0
 

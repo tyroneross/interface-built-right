@@ -8902,6 +8902,550 @@ function collectNavigationMap(ctx) {
   };
 }
 
+// src/sensors/typography.ts
+var WEIGHT_KEYWORDS = {
+  normal: 400,
+  bold: 700,
+  lighter: 300,
+  bolder: 600
+};
+function resolveWeight(raw) {
+  if (!raw) return 400;
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed in WEIGHT_KEYWORDS) return WEIGHT_KEYWORDS[trimmed];
+  const n = parseInt(trimmed, 10);
+  return Number.isFinite(n) ? n : 400;
+}
+function resolveFontSizePx(raw, rootPx) {
+  if (!raw) return rootPx;
+  const trimmed = raw.trim();
+  const bareNum = Number(trimmed);
+  if (Number.isFinite(bareNum) && bareNum > 0) return bareNum;
+  const m = trimmed.match(/^([\d.]+)(px|rem|em)?$/i);
+  if (!m) return rootPx;
+  const value = parseFloat(m[1]);
+  const unit = (m[2] || "px").toLowerCase();
+  if (unit === "px") return value;
+  if (unit === "rem" || unit === "em") return value * rootPx;
+  return value;
+}
+function resolveLineHeight(raw, fontSizePx) {
+  if (!raw) return "normal";
+  const trimmed = raw.trim().toLowerCase();
+  if (trimmed === "normal" || trimmed === "") return "normal";
+  const bareNum = Number(trimmed);
+  if (Number.isFinite(bareNum) && bareNum > 0) return bareNum;
+  const m = trimmed.match(/^([\d.]+)(px|rem|em|%)?$/);
+  if (!m) return "normal";
+  const value = parseFloat(m[1]);
+  const unit = m[2] || "";
+  if (unit === "px") return fontSizePx > 0 ? Number((value / fontSizePx).toFixed(2)) : "normal";
+  if (unit === "%") return Number((value / 100).toFixed(2));
+  return value;
+}
+function fingerprintKey2(family, sizePx, weight, lineHeight) {
+  return `${family}|${sizePx}|${weight}|${lineHeight}`;
+}
+function isTextBearing(el) {
+  const text = (el.text ?? "").trim();
+  if (text.length === 0) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === "script" || tag === "style" || tag === "meta" || tag === "noscript") return false;
+  return true;
+}
+function collectTypography(ctx) {
+  const rootPx = ctx.documentMeta?.rootFontSizePx ?? 16;
+  const fontsStatus = ctx.documentMeta?.fontsStatus;
+  const fontLoadingPending = fontsStatus === "loading";
+  const rawSpecValues = ctx.documentMeta?.rawSpecValues ?? {};
+  const textElements = ctx.elements.filter(isTextBearing);
+  if (textElements.length === 0) {
+    return { rows: [], font_loading_pending: fontLoadingPending, data_unavailable: true };
+  }
+  const groups = /* @__PURE__ */ new Map();
+  for (const el of textElements) {
+    const styles = el.computedStyles ?? {};
+    const family = (styles.fontFamily ?? styles["font-family"] ?? "").trim() || "<unspecified>";
+    const sizeRaw = styles.fontSize ?? styles["font-size"];
+    const weightRaw = styles.fontWeight ?? styles["font-weight"];
+    const lineHeightRaw = styles.lineHeight ?? styles["line-height"];
+    const size_px = resolveFontSizePx(sizeRaw, rootPx);
+    const weight = resolveWeight(weightRaw);
+    const line_height = resolveLineHeight(lineHeightRaw, size_px);
+    const rawForSel = rawSpecValues[el.selector] ?? {};
+    const size_spec = rawForSel["font-size"] ?? rawForSel.fontSize;
+    const key = fingerprintKey2(family, size_px, weight, line_height);
+    let row = groups.get(key);
+    if (!row) {
+      row = {
+        selector: el.selector,
+        family,
+        size_px,
+        weight,
+        line_height,
+        count: 0,
+        ...fontLoadingPending ? { font_loading_pending: true } : {},
+        ...size_spec ? { size_spec } : {}
+      };
+      groups.set(key, row);
+    }
+    row.count++;
+  }
+  const rows = Array.from(groups.values()).sort((a, b) => b.count - a.count);
+  return {
+    rows,
+    font_loading_pending: fontLoadingPending,
+    ...rows.length === 0 ? { data_unavailable: true } : {}
+  };
+}
+
+// src/sensors/breakpoints.ts
+var MIN_WIDTH_RE = /\(\s*min-width\s*:\s*([\d.]+)px\s*\)/i;
+var MAX_WIDTH_RE = /\(\s*max-width\s*:\s*([\d.]+)px\s*\)/i;
+function countStyleRules(rule) {
+  if (rule.kind === "style") return 1;
+  if (rule.kind === "media" || rule.kind === "container" || rule.kind === "supports") {
+    return rule.rules.reduce((acc, r) => acc + countStyleRules(r), 0);
+  }
+  return 0;
+}
+function classifyMediaCondition(text) {
+  const lower = text.toLowerCase().trim();
+  if (lower.includes("print")) {
+    return { type: "print" };
+  }
+  const minMatch = lower.match(MIN_WIDTH_RE);
+  const maxMatch = lower.match(MAX_WIDTH_RE);
+  if (minMatch && maxMatch) {
+    return {
+      type: "range",
+      min: parseFloat(minMatch[1]),
+      max: parseFloat(maxMatch[1])
+    };
+  }
+  if (minMatch) {
+    return { type: "min-width", value_px: parseFloat(minMatch[1]) };
+  }
+  if (maxMatch) {
+    return { type: "max-width", value_px: parseFloat(maxMatch[1]) };
+  }
+  return { type: "other" };
+}
+function classifyContainerCondition(text, containerName) {
+  const minMatch = text.match(MIN_WIDTH_RE);
+  const maxMatch = text.match(MAX_WIDTH_RE);
+  const base = containerName ? { container_name: containerName } : {};
+  if (minMatch && maxMatch) {
+    return { type: "container-range", min: parseFloat(minMatch[1]), max: parseFloat(maxMatch[1]), ...base };
+  }
+  if (minMatch) {
+    return { type: "container-min-width", value_px: parseFloat(minMatch[1]), ...base };
+  }
+  if (maxMatch) {
+    return { type: "container-max-width", value_px: parseFloat(maxMatch[1]), ...base };
+  }
+  return { type: "other", ...base };
+}
+function dedupKey(e) {
+  return `${e.type}|${e.value_px ?? ""}|${e.min ?? ""}|${e.max ?? ""}|${e.container_name ?? ""}`;
+}
+function collectBreakpoints(ctx) {
+  const rules2 = ctx.cssRules ?? [];
+  if (rules2.length === 0) return [];
+  const byKey = /* @__PURE__ */ new Map();
+  for (const rule of rules2) {
+    if (rule.kind === "media") {
+      const classified = classifyMediaCondition(rule.conditionText);
+      const ruleCount = rule.rules.reduce((acc, r) => acc + countStyleRules(r), 0);
+      const entry = {
+        ...classified,
+        rule_count: ruleCount,
+        raw_condition: rule.conditionText
+      };
+      const key = dedupKey(entry);
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.rule_count += ruleCount;
+      } else {
+        byKey.set(key, entry);
+      }
+    } else if (rule.kind === "container") {
+      const classified = classifyContainerCondition(rule.conditionText, rule.containerName);
+      const ruleCount = rule.rules.reduce((acc, r) => acc + countStyleRules(r), 0);
+      const entry = {
+        ...classified,
+        rule_count: ruleCount,
+        raw_condition: rule.conditionText
+      };
+      const key = dedupKey(entry);
+      const existing = byKey.get(key);
+      if (existing) {
+        existing.rule_count += ruleCount;
+      } else {
+        byKey.set(key, entry);
+      }
+    }
+  }
+  const typeOrder = {
+    "min-width": 0,
+    "range": 1,
+    "max-width": 2,
+    "container-min-width": 3,
+    "container-range": 4,
+    "container-max-width": 5,
+    "print": 6,
+    "other": 7
+  };
+  return Array.from(byKey.values()).sort((a, b) => {
+    const t = typeOrder[a.type] - typeOrder[b.type];
+    if (t !== 0) return t;
+    return (a.value_px ?? a.min ?? 0) - (b.value_px ?? b.min ?? 0);
+  });
+}
+
+// src/sensors/motion.ts
+function parseTimeMs(raw) {
+  const trimmed = raw.trim().toLowerCase();
+  const m = trimmed.match(/^([\d.]+)(ms|s)?$/);
+  if (!m) return 0;
+  const value = parseFloat(m[1]);
+  const unit = m[2] || "s";
+  return unit === "ms" ? value : value * 1e3;
+}
+function splitTransitionValue(value) {
+  const parts = [];
+  let depth = 0;
+  let buf = "";
+  for (const ch of value) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (ch === "," && depth === 0) {
+      if (buf.trim()) parts.push(buf.trim());
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf.trim()) parts.push(buf.trim());
+  return parts;
+}
+function tokenizeTransitionPart(part) {
+  const tokens = [];
+  let depth = 0;
+  let buf = "";
+  for (const ch of part) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    if (/\s/.test(ch) && depth === 0) {
+      if (buf) tokens.push(buf);
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  if (buf) tokens.push(buf);
+  return tokens;
+}
+function parseTransitionEntry(part) {
+  const tokens = tokenizeTransitionPart(part);
+  let property = "all";
+  let duration_ms = 0;
+  let delay_ms = 0;
+  let easing = "ease";
+  let seenTime = 0;
+  for (const tok of tokens) {
+    const isTime = /^[\d.]+(ms|s)$/i.test(tok);
+    if (isTime) {
+      if (seenTime === 0) duration_ms = parseTimeMs(tok);
+      else if (seenTime === 1) delay_ms = parseTimeMs(tok);
+      seenTime++;
+    } else if (/^(ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|cubic-bezier|steps)/i.test(tok)) {
+      easing = tok;
+    } else {
+      if (property === "all" || property === "") property = tok;
+    }
+  }
+  return { property, duration_ms, easing, delay_ms };
+}
+function collectTransitionsFromStyle(rule) {
+  const decls = rule.declarations;
+  const transitionValue = decls.transition ?? decls["transition"];
+  if (!transitionValue || transitionValue === "none") return [];
+  const parts = splitTransitionValue(transitionValue);
+  return parts.map((p) => ({ selector: rule.selector, ...parseTransitionEntry(p) }));
+}
+function isReducedMotionMedia(conditionText) {
+  return /prefers-reduced-motion\s*:\s*reduce/i.test(conditionText);
+}
+function collectReducedMotionOverridesFromRule(rule) {
+  const decls = rule.declarations;
+  const overrides = [];
+  for (const [prop, value] of Object.entries(decls)) {
+    if (/^(transition|animation)/i.test(prop)) {
+      overrides.push(`${prop}: ${value}`);
+    }
+  }
+  if (overrides.length === 0) return null;
+  return { selector: rule.selector, overrides };
+}
+function walkRules(rules2, visit, insideReducedMotion = false) {
+  for (const r of rules2) {
+    if (r.kind === "style") {
+      visit(r, insideReducedMotion);
+    } else if (r.kind === "media") {
+      const nowInside = insideReducedMotion || isReducedMotionMedia(r.conditionText);
+      walkRules(r.rules, visit, nowInside);
+    } else if (r.kind === "container" || r.kind === "supports") {
+      walkRules(r.rules, visit, insideReducedMotion);
+    }
+  }
+}
+function buildKeyframesUsage(rules2) {
+  const usage = /* @__PURE__ */ new Map();
+  walkRules(rules2, (style) => {
+    const animationName = style.declarations["animation-name"] ?? style.declarations.animationName;
+    const animationShorthand = style.declarations.animation ?? style.declarations["animation"];
+    const candidates = [];
+    if (animationName) candidates.push(...animationName.split(",").map((s) => s.trim()));
+    if (animationShorthand) {
+      for (const part of splitTransitionValue(animationShorthand)) {
+        const tokens = tokenizeTransitionPart(part);
+        for (const tok of tokens) {
+          if (!/^[\d.]+(ms|s)$/i.test(tok) && !/^(ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|cubic-bezier|steps|infinite|alternate|reverse|alternate-reverse|forwards|backwards|both|none|normal|paused|running)/i.test(
+            tok
+          ) && !/^\d+$/.test(tok)) {
+            candidates.push(tok);
+            break;
+          }
+        }
+      }
+    }
+    for (const name of candidates) {
+      const list = usage.get(name) ?? [];
+      if (!list.includes(style.selector)) list.push(style.selector);
+      usage.set(name, list);
+    }
+  });
+  return usage;
+}
+function collectMotion(ctx) {
+  const rules2 = ctx.cssRules ?? [];
+  if (rules2.length === 0) {
+    return { transitions: [], keyframes: [], reduced_motion_overrides: [] };
+  }
+  const transitions = [];
+  const reducedOverrides = [];
+  walkRules(rules2, (style, insideReducedMotion) => {
+    if (insideReducedMotion) {
+      const override = collectReducedMotionOverridesFromRule(style);
+      if (override) reducedOverrides.push(override);
+    } else {
+      transitions.push(...collectTransitionsFromStyle(style));
+    }
+  });
+  const keyframes = [];
+  const usage = buildKeyframesUsage(rules2);
+  function visitKeyframes(rs) {
+    for (const r of rs) {
+      if (r.kind === "keyframes") {
+        keyframes.push({
+          name: r.name,
+          step_count: r.steps.length,
+          used_by_selectors: usage.get(r.name) ?? []
+        });
+      } else if (r.kind === "media" || r.kind === "container" || r.kind === "supports") {
+        visitKeyframes(r.rules);
+      }
+    }
+  }
+  visitKeyframes(rules2);
+  return { transitions, keyframes, reduced_motion_overrides: reducedOverrides };
+}
+
+// src/sensors/hierarchy.ts
+var HEADING_TAGS = ["h1", "h2", "h3", "h4", "h5", "h6"];
+function emptyLevel() {
+  return { count: 0, all_texts: [] };
+}
+function emptyLandmarks() {
+  return { nav: 0, main: 0, aside: 0, header: 0, footer: 0, section: 0, form: 0 };
+}
+function trimText(s) {
+  return (s ?? "").trim();
+}
+function collectHierarchy(ctx) {
+  const levels = {
+    h1: emptyLevel(),
+    h2: emptyLevel(),
+    h3: emptyLevel(),
+    h4: emptyLevel(),
+    h5: emptyLevel(),
+    h6: emptyLevel()
+  };
+  const landmarks = emptyLandmarks();
+  const ariaHeadings = [];
+  const seenLevelsInOrder = [];
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    const role = el.a11y?.role ?? "";
+    if (HEADING_TAGS.includes(tag)) {
+      const summary = levels[tag];
+      summary.count++;
+      const text = trimText(el.text);
+      if (text) {
+        summary.all_texts.push(text);
+        if (!summary.first_text) summary.first_text = text;
+      }
+      seenLevelsInOrder.push({ level: parseInt(tag.slice(1), 10), selector: el.selector });
+      continue;
+    }
+    if (role === "heading") {
+      const ariaLevel = parseAriaLevel(el);
+      ariaHeadings.push({
+        selector: el.selector,
+        level: ariaLevel,
+        text: trimText(el.text)
+      });
+      seenLevelsInOrder.push({ level: ariaLevel, selector: el.selector });
+      continue;
+    }
+    if (tag === "nav" || role === "navigation") landmarks.nav++;
+    else if (tag === "main" || role === "main") landmarks.main++;
+    else if (tag === "aside" || role === "complementary") landmarks.aside++;
+    else if (tag === "header" || role === "banner") landmarks.header++;
+    else if (tag === "footer" || role === "contentinfo") landmarks.footer++;
+    else if (tag === "section" || role === "region") landmarks.section++;
+    else if (tag === "form" || role === "form") landmarks.form++;
+  }
+  if (levels.h1.count === 0) {
+    levels.h1.finding = "no_h1_on_page";
+  } else if (levels.h1.count > 1) {
+    levels.h1.finding = "multiple_h1s_on_page";
+  }
+  const level_skips = [];
+  let prevLevel = 0;
+  for (let i = 0; i < seenLevelsInOrder.length; i++) {
+    const cur = seenLevelsInOrder[i].level;
+    if (prevLevel > 0 && cur > prevLevel + 1) {
+      level_skips.push({
+        from: `h${prevLevel}`,
+        to: `h${cur}`,
+        at_position: i
+      });
+    }
+    prevLevel = cur;
+  }
+  return {
+    h1: levels.h1,
+    h2: levels.h2,
+    h3: levels.h3,
+    h4: levels.h4,
+    h5: levels.h5,
+    h6: levels.h6,
+    landmarks,
+    aria_headings: ariaHeadings,
+    level_skips
+  };
+}
+function parseAriaLevel(el) {
+  const a11y = el.a11y;
+  const raw = a11y["ariaLevel"] ?? a11y["aria-level"];
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string") {
+    const n = parseInt(raw, 10);
+    if (Number.isFinite(n)) return n;
+  }
+  return 2;
+}
+
+// src/sensors/interaction-states.ts
+var STATE_RE = /:(focus-visible|focus-within|hover|focus|active|disabled)\b/g;
+function parseStateSelectors(selectorText) {
+  const out = [];
+  const parts = selectorText.split(",").map((p) => p.trim());
+  for (const part of parts) {
+    STATE_RE.lastIndex = 0;
+    const matches = [];
+    let m;
+    while ((m = STATE_RE.exec(part)) !== null) {
+      matches.push({ index: m.index, state: m[1] });
+    }
+    if (matches.length === 0) continue;
+    const base = part.slice(0, matches[0].index).trim();
+    for (const { state } of matches) {
+      if (!out.some((e) => e.base === base && e.state === state)) {
+        out.push({ base, state });
+      }
+    }
+  }
+  return out;
+}
+function isHoverCapableMedia(conditionText) {
+  return /\(\s*hover\s*:\s*hover\s*\)/i.test(conditionText);
+}
+function walkRules2(rules2, visit, ctx = { insideHoverMedia: false }) {
+  for (const r of rules2) {
+    if (r.kind === "style") {
+      visit(r, ctx);
+    } else if (r.kind === "media") {
+      const nowInside = ctx.insideHoverMedia || isHoverCapableMedia(r.conditionText);
+      walkRules2(r.rules, visit, { insideHoverMedia: nowInside });
+    } else if (r.kind === "container" || r.kind === "supports") {
+      walkRules2(r.rules, visit, ctx);
+    }
+  }
+}
+function interactiveBaseSelectors(ctx) {
+  const out = /* @__PURE__ */ new Set();
+  for (const el of ctx.elements) {
+    const tag = el.tagName.toLowerCase();
+    const role = el.a11y?.role ?? "";
+    const isInteractive2 = tag === "button" || tag === "a" || role === "button" || role === "link" || Boolean(el.interactive?.hasOnClick) || Boolean(el.interactive?.hasHref);
+    if (!isInteractive2) continue;
+    out.add(el.selector);
+    out.add(tag);
+    const classMatch = el.selector.match(/^\.[A-Za-z_][\w-]*/);
+    if (classMatch) out.add(classMatch[0]);
+  }
+  return out;
+}
+function collectInteractionStates(ctx) {
+  const rules2 = ctx.cssRules ?? [];
+  if (rules2.length === 0) {
+    return { states: [], findings: [] };
+  }
+  const states = [];
+  walkRules2(rules2, (style, walkCtx) => {
+    const parsed = parseStateSelectors(style.selector);
+    for (const { base, state } of parsed) {
+      const entry = {
+        selector: base,
+        state,
+        properties: { ...style.declarations },
+        ...walkCtx.insideHoverMedia ? { conditional_hover: true } : {}
+      };
+      states.push(entry);
+    }
+  });
+  const interactiveBases = interactiveBaseSelectors(ctx);
+  const hasHover = /* @__PURE__ */ new Map();
+  const hasFocus = /* @__PURE__ */ new Map();
+  for (const s of states) {
+    if (s.state === "hover") hasHover.set(s.selector, true);
+    if (s.state === "focus" || s.state === "focus-visible") hasFocus.set(s.selector, true);
+  }
+  const findings = [];
+  for (const sel of /* @__PURE__ */ new Set([...hasHover.keys(), ...interactiveBases])) {
+    const interactive = interactiveBases.has(sel) || // Also flag rule-derived selectors that look interactive
+    sel.includes("btn") || sel.includes("button") || sel.includes("link") || sel === "a" || sel === "button";
+    if (!interactive) continue;
+    if (!hasFocus.get(sel)) {
+      findings.push({ selector: sel, missing: "focus_indicator" });
+    }
+  }
+  return { states, findings };
+}
+
 // src/sensors/index.ts
 function runSensors(ctx) {
   const visualPatterns = collectVisualPatterns(ctx);
@@ -8909,6 +9453,11 @@ function runSensors(ctx) {
   const interactionMap = collectInteractionMap(ctx);
   const contrast = collectContrastReport(ctx);
   const navigation = collectNavigationMap(ctx);
+  const typography = collectTypography(ctx);
+  const breakpoints = collectBreakpoints(ctx);
+  const motion = collectMotion(ctx);
+  const hierarchy = collectHierarchy(ctx);
+  const interactionStates = collectInteractionStates(ctx);
   const oneLiners = [];
   for (const vp of visualPatterns) {
     if (vp.distinctPatterns > 1) {
@@ -8949,12 +9498,51 @@ function runSensors(ctx) {
     const totalNamed = namedComponents.length;
     oneLiners.push(`Components: ${top3}${totalNamed > 3 ? ` (top 3 of ${totalNamed})` : ""}`);
   }
+  if (typography.rows.length > 0) {
+    const top = typography.rows[0];
+    oneLiners.push(
+      `Typography: ${typography.rows.length} distinct fingerprints, dominant ${top.size_px}px/${top.weight} (${top.count} elements)${typography.font_loading_pending ? " [fonts pending]" : ""}`
+    );
+  }
+  if (breakpoints.length > 0) {
+    const viewportBreaks = breakpoints.filter((b) => b.type !== "print" && b.type !== "other");
+    if (viewportBreaks.length > 0) {
+      const summary = viewportBreaks.slice(0, 4).map((b) => b.type === "range" ? `${b.min}-${b.max}` : `${b.value_px}`).join("px, ");
+      oneLiners.push(
+        `Breakpoints: ${viewportBreaks.length} viewport breakpoints (${summary}px)`
+      );
+    }
+  }
+  if (motion.transitions.length > 0 || motion.keyframes.length > 0) {
+    const reducedNote = motion.reduced_motion_overrides.length > 0 ? `, ${motion.reduced_motion_overrides.length} reduced-motion override(s)` : "";
+    oneLiners.push(
+      `Motion: ${motion.transitions.length} transition(s), ${motion.keyframes.length} keyframe(s)${reducedNote}`
+    );
+  }
+  if (hierarchy.h1.count > 0 || hierarchy.h2.count > 0 || hierarchy.h3.count > 0) {
+    const findingNote = hierarchy.h1.finding ? ` [${hierarchy.h1.finding}]` : "";
+    const skipNote = hierarchy.level_skips.length > 0 ? `, ${hierarchy.level_skips.length} level skip(s)` : "";
+    oneLiners.push(
+      `Hierarchy: h1\xD7${hierarchy.h1.count}, h2\xD7${hierarchy.h2.count}, h3\xD7${hierarchy.h3.count}${findingNote}${skipNote}`
+    );
+  }
+  if (interactionStates.states.length > 0 || interactionStates.findings.length > 0) {
+    const findingNote = interactionStates.findings.length > 0 ? ` (${interactionStates.findings.length} missing focus indicator)` : "";
+    oneLiners.push(
+      `Interaction states: ${interactionStates.states.length} declared${findingNote}`
+    );
+  }
   const report = {
     visualPatterns,
     navigation,
     componentCensus,
     interactionMap,
     contrast,
+    typography,
+    breakpoints,
+    motion,
+    hierarchy,
+    interactionStates,
     oneLiners
   };
   if (ctx.semantic) {
@@ -8973,6 +9561,121 @@ function runSensors(ctx) {
     };
   }
   return report;
+}
+
+// src/sensors/css-extract.ts
+async function extractCssRulesAndMeta(page) {
+  return page.evaluate(() => {
+    function declarationsFromStyle(style) {
+      const out = {};
+      for (let i = 0; i < style.length; i++) {
+        const prop = style.item(i);
+        if (!prop) continue;
+        const value = style.getPropertyValue(prop);
+        if (value) out[prop] = value.trim();
+      }
+      return out;
+    }
+    function convertRule(rule, sourceUrl) {
+      if (rule instanceof CSSStyleRule) {
+        return {
+          kind: "style",
+          selector: rule.selectorText,
+          declarations: declarationsFromStyle(rule.style),
+          ...sourceUrl ? { sourceUrl } : {}
+        };
+      }
+      if (rule instanceof CSSMediaRule) {
+        const nested = [];
+        for (let i = 0; i < rule.cssRules.length; i++) {
+          const child = convertRule(rule.cssRules[i], sourceUrl);
+          if (child) nested.push(child);
+        }
+        return {
+          kind: "media",
+          conditionText: rule.media.mediaText,
+          rules: nested,
+          ...sourceUrl ? { sourceUrl } : {}
+        };
+      }
+      if (rule instanceof CSSKeyframesRule) {
+        const steps = [];
+        for (let i = 0; i < rule.cssRules.length; i++) {
+          const kf = rule.cssRules[i];
+          steps.push({ keyText: kf.keyText, declarations: declarationsFromStyle(kf.style) });
+        }
+        return {
+          kind: "keyframes",
+          name: rule.name,
+          steps,
+          ...sourceUrl ? { sourceUrl } : {}
+        };
+      }
+      const ContainerCtor = window.CSSContainerRule;
+      if (ContainerCtor && rule instanceof ContainerCtor) {
+        const cr = rule;
+        const nested = [];
+        for (let i = 0; i < cr.cssRules.length; i++) {
+          const child = convertRule(cr.cssRules[i], sourceUrl);
+          if (child) nested.push(child);
+        }
+        return {
+          kind: "container",
+          conditionText: cr.containerQuery ?? cr.conditionText ?? "",
+          ...cr.containerName ? { containerName: cr.containerName } : {},
+          rules: nested,
+          ...sourceUrl ? { sourceUrl } : {}
+        };
+      }
+      const SupportsCtor = window.CSSSupportsRule;
+      if (SupportsCtor && rule instanceof SupportsCtor) {
+        const sr = rule;
+        const nested = [];
+        for (let i = 0; i < sr.cssRules.length; i++) {
+          const child = convertRule(sr.cssRules[i], sourceUrl);
+          if (child) nested.push(child);
+        }
+        return {
+          kind: "supports",
+          conditionText: sr.conditionText ?? "",
+          rules: nested,
+          ...sourceUrl ? { sourceUrl } : {}
+        };
+      }
+      return null;
+    }
+    const sheets = Array.from(document.styleSheets);
+    const allRules2 = [];
+    for (const sheet of sheets) {
+      let rules2 = null;
+      try {
+        rules2 = sheet.cssRules;
+      } catch {
+        continue;
+      }
+      if (!rules2) continue;
+      const sourceUrl = sheet.href ?? void 0;
+      for (let i = 0; i < rules2.length; i++) {
+        const converted = convertRule(rules2[i], sourceUrl);
+        if (converted) allRules2.push(converted);
+      }
+    }
+    const rootFontSize = parseFloat(
+      window.getComputedStyle(document.documentElement).fontSize || "16"
+    );
+    const fontsApi = document.fonts;
+    let fontsStatus = "unsupported";
+    if (fontsApi && typeof fontsApi.status === "string") {
+      fontsStatus = fontsApi.status === "loading" ? "loading" : "loaded";
+    }
+    return {
+      cssRules: allRules2,
+      documentMeta: {
+        rootFontSizePx: Number.isFinite(rootFontSize) ? rootFontSize : 16,
+        fontsStatus
+      }
+    };
+  });
 }
 
 // src/rules/wcag-contrast.ts
@@ -9903,12 +10606,19 @@ async function scan(url, options = {}) {
     );
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
+    let cssExtract;
+    try {
+      cssExtract = await extractCssRulesAndMeta(page);
+    } catch {
+      cssExtract = void 0;
+    }
     const sensors = runSensors({
       elements: elements.all,
       interactivity,
       semantic,
       url,
-      viewport: resolvedViewport
+      viewport: resolvedViewport,
+      ...cssExtract ? { cssRules: cssExtract.cssRules, documentMeta: cssExtract.documentMeta } : {}
     });
     const ruleContext = {
       isMobile: resolvedViewport.width < 768,

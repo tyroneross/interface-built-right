@@ -4,6 +4,11 @@ import { collectComponentCensus } from './component-census.js';
 import { collectInteractionMap } from './interaction-map.js';
 import { collectContrastReport } from './contrast-report.js';
 import { collectNavigationMap } from './navigation.js';
+import { collectTypography } from './typography.js';
+import { collectBreakpoints } from './breakpoints.js';
+import { collectMotion } from './motion.js';
+import { collectHierarchy } from './hierarchy.js';
+import { collectInteractionStates } from './interaction-states.js';
 
 export function runSensors(ctx: SensorContext): SensorReport {
   const visualPatterns = collectVisualPatterns(ctx);
@@ -11,6 +16,11 @@ export function runSensors(ctx: SensorContext): SensorReport {
   const interactionMap = collectInteractionMap(ctx);
   const contrast = collectContrastReport(ctx);
   const navigation = collectNavigationMap(ctx);
+  const typography = collectTypography(ctx);
+  const breakpoints = collectBreakpoints(ctx);
+  const motion = collectMotion(ctx);
+  const hierarchy = collectHierarchy(ctx);
+  const interactionStates = collectInteractionStates(ctx);
 
   const oneLiners: string[] = [];
 
@@ -61,12 +71,64 @@ export function runSensors(ctx: SensorContext): SensorReport {
     oneLiners.push(`Components: ${top3}${totalNamed > 3 ? ` (top 3 of ${totalNamed})` : ''}`);
   }
 
+  // New sensor one-liners (only emit when there's something to say)
+  if (typography.rows.length > 0) {
+    const top = typography.rows[0]!;
+    oneLiners.push(
+      `Typography: ${typography.rows.length} distinct fingerprints, dominant ${top.size_px}px/${top.weight} (${top.count} elements)${typography.font_loading_pending ? ' [fonts pending]' : ''}`,
+    );
+  }
+  if (breakpoints.length > 0) {
+    const viewportBreaks = breakpoints.filter((b) => b.type !== 'print' && b.type !== 'other');
+    if (viewportBreaks.length > 0) {
+      const summary = viewportBreaks
+        .slice(0, 4)
+        .map((b) => (b.type === 'range' ? `${b.min}-${b.max}` : `${b.value_px}`))
+        .join('px, ');
+      oneLiners.push(
+        `Breakpoints: ${viewportBreaks.length} viewport breakpoints (${summary}px)`,
+      );
+    }
+  }
+  if (motion.transitions.length > 0 || motion.keyframes.length > 0) {
+    const reducedNote = motion.reduced_motion_overrides.length > 0
+      ? `, ${motion.reduced_motion_overrides.length} reduced-motion override(s)`
+      : '';
+    oneLiners.push(
+      `Motion: ${motion.transitions.length} transition(s), ${motion.keyframes.length} keyframe(s)${reducedNote}`,
+    );
+  }
+  if (
+    hierarchy.h1.count > 0 ||
+    hierarchy.h2.count > 0 ||
+    hierarchy.h3.count > 0
+  ) {
+    const findingNote = hierarchy.h1.finding ? ` [${hierarchy.h1.finding}]` : '';
+    const skipNote = hierarchy.level_skips.length > 0 ? `, ${hierarchy.level_skips.length} level skip(s)` : '';
+    oneLiners.push(
+      `Hierarchy: h1×${hierarchy.h1.count}, h2×${hierarchy.h2.count}, h3×${hierarchy.h3.count}${findingNote}${skipNote}`,
+    );
+  }
+  if (interactionStates.states.length > 0 || interactionStates.findings.length > 0) {
+    const findingNote = interactionStates.findings.length > 0
+      ? ` (${interactionStates.findings.length} missing focus indicator)`
+      : '';
+    oneLiners.push(
+      `Interaction states: ${interactionStates.states.length} declared${findingNote}`,
+    );
+  }
+
   const report: SensorReport = {
     visualPatterns,
     navigation,
     componentCensus,
     interactionMap,
     contrast,
+    typography,
+    breakpoints,
+    motion,
+    hierarchy,
+    interactionStates,
     oneLiners,
   };
 
@@ -91,7 +153,7 @@ export function runSensors(ctx: SensorContext): SensorReport {
   return report;
 }
 
-export type { SensorReport, SensorContext } from './types.js';
+export type { SensorReport, SensorContext, ExtractedCSSRule, DocumentMeta } from './types.js';
 export type {
   VisualPatternReport,
   VisualPatternGroup,
@@ -102,3 +164,20 @@ export type {
   ContrastReport,
   ContrastReportEntry,
 } from './types.js';
+export type { TypographyReport, TypographyRow } from './typography.js';
+export type { BreakpointEntry, BreakpointType } from './breakpoints.js';
+export type { MotionReport, TransitionEntry, KeyframesEntry, ReducedMotionOverride } from './motion.js';
+export type {
+  HierarchyReport,
+  HeadingLevelSummary,
+  HeadingFinding,
+  LandmarkCounts,
+  AriaHeading,
+  LevelSkip,
+} from './hierarchy.js';
+export type {
+  InteractionStatesReport,
+  StateRule,
+  StateFinding,
+  InteractionState,
+} from './interaction-states.js';

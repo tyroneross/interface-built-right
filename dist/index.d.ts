@@ -6112,12 +6112,122 @@ interface ContrastReport {
         darkOnLight: number;
     };
 }
+interface TypographyReportRef {
+    rows: Array<{
+        selector: string;
+        family: string;
+        size_px: number;
+        weight: number;
+        line_height: number | 'normal';
+        count: number;
+        font_loading_pending?: boolean;
+        size_spec?: string;
+    }>;
+    font_loading_pending: boolean;
+    data_unavailable?: boolean;
+}
+interface BreakpointEntryRef {
+    type: 'min-width' | 'max-width' | 'range' | 'container-min-width' | 'container-max-width' | 'container-range' | 'print' | 'other';
+    value_px?: number;
+    min?: number;
+    max?: number;
+    rule_count: number;
+    container_name?: string;
+    raw_condition: string;
+}
+interface MotionReportRef {
+    transitions: Array<{
+        selector: string;
+        property: string;
+        duration_ms: number;
+        easing: string;
+        delay_ms: number;
+    }>;
+    keyframes: Array<{
+        name: string;
+        step_count: number;
+        used_by_selectors: string[];
+    }>;
+    reduced_motion_overrides: Array<{
+        selector: string;
+        overrides: string[];
+    }>;
+}
+interface HierarchyReportRef {
+    h1: {
+        count: number;
+        first_text?: string;
+        all_texts: string[];
+        finding?: 'no_h1_on_page' | 'multiple_h1s_on_page';
+    };
+    h2: {
+        count: number;
+        first_text?: string;
+        all_texts: string[];
+    };
+    h3: {
+        count: number;
+        first_text?: string;
+        all_texts: string[];
+    };
+    h4: {
+        count: number;
+        first_text?: string;
+        all_texts: string[];
+    };
+    h5: {
+        count: number;
+        first_text?: string;
+        all_texts: string[];
+    };
+    h6: {
+        count: number;
+        first_text?: string;
+        all_texts: string[];
+    };
+    landmarks: {
+        nav: number;
+        main: number;
+        aside: number;
+        header: number;
+        footer: number;
+        section: number;
+        form: number;
+    };
+    aria_headings: Array<{
+        selector: string;
+        level: number;
+        text: string;
+    }>;
+    level_skips: Array<{
+        from: string;
+        to: string;
+        at_position: number;
+    }>;
+}
+interface InteractionStatesReportRef {
+    states: Array<{
+        selector: string;
+        state: 'hover' | 'focus' | 'focus-visible' | 'focus-within' | 'active' | 'disabled';
+        properties: Record<string, string>;
+        conditional_hover?: boolean;
+    }>;
+    findings: Array<{
+        selector: string;
+        missing: 'focus_indicator';
+    }>;
+}
 interface SensorReport {
     visualPatterns: VisualPatternReport[];
     navigation?: NavigationMap;
     componentCensus: ComponentCensus;
     interactionMap: InteractionMap;
     contrast: ContrastReport;
+    typography?: TypographyReportRef;
+    breakpoints?: BreakpointEntryRef[];
+    motion?: MotionReportRef;
+    hierarchy?: HierarchyReportRef;
+    interactionStates?: InteractionStatesReportRef;
     semanticState?: {
         pageIntent?: string;
         states: string[];
