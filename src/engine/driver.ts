@@ -76,7 +76,7 @@ export interface FindDiagnostics {
   elementId: string | null
   confidence: number           // 0.0–1.0
   tier: number                 // 1–4: which resolution strategy succeeded
-  tierName: string             // "cache" | "queryAXTree" | "jaro-winkler" | "vision"
+  tierName: string             // "cache" | "queryAXTree" | "jaro-winkler" | "vision" | "auto-resolve"
   alternatives: Array<{        // top 5 fuzzy matches when not found
     name: string
     role: string
@@ -84,7 +84,36 @@ export interface FindDiagnostics {
   }>
   totalInteractive: number     // how many interactive elements on page
   screenshot?: string          // base64 PNG, auto-captured when element not found
+  /**
+   * Set when tier-4 (vision) detected an unambiguous top alternative and
+   * promoted it to an element resolution. Callers can surface this so users
+   * see WHICH alternative was chosen and at what score, instead of a silent
+   * "did you mean?". See AUTO_RESOLVE_MIN_SCORE / AUTO_RESOLVE_MIN_MARGIN.
+   */
+  autoResolved?: {
+    label: string              // chosen alternative's label
+    role: string               // chosen alternative's role
+    score: number              // top jaroWinkler score (0–1)
+    margin: number             // score[0] - score[1] (0 when only 1 candidate)
+  }
 }
+
+/**
+ * Auto-resolve thresholds for the tier-4 (vision) → element promotion.
+ *
+ * Rationale: tier-3 (jaroWinkler over the full AX tree) returns nothing below
+ * confidence 0.5; tier-4 then computes alternatives over INTERACTIVE elements
+ * only. In practice, the top interactive-only score is frequently very high
+ * (≥ 0.8) AND the gap to second place is wide (≥ 0.15), i.e. the user's
+ * intent is unambiguous and a "not found + alternatives" response is just
+ * pointless friction. Auto-resolve in that case; preserve the existing
+ * alternatives + screenshot path when ambiguous or low-confidence.
+ *
+ * Driven by transcript-log evidence: 20/185 session_action calls (11%) failed
+ * with element-not-found despite the top alternative being unambiguous.
+ */
+export const AUTO_RESOLVE_MIN_SCORE = 0.8
+export const AUTO_RESOLVE_MIN_MARGIN = 0.15
 
 export interface CaptureStateOptions {
   computedStyles?: string[]
@@ -368,6 +397,43 @@ export class EngineDriver implements BrowserDriver {
       }))
       .sort((a, b) => b.score - a.score)
       .slice(0, 5)
+
+    // Auto-resolve: if the top alternative is high-confidence AND unambiguous
+    // relative to the runner-up, promote it to a resolution instead of
+    // returning "not found". This converts the most common transcript-log
+    // failure mode (clear typo / missing trailing-space / "Submit" vs
+    // "Submit Form") into a successful action with auditable provenance.
+    if (scored.length > 0) {
+      const top = scored[0]
+      const second = scored[1]
+      const margin = top.score - (second?.score ?? 0)
+      if (top.score >= AUTO_RESOLVE_MIN_SCORE && margin >= AUTO_RESOLVE_MIN_MARGIN) {
+        // Resolve back to the actual element object (need its id) — pick
+        // the first interactive element matching (label, role).
+        const resolved = interactive.find(
+          (e) => e.label === top.name && e.role === top.role,
+        )
+        if (resolved) {
+          this.resolutionCache.set(cacheKey, resolved.id, {
+            role: resolved.role, label: resolved.label, confidence: top.score,
+          })
+          return {
+            elementId: resolved.id,
+            confidence: top.score,
+            tier: 4,
+            tierName: 'auto-resolve',
+            alternatives: scored,
+            totalInteractive: interactive.length,
+            autoResolved: {
+              label: top.name,
+              role: top.role,
+              score: top.score,
+              margin,
+            },
+          }
+        }
+      }
+    }
 
     // Auto-capture screenshot when element not found for visual fallback
     let screenshot: string | undefined

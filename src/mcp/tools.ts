@@ -1684,6 +1684,18 @@ export async function handleToolCall(
             },
             pageState: { url: driver.url, elementCount: afterCount },
           }
+          if (diag.autoResolved) {
+            // Make auto-resolution auditable: the target the agent asked for
+            // ("Sbmit") differs from the label we acted on ("Submit"). Surface
+            // the score + margin so a downstream check can verify the choice.
+            actionResult.autoResolved = {
+              requested: target,
+              chosen: diag.autoResolved.label,
+              role: diag.autoResolved.role,
+              score: Number(diag.autoResolved.score.toFixed(3)),
+              margin: Number(diag.autoResolved.margin.toFixed(3)),
+            }
+          }
 
           if (wantScreenshot) {
             const buf = await driver.screenshot()

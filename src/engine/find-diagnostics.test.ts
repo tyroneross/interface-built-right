@@ -220,15 +220,20 @@ describe('findWithDiagnostics', () => {
     // "submit" should fuzzy-match "Submit Form" with sufficient confidence
     const diag = await driver.findWithDiagnostics('submit')
 
-    // Depending on resolve() scoring — could be tier 3 or tier 4
-    // At minimum, if found, tier must be <= 3; if not found, alternatives include "Submit Form"
-    if (diag.elementId) {
-      expect(diag.tier).toBe(3)
+    // Depending on resolve() scoring — could be tier 3 (jaro-winkler) or
+    // tier 4 (auto-resolve, after R1). Either way: must be FOUND. The
+    // pre-R1 fallback ("alternatives include Submit Form") would be a
+    // regression — auto-resolve was added precisely to stop returning null
+    // when a single high-score candidate exists.
+    expect(diag.elementId).not.toBeNull()
+    if (diag.tier === 3) {
       expect(diag.tierName).toBe('jaro-winkler')
       expect(diag.confidence).toBeGreaterThanOrEqual(0.5)
     } else {
-      const alt = diag.alternatives.find(a => a.name === 'Submit Form')
-      expect(alt).toBeDefined()
+      expect(diag.tier).toBe(4)
+      expect(diag.tierName).toBe('auto-resolve')
+      expect(diag.autoResolved).toBeDefined()
+      expect(diag.autoResolved!.label).toBe('Submit Form')
     }
   })
 
@@ -298,5 +303,83 @@ describe('findWithDiagnostics', () => {
     expect(diag.screenshot).toBeUndefined()
     // Should still return alternatives and totalInteractive
     expect(diag.totalInteractive).toBeGreaterThan(0)
+  })
+
+  // ── R1: tier-4 auto-resolve when top alternative is unambiguous ──
+
+  it('auto-resolves to the top alternative when score >= 0.8 and margin >= 0.15', async () => {
+    // "Sbmit" misspells "Submit"; "Cancel" is unrelated → wide margin.
+    // Tier 2 (queryAXTree) mocked empty, Tier 3 (resolve) returns < 0.5 for
+    // an unrelated mode, so we reach Tier 4 with high top score and wide margin.
+    const elements = [
+      makeElement('e1', 'Submit'),
+      makeElement('e2', 'Cancel'),
+    ]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('Sbmit')
+
+    // If Tier 3 finds it, auto-resolve never runs — accept either outcome but
+    // require we don't return "not found".
+    expect(diag.elementId).not.toBeNull()
+    if (diag.tier === 4) {
+      expect(diag.tierName).toBe('auto-resolve')
+      expect(diag.autoResolved).toBeDefined()
+      expect(diag.autoResolved!.label).toBe('Submit')
+      expect(diag.autoResolved!.score).toBeGreaterThanOrEqual(0.8)
+      expect(diag.autoResolved!.margin).toBeGreaterThanOrEqual(0.15)
+      // The auto-resolved id must point at the real "Submit" element
+      expect(diag.elementId).toBe('e1')
+    }
+  })
+
+  it('does NOT auto-resolve when two alternatives are close (margin < 0.15)', async () => {
+    // "Submit" and "Submerge" both score very high vs "Submxt" — narrow margin.
+    const elements = [
+      makeElement('e1', 'Submit'),
+      makeElement('e2', 'Submerge'),
+    ]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('Submxt')
+
+    // Verify the margin really is narrow at the data level
+    const s1 = jaroWinkler('submxt', 'submit')
+    const s2 = jaroWinkler('submxt', 'submerge')
+    const margin = Math.abs(s1 - s2)
+    expect(margin).toBeLessThan(0.15)
+
+    // Auto-resolve must NOT have fired
+    if (diag.tier === 4) {
+      expect(diag.tierName).toBe('vision')
+      expect(diag.autoResolved).toBeUndefined()
+      expect(diag.elementId).toBeNull()
+    }
+  })
+
+  it('does NOT auto-resolve when top score is below 0.8', async () => {
+    // Targets that share almost nothing with available labels.
+    const elements = [
+      makeElement('e1', 'Zebra'),
+      makeElement('e2', 'Quokka'),
+    ]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('XYZW')
+
+    // Top score must be below threshold for this to be a meaningful test
+    const topScore = Math.max(
+      jaroWinkler('xyzw', 'zebra'),
+      jaroWinkler('xyzw', 'quokka'),
+    )
+    expect(topScore).toBeLessThan(0.8)
+
+    expect(diag.tier).toBe(4)
+    expect(diag.tierName).toBe('vision')
+    expect(diag.autoResolved).toBeUndefined()
+    expect(diag.elementId).toBeNull()
   })
 })
