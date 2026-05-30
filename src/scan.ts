@@ -718,6 +718,15 @@ function getFixSuggestion(type: string): string | undefined {
 }
 
 /**
+ * R3: suppress "Page intent: unknown (< 30% confidence)" noise.
+ * The condition was duplicated in scan.ts and tools.ts; single source here.
+ * Returns true when the intent line carries zero information.
+ */
+export function isIntentNoise(intent: string, confidence: number): boolean {
+  return intent === 'unknown' && confidence < 0.3;
+}
+
+/**
  * Format scan result for console output
  */
 export function formatScanResult(result: ScanResult): string {
@@ -751,8 +760,7 @@ export function formatScanResult(result: ScanResult): string {
   // medium-confidence ones — still surface.
   const intent = result.semantic.pageIntent.intent;
   const intentConfidence = result.semantic.confidence;
-  const intentIsNoise = intent === 'unknown' && intentConfidence < 0.3;
-  if (!intentIsNoise) {
+  if (!isIntentNoise(intent, intentConfidence)) {
     lines.push(`  Intent:   ${intent} (${(intentConfidence * 100).toFixed(0)}% confidence)`);
   }
   lines.push(`  Auth:     ${result.semantic.state.auth.authenticated ? 'Authenticated' : 'Not authenticated'}`);

@@ -8,7 +8,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, copyFileSync } from "fs";
 import { join } from "path";
 import { loadDesignSystemConfig } from '../design-system/index.js';
-import { scan } from "../scan.js";
+import { scan, isIntentNoise } from "../scan.js";
 import {
   compare,
   InterfaceBuiltRight,
@@ -2342,10 +2342,11 @@ async function handleScan(
 
   // R3: suppress "Page intent: unknown (0% confidence)" noise. The line
   // is information-free when the classifier abstained AND confidence is
-  // near floor; other intents still surface.
+  // near floor; other intents still surface. isIntentNoise is the single
+  // source of this condition (f6: dedup from scan.ts).
   const intent = result.semantic.pageIntent.intent;
   const intentConfidence = result.semantic.confidence;
-  const intentIsNoise = intent === 'unknown' && intentConfidence < 0.3;
+  const intentIsNoise = isIntentNoise(intent, intentConfidence);
 
   // Format for LLM consumption — concise structured text
   const lines = [

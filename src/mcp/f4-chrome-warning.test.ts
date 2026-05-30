@@ -53,12 +53,10 @@ const CHROME_LABELS = ['Home', 'Save Screen', 'Rotate', 'Lock', 'Siri', 'Shake',
   'Side Button', 'Volume Up', 'Volume Down', 'Rotate Left'];
 
 describe('f4: readSimulatorSession applies chrome warning', () => {
-  let sessionId: string;
-
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks();
 
-    // Mock findDevice to return a fake device for session creation
+    // Mock findDevice to return a booted fake device for session creation
     mockFindDevice.mockResolvedValue({
       udid: 'test-udid-1234',
       name: 'iPhone 15',
@@ -68,15 +66,6 @@ describe('f4: readSimulatorSession applies chrome warning', () => {
       deviceType: 'iPhone 15',
       available: true,
     } as any);
-
-    // Create a simulator session by calling native_session_start
-    sessionId = `test-sim-${Date.now()}`;
-    // Directly inject into sessions by using native_session_start
-    // which calls startSimulatorSession → findDevice + bootDevice
-    // We need to inject the session differently — use a unique ID.
-
-    // Actually: native_session_start calls findDevice and bootDevice;
-    // bootDevice is from native/index.js which we've mocked. Let's also mock it.
   });
 
   it('prepends "Foreground the iOS app" warning when scan returns only chrome labels', async () => {
@@ -95,9 +84,7 @@ describe('f4: readSimulatorSession applies chrome warning', () => {
       })) as any,
     );
 
-    // Start a session — we need sessions to contain a simulator entry.
-    // Use handleToolCall('native_session_start', { simulator: 'iPhone 15' })
-    // with findDevice already mocked.
+    // Start a session — native_session_start calls findDevice (mocked above)
     const startResult = await handleToolCall('native_session_start', {
       simulator: 'iPhone 15',
     });
@@ -113,8 +100,8 @@ describe('f4: readSimulatorSession applies chrome warning', () => {
     }
 
     if (!sid) {
-      // Session start failed (e.g., bootDevice not mocked) — skip test
-      // to avoid false failure from unrelated mock gaps.
+      // Session start failed (e.g., bootDevice not fully mocked) — skip
+      // gracefully to avoid false failure from unrelated mock gaps.
       return;
     }
 
