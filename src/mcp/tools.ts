@@ -38,6 +38,7 @@ import { captureScreenshot } from "../capture.js";
 import { VIEWPORTS } from "../schemas.js";
 import { loadTokenSpec, validateAgainstTokens } from '../tokens.js';
 import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
+import { macOSNativePreflight, simulatorNativePreflight, classifyExtractorError } from '../native/preflight.js';
 import { EngineDriver, type FindDiagnostics } from '../engine/driver.js';
 import type { ActionDescriptor } from '../engine/observe.js';
 import type { Element as EngineElement } from '../engine/types.js';
@@ -2103,6 +2104,11 @@ async function runMacOSSessionAction(
   entry: SessionEntry,
   request: { action: string; target: string; value?: string; role?: string }
 ): Promise<McpResponse> {
+  // R5: preflight before touching the extractor — surface fixable env errors
+  // as one-line instructions instead of raw Swift/shell tracebacks.
+  const pre = await macOSNativePreflight()
+  if (!pre.ok) return errorResponse(pre.message)
+
   try {
     const { elements } = await extractMacOSElements({ pid: entry.pid! })
     const resolution = resolveMacOSElement(elements, request.target, request.role ? { role: request.role } : {})
@@ -2138,6 +2144,10 @@ async function runMacOSSessionAction(
       error: actionResult.error,
     })
   } catch (err) {
+    // R5: re-classify common extractor errors (AX permission denied) as
+    // one-liners. Falls through to the generic message otherwise.
+    const classified = classifyExtractorError(err)
+    if (classified) return errorResponse(classified.message)
     return errorResponse(`native session action (macos) failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
@@ -2146,6 +2156,10 @@ async function runSimulatorSessionAction(
   entry: SessionEntry,
   request: { action: string; target: string; value?: string; role?: string }
 ): Promise<McpResponse> {
+  // R5: preflight — surface env errors (no Xcode, no simctl) as one-liners.
+  const pre = await simulatorNativePreflight()
+  if (!pre.ok) return errorResponse(pre.message)
+
   try {
     const device = await findDevice(entry.device!.udid)
     if (!device) return errorResponse(`Simulator not found: ${entry.device!.udid}`)
@@ -2185,6 +2199,8 @@ async function runSimulatorSessionAction(
       error: actionResult.error,
     })
   } catch (err) {
+    const classified = classifyExtractorError(err)
+    if (classified) return errorResponse(classified.message)
     return errorResponse(`native session action (simulator) failed: ${err instanceof Error ? err.message : String(err)}`)
   }
 }
