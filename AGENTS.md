@@ -8,7 +8,7 @@ Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI,
 
 IBR is an end-to-end design tool for AI coding agents, with first-class Claude Code and Codex packaging. It guides UI builds with Design Director planning, archetype-based design routing, Calm Precision rules, and platform-specific best practices, then validates implementations with visual scanning and interaction testing.
 
-- **Package:** `@tyroneross/interface-built-right` v1.0.0
+- **Package:** `@tyroneross/interface-built-right` v1.3.0
 - **Runtime:** Node.js >= 22, TypeScript
 - **Dual distribution:** npm package + Claude Code plugin (`.claude-plugin/plugin.json`) + Codex plugin (`.codex-plugin/plugin.json`)
 - **License:** MIT
@@ -56,6 +56,21 @@ Elements are found by semantic accessibility tree queries (name + role), not CSS
 Per-element fields: `selector`, `tagName`, `text`, `bounds {x,y,w,h}`, `computedStyles` (backgroundColor, fontSize, fontFamily, display, gap, grid*, flex*, padding, margin, borderRadius), `interactive` (hasOnClick, hasHref, hasReactHandler, isDisabled), `a11y` (role, ariaLabel, ariaDescribedBy)
 
 Page-level fields: `pageIntent` (auth|form|listing|detail|dashboard|error|landing), `state.auth`, `state.loading`, `state.errors`, `console.errors[]`, `console.warnings[]`, `verdict` (PASS|ISSUES|FAIL)
+
+Sensors (`scan.sensors.*`, v1.2.0):
+
+| Field | Description |
+|---|---|
+| `visualPatterns` | Detected layout/visual patterns across the page |
+| `componentCensus` | Component counts, top components, orphan interactive elements |
+| `interactionMap` | Interactive element coverage — total vs. handler-wired |
+| `contrast` | WCAG AA pass/fail counts for text elements |
+| `navigation` | Nav regions, link counts, depth |
+| `typography` | Aggregated font fingerprints (family, size, weight, lineHeight) |
+| `breakpoints` | Declared `@media` and `@container` queries |
+| `motion` | Transitions, keyframes, reduced-motion overrides |
+| `hierarchy` | h1–h6 counts, landmark structure, a11y findings, level-skips |
+| `interactionStates` | :hover/:focus/:focus-visible/:active/:disabled rules; missing-focus findings |
 
 ### Verdicts
 
@@ -126,7 +141,7 @@ Codex uses compact `.codex-plugin/skills/` routing guidance plus MCP/session too
 
 ### MCP Tools
 
-`scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `native_session_start` | `native_session_read` | `native_session_action` | `native_session_close` | `validate_tokens` | `scan_static` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `sim_action`
+`scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `native_session_start` | `native_session_read` | `native_session_action` | `native_session_close` | `validate_tokens` | `scan_static` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `design_system` | `sim_action`
 
 ### Slash Commands (30)
 
