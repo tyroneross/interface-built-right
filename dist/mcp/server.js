@@ -3157,13 +3157,13 @@ var init_webdriver = __esm({
 });
 
 // src/engine/safari/session.ts
-var import_child_process8, import_util7, execFileAsync7, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process9, import_util8, execFileAsync8, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process8 = require("child_process");
-    import_util7 = require("util");
-    execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
+    import_child_process9 = require("child_process");
+    import_util8 = require("util");
+    execFileAsync8 = (0, import_util8.promisify)(import_child_process9.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -3181,7 +3181,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process8.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process9.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -3219,7 +3219,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync7("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync8("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -3268,17 +3268,17 @@ var driver_exports = {};
 __export(driver_exports, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process9, import_util8, execFileAsync8, SafariDriver;
+var import_child_process10, import_util9, execFileAsync9, SafariDriver;
 var init_driver = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process9 = require("child_process");
-    import_util8 = require("util");
+    import_child_process10 = require("child_process");
+    import_util9 = require("util");
     init_webdriver();
     init_session2();
     init_extract();
     init_serialize();
-    execFileAsync8 = (0, import_util8.promisify)(import_child_process9.execFile);
+    execFileAsync9 = (0, import_util9.promisify)(import_child_process10.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -3292,7 +3292,7 @@ var init_driver = __esm({
         await this.client.createSession();
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process9.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process10.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -3473,7 +3473,7 @@ var init_driver = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync8(
+          const { stdout } = await execFileAsync9(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -3837,16 +3837,16 @@ __export(scan_exports, {
 });
 function scanStatic(options) {
   const { htmlPath, cssPath } = options;
-  if (!(0, import_fs5.existsSync)(htmlPath)) {
+  if (!(0, import_fs6.existsSync)(htmlPath)) {
     throw new Error(`HTML file not found: ${htmlPath}`);
   }
-  if (cssPath && !(0, import_fs5.existsSync)(cssPath)) {
+  if (cssPath && !(0, import_fs6.existsSync)(cssPath)) {
     throw new Error(`CSS file not found: ${cssPath}`);
   }
-  const html = (0, import_fs5.readFileSync)(htmlPath, "utf-8");
+  const html = (0, import_fs6.readFileSync)(htmlPath, "utf-8");
   let elements = parseStaticHTML(html);
   if (cssPath) {
-    const css = (0, import_fs5.readFileSync)(cssPath, "utf-8");
+    const css = (0, import_fs6.readFileSync)(cssPath, "utf-8");
     const rules2 = parseCSS(css);
     elements = applyStyles(elements, rules2);
   }
@@ -3954,11 +3954,11 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   }
   return parts.join(", ") + ".";
 }
-var import_fs5;
+var import_fs6;
 var init_scan = __esm({
   "src/static/scan.ts"() {
     "use strict";
-    import_fs5 = require("fs");
+    import_fs6 = require("fs");
     init_parser();
   }
 });
@@ -3967,8 +3967,8 @@ var init_scan = __esm({
 var import_readline = require("readline");
 
 // src/mcp/tools.ts
-var import_fs6 = require("fs");
-var import_path17 = require("path");
+var import_fs7 = require("fs");
+var import_path18 = require("path");
 
 // src/design-system/config.ts
 var import_zod = require("zod");
@@ -6138,6 +6138,10 @@ async function extractShadowElements(runtime) {
 }
 
 // src/engine/driver.ts
+var AUTO_RESOLVE_MIN_SCORE = 0.8;
+var AUTO_RESOLVE_MIN_MARGIN = 0.15;
+var AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95;
+var DESTRUCTIVE_LABEL_PATTERN = /\b(?:delete|remove|erase|wipe|purge|revoke|deactivate|disable|discard|destroy|reset|clear|unsubscribe|confirm)\b/i;
 var EngineDriver = class {
   browser = new BrowserManager();
   conn = new CdpConnection();
@@ -6358,11 +6362,45 @@ var EngineDriver = class {
       };
     }
     const nameLower = name.toLowerCase();
-    const scored = interactive.filter((e) => e.label).map((e) => ({
+    const scoringPool = options.role ? interactive.filter((e) => e.role === options.role) : interactive;
+    const scored = scoringPool.filter((e) => e.label).map((e) => ({
       name: e.label,
       role: e.role,
       score: jaroWinkler2(nameLower, e.label.toLowerCase())
     })).sort((a, b) => b.score - a.score).slice(0, 5);
+    if (scored.length > 0) {
+      const top = scored[0];
+      const second = scored[1];
+      const margin = top.score - (second?.score ?? 0);
+      const isDestructive = DESTRUCTIVE_LABEL_PATTERN.test(top.name);
+      const minScore = isDestructive ? AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE : AUTO_RESOLVE_MIN_SCORE;
+      if (top.score >= minScore && margin >= AUTO_RESOLVE_MIN_MARGIN) {
+        const resolved = interactive.find(
+          (e) => e.label === top.name && e.role === top.role
+        );
+        if (resolved) {
+          this.resolutionCache.set(cacheKey, resolved.id, {
+            role: resolved.role,
+            label: resolved.label,
+            confidence: top.score
+          });
+          return {
+            elementId: resolved.id,
+            confidence: top.score,
+            tier: 4,
+            tierName: "auto-resolve",
+            alternatives: scored,
+            totalInteractive: interactive.length,
+            autoResolved: {
+              label: top.name,
+              role: top.role,
+              score: top.score,
+              margin
+            }
+          };
+        }
+      }
+    }
     let screenshot;
     try {
       const buf = await this.screenshot();
@@ -10620,7 +10658,8 @@ async function scan(url, options = {}) {
     wsEndpoint,
     chromePath,
     hydrationStrategy = "auto",
-    rules: rulePresets
+    rules: rulePresets,
+    cookies
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
   const driver2 = new EngineDriver();
@@ -10650,6 +10689,12 @@ async function scan(url, options = {}) {
     }
   });
   try {
+    if (cookies && cookies.length > 0) {
+      try {
+        await driver2.setCookies(cookies);
+      } catch {
+      }
+    }
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout
@@ -10933,6 +10978,9 @@ function getFixSuggestion(type) {
     default:
       return void 0;
   }
+}
+function isIntentNoise(intent, confidence) {
+  return intent === "unknown" && confidence < 0.3;
 }
 
 // src/index.ts
@@ -13718,13 +13766,113 @@ function formatBridgeResult(result) {
   return lines.join("\n");
 }
 
-// src/native/idb.ts
+// src/native/preflight.ts
 var import_child_process6 = require("child_process");
 var import_util5 = require("util");
+var import_fs5 = require("fs");
+var import_path17 = require("path");
 var execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
+function isMacOS(platformOverride) {
+  return (platformOverride ?? process.platform) === "darwin";
+}
+async function defaultHasCommand(name) {
+  try {
+    await execFileAsync5("which", [name]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var _deps = {
+  hasCommand: defaultHasCommand
+};
+async function macOSNativePreflight(options) {
+  if (!isMacOS(options?.platformOverride)) {
+    return {
+      ok: false,
+      reason: "not-macos",
+      message: `Native sessions require macOS \u2014 process.platform is '${options?.platformOverride ?? process.platform}'. Use a Mac to run macOS / iOS-simulator AX sessions.`
+    };
+  }
+  if (!await _deps.hasCommand("swift")) {
+    return {
+      ok: false,
+      reason: "no-swift",
+      message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
+    };
+  }
+  const extractorPath = options?.extractorBinaryPath ?? (0, import_path17.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
+  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path17.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
+  if (!(0, import_fs5.existsSync)(extractorPath) && !(0, import_fs5.existsSync)((0, import_path17.join)(swiftSourceDir, "Package.swift"))) {
+    return {
+      ok: false,
+      reason: "extractor-build-failed",
+      message: `Swift AX extractor unavailable. Expected binary at ${extractorPath} or source at ${swiftSourceDir}. Rebuild with: cd <ibr-package>/src/native/swift/ibr-ax-extract && swift build -c release`
+    };
+  }
+  return { ok: true };
+}
+async function simulatorNativePreflight(options) {
+  const base = await macOSNativePreflight(options);
+  if (!base.ok) return base;
+  if (!await _deps.hasCommand("xcrun")) {
+    return {
+      ok: false,
+      reason: "no-simctl",
+      message: "`xcrun` not on PATH \u2014 Xcode (or the Command Line Tools select) is required. Install Xcode from the App Store, then run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    };
+  }
+  return { ok: true };
+}
+var SIMULATOR_CHROME_LABELS = /* @__PURE__ */ new Set([
+  "home",
+  "save screen",
+  "screenshot",
+  "rotate",
+  "rotate left",
+  "rotate right",
+  "lock",
+  "siri",
+  "shake",
+  "side button",
+  "volume up",
+  "volume down"
+]);
+function detectSimulatorChromeOnly(topLevelLabels) {
+  if (topLevelLabels.length === 0) {
+    return {
+      hint: "Simulator returned no AX elements. Boot a device and foreground an app: xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  const normalized = topLevelLabels.map((l) => l.trim().toLowerCase()).filter((l) => l.length > 0);
+  if (normalized.length === 0) return null;
+  const chromeCount = normalized.filter((l) => SIMULATOR_CHROME_LABELS.has(l)).length;
+  if (chromeCount / normalized.length >= 0.8) {
+    return {
+      hint: "Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  return null;
+}
+function classifyExtractorError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+    return {
+      ok: false,
+      reason: "ax-permission",
+      message: "macOS accessibility permission denied. Grant access in System Settings \u2192 Privacy & Security \u2192 Accessibility, then re-run the session_start call."
+    };
+  }
+  return null;
+}
+
+// src/native/idb.ts
+var import_child_process7 = require("child_process");
+var import_util6 = require("util");
+var execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
 async function isIdbCliAvailable() {
   try {
-    await execFileAsync5("which", ["idb"]);
+    await execFileAsync6("which", ["idb"]);
     return true;
   } catch {
     return false;
@@ -13733,10 +13881,10 @@ async function isIdbCliAvailable() {
 async function idbTap(udid, x, y) {
   try {
     if (await isIdbCliAvailable()) {
-      await execFileAsync5("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+      await execFileAsync6("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
       return { success: true, action: "tap" };
     }
-    await execFileAsync5("xcrun", ["simctl", "io", udid, "tap", String(x), String(y)], { timeout: 1e4 });
+    await execFileAsync6("xcrun", ["simctl", "io", udid, "tap", String(x), String(y)], { timeout: 1e4 });
     return { success: true, action: "tap" };
   } catch (err) {
     return { success: false, action: "tap", error: err.message };
@@ -13745,12 +13893,12 @@ async function idbTap(udid, x, y) {
 async function idbType(udid, text) {
   try {
     if (await isIdbCliAvailable()) {
-      await execFileAsync5("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+      await execFileAsync6("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
       return { success: true, action: "type" };
     }
     try {
       const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      await execFileAsync5("osascript", [
+      await execFileAsync6("osascript", [
         "-e",
         'tell application "Simulator" to activate',
         "-e",
@@ -13773,11 +13921,11 @@ async function idbSwipe(udid, x1, y1, x2, y2, duration) {
     if (await isIdbCliAvailable()) {
       const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
       if (duration) args.push("--duration", String(duration));
-      await execFileAsync5("idb", args, { timeout: 1e4 });
+      await execFileAsync6("idb", args, { timeout: 1e4 });
       return { success: true, action: "swipe" };
     }
     try {
-      await execFileAsync5("xcrun", [
+      await execFileAsync6("xcrun", [
         "simctl",
         "io",
         udid,
@@ -13802,11 +13950,11 @@ async function idbSwipe(udid, x1, y1, x2, y2, duration) {
 async function idbButton(udid, button) {
   try {
     if (await isIdbCliAvailable()) {
-      await execFileAsync5("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+      await execFileAsync6("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
       return { success: true, action: `button:${button}` };
     }
     if (button === "HOME") {
-      await execFileAsync5("xcrun", ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"], { timeout: 1e4 });
+      await execFileAsync6("xcrun", ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"], { timeout: 1e4 });
       return { success: true, action: "button:HOME" };
     }
     return { success: false, action: `button:${button}`, error: "IDB not available" };
@@ -13816,7 +13964,7 @@ async function idbButton(udid, button) {
 }
 async function idbOpenUrl(udid, url) {
   try {
-    await execFileAsync5("xcrun", ["simctl", "openurl", udid, url], { timeout: 1e4 });
+    await execFileAsync6("xcrun", ["simctl", "openurl", udid, url], { timeout: 1e4 });
     return { success: true, action: "openUrl" };
   } catch (err) {
     return { success: false, action: "openUrl", error: err.message };
@@ -13824,11 +13972,11 @@ async function idbOpenUrl(udid, url) {
 }
 
 // src/native/actions.ts
-var import_child_process7 = require("child_process");
-var import_util6 = require("util");
+var import_child_process8 = require("child_process");
+var import_util7 = require("util");
 init_extract();
 init_role_map();
-var execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
+var execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
 async function performNativeAction(options) {
   const extractorPath = await ensureExtractor();
   const args = [
@@ -13846,7 +13994,7 @@ async function performNativeAction(options) {
     args.push("--value", options.value);
   }
   try {
-    const { stdout } = await execFileAsync6(extractorPath, args, { timeout: 1e4 });
+    const { stdout } = await execFileAsync7(extractorPath, args, { timeout: 1e4 });
     return JSON.parse(stdout);
   } catch (err) {
     if (err && typeof err === "object" && "stdout" in err) {
@@ -14057,6 +14205,13 @@ function textResponse(text) {
 function errorResponse(text) {
   return { content: [{ type: "text", text }], isError: true };
 }
+function normalizeReadMode(what) {
+  if (typeof what === "string") {
+    const trimmed = what.trim();
+    return trimmed === "" ? "observe" : trimmed.toLowerCase();
+  }
+  return "observe";
+}
 function imageResponse(base64, metadata) {
   return {
     content: [
@@ -14068,7 +14223,7 @@ function imageResponse(base64, metadata) {
 var TOOLS = [
   {
     name: "scan",
-    description: "Reads the live page and returns structured data \u2014 all interactive elements with computed CSS, handler wiring, accessibility data, page intent classification, and console errors. Use during or after building UI to see what is actually rendered.",
+    description: "Reads the live page and returns structured data \u2014 all interactive elements with computed CSS, handler wiring, accessibility data, page intent classification, and console errors. Use during or after building UI to see what is actually rendered. Pass sessionId to scan a gated route using the auth cookies of an existing session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -14088,6 +14243,10 @@ var TOOLS = [
         networkIdleTimeout: {
           type: "number",
           description: "Network idle timeout in ms (default: 10000)"
+        },
+        sessionId: {
+          type: "string",
+          description: "R3: Optional session ID from session_start. When supplied, the scan reuses the session's auth cookies so gated routes (dashboards, settings) are scanned authenticated instead of bouncing to login."
         }
       },
       required: ["url"]
@@ -14733,7 +14892,7 @@ var TOOLS = [
   },
   {
     name: "session_read",
-    description: "Read page state from a persistent session without interacting. Modes: 'observe' (list interactive elements), 'extract' (headings, buttons, inputs, links), 'screenshot' (capture current view), 'state' (URL, element count, console errors).",
+    description: "Read page state from a persistent session without interacting. Modes: 'observe' (list interactive elements \u2014 default), 'extract' (headings, buttons, inputs, links), 'screenshot' (capture current view), 'state' (URL, element count, console errors).",
     inputSchema: {
       type: "object",
       properties: {
@@ -14741,10 +14900,11 @@ var TOOLS = [
         what: {
           type: "string",
           enum: ["observe", "extract", "screenshot", "state"],
-          description: "What to read from the session"
+          default: "observe",
+          description: "What to read from the session. Defaults to 'observe' when omitted."
         }
       },
-      required: ["sessionId", "what"]
+      required: ["sessionId"]
     },
     annotations: {
       title: "Session Read",
@@ -14802,7 +14962,7 @@ var TOOLS = [
   },
   {
     name: "native_session_read",
-    description: "Read a cursor-free native session. Modes: observe (interactive elements), extract (AX element summary), state (session metadata), screenshot (when supported).",
+    description: "Read a cursor-free native session. Modes: observe (interactive elements \u2014 default), extract (AX element summary), state (session metadata), screenshot (when supported).",
     inputSchema: {
       type: "object",
       properties: {
@@ -14810,11 +14970,12 @@ var TOOLS = [
         what: {
           type: "string",
           enum: ["observe", "extract", "screenshot", "state"],
-          description: "What to read from the native session"
+          default: "observe",
+          description: "What to read from the native session. Defaults to 'observe' when omitted."
         },
         limit: { type: "number", description: "Maximum elements to return for observe/extract (default: 50)" }
       },
-      required: ["sessionId", "what"]
+      required: ["sessionId"]
     },
     annotations: {
       title: "Read Native Session",
@@ -15202,8 +15363,8 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
           }
           const page = new CompatPage(driver2);
           if (aiValidation) {
-            const artifactDir = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "mcp-search", `${Date.now()}`);
-            (0, import_fs6.mkdirSync)(artifactDir, { recursive: true });
+            const artifactDir = (0, import_path18.join)(DEFAULT_OUTPUT_DIR, "mcp-search", `${Date.now()}`);
+            (0, import_fs7.mkdirSync)(artifactDir, { recursive: true });
             const result2 = await aiSearchFlow(page, {
               query,
               userIntent: userIntent || `Find results related to: ${query}`,
@@ -15528,6 +15689,15 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
             },
             pageState: { url: driver2.url, elementCount: afterCount }
           };
+          if (diag.autoResolved) {
+            actionResult.autoResolved = {
+              requested: target,
+              chosen: diag.autoResolved.label,
+              role: diag.autoResolved.role,
+              score: Number(diag.autoResolved.score.toFixed(3)),
+              margin: Number(diag.autoResolved.margin.toFixed(3))
+            };
+          }
           if (wantScreenshot) {
             const buf = await driver2.screenshot();
             const base64 = buf.toString("base64");
@@ -15544,7 +15714,9 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
         }
       }
       case "session_read": {
-        const { sessionId, what } = args;
+        const rawArgs = args;
+        const sessionId = rawArgs.sessionId;
+        const what = normalizeReadMode(rawArgs.what);
         const entry = sessions.get(sessionId);
         if (!entry) {
           return errorResponse("Session not found. Use session_start first.");
@@ -15688,7 +15860,7 @@ function startMacOSPidSession(sessionId, pid) {
 }
 async function handleNativeSessionRead(args) {
   const sessionId = args.sessionId;
-  const what = args.what;
+  const what = normalizeReadMode(args.what);
   const limit = Number(args.limit) || 50;
   const entry = sessions.get(sessionId);
   if (!entry) return errorResponse("Session not found. Use native_session_start first.");
@@ -15813,6 +15985,12 @@ async function readSimulatorSession(entry, what, limit) {
     const elements = await extractNativeElements(device);
     const candidates = flattenSimulatorElements(elements);
     const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+    const chromeCheck = detectSimulatorChromeOnly(
+      candidates.slice(0, 10).map((c) => c.label ?? "")
+    );
+    if (chromeCheck) {
+      return errorResponse(chromeCheck.hint);
+    }
     if (what === "state") {
       return textResponse(JSON.stringify({
         type: "simulator",
@@ -15842,6 +16020,8 @@ async function readSimulatorSession(entry, what, limit) {
   }
 }
 async function runMacOSSessionAction(entry, request) {
+  const pre = await macOSNativePreflight();
+  if (!pre.ok) return errorResponse(pre.message);
   try {
     const { elements } = await extractMacOSElements({ pid: entry.pid });
     const resolution = resolveMacOSElement(elements, request.target, request.role ? { role: request.role } : {});
@@ -15874,17 +16054,26 @@ async function runMacOSSessionAction(entry, request) {
       error: actionResult.error
     });
   } catch (err) {
+    const classified = classifyExtractorError(err);
+    if (classified) return errorResponse(classified.message);
     return errorResponse(`native session action (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
 async function runSimulatorSessionAction(entry, request) {
+  const pre = await simulatorNativePreflight();
+  if (!pre.ok) return errorResponse(pre.message);
   try {
     const device = await findDevice(entry.device.udid);
     if (!device) return errorResponse(`Simulator not found: ${entry.device.udid}`);
     const elements = await extractNativeElements(device);
+    const flattened = flattenSimulatorElements(elements);
+    const chromeCheck = detectSimulatorChromeOnly(
+      flattened.slice(0, 10).map((c) => c.label ?? "")
+    );
+    if (chromeCheck) return errorResponse(chromeCheck.hint);
     const resolution = resolveSimulatorElement(elements, request.target, request.role ? { role: request.role } : {});
     if (!resolution) {
-      return nativeTargetNotFound(request.target, flattenSimulatorElements(elements));
+      return nativeTargetNotFound(request.target, flattened);
     }
     if (!resolution.element.path) {
       return errorResponse(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
@@ -15913,6 +16102,8 @@ async function runSimulatorSessionAction(entry, request) {
       error: actionResult.error
     });
   } catch (err) {
+    const classified = classifyExtractorError(err);
+    if (classified) return errorResponse(classified.message);
     return errorResponse(`native session action (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
@@ -15981,21 +16172,48 @@ async function handleScan(args) {
     return errorResponse("The 'url' parameter is required.");
   }
   const viewport = args.viewport || "desktop";
+  let scanCookies;
+  const requestedSessionId = typeof args.sessionId === "string" ? args.sessionId : void 0;
+  if (requestedSessionId) {
+    const entry = sessions.get(requestedSessionId);
+    if (entry && entry.driver) {
+      try {
+        const sessionCookies = await entry.driver.getCookies();
+        scanCookies = sessionCookies.map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          ...c.sameSite ? { sameSite: c.sameSite } : {},
+          ...c.expires > 0 ? { expires: c.expires } : {}
+        }));
+      } catch {
+      }
+    }
+  }
   const result = await scan(url, {
     viewport,
     patience: args.patience,
-    networkIdleTimeout: args.networkIdleTimeout
+    networkIdleTimeout: args.networkIdleTimeout,
+    ...scanCookies ? { cookies: scanCookies } : {}
   });
+  const intent = result.semantic.pageIntent.intent;
+  const intentConfidence = result.semantic.confidence;
+  const intentIsNoise = isIntentNoise(intent, intentConfidence);
   const lines = [
     `UI Scan: ${result.url}`,
     `Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
     `Verdict: ${result.verdict}`,
     `${result.summary}`,
-    "",
-    `Page intent: ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
-    `Auth: ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`,
-    `Loading: ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`
+    ""
   ];
+  if (!intentIsNoise) {
+    lines.push(`Page intent: ${intent} (${Math.round(intentConfidence * 100)}% confidence)`);
+  }
+  lines.push(`Auth: ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`);
+  lines.push(`Loading: ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`);
   if (result.console.errors.length > 0) {
     lines.push("");
     lines.push(`Console errors (${result.console.errors.length}):`);
@@ -16173,17 +16391,17 @@ async function handleListSessions() {
   );
   return textResponse(lines.join("\n"));
 }
-var REFERENCES_DIR = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "references");
-var REFERENCES_INDEX = (0, import_path17.join)(REFERENCES_DIR, "index.json");
+var REFERENCES_DIR = (0, import_path18.join)(DEFAULT_OUTPUT_DIR, "references");
+var REFERENCES_INDEX = (0, import_path18.join)(REFERENCES_DIR, "index.json");
 function readReferencesIndex() {
-  if (!(0, import_fs6.existsSync)(REFERENCES_INDEX)) {
+  if (!(0, import_fs7.existsSync)(REFERENCES_INDEX)) {
     return { references: [] };
   }
-  return JSON.parse((0, import_fs6.readFileSync)(REFERENCES_INDEX, "utf-8"));
+  return JSON.parse((0, import_fs7.readFileSync)(REFERENCES_INDEX, "utf-8"));
 }
 function writeReferencesIndex(index) {
-  (0, import_fs6.mkdirSync)(REFERENCES_DIR, { recursive: true });
-  (0, import_fs6.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+  (0, import_fs7.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs7.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
 }
 async function handleScreenshot(args) {
   const url = args.url;
@@ -16199,9 +16417,9 @@ async function handleScreenshot(args) {
   const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp = Date.now();
-  const screenshotsDir = (0, import_path17.join)(DEFAULT_OUTPUT_DIR, "screenshots");
-  (0, import_fs6.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path17.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const screenshotsDir = (0, import_path18.join)(DEFAULT_OUTPUT_DIR, "screenshots");
+  (0, import_fs7.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path18.join)(screenshotsDir, `capture-${timestamp}.png`);
   await captureScreenshot({
     url,
     outputPath: tempPath,
@@ -16213,14 +16431,14 @@ async function handleScreenshot(args) {
     waitFor,
     delay
   });
-  const imageBuffer = (0, import_fs6.readFileSync)(tempPath);
+  const imageBuffer = (0, import_fs7.readFileSync)(tempPath);
   const base64 = imageBuffer.toString("base64");
   const fileSize = imageBuffer.length;
   let savedPath = "not saved";
   if (saveAs) {
-    (0, import_fs6.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path17.join)(REFERENCES_DIR, `${saveAs}.png`);
-    (0, import_fs6.writeFileSync)(refPath, imageBuffer);
+    (0, import_fs7.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path18.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs7.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
     index.references = index.references.filter((r) => r.name !== saveAs);
@@ -16275,11 +16493,11 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
-      if (!(0, import_fs6.existsSync)(refPath)) {
+      const refPath = (0, import_path18.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs7.existsSync)(refPath)) {
         return errorResponse(`Reference file missing: ${refPath}`);
       }
-      const imageBuffer = (0, import_fs6.readFileSync)(refPath);
+      const imageBuffer = (0, import_fs7.readFileSync)(refPath);
       const base64 = imageBuffer.toString("base64");
       const metadata = [
         `Reference: ${ref.name}`,
@@ -16301,9 +16519,9 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path17.join)(REFERENCES_DIR, ref.path);
-      if ((0, import_fs6.existsSync)(refPath)) {
-        (0, import_fs6.unlinkSync)(refPath);
+      const refPath = (0, import_path18.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs7.existsSync)(refPath)) {
+        (0, import_fs7.unlinkSync)(refPath);
       }
       index.references = index.references.filter((r) => r.name !== name);
       writeReferencesIndex(index);
@@ -16660,7 +16878,7 @@ async function handleBridgeToSource(args) {
   if (!projectRoot) {
     return errorResponse("The 'project_root' parameter is required.");
   }
-  if (!(0, import_fs6.existsSync)(projectRoot)) {
+  if (!(0, import_fs7.existsSync)(projectRoot)) {
     return errorResponse(`Project root not found: ${projectRoot}`);
   }
   const deviceQuery = args.device;
@@ -16862,32 +17080,32 @@ async function handleSimAction(args) {
 async function handleDesignSystem(args) {
   const action = args.action;
   const projectDir = args.projectDir || process.cwd();
-  const ibrDir = (0, import_path17.join)(projectDir, ".ibr");
-  const configPath = (0, import_path17.join)(ibrDir, "design-system.json");
+  const ibrDir = (0, import_path18.join)(projectDir, ".ibr");
+  const configPath = (0, import_path18.join)(ibrDir, "design-system.json");
   switch (action) {
     case "init": {
       const templateCandidates = [
-        (0, import_path17.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
-        (0, import_path17.join)(projectDir, "templates", "design-system.json"),
+        (0, import_path18.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path18.join)(projectDir, "templates", "design-system.json"),
         // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
-        (0, import_path17.join)(__dirname, "..", "..", "templates", "design-system.json")
+        (0, import_path18.join)(__dirname, "..", "..", "templates", "design-system.json")
       ];
-      const templatePath = templateCandidates.find((p) => (0, import_fs6.existsSync)(p));
+      const templatePath = templateCandidates.find((p) => (0, import_fs7.existsSync)(p));
       if (!templatePath) {
         return errorResponse(
           "Could not find design-system template. Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json"
         );
       }
-      if ((0, import_fs6.existsSync)(configPath)) {
+      if ((0, import_fs7.existsSync)(configPath)) {
         return textResponse(
           `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.
 Path: ${configPath}`
         );
       }
-      if (!(0, import_fs6.existsSync)(ibrDir)) {
-        (0, import_fs6.mkdirSync)(ibrDir, { recursive: true });
+      if (!(0, import_fs7.existsSync)(ibrDir)) {
+        (0, import_fs7.mkdirSync)(ibrDir, { recursive: true });
       }
-      (0, import_fs6.copyFileSync)(templatePath, configPath);
+      (0, import_fs7.copyFileSync)(templatePath, configPath);
       return textResponse(
         `Design system config created at .ibr/design-system.json
 Edit it to add your tokens and configure principle severities.
@@ -16895,13 +17113,13 @@ Path: ${configPath}`
       );
     }
     case "status": {
-      if (!(0, import_fs6.existsSync)(configPath)) {
+      if (!(0, import_fs7.existsSync)(configPath)) {
         return textResponse(
           `No design system config found. Run design_system with action "init" to create one.
 Expected: ${configPath}`
         );
       }
-      const raw = (0, import_fs6.readFileSync)(configPath, "utf-8");
+      const raw = (0, import_fs7.readFileSync)(configPath, "utf-8");
       const config = JSON.parse(raw);
       return textResponse(
         `Design system config: ${configPath}

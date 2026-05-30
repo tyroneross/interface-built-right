@@ -1,4 +1,4 @@
-<!-- Plugin: ibr · Version: 1.2.0 · Source of truth: local (~/dev/git-folder/interface-built-right) -->
+<!-- Plugin: ibr · Version: 1.3.0 · Source of truth: local (~/dev/git-folder/interface-built-right) -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
 # IBR — End-to-End Design Tool

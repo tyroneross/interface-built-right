@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "End-to-end design tool for Claude Code — guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching, cross-browser",
-    "version": "1.0.0"
+    "version": "1.3.0"
   },
   "plugins": [
     {
       "name": "ibr",
       "source": "./",
       "description": "End-to-end design tool for AI coding agents — guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching (SSIM), test generation, cross-browser (Chrome + Safari), and native scanning.",
-      "version": "1.0.0",
+      "version": "1.3.0",
       "author": {
         "name": "Tyrone Ross"
       },

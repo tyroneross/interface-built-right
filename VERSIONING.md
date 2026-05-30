@@ -2,12 +2,27 @@
 
 ## Current
 
-- **Version:** 1.2.0
+- **Version:** 1.3.0
 - **Source of truth:** Local dev (`~/dev/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npm: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.2.0/`
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.3.0/`
+
+## Key changes in 1.3.0
+
+### Reliability fixes from a 16-day transcript audit (2026-05-29)
+
+Surfaced by mining 640 Claude Code sessions (607 real IBR tool calls, ~5% strict failure rate). Each fix is grounded in a verified failure class.
+
+- **`session_action` auto-resolve (R1)** — tier-4 element resolution now promotes the top fuzzy (jaroWinkler) alternative to a real resolution when `score ≥ 0.8` AND margin-to-#2 `≥ 0.15`, cutting the 11% "element not found" failure class. Surfaces `autoResolved {requested, chosen, role, score, margin}` for auditability. Respects the caller's `role` hint (no longer silently resolves a same-label link when a button was requested).
+- **Destructive-label guard** — auto-resolve requires a near-exact match (`score ≥ 0.95`) when the label matches destructive intent (delete/remove/erase/wipe/purge/revoke/deactivate/disable/discard/destroy/reset/clear/unsubscribe/confirm), regardless of candidate count. Prevents a typo from auto-clicking a "Delete" button.
+- **`session_read` / `native_session_read` default mode (R2)** — `what` defaults to `observe` (and is dropped from `required`); inputs are case-folded, so `"Observe"` no longer errors.
+- **`scan` auth + intent noise (R3)** — accepts `sessionId`/`cookies` to thread an authed session; suppresses the `Intent:` line when `intent === 'unknown' && confidence < 0.3`.
+- **Native env preflight (R5)** — `native_session_start` / `sim_action` return one-line fix instructions (xcode-select install, swift build, simctl, AX permission) instead of raw tracebacks.
+- **iOS `sim_action` (R4)** — server-side `findSimulatorAppRoot` descends past Simulator chrome plus a client-side chrome-only warning. ⚠️ **Known limitation:** the iOS-simulator element path does not resolve app content on Xcode 26 / iOS 26.x — the macOS AX tree of Simulator.app surfaces only Simulator's own chrome, and `idb ui describe-all` returns an empty tree on iOS 26. Tracked for a dedicated fix; macOS-app (AppKit) native scanning is unaffected and works.
+
+Tests: 697 passing (684 → 697, +13 across R1–R5 + audit corrections + destructive guard). Typecheck steady at 23 pre-existing errors.
 
 ## Key changes in 1.2.0
 

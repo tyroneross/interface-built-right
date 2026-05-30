@@ -2134,6 +2134,10 @@ var init_resolve = __esm({
 // src/engine/driver.ts
 var driver_exports = {};
 __export(driver_exports, {
+  AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE: () => AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE,
+  AUTO_RESOLVE_MIN_MARGIN: () => AUTO_RESOLVE_MIN_MARGIN,
+  AUTO_RESOLVE_MIN_SCORE: () => AUTO_RESOLVE_MIN_SCORE,
+  DESTRUCTIVE_LABEL_PATTERN: () => DESTRUCTIVE_LABEL_PATTERN,
   EngineDriver: () => EngineDriver
 });
 function chunkElements(elements, maxTokens) {
@@ -2142,7 +2146,7 @@ function chunkElements(elements, maxTokens) {
   const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
   return elements.slice(0, maxElements);
 }
-var import_pixelmatch, import_pngjs, EngineDriver;
+var import_pixelmatch, import_pngjs, AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_MIN_MARGIN, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE, DESTRUCTIVE_LABEL_PATTERN, EngineDriver;
 var init_driver = __esm({
   "src/engine/driver.ts"() {
     "use strict";
@@ -2168,6 +2172,10 @@ var init_driver = __esm({
     init_cache();
     init_modality();
     init_shadow_dom();
+    AUTO_RESOLVE_MIN_SCORE = 0.8;
+    AUTO_RESOLVE_MIN_MARGIN = 0.15;
+    AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95;
+    DESTRUCTIVE_LABEL_PATTERN = /\b(?:delete|remove|erase|wipe|purge|revoke|deactivate|disable|discard|destroy|reset|clear|unsubscribe|confirm)\b/i;
     EngineDriver = class {
       browser = new BrowserManager();
       conn = new CdpConnection();
@@ -2388,11 +2396,45 @@ var init_driver = __esm({
           };
         }
         const nameLower = name.toLowerCase();
-        const scored = interactive.filter((e) => e.label).map((e) => ({
+        const scoringPool = options.role ? interactive.filter((e) => e.role === options.role) : interactive;
+        const scored = scoringPool.filter((e) => e.label).map((e) => ({
           name: e.label,
           role: e.role,
           score: jaroWinkler2(nameLower, e.label.toLowerCase())
         })).sort((a, b) => b.score - a.score).slice(0, 5);
+        if (scored.length > 0) {
+          const top = scored[0];
+          const second = scored[1];
+          const margin = top.score - (second?.score ?? 0);
+          const isDestructive = DESTRUCTIVE_LABEL_PATTERN.test(top.name);
+          const minScore = isDestructive ? AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE : AUTO_RESOLVE_MIN_SCORE;
+          if (top.score >= minScore && margin >= AUTO_RESOLVE_MIN_MARGIN) {
+            const resolved = interactive.find(
+              (e) => e.label === top.name && e.role === top.role
+            );
+            if (resolved) {
+              this.resolutionCache.set(cacheKey, resolved.id, {
+                role: resolved.role,
+                label: resolved.label,
+                confidence: top.score
+              });
+              return {
+                elementId: resolved.id,
+                confidence: top.score,
+                tier: 4,
+                tierName: "auto-resolve",
+                alternatives: scored,
+                totalInteractive: interactive.length,
+                autoResolved: {
+                  label: top.name,
+                  role: top.role,
+                  score: top.score,
+                  margin
+                }
+              };
+            }
+          }
+        }
         let screenshot;
         try {
           const buf = await this.screenshot();
@@ -14205,6 +14247,7 @@ __export(scan_exports, {
   extractAndAudit: () => extractAndAudit,
   formatScanResult: () => formatScanResult,
   generateSummary: () => generateSummary2,
+  isIntentNoise: () => isIntentNoise,
   scan: () => scan
 });
 async function scan(url, options = {}) {
@@ -14221,7 +14264,8 @@ async function scan(url, options = {}) {
     wsEndpoint,
     chromePath,
     hydrationStrategy = "auto",
-    rules: rulePresets
+    rules: rulePresets,
+    cookies
   } = options;
   const resolvedViewport = typeof viewportOpt === "string" ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop : viewportOpt;
   const driver3 = new EngineDriver();
@@ -14251,6 +14295,12 @@ async function scan(url, options = {}) {
     }
   });
   try {
+    if (cookies && cookies.length > 0) {
+      try {
+        await driver3.setCookies(cookies);
+      } catch {
+      }
+    }
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout
@@ -14535,6 +14585,9 @@ function getFixSuggestion(type) {
       return void 0;
   }
 }
+function isIntentNoise(intent, confidence) {
+  return intent === "unknown" && confidence < 0.3;
+}
 function formatScanResult(result) {
   const lines = [];
   const verdictIcon2 = result.verdict === "PASS" ? "\x1B[32m\u2713\x1B[0m" : result.verdict === "ISSUES" ? "\x1B[33m!\x1B[0m" : result.verdict === "PARTIAL" ? "\x1B[33m~\x1B[0m" : "\x1B[31m\u2717\x1B[0m";
@@ -14551,7 +14604,11 @@ function formatScanResult(result) {
   lines.push("");
   lines.push("  PAGE UNDERSTANDING");
   lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
-  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${(result.semantic.confidence * 100).toFixed(0)}% confidence)`);
+  const intent = result.semantic.pageIntent.intent;
+  const intentConfidence = result.semantic.confidence;
+  if (!isIntentNoise(intent, intentConfidence)) {
+    lines.push(`  Intent:   ${intent} (${(intentConfidence * 100).toFixed(0)}% confidence)`);
+  }
   lines.push(`  Auth:     ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`);
   lines.push(`  Loading:  ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`);
   lines.push(`  Errors:   ${result.semantic.state.errors.hasErrors ? result.semantic.state.errors.errors.map((e) => e.message).join(", ") : "None"}`);

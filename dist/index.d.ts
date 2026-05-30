@@ -4230,6 +4230,18 @@ interface FindDiagnostics {
     }>;
     totalInteractive: number;
     screenshot?: string;
+    /**
+     * Set when tier-4 (vision) detected an unambiguous top alternative and
+     * promoted it to an element resolution. Callers can surface this so users
+     * see WHICH alternative was chosen and at what score, instead of a silent
+     * "did you mean?". See AUTO_RESOLVE_MIN_SCORE / AUTO_RESOLVE_MIN_MARGIN.
+     */
+    autoResolved?: {
+        label: string;
+        role: string;
+        score: number;
+        margin: number;
+    };
 }
 interface CaptureStateOptions {
     computedStyles?: string[];
@@ -6424,6 +6436,15 @@ interface ScanOptions extends BrowserLaunchOptions {
     hydrationStrategy?: 'auto' | 'stable' | 'none';
     /** Rule preset names to enable for this scan (e.g. ['wcag-contrast', 'touch-targets']) */
     rules?: string[];
+    /**
+     * R3: cookies to set BEFORE navigate. When the caller has an authenticated
+     * session, threading the auth cookies into a fresh scan lets the scan see
+     * gated routes (dashboard, settings) instead of bouncing to a login page.
+     * Without this, plain `scan()` opens a clean browser and reports
+     * "Auth: Not authenticated" for every protected route — the largest source
+     * of false-FAIL verdicts in the transcript audit.
+     */
+    cookies?: SetCookieParams[];
 }
 /**
  * Run a comprehensive UI scan on a URL.
