@@ -119,10 +119,10 @@ function errorResponse(text: string): McpResponse {
  * Accepts: string (trimmed → lowercased? no, callers compare ===), undefined,
  * null, anything-else. Returns 'observe' for empty / non-string input.
  */
-function normalizeReadMode(what: unknown): string {
+export function normalizeReadMode(what: unknown): string {
   if (typeof what === 'string') {
     const trimmed = what.trim();
-    return trimmed === '' ? 'observe' : trimmed;
+    return trimmed === '' ? 'observe' : trimmed.toLowerCase();
   }
   return 'observe';
 }
@@ -2068,6 +2068,17 @@ async function readSimulatorSession(entry: SessionEntry, what: string, limit: nu
     const elements = await extractNativeElements(device)
     const candidates = flattenSimulatorElements(elements)
     const interactive = candidates.filter(candidate => candidate.actions.length > 0)
+
+    // f4: apply the same chrome-only check that runSimulatorSessionAction uses.
+    // If the extracted tree is all Simulator chrome (Home, Rotate, …), the iOS
+    // app is not foregrounded — surface the same one-liner hint here so the
+    // agent gets actionable guidance regardless of which read path is used.
+    const chromeCheck = detectSimulatorChromeOnly(
+      candidates.slice(0, 10).map((c) => c.label ?? ''),
+    )
+    if (chromeCheck) {
+      return errorResponse(chromeCheck.hint)
+    }
 
     if (what === 'state') {
       return textResponse(JSON.stringify({

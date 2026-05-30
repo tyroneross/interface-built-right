@@ -6,7 +6,7 @@
  * the host LLM relies on.
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { TOOLS } from './tools.js';
 
 function findTool(name: string) {
@@ -54,5 +54,36 @@ describe('R2: session_read description mentions the default', () => {
     const tool = findTool('native_session_read');
     expect(tool.description).toMatch(/default/i);
     expect(tool.description).toMatch(/observe/);
+  });
+});
+
+// ─── f5: normalizeReadMode must lowercase its input ──────────────────────────
+
+describe('f5: normalizeReadMode lowercases input', () => {
+  let normalizeReadMode: (what: unknown) => string;
+
+  beforeAll(async () => {
+    const mod = await import('./tools.js');
+    normalizeReadMode = (mod as unknown as { normalizeReadMode: (what: unknown) => string }).normalizeReadMode;
+  });
+
+  it('normalizeReadMode("Observe") returns "observe"', () => {
+    expect(normalizeReadMode('Observe')).toBe('observe');
+  });
+
+  it('normalizeReadMode("EXTRACT") returns "extract"', () => {
+    expect(normalizeReadMode('EXTRACT')).toBe('extract');
+  });
+
+  it('normalizeReadMode("state") stays "state" (already lowercase)', () => {
+    expect(normalizeReadMode('state')).toBe('state');
+  });
+
+  it('normalizeReadMode("") returns "observe" (empty string default)', () => {
+    expect(normalizeReadMode('')).toBe('observe');
+  });
+
+  it('normalizeReadMode(undefined) returns "observe"', () => {
+    expect(normalizeReadMode(undefined)).toBe('observe');
   });
 });
