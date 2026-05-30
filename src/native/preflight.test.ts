@@ -3,9 +3,9 @@
  *
  * Strategy: drive each branch via the `platformOverride` and
  * extractor/source paths the preflight accepts as parameters. The `swift`
- * and `xcrun` PATH probes are exercised by mutating `preflight._deps.hasCommand`
- * (ESM exports are immutable after binding, so we go through an indirect
- * dep table rather than `vi.spyOn` on the export).
+ * and `xcrun` PATH probes are exercised via process.env.PATH manipulation
+ * inside a child shell, which is brittle to host setup — so instead we
+ * monkey-patch `hasCommand` through a small re-export.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -129,6 +129,7 @@ describe('R5: macOSNativePreflight', () => {
 
 describe('R5: simulatorNativePreflight', () => {
   it('returns no-simctl when xcrun is missing but swift exists', async () => {
+    // swift on PATH, xcrun off PATH
     setHasCommand(async (name: string) => {
       if (name === 'swift') return true;
       if (name === 'xcrun') return false;
@@ -161,6 +162,57 @@ describe('R5: simulatorNativePreflight', () => {
 // ---------------------------------------------------------------------------
 // classifyExtractorError — AX permission detection
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// R4: chrome-only detector
+// ---------------------------------------------------------------------------
+
+describe('R4: detectSimulatorChromeOnly', () => {
+  it('flags an empty AX tree with boot/launch hint', () => {
+    const out = preflight.detectSimulatorChromeOnly([]);
+    expect(out).not.toBeNull();
+    expect(out!.hint).toMatch(/simctl boot/);
+    expect(out!.hint).toMatch(/simctl launch/);
+  });
+
+  it('flags pure Simulator chrome (Home / Save Screen / Rotate)', () => {
+    const out = preflight.detectSimulatorChromeOnly([
+      'Home', 'Save Screen', 'Rotate', 'Rotate Left', 'Lock',
+    ]);
+    expect(out).not.toBeNull();
+    expect(out!.hint).toMatch(/Foreground the iOS app/);
+  });
+
+  it('flags chrome even when one stray non-chrome label slips through', () => {
+    // 5 chrome / 1 non-chrome = 83% > 80% threshold
+    const out = preflight.detectSimulatorChromeOnly([
+      'Home', 'Save Screen', 'Rotate', 'Lock', 'Siri', 'Continue',
+    ]);
+    expect(out).not.toBeNull();
+  });
+
+  it('returns null when app content dominates', () => {
+    // 1 chrome / 4 app = 20%, well below threshold
+    const out = preflight.detectSimulatorChromeOnly([
+      'Sign in', 'Email', 'Password', 'Continue', 'Home',
+    ]);
+    expect(out).toBeNull();
+  });
+
+  it('returns null when no clear app content but no chrome either', () => {
+    const out = preflight.detectSimulatorChromeOnly([
+      'My Profile', 'Settings', 'Inbox',
+    ]);
+    expect(out).toBeNull();
+  });
+
+  it('handles labels with whitespace / mixed case', () => {
+    const out = preflight.detectSimulatorChromeOnly([
+      '  Home  ', 'SAVE SCREEN', 'rotate', 'Lock',
+    ]);
+    expect(out).not.toBeNull();
+  });
+});
 
 describe('R5: classifyExtractorError', () => {
   it('classifies AX-permission errors', () => {

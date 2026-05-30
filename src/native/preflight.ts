@@ -165,6 +165,63 @@ export async function simulatorNativePreflight(options?: {
 }
 
 /**
+ * R4 helper: detect when the extracted AX tree is dominated by Simulator.app
+ * chrome (toolbar buttons "Home" / "Save Screen" / "Rotate" / "Screenshot")
+ * rather than the embedded iOS app. The Swift R4 fix descends past chrome
+ * server-side, but if the chrome heuristic misses (e.g. simulator window
+ * shape changes in a future Xcode), this check surfaces a one-line
+ * "no app foregrounded" hint so the agent can boot/launch the app.
+ *
+ * Returns null when the tree looks like an app; a hint message when it
+ * looks like pure chrome.
+ *
+ * `topLevelLabels` is the array of root-level element labels (the array
+ * returned by `flattenSimulatorElements(elements).slice(0, 10)` or
+ * whatever surfaces first to the model).
+ */
+const SIMULATOR_CHROME_LABELS = new Set([
+  'home',
+  'save screen',
+  'screenshot',
+  'rotate',
+  'rotate left',
+  'rotate right',
+  'lock',
+  'siri',
+  'shake',
+  'side button',
+  'volume up',
+  'volume down',
+]);
+
+export function detectSimulatorChromeOnly(
+  topLevelLabels: readonly string[],
+): { hint: string } | null {
+  if (topLevelLabels.length === 0) {
+    return {
+      hint:
+        'Simulator returned no AX elements. Boot a device and foreground an app: ' +
+        'xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>',
+    };
+  }
+  const normalized = topLevelLabels
+    .map((l) => l.trim().toLowerCase())
+    .filter((l) => l.length > 0);
+  if (normalized.length === 0) return null;
+  const chromeCount = normalized.filter((l) => SIMULATOR_CHROME_LABELS.has(l)).length;
+  // If 80%+ of top-level labels are chrome, the iOS app is almost certainly
+  // not foregrounded (Springboard idle, app not launched).
+  if (chromeCount / normalized.length >= 0.8) {
+    return {
+      hint:
+        'Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). ' +
+        'Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>',
+    };
+  }
+  return null;
+}
+
+/**
  * Map a raw extractor / Swift error message back to a preflight verdict.
  * Used by callers that already attempted the AX extraction and want to
  * re-classify the failure as a one-liner.

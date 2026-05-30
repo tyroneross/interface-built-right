@@ -38,7 +38,7 @@ import { captureScreenshot } from "../capture.js";
 import { VIEWPORTS } from "../schemas.js";
 import { loadTokenSpec, validateAgainstTokens } from '../tokens.js';
 import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
-import { macOSNativePreflight, simulatorNativePreflight, classifyExtractorError } from '../native/preflight.js';
+import { macOSNativePreflight, simulatorNativePreflight, classifyExtractorError, detectSimulatorChromeOnly } from '../native/preflight.js';
 import { EngineDriver, type FindDiagnostics } from '../engine/driver.js';
 import type { ActionDescriptor } from '../engine/observe.js';
 import type { Element as EngineElement } from '../engine/types.js';
@@ -2165,9 +2165,19 @@ async function runSimulatorSessionAction(
     if (!device) return errorResponse(`Simulator not found: ${entry.device!.udid}`)
 
     const elements = await extractNativeElements(device)
+
+    // R4: if the extracted tree looks like pure Simulator chrome, return a
+    // one-line "foreground the app" hint instead of letting the resolver
+    // surface 0 matches against {Home, Save Screen, Rotate}.
+    const flattened = flattenSimulatorElements(elements)
+    const chromeCheck = detectSimulatorChromeOnly(
+      flattened.slice(0, 10).map((c) => c.label ?? ''),
+    )
+    if (chromeCheck) return errorResponse(chromeCheck.hint)
+
     const resolution = resolveSimulatorElement(elements, request.target, request.role ? { role: request.role } : {})
     if (!resolution) {
-      return nativeTargetNotFound(request.target, flattenSimulatorElements(elements))
+      return nativeTargetNotFound(request.target, flattened)
     }
     if (!resolution.element.path) {
       return errorResponse(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`)

@@ -229,6 +229,49 @@ func findSimulatorWindow(app: NSRunningApplication, deviceName: String?) -> AXUI
     return windows.first
 }
 
+/// R4: descend past Simulator chrome to the embedded iOS app subtree.
+///
+/// The Simulator.app AX window's direct children include toolbar buttons
+/// ("Home", "Save Screen", "Rotate") AND a large container (AXGroup /
+/// AXScrollArea / AXLayoutArea / AXOther / AXSplitGroup) that holds the
+/// embedded iOS app's UI. Pre-R4, the walker started at the window and
+/// returned both — so `extract` would surface "Home" / "Save Screen" as
+/// top-level interactive elements and the iOS app's actual buttons would
+/// be buried (and often pruned when the walker hit its depth limit on
+/// chrome paths first).
+///
+/// Strategy: among the window's children, pick the LARGEST container-role
+/// child whose area is ≥ 50% of the window area. That is the simulated
+/// device screen surface. If none qualifies (rare — e.g. window not yet
+/// rendered), fall back to the window itself so the caller still gets
+/// something.
+func findSimulatorAppRoot(window: AXUIElement) -> AXUIElement {
+    let windowSize = getSize(window)
+    let windowArea = (windowSize?.width ?? 0) * (windowSize?.height ?? 0)
+    guard windowArea > 0 else { return window }
+
+    let children = getChildren(window)
+    let containerRoles: Set<String> = [
+        "AXGroup", "AXScrollArea", "AXLayoutArea",
+        "AXOther", "AXSplitGroup", "AXLayoutItem",
+    ]
+
+    var best: (element: AXUIElement, area: Double)?
+    for child in children {
+        let role = getStringAttribute(child, kAXRoleAttribute) ?? ""
+        guard containerRoles.contains(role) else { continue }
+        let sz = getSize(child)
+        let area = (sz?.width ?? 0) * (sz?.height ?? 0)
+        // Must cover at least half the window to count as the app surface
+        guard area >= windowArea * 0.5 else { continue }
+        if best == nil || area > best!.area {
+            best = (child, area)
+        }
+    }
+
+    return best?.element ?? window
+}
+
 /// Find a running app by name (case-insensitive substring match)
 func findAppByName(_ name: String) -> NSRunningApplication? {
     let apps = NSWorkspace.shared.runningApplications
@@ -306,7 +349,10 @@ func performAction(pid: pid_t, deviceName: String?, elementPath: [Int], action: 
     if let app = findAppByPid(pid),
        app.bundleIdentifier == "com.apple.iphonesimulator",
        let simulatorWindow = findSimulatorWindow(app: app, deviceName: deviceName) {
-        root = simulatorWindow
+        // R4: descend past Simulator chrome to the iOS app subtree so the
+        // path indexes from the extractor's scan resolve to app elements
+        // rather than toolbar buttons.
+        root = findSimulatorAppRoot(window: simulatorWindow)
     } else {
         root = findMainWindow(pid: pid)?.window
     }
@@ -517,8 +563,14 @@ guard let window = findSimulatorWindow(app: simApp, deviceName: deviceName) else
     exit(1)
 }
 
+// R4: descend past Simulator chrome (Home / Save Screen / Rotate buttons)
+// to the embedded iOS app subtree. Without this, the walker returned
+// chrome-tree children — the "sim_action reads simulator-chrome AX tree,
+// not app content" failure mode from the transcript audit.
+let appRoot = findSimulatorAppRoot(window: window)
+
 // Walk the accessibility tree with legacy format
-guard let rootElement = walkElementLegacy(window, currentPath: []) else {
+guard let rootElement = walkElementLegacy(appRoot, currentPath: []) else {
     fputs("Error: Failed to walk accessibility tree\n", stderr)
     exit(1)
 }
