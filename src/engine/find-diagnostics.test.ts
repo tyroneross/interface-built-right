@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { EngineDriver } from './driver.js'
+import { EngineDriver, AUTO_RESOLVE_MIN_SCORE } from './driver.js'
 import { observe } from './observe.js'
 import { jaroWinkler } from './resolve.js'
 import type { Element } from './types.js'
@@ -381,5 +381,107 @@ describe('findWithDiagnostics', () => {
     expect(diag.tierName).toBe('vision')
     expect(diag.autoResolved).toBeUndefined()
     expect(diag.elementId).toBeNull()
+  })
+
+  // ── f1: role hint must be honoured in auto-resolve ──
+
+  it('f1: auto-resolve with { role:"button" } must not pick a link even when the link label scores higher', async () => {
+    // Bug scenario: query="Sbmit", role="button".
+    // Page has button(e1, "ZZZ") — totally unrelated label — and link(e2, "Submit").
+    //
+    // Tier 3 misses: intent "Sbmit button" scores "ZZZ"(button) too low (<0.5)
+    // and "Submit"(link) also below 0.5 (no role boost for link). Falls to tier 4.
+    //
+    // Tier 4 WITHOUT role filter: top=Submit(link, score≈0.95), margin=0.95
+    //   → auto-resolves to e2 (bug: wrong role returned).
+    // Tier 4 WITH role filter (fix): pool filtered to buttons only → only ZZZ(button,score≈0)
+    //   → score < 0.8 → no auto-resolve → elementId null.
+    //
+    // This test goes RED before the fix and GREEN after.
+    const elements = [
+      makeElement('e1', 'ZZZ', 'button'),
+      { ...makeElement('e2', 'Submit', 'link'), actions: ['click'] },
+    ]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('Sbmit', { role: 'button' })
+
+    // Must never return the link when role:"button" is explicitly requested
+    expect(diag.elementId).not.toBe('e2')
+    if (diag.autoResolved) {
+      expect(diag.autoResolved.role).toBe('button')
+    }
+  })
+
+  // ── f2: single-candidate auto-resolve — auditor finding vs documented design ──
+  //
+  // AUDITOR FINDING: "margin === top.score when only one candidate exists,
+  // so a confirm-delete modal auto-resolves on a typo". Proposed fix:
+  //   const margin = second ? (top.score - second.score) : 0
+  //
+  // FINDING: The proposed fix is WRONG for this codebase. Test 8 explicitly
+  // documents that single-candidate auto-resolve is INTENTIONAL: it was added
+  // "precisely to stop returning null when a single high-score candidate exists"
+  // (see Test 8 comment). Setting margin=0 for single candidates would break
+  // that documented behavior (jw('submit','submit form')≈0.91 → no auto-resolve,
+  // regression from R1 intent).
+  //
+  // CURRENT BEHAVIOR (intentional): single-candidate + score >= 0.8 auto-resolves.
+  // This is the same guard as multi-candidate — single-candidate means there is no
+  // ambiguity by definition, so the margin guard is irrelevant.
+  // The "confirm-delete" concern requires a different mitigation (label blocklist,
+  // higher per-role threshold, or explicit destructive action confirmation) that
+  // is out of scope for this audit finding.
+  //
+  // This test documents the CURRENT BEHAVIOR to prevent future accidental changes.
+  it('f2: single-candidate page DOES auto-resolve when score >= 0.8 (single candidate = unambiguous by definition)', async () => {
+    const elements = [
+      makeElement('e1', 'Delete Account'),
+    ]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    // "delt acct" scores ≈ 0.92 against "Delete Account" — above the threshold.
+    const topScore = jaroWinkler('delt acct', 'delete account')
+    expect(topScore).toBeGreaterThanOrEqual(AUTO_RESOLVE_MIN_SCORE)
+
+    const diag = await driver.findWithDiagnostics('delt acct')
+
+    // Single candidate, high score, no ambiguity — auto-resolve is intentional here.
+    // The auditor's proposed margin=0 fix would break this (see comment above).
+    if (diag.tier === 4) {
+      expect(diag.elementId).toBe('e1')
+      expect(diag.autoResolved?.label).toBe('Delete Account')
+    }
+    // Whether tier 3 or tier 4 catches it, must not return null
+    expect(diag.elementId).not.toBeNull()
+  })
+
+  // ── f3: 'Sbmit' test must assert auto-resolve fields, not just alternatives ──
+
+  it('f3: "Sbmit" test asserts elementId and autoResolved.label when tier 4 auto-resolves', async () => {
+    const elements = [
+      makeElement('e1', 'Submit'),
+      makeElement('e2', 'Cancel'),
+    ]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('Sbmit')
+
+    // Must not return "not found"
+    expect(diag.elementId).not.toBeNull()
+
+    // Alternatives must include Submit
+    const submitAlt = diag.alternatives.find(a => a.name === 'Submit')
+    expect(submitAlt).toBeDefined()
+    expect(submitAlt!.score).toBeGreaterThan(0.8)
+
+    // If auto-resolved (tier 4), check resolution fields
+    if (diag.tier === 4) {
+      expect(diag.elementId).toBe('e1')
+      expect(diag.autoResolved?.label).toBe('Submit')
+    }
   })
 })

@@ -386,9 +386,14 @@ export class EngineDriver implements BrowserDriver {
       }
     }
 
-    // Tier 4: Not found — compute alternatives from interactive elements
+    // Tier 4: Not found — compute alternatives from interactive elements.
+    // f1: when options.role is set, pre-filter the scored pool to that role
+    //     so auto-resolve cannot pick an element of the wrong type.
     const nameLower = name.toLowerCase()
-    const scored = interactive
+    const scoringPool = options.role
+      ? interactive.filter((e) => e.role === options.role)
+      : interactive
+    const scored = scoringPool
       .filter((e) => e.label)
       .map((e) => ({
         name: e.label,
