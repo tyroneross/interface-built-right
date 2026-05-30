@@ -115,6 +115,37 @@ export interface FindDiagnostics {
 export const AUTO_RESOLVE_MIN_SCORE = 0.8
 export const AUTO_RESOLVE_MIN_MARGIN = 0.15
 
+/**
+ * Raised threshold for auto-resolving destructive actions.
+ *
+ * A typo'd query can score ~0.91 against a "Delete Account" label — above the
+ * normal 0.8 bar — causing the driver to click a destructive button the user
+ * did not intend to confirm. Requiring 0.95 leaves only near-exact matches
+ * (one or two transposed characters) while blocking plausible mis-queries
+ * ("delt acct" → 0.917, blocked; "delet account" → 0.986, allowed).
+ *
+ * Applies whenever the chosen candidate's label matches DESTRUCTIVE_LABEL_PATTERN,
+ * regardless of candidate count.
+ */
+export const AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95
+
+/**
+ * Detects destructive intent in an element's accessible label.
+ *
+ * Matches whole words (case-insensitive) for verbs and nouns that indicate an
+ * irreversible or high-risk action: data loss (delete, erase, wipe, purge),
+ * access revocation (revoke, deactivate, disable), content loss (discard,
+ * destroy, reset, clear), or subscription termination (unsubscribe).
+ * "confirm" is included because standalone "Confirm" on a modal is typically
+ * a confirmation of a destructive flow already in progress.
+ *
+ * Intentionally kept as a single expression — do not split across config or
+ * runtime lookup. The pattern is a safety guardrail, not a user-configurable
+ * blocklist.
+ */
+export const DESTRUCTIVE_LABEL_PATTERN =
+  /\b(?:delete|remove|erase|wipe|purge|revoke|deactivate|disable|discard|destroy|reset|clear|unsubscribe|confirm)\b/i
+
 export interface CaptureStateOptions {
   computedStyles?: string[]
   includeAXTree?: boolean
@@ -408,11 +439,19 @@ export class EngineDriver implements BrowserDriver {
     // returning "not found". This converts the most common transcript-log
     // failure mode (clear typo / missing trailing-space / "Submit" vs
     // "Submit Form") into a successful action with auditable provenance.
+    //
+    // Destructive-label guard: when the winning candidate's label matches
+    // DESTRUCTIVE_LABEL_PATTERN, require a higher confidence bar
+    // (AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95) to prevent a plausible
+    // mis-query ("delt acct" → 0.917) from auto-clicking a destructive
+    // action. Non-destructive labels keep the normal 0.8 threshold.
     if (scored.length > 0) {
       const top = scored[0]
       const second = scored[1]
       const margin = top.score - (second?.score ?? 0)
-      if (top.score >= AUTO_RESOLVE_MIN_SCORE && margin >= AUTO_RESOLVE_MIN_MARGIN) {
+      const isDestructive = DESTRUCTIVE_LABEL_PATTERN.test(top.name)
+      const minScore = isDestructive ? AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE : AUTO_RESOLVE_MIN_SCORE
+      if (top.score >= minScore && margin >= AUTO_RESOLVE_MIN_MARGIN) {
         // Resolve back to the actual element object (need its id) — pick
         // the first interactive element matching (label, role).
         const resolved = interactive.find(

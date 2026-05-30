@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { EngineDriver, AUTO_RESOLVE_MIN_SCORE } from './driver.js'
+import { EngineDriver, AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE } from './driver.js'
 import { observe } from './observe.js'
 import { jaroWinkler } from './resolve.js'
 import type { Element } from './types.js'
@@ -414,48 +414,37 @@ describe('findWithDiagnostics', () => {
     }
   })
 
-  // ── f2: single-candidate auto-resolve — auditor finding vs documented design ──
+  // ── f2: single-candidate auto-resolve — destructive-label guard supersedes ──
   //
-  // AUDITOR FINDING: "margin === top.score when only one candidate exists,
-  // so a confirm-delete modal auto-resolves on a typo". Proposed fix:
-  //   const margin = second ? (top.score - second.score) : 0
+  // ORIGINAL FINDING (pre-guard): "margin === top.score when only one candidate
+  // exists, so a confirm-delete modal auto-resolves on a typo". The proposed
+  // margin=0 fix was rejected because it would break the non-destructive single-
+  // candidate case (R1's core win).
   //
-  // FINDING: The proposed fix is WRONG for this codebase. Test 8 explicitly
-  // documents that single-candidate auto-resolve is INTENTIONAL: it was added
-  // "precisely to stop returning null when a single high-score candidate exists"
-  // (see Test 8 comment). Setting margin=0 for single candidates would break
-  // that documented behavior (jw('submit','submit form')≈0.91 → no auto-resolve,
-  // regression from R1 intent).
+  // RESOLUTION (destructive-label guard): Instead of zeroing the margin for all
+  // single-candidate cases, the guard raises the confidence bar ONLY for
+  // destructive labels (DESTRUCTIVE_LABEL_PATTERN). "delt acct" scores ≈ 0.917
+  // against "Delete Account" — above the normal 0.8 bar but below the
+  // destructive bar (0.95) — so it is now correctly blocked.
   //
-  // CURRENT BEHAVIOR (intentional): single-candidate + score >= 0.8 auto-resolves.
-  // This is the same guard as multi-candidate — single-candidate means there is no
-  // ambiguity by definition, so the margin guard is irrelevant.
-  // The "confirm-delete" concern requires a different mitigation (label blocklist,
-  // higher per-role threshold, or explicit destructive action confirmation) that
-  // is out of scope for this audit finding.
-  //
-  // This test documents the CURRENT BEHAVIOR to prevent future accidental changes.
-  it('f2: single-candidate page DOES auto-resolve when score >= 0.8 (single candidate = unambiguous by definition)', async () => {
+  // Non-destructive single-candidate behavior is unchanged (see Test C above).
+  it('f2: single destructive candidate at score ~0.91 is blocked by the destructive-label guard', async () => {
     const elements = [
       makeElement('e1', 'Delete Account'),
     ]
     axQueryAXTree.mockResolvedValue([])
     axGetSnapshot.mockResolvedValue(elements)
 
-    // "delt acct" scores ≈ 0.92 against "Delete Account" — above the threshold.
+    // "delt acct" scores ≈ 0.917 — above normal bar, below destructive bar.
     const topScore = jaroWinkler('delt acct', 'delete account')
     expect(topScore).toBeGreaterThanOrEqual(AUTO_RESOLVE_MIN_SCORE)
+    expect(topScore).toBeLessThan(AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE)
 
     const diag = await driver.findWithDiagnostics('delt acct')
 
-    // Single candidate, high score, no ambiguity — auto-resolve is intentional here.
-    // The auditor's proposed margin=0 fix would break this (see comment above).
-    if (diag.tier === 4) {
-      expect(diag.elementId).toBe('e1')
-      expect(diag.autoResolved?.label).toBe('Delete Account')
-    }
-    // Whether tier 3 or tier 4 catches it, must not return null
-    expect(diag.elementId).not.toBeNull()
+    // The destructive guard must block this — elementId null, no auto-resolve.
+    expect(diag.elementId).toBeNull()
+    expect(diag.autoResolved).toBeUndefined()
   })
 
   // ── f3: 'Sbmit' test must assert auto-resolve fields, not just alternatives ──
@@ -483,5 +472,87 @@ describe('findWithDiagnostics', () => {
       expect(diag.elementId).toBe('e1')
       expect(diag.autoResolved?.label).toBe('Submit')
     }
+  })
+
+  // ── Destructive-label guard tests ────────────────────────────────────────────
+  //
+  // Rationale: a typo'd query can score ~0.91 against a destructive label like
+  // "Delete Account". That's above the normal 0.8 threshold, so the old code
+  // would auto-click a delete button the user didn't intend to confirm.
+  // The guard raises the bar to AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE (0.95) for
+  // any label matching DESTRUCTIVE_LABEL_PATTERN, regardless of candidate count.
+
+  it('destructive-guard A: single destructive candidate at ~0.91 is blocked — elementId null, alternatives populated', async () => {
+    // "delt acct" vs "Delete Account" = jw ≈ 0.917 — above 0.8, below 0.95
+    const topScore = jaroWinkler('delt acct', 'delete account')
+    expect(topScore).toBeGreaterThanOrEqual(AUTO_RESOLVE_MIN_SCORE)   // above normal bar
+    expect(topScore).toBeLessThan(AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE) // below destructive bar
+
+    const elements = [makeElement('e1', 'Delete Account')]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('delt acct')
+
+    // The dangerous case must be blocked
+    expect(diag.elementId).toBeNull()
+    expect(diag.autoResolved).toBeUndefined()
+    // Alternatives must include the destructive candidate so the caller can surface it
+    const alt = diag.alternatives.find(a => a.name === 'Delete Account')
+    expect(alt).toBeDefined()
+  })
+
+  it('destructive-guard B: single destructive candidate at score >= 0.95 auto-resolves', async () => {
+    // "delet account" vs "Delete Account" = jw ≈ 0.986 — above destructive bar
+    const topScore = jaroWinkler('delet account', 'delete account')
+    expect(topScore).toBeGreaterThanOrEqual(AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE)
+
+    const elements = [makeElement('e1', 'Delete Account')]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('delet account')
+
+    // Near-exact intent on a destructive label should still resolve
+    expect(diag.elementId).not.toBeNull()
+  })
+
+  it('destructive-guard C: non-destructive single candidate at score ~0.97 still auto-resolves', async () => {
+    // "sbmit form" vs "Submit Form" = jw ≈ 0.973 — well above 0.8, non-destructive
+    const topScore = jaroWinkler('sbmit form', 'submit form')
+    expect(topScore).toBeGreaterThanOrEqual(AUTO_RESOLVE_MIN_SCORE)
+
+    const elements = [makeElement('e1', 'Submit Form')]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('sbmit form')
+
+    // R1's win: non-destructive single-candidate auto-resolve must still work
+    expect(diag.elementId).not.toBeNull()
+  })
+
+  it('destructive-guard D: destructive label among multiple candidates with wide margin is blocked', async () => {
+    // "delete" vs "Delete Account" = jw ≈ 0.886, vs "Cancel" = jw ≈ 0.444 → margin ≈ 0.44
+    // Normal guard: score 0.886 >= 0.8 AND margin 0.44 >= 0.15 → would auto-resolve
+    // Destructive guard: 0.886 < 0.95 → must NOT auto-resolve
+    const topScore = jaroWinkler('delete', 'delete account')
+    const secondScore = jaroWinkler('delete', 'cancel')
+    expect(topScore).toBeGreaterThanOrEqual(AUTO_RESOLVE_MIN_SCORE)
+    expect(topScore - secondScore).toBeGreaterThanOrEqual(0.15) // confirm wide margin
+    expect(topScore).toBeLessThan(AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE) // confirm below destructive bar
+
+    const elements = [
+      makeElement('e1', 'Delete Account'),
+      makeElement('e2', 'Cancel'),
+    ]
+    axQueryAXTree.mockResolvedValue([])
+    axGetSnapshot.mockResolvedValue(elements)
+
+    const diag = await driver.findWithDiagnostics('delete')
+
+    // Destructive bar applies regardless of candidate count
+    expect(diag.elementId).toBeNull()
+    expect(diag.autoResolved).toBeUndefined()
   })
 })
