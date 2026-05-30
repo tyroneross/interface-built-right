@@ -20,6 +20,7 @@ import {
   getSessionPaths,
 } from "../session.js";
 import type { ScanOptions } from "../scan.js";
+import type { SetCookieParams, Cookie } from "../engine/cdp/network.js";
 import {
   scanNative,
   scanMacOS,
@@ -140,7 +141,7 @@ export const TOOLS = [
   {
     name: "scan",
     description:
-      "Reads the live page and returns structured data — all interactive elements with computed CSS, handler wiring, accessibility data, page intent classification, and console errors. Use during or after building UI to see what is actually rendered.",
+      "Reads the live page and returns structured data — all interactive elements with computed CSS, handler wiring, accessibility data, page intent classification, and console errors. Use during or after building UI to see what is actually rendered. Pass sessionId to scan a gated route using the auth cookies of an existing session.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -161,6 +162,10 @@ export const TOOLS = [
         networkIdleTimeout: {
           type: "number",
           description: "Network idle timeout in ms (default: 10000)",
+        },
+        sessionId: {
+          type: "string",
+          description: "R3: Optional session ID from session_start. When supplied, the scan reuses the session's auth cookies so gated routes (dashboards, settings) are scanned authenticated instead of bouncing to login.",
         },
       },
       required: ["url"],
@@ -2264,11 +2269,46 @@ async function handleScan(
 
   const viewport = (args.viewport as string) || "desktop";
 
+  // R3: when a sessionId is supplied, reuse the session's auth cookies so
+  // gated routes are scanned authenticated. Soft-fail if the session is
+  // gone or not a browser session — scan continues unauthenticated and the
+  // resulting "Not authenticated" line tells the agent what happened.
+  let scanCookies: SetCookieParams[] | undefined;
+  const requestedSessionId = typeof args.sessionId === 'string' ? args.sessionId : undefined;
+  if (requestedSessionId) {
+    const entry = sessions.get(requestedSessionId);
+    if (entry && entry.driver) {
+      try {
+        const sessionCookies: Cookie[] = await entry.driver.getCookies();
+        scanCookies = sessionCookies.map((c: Cookie) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          ...(c.sameSite ? { sameSite: c.sameSite } : {}),
+          ...(c.expires > 0 ? { expires: c.expires } : {}),
+        }));
+      } catch {
+        // Cookie read failed — fall back to unauthenticated scan
+      }
+    }
+  }
+
   const result = await scan(url, {
     viewport: viewport as ScanOptions["viewport"],
     patience: args.patience as number | undefined,
     networkIdleTimeout: args.networkIdleTimeout as number | undefined,
+    ...(scanCookies ? { cookies: scanCookies } : {}),
   });
+
+  // R3: suppress "Page intent: unknown (0% confidence)" noise. The line
+  // is information-free when the classifier abstained AND confidence is
+  // near floor; other intents still surface.
+  const intent = result.semantic.pageIntent.intent;
+  const intentConfidence = result.semantic.confidence;
+  const intentIsNoise = intent === 'unknown' && intentConfidence < 0.3;
 
   // Format for LLM consumption — concise structured text
   const lines = [
@@ -2277,10 +2317,12 @@ async function handleScan(
     `Verdict: ${result.verdict}`,
     `${result.summary}`,
     "",
-    `Page intent: ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
-    `Auth: ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`,
-    `Loading: ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`,
   ];
+  if (!intentIsNoise) {
+    lines.push(`Page intent: ${intent} (${Math.round(intentConfidence * 100)}% confidence)`);
+  }
+  lines.push(`Auth: ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`);
+  lines.push(`Loading: ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`);
 
   // Console errors
   if (result.console.errors.length > 0) {

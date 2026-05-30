@@ -1,5 +1,6 @@
 import type { PageLike } from './engine/page-like.js';
 import { EngineDriver, type CoverageReport } from './engine/driver.js';
+import type { SetCookieParams } from './engine/cdp/network.js';
 import { CompatPage } from './engine/compat.js';
 import type { EnhancedElement, AuditResult, Viewport } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
@@ -208,6 +209,15 @@ export interface ScanOptions extends BrowserLaunchOptions {
   hydrationStrategy?: 'auto' | 'stable' | 'none';
   /** Rule preset names to enable for this scan (e.g. ['wcag-contrast', 'touch-targets']) */
   rules?: string[];
+  /**
+   * R3: cookies to set BEFORE navigate. When the caller has an authenticated
+   * session, threading the auth cookies into a fresh scan lets the scan see
+   * gated routes (dashboard, settings) instead of bouncing to a login page.
+   * Without this, plain `scan()` opens a clean browser and reports
+   * "Auth: Not authenticated" for every protected route — the largest source
+   * of false-FAIL verdicts in the transcript audit.
+   */
+  cookies?: SetCookieParams[];
 }
 
 /**
@@ -235,6 +245,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     chromePath,
     hydrationStrategy = 'auto',
     rules: rulePresets,
+    cookies,
   } = options;
 
   const resolvedViewport: Viewport = typeof viewportOpt === 'string'
@@ -276,6 +287,19 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
   });
 
   try {
+    // R3: thread auth cookies BEFORE navigate. Doing this after navigate
+    // would not help — the first request would already have gone out
+    // unauthenticated, hit a redirect to /login, and the scan would have
+    // classified the login page instead of the actual route.
+    if (cookies && cookies.length > 0) {
+      try {
+        await driver.setCookies(cookies);
+      } catch {
+        // Cookie set failures are non-fatal — scan continues unauthenticated
+        // and the resulting "Not authenticated" state is visible in output.
+      }
+    }
+
     // Navigate
     await page.goto(url, {
       waitUntil: 'domcontentloaded',
@@ -721,7 +745,16 @@ export function formatScanResult(result: ScanResult): string {
   // Semantic
   lines.push('  PAGE UNDERSTANDING');
   lines.push('  ─────────────────');
-  lines.push(`  Intent:   ${result.semantic.pageIntent.intent} (${(result.semantic.confidence * 100).toFixed(0)}% confidence)`);
+  // R3: suppress the "Intent: unknown (0% confidence)" line that pervades
+  // localhost scans. It carries zero information when the classifier
+  // couldn't decide AND its score is near floor. Other intents — even
+  // medium-confidence ones — still surface.
+  const intent = result.semantic.pageIntent.intent;
+  const intentConfidence = result.semantic.confidence;
+  const intentIsNoise = intent === 'unknown' && intentConfidence < 0.3;
+  if (!intentIsNoise) {
+    lines.push(`  Intent:   ${intent} (${(intentConfidence * 100).toFixed(0)}% confidence)`);
+  }
   lines.push(`  Auth:     ${result.semantic.state.auth.authenticated ? 'Authenticated' : 'Not authenticated'}`);
   lines.push(`  Loading:  ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : 'Complete'}`);
   lines.push(`  Errors:   ${result.semantic.state.errors.hasErrors ? result.semantic.state.errors.errors.map(e => e.message).join(', ') : 'None'}`);

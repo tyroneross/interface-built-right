@@ -418,3 +418,67 @@ describe('ScanResult structure', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// R3: intent-noise gate — suppress "unknown (0%)" line in scan output
+// ---------------------------------------------------------------------------
+
+describe('R3: formatScanResult intent-noise gate', () => {
+  it('omits the Intent line when intent is unknown AND confidence < 0.3', () => {
+    const result = makeScanResult({
+      semantic: {
+        ...makeScanResult().semantic,
+        pageIntent: { intent: 'unknown', confidence: 0, signals: [] },
+        confidence: 0,
+      },
+    });
+    const text = formatScanResult(result);
+    // The noisy line that pervaded the transcript audit
+    expect(text).not.toMatch(/Intent:\s+unknown \(0% confidence\)/);
+    // PAGE UNDERSTANDING section still renders (Auth/Loading lines)
+    expect(text).toContain('PAGE UNDERSTANDING');
+    expect(text).toMatch(/Auth:/);
+  });
+
+  it('still renders the Intent line when intent is known (any confidence)', () => {
+    const result = makeScanResult({
+      semantic: {
+        ...makeScanResult().semantic,
+        pageIntent: { intent: 'dashboard', confidence: 0.4, signals: [] },
+        confidence: 0.4,
+      },
+    });
+    const text = formatScanResult(result);
+    expect(text).toMatch(/Intent:\s+dashboard \(40% confidence\)/);
+  });
+
+  it('still renders the Intent line when intent is unknown but confidence >= 0.3', () => {
+    // Above threshold — surface even an "unknown" verdict so the agent sees it
+    const result = makeScanResult({
+      semantic: {
+        ...makeScanResult().semantic,
+        pageIntent: { intent: 'unknown', confidence: 0.35, signals: [] },
+        confidence: 0.35,
+      },
+    });
+    const text = formatScanResult(result);
+    expect(text).toMatch(/Intent:\s+unknown \(35% confidence\)/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// R3: ScanOptions exposes a `cookies` field for auth threading
+// ---------------------------------------------------------------------------
+
+describe('R3: ScanOptions cookies surface', () => {
+  it('ScanOptions accepts a cookies array (type-only check via assignment)', async () => {
+    // Type-level sanity — if the field is removed the assignment fails type check.
+    const opts: import('./scan.js').ScanOptions = {
+      cookies: [
+        { name: 'session', value: 'abc', domain: 'localhost', path: '/' },
+      ],
+    };
+    expect(opts.cookies).toBeDefined();
+    expect(opts.cookies![0].name).toBe('session');
+  });
+});
