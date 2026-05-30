@@ -105,6 +105,26 @@ function errorResponse(text: string): McpResponse {
   return { content: [{ type: "text" as const, text }], isError: true as const };
 }
 
+/**
+ * R2: normalize the `what` arg for session_read / native_session_read.
+ *
+ * Pre-R2, the three sites that resolved `what` would surface
+ * `Unknown read mode: undefined` whenever the host LLM forgot the arg
+ * (11% of session_read calls in the transcript audit). 'observe' is
+ * read-only and returns the most useful default surface (interactive
+ * elements), so it is the safe default.
+ *
+ * Accepts: string (trimmed → lowercased? no, callers compare ===), undefined,
+ * null, anything-else. Returns 'observe' for empty / non-string input.
+ */
+function normalizeReadMode(what: unknown): string {
+  if (typeof what === 'string') {
+    const trimmed = what.trim();
+    return trimmed === '' ? 'observe' : trimmed;
+  }
+  return 'observe';
+}
+
 function imageResponse(base64: string, metadata: string): McpResponse {
   return {
     content: [
@@ -808,7 +828,7 @@ export const TOOLS = [
   },
   {
     name: "session_read",
-    description: "Read page state from a persistent session without interacting. Modes: 'observe' (list interactive elements), 'extract' (headings, buttons, inputs, links), 'screenshot' (capture current view), 'state' (URL, element count, console errors).",
+    description: "Read page state from a persistent session without interacting. Modes: 'observe' (list interactive elements — default), 'extract' (headings, buttons, inputs, links), 'screenshot' (capture current view), 'state' (URL, element count, console errors).",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -816,10 +836,11 @@ export const TOOLS = [
         what: {
           type: "string",
           enum: ["observe", "extract", "screenshot", "state"],
-          description: "What to read from the session",
+          default: "observe",
+          description: "What to read from the session. Defaults to 'observe' when omitted.",
         },
       },
-      required: ["sessionId", "what"],
+      required: ["sessionId"],
     },
     annotations: {
       title: "Session Read",
@@ -879,7 +900,7 @@ export const TOOLS = [
   {
     name: "native_session_read",
     description:
-      "Read a cursor-free native session. Modes: observe (interactive elements), extract (AX element summary), state (session metadata), screenshot (when supported).",
+      "Read a cursor-free native session. Modes: observe (interactive elements — default), extract (AX element summary), state (session metadata), screenshot (when supported).",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -887,11 +908,12 @@ export const TOOLS = [
         what: {
           type: "string",
           enum: ["observe", "extract", "screenshot", "state"],
-          description: "What to read from the native session",
+          default: "observe",
+          description: "What to read from the native session. Defaults to 'observe' when omitted.",
         },
         limit: { type: "number", description: "Maximum elements to return for observe/extract (default: 50)" },
       },
-      required: ["sessionId", "what"],
+      required: ["sessionId"],
     },
     annotations: {
       title: "Read Native Session",
@@ -1715,7 +1737,13 @@ export async function handleToolCall(
       }
 
       case "session_read": {
-        const { sessionId, what } = args as { sessionId: string; what: string }
+        const rawArgs = args as { sessionId: string; what?: string | null }
+        const sessionId = rawArgs.sessionId
+        // R2: default `what` to 'observe' when omitted/empty/null. Transcript
+        // logs show ~11% of session_read calls failed with "Unknown read mode:
+        // undefined" because the host LLM forgot the arg. 'observe' is the
+        // safest default — read-only, returns interactive elements.
+        const what = normalizeReadMode(rawArgs.what)
 
         const entry = sessions.get(sessionId)
         if (!entry) {
@@ -1883,7 +1911,8 @@ function startMacOSPidSession(
 
 async function handleNativeSessionRead(args: Record<string, unknown>): Promise<McpResponse> {
   const sessionId = args.sessionId as string
-  const what = args.what as string
+  // R2: same default normalization as session_read.
+  const what = normalizeReadMode(args.what)
   const limit = Number(args.limit) || 50
   const entry = sessions.get(sessionId)
 

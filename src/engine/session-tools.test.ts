@@ -161,10 +161,16 @@ describe('TOOLS array completeness', () => {
     expect(tool.inputSchema.required).toContain('sessionId')
   })
 
-  it('session_read has required sessionId and what fields', async () => {
+  it('session_read requires sessionId; `what` defaults to observe (R2)', async () => {
+    // R2 contract change: `what` is no longer required. When omitted the
+    // handler defaults it to 'observe' — the safe, read-only surface.
+    // 11% of pre-R2 session_read calls failed with "Unknown read mode:
+    // undefined" because the host LLM forgot the arg.
     const tool = await getTool('session_read')
     expect(tool.inputSchema.required).toContain('sessionId')
-    expect(tool.inputSchema.required).toContain('what')
+    expect(tool.inputSchema.required).not.toContain('what')
+    const props = tool.inputSchema.properties as Record<string, { default?: string }>
+    expect(props.what.default).toBe('observe')
   })
 
   it('flow_search supports current-session semantic search without requiring url', async () => {
