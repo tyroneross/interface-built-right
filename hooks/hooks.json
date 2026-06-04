@@ -5,7 +5,7 @@
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ibr-pre-change.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/ibr-pre-change.sh\"; if [ -x \"$hook\" ]; then \"$hook\"; else printf '{}'; fi",
           "timeout": 5000
         }]
       }
@@ -15,7 +15,7 @@
         "matcher": "Write|Edit",
         "hooks": [{
           "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ibr-post-change.sh",
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/ibr-post-change.sh\"; if [ -x \"$hook\" ]; then \"$hook\"; else printf '{}'; fi",
           "timeout": 30000
         }]
       }
@@ -24,7 +24,7 @@
       {
         "hooks": [{
           "type": "command",
-          "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ibr-loop-hook.sh"
+            "command": "root=\"${CLAUDE_PLUGIN_ROOT:-$CLAUDE_PROJECT_DIR}\"; hook=\"$root/hooks/ibr-loop-hook.sh\"; if [ -x \"$hook\" ]; then \"$hook\"; else printf '{}'; fi"
         }]
       }
     ]
