@@ -37,6 +37,15 @@ test-results/
 
 # Swift build artifacts
 src/native/swift/**/.build/
+mobile-ui/sim-driver/.build/
+
+# build-loop run-local artifacts (state backups, push-hold marker)
+.build-loop/*.bak.*
+.build-loop/state.json.bak.*
+.build-loop/.push-hold
+
+# In-repo safety bundles (created by build-loop pre-flight; keep on disk, don't track)
+archive/*.bundle
 
 # Claude Code
 .claude/
