@@ -7,6 +7,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BrowserPool } from './browser-pool.js'
+import { initScanCookies } from '../scan.js'
+import type { SetCookieParams } from './cdp/network.js'
 
 // Stub the driver. The pool only calls launch() and close() on it.
 // `vi.hoisted` so the spies are available before the mock factory runs.
@@ -147,5 +149,114 @@ describe('BrowserPool', () => {
     pool.release()
     expect(pool.hasWarmDriver()).toBe(true)
     await pool.close()
+  })
+})
+
+/**
+ * Regression: cross-scan cookie/auth leak on the warm BrowserPool path.
+ *
+ * Before the fix, scan() called driver.setCookies() on a pooled (reused)
+ * EngineDriver without first clearing the existing jar. Scan A would
+ * authenticate; scan B (different URL, no cookies) would silently inherit
+ * scan A's session — cross-caller auth leakage in a single MCP server
+ * process. The `initScanCookies` helper closes that hole; these tests
+ * exercise it directly so the contract is locked in regardless of the
+ * surrounding scan() refactors.
+ */
+describe('scan() cookie initialization (cross-scan leak fix)', () => {
+  type Op = { name: 'clearCookies' | 'setCookies'; args?: unknown }
+
+  function makeDriver() {
+    const ops: Op[] = []
+    return {
+      ops,
+      clearCookies: vi.fn(async () => { ops.push({ name: 'clearCookies' }) }),
+      setCookies: vi.fn(async (c: SetCookieParams[]) => {
+        ops.push({ name: 'setCookies', args: c })
+      }),
+    }
+  }
+
+  const cookiesA: SetCookieParams[] = [
+    { name: 'session', value: 'A-secret', domain: 'example.com', path: '/' },
+  ]
+
+  it('pool path: scan A applies cookies (clear then set)', async () => {
+    const driver = makeDriver()
+    await initScanCookies(driver, /* ownDriver */ false, cookiesA)
+    expect(driver.clearCookies).toHaveBeenCalledTimes(1)
+    expect(driver.setCookies).toHaveBeenCalledTimes(1)
+    expect(driver.setCookies).toHaveBeenCalledWith(cookiesA)
+    // Order matters: clear must precede set, otherwise stale residue is
+    // not actually removed before the new jar is layered on.
+    expect(driver.ops.map((o) => o.name)).toEqual(['clearCookies', 'setCookies'])
+  })
+
+  it('pool path: scan B with NO cookies still clears scan A residue (THE LEAK CASE)', async () => {
+    const driver = makeDriver()
+    // First, simulate scan A by establishing residue (the test runs against
+    // the helper, but conceptually the pooled driver carries A's cookies).
+    await initScanCookies(driver, /* ownDriver */ false, cookiesA)
+    driver.clearCookies.mockClear()
+    driver.setCookies.mockClear()
+    driver.ops.length = 0
+
+    // Scan B reuses the pooled driver and passes NO cookies. Without the
+    // fix, setCookies is skipped AND clearCookies is never called → scan B
+    // sees scan A's cookies. With the fix, clearCookies fires
+    // unconditionally on the pool path.
+    await initScanCookies(driver, /* ownDriver */ false, undefined)
+    expect(driver.clearCookies).toHaveBeenCalledTimes(1)
+    expect(driver.setCookies).not.toHaveBeenCalled()
+    expect(driver.ops.map((o) => o.name)).toEqual(['clearCookies'])
+  })
+
+  it('pool path: scan B with empty cookies[] still clears residue', async () => {
+    const driver = makeDriver()
+    await initScanCookies(driver, /* ownDriver */ false, [])
+    // Empty array is treated like "no cookies" for setCookies, but clear
+    // still fires on the pool path.
+    expect(driver.clearCookies).toHaveBeenCalledTimes(1)
+    expect(driver.setCookies).not.toHaveBeenCalled()
+  })
+
+  it('fresh-driver path: skips clearCookies (jar is empty by construction)', async () => {
+    const driver = makeDriver()
+    await initScanCookies(driver, /* ownDriver */ true, cookiesA)
+    // A freshly launched EngineDriver starts with an empty cookie jar; the
+    // clear is a CDP round-trip we can skip. setCookies still applies when
+    // the caller supplied cookies.
+    expect(driver.clearCookies).not.toHaveBeenCalled()
+    expect(driver.setCookies).toHaveBeenCalledWith(cookiesA)
+  })
+
+  it('fresh-driver path: no cookies → no-op (no clear, no set)', async () => {
+    const driver = makeDriver()
+    await initScanCookies(driver, /* ownDriver */ true, undefined)
+    expect(driver.clearCookies).not.toHaveBeenCalled()
+    expect(driver.setCookies).not.toHaveBeenCalled()
+  })
+
+  it('clearCookies failure is non-fatal — scan proceeds and setCookies still runs', async () => {
+    const driver = makeDriver()
+    driver.clearCookies.mockImplementationOnce(async () => {
+      throw new Error('CDP disconnect during Network.clearBrowserCookies')
+    })
+    await expect(
+      initScanCookies(driver, /* ownDriver */ false, cookiesA),
+    ).resolves.toBeUndefined()
+    expect(driver.setCookies).toHaveBeenCalledWith(cookiesA)
+  })
+
+  it('setCookies failure is non-fatal — scan proceeds (caller sees unauth state)', async () => {
+    const driver = makeDriver()
+    driver.setCookies.mockImplementationOnce(async () => {
+      throw new Error('CDP refused: invalid cookie domain')
+    })
+    await expect(
+      initScanCookies(driver, /* ownDriver */ false, cookiesA),
+    ).resolves.toBeUndefined()
+    // Clear still ran — the security boundary holds even when set fails.
+    expect(driver.clearCookies).toHaveBeenCalledTimes(1)
   })
 })

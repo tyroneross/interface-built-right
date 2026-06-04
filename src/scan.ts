@@ -234,6 +234,47 @@ export interface ScanOptions extends BrowserLaunchOptions {
 }
 
 /**
+ * Initialize the cookie jar for a scan, closing the cross-scan leak that
+ * arises when a warm BrowserPool reuses an EngineDriver.
+ *
+ * Contract:
+ * - Pool path (`ownDriver === false`): UNCONDITIONALLY clear the jar before
+ *   applying any new cookies. This is the security boundary — guarding the
+ *   clear behind `cookies?.length > 0` would re-open the leak case ("scan B
+ *   passes no cookies and inherits scan A's session").
+ * - Fresh-driver path (`ownDriver === true`): the jar is empty by
+ *   construction, so we skip `clearCookies()` to save a CDP round-trip.
+ * - `setCookies` runs only when caller supplied cookies, on both paths.
+ *
+ * Failures from `clearCookies` and `setCookies` are non-fatal — the scan
+ * continues; if residue persists or auth fails, the scan output will
+ * reflect the resulting state and the caller can detect it.
+ *
+ * Exported for direct unit testing of the cookie-leak regression
+ * (browser-pool.test.ts).
+ */
+export async function initScanCookies(
+  driver: Pick<EngineDriver, 'clearCookies' | 'setCookies'>,
+  ownDriver: boolean,
+  cookies: SetCookieParams[] | undefined,
+): Promise<void> {
+  if (!ownDriver) {
+    try {
+      await driver.clearCookies();
+    } catch {
+      // Non-fatal: see contract above.
+    }
+  }
+  if (cookies && cookies.length > 0) {
+    try {
+      await driver.setCookies(cookies);
+    } catch {
+      // Non-fatal: see contract above.
+    }
+  }
+}
+
+/**
  * Run a comprehensive UI scan on a URL.
  *
  * Combines all IBR analysis capabilities into a single scan:
@@ -313,18 +354,13 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
   });
 
   try {
-    // R3: thread auth cookies BEFORE navigate. Doing this after navigate
-    // would not help — the first request would already have gone out
-    // unauthenticated, hit a redirect to /login, and the scan would have
-    // classified the login page instead of the actual route.
-    if (cookies && cookies.length > 0) {
-      try {
-        await driver.setCookies(cookies);
-      } catch {
-        // Cookie set failures are non-fatal — scan continues unauthenticated
-        // and the resulting "Not authenticated" state is visible in output.
-      }
-    }
+    // SECURITY: normalize the cookie jar BEFORE applying per-scan cookies.
+    // The warm BrowserPool reuses the EngineDriver across scan() calls;
+    // without an explicit clear on the pool path, scan A's auth cookies
+    // would leak into scan B (whether or not scan B passes its own
+    // cookies — the leak case is "B inherits A's by passing none"). The
+    // helper enforces the contract; see `initScanCookies`.
+    await initScanCookies(driver, ownDriver, cookies);
 
     // Navigate
     await page.goto(url, {
