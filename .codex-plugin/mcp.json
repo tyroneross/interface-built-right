@@ -1,6 +1,8 @@
 {
-  "ibr": {
-    "command": "node",
-    "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"]
+  "mcpServers": {
+    "ibr": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/dist/mcp/server.js"]
+    }
   }
 }
