@@ -53,7 +53,8 @@ import {
   idbSwipe,
   idbButton,
   idbOpenUrl,
-  isIdbCliAvailable,
+  formatSimulatorDriver,
+  getSimulatorInteractionDriverStatus,
 } from '../native/idb.js';
 import {
   elementCenter,
@@ -173,6 +174,49 @@ export const TOOLS = [
     },
     annotations: {
       title: "UI Scan",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
+  },
+  {
+    name: "ask",
+    description:
+      "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages — designed for agent consumption. Pass screenshot:true to additionally receive the page screenshot as an image content block — vision-capable agents can fuse pixels with the verdict.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        url: {
+          type: "string",
+          description: "URL to evaluate (e.g. http://localhost:3000/page)",
+        },
+        question: {
+          type: "string",
+          description:
+            "One of the supported questions (or an alias). Unknown questions return UNCERTAIN with the canonical list.",
+        },
+        viewport: {
+          type: "string",
+          enum: ["desktop", "mobile", "tablet"],
+          description:
+            "Viewport preset. Affects rules with mobile-vs-desktop thresholds (e.g. touch-target). Default 'desktop'.",
+        },
+        maxFindings: {
+          type: "number",
+          description:
+            "Cap on returned findings to keep responses tight. Default 25.",
+        },
+        screenshot: {
+          type: "boolean",
+          description:
+            "Capture and return the page screenshot as an image content block alongside the JSON verdict. Use when the question may benefit from visual evidence (e.g. iOS guest where the AX tree is unreachable, or visual hierarchy questions). Default false to keep responses small.",
+        },
+      },
+      required: ["url", "question"],
+    },
+    annotations: {
+      title: "Ask (Verdict Engine)",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -1008,8 +1052,9 @@ export const TOOLS = [
       "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. " +
       "For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. " +
       "For tap with coordinates: taps directly at x,y. " +
-      "Requires IDB for typing and swipe (install: brew install idb-companion && pip install fb-idb). " +
-      "Tap and openUrl fall back to simctl when IDB is unavailable.",
+      "Tap, type, and swipe use IBR's capability-aware driver chain: native-window fallback, then IDB. " +
+      "Set IBR_SIMULATOR_DRIVER=idb to require IDB in headless CI. " +
+      "openUrl uses simctl.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -1054,6 +1099,42 @@ export const TOOLS = [
 
 const DEFAULT_OUTPUT_DIR = ".ibr";
 
+// Process-level warm browser. Lazy-init on first scan/ask in the MCP server,
+// reused for the lifetime of the server. First call pays the ~700ms launch
+// cost; subsequent calls land in roughly half the time. See
+// src/engine/browser-pool.ts for the lifecycle contract.
+//
+// The init *promise* is cached (not the pool itself) so that two simultaneous
+// tool calls before the first import resolves can't each create a separate
+// BrowserPool — they share the same in-flight promise.
+let mcpBrowserPoolPromise:
+  | Promise<import('../engine/browser-pool.js').BrowserPool>
+  | undefined;
+function getMcpBrowserPool() {
+  if (!mcpBrowserPoolPromise) {
+    mcpBrowserPoolPromise = (async () => {
+      const { BrowserPool } = await import('../engine/browser-pool.js');
+      return new BrowserPool({ launchOptions: { headless: true } });
+    })();
+  }
+  return mcpBrowserPoolPromise;
+}
+/** Test/host hook — close and reset the pool. Used at process exit. */
+export async function closeMcpBrowserPool(): Promise<void> {
+  if (mcpBrowserPoolPromise) {
+    const p = mcpBrowserPoolPromise;
+    mcpBrowserPoolPromise = undefined;
+    try {
+      const pool = await p;
+      await pool.close();
+    } catch {
+      // Best-effort cleanup. If the pool never finished initialising we have
+      // nothing concrete to close; the underlying browser process (if any)
+      // will be reaped on parent exit.
+    }
+  }
+}
+
 export async function handleToolCall(
   name: string,
   args: Record<string, unknown>
@@ -1062,6 +1143,8 @@ export async function handleToolCall(
     switch (name) {
       case "scan":
         return await handleScan(args);
+      case "ask":
+        return await handleAsk(args);
       case "snapshot":
         return await handleSnapshot(args);
       case "compare":
@@ -2333,11 +2416,19 @@ async function handleScan(
     }
   }
 
+  // Warm-browser pool reuse — drops cold-start cost on the second-onwards
+  // scan in this MCP process. scan() handles release in its finally block.
+  // Per-pool viewport is sticky, so the pool path skips the full device
+  // profile that the fresh-launch path applies; for viewport-sensitive
+  // scans (e.g. mobile/iphone-14), callers should omit `sessionId`-based
+  // pool reuse and accept a fresh launch.
+  const pool = await getMcpBrowserPool();
   const result = await scan(url, {
     viewport: viewport as ScanOptions["viewport"],
     patience: args.patience as number | undefined,
     networkIdleTimeout: args.networkIdleTimeout as number | undefined,
     ...(scanCookies ? { cookies: scanCookies } : {}),
+    pool,
   });
 
   // R3: suppress "Page intent: unknown (0% confidence)" noise. The line
@@ -2472,6 +2563,59 @@ async function handleScan(
   }
 
   return textResponse(lines.join("\n"));
+}
+
+async function handleAsk(
+  args: Record<string, unknown>,
+): Promise<McpResponse> {
+  const url = args.url as string;
+  const question = args.question as string;
+  if (!url || !question) {
+    return textResponse(
+      'Error: `ask` requires `url` and `question`. ' +
+        'Supported questions: see the tool description.',
+    );
+  }
+  const viewport = (args.viewport as 'desktop' | 'mobile' | 'tablet' | undefined) ?? 'desktop';
+  const maxFindings = (args.maxFindings as number | undefined) ?? 25;
+  const wantScreenshot = args.screenshot === true;
+
+  const { ask } = await import('../ask.js');
+  const pool = await getMcpBrowserPool();
+  const response = await ask(url, question, {
+    viewport,
+    maxFindings,
+    pool,
+    ...(wantScreenshot ? { screenshot: true } : {}),
+  });
+
+  // Build response: text content (the JSON verdict) is always emitted.
+  // When the caller asked for a screenshot AND we successfully captured one,
+  // attach it as an image content block so vision-capable agents can fuse
+  // pixels with the verdict (Gap 3 / v3 thesis Shift 5).
+  const content: McpContent[] = [
+    { type: 'text' as const, text: JSON.stringify(response, null, 2) },
+  ];
+  const screenshotPath = response.meta?.screenshotPath;
+  if (wantScreenshot && screenshotPath) {
+    try {
+      const { readFile } = await import('fs/promises');
+      const buf = await readFile(screenshotPath);
+      content.unshift({
+        type: 'image' as const,
+        data: buf.toString('base64'),
+        mimeType: 'image/png',
+      });
+    } catch (err) {
+      // Don't fail the whole call on a missing screenshot — the verdict
+      // is still useful. Surface the failure as a trailing text note.
+      content.push({
+        type: 'text' as const,
+        text: `(screenshot capture failed: ${err instanceof Error ? err.message : 'unknown'})`,
+      });
+    }
+  }
+  return { content };
 }
 
 async function handleSnapshot(
@@ -3080,6 +3224,18 @@ async function handleNativeDevices(
   lines.push("");
   lines.push(`Total: ${devices.length} available, ${booted.length} booted`);
 
+  const driverStatus = await getSimulatorInteractionDriverStatus();
+  lines.push("");
+  lines.push("Interaction Drivers:");
+  for (const status of driverStatus) {
+    const availability = status.available ? "available" : `unavailable (${status.reason})`;
+    const headless = status.headless ? "headless" : "requires visible window";
+    const selected = status.selected ? " selected" : "";
+    lines.push(
+      `  ${status.label}: ${availability}; ${headless}; actions: ${status.actions.join(",")}${selected}`
+    );
+  }
+
   return textResponse(lines.join("\n"));
 }
 
@@ -3336,7 +3492,7 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
         if (!tapResult.success) {
           return errorResponse(`tap failed: ${tapResult.error}`);
         }
-        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)}`);
+        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)} via ${formatSimulatorDriver(tapResult.driver)}`);
       }
 
       // Resolve by label: extract AX tree, find element, get center
@@ -3396,13 +3552,13 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
             const oy = parseFloat(override[2]);
             const overrideResult = await idbTap(udid, ox, oy);
             if (!overrideResult.success) return errorResponse(`tap failed: ${overrideResult.error}`);
-            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override]`);
+            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override] via ${formatSimulatorDriver(overrideResult.driver)}`);
           }
         }
 
         const tapResult = await idbTap(udid, center.x, center.y);
         if (!tapResult.success) return errorResponse(`tap failed: ${tapResult.error}`);
-        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y})`);
+        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y}) via ${formatSimulatorDriver(tapResult.driver)}`);
       } catch (err) {
         return errorResponse(`tap by label failed: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -3412,14 +3568,9 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
       if (!target) {
         return errorResponse("'target' is required for type (text to input).");
       }
-      if (!(await isIdbCliAvailable())) {
-        return errorResponse(
-          'IDB not available. Install with: brew install idb-companion && pip install fb-idb'
-        );
-      }
       const typeResult = await idbType(udid, target);
       if (!typeResult.success) return errorResponse(`type failed: ${typeResult.error}`);
-      return textResponse(`Typed "${target}" into focused field`);
+      return textResponse(`Typed "${target}" into focused field via ${formatSimulatorDriver(typeResult.driver)}`);
     }
 
     case 'scroll':
@@ -3452,13 +3603,13 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
 
       const swipeResult = await idbSwipe(udid, cx, cy, x2, y2, 0.5);
       if (!swipeResult.success) return errorResponse(`${action} failed: ${swipeResult.error}`);
-      return textResponse(`Scrolled ${direction} from (${cx}, ${cy})`);
+      return textResponse(`Scrolled ${direction} from (${cx}, ${cy}) via ${formatSimulatorDriver(swipeResult.driver)}`);
     }
 
     case 'home': {
       const homeResult = await idbButton(udid, 'HOME');
       if (!homeResult.success) return errorResponse(`home button failed: ${homeResult.error}`);
-      return textResponse('Pressed HOME button');
+      return textResponse(`Pressed HOME button via ${formatSimulatorDriver(homeResult.driver)}`);
     }
 
     case 'openUrl': {
@@ -3467,7 +3618,7 @@ async function handleSimAction(args: Record<string, unknown>): Promise<McpRespon
       }
       const urlResult = await idbOpenUrl(udid, target);
       if (!urlResult.success) return errorResponse(`openUrl failed: ${urlResult.error}`);
-      return textResponse(`Opened URL: ${target}`);
+      return textResponse(`Opened URL: ${target} via ${formatSimulatorDriver(urlResult.driver)}`);
     }
 
     default:

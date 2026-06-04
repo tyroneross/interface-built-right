@@ -25,6 +25,7 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 | `extract` | Read page headings, buttons, inputs, links after interactions |
 | `interact_and_verify` | Act + capture before/after element diff (elements added/removed) |
 | `scan` | Full page analysis — CSS, handlers, a11y, console errors |
+| `ask` | Ask a focused question, get a verdict + evidence (touch-target, signal-noise, token-compliance). Token-minimal alternative to scan |
 | `snapshot` | Capture visual baseline |
 | `compare` | Compare current vs baseline |
 | `screenshot` | Capture screenshot of any URL |

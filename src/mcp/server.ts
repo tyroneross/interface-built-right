@@ -7,7 +7,30 @@
  */
 
 import { createInterface } from "readline";
-import { TOOLS, handleToolCall } from "./tools.js";
+import { TOOLS, handleToolCall, closeMcpBrowserPool } from "./tools.js";
+
+// Best-effort cleanup of the warm browser pool on graceful exit. The pool is
+// lazy-init in tools.ts; this just closes it if it was ever opened. Hard
+// kills (SIGKILL) skip this — Chrome process is reaped by the OS.
+let cleanedUp = false;
+async function shutdownPool() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  try {
+    await closeMcpBrowserPool();
+  } catch {
+    // never throw from a signal handler
+  }
+}
+process.on("SIGINT", () => {
+  shutdownPool().finally(() => process.exit(0));
+});
+process.on("SIGTERM", () => {
+  shutdownPool().finally(() => process.exit(0));
+});
+process.on("beforeExit", () => {
+  shutdownPool();
+});
 
 // --- JSON-RPC transport over stdio ---
 

@@ -218,6 +218,19 @@ export interface ScanOptions extends BrowserLaunchOptions {
    * of false-FAIL verdicts in the transcript audit.
    */
   cookies?: SetCookieParams[];
+  /**
+   * Optional warm-browser pool. When supplied, scan() reuses the pool's
+   * EngineDriver instead of launching a fresh browser. Drops first-finding
+   * latency dramatically for the second-and-onwards call in the same process
+   * (e.g. an MCP server fielding multiple `ask` calls). The pool's lifecycle
+   * is the caller's responsibility — scan() does not close it.
+   *
+   * Caveat: per-scan viewport is NOT re-applied on a pooled driver — the
+   * pool's launch viewport is sticky for the process. Callers that need a
+   * different viewport mid-process should construct a dedicated pool or
+   * omit `pool` so scan() launches with the full device profile.
+   */
+  pool?: import('./engine/browser-pool.js').BrowserPool;
 }
 
 /**
@@ -252,27 +265,40 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     ? VIEWPORTS[viewportOpt] || VIEWPORTS.desktop
     : viewportOpt;
 
-  // Launch browser. Pass the full resolved viewport (including
+  // Launch browser — or acquire one from the pool when supplied.
+  //
+  // Pool path: reuses the pool's EngineDriver. Per-scan viewport is NOT
+  // re-applied (emulation is sticky on the pooled driver). Callers that
+  // need a different viewport mid-process should construct a dedicated
+  // pool or omit `pool` for viewport-sensitive scans.
+  //
+  // Fresh-launch path: passes the FULL resolved viewport (including
   // deviceScaleFactor, mobile, userAgent, hasTouch) so EngineDriver.launch
   // can apply the full device profile via CDP Emulation BEFORE navigate.
   // Passing only {width, height} was the source of the "--viewport mobile
-  // is silently ignored" bug (pre-1.1.0).
-  const driver = new EngineDriver();
-  await driver.launch({
-    headless: !headed,
-    viewport: {
-      width: resolvedViewport.width,
-      height: resolvedViewport.height,
-      deviceScaleFactor: resolvedViewport.deviceScaleFactor,
-      mobile: resolvedViewport.mobile,
-      userAgent: resolvedViewport.userAgent,
-      hasTouch: resolvedViewport.hasTouch,
-    },
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath,
-  });
+  // is silently ignored" bug (pre-1.1.0); preserving it here is required.
+  const ownDriver = !options.pool;
+  let driver: EngineDriver;
+  if (options.pool) {
+    driver = await options.pool.acquire();
+  } else {
+    driver = new EngineDriver();
+    await driver.launch({
+      headless: !headed,
+      viewport: {
+        width: resolvedViewport.width,
+        height: resolvedViewport.height,
+        deviceScaleFactor: resolvedViewport.deviceScaleFactor,
+        mobile: resolvedViewport.mobile,
+        userAgent: resolvedViewport.userAgent,
+        hasTouch: resolvedViewport.hasTouch,
+      },
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
+    });
+  }
   const page: PageLike = new CompatPage(driver);
 
   // Capture console output
@@ -475,7 +501,11 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
 
     return baseResult;
   } finally {
-    await driver.close();
+    if (ownDriver) {
+      await driver.close();
+    } else if (options.pool) {
+      options.pool.release();
+    }
   }
 }
 

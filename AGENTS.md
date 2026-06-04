@@ -169,11 +169,11 @@ npm run mcp          # run MCP server (node dist/mcp/server.js)
 
 ### CDP Engine — `src/engine/cdp/`
 
-The core browser communication layer. Each file maps to a CDP domain. Changes here affect all web scanning, interaction, and screenshot functionality. The 8 skills depend on scan output structure — any field renames or removals in `src/scan.ts` must be reflected in skill docs and in downstream consumers (`src/compare.ts`, `src/report.ts`).
+The core browser communication layer. Each file maps to a CDP domain. Changes here affect all web scanning, interaction, and screenshot functionality. Scan-facing skills depend on scan output structure — any field renames or removals in `src/scan.ts` must be reflected in skill docs and in downstream consumers (`src/compare.ts`, `src/report.ts`).
 
 ### Scan Logic — `src/scan.ts`
 
-Central scan pipeline. Output structure is consumed by all 8 skills, the `compare` tool, `design-validator` agent, and test generation. Validate output shape changes against `src/scan.test.ts` and confirm skill docs still match.
+Central scan pipeline. Output structure is consumed by scan-facing skills, the `compare` tool, `design-validator` agent, and test generation. Validate output shape changes against `src/scan.test.ts` and confirm skill docs still match.
 
 ### Interaction — `src/engine/observe.ts`, `src/engine/resolve.ts`
 
