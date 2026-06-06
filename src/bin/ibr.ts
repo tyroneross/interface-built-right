@@ -1054,6 +1054,8 @@ program
   .option('--stream', 'Emit NDJSON stream — one event per line (start, finding..., end). Findings arrive as the rule loop produces them.')
   .option('--screenshot', 'Capture a page screenshot during the scan. Path is surfaced in response.meta.screenshotPath. Saves to .ibr/ask-screenshots/.')
   .option('--screenshot-path <path>', 'Explicit screenshot output path. Implies --screenshot.')
+  .option('--cookie <pairs>', 'Cookies to set before ask (e.g. "session=abc; csrf=xyz"). Asked URL is used as the cookie origin. Same shape as `audit`/`observe` — lets ask reach authenticated routes (dashboards, settings) instead of scanning the login redirect.')
+  .option('--cookie-jar <file>', 'Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).')
   .action(async (
     url: string,
     questionWords: string[],
@@ -1063,6 +1065,8 @@ program
       stream?: boolean;
       screenshot?: boolean;
       screenshotPath?: string;
+      cookie?: string;
+      cookieJar?: string;
     },
   ) => {
     try {
@@ -1077,11 +1081,32 @@ program
         options.screenshotPath ? options.screenshotPath
         : options.screenshot === true ? true
         : undefined;
+
+      // f2: resolve --cookie/--cookie-jar via the same path audit/observe use,
+      // then forward into AskOptions.cookies → scan().cookies. Asked URL is the
+      // default origin for pair entries; jar entries pass their own url/domain.
+      let cookies: import('../engine/cdp/network.js').SetCookieParams[] | undefined;
+      if (options.cookie || options.cookieJar) {
+        const { resolveCookies } = await import('./cookie-parser.js');
+        const resolved = resolveCookies(
+          { cookie: options.cookie, cookieJar: options.cookieJar },
+          resolvedUrl,
+        );
+        if (resolved.length > 0) {
+          cookies = resolved;
+          // stderr so JSON stdout output stays parseable for agent consumers.
+          console.error(
+            `Injected ${cookies.length} cookie${cookies.length === 1 ? '' : 's'} (${cookies.map((c) => c.name).join(', ')})`,
+          );
+        }
+      }
+
       const askOpts = {
         viewport,
         timeout: parseInt(options.timeout, 10),
         maxFindings: parseInt(options.maxFindings, 10),
         ...(screenshotOpt !== undefined ? { screenshot: screenshotOpt } : {}),
+        ...(cookies ? { cookies } : {}),
       };
 
       if (options.stream) {

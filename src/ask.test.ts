@@ -413,3 +413,96 @@ describe('askStream', () => {
     expect(start.supportedQuestions).toEqual(_internal.SUPPORTED_QUESTIONS)
   })
 })
+
+// ── f2: cookie forwarding to scan() ───────────────────────────────────────────
+//
+// Today f2 fix: ask() must forward AskOptions.cookies into the scan() call so
+// authenticated routes are reachable. Without the forwarding, `ask` on a gated
+// route silently scans the login/redirect page and returns the wrong verdict.
+//
+// We mock ./scan.js to capture the options arg scan() receives, then run ask
+// with and without cookies and assert exactly what was passed through. The
+// suite documents both directions:
+//   - cookies SUPPLIED → present in scan options
+//   - cookies OMITTED  → NOT present in scan options (no spurious key)
+//
+// This test fails on the pre-fix code (no `cookies` line in askStream's scan
+// call) and passes on the post-fix code.
+
+describe('ask: cookie forwarding to scan (f2)', () => {
+  it('forwards cookies into scan() when supplied', async () => {
+    vi.resetModules()
+    let capturedScanOpts: Record<string, unknown> | undefined
+    vi.doMock('./scan.js', () => ({
+      scan: vi.fn(async (_url: string, opts: Record<string, unknown>) => {
+        capturedScanOpts = opts
+        // Minimal scan() return shape used by ask()'s consumer code.
+        return {
+          elements: { all: [] as EnhancedElement[] },
+          viewport: { width: 1280, height: 800 },
+        }
+      }),
+    }))
+    const mod = await import('./ask.js')
+    const cookies = [
+      {
+        name: 'session',
+        value: 'abc123',
+        domain: 'test.local',
+        path: '/',
+        secure: false,
+        httpOnly: true,
+      },
+    ]
+    await mod.ask(URL, 'is the touch-target compliant', { cookies })
+
+    expect(capturedScanOpts).toBeDefined()
+    expect(capturedScanOpts!.cookies).toEqual(cookies)
+    vi.doUnmock('./scan.js')
+  })
+
+  it('does NOT pass cookies into scan() when omitted', async () => {
+    vi.resetModules()
+    let capturedScanOpts: Record<string, unknown> | undefined
+    vi.doMock('./scan.js', () => ({
+      scan: vi.fn(async (_url: string, opts: Record<string, unknown>) => {
+        capturedScanOpts = opts
+        return {
+          elements: { all: [] as EnhancedElement[] },
+          viewport: { width: 1280, height: 800 },
+        }
+      }),
+    }))
+    const mod = await import('./ask.js')
+    await mod.ask(URL, 'is the touch-target compliant', {})
+
+    expect(capturedScanOpts).toBeDefined()
+    // No `cookies` key at all when caller did not supply any — keeps the call
+    // surface clean and matches ScanOptions.cookies?: ... | undefined.
+    expect('cookies' in capturedScanOpts!).toBe(false)
+    vi.doUnmock('./scan.js')
+  })
+
+  it('does NOT pass cookies into scan() when an empty array is supplied', async () => {
+    // Defensive: an empty-array supply is the same shape as "no cookies" — we
+    // shouldn't emit a noisy {cookies: []} into the call, matching the CLI
+    // resolveCookies path which only sets the key when length > 0.
+    vi.resetModules()
+    let capturedScanOpts: Record<string, unknown> | undefined
+    vi.doMock('./scan.js', () => ({
+      scan: vi.fn(async (_url: string, opts: Record<string, unknown>) => {
+        capturedScanOpts = opts
+        return {
+          elements: { all: [] as EnhancedElement[] },
+          viewport: { width: 1280, height: 800 },
+        }
+      }),
+    }))
+    const mod = await import('./ask.js')
+    await mod.ask(URL, 'is the touch-target compliant', { cookies: [] })
+
+    expect(capturedScanOpts).toBeDefined()
+    expect('cookies' in capturedScanOpts!).toBe(false)
+    vi.doUnmock('./scan.js')
+  })
+})

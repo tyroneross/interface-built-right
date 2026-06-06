@@ -12,6 +12,7 @@
  */
 
 import { scan } from './scan.js'
+import type { SetCookieParams } from './engine/cdp/network.js'
 import type { RuleContext } from './rules/engine.js'
 import { touchTargetRules } from './rules/touch-targets.js'
 import { signalNoiseRules } from './design-system/principles/signal-noise.js'
@@ -203,6 +204,14 @@ export interface AskOptions {
    * first-finding latency by ~600-800ms (the browser-launch share).
    */
   pool?: import('./engine/browser-pool.js').BrowserPool
+  /**
+   * Cookies to inject before the scan navigates. Forwarded verbatim into
+   * scan() so `ask` can reach authenticated routes (dashboards, settings,
+   * any gated page) instead of silently scanning the login redirect. Mirrors
+   * ScanOptions['cookies']. CLI surface: `--cookie` / `--cookie-jar`. MCP
+   * surface: `sessionId` (cookies are resolved from the live session).
+   */
+  cookies?: SetCookieParams[]
 }
 
 const ENGINE_VERSION = '0.1.0-m1'
@@ -375,6 +384,9 @@ export async function* askStream(
       viewport: options.viewport ?? 'desktop',
       timeout: options.timeout,
       ...(options.pool ? { pool: options.pool } : {}),
+      ...(options.cookies && options.cookies.length > 0
+        ? { cookies: options.cookies }
+        : {}),
       ...(options.screenshot && screenshotPath
         ? { screenshot: { path: screenshotPath } }
         : {}),

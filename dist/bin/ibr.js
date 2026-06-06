@@ -14247,9 +14247,24 @@ __export(scan_exports, {
   extractAndAudit: () => extractAndAudit,
   formatScanResult: () => formatScanResult,
   generateSummary: () => generateSummary2,
+  initScanCookies: () => initScanCookies,
   isIntentNoise: () => isIntentNoise,
   scan: () => scan
 });
+async function initScanCookies(driver3, ownDriver, cookies) {
+  if (!ownDriver) {
+    try {
+      await driver3.clearCookies();
+    } catch {
+    }
+  }
+  if (cookies && cookies.length > 0) {
+    try {
+      await driver3.setCookies(cookies);
+    } catch {
+    }
+  }
+}
 async function scan(url, options = {}) {
   const {
     viewport: viewportOpt = "desktop",
@@ -14301,12 +14316,7 @@ async function scan(url, options = {}) {
     }
   });
   try {
-    if (cookies && cookies.length > 0) {
-      try {
-        await driver3.setCookies(cookies);
-      } catch {
-      }
-    }
+    await initScanCookies(driver3, ownDriver, cookies);
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout
@@ -16101,6 +16111,7 @@ async function* askStream(url, question, options = {}) {
       viewport: options.viewport ?? "desktop",
       timeout: options.timeout,
       ...options.pool ? { pool: options.pool } : {},
+      ...options.cookies && options.cookies.length > 0 ? { cookies: options.cookies } : {},
       ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
@@ -23785,7 +23796,7 @@ program.command("scan <url>").description("Full UI scan: elements + interactivit
     process.exit(1);
   }
 });
-program.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").option("--stream", "Emit NDJSON stream \u2014 one event per line (start, finding..., end). Findings arrive as the rule loop produces them.").option("--screenshot", "Capture a page screenshot during the scan. Path is surfaced in response.meta.screenshotPath. Saves to .ibr/ask-screenshots/.").option("--screenshot-path <path>", "Explicit screenshot output path. Implies --screenshot.").action(async (url, questionWords, options) => {
+program.command("ask <url> <question...>").description("Ask a focused question about a page. Returns a token-minimal verdict + findings, not a full scan dump. Viewport set via the top-level `-v/--viewport` flag (see `ibr --help`).").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--max-findings <n>", "Cap returned findings (default 25)", "25").option("--stream", "Emit NDJSON stream \u2014 one event per line (start, finding..., end). Findings arrive as the rule loop produces them.").option("--screenshot", "Capture a page screenshot during the scan. Path is surfaced in response.meta.screenshotPath. Saves to .ibr/ask-screenshots/.").option("--screenshot-path <path>", "Explicit screenshot output path. Implies --screenshot.").option("--cookie <pairs>", 'Cookies to set before ask (e.g. "session=abc; csrf=xyz"). Asked URL is used as the cookie origin. Same shape as `audit`/`observe` \u2014 lets ask reach authenticated routes (dashboards, settings) instead of scanning the login redirect.').option("--cookie-jar <file>", "Path to a JSON file with an array of {name,value,...} cookie objects (CDP setCookie params).").action(async (url, questionWords, options) => {
   try {
     const { ask: ask2, askStream: askStream2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
     const resolvedUrl = await resolveBaseUrl(url);
@@ -23793,11 +23804,26 @@ program.command("ask <url> <question...>").description("Ask a focused question a
     const globalViewport = program.opts().viewport ?? "desktop";
     const viewport = globalViewport;
     const screenshotOpt = options.screenshotPath ? options.screenshotPath : options.screenshot === true ? true : void 0;
+    let cookies;
+    if (options.cookie || options.cookieJar) {
+      const { resolveCookies: resolveCookies2 } = await Promise.resolve().then(() => (init_cookie_parser(), cookie_parser_exports));
+      const resolved = resolveCookies2(
+        { cookie: options.cookie, cookieJar: options.cookieJar },
+        resolvedUrl
+      );
+      if (resolved.length > 0) {
+        cookies = resolved;
+        console.error(
+          `Injected ${cookies.length} cookie${cookies.length === 1 ? "" : "s"} (${cookies.map((c) => c.name).join(", ")})`
+        );
+      }
+    }
     const askOpts = {
       viewport,
       timeout: parseInt(options.timeout, 10),
       maxFindings: parseInt(options.maxFindings, 10),
-      ...screenshotOpt !== void 0 ? { screenshot: screenshotOpt } : {}
+      ...screenshotOpt !== void 0 ? { screenshot: screenshotOpt } : {},
+      ...cookies ? { cookies } : {}
     };
     if (options.stream) {
       const controller = new AbortController();

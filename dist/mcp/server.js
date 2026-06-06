@@ -8653,6 +8653,20 @@ var init_engine = __esm({
 });
 
 // src/scan.ts
+async function initScanCookies(driver2, ownDriver, cookies) {
+  if (!ownDriver) {
+    try {
+      await driver2.clearCookies();
+    } catch {
+    }
+  }
+  if (cookies && cookies.length > 0) {
+    try {
+      await driver2.setCookies(cookies);
+    } catch {
+    }
+  }
+}
 async function scan(url, options = {}) {
   const {
     viewport: viewportOpt = "desktop",
@@ -8704,12 +8718,7 @@ async function scan(url, options = {}) {
     }
   });
   try {
-    if (cookies && cookies.length > 0) {
-      try {
-        await driver2.setCookies(cookies);
-      } catch {
-      }
-    }
+    await initScanCookies(driver2, ownDriver, cookies);
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout
@@ -11454,6 +11463,7 @@ async function* askStream(url, question, options = {}) {
       viewport: options.viewport ?? "desktop",
       timeout: options.timeout,
       ...options.pool ? { pool: options.pool } : {},
+      ...options.cookies && options.cookies.length > 0 ? { cookies: options.cookies } : {},
       ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;
@@ -15698,6 +15708,10 @@ var TOOLS = [
         screenshot: {
           type: "boolean",
           description: "Capture and return the page screenshot as an image content block alongside the JSON verdict. Use when the question may benefit from visual evidence (e.g. iOS guest where the AX tree is unreachable, or visual hierarchy questions). Default false to keep responses small."
+        },
+        sessionId: {
+          type: "string",
+          description: "f2: Optional session ID from session_start. When supplied, ask reuses the session's auth cookies so gated routes (dashboards, settings) are evaluated authenticated instead of bouncing to login. Mirrors the same field on `scan`."
         }
       },
       required: ["url", "question"]
@@ -17794,13 +17808,35 @@ async function handleAsk(args) {
   const viewport = args.viewport ?? "desktop";
   const maxFindings = args.maxFindings ?? 25;
   const wantScreenshot = args.screenshot === true;
+  let askCookies;
+  const requestedSessionId = typeof args.sessionId === "string" ? args.sessionId : void 0;
+  if (requestedSessionId) {
+    const entry = sessions.get(requestedSessionId);
+    if (entry && entry.driver) {
+      try {
+        const sessionCookies = await entry.driver.getCookies();
+        askCookies = sessionCookies.map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          ...c.sameSite ? { sameSite: c.sameSite } : {},
+          ...c.expires > 0 ? { expires: c.expires } : {}
+        }));
+      } catch {
+      }
+    }
+  }
   const { ask: ask2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
   const pool = await getMcpBrowserPool();
   const response = await ask2(url, question, {
     viewport,
     maxFindings,
     pool,
-    ...wantScreenshot ? { screenshot: true } : {}
+    ...wantScreenshot ? { screenshot: true } : {},
+    ...askCookies ? { cookies: askCookies } : {}
   });
   const content = [
     { type: "text", text: JSON.stringify(response, null, 2) }

@@ -9980,6 +9980,20 @@ var init_engine = __esm({
 });
 
 // src/scan.ts
+async function initScanCookies(driver2, ownDriver, cookies) {
+  if (!ownDriver) {
+    try {
+      await driver2.clearCookies();
+    } catch {
+    }
+  }
+  if (cookies && cookies.length > 0) {
+    try {
+      await driver2.setCookies(cookies);
+    } catch {
+    }
+  }
+}
 async function scan(url, options = {}) {
   const {
     viewport: viewportOpt = "desktop",
@@ -10031,12 +10045,7 @@ async function scan(url, options = {}) {
     }
   });
   try {
-    if (cookies && cookies.length > 0) {
-      try {
-        await driver2.setCookies(cookies);
-      } catch {
-      }
-    }
+    await initScanCookies(driver2, ownDriver, cookies);
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout
@@ -14988,6 +14997,7 @@ async function* askStream(url, question, options = {}) {
       viewport: options.viewport ?? "desktop",
       timeout: options.timeout,
       ...options.pool ? { pool: options.pool } : {},
+      ...options.cookies && options.cookies.length > 0 ? { cookies: options.cookies } : {},
       ...options.screenshot && screenshotPath ? { screenshot: { path: screenshotPath } } : {}
     });
     elements = result.elements.all;

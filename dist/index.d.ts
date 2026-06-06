@@ -6663,6 +6663,14 @@ interface AskOptions {
      * first-finding latency by ~600-800ms (the browser-launch share).
      */
     pool?: BrowserPool;
+    /**
+     * Cookies to inject before the scan navigates. Forwarded verbatim into
+     * scan() so `ask` can reach authenticated routes (dashboards, settings,
+     * any gated page) instead of silently scanning the login redirect. Mirrors
+     * ScanOptions['cookies']. CLI surface: `--cookie` / `--cookie-jar`. MCP
+     * surface: `sessionId` (cookies are resolved from the live session).
+     */
+    cookies?: SetCookieParams[];
 }
 type AskStreamEvent = {
     type: 'start';

@@ -212,6 +212,11 @@ export const TOOLS = [
           description:
             "Capture and return the page screenshot as an image content block alongside the JSON verdict. Use when the question may benefit from visual evidence (e.g. iOS guest where the AX tree is unreachable, or visual hierarchy questions). Default false to keep responses small.",
         },
+        sessionId: {
+          type: "string",
+          description:
+            "f2: Optional session ID from session_start. When supplied, ask reuses the session's auth cookies so gated routes (dashboards, settings) are evaluated authenticated instead of bouncing to login. Mirrors the same field on `scan`.",
+        },
       },
       required: ["url", "question"],
     },
@@ -2580,6 +2585,34 @@ async function handleAsk(
   const maxFindings = (args.maxFindings as number | undefined) ?? 25;
   const wantScreenshot = args.screenshot === true;
 
+  // f2: parity with handleScan — when a sessionId is supplied, reuse the
+  // session's auth cookies so gated routes are evaluated authenticated.
+  // Soft-fail if the session is gone or not a browser session: ask continues
+  // unauthenticated and the resulting verdict reflects whatever the public
+  // page returned. (Same shape as handleScan's scanCookies block ~2392-2417.)
+  let askCookies: SetCookieParams[] | undefined;
+  const requestedSessionId = typeof args.sessionId === 'string' ? args.sessionId : undefined;
+  if (requestedSessionId) {
+    const entry = sessions.get(requestedSessionId);
+    if (entry && entry.driver) {
+      try {
+        const sessionCookies: Cookie[] = await entry.driver.getCookies();
+        askCookies = sessionCookies.map((c: Cookie) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          ...(c.sameSite ? { sameSite: c.sameSite } : {}),
+          ...(c.expires > 0 ? { expires: c.expires } : {}),
+        }));
+      } catch {
+        // Cookie read failed — fall back to unauthenticated ask
+      }
+    }
+  }
+
   const { ask } = await import('../ask.js');
   const pool = await getMcpBrowserPool();
   const response = await ask(url, question, {
@@ -2587,6 +2620,7 @@ async function handleAsk(
     maxFindings,
     pool,
     ...(wantScreenshot ? { screenshot: true } : {}),
+    ...(askCookies ? { cookies: askCookies } : {}),
   });
 
   // Build response: text content (the JSON verdict) is always emitted.
