@@ -90,6 +90,22 @@ type ExtractedMeta = {
 // Session store — persistent browser instances (Chrome, Safari, macOS native, iOS/watchOS simulator)
 const sessions = new Map<string, SessionEntry>()
 
+/**
+ * Test-only seam (f2-A closure test): seed/clear the in-memory session map
+ * so unit tests can exercise handleAsk's session→cookies branch without
+ * standing up a real browser session.
+ *
+ * NOT part of the public API — intentionally name-prefixed with `__test_`.
+ */
+/* @internal */
+export function __test_setSession(id: string, entry: SessionEntry | null): void {
+  if (entry === null) {
+    sessions.delete(id);
+  } else {
+    sessions.set(id, entry);
+  }
+}
+
 // --- Content types ---
 
 type McpContent =
@@ -2597,16 +2613,22 @@ async function handleAsk(
     if (entry && entry.driver) {
       try {
         const sessionCookies: Cookie[] = await entry.driver.getCookies();
-        askCookies = sessionCookies.map((c: Cookie) => ({
-          name: c.name,
-          value: c.value,
-          domain: c.domain,
-          path: c.path,
-          secure: c.secure,
-          httpOnly: c.httpOnly,
-          ...(c.sameSite ? { sameSite: c.sameSite } : {}),
-          ...(c.expires > 0 ? { expires: c.expires } : {}),
-        }));
+        // f2-A: mirror the CLI guard (src/bin/ibr.ts ~1095) — only set
+        // askCookies when there are cookies to forward, so the spread
+        // `...(askCookies ? { cookies } : {})` below never injects
+        // `cookies: []` into AskOptions for an empty session.
+        if (sessionCookies.length > 0) {
+          askCookies = sessionCookies.map((c: Cookie) => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            httpOnly: c.httpOnly,
+            ...(c.sameSite ? { sameSite: c.sameSite } : {}),
+            ...(c.expires > 0 ? { expires: c.expires } : {}),
+          }));
+        }
       } catch {
         // Cookie read failed — fall back to unauthenticated ask
       }

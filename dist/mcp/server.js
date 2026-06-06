@@ -17815,16 +17815,18 @@ async function handleAsk(args) {
     if (entry && entry.driver) {
       try {
         const sessionCookies = await entry.driver.getCookies();
-        askCookies = sessionCookies.map((c) => ({
-          name: c.name,
-          value: c.value,
-          domain: c.domain,
-          path: c.path,
-          secure: c.secure,
-          httpOnly: c.httpOnly,
-          ...c.sameSite ? { sameSite: c.sameSite } : {},
-          ...c.expires > 0 ? { expires: c.expires } : {}
-        }));
+        if (sessionCookies.length > 0) {
+          askCookies = sessionCookies.map((c) => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            httpOnly: c.httpOnly,
+            ...c.sameSite ? { sameSite: c.sameSite } : {},
+            ...c.expires > 0 ? { expires: c.expires } : {}
+          }));
+        }
       } catch {
       }
     }

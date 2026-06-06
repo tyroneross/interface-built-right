@@ -6,8 +6,41 @@
  * the host LLM relies on.
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { TOOLS } from './tools.js';
+
+// f2-A: top-level mocks for the dynamic imports handleAsk performs.
+// `vi.hoisted` lets us share the spy between the mock factory (which vitest
+// hoists above all imports) and the assertion code further down. The
+// `import('vitest')` inside `vi.hoisted` is required because the outer `vi`
+// import is itself hoisted-out-of-order by Vitest; calling `vi.fn` inside the
+// factory directly would race the import resolution.
+type F2aAskArgs = [string, string, Record<string, unknown>];
+const f2aHoist = vi.hoisted(async () => {
+  const { vi: viInner } = await import('vitest');
+  const askSpy = viInner.fn<(...args: F2aAskArgs) => Promise<unknown>>(
+    async () => ({
+      verdict: 'PASS',
+      findings: [],
+      evidence: {},
+      meta: {},
+    }),
+  );
+  return { askSpy };
+});
+
+vi.mock('../ask.js', () => ({
+  ask: async (url: string, question: string, opts: Record<string, unknown>) => {
+    const h = await f2aHoist;
+    return h.askSpy(url, question, opts);
+  },
+}));
+
+vi.mock('../engine/browser-pool.js', () => ({
+  BrowserPool: class StubBrowserPool {
+    constructor(_opts: unknown) {}
+  },
+}));
 
 function findTool(name: string) {
   const t = TOOLS.find((tool) => tool.name === name);
@@ -85,5 +118,67 @@ describe('f5: normalizeReadMode lowercases input', () => {
 
   it('normalizeReadMode(undefined) returns "observe"', () => {
     expect(normalizeReadMode(undefined)).toBe('observe');
+  });
+});
+
+// ─── f2-A: handleAsk must not forward `cookies: []` when session has no cookies ──
+//
+// Parity gate with the CLI guard (src/bin/ibr.ts ~1095) and with handleAsk's
+// own intent (src/mcp/tools.ts ~2599-2623): when the resolved session-cookie
+// list is empty, the AskOptions passed to ask() MUST NOT include a `cookies`
+// key. Today the engine's `cookies && cookies.length > 0` guard in askStream
+// absorbs the empty array — but byte-consistency with the CLI path requires
+// askCookies stays undefined so the spread `...(askCookies ? { cookies } : {})`
+// never injects the key.
+//
+// This test exercises the handleAsk path via handleToolCall (the exported
+// entry) and a test-seam that seeds the in-memory session map.
+
+describe('f2-A: handleAsk omits cookies key when session has none', () => {
+  it('does NOT pass a `cookies` key to ask() when getCookies() returns []', async () => {
+    const { askSpy } = await f2aHoist;
+    askSpy.mockClear();
+
+    const mod = await import('./tools.js');
+    const handleToolCall = (mod as unknown as {
+      handleToolCall: (
+        name: string,
+        args: Record<string, unknown>,
+      ) => Promise<unknown>;
+    }).handleToolCall;
+    const setSession = (mod as unknown as {
+      __test_setSession: (id: string, entry: unknown) => void;
+    }).__test_setSession;
+
+    const sessionId = 'f2a-test-empty-cookies';
+
+    // Seed a session whose driver returns ZERO cookies — the exact case the
+    // guard must protect.
+    setSession(sessionId, {
+      driver: {
+        getCookies: async () => [] as unknown[],
+      },
+      type: 'chrome',
+      url: 'https://example.com',
+      createdAt: Date.now(),
+    });
+
+    try {
+      await handleToolCall('ask', {
+        url: 'https://example.com',
+        question: 'touch-target',
+        sessionId,
+      });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    // ask() was reached
+    expect(askSpy).toHaveBeenCalledTimes(1);
+
+    // Third arg is the AskOptions object — `cookies` must NOT be a key.
+    const opts = askSpy.mock.calls[0][2] as Record<string, unknown>;
+    expect(opts).toBeDefined();
+    expect('cookies' in opts).toBe(false);
   });
 });
