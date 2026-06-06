@@ -129,6 +129,7 @@ export function DetailsPanel({
           <button
             onClick={onCheck}
             className="flex items-center justify-center w-9 h-9 rounded-lg text-[#9d9db5] hover:text-[#f0f0f5] hover:bg-[rgba(255,255,255,0.05)] transition-colors duration-200"
+            aria-label="Compare again"
             title="Compare again"
           >
             <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -140,6 +141,7 @@ export function DetailsPanel({
           <button
             onClick={onAccept}
             className="flex items-center justify-center w-9 h-9 rounded-lg text-[#9d9db5] hover:text-[#34d399] hover:bg-[rgba(52,211,153,0.08)] transition-colors duration-200"
+            aria-label="Accept as baseline"
             title="Accept as baseline"
           >
             <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -150,6 +152,7 @@ export function DetailsPanel({
           <button
             onClick={handleDelete}
             onBlur={() => setDeleteConfirm(false)}
+            aria-label="Delete session"
             className={`flex items-center justify-center rounded-lg transition-colors duration-200 ${
               deleteConfirm
                 ? 'px-3 h-9 text-[#fb7185] bg-[rgba(251,113,133,0.08)] text-[11px] font-medium'
@@ -178,10 +181,11 @@ export function DetailsPanel({
           <button
             onClick={handleSendFeedback}
             disabled={!feedback.trim()}
+            aria-disabled={!feedback.trim()}
             className={`self-end px-3 h-8 rounded-lg text-[12px] font-medium transition-all duration-200 ${
               feedback.trim()
                 ? 'text-white bg-gradient-to-br from-[#818cf8] to-[#6366f1] hover:shadow-[0_4px_20px_rgba(99,102,241,0.4)]'
-                : 'text-[#5a5a72] bg-[rgba(255,255,255,0.03)]'
+                : 'text-[#5a5a72] bg-[rgba(255,255,255,0.03)] opacity-60 cursor-not-allowed'
             }`}
           >
             Send

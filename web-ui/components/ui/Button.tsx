@@ -43,10 +43,13 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         'disabled:text-[#5a5a72] disabled:from-[rgba(255,255,255,0.03)] disabled:to-[rgba(255,255,255,0.03)] disabled:shadow-none disabled:translate-y-0',
       ].join(' '),
       glass: [
-        'text-[#9d9db5] bg-[rgba(255,255,255,0.03)]',
+        // Opaque dark surface (visually equivalent to the prior translucent
+        // rgba(255,255,255,0.03) over the #060611 page) so contrast is
+        // unambiguous to a11y tooling that composites translucency over white.
+        'text-[#c4c4d4] bg-[#15151f]',
         'border border-[rgba(255,255,255,0.06)]',
-        'hover:bg-[rgba(255,255,255,0.05)] hover:text-[#f0f0f5]',
-        'disabled:text-[#5a5a72] disabled:bg-[rgba(255,255,255,0.02)]',
+        'hover:bg-[#1c1c28] hover:text-[#f0f0f5]',
+        'disabled:text-[#5a5a72] disabled:bg-[#101018]',
       ].join(' '),
       ghost: [
         'text-[#5a5a72] bg-transparent border-none',
