@@ -12,15 +12,30 @@ const baseElement = (overrides: Partial<EnhancedElement> = {}): EnhancedElement 
     hasOnClick: false,
     hasHref: false,
     isDisabled: false,
+    tabIndex: 0,
     cursor: 'pointer',
   },
-  a11y: { role: 'button', ariaLabel: undefined, ariaDescribedBy: undefined },
+  a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null },
   computedStyles: {},
   ...overrides,
 })
 
-const ctx: RuleContext = { isMobile: false }
-const ctxMobile: RuleContext = { isMobile: true }
+// Minimal rules only read context.isMobile at runtime; the remaining
+// RuleContext fields are required by the type but unused by these tests.
+const ctx: RuleContext = {
+  isMobile: false,
+  viewportWidth: 1280,
+  viewportHeight: 800,
+  url: '',
+  allElements: [],
+}
+const ctxMobile: RuleContext = {
+  isMobile: true,
+  viewportWidth: 390,
+  viewportHeight: 844,
+  url: '',
+  allElements: [],
+}
 
 describe('isLayoutCollapsed', () => {
   it('flags a 0x0 box as collapsed', () => {
@@ -92,7 +107,7 @@ describe('no-handler rule skips form-submit buttons', () => {
         tagName: 'button',
         inForm: true,
         buttonType: 'submit',
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -105,7 +120,7 @@ describe('no-handler rule skips form-submit buttons', () => {
         tagName: 'button',
         inForm: true,
         buttonType: 'button',
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -118,7 +133,7 @@ describe('no-handler rule skips form-submit buttons', () => {
         tagName: 'button',
         inForm: false,
         buttonType: 'submit',
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -131,7 +146,7 @@ describe('no-handler rule skips popup triggers', () => {
     const v = rules.noHandlerRule.check(
       baseElement({
         a11y: { role: 'button', ariaLabel: 'Open menu', ariaDescribedBy: null, ariaHaspopup: 'menu' },
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -141,7 +156,7 @@ describe('no-handler rule skips popup triggers', () => {
   it('still fires on a regular orphan button (no aria-haspopup)', () => {
     const v = rules.noHandlerRule.check(
       baseElement({
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -152,7 +167,7 @@ describe('no-handler rule skips popup triggers', () => {
 describe('no-handler rule skips collapsed elements', () => {
   it('still fires on a real button with no handler', () => {
     const v = rules.noHandlerRule.check(
-      baseElement({ interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' } }),
+      baseElement({ interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' } }),
       ctx,
     )
     expect(v).not.toBeNull()
@@ -163,7 +178,7 @@ describe('no-handler rule skips collapsed elements', () => {
     const v = rules.noHandlerRule.check(
       baseElement({
         bounds: { x: 0, y: 0, width: 0, height: 0 },
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -176,7 +191,7 @@ describe('touch-target-small rule skips collapsed elements', () => {
     const v = rules.touchTargetRule.check(
       baseElement({
         bounds: { x: 0, y: 0, width: 32, height: 32 },
-        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctxMobile,
     )
@@ -188,7 +203,7 @@ describe('touch-target-small rule skips collapsed elements', () => {
     const v = rules.touchTargetRule.check(
       baseElement({
         bounds: { x: 0, y: 0, width: 0, height: 0 },
-        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctxMobile,
     )
@@ -201,7 +216,7 @@ describe('placeholder-link rule skips collapsed elements', () => {
     const v = rules.placeholderLinkRule.check(
       baseElement({
         tagName: 'a',
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -214,7 +229,7 @@ describe('placeholder-link rule skips collapsed elements', () => {
       baseElement({
         tagName: 'a',
         bounds: { x: 0, y: 0, width: 0, height: 0 },
-        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -227,8 +242,8 @@ describe('missing-aria-label rule skips collapsed elements', () => {
     const v = rules.missingAriaLabelRule.check(
       baseElement({
         text: '',
-        a11y: { role: 'button', ariaLabel: undefined, ariaDescribedBy: undefined },
-        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null },
+        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )
@@ -241,8 +256,8 @@ describe('missing-aria-label rule skips collapsed elements', () => {
       baseElement({
         text: '',
         bounds: { x: 0, y: 0, width: 0, height: 0 },
-        a11y: { role: 'button', ariaLabel: undefined, ariaDescribedBy: undefined },
-        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, cursor: 'pointer' },
+        a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null },
+        interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
       }),
       ctx,
     )

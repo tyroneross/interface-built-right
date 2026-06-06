@@ -16,6 +16,7 @@ import {
   MOBILE_SAFARI_UA,
   TABLET_SAFARI_UA,
   ANDROID_CHROME_UA,
+  type DeviceProfile,
 } from './devices.js'
 import { VIEWPORTS } from './schemas.js'
 
@@ -49,7 +50,9 @@ describe('DEVICES registry', () => {
   })
 
   it('desktop profile is mobile:false with no touch', () => {
-    const d = DEVICES['desktop-1440']
+    // Annotate as DeviceProfile so the optional userAgent member is visible
+    // through the `as const satisfies` literal narrowing in DEVICES.
+    const d: DeviceProfile = DEVICES['desktop-1440']
     expect(d.mobile).toBe(false)
     expect(d.hasTouch).toBe(false)
     expect(d.userAgent).toBeUndefined()
