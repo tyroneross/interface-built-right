@@ -26,6 +26,9 @@ coverage/
 web-ui/.next/
 web-ui/node_modules/
 
+# TypeScript incremental build cache (regenerated artifact)
+*.tsbuildinfo
+
 # Environment
 .env
 .env.local
@@ -39,10 +42,13 @@ test-results/
 src/native/swift/**/.build/
 mobile-ui/**/.build/
 
-# build-loop run-local artifacts (state backups, push-hold marker)
+# build-loop run-local artifacts (state backups, push-hold marker, loose run outputs)
 .build-loop/*.bak.*
 .build-loop/state.json.bak.*
 .build-loop/.push-hold
+.build-loop/audit-log.md
+.build-loop/judge-decisions.json
+.build-loop/*.patch
 
 # In-repo safety bundles (created by build-loop pre-flight; keep on disk, don't track)
 archive/*.bundle
