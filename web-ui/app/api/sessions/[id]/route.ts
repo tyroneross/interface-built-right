@@ -2,22 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile, rm } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { resolveSessionDir } from '@/lib/server/ibr-paths';
 
-const IBR_DIR = process.env.IBR_DIR || './.ibr';
+const SESSION_ID_RE = /^(?:sess|live)_[A-Za-z0-9_-]+$/;
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const sessionPath = join(
-      process.cwd(),
-      IBR_DIR,
-      'sessions',
-      id,
-      'session.json'
-    );
+    if (!SESSION_ID_RE.test(id)) {
+      return NextResponse.json({ error: 'Invalid session id' }, { status: 400 });
+    }
+    const sessionPath = join(resolveSessionDir(id), 'session.json');
 
     if (!existsSync(sessionPath)) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
@@ -36,14 +34,17 @@ export async function GET(
   }
 }
 
-// DELETE /api/sessions/[id] - Delete a session
+// DELETE /api/sessions/[id] - Delete a session.
 export async function DELETE(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const sessionDir = join(process.cwd(), IBR_DIR, 'sessions', id);
+    if (!SESSION_ID_RE.test(id)) {
+      return NextResponse.json({ error: 'Invalid session id' }, { status: 400 });
+    }
+    const sessionDir = resolveSessionDir(id);
 
     if (!existsSync(sessionDir)) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });

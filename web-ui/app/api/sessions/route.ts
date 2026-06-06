@@ -2,23 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readdir, readFile, mkdir, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import type { Session, InteractiveMetadata } from '@/lib/types';
+import type { Session } from '@/lib/types';
+import { resolveSessionsDir, resolveSessionDir } from '@/lib/server/ibr-paths';
+import { runIbrCli } from '@/lib/server/run-ibr';
 
-const execAsync = promisify(exec);
-const IBR_DIR = process.env.IBR_DIR || './.ibr';
-
-// Check if a live session's browser is still running
-// (In practice this is managed by liveSessionManager in-memory)
-function isLiveSessionActive(sessionDir: string): boolean {
-  // Check for a .active marker file that live-session.ts could create
-  // For now, we'll mark all live sessions as closed since browser state
-  // doesn't persist across process restarts
+// Live-session presence is tracked by the in-process live-session manager.
+// Persistent files alone cannot prove an active browser — return false here
+// so resumed sessions show as 'closed' until the manager confirms otherwise.
+function isLiveSessionActive(_sessionDir: string): boolean {
   return false;
 }
 
-// Convert live-session.json to Session format
 function convertLiveSession(liveData: {
   id: string;
   url: string;
@@ -68,7 +62,7 @@ function convertLiveSession(liveData: {
 
 export async function GET() {
   try {
-    const sessionsDir = join(process.cwd(), IBR_DIR, 'sessions');
+    const sessionsDir = resolveSessionsDir();
 
     if (!existsSync(sessionsDir)) {
       return NextResponse.json({ sessions: [] });
@@ -80,7 +74,6 @@ export async function GET() {
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
 
-      // Regular capture/reference sessions (sess_*)
       if (entry.name.startsWith('sess_')) {
         const sessionPath = join(sessionsDir, entry.name, 'session.json');
         if (existsSync(sessionPath)) {
@@ -89,7 +82,6 @@ export async function GET() {
         }
       }
 
-      // Interactive/live sessions (live_*)
       if (entry.name.startsWith('live_')) {
         const sessionPath = join(sessionsDir, entry.name, 'live-session.json');
         if (existsSync(sessionPath)) {
@@ -101,10 +93,8 @@ export async function GET() {
       }
     }
 
-    // Sort by creation date, newest first
     sessions.sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
 
     return NextResponse.json({ sessions });
@@ -118,29 +108,46 @@ export async function GET() {
 }
 
 // POST /api/sessions - Create a new session
+//
+// Two paths:
+//   - With url + name → invoke the IBR CLI via runIbrCli (no shell) and read
+//     the resulting session record.
+//   - Name only → create an empty session record with no capture.
 export async function POST(request: NextRequest) {
   try {
-    const { url, name, viewport = 'desktop' } = await request.json();
+    const body = await request.json();
+    const { url, name, viewport = 'desktop' } = body as {
+      url?: unknown;
+      name?: unknown;
+      viewport?: unknown;
+    };
 
-    if (!name) {
+    if (typeof name !== 'string' || !name.trim()) {
       return NextResponse.json({ error: 'Name is required' }, { status: 400 });
     }
 
-    // If URL is provided, use CLI to capture; otherwise create empty session
-    if (url) {
-      // Build CLI command
-      const args = [`start "${url}"`];
-      args.push(`--name "${name}"`);
-      args.push(`--viewport ${viewport}`);
+    const viewportArg: 'desktop' | 'mobile' | 'tablet' =
+      viewport === 'mobile' || viewport === 'tablet' ? viewport : 'desktop';
 
-      // Run ibr CLI command from parent directory
-      const parentDir = join(process.cwd(), '..');
-      const command = `npm run ibr -- ${args.join(' ')}`;
+    if (url !== undefined && url !== null && url !== '') {
+      if (typeof url !== 'string') {
+        return NextResponse.json({ error: 'url must be a string' }, { status: 400 });
+      }
+      try {
+        new URL(url);
+      } catch {
+        return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
+      }
 
-      const { stdout, stderr } = await execAsync(command, { cwd: parentDir });
+      const { stdout, stderr } = await runIbrCli([
+        'start',
+        url,
+        '--name',
+        name,
+        '--viewport',
+        viewportArg,
+      ]);
 
-      // Parse session ID from output
-      // Note: nanoid can include dashes and underscores, so use a more permissive regex
       const sessionIdMatch = stdout.match(/Session started: (sess_[\w-]+)/);
       if (!sessionIdMatch) {
         console.error('CLI output:', stdout, stderr);
@@ -151,40 +158,34 @@ export async function POST(request: NextRequest) {
       }
 
       const sessionId = sessionIdMatch[1];
-
-      // Read the created session
-      const sessionPath = join(process.cwd(), IBR_DIR, 'sessions', sessionId, 'session.json');
+      const sessionPath = join(resolveSessionDir(sessionId), 'session.json');
       const content = await readFile(sessionPath, 'utf-8');
       const session = JSON.parse(content);
 
       return NextResponse.json({ session, sessionId });
     } else {
-      // Create empty session without capturing
       const { nanoid } = await import('nanoid');
       const sessionId = `sess_${nanoid(10)}`;
-      const sessionDir = join(process.cwd(), IBR_DIR, 'sessions', sessionId);
+      const sessionDir = resolveSessionDir(sessionId);
 
-      // Create session directory
       await mkdir(sessionDir, { recursive: true });
 
-      // Create minimal session
       const now = new Date().toISOString();
       const session: Session = {
         id: sessionId,
-        name,
-        url: '',  // No URL - empty session
+        name: name.trim(),
+        url: '',
         type: 'capture',
         viewport: {
-          name: viewport as 'desktop' | 'mobile' | 'tablet',
-          width: viewport === 'mobile' ? 375 : viewport === 'tablet' ? 768 : 1920,
-          height: viewport === 'mobile' ? 667 : viewport === 'tablet' ? 1024 : 1080,
+          name: viewportArg,
+          width: viewportArg === 'mobile' ? 375 : viewportArg === 'tablet' ? 768 : 1920,
+          height: viewportArg === 'mobile' ? 667 : viewportArg === 'tablet' ? 1024 : 1080,
         },
         status: 'pending',
         createdAt: now,
         updatedAt: now,
       };
 
-      // Save session.json
       const sessionPath = join(sessionDir, 'session.json');
       await writeFile(sessionPath, JSON.stringify(session, null, 2));
 

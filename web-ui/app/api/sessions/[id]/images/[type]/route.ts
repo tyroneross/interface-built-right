@@ -2,34 +2,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { resolveSessionDir } from '@/lib/server/ibr-paths';
 
-const IBR_DIR = process.env.IBR_DIR || './.ibr';
+const SESSION_ID_RE = /^(?:sess|live)_[A-Za-z0-9_-]+$/;
+const ALLOWED_TYPES = new Set(['baseline', 'current', 'diff']);
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string; type: string }> }
 ) {
   try {
     const { id, type } = await params;
 
-    // Validate type
-    if (!['baseline', 'current', 'diff'].includes(type)) {
-      return NextResponse.json(
-        { error: 'Invalid image type' },
-        { status: 400 }
-      );
+    if (!SESSION_ID_RE.test(id)) {
+      return NextResponse.json({ error: 'Invalid session id' }, { status: 400 });
+    }
+    if (!ALLOWED_TYPES.has(type)) {
+      return NextResponse.json({ error: 'Invalid image type' }, { status: 400 });
     }
 
-    const imagePath = join(
-      process.cwd(),
-      IBR_DIR,
-      'sessions',
-      id,
-      `${type}.png`
-    );
+    const imagePath = join(resolveSessionDir(id), `${type}.png`);
 
     if (!existsSync(imagePath)) {
-      // Return a placeholder image or 404
       return NextResponse.json({ error: 'Image not found' }, { status: 404 });
     }
 

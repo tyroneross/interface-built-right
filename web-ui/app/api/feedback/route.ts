@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { resolveIbrDir } from '@/lib/server/ibr-paths';
 
-const IBR_DIR = process.env.IBR_DIR || './.ibr';
-
+// POST /api/feedback - Write a viewer-submitted feedback note to <ibrDir>/feedback/pending.md
+// so the next coding agent in the loop can pick it up. Real backing: file on disk.
 export async function POST(request: NextRequest) {
   try {
     const { sessionId, feedback } = await request.json();
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Feedback is required' }, { status: 400 });
     }
 
-    const feedbackDir = join(process.cwd(), IBR_DIR, 'feedback');
+    const feedbackDir = join(resolveIbrDir(), 'feedback');
     await mkdir(feedbackDir, { recursive: true });
 
     const feedbackPath = join(feedbackDir, 'pending.md');
@@ -38,7 +39,7 @@ ${feedback}
     return NextResponse.json({
       success: true,
       message: 'Feedback saved. Claude can now read it.',
-      path: feedbackPath
+      path: feedbackPath,
     });
   } catch (error) {
     console.error('Error saving feedback:', error);
@@ -51,7 +52,7 @@ ${feedback}
 
 export async function GET() {
   try {
-    const feedbackPath = join(process.cwd(), IBR_DIR, 'feedback', 'pending.md');
+    const feedbackPath = join(resolveIbrDir(), 'feedback', 'pending.md');
 
     if (!existsSync(feedbackPath)) {
       return NextResponse.json({ feedback: null });

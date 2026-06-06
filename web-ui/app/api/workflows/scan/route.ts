@@ -1,30 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { join } from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
+import { runIbrCli } from '@/lib/server/run-ibr';
 
-const execAsync = promisify(exec);
-
-// POST /api/workflows/scan - Run full interface scan on a URL
+// POST /api/workflows/scan - Run a full interface scan on a URL.
+// Uses execFile (argument array) via runIbrCli — no shell, no string-concat,
+// no command injection.
 export async function POST(request: NextRequest) {
   try {
-    const { url, viewport } = await request.json();
+    const body = await request.json();
+    const { url, viewport } = body as { url?: unknown; viewport?: unknown };
 
-    if (!url) {
-      return NextResponse.json(
-        { error: 'url is required' },
-        { status: 400 }
-      );
+    if (typeof url !== 'string' || !url.trim()) {
+      return NextResponse.json({ error: 'url is required' }, { status: 400 });
+    }
+    try {
+      new URL(url);
+    } catch {
+      return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
     }
 
-    const parentDir = join(process.cwd(), '..');
-    const vpFlag = viewport ? ` --viewport ${viewport}` : '';
-    const command = `npm run ibr -- scan ${url} --json${vpFlag}`;
+    const args: string[] = ['scan', url, '--json'];
+    if (viewport !== undefined && viewport !== null && viewport !== '') {
+      if (typeof viewport !== 'string') {
+        return NextResponse.json(
+          { error: 'viewport must be a string' },
+          { status: 400 }
+        );
+      }
+      args.push('--viewport', viewport);
+    }
 
-    const { stdout, stderr } = await execAsync(command, {
-      cwd: parentDir,
-      timeout: 120000,
-    });
+    const { stdout, stderr } = await runIbrCli(args, { timeoutMs: 120_000 });
 
     let result;
     try {
@@ -33,11 +38,7 @@ export async function POST(request: NextRequest) {
       result = { raw: stdout, stderr };
     }
 
-    return NextResponse.json({
-      success: true,
-      url,
-      result,
-    });
+    return NextResponse.json({ success: true, url, result });
   } catch (error) {
     console.error('Error running scan:', error);
     return NextResponse.json(

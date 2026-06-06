@@ -1,19 +1,24 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readFile, writeFile, copyFile, access } from 'fs/promises';
+import { readFile, writeFile, copyFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
+import { resolveSessionDir } from '@/lib/server/ibr-paths';
 
-const IBR_DIR = process.env.IBR_DIR || './.ibr';
+const SESSION_ID_RE = /^sess_[A-Za-z0-9_-]+$/;
 
-// POST /api/sessions/[id]/accept - Accept current as new baseline
-// Uses direct file operations instead of shelling out to CLI
+// POST /api/sessions/[id]/accept - Promote current screenshot to baseline.
+// Pure file operations; no shell. (This route was already shell-free; the only
+// change here is the path-resolution helper.)
 export async function POST(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    const sessionDir = join(process.cwd(), IBR_DIR, 'sessions', id);
+    if (!SESSION_ID_RE.test(id)) {
+      return NextResponse.json({ error: 'Invalid session id' }, { status: 400 });
+    }
+    const sessionDir = resolveSessionDir(id);
     const sessionPath = join(sessionDir, 'session.json');
 
     if (!existsSync(sessionDir) || !existsSync(sessionPath)) {
@@ -23,7 +28,6 @@ export async function POST(
     const baselinePath = join(sessionDir, 'baseline.png');
     const currentPath = join(sessionDir, 'current.png');
 
-    // Current screenshot must exist to accept it as baseline
     if (!existsSync(currentPath)) {
       return NextResponse.json(
         {
@@ -34,10 +38,8 @@ export async function POST(
       );
     }
 
-    // Copy current to baseline (overwrite)
     await copyFile(currentPath, baselinePath);
 
-    // Read and update session
     const content = await readFile(sessionPath, 'utf-8');
     const session = JSON.parse(content);
 

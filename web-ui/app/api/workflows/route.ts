@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { readdir, readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
-
-const IBR_DIR = process.env.IBR_DIR || './.ibr';
+import { resolveSessionsDir } from '@/lib/server/ibr-paths';
 
 interface WorkflowItem {
   id: string;
@@ -18,7 +17,7 @@ interface WorkflowItem {
 
 export async function GET() {
   try {
-    const sessionsDir = join(process.cwd(), IBR_DIR, 'sessions');
+    const sessionsDir = resolveSessionsDir();
 
     if (!existsSync(sessionsDir)) {
       return NextResponse.json({ workflows: [] });
@@ -38,7 +37,6 @@ export async function GET() {
       try {
         const sessionData = JSON.parse(await readFile(sessionJsonPath, 'utf-8'));
 
-        // Determine workflow status from session data
         let status: WorkflowItem['status'] = 'pending';
 
         if (sessionData.status === 'comparing') {
@@ -62,14 +60,12 @@ export async function GET() {
           diffPercent: sessionData.comparison?.diffPercent,
         });
       } catch {
-        // Skip sessions with invalid JSON
         continue;
       }
     }
 
-    // Sort by startedAt descending (most recent first)
-    workflows.sort((a, b) =>
-      new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+    workflows.sort(
+      (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
     );
 
     return NextResponse.json({ workflows });

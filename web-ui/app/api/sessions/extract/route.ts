@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
-const IBR_DIR = process.env.IBR_DIR || './.ibr';
+import { resolveSessionsDir } from '@/lib/server/ibr-paths';
+import { runIbrCli } from '@/lib/server/run-ibr';
 
 interface ReferenceSession {
   id: string;
@@ -28,50 +25,50 @@ interface ReferenceSession {
   };
 }
 
-async function runIbr(args: string): Promise<string> {
-  const parentDir = join(process.cwd(), '..');
-  const { stdout } = await execAsync(`npm run ibr -- ${args}`, {
-    cwd: parentDir,
-    timeout: 120000,
-  });
-  return stdout;
-}
-
+// POST /api/sessions/extract - Build a reference session from a live URL.
+// Runs IBR's scan + screenshot via execFile (argv), no shell.
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { url, metadata } = body;
+    const { url, metadata } = body as {
+      url?: unknown;
+      metadata?: Record<string, unknown>;
+    };
 
-    if (!url) {
+    if (typeof url !== 'string' || !url.trim()) {
       return NextResponse.json({ error: 'URL is required' }, { status: 400 });
     }
 
+    let parsed: URL;
     try {
-      new URL(url);
+      parsed = new URL(url);
     } catch {
       return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
     }
 
-    const name = metadata?.name || new URL(url).hostname;
+    const name =
+      typeof metadata?.name === 'string' && metadata.name.trim()
+        ? (metadata.name as string)
+        : parsed.hostname;
     const sessionId = `sess_${nanoid(10)}`;
-    const ibrDir = join(process.cwd(), IBR_DIR);
-    const sessionDir = join(ibrDir, 'sessions', sessionId);
+    const sessionDir = join(resolveSessionsDir(), sessionId);
     await mkdir(sessionDir, { recursive: true });
 
-    // Use IBR's own CDP engine to scan and screenshot
-    const [scanRaw, screenshotRaw] = await Promise.all([
-      runIbr(`scan ${url} --json`),
-      runIbr(`screenshot ${url} --output ${join(sessionDir, 'reference.png')}`),
+    const referencePath = join(sessionDir, 'reference.png');
+
+    // Use IBR's own CDP engine to scan and screenshot in parallel.
+    const [scanRes, _screenshotRes] = await Promise.all([
+      runIbrCli(['scan', url, '--json'], { timeoutMs: 120_000 }),
+      runIbrCli(['screenshot', url, '--output', referencePath], { timeoutMs: 120_000 }),
     ]);
 
-    let scanData;
+    let scanData: { elements?: unknown[]; cssVariables?: Record<string, unknown>; raw?: string };
     try {
-      scanData = JSON.parse(scanRaw);
+      scanData = JSON.parse(scanRes.stdout);
     } catch {
-      scanData = { raw: scanRaw };
+      scanData = { raw: scanRes.stdout };
     }
 
-    // Save extraction data
     const extractionData = {
       url,
       timestamp: new Date().toISOString(),
@@ -85,11 +82,10 @@ export async function POST(request: NextRequest) {
       JSON.stringify(extractionData, null, 2)
     );
 
-    // Create session record
     const now = new Date().toISOString();
     const session: ReferenceSession = {
       id: sessionId,
-      name: name.trim(),
+      name: String(name).trim(),
       url,
       type: 'reference',
       viewport: { name: 'desktop', width: 1920, height: 1080 },
@@ -97,10 +93,11 @@ export async function POST(request: NextRequest) {
       createdAt: now,
       updatedAt: now,
       referenceMetadata: {
-        framework: metadata?.framework || undefined,
-        componentLibrary: metadata?.componentLibrary || undefined,
-        targetPath: metadata?.targetPath || undefined,
-        notes: metadata?.notes || undefined,
+        framework: typeof metadata?.framework === 'string' ? metadata.framework : undefined,
+        componentLibrary:
+          typeof metadata?.componentLibrary === 'string' ? metadata.componentLibrary : undefined,
+        targetPath: typeof metadata?.targetPath === 'string' ? metadata.targetPath : undefined,
+        notes: typeof metadata?.notes === 'string' ? metadata.notes : undefined,
         originalUrl: url,
         extractedAt: now,
         dimensions: { width: 1920, height: 1080 },
