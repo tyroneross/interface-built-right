@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runIbrCli } from '@/lib/server/run-ibr';
+import { runIbrCli, extractJson } from '@/lib/server/run-ibr';
 
 // POST /api/workflows/baseline - Capture a baseline for a URL, then immediately
 // scan to identify elements. Both calls go through runIbrCli (execFile + argv),
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
       const scanArgs: string[] = ['scan', url, '--json'];
       if (viewport) scanArgs.push('--viewport', viewport as string);
       const { stdout: scanOut } = await runIbrCli(scanArgs, { timeoutMs: 120_000 });
-      scanResult = JSON.parse(scanOut);
+      scanResult = extractJson(scanOut);
     } catch {
       scanResult = null;
     }

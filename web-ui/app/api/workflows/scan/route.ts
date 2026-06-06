@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { runIbrCli } from '@/lib/server/run-ibr';
+import { runIbrCli, extractJson } from '@/lib/server/run-ibr';
 
 // POST /api/workflows/scan - Run a full interface scan on a URL.
 // Uses execFile (argument array) via runIbrCli — no shell, no string-concat,
@@ -31,12 +31,8 @@ export async function POST(request: NextRequest) {
 
     const { stdout, stderr } = await runIbrCli(args, { timeoutMs: 120_000 });
 
-    let result;
-    try {
-      result = JSON.parse(stdout);
-    } catch {
-      result = { raw: stdout, stderr };
-    }
+    const parsed = extractJson<Record<string, unknown>>(stdout);
+    const result = parsed ?? { raw: stdout, stderr };
 
     return NextResponse.json({ success: true, url, result });
   } catch (error) {

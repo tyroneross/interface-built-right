@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { resolveSessionDir } from '@/lib/server/ibr-paths';
-import { runIbrCli } from '@/lib/server/run-ibr';
+import { runIbrCli, extractJson } from '@/lib/server/run-ibr';
 
 const SESSION_ID_RE = /^sess_[A-Za-z0-9_-]+$/;
 
@@ -40,12 +40,8 @@ export async function POST(
 
     const { stdout } = await runIbrCli(['check', id, '--json'], { timeoutMs: 120_000 });
 
-    let result;
-    try {
-      result = JSON.parse(stdout);
-    } catch {
-      result = { raw: stdout };
-    }
+    const parsed = extractJson<Record<string, unknown>>(stdout);
+    const result = parsed ?? { raw: stdout };
 
     const updated = JSON.parse(await readFile(sessionPath, 'utf-8'));
 

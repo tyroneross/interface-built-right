@@ -3,7 +3,7 @@ import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
 import { resolveSessionsDir } from '@/lib/server/ibr-paths';
-import { runIbrCli } from '@/lib/server/run-ibr';
+import { runIbrCli, extractJson } from '@/lib/server/run-ibr';
 
 interface ReferenceSession {
   id: string;
@@ -62,12 +62,12 @@ export async function POST(request: NextRequest) {
       runIbrCli(['screenshot', url, '--output', referencePath], { timeoutMs: 120_000 }),
     ]);
 
-    let scanData: { elements?: unknown[]; cssVariables?: Record<string, unknown>; raw?: string };
-    try {
-      scanData = JSON.parse(scanRes.stdout);
-    } catch {
-      scanData = { raw: scanRes.stdout };
-    }
+    const parsedScan = extractJson<{
+      elements?: unknown[];
+      cssVariables?: Record<string, unknown>;
+    }>(scanRes.stdout);
+    const scanData: { elements?: unknown[]; cssVariables?: Record<string, unknown>; raw?: string } =
+      parsedScan ?? { raw: scanRes.stdout };
 
     const extractionData = {
       url,

@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Button } from '@/components/ui';
+import { ScanSummary } from '@/components/scan/ScanSummary';
+import type { ScanResponse } from '@/lib/types';
 
 interface WorkflowItem {
   id: string;
@@ -51,6 +53,11 @@ export default function WorkflowsPage() {
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Latest live-scan result, rendered read-only beneath the workflow list.
+  const [scanResult, setScanResult] = useState<ScanResponse | null>(null);
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+
   const fetchWorkflows = useCallback(async () => {
     try {
       const res = await fetch('/api/workflows');
@@ -73,19 +80,27 @@ export default function WorkflowsPage() {
   const handleRunScan = useCallback(async () => {
     const url = prompt('Enter URL to scan (e.g., http://localhost:3000)');
     if (!url) return;
+    setScanLoading(true);
+    setScanError(null);
     try {
-      await fetch('/api/workflows/scan', {
+      const res = await fetch('/api/workflows/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
       });
+      const json = (await res.json()) as ScanResponse | { error?: string };
+      if (!res.ok || 'error' in json) {
+        throw new Error(('error' in json && json.error) || `HTTP ${res.status}`);
+      }
+      setScanResult(json as ScanResponse);
       fetchWorkflows();
     } catch (err) {
-      console.error('Scan failed:', err);
+      setScanError(err instanceof Error ? err.message : 'Scan failed');
+    } finally {
+      setScanLoading(false);
     }
   }, [fetchWorkflows]);
 
-  // Sort: running first, then by time descending
   const sorted = [...workflows].sort((a, b) => {
     if (a.status === 'running' && b.status !== 'running') return -1;
     if (b.status === 'running' && a.status !== 'running') return 1;
@@ -96,12 +111,12 @@ export default function WorkflowsPage() {
     <div className="max-w-3xl mx-auto px-6 py-8">
       {/* Top-right scan button */}
       <div className="flex justify-end mb-6">
-        <Button variant="primary" size="sm" onClick={handleRunScan}>
+        <Button variant="primary" size="sm" onClick={handleRunScan} loading={scanLoading}>
           Run Scan
         </Button>
       </div>
 
-      {/* Unified list */}
+      {/* Workflow list */}
       {loading ? (
         <div className="rounded-xl border border-[rgba(255,255,255,0.06)] p-8 text-center">
           <div className="animate-shimmer h-4 w-48 mx-auto rounded" />
@@ -138,17 +153,14 @@ export default function WorkflowsPage() {
                 <span className="w-2 h-2 rounded-full bg-[#5a5a72] shrink-0" />
               )}
 
-              {/* Name */}
               <span className="text-[13px] font-medium text-[#f0f0f5] truncate min-w-0 shrink">
                 {w.name || w.id}
               </span>
 
-              {/* URL */}
               <span className="text-[11px] text-[#5a5a72] truncate min-w-0 flex-1">
                 {w.url}
               </span>
 
-              {/* Verdict / running */}
               {w.status === 'running' ? (
                 <span className="text-[11px] text-[#818cf8] shrink-0">
                   running {formatElapsed(w.startedAt)}
@@ -166,12 +178,46 @@ export default function WorkflowsPage() {
                 </>
               ) : null}
 
-              {/* Timestamp */}
               <span className="text-[11px] text-[#5a5a72] shrink-0 w-16 text-right">
                 {formatTime(w.startedAt)}
               </span>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Latest-scan read-only view (v1.2.0 sensors + designSystem) */}
+      {scanError && (
+        <div className="mt-6 rounded-xl border border-[rgba(251,113,133,0.2)] bg-[rgba(251,113,133,0.05)] p-4 text-center">
+          <p className="text-[13px] text-[#fb7185]">Scan failed: {scanError}</p>
+        </div>
+      )}
+
+      {scanResult && (
+        <div className="mt-6 space-y-4">
+          <div className="flex items-baseline gap-3 px-1">
+            <h2 className="text-[13px] font-medium text-[#f0f0f5]">Latest scan</h2>
+            {scanResult.result?.verdict && (
+              <span
+                className={`text-[11px] font-medium ${
+                  scanResult.result.verdict === 'PASS'
+                    ? 'text-[#34d399]'
+                    : scanResult.result.verdict === 'ISSUES'
+                      ? 'text-[#fbbf24]'
+                      : scanResult.result.verdict === 'FAIL'
+                        ? 'text-[#fb7185]'
+                        : 'text-[#5a5a72]'
+                }`}
+              >
+                {scanResult.result.verdict}
+              </span>
+            )}
+            <span className="text-[11px] text-[#5a5a72] truncate">{scanResult.url}</span>
+          </div>
+          <ScanSummary
+            sensors={scanResult.result?.sensors}
+            designSystem={scanResult.result?.designSystem}
+          />
         </div>
       )}
     </div>

@@ -2,49 +2,56 @@
 
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui';
+import { ScanSummary } from '@/components/scan/ScanSummary';
+import type { ScanResponse } from '@/lib/types';
 
-interface Violation {
-  id: string;
-  severity: 'error' | 'warn';
-  principle: string;
-  description: string;
-}
-
-interface DesignSystemData {
-  complianceScore: number;
-  violations: Violation[];
-  lastValidated?: string;
-}
-
+// Lightweight viewer: enter a URL, run the IBR scan, render design-system
+// principle/token violations + sensor summaries READ-ONLY. The web-ui does
+// not produce any of this data — it shows what the IBR CLI/library emits.
 export default function DesignSystemPage() {
-  const [data, setData] = useState<DesignSystemData | null>(null);
+  const [url, setUrl] = useState('');
+  const [result, setResult] = useState<ScanResponse['result'] | null>(null);
+  const [scannedUrl, setScannedUrl] = useState<string | null>(null);
+  const [lastValidated, setLastValidated] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleValidate = useCallback(async () => {
+    const trimmed = url.trim();
+    if (!trimmed) {
+      setError('Enter a URL to validate');
+      return;
+    }
+    try {
+      new URL(trimmed);
+    } catch {
+      setError('Invalid URL — must include scheme (http:// or https://)');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/design-system/validate', { method: 'POST' });
-      if (!res.ok) {
-        // API may not exist yet — show empty state gracefully
-        throw new Error('Validation endpoint not available');
-      }
-      const result = await res.json();
-      setData({
-        complianceScore: result.complianceScore ?? 0,
-        violations: (result.violations ?? []).map((v: Violation, i: number) => ({
-          ...v,
-          id: v.id || `v-${i}`,
-        })),
-        lastValidated: new Date().toISOString(),
+      const res = await fetch('/api/workflows/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: trimmed }),
       });
+      const json = (await res.json()) as ScanResponse | { error?: string };
+      if (!res.ok || 'error' in json) {
+        throw new Error(('error' in json && json.error) || `HTTP ${res.status}`);
+      }
+      const r = (json as ScanResponse).result;
+      setResult(r);
+      setScannedUrl((json as ScanResponse).url);
+      setLastValidated(new Date().toISOString());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Validation failed');
+      setResult(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [url]);
 
   const formatRelativeTime = (iso: string) => {
     const ms = Date.now() - new Date(iso).getTime();
@@ -54,20 +61,62 @@ export default function DesignSystemPage() {
     return `${Math.floor(mins / 60)}h ago`;
   };
 
+  const ds = result?.designSystem;
+  const sensors = result?.sensors;
+
   return (
     <div className="max-w-3xl mx-auto px-6 py-8">
-      {/* Score */}
+      {/* URL + validate */}
+      <div className="flex gap-2 mb-6">
+        <input
+          type="url"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
+          placeholder="http://localhost:3000"
+          className="flex-1 rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)] px-3 py-2 text-[13px] text-[#f0f0f5] placeholder:text-[#5a5a72] focus:outline-none focus:border-[rgba(255,255,255,0.18)]"
+          onKeyDown={e => {
+            if (e.key === 'Enter') handleValidate();
+          }}
+        />
+        <Button variant="primary" onClick={handleValidate} loading={loading}>
+          Validate
+        </Button>
+      </div>
+
+      {/* Compliance headline */}
       <div className="text-center mb-8">
-        {data ? (
+        {ds ? (
           <>
             <p
               className="text-5xl font-bold text-[#818cf8] mb-2"
               style={{ fontSize: '48px' }}
             >
-              {data.complianceScore}%
+              {ds.complianceScore}%
             </p>
             <p className="text-[13px] text-[#9d9db5]">
-              {data.violations.length} violation{data.violations.length !== 1 ? 's' : ''} found
+              {ds.principleViolations.length + ds.customViolations.length} principle violation
+              {ds.principleViolations.length + ds.customViolations.length !== 1 ? 's' : ''}
+              {' · '}
+              {ds.tokenViolations.length} token violation
+              {ds.tokenViolations.length !== 1 ? 's' : ''}
+            </p>
+            {scannedUrl && (
+              <p className="text-[11px] text-[#5a5a72] mt-1 truncate max-w-full">
+                {scannedUrl}
+              </p>
+            )}
+          </>
+        ) : result && !ds ? (
+          <>
+            <p className="text-5xl font-bold text-[#5a5a72] mb-2" style={{ fontSize: '48px' }}>
+              n/a
+            </p>
+            <p className="text-[13px] text-[#9d9db5]">
+              No design system configured for this scan.
+            </p>
+            <p className="text-[11px] text-[#5a5a72] mt-1">
+              Add <code className="text-[#818cf8]">.ibr/design-system.json</code> at the project
+              root and re-run.
             </p>
           </>
         ) : (
@@ -76,46 +125,16 @@ export default function DesignSystemPage() {
               --
             </p>
             <p className="text-[13px] text-[#5a5a72]">
-              Run validation to check design system compliance
+              Enter a URL and click Validate to scan
             </p>
           </>
         )}
       </div>
 
-      {/* Violations list */}
-      {data && data.violations.length > 0 && (
-        <div className="rounded-xl border border-[rgba(255,255,255,0.06)] overflow-hidden mb-8">
-          {data.violations.map((v, i) => (
-            <div
-              key={v.id}
-              className={`
-                flex items-center gap-3 px-4 py-3
-                ${i > 0 ? 'border-t border-[rgba(255,255,255,0.04)]' : ''}
-              `}
-            >
-              {/* Severity dot */}
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  v.severity === 'error' ? 'bg-[#fb7185]' : 'bg-[#fbbf24]'
-                }`}
-              />
-              {/* Principle */}
-              <span className="text-[13px] font-medium text-[#f0f0f5] shrink-0">
-                {v.principle}
-              </span>
-              {/* Description */}
-              <span className="text-[13px] text-[#9d9db5] truncate">
-                {v.description}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Empty violations */}
-      {data && data.violations.length === 0 && (
-        <div className="rounded-xl border border-[rgba(255,255,255,0.06)] p-8 text-center mb-8">
-          <p className="text-[13px] text-[#34d399]">No violations found</p>
+      {/* Read-only scan view: design-system + sensors */}
+      {result && (ds || sensors) && (
+        <div className="mb-8">
+          <ScanSummary sensors={sensors} designSystem={ds} />
         </div>
       )}
 
@@ -126,17 +145,14 @@ export default function DesignSystemPage() {
         </div>
       )}
 
-      {/* Validate button + timestamp */}
-      <div className="flex items-center justify-center gap-4">
-        <Button variant="primary" onClick={handleValidate} loading={loading}>
-          Validate Now
-        </Button>
-        {data?.lastValidated && (
+      {/* Timestamp */}
+      {lastValidated && (
+        <div className="flex items-center justify-center">
           <span className="text-[11px] text-[#5a5a72]">
-            Last validated: {formatRelativeTime(data.lastValidated)}
+            Last validated: {formatRelativeTime(lastValidated)}
           </span>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

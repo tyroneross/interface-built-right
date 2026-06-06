@@ -3,7 +3,7 @@ import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import { resolveSessionDir } from '@/lib/server/ibr-paths';
-import { runIbrCli } from '@/lib/server/run-ibr';
+import { runIbrCli, extractJson } from '@/lib/server/run-ibr';
 
 // Session IDs are nanoid-shaped: sess_<10 alnum/_/->. Reject anything else to
 // keep the argv array clean and prevent surprises (the runIbrCli layer is
@@ -46,7 +46,11 @@ export async function POST(request: NextRequest) {
 
       try {
         const { stdout } = await runIbrCli(['check', id, '--format', 'json']);
-        const report = JSON.parse(stdout);
+        const report = extractJson(stdout);
+        if (report === null) {
+          results.push({ sessionId: id, success: false, error: 'Could not parse CLI output' });
+          continue;
+        }
         const sessionPath = join(sessionDir, 'session.json');
         const content = await readFile(sessionPath, 'utf-8');
         const session = JSON.parse(content);
