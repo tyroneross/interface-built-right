@@ -39,5 +39,84 @@
     "iterate": "complete",
     "factcheck": "complete",
     "report": "complete"
-  }
+  },
+  "runs": [
+    {
+      "run_id": "hook_20260604T215126Z",
+      "date": "20260604T215126Z",
+      "goal": "(hook-only commit; no orchestrator run)",
+      "outcome": "partial",
+      "phases": {},
+      "filesTouched": [],
+      "diagnosticCommands": [],
+      "manualInterventions": [],
+      "active_experimental_artifacts": [],
+      "judge_decisions": [
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "da2e9fd",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "40 files staged",
+          "ts": "2026-06-04T21:51:26+00:00"
+        },
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "398c240",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "2 files staged",
+          "ts": "2026-06-04T22:00:41+00:00"
+        },
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "58b11f4",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "14 files staged",
+          "ts": "2026-06-06T05:23:05+00:00"
+        },
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "d9afc9e",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "4 files staged",
+          "ts": "2026-06-06T05:41:38+00:00"
+        },
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "72a5da3",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "16 files staged",
+          "ts": "2026-06-06T06:05:54+00:00"
+        },
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "5ce18b3",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "3 files staged",
+          "ts": "2026-06-06T06:46:48+00:00"
+        },
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "f4107ee",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "1 files staged",
+          "ts": "2026-06-06T21:04:32+00:00"
+        },
+        {
+          "judge_id": "independent-auditor-hook",
+          "target": "f5d72ea",
+          "status": "packet_emitted",
+          "verdict": "pending",
+          "brief": "4 files staged",
+          "ts": "2026-06-06T22:35:23+00:00"
+        }
+      ]
+    }
+  ]
 }
