@@ -1,4 +1,4 @@
-<!-- Plugin: ibr · Version: 1.3.0 · Source of truth: local (~/dev/git-folder/interface-built-right) -->
+<!-- Plugin: ibr · Version: 1.4.0 · Source of truth: local (~/dev/git-folder/interface-built-right) -->
 <!-- Before any commit, version bump, or major change, read ./VERSIONING.md. Update it on version bumps. -->
 
 # IBR — End-to-End Design Tool
@@ -67,6 +67,8 @@ Library entry: `import { resolveDevice, deviceToViewport } from '@tyroneross/int
 **Page-level:** `pageIntent` (auth|form|listing|detail|dashboard|error|landing), `state.auth`, `state.loading`, `state.errors`, `console` (errors[], warnings[]), `verdict` (PASS|ISSUES|FAIL)
 
 **Sensors (`scan.sensors.*`, v1.2.0):** `visualPatterns`, `componentCensus`, `interactionMap`, `contrast`, `navigation`, `typography` (family+size+weight+lineHeight rows aggregated by fingerprint), `breakpoints` (declared `@media` + `@container` queries), `motion` (transitions, keyframes, reduced-motion overrides), `hierarchy` (h1..h6 + landmarks + a11y findings), `interactionStates` (:hover/:focus/:focus-visible/:active/:disabled rules + missing-focus findings).
+
+**Native macOS layout-fill (v1.4.0):** `scanMacOS` returns `layoutFill: LayoutFillFinding[]` and pushes each as a `layout-fill:` WARNING into `issues[]` (category `structure`). Each finding names the container, the axis (`horizontal` / `vertical`), the largest empty band as both pixels and % of the container extent, and the band's position (`leading` / `between` / `trailing`). Threshold defaults to 0.12 of container extent; configure via `MacOSScanOptions.layoutFill = { threshold, minContainerPx }` or disable with `layoutFill: false`. Catches the centered-narrow-content bug class that passes screenshot + a11y + touch-target checks. Same algorithm available via Swift extractor's `--analyze-layout` flag and via the `assets/native/swift-templates/LayoutProbe.swift` drop-in (in-process, AX-independent).
 
 ## IBR vs Screenshot
 
