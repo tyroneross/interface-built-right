@@ -15608,6 +15608,168 @@ var init_semantic2 = __esm({
   }
 });
 
+// src/native/layout-fill.ts
+function rectOf(el) {
+  if (!el.position || !el.size) return null;
+  if (el.size.width <= 0 || el.size.height <= 0) return null;
+  return {
+    x: el.position.x,
+    y: el.position.y,
+    width: el.size.width,
+    height: el.size.height
+  };
+}
+function labelOf(el) {
+  const candidates = [el.title, el.description, el.identifier, el.value];
+  for (const c of candidates) {
+    if (c && c.trim().length > 0) {
+      const trimmed = c.trim();
+      return trimmed.length > 40 ? trimmed.slice(0, 40) + "\u2026" : trimmed;
+    }
+  }
+  return "";
+}
+function mergeSpans(spans) {
+  if (spans.length === 0) return [];
+  const sorted = [...spans].sort((a, b) => a[0] - b[0]);
+  const merged = [sorted[0]];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    const cur = sorted[i];
+    if (cur[0] <= last[1]) {
+      last[1] = Math.max(last[1], cur[1]);
+    } else {
+      merged.push([cur[0], cur[1]]);
+    }
+  }
+  return merged;
+}
+function largestEmptyBand(min, max, spans) {
+  if (spans.length === 0) return null;
+  const merged = mergeSpans(spans);
+  let best = {
+    px: 0,
+    position: "leading"
+  };
+  const leading = merged[0][0] - min;
+  if (leading > best.px) best = { px: leading, position: "leading" };
+  for (let i = 1; i < merged.length; i++) {
+    const gap = merged[i][0] - merged[i - 1][1];
+    if (gap > best.px) best = { px: gap, position: "between" };
+  }
+  const lastMax = merged[merged.length - 1][1];
+  const trailing = max - lastMax;
+  if (trailing > best.px) best = { px: trailing, position: "trailing" };
+  return best;
+}
+function formatDetail(containerRole, containerLabel, axis, position, emptyPx, emptyPct, containerDim) {
+  const lbl = containerLabel ? ` [${containerLabel}]` : "";
+  const dimName = axis === "horizontal" ? "width" : "height";
+  return `${containerRole}${lbl}: ${position} empty band ${Math.round(emptyPx)}px = ${Math.round(emptyPct * 100)}% of container ${dimName} ${Math.round(containerDim)}px (${axis})`;
+}
+function analyzeLayoutFill(roots, options = {}) {
+  const threshold = options.threshold ?? 0.12;
+  const minContainerPx = options.minContainerPx ?? 50;
+  const maxDepth = options.maxDepth ?? 20;
+  const findings = [];
+  function visit(el, depth) {
+    if (depth >= maxDepth) return;
+    const r = rectOf(el);
+    if (r) {
+      const laidOutKids = el.children.filter((k) => rectOf(k) !== null);
+      if (laidOutKids.length >= 1) {
+        if (r.width >= minContainerPx) {
+          const xSpans = laidOutKids.map((k) => {
+            const kr = rectOf(k);
+            return [kr.x, kr.x + kr.width];
+          });
+          const band = largestEmptyBand(r.x, r.x + r.width, xSpans);
+          if (band && band.px / r.width >= threshold) {
+            const pct = band.px / r.width;
+            findings.push({
+              containerRole: el.role,
+              containerLabel: labelOf(el),
+              axis: "horizontal",
+              emptyPx: band.px,
+              emptyPct: pct,
+              position: band.position,
+              containerWidth: r.width,
+              containerHeight: r.height,
+              detail: formatDetail(
+                el.role,
+                labelOf(el),
+                "horizontal",
+                band.position,
+                band.px,
+                pct,
+                r.width
+              )
+            });
+          }
+        }
+        if (r.height >= minContainerPx) {
+          const ySpans = laidOutKids.map((k) => {
+            const kr = rectOf(k);
+            return [kr.y, kr.y + kr.height];
+          });
+          const band = largestEmptyBand(r.y, r.y + r.height, ySpans);
+          if (band && band.px / r.height >= threshold) {
+            const pct = band.px / r.height;
+            findings.push({
+              containerRole: el.role,
+              containerLabel: labelOf(el),
+              axis: "vertical",
+              emptyPx: band.px,
+              emptyPct: pct,
+              position: band.position,
+              containerWidth: r.width,
+              containerHeight: r.height,
+              detail: formatDetail(
+                el.role,
+                labelOf(el),
+                "vertical",
+                band.position,
+                band.px,
+                pct,
+                r.height
+              )
+            });
+          }
+        }
+      }
+    }
+    for (const c of el.children) visit(c, depth + 1);
+  }
+  for (const root of roots) visit(root, 0);
+  findings.sort((a, b) => b.emptyPct - a.emptyPct);
+  return findings;
+}
+function reportElementSizes(roots, window2) {
+  const out = [];
+  function visit(el) {
+    const r = rectOf(el);
+    if (r) {
+      out.push({
+        role: el.role,
+        label: labelOf(el),
+        width: r.width,
+        height: r.height,
+        widthPctOfWindow: window2 && window2.width > 0 ? r.width / window2.width : null,
+        heightPctOfWindow: window2 && window2.height > 0 ? r.height / window2.height : null,
+        path: el.path
+      });
+    }
+    for (const c of el.children) visit(c);
+  }
+  for (const root of roots) visit(root);
+  return out;
+}
+var init_layout_fill = __esm({
+  "src/native/layout-fill.ts"() {
+    "use strict";
+  }
+});
+
 // src/native/scan.ts
 var scan_exports2 = {};
 __export(scan_exports2, {
@@ -15776,6 +15938,15 @@ async function scanMacOS(options) {
   const audit = analyzeElements(elements, false);
   const interactivity = buildNativeInteractivity(elements);
   const semantic = buildNativeSemantic(elements, window2);
+  let layoutFill;
+  if (options.layoutFill !== false) {
+    const lfOpts = typeof options.layoutFill === "object" ? options.layoutFill : {};
+    layoutFill = analyzeLayoutFill(nativeElements, {
+      threshold: lfOpts.threshold,
+      minContainerPx: lfOpts.minContainerPx,
+      window: { width: window2.width, height: window2.height }
+    });
+  }
   if (screenshot && window2.windowId > 0) {
     await captureMacOSScreenshot(window2.windowId, screenshot.path);
   }
@@ -15787,6 +15958,15 @@ async function scanMacOS(options) {
     height: window2.height
   };
   const issues = aggregateIssues(audit, interactivity, semantic, []);
+  if (layoutFill) {
+    for (const f of layoutFill) {
+      issues.push({
+        category: "structure",
+        severity: "warning",
+        description: `layout-fill: ${f.detail}`
+      });
+    }
+  }
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
     elements,
     issues,
@@ -15814,7 +15994,8 @@ async function scanMacOS(options) {
     designSystem,
     verdict,
     issues,
-    summary
+    summary,
+    layoutFill
   };
 }
 function verdictIcon(verdict) {
@@ -15906,6 +16087,7 @@ var init_scan2 = __esm({
     init_macos();
     init_interactivity2();
     init_semantic2();
+    init_layout_fill();
   }
 });
 
@@ -16885,6 +17067,7 @@ var native_exports = {};
 __export(native_exports, {
   NATIVE_VIEWPORTS: () => NATIVE_VIEWPORTS,
   SIMULATOR_DRIVER_ENV: () => SIMULATOR_DRIVER_ENV,
+  analyzeLayoutFill: () => analyzeLayoutFill,
   annotateScreenshot: () => annotateScreenshot,
   auditNativeElements: () => auditNativeElements,
   bootDevice: () => bootDevice,
@@ -16909,6 +17092,7 @@ __export(native_exports, {
   listDevices: () => listDevices,
   mapMacOSToEnhancedElements: () => mapMacOSToEnhancedElements,
   mapToEnhancedElements: () => mapToEnhancedElements,
+  reportElementSizes: () => reportElementSizes,
   scanMacOS: () => scanMacOS,
   scanNative: () => scanNative
 });
@@ -16927,6 +17111,7 @@ var init_native = __esm({
     init_semantic2();
     init_annotate();
     init_fix_guide();
+    init_layout_fill();
   }
 });
 
@@ -16999,6 +17184,7 @@ __export(index_exports, {
   allCalmPrecisionRules: () => allCalmPrecisionRules,
   analyzeComparison: () => analyzeComparison,
   analyzeForObviousIssues: () => analyzeForObviousIssues,
+  analyzeLayoutFill: () => analyzeLayoutFill,
   annotateScreenshot: () => annotateScreenshot,
   applyDesignSystemCheck: () => applyDesignSystemCheck,
   archiveSummary: () => archiveSummary,
@@ -17142,6 +17328,7 @@ __export(index_exports, {
   registerOperation: () => registerOperation,
   removeGlobalPreference: () => removeGlobalPreference,
   removePreference: () => removePreference,
+  reportElementSizes: () => reportElementSizes,
   resolveDevice: () => resolveDevice,
   runAllRules: () => runAllRules,
   runDesignSystemCheck: () => runDesignSystemCheck,
