@@ -164,6 +164,19 @@ export interface MacOSScanOptions {
   screenshot?: { path: string };
   /** Output directory for design system config */
   outputDir?: string;
+  /**
+   * Layout-fill analysis options.
+   * Pass `false` to disable, an object to override the threshold (default 0.12),
+   * or omit to use defaults.
+   */
+  layoutFill?:
+    | false
+    | {
+        /** Empty band must be ≥ this fraction of container width/height (0..1). Default 0.12 */
+        threshold?: number;
+        /** Skip containers smaller than this (in points) on the analyzed axis. Default 50 */
+        minContainerPx?: number;
+      };
 }
 
 /**
@@ -201,4 +214,10 @@ export interface MacOSScanResult {
   verdict: 'PASS' | 'ISSUES' | 'FAIL';
   issues: ScanIssue[];
   summary: string;
+
+  /**
+   * Native layout-fill findings — per-container largest empty band on each axis.
+   * Empty array when analysis is disabled or no container exceeds the threshold.
+   */
+  layoutFill?: import('./layout-fill.js').LayoutFillFinding[];
 }
