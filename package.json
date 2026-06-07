@@ -1,6 +1,6 @@
 {
   "name": "@tyroneross/interface-built-right",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "End-to-end design tool for AI coding agents. Guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching, cross-browser. Custom CDP engine.",
   "license": "Apache-2.0",
   "publishConfig": {
@@ -37,6 +37,7 @@
     ".mcp.json",
     "adapters",
     "agents",
+    "assets",
     "commands",
     "hooks",
     "mobile-ui/sim-driver",

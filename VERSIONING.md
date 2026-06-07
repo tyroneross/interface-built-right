@@ -2,12 +2,65 @@
 
 ## Current
 
-- **Version:** 1.3.0
+- **Version:** 1.4.0
 - **Source of truth:** Local dev (`~/dev/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npm: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.3.0/`
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.4.0/`
+
+## Key changes in 1.4.0
+
+### Native macOS layout-fill / gap analysis (2026-06-06)
+
+Catches the bug class that screenshot + a11y + touch-target checks all miss: a
+content element rendered narrow and CENTERED inside its container, leaving
+large empty gutters. Motivating case: Easy Terminal rendered its terminal
+canvas at ~440px wide, centered inside a ~1074px container, with ~317px
+gutters on both sides — visible in screenshots, missed by every existing
+check because nothing computed the relative band-vs-container percentage.
+
+- **`scanMacOS` now returns `layoutFill: LayoutFillFinding[]`** — per-container
+  findings of the largest empty horizontal AND vertical band as pixels + % of
+  the container extent, with position (`leading` / `between` / `trailing`).
+  Also pushed into the existing `issues[]` as `severity: warning`,
+  `category: structure`, prefixed `layout-fill:` so it surfaces alongside
+  touch-target warnings.
+- **TS analyzer** (`src/native/layout-fill.ts`) — pure function over the
+  `MacOSAXElement` tree. AX-independent, unit-testable against fixture trees
+  (the AX subsystem can be wedged; the algorithm doesn't depend on it). 15
+  vitest cases including the ET regression (440px in 1074px ⇒ 317px = 29.5%
+  leading band) and a negative (970px in 1000px → silent).
+- **Swift extractor `--analyze-layout` flag** — same algorithm in-Swift, emits
+  `LAYOUT_FINDINGS:<json>` on stderr for callers running the binary directly
+  without the TS layer. Stdout JSON contract unchanged.
+- **Drop-in Swift templates** under `assets/native/swift-templates/`:
+  - `LayoutProbe.swift` — in-process layout dump (reads the app's own NSView
+    hierarchy) + wedge-proof `cacheDisplay`-based PNG. Same algorithm, same
+    threshold. Use when AX is wedged or you want ground-truth frames for
+    hosted `NSViewRepresentable` views.
+  - `RenderSwiftUI.swift` — render a SwiftUI scene off-screen to PNG via
+    `NSHostingView` + offscreen `NSWindow` + `cacheDisplay`. Bypasses
+    WindowServer entirely.
+- **Threshold + scope are configurable** via `MacOSScanOptions.layoutFill`
+  (`threshold` default 0.12; `minContainerPx` default 50). Opt out with
+  `layoutFill: false`.
+
+All three implementations (TS analyzer, Swift `--analyze-layout`, LayoutProbe
+template) emit the same finding shape so findings from any source are
+interchangeable.
+
+Tests: 15 new vitest cases (analyzer fixture). Full repo suite: 758 pass
+under fresh load. Typecheck clean. `swift build -c release` clean on macOS 25.
+
+⚠️ What compile + fixtures cannot prove: behavior against a LIVE running app
+through the real AX subsystem. AX/AppleEvent/screencapture has been wedged
+system-wide on this dev machine since 2026-06-06; the fixtures verify the
+algorithm against synthetic trees that match the Swift extractor's JSON
+shape exactly. The wiring (scan_macos call site, threshold plumbing,
+backwards compatibility) is verified by typecheck + test. End-to-end
+verification against a real running macOS app is deferred to the next
+session where AX is reachable.
 
 ## Key changes in 1.3.0
 
@@ -122,6 +175,8 @@ When "latest" is ambiguous, trust **local dev** first, then cross-check the regi
 
 ## Version history
 
+- **1.4.0** (2026-06-06): Native macOS layout-fill / gap analysis. `scanMacOS` reports per-container empty bands ≥ threshold as numeric findings. New TS analyzer (`analyzeLayoutFill`), Swift extractor `--analyze-layout` flag, drop-in `LayoutProbe.swift` + `RenderSwiftUI.swift` templates under `assets/native/swift-templates/`.
+- **1.3.0** (2026-05-29): Reliability fixes from 16-day transcript audit (R1–R5).
 - **1.1.0** (2026-05-25): CDP-direct mobile/device emulation. `--viewport mobile` now actually emulates mobile (UA + metrics + touch via Emulation domain BEFORE navigate). New `--device` flag with canonical profiles (iphone-14, pixel-7, ipad-air, ...). Mobile and tablet baselines realigned to iPhone 14 / iPad Air.
 - **1.0.0** (2026-04-17): Repositioned as end-to-end design tool. iOS archetype router, 6 domain references, apple-platform skill, ios-ui → ios-design rename.
 - **0.8.0** (2026-04-07): Design system extension — Calm Precision enforcement, tokens, patterns, global memory. Commit `80653a6`.

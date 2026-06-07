@@ -168,6 +168,14 @@ IBR runs on a custom **CDP browser engine** — direct Chrome DevTools Protocol 
 | **observe()** | Preview available actions without executing. Returns serializable descriptors |
 | **extract()** | Pull structured data from AX tree using schemas |
 
+## What's New in v1.4.0
+
+| Feature | Command / Usage | What it does |
+|---------|----------------|-------------|
+| **Native macOS layout-fill / gap analysis** | `scanMacOS` returns `layoutFill[]`; surfaced as `layout-fill:` WARNINGs in `issues[]` | Per-container largest empty horizontal AND vertical band as pixels + % of container extent. Catches the centered-narrow-content bug class (e.g. terminal at 440px centered in 1074px → 317px / 29.5% leading band) that passes screenshot + a11y + touch-target checks. Threshold default 0.12; configurable via `MacOSScanOptions.layoutFill.threshold` |
+| **Swift extractor `--analyze-layout`** | `ibr-ax-extract --pid N --analyze-layout` | Same algorithm in-Swift; emits `LAYOUT_FINDINGS:<json>` on stderr. Stdout JSON contract unchanged |
+| **Drop-in Swift templates** | `assets/native/swift-templates/LayoutProbe.swift` + `RenderSwiftUI.swift` | In-process layout dump + wedge-proof `cacheDisplay` PNG when AX/screencapture are wedged. Off-screen SwiftUI → PNG renderer. Pure AppKit/SwiftUI, zero deps |
+
 ## What's New in v0.7.0
 
 | Feature | Command | What it does |

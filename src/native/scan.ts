@@ -11,6 +11,7 @@ import { auditNativeElements } from './rules.js';
 import { findProcess, extractMacOSElements, mapMacOSToEnhancedElements, captureMacOSScreenshot } from './macos.js';
 import { buildNativeInteractivity } from './interactivity.js';
 import { buildNativeSemantic } from './semantic.js';
+import { analyzeLayoutFill, type LayoutFillFinding } from './layout-fill.js';
 import type { AuditResult, EnhancedElement } from '../schemas.js';
 
 /**
@@ -272,6 +273,20 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
   // --- Build semantic result from element composition ---
   const semantic = buildNativeSemantic(elements, window);
 
+  // --- Layout-fill / gap analysis ---
+  // Reads the raw AX tree (NOT the flattened EnhancedElement list) so it sees
+  // the parent → child structure required to compute per-container gaps.
+  // Catches centered-narrow-content bugs that pass screenshot/a11y checks.
+  let layoutFill: LayoutFillFinding[] | undefined;
+  if (options.layoutFill !== false) {
+    const lfOpts = typeof options.layoutFill === 'object' ? options.layoutFill : {};
+    layoutFill = analyzeLayoutFill(nativeElements, {
+      threshold: lfOpts.threshold,
+      minContainerPx: lfOpts.minContainerPx,
+      window: { width: window.width, height: window.height },
+    });
+  }
+
   // --- Capture screenshot if requested ---
   if (screenshot && window.windowId > 0) {
     await captureMacOSScreenshot(window.windowId, screenshot.path);
@@ -290,6 +305,20 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
 
   // --- Aggregate issues (reuse from scan.ts) ---
   const issues = aggregateIssues(audit, interactivity, semantic, []);
+
+  // --- Surface layout-fill findings as WARNING issues ---
+  // Same shape as touch-target warnings so consumers (CLI, MCP, dashboard)
+  // handle them uniformly. Category "layout" is the right home (not
+  // "accessibility" — the band is a layout signal, not an a11y one).
+  if (layoutFill) {
+    for (const f of layoutFill) {
+      issues.push({
+        category: 'structure',
+        severity: 'warning',
+        description: `layout-fill: ${f.detail}`,
+      });
+    }
+  }
 
   // --- Design system check ---
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
@@ -321,6 +350,7 @@ export async function scanMacOS(options: MacOSScanOptions): Promise<MacOSScanRes
     verdict,
     issues,
     summary,
+    layoutFill,
   };
 }
 
