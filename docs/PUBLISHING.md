@@ -26,11 +26,13 @@ and **no secret is stored**. npm also emits a signed **provenance attestation**
 automatically (no `--provenance` flag needed), which is why `repository.url` in
 `package.json` must exactly match this repo.
 
-Requirements baked into the workflow: `permissions: id-token: write`, npm CLI
-≥ 11.5.1 (Node 24 + a defensive `npm i -g npm@latest`), and an explicit
-`--registry https://registry.npmjs.org` on `npm publish` — that flag is
-**required** because `package.json#publishConfig.registry` points at GitHub
-Packages and would otherwise redirect the npmjs publish.
+Requirements baked into the workflow: `permissions: id-token: write`, GitHub
+hosted runners (`ubuntu-latest`; self-hosted runners are not supported), npm CLI
+≥ 11.5.1 (Node 24 + a defensive `npm i -g npm@latest`), disabled package-manager
+cache for the release build, and an explicit `--registry https://registry.npmjs.org`
+on `npm publish` — that flag is **required** because
+`package.json#publishConfig.registry` points at GitHub Packages and would
+otherwise redirect the npmjs publish.
 
 ## One-time setup before the npmjs workflow can run
 
@@ -55,14 +57,17 @@ and only after a trusted publisher is registered. Do these once, in order:
    | Owner / repository | `tyroneross/interface-built-right` |
    | Workflow filename | `publish-npmjs.yml` |
    | Environment | _(leave blank — none is configured)_ |
+   | Allowed actions | Select `npm publish` |
 
 After that, every published GitHub Release publishes to npmjs automatically with
 no secret to manage.
 
 ## Cutting a release
 
-1. Bump `package.json`, `.claude-plugin/plugin.json`, and `.codex-plugin/plugin.json`
-   to the same version (the workflows fail the release if they drift).
-2. Tag and create a GitHub Release (`vX.Y.Z`). Both publish workflows run.
-3. To rehearse without publishing: run either workflow via **workflow_dispatch**
+1. Bump `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`, and
+   `.codex-plugin/plugin.json` to the same version (the workflows fail the
+   release if they drift).
+2. Verify the package contents with `npm pack --dry-run --json --registry https://registry.npmjs.org`.
+3. Tag and create a GitHub Release (`vX.Y.Z`). Both publish workflows run.
+4. To rehearse without publishing: run either workflow via **workflow_dispatch**
    with `dry_run: true`.

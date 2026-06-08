@@ -49,16 +49,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Node 24 bundles npm >= 11.5.1, the minimum for OIDC trusted publishing.
       # registry-url points the publish at npmjs; do NOT set always-auth/scope —
       # OIDC handles auth, and a stored token would DISABLE trusted publishing.
+      # package-manager-cache is disabled for release builds per npm guidance.
       - name: Setup Node (npmjs registry)
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false
 
       - name: Assert npm >= 11.5.1 (OIDC requirement)
         run: |
