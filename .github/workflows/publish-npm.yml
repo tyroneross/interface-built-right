@@ -1,6 +1,34 @@
 # SPDX-FileCopyrightText: 2025-2026 Tyrone Ross, Jr <46267523+tyroneross@users.noreply.github.com>
 # SPDX-License-Identifier: Apache-2.0
-name: Publish @tyroneross/interface-built-right to GitHub Packages
+#
+# Publishes @tyroneross/interface-built-right to the PUBLIC npm registry
+# (registry.npmjs.org) via OIDC Trusted Publishing — NO long-lived token is
+# stored or required. npm auto-generates a provenance attestation on publish.
+#
+# This runs ALONGSIDE `publish-github-packages.yml`, which publishes the same
+# version to GitHub Packages. Both fire on a published GitHub Release. They are
+# independent; one failing does not block the other.
+#
+# ─── ONE-TIME MANUAL PREREQUISITES (cannot be automated — do these once) ──────
+# OIDC trusted publishing can only publish UPDATES to a package that already
+# exists on npmjs, and only after a trusted publisher is registered. Until both
+# are done, this workflow will fail. See docs/PUBLISHING.md for the walkthrough.
+#
+#   1. Bootstrap-publish v1 manually, from a machine logged into npm
+#      (`npm login`), because OIDC cannot create a brand-new package:
+#         npm publish --access public --registry https://registry.npmjs.org
+#
+#   2. On npmjs.com → the package page → Settings → Trusted Publisher, add:
+#         Provider:    GitHub Actions
+#         Owner/repo:  tyroneross/interface-built-right
+#         Workflow:    publish-npm.yml
+#         Environment: (leave blank — none is configured below)
+#
+# After that, every published Release runs this workflow with no secret.
+# `package.json#repository.url` already matches the repo, which provenance
+# verification requires.
+# ─────────────────────────────────────────────────────────────────────────────
+name: Publish to npmjs (OIDC Trusted Publishing)
 
 on:
   release:
@@ -14,23 +42,37 @@ on:
 
 permissions:
   contents: read
-  packages: write
-  id-token: write
+  id-token: write # REQUIRED for OIDC trusted publishing — do NOT remove
 
 jobs:
-  publish:
+  publish-npm:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node
+      # Node 24 bundles npm >= 11.5.1, the minimum for OIDC trusted publishing.
+      # registry-url points the publish at npmjs; do NOT set always-auth/scope —
+      # OIDC handles auth, and a stored token would DISABLE trusted publishing.
+      # package-manager-cache is disabled for release builds per npm guidance.
+      - name: Setup Node (npmjs registry)
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-          registry-url: "https://npm.pkg.github.com"
-          scope: "@tyroneross"
+          registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
+
+      - name: Assert npm >= 11.5.1 (OIDC requirement)
+        run: |
+          # Upgrade defensively in case the bundled npm ever lags the requirement.
+          npm install -g npm@latest
+          NPM_V="$(npm --version)"
+          echo "npm $NPM_V"
+          MAJOR="${NPM_V%%.*}"
+          if [ "$MAJOR" -lt 11 ]; then
+            echo "::error::npm $NPM_V is below 11.5.1 required for OIDC trusted publishing"
+            exit 1
+          fi
 
       - name: Verify tag matches package.json version
         if: github.event_name == 'release'
@@ -69,14 +111,16 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Publish (dry-run)
+      # `--registry` is REQUIRED here: package.json#publishConfig.registry points
+      # at GitHub Packages, and would otherwise hijack this publish. The CLI flag
+      # overrides publishConfig. `--access public` is required for the scoped
+      # @tyroneross package. No NODE_AUTH_TOKEN — OIDC authenticates via the
+      # id-token permission, and npm emits a provenance attestation automatically
+      # (no --provenance flag needed under trusted publishing).
+      - name: Publish to npmjs (dry-run)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish --dry-run
+        run: npm publish --dry-run --access public --registry https://registry.npmjs.org
 
-      - name: Publish
+      - name: Publish to npmjs (OIDC, provenance auto)
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true')
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish
+        run: npm publish --access public --registry https://registry.npmjs.org

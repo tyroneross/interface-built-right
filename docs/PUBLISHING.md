@@ -8,8 +8,8 @@ GitHub Release. The two are independent — one failing does not block the other
 
 | Registry | Workflow | Auth | Provenance |
 |---|---|---|---|
-| **GitHub Packages** (`npm.pkg.github.com`) | `.github/workflows/publish-npm.yml` | `GITHUB_TOKEN` (built-in) | no |
-| **npmjs** (`registry.npmjs.org`) | `.github/workflows/publish-npmjs.yml` | **OIDC trusted publishing** (no token) | yes (auto) |
+| **GitHub Packages** (`npm.pkg.github.com`) | `.github/workflows/publish-github-packages.yml` | `GITHUB_TOKEN` (built-in) | no |
+| **npmjs** (`registry.npmjs.org`) | `.github/workflows/publish-npm.yml` | **OIDC trusted publishing** (no token) | yes (auto) |
 
 Both fire on `release: published` and support a manual `workflow_dispatch` with a
 `dry_run` input. Both release workflows use GitHub-hosted `ubuntu-latest`,
@@ -58,7 +58,7 @@ and only after a trusted publisher is registered. Do these once, in order:
    |---|---|
    | Provider | GitHub Actions |
    | Owner / repository | `tyroneross/interface-built-right` |
-   | Workflow filename | `publish-npmjs.yml` |
+   | Workflow filename | `publish-npm.yml` |
    | Environment | _(leave blank — none is configured)_ |
    | Allowed actions | Select `npm publish` |
 
