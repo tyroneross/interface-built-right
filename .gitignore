@@ -6,6 +6,7 @@ node_modules/
 
 # Local development
 .ibr/
+.rally/
 *.log
 
 # IDE
