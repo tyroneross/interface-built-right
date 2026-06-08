@@ -12,9 +12,11 @@ GitHub Release. The two are independent — one failing does not block the other
 | **npmjs** (`registry.npmjs.org`) | `.github/workflows/publish-npmjs.yml` | **OIDC trusted publishing** (no token) | yes (auto) |
 
 Both fire on `release: published` and support a manual `workflow_dispatch` with a
-`dry_run` input. Both enforce the same guards: the release tag must match
-`package.json` version, and `.claude-plugin` / `.codex-plugin` manifest versions
-must agree with it.
+`dry_run` input. Both release workflows use GitHub-hosted `ubuntu-latest`,
+Node 24, `actions/checkout@v6`, `actions/setup-node@v6`, and disabled
+package-manager cache. Both enforce the same guards on release events: the
+release tag must match `package.json` version, and `.claude-plugin` /
+`.codex-plugin` manifest versions must agree with it.
 
 ## Why the npmjs workflow uses OIDC (not a token)
 
@@ -26,11 +28,12 @@ and **no secret is stored**. npm also emits a signed **provenance attestation**
 automatically (no `--provenance` flag needed), which is why `repository.url` in
 `package.json` must exactly match this repo.
 
-Requirements baked into the workflow: `permissions: id-token: write`, GitHub
-hosted runners (`ubuntu-latest`; self-hosted runners are not supported), npm CLI
-≥ 11.5.1 (Node 24 + a defensive `npm i -g npm@latest`), disabled package-manager
-cache for the release build, and an explicit `--registry https://registry.npmjs.org`
-on `npm publish` — that flag is **required** because
+Requirements baked into the npmjs workflow: `permissions: id-token: write`,
+GitHub-hosted runners (`ubuntu-latest`; self-hosted runners are not supported),
+npm CLI ≥ 11.5.1 (Node 24 + a defensive `npm i -g npm@latest`), disabled
+package-manager cache for the release build, and an explicit
+`--registry https://registry.npmjs.org` on `npm publish` — that flag is
+**required** because
 `package.json#publishConfig.registry` points at GitHub Packages and would
 otherwise redirect the npmjs publish.
 
@@ -68,6 +71,7 @@ no secret to manage.
    `.codex-plugin/plugin.json` to the same version (the workflows fail the
    release if they drift).
 2. Verify the package contents with `npm pack --dry-run --json --registry https://registry.npmjs.org`.
-3. Tag and create a GitHub Release (`vX.Y.Z`). Both publish workflows run.
-4. To rehearse without publishing: run either workflow via **workflow_dispatch**
-   with `dry_run: true`.
+3. Rehearse both publish workflows via **workflow_dispatch** with `dry_run: true`.
+4. Tag and create a GitHub Release (`vX.Y.Z`). Both publish workflows run.
+5. Watch the publish workflows and the chained GitHub Packages install
+   verification workflow before announcing the release.

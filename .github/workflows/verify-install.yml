@@ -27,7 +27,7 @@ jobs:
     # If chained from publish, only run when the publish succeeded.
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Resolve version to verify
         id: ver
@@ -40,12 +40,12 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Verifying @tyroneross/interface-built-right@$V"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: "20"
+          node-version: "24"
           registry-url: "https://npm.pkg.github.com"
           scope: "@tyroneross"
-          always-auth: true
+          package-manager-cache: false
 
       # GitHub Packages can lag the publish API by 30-60s. Only wait when
       # we're chained after the publish workflow.

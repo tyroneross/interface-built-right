@@ -6,8 +6,11 @@
 - **Source of truth:** Local dev (`~/dev/git-folder/interface-built-right`)
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
-  - npm: `@tyroneross/interface-built-right`
+  - npmjs: `@tyroneross/interface-built-right`
+  - GitHub Packages: `@tyroneross/interface-built-right`
 - **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.4.0/`
+- **Publish workflow:** GitHub Release `v1.4.0` triggers both npmjs OIDC trusted
+  publishing and GitHub Packages publishing; dry-runs must pass before release.
 
 ## Key changes in 1.4.0
 
@@ -154,28 +157,41 @@ See commit `80653a6` for full diff.
 
 | Source | Location | Notes |
 |---|---|---|
-| **Authoritative** | `~/Desktop/git-folder/interface-built-right/.claude-plugin/plugin.json` | Local dev — canonical, always newest |
+| **Authoritative** | `~/dev/git-folder/interface-built-right/package.json` | Local dev package version — canonical release version |
+| Plugin manifests | `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json` | Must match `package.json` before release |
 | GitHub | github.com/tyroneross/interface-built-right | Public mirror, tracks local |
-| npm | `@tyroneross/interface-built-right` | Published releases (may lag) |
+| npmjs | `@tyroneross/interface-built-right` | Public registry release, published by `.github/workflows/publish-npmjs.yml` |
+| GitHub Packages | `@tyroneross/interface-built-right` | GitHub registry release, published by `.github/workflows/publish-npm.yml` |
 | Cache mirror | `~/.claude/plugins/cache/interface-built-right/ibr/<version>/` | What Claude Code actually loads at runtime — cross-check against registry |
 
 When "latest" is ambiguous, trust **local dev** first, then cross-check the registry at `~/.claude/plugins/installed_plugins.json`.
 
 ## Release discipline (enforce before committing a version bump)
 
-1. Bump `version` in `.claude-plugin/plugin.json`
-2. Update the version stamp in `CLAUDE.md` (line 1 HTML comment)
-3. Update this file's `Current` section + add an entry to `Version history` below
-4. Delete older cache entries: `rm -rf ~/.claude/plugins/cache/interface-built-right/ibr/<old-version>/`
-5. Back up, then update `~/.claude/plugins/installed_plugins.json` → `installPath` + `version` for every entry of this plugin
-6. Run `/reload-plugins` in Claude Code
-7. Commit `plugin.json`, `CLAUDE.md`, `VERSIONING.md` together in a single commit
+1. Bump `package.json`, `package-lock.json`, `.claude-plugin/plugin.json`, and
+   `.codex-plugin/plugin.json` to the same version.
+2. Update the version stamp in `CLAUDE.md` when the plugin runtime contract
+   changes.
+3. Update this file's `Current` section + add an entry to `Version history` below.
+4. Verify package contents with
+   `npm pack --dry-run --json --registry https://registry.npmjs.org`.
+5. Dry-run both publish workflows with `workflow_dispatch dry_run=true`.
+6. Tag and create a GitHub Release (`vX.Y.Z`), then watch the npmjs, GitHub
+   Packages, and verify-install workflows.
+7. Delete older cache entries only when intentionally refreshing the local
+   Claude Code install: `rm -rf ~/.claude/plugins/cache/interface-built-right/ibr/<old-version>/`.
+8. Back up, then update `~/.claude/plugins/installed_plugins.json` → `installPath`
+   + `version` for every entry of this plugin when the local plugin install must
+   move with the release.
+9. Run `/reload-plugins` in Claude Code after local cache/install changes.
+10. Commit release metadata, docs, workflow changes, and versioned manifests
+    together unless the change is intentionally split into smaller scoped commits.
 
 **Never leave two cached versions side-by-side** — Claude Code's resolver is not guaranteed to pick the newest. This bit us on 2026-04-04 when cached `0.4.9` kept loading despite `0.7.0` being the intended version; the loader picked whichever was alphabetically/mtime-first, not the one the registry recorded.
 
 ## Version history
 
-- **1.4.0** (2026-06-06): Native macOS layout-fill / gap analysis. `scanMacOS` reports per-container empty bands ≥ threshold as numeric findings. New TS analyzer (`analyzeLayoutFill`), Swift extractor `--analyze-layout` flag, drop-in `LayoutProbe.swift` + `RenderSwiftUI.swift` templates under `assets/native/swift-templates/`.
+- **1.4.0** (2026-06-08): Native macOS layout-fill / gap analysis plus npmjs/GitHub Packages release hardening. `scanMacOS` reports per-container empty bands ≥ threshold as numeric findings. New TS analyzer (`analyzeLayoutFill`), Swift extractor `--analyze-layout` flag, drop-in `LayoutProbe.swift` + `RenderSwiftUI.swift` templates under `assets/native/swift-templates/`. Package release surface excludes Swift `.build` caches and uses Node 24 publish workflows.
 - **1.3.0** (2026-05-29): Reliability fixes from 16-day transcript audit (R1–R5).
 - **1.1.0** (2026-05-25): CDP-direct mobile/device emulation. `--viewport mobile` now actually emulates mobile (UA + metrics + touch via Emulation domain BEFORE navigate). New `--device` flag with canonical profiles (iphone-14, pixel-7, ipad-air, ...). Mobile and tablet baselines realigned to iPhone 14 / iPad Air.
 - **1.0.0** (2026-04-17): Repositioned as end-to-end design tool. iOS archetype router, 6 domain references, apple-platform skill, ios-ui → ios-design rename.
