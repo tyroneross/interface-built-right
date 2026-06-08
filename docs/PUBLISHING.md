@@ -24,8 +24,8 @@ npm **permanently revoked all classic/automation tokens on 2025-12-09**; only
 granular access tokens remain, and they expire and must be rotated. **OIDC
 trusted publishing** (GA since 2025-07) is the durable path for CI: GitHub Actions
 mints a short-lived id-token, npm verifies it against a trusted-publisher record,
-and **no secret is stored**. npm also emits a signed **provenance attestation**
-automatically (no `--provenance` flag needed), which is why `repository.url` in
+and **no secret is stored**. The workflow also passes `--provenance` so npm
+emits a signed **provenance attestation**, which is why `repository.url` in
 `package.json` must exactly match this repo.
 
 Requirements baked into the npmjs workflow: `permissions: id-token: write`,

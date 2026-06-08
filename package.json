@@ -84,7 +84,7 @@
     "accessibility",
     "visual-regression"
   ],
-  "author": "",
+  "author": "Tyrone Ross, Jr",
   "dependencies": {
     "commander": "^14.0.2",
     "nanoid": "^5.0.9",

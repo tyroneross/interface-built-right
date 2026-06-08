@@ -3,7 +3,8 @@
 #
 # Publishes @tyroneross/interface-built-right to the PUBLIC npm registry
 # (registry.npmjs.org) via OIDC Trusted Publishing — NO long-lived token is
-# stored or required. npm auto-generates a provenance attestation on publish.
+# stored or required. The publish command passes `--provenance` so npm emits a
+# signed provenance attestation.
 #
 # This runs ALONGSIDE `publish-github-packages.yml`, which publishes the same
 # version to GitHub Packages. Both fire on a published GitHub Release. They are
@@ -114,13 +115,13 @@ jobs:
       # `--registry` is REQUIRED here: package.json#publishConfig.registry points
       # at GitHub Packages, and would otherwise hijack this publish. The CLI flag
       # overrides publishConfig. `--access public` is required for the scoped
-      # @tyroneross package. No NODE_AUTH_TOKEN — OIDC authenticates via the
-      # id-token permission, and npm emits a provenance attestation automatically
-      # (no --provenance flag needed under trusted publishing).
+      # @tyroneross package. `--provenance` makes the attestation requirement
+      # explicit. No NODE_AUTH_TOKEN — OIDC authenticates via the id-token
+      # permission, so no npm secret is stored.
       - name: Publish to npmjs (dry-run)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run == 'true'
-        run: npm publish --dry-run --access public --registry https://registry.npmjs.org
+        run: npm publish --dry-run --provenance --access public --registry https://registry.npmjs.org
 
-      - name: Publish to npmjs (OIDC, provenance auto)
+      - name: Publish to npmjs (OIDC, provenance)
         if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run != 'true')
-        run: npm publish --access public --registry https://registry.npmjs.org
+        run: npm publish --provenance --access public --registry https://registry.npmjs.org
