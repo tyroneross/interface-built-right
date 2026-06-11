@@ -175,6 +175,26 @@ export class CompatLocator {
 
 type ConsoleHandler = (msg: { type: () => string; text: () => string }) => void
 
+const ESBUILD_NAME_HELPER = 'const __name = (target) => target;'
+
+export function needsEvaluateNameHelper(fnStr: string): boolean {
+  return fnStr.includes('__name(') && !fnStr.includes('const __name')
+}
+
+export function buildEvaluateExpression(fnStr: string): string {
+  if (!needsEvaluateNameHelper(fnStr)) {
+    return `(${fnStr})()`
+  }
+  return `(() => { ${ESBUILD_NAME_HELPER} return (${fnStr})(); })()`
+}
+
+export function buildFunctionDeclaration(fnStr: string): string {
+  if (!needsEvaluateNameHelper(fnStr)) {
+    return `(${fnStr})`
+  }
+  return `(function(...__ibrArgs) { ${ESBUILD_NAME_HELPER} return (${fnStr})(...__ibrArgs); })`
+}
+
 /**
  * Playwright-compatible Page interface backed by EngineDriver.
  */
@@ -195,9 +215,9 @@ export class CompatPage {
     if (typeof fnOrExpr === 'function') {
       const fnStr = fnOrExpr.toString()
       if (args.length > 0) {
-        return this.driver.evaluate(`(${fnStr})`, ...args) as Promise<T>
+        return this.driver.evaluate(buildFunctionDeclaration(fnStr), ...args) as Promise<T>
       }
-      return this.driver.evaluate(`(${fnStr})()`) as Promise<T>
+      return this.driver.evaluate(buildEvaluateExpression(fnStr)) as Promise<T>
     }
     if (args.length > 0) {
       return this.driver.evaluate(fnOrExpr, ...args) as Promise<T>

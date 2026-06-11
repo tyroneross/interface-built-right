@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Variant A - Compact Operations Dashboard</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="side-nav" aria-label="Product navigation">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>IBR Console</span>
+      </div>
+      <nav aria-label="Primary">
+        <p class="nav-section-label">Workspace</p>
+        <a class="nav-link" aria-current="page" href="#main">Overview</a>
+        <a class="nav-link" href="#runs">Scan runs</a>
+        <a class="nav-link" href="#rules">Rule health</a>
+        <a class="nav-link" href="#sources">References</a>
+        <p class="nav-section-label">Admin</p>
+        <a class="nav-link" href="#settings">Settings</a>
+      </nav>
+    </aside>
+
+    <div class="page">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Variant A - SaaS dashboard</p>
+          <h1>Scan health is stable; mobile coverage is the weak lane</h1>
+          <p class="subhead">Compact operations view for recurring monitoring and triage.</p>
+        </div>
+        <div class="toolbar" role="group" aria-label="Dashboard controls">
+          <label class="sr-only" for="range-a">Date range</label>
+          <select class="input" id="range-a" onchange="announceDemo('Date range changed')">
+            <option>Last 7 days</option>
+            <option>Last 30 days</option>
+          </select>
+          <button class="btn" type="button" onclick="markLoading(this, 'Syncing')">Sync Data</button>
+          <button class="btn primary" type="button" onclick="announceDemo('Review queue opened')">Review Queue</button>
+        </div>
+      </header>
+
+      <main id="main" class="content">
+        <section class="kpi-grid" aria-label="Scan summary">
+          <article class="card kpi">
+            <p class="section-label">Pass rate</p>
+            <div class="kpi-value">92%</div>
+            <p class="kpi-note"><span class="status-good">+4.2%</span> from previous window</p>
+          </article>
+          <article class="card kpi">
+            <p class="section-label">Open issues</p>
+            <div class="kpi-value">18</div>
+            <p class="kpi-note"><span class="status-warn">6 mobile</span>, 4 contrast, 8 handler</p>
+          </article>
+          <article class="card kpi">
+            <p class="section-label">Median scan</p>
+            <div class="kpi-value">1.8s</div>
+            <p class="kpi-note"><span class="status-good">0.3s faster</span> after pool warmup</p>
+          </article>
+          <article class="card kpi">
+            <p class="section-label">Coverage</p>
+            <div class="kpi-value">76%</div>
+            <p class="kpi-note"><span class="status-bad">Native AX gaps</span> need follow-up</p>
+          </article>
+        </section>
+
+        <section class="grid-two">
+          <article id="runs" class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Mobile findings account for one-third of active failures</h2>
+                <p class="card-description">Decision-first queue view with compact rows and directly labeled status.</p>
+              </div>
+              <div class="segmented" aria-label="Finding filter">
+                <button type="button" aria-pressed="true" onclick="togglePressed(this)">All</button>
+                <button type="button" aria-pressed="false" onclick="togglePressed(this)">Web</button>
+                <button type="button" aria-pressed="false" onclick="togglePressed(this)">Native</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Surface</th>
+                    <th scope="col">Finding</th>
+                    <th scope="col">Owner</th>
+                    <th class="numeric" scope="col">Age</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>Hosted web</td>
+                    <td>Primary CTA loses focus outline after route transition</td>
+                    <td>Design system</td>
+                    <td class="numeric">2d</td>
+                    <td class="status-warn">Review</td>
+                  </tr>
+                  <tr>
+                    <td>Static HTML</td>
+                    <td>Touch target rule applied to non-hosted reference artifact</td>
+                    <td>Rules</td>
+                    <td class="numeric">4d</td>
+                    <td class="status-bad">Mismatch</td>
+                  </tr>
+                  <tr>
+                    <td>macOS</td>
+                    <td>Layout-fill empty band exceeds 12% in inspector panel</td>
+                    <td>Native</td>
+                    <td class="numeric">1d</td>
+                    <td class="status-warn">Triage</td>
+                  </tr>
+                  <tr>
+                    <td>iOS simulator</td>
+                    <td>AX tree unavailable; screenshot-only route used</td>
+                    <td>Simulator</td>
+                    <td class="numeric">6h</td>
+                    <td class="status-neutral">Expected</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <aside class="card" aria-label="Rule breakdown">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">Rule failures cluster around surface classification</h2>
+                <p class="card-description">Bars use one highlight color plus neutral context.</p>
+              </div>
+            </div>
+            <div class="bar-list">
+              <div class="bar-row">
+                <span>Surface routing</span>
+                <span class="bar-track"><span class="bar-fill amber" style="width: 84%"></span></span>
+                <strong>84</strong>
+              </div>
+              <div class="bar-row">
+                <span>Focus states</span>
+                <span class="bar-track"><span class="bar-fill" style="width: 64%"></span></span>
+                <strong>64</strong>
+              </div>
+              <div class="bar-row">
+                <span>Handlers</span>
+                <span class="bar-track"><span class="bar-fill" style="width: 52%"></span></span>
+                <strong>52</strong>
+              </div>
+              <div class="bar-row">
+                <span>Contrast</span>
+                <span class="bar-track"><span class="bar-fill green" style="width: 31%"></span></span>
+                <strong>31</strong>
+              </div>
+            </div>
+            <div class="empty-state" aria-live="polite">
+              <h3>Two inactive filters are intentionally disabled</h3>
+              <p>IBR should classify disabled controls as visible but unavailable, not as broken actions.</p>
+              <button class="btn" type="button" style="cursor:not-allowed;" disabled>Export Audit</button>
+            </div>
+          </aside>
+        </section>
+      </main>
+      <div class="sr-only" aria-live="polite" data-live-region></div>
+    </div>
+  </div>
+  <script src="shared.js"></script>
+</body>
+</html>

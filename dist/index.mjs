@@ -3289,7 +3289,22 @@ var init_driver = __esm({
     };
   }
 });
-var CompatElementHandle, CompatLocator, CompatPage;
+function needsEvaluateNameHelper(fnStr) {
+  return fnStr.includes("__name(") && !fnStr.includes("const __name");
+}
+function buildEvaluateExpression(fnStr) {
+  if (!needsEvaluateNameHelper(fnStr)) {
+    return `(${fnStr})()`;
+  }
+  return `(() => { ${ESBUILD_NAME_HELPER} return (${fnStr})(); })()`;
+}
+function buildFunctionDeclaration(fnStr) {
+  if (!needsEvaluateNameHelper(fnStr)) {
+    return `(${fnStr})`;
+  }
+  return `(function(...__ibrArgs) { ${ESBUILD_NAME_HELPER} return (${fnStr})(...__ibrArgs); })`;
+}
+var CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
 var init_compat = __esm({
   "src/engine/compat.ts"() {
     CompatElementHandle = class {
@@ -3412,6 +3427,7 @@ var init_compat = __esm({
         return null;
       }
     };
+    ESBUILD_NAME_HELPER = "const __name = (target) => target;";
     CompatPage = class {
       constructor(driver2) {
         this.driver = driver2;
@@ -3428,9 +3444,9 @@ var init_compat = __esm({
         if (typeof fnOrExpr === "function") {
           const fnStr = fnOrExpr.toString();
           if (args.length > 0) {
-            return this.driver.evaluate(`(${fnStr})`, ...args);
+            return this.driver.evaluate(buildFunctionDeclaration(fnStr), ...args);
           }
-          return this.driver.evaluate(`(${fnStr})()`);
+          return this.driver.evaluate(buildEvaluateExpression(fnStr));
         }
         if (args.length > 0) {
           return this.driver.evaluate(fnOrExpr, ...args);

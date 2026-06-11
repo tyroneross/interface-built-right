@@ -1,0 +1,376 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Variant B - Evidence Workbench Dashboard</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+
+    body {
+      background:
+        radial-gradient(circle at 74% 4%, rgba(124, 58, 237, 0.24), transparent 31%),
+        radial-gradient(circle at 22% 20%, rgba(8, 145, 178, 0.20), transparent 34%),
+        #080914;
+      color: rgba(255,255,255,0.88);
+    }
+
+    .glass-shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 230px minmax(0, 1fr) 320px;
+      gap: 1px;
+      background: rgba(255,255,255,0.08);
+    }
+
+    .glass-panel {
+      background: rgba(8, 9, 20, 0.72);
+      backdrop-filter: blur(18px);
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .glass-nav {
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .glass-nav .nav-link {
+      color: rgba(255,255,255,0.62);
+      border-left: 2px solid transparent;
+      border-radius: 6px;
+    }
+
+    .glass-nav .nav-link[aria-current="page"] {
+      border-left-color: #818cf8;
+      background: #312e81;
+      color: #ffffff;
+    }
+
+    .glass-main {
+      min-width: 0;
+      padding: 22px;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .glass-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .glass-header h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.12;
+    }
+
+    .glass-card {
+      background: #111827;
+      border: 1px solid rgba(255,255,255,0.075);
+      border-radius: 10px;
+    }
+
+    .glass-card .card-header {
+      background: #111827;
+    }
+
+    .glass-kpis {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 12px;
+    }
+
+    .glass-kpi {
+      padding: 14px;
+    }
+
+    .glass-kpi .kpi-value {
+      color: #ffffff;
+      font-size: 22px;
+    }
+
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(280px, 0.68fr);
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .evidence-list {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+    }
+
+    .evidence-item {
+      padding: 13px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.07);
+      background: #172033;
+    }
+
+    .evidence-item h3 {
+      margin: 0;
+      font-size: 14px;
+    }
+
+    .evidence-item p {
+      margin: 5px 0 0;
+      color: rgba(255,255,255,0.58);
+      font-size: 13px;
+    }
+
+    .glass-inspector {
+      padding: 18px;
+      display: grid;
+      align-content: start;
+      gap: 16px;
+    }
+
+    .glass-inspector h2,
+    .glass-card h2 {
+      margin: 0;
+      font-size: 15px;
+    }
+
+    .glass-table td,
+    .glass-table th {
+      border-color: rgba(255,255,255,0.07);
+      color: rgba(255,255,255,0.76);
+    }
+
+    .glass-table th {
+      color: rgba(255,255,255,0.42);
+    }
+
+    .btn {
+      background: #1f2937;
+      color: #f8fafc;
+      border-color: #475569;
+    }
+
+    .btn:hover {
+      background: #334155;
+      border-color: #64748b;
+    }
+
+    .btn.primary {
+      background: #818cf8;
+      border-color: #818cf8;
+      color: #09090b;
+    }
+
+    .input,
+    .segmented {
+      background: #0f172a;
+      border-color: #334155;
+      color: #ffffff;
+    }
+
+    .segmented button {
+      background: #1f2937;
+      color: #f8fafc;
+    }
+
+    .segmented button[aria-pressed="true"] {
+      background: #312e81;
+      color: #ffffff;
+    }
+
+    @media (max-width: 1120px) {
+      .glass-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .glass-nav {
+        position: static;
+      }
+
+      .glass-nav nav {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+      }
+
+      .glass-inspector {
+        order: 3;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .glass-main,
+      .glass-inspector {
+        padding: 16px;
+      }
+
+      .glass-header {
+        flex-direction: column;
+      }
+
+      .glass-kpis,
+      .evidence-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="glass-shell">
+    <aside class="glass-panel glass-nav" aria-label="Evidence navigation">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>IBR Evidence</span>
+      </div>
+      <nav aria-label="Primary">
+        <a class="nav-link" aria-current="page" href="#review">Review</a>
+        <a class="nav-link" href="#sessions">Sessions</a>
+        <a class="nav-link" href="#references">References</a>
+        <a class="nav-link" href="#rules">Rules</a>
+      </nav>
+    </aside>
+
+    <main id="review" class="glass-main">
+      <header class="glass-header">
+        <div>
+          <p class="eyebrow">Variant B - Glass workspace</p>
+          <h1>Static artifact warnings need source-aware classification</h1>
+          <p class="subhead">Evidence-first dashboard for inspecting why a verdict was reached.</p>
+        </div>
+        <div class="toolbar">
+          <label class="sr-only" for="search-b">Search findings</label>
+          <input id="search-b" class="input" type="search" placeholder="Search evidence">
+          <button class="btn primary" type="button" onclick="markLoading(this, 'Assigning')">Assign Finding</button>
+        </div>
+      </header>
+
+      <section class="glass-kpis" aria-label="Evidence summary">
+        <article class="glass-card glass-kpi">
+          <p class="section-label">Confidence</p>
+          <div class="kpi-value">High</div>
+          <p class="kpi-note">3 corroborating sensors</p>
+        </article>
+        <article class="glass-card glass-kpi">
+          <p class="section-label">Affected surfaces</p>
+          <div class="kpi-value">4</div>
+          <p class="kpi-note">web, static, macOS, iOS</p>
+        </article>
+        <article class="glass-card glass-kpi">
+          <p class="section-label">False positives</p>
+          <div class="kpi-value">7</div>
+          <p class="kpi-note"><span class="status-warn">static route</span> dominates</p>
+        </article>
+        <article class="glass-card glass-kpi">
+          <p class="section-label">Queue age</p>
+          <div class="kpi-value">2d</div>
+          <p class="kpi-note"><span class="status-good">inside SLA</span></p>
+        </article>
+      </section>
+
+      <section class="evidence-grid">
+        <article class="glass-card">
+          <div class="card-header" style="border-color: rgba(255,255,255,0.07)">
+            <div>
+              <h2>Four evidence paths agree that rule routing is too coarse</h2>
+              <p class="card-description">IBR should treat surface kind as a first-class scan input.</p>
+            </div>
+            <div class="segmented" aria-label="Evidence filter">
+              <button type="button" aria-pressed="true" onclick="togglePressed(this)">All</button>
+              <button type="button" aria-pressed="false" onclick="togglePressed(this)">AX</button>
+              <button type="button" aria-pressed="false" onclick="togglePressed(this)">Pixel</button>
+            </div>
+          </div>
+          <div class="evidence-list">
+            <section class="evidence-item">
+              <div class="source-line"><span class="dot green"></span><h3>Static HTML scan uses mobile touch target threshold</h3></div>
+              <p>Source route has no responsive delivery intent but receives mobile-size control findings.</p>
+            </section>
+            <section class="evidence-item">
+              <div class="source-line"><span class="dot violet"></span><h3>macOS layout-fill produces useful geometry without CSS</h3></div>
+              <p>Native AX frames are enough for whitespace, grouping, and empty-band scoring.</p>
+            </section>
+            <section class="evidence-item">
+              <div class="source-line"><span class="dot amber"></span><h3>iOS simulator falls back to screenshot-only when AX is unavailable</h3></div>
+              <p>Geometry should degrade gracefully from semantic frames to pixel-derived regions.</p>
+            </section>
+            <section class="evidence-item">
+              <div class="source-line"><span class="dot"></span><h3>Web scans have the richest geometry source</h3></div>
+              <p>CDP layout snapshots can add paint order, inline text boxes, and DOM rects.</p>
+            </section>
+          </div>
+        </article>
+
+        <article class="glass-card">
+          <div class="card-header" style="border-color: rgba(255,255,255,0.07)">
+            <div>
+              <h2>Sensor agreement is strongest for geometry</h2>
+              <p class="card-description">Direct labels remove legend lookup.</p>
+            </div>
+          </div>
+          <div class="bar-list">
+            <div class="bar-row">
+              <span>Whitespace</span>
+              <span class="bar-track"><span class="bar-fill" style="width: 91%"></span></span>
+              <strong>91</strong>
+            </div>
+            <div class="bar-row">
+              <span>Hierarchy</span>
+              <span class="bar-track"><span class="bar-fill green" style="width: 83%"></span></span>
+              <strong>83</strong>
+            </div>
+            <div class="bar-row">
+              <span>Interaction</span>
+              <span class="bar-track"><span class="bar-fill amber" style="width: 64%"></span></span>
+              <strong>64</strong>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <aside class="glass-panel glass-inspector" aria-label="Finding inspector">
+      <div>
+        <p class="eyebrow">Inspector</p>
+        <h2>Finding: static route mobile rule</h2>
+        <p class="subhead">Classify as expected only when the surface profile says mobile is required.</p>
+      </div>
+
+      <table class="glass-table">
+        <tbody>
+          <tr>
+            <th scope="row">Surface</th>
+            <td>static-html</td>
+          </tr>
+          <tr>
+            <th scope="row">Delivery</th>
+            <td>file</td>
+          </tr>
+          <tr>
+            <th scope="row">Rule</th>
+            <td>touch-targets</td>
+          </tr>
+          <tr>
+            <th scope="row">Action</th>
+            <td class="status-warn">route by profile</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="toolbar" style="justify-content: stretch">
+        <button class="btn" type="button" onclick="announceDemo('Finding saved as expected change')">Mark Expected</button>
+        <button class="btn primary" type="button" onclick="markLoading(this, 'Creating')">Create Task</button>
+      </div>
+      <p class="metadata">No decorative controls: every visible action has a local handler or is semantically unavailable.</p>
+    </aside>
+  </div>
+  <div class="sr-only" aria-live="polite" data-live-region></div>
+  <script src="shared.js"></script>
+</body>
+</html>

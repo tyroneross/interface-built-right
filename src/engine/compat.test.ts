@@ -5,7 +5,12 @@
 
 import { describe, it, expect, afterAll } from 'vitest'
 import { EngineDriver } from './driver.js'
-import { CompatPage } from './compat.js'
+import {
+  CompatPage,
+  buildEvaluateExpression,
+  buildFunctionDeclaration,
+  needsEvaluateNameHelper,
+} from './compat.js'
 
 const driver = new EngineDriver()
 let page: CompatPage
@@ -24,6 +29,22 @@ afterAll(async () => {
 })
 
 describe('CompatPage', () => {
+  it('wraps esbuild __name helpers in page evaluate expressions', () => {
+    const fnStr = '() => { const local = __name(() => 42, "local"); return local(); }'
+
+    expect(needsEvaluateNameHelper(fnStr)).toBe(true)
+    expect(buildEvaluateExpression(fnStr)).toContain('const __name = (target) => target;')
+    expect(buildEvaluateExpression(fnStr)).toContain(`return (${fnStr})();`)
+  })
+
+  it('wraps esbuild __name helpers in callFunctionOn declarations', () => {
+    const fnStr = '(a, b) => { const add = __name((x, y) => x + y, "add"); return add(a, b); }'
+
+    expect(buildFunctionDeclaration(fnStr)).toContain('function(...__ibrArgs)')
+    expect(buildFunctionDeclaration(fnStr)).toContain('const __name = (target) => target;')
+    expect(buildFunctionDeclaration(fnStr)).toContain(`return (${fnStr})(...__ibrArgs);`)
+  })
+
   it('navigates with goto', async () => {
     await ensureLaunched()
     await page.goto('data:text/html,<h1>Compat Test</h1><button id="btn">Click</button><input id="inp" value="hello">')

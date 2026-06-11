@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Variant C - Data Narrative Dashboard</title>
+  <link rel="stylesheet" href="shared.css">
+  <style>
+    body {
+      background: #f9fafb;
+    }
+
+    .narrative-header {
+      min-height: 360px;
+      background:
+        radial-gradient(circle at 82% 20%, rgba(99, 102, 241, 0.34), transparent 30%),
+        radial-gradient(circle at 18% 10%, rgba(37, 99, 235, 0.30), transparent 28%),
+        #0c1222;
+      color: rgba(255,255,255,0.88);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .narrative-nav {
+      min-height: 62px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 28px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      position: relative;
+      z-index: 2;
+    }
+
+    .narrative-tabs {
+      display: flex;
+      gap: 18px;
+    }
+
+    .narrative-tabs a {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      color: rgba(255,255,255,0.62);
+      text-decoration: none;
+      border-bottom: 2px solid transparent;
+    }
+
+    .narrative-tabs a[aria-current="page"] {
+      color: #ffffff;
+      border-bottom-color: #60a5fa;
+    }
+
+    .hero {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 52px 24px 70px;
+      display: grid;
+      grid-template-columns: minmax(0, 0.95fr) minmax(320px, 0.65fr);
+      gap: 36px;
+      align-items: center;
+      position: relative;
+      z-index: 2;
+    }
+
+    .hero h1 {
+      font-size: clamp(32px, 5vw, 54px);
+      line-height: 1;
+      max-width: 760px;
+    }
+
+    .hero p {
+      color: rgba(255,255,255,0.62);
+      font-size: 16px;
+      max-width: 680px;
+    }
+
+    .network-card {
+      min-height: 230px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: #101a33;
+      backdrop-filter: blur(12px);
+      padding: 18px;
+    }
+
+    .network-card svg {
+      width: 100%;
+      min-height: 150px;
+    }
+
+    .narrative-content {
+      max-width: 1180px;
+      margin: -32px auto 0;
+      padding: 0 24px 40px;
+      position: relative;
+      z-index: 3;
+      display: grid;
+      gap: 18px;
+    }
+
+    .bento {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 16px;
+    }
+
+    .span-4 {
+      grid-column: span 4;
+    }
+
+    .span-3 {
+      grid-column: span 3;
+    }
+
+    .span-2 {
+      grid-column: span 2;
+    }
+
+    .chart-card {
+      padding: 18px;
+    }
+
+    .chart-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 760;
+    }
+
+    .chart-insight {
+      margin: 5px 0 0;
+      color: var(--ink-600);
+      font-size: 13px;
+    }
+
+    .mini-bars {
+      display: grid;
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .mini-row {
+      display: grid;
+      grid-template-columns: 108px minmax(80px, 1fr) 52px;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .callout {
+      background: #111827;
+      color: rgba(255,255,255,0.88);
+      border-color: #111827;
+    }
+
+    .callout .card-description,
+    .callout .metadata {
+      color: rgba(255,255,255,0.58);
+    }
+
+    .source-footer {
+      margin-top: 16px;
+      color: var(--ink-400);
+      font-size: 11px;
+    }
+
+    @media (max-width: 920px) {
+      .hero {
+        grid-template-columns: 1fr;
+      }
+
+      .bento {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .span-4,
+      .span-3,
+      .span-2 {
+        grid-column: span 2;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .narrative-nav {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 14px 18px;
+      }
+
+      .narrative-tabs {
+        width: 100%;
+        overflow-x: auto;
+      }
+
+      .hero,
+      .narrative-content {
+        padding-left: 16px;
+        padding-right: 16px;
+      }
+
+      .bento {
+        grid-template-columns: 1fr;
+      }
+
+      .span-4,
+      .span-3,
+      .span-2 {
+        grid-column: span 1;
+      }
+
+      .mini-row {
+        grid-template-columns: 1fr;
+        gap: 5px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="narrative-header">
+    <nav class="narrative-nav" aria-label="Dashboard sections">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>IBR Intelligence</span>
+      </div>
+      <div class="narrative-tabs">
+        <a href="#overview" aria-current="page">Overview</a>
+        <a href="#profiles">Profiles</a>
+        <a href="#signals">Signals</a>
+        <a href="#actions">Actions</a>
+      </div>
+    </nav>
+
+    <section class="hero" id="overview">
+      <div>
+        <p class="eyebrow">Variant C - Data narrative</p>
+        <h1>Surface profiles explain 71% of noisy UI findings</h1>
+        <p>Decision-first dashboard for comparing hosted web, static HTML, macOS, and simulator scans. The dark header sets context; light cards carry the dense evidence.</p>
+        <div class="toolbar" style="justify-content: flex-start; margin-top: 22px">
+          <button class="btn primary" type="button" onclick="markLoading(this, 'Building')">Build Profile</button>
+          <button class="btn" type="button" onclick="announceDemo('Narrative exported')">Export Brief</button>
+        </div>
+      </div>
+      <aside class="network-card" aria-label="Surface relationship graph">
+        <p class="section-label" style="color: rgba(255,255,255,0.52)">Surface relationship</p>
+        <svg viewBox="0 0 420 180" role="img" aria-label="Nodes for web, static, macOS, iOS, and image scans connected to geometry">
+          <line x1="84" y1="52" x2="210" y2="90" stroke="#60a5fa" stroke-width="2" stroke-opacity="0.52"/>
+          <line x1="126" y1="138" x2="210" y2="90" stroke="#818cf8" stroke-width="2" stroke-opacity="0.52"/>
+          <line x1="300" y1="44" x2="210" y2="90" stroke="#22d3ee" stroke-width="2" stroke-opacity="0.42"/>
+          <line x1="326" y1="138" x2="210" y2="90" stroke="#34d399" stroke-width="2" stroke-opacity="0.38"/>
+          <circle cx="210" cy="90" r="28" fill="#60a5fa" fill-opacity="0.28" stroke="#93c5fd"/>
+          <circle cx="84" cy="52" r="18" fill="#818cf8" fill-opacity="0.28" stroke="#c4b5fd"/>
+          <circle cx="126" cy="138" r="18" fill="#22d3ee" fill-opacity="0.20" stroke="#67e8f9"/>
+          <circle cx="300" cy="44" r="18" fill="#34d399" fill-opacity="0.18" stroke="#86efac"/>
+          <circle cx="326" cy="138" r="18" fill="#f59e0b" fill-opacity="0.18" stroke="#fcd34d"/>
+          <text x="194" y="95" fill="#fff" font-size="12" font-weight="700">Geometry</text>
+          <text x="64" y="56" fill="#fff" font-size="11">Web</text>
+          <text x="102" y="142" fill="#fff" font-size="11">Static</text>
+          <text x="280" y="48" fill="#fff" font-size="11">macOS</text>
+          <text x="311" y="142" fill="#fff" font-size="11">iOS</text>
+        </svg>
+      </aside>
+    </section>
+  </header>
+
+  <main class="narrative-content">
+    <section class="bento" aria-label="Narrative dashboard cards">
+      <article class="card chart-card span-4">
+        <h2 class="chart-title">Hosted web has the richest geometry feed, but native frames close most gaps</h2>
+        <p class="chart-insight">DOMSnapshot leads; AX frames still support whitespace, grouping, overlap, and target spacing.</p>
+        <div class="mini-bars" aria-label="Geometry source quality">
+          <div class="mini-row">
+            <span>Web CDP</span>
+            <span class="bar-track"><span class="bar-fill" style="width: 96%"></span></span>
+            <strong>96</strong>
+          </div>
+          <div class="mini-row">
+            <span>macOS AX</span>
+            <span class="bar-track"><span class="bar-fill green" style="width: 82%"></span></span>
+            <strong>82</strong>
+          </div>
+          <div class="mini-row">
+            <span>iOS AX</span>
+            <span class="bar-track"><span class="bar-fill green" style="width: 74%"></span></span>
+            <strong>74</strong>
+          </div>
+          <div class="mini-row">
+            <span>Screenshot</span>
+            <span class="bar-track"><span class="bar-fill amber" style="width: 58%"></span></span>
+            <strong>58</strong>
+          </div>
+        </div>
+        <p class="source-footer">Source: local IBR code inventory and UI Guidance data-viz rules.</p>
+      </article>
+
+      <article class="card chart-card span-2 callout">
+        <p class="section-label" style="color: rgba(255,255,255,0.52)">Primary takeaway</p>
+        <div class="kpi-value">71%</div>
+        <p class="card-description">of noisy findings map to missing or implicit surface intent.</p>
+      </article>
+
+      <article class="card chart-card span-3">
+        <h2 class="chart-title">Static artifacts should skip mobile rules unless declared responsive</h2>
+        <p class="chart-insight">A profile gate prevents false positives before rule execution.</p>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Artifact</th>
+              <th scope="col">Responsive scope</th>
+              <th scope="col">Rule set</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Hosted app</td>
+              <td>multi-viewport</td>
+              <td class="status-good">web + mobile</td>
+            </tr>
+            <tr>
+              <td>Static HTML</td>
+              <td>none</td>
+              <td class="status-neutral">static only</td>
+            </tr>
+            <tr>
+              <td>macOS app</td>
+              <td>native window</td>
+              <td class="status-good">AX geometry</td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
+      <article id="signals" class="card chart-card span-3">
+        <h2 class="chart-title">The next useful sensor is geometry, not another style rule</h2>
+        <p class="chart-insight">Geometry generalizes across DOM, AX, and screenshot inputs.</p>
+        <svg class="spark" viewBox="0 0 420 88" role="img" aria-label="Line chart showing geometry value rising above style checks">
+          <polyline points="8,68 70,61 132,48 194,42 256,26 318,20 410,14" fill="none" stroke="#2563eb" stroke-width="4" stroke-linecap="round"/>
+          <polyline points="8,72 70,66 132,64 194,58 256,56 318,52 410,50" fill="none" stroke="#9ca3af" stroke-width="3" stroke-linecap="round"/>
+          <text x="312" y="18" fill="#2563eb" font-size="12" font-weight="700">Geometry</text>
+          <text x="312" y="55" fill="#6b7280" font-size="12">Style-only</text>
+        </svg>
+        <p class="source-footer">Direct labels avoid a separate legend.</p>
+      </article>
+    </section>
+  </main>
+  <div class="sr-only" aria-live="polite" data-live-region></div>
+  <script src="shared.js"></script>
+</body>
+</html>
