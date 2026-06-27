@@ -188,9 +188,23 @@ function scoreRole(intent: string, role: string): number {
 function scoreLabelSimilarity(intent: string, label: string): number {
   if (!label) return 0
   const labelLower = label.toLowerCase()
+  const intentTrimmed = intent.trim()
 
-  if (intent.includes(labelLower)) return 1.0
-  if (labelLower.includes(intent.trim())) return 0.9
+  // Exact (case-insensitive) whole-string match — unambiguous.
+  if (intentTrimmed === labelLower) return 1.0
+
+  // Label fully contained in the intent. GUARD against short labels: a 1–2
+  // char label like "s" is a substring of almost any intent ("research"
+  // contains "s") and must NOT score a full match — that mis-fire was the
+  // root cause of resolving target "Research" to a stray "s" element. Require
+  // the label to appear as a whole WORD and be at least 3 chars.
+  if (labelLower.length >= 3) {
+    const labelAsWord = new RegExp(`\\b${escapeRegex(labelLower)}\\b`).test(intent)
+    if (labelAsWord) return 1.0
+  }
+
+  // Intent fully contained in the label (e.g. "submit" within "Submit Form").
+  if (intentTrimmed.length >= 3 && labelLower.includes(intentTrimmed)) return 0.9
 
   const jw = jaroWinkler(intent, labelLower)
 

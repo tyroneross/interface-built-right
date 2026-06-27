@@ -146,6 +146,62 @@ export const AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95
 export const DESTRUCTIVE_LABEL_PATTERN =
   /\b(?:delete|remove|erase|wipe|purge|revoke|deactivate|disable|discard|destroy|reset|clear|unsubscribe|confirm)\b/i
 
+/**
+ * Minimum confidence for accepting a tier-3 (jaroWinkler) fuzzy resolution.
+ *
+ * Raised from the original 0.5. Real dogfooding against atomize-ai.vercel.app
+ * showed the resolver silently acting on LOW-confidence fuzzy matches (0.75–0.8)
+ * that selected the WRONG element even when an exact label was present
+ * (target "News Feed" → matched "Full feed"; "Open search (⌘K)" → matched
+ * "Open primary source for LLM Training…"). The fix is two-fold: (1) a
+ * normalized-exact tier that runs BEFORE fuzzy and prefers a present exact
+ * label; (2) this raised bar so a weak fuzzy score no longer auto-acts —
+ * sub-threshold matches fall through to the margin-guarded auto-resolve tier
+ * or to "not found + alternatives".
+ */
+export const JARO_ACCEPT_MIN = 0.92
+
+/** Lowercase + collapse internal whitespace + trim. Catches casing and
+ * whitespace variants that CDP's strict queryAXTree exact-match misses. */
+function normalizeLabel(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, ' ').trim()
+}
+
+/** Alphanumeric-only core. Catches icon-prefix / punctuation variants
+ * (e.g. "Open search (⌘K)" vs the same with a leading glyph). */
+function coreLabel(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '')
+}
+
+/**
+ * Tier 2.5 — prefer a PRESENT exact label over any fuzzy candidate.
+ *
+ * CDP `Accessibility.queryAXTree` (tier 2) does a strict exact match and misses
+ * casing, whitespace, and icon/punctuation variants — so an exact target like
+ * "News Feed" can fall through to fuzzy matching, where a near-miss distractor
+ * ("Full feed") wins. This scans the full snapshot for a normalized-exact
+ * match (then an unambiguous alphanumeric-core match), preferring interactive
+ * elements and honouring an explicit role filter. Returns null when there is
+ * no exact match or when a core match is ambiguous.
+ */
+function findExactLabel(name: string, elements: Element[], role?: string): Element | null {
+  const targetNorm = normalizeLabel(name)
+  if (!targetNorm) return null
+  const targetCore = coreLabel(name)
+  const pool = role ? elements.filter((e) => e.role === role) : elements
+  const interactive = pool.filter((e) => e.actions.length > 0)
+
+  for (const group of [interactive, pool]) {
+    const normMatches = group.filter((e) => e.label && normalizeLabel(e.label) === targetNorm)
+    if (normMatches.length >= 1) return normMatches[0]
+    if (targetCore.length >= 2) {
+      const coreMatches = group.filter((e) => e.label && coreLabel(e.label) === targetCore)
+      if (coreMatches.length === 1) return coreMatches[0]
+    }
+  }
+  return null
+}
+
 export interface CaptureStateOptions {
   computedStyles?: string[]
   includeAXTree?: boolean
@@ -393,17 +449,37 @@ export class EngineDriver implements BrowserDriver {
       }
     }
 
-    // Tier 3: Fuzzy matching on full AX tree (Jaro-Winkler)
-    const { resolve } = await import('./resolve.js')
     const allElements = await this.ax.getSnapshot()
     const interactive = allElements.filter((e) => e.actions.length > 0)
+
+    // Tier 2.5: Normalized-exact match over the full snapshot. CDP queryAXTree
+    // (tier 2) misses casing / whitespace / icon-punctuation variants, so an
+    // exact target can fall through to fuzzy matching where a near-miss
+    // distractor wins. PREFER a present exact label before any fuzzy scoring.
+    const exact = findExactLabel(name, allElements, options.role)
+    if (exact) {
+      this.resolutionCache.set(cacheKey, exact.id, {
+        role: exact.role, label: exact.label, confidence: 0.97,
+      })
+      return {
+        elementId: exact.id,
+        confidence: 0.97,
+        tier: 2,
+        tierName: 'exact',
+        alternatives: [],
+        totalInteractive: interactive.length,
+      }
+    }
+
+    // Tier 3: Fuzzy matching on full AX tree (Jaro-Winkler)
+    const { resolve } = await import('./resolve.js')
     const result = resolve({
       intent: options.role ? `${name} ${options.role}` : name,
       elements: allElements,
       mode: 'algorithmic',
     })
 
-    if (result.confidence >= 0.5 && result.element) {
+    if (result.confidence >= JARO_ACCEPT_MIN && result.element) {
       this.resolutionCache.set(cacheKey, result.element.id, {
         role: result.element.role, label: result.element.label, confidence: result.confidence,
       })
