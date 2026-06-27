@@ -12,7 +12,7 @@ import { analyzeThemeConsistency, type ThemeAnalysis } from './consistency.js';
 import { runDesignSystemCheck } from './design-system/index.js';
 import type { DesignSystemResult } from './schemas.js';
 import type { BrowserLaunchOptions } from './types.js'
-import { waitForHydration } from './engine/cdp/wait.js';
+import { waitForHydration, waitForSkeletonSettled } from './engine/cdp/wait.js';
 import { runSensors, type SensorReport } from './sensors/index.js';
 import { extractCssRulesAndMeta } from './sensors/css-extract.js';
 import { runAllRules, type RuleEngineResult } from './rules/index.js';
@@ -64,6 +64,14 @@ export interface ScanResult {
   hydration?: {
     timedOut: boolean;
     reason: string;
+  };
+
+  /** Skeleton/loading state detection — present when skeleton check ran and nodes were found */
+  skeleton?: {
+    /** true when skeleton nodes persisted past the timeout */
+    persistent: boolean;
+    /** number of skeleton nodes still present at timeout */
+    count: number;
   };
 
   /** Pre-processed sensor summaries — condensed patterns for model consumption */
@@ -401,6 +409,17 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       }
     }
 
+    // Check for persistent skeleton/loading state before extracting content.
+    // A stable skeleton screen fools waitForHydration (fingerprint stops changing),
+    // so this guard catches headless-only hydration failures on SPAs like Next.js.
+    let skeletonResult: Awaited<ReturnType<typeof waitForSkeletonSettled>> | undefined;
+    if (hydrationStrategy !== 'none') {
+      skeletonResult = await waitForSkeletonSettled(
+        (expr: string) => driver.evaluate(expr),
+        { timeout: patience ?? 8000 },
+      );
+    }
+
     // Run all analyses in parallel where possible
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
@@ -522,10 +541,28 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       hydration: hydrationReason !== 'skipped'
         ? { timedOut: hydrationTimedOut, reason: hydrationReason }
         : undefined,
+      skeleton: (skeletonResult && !skeletonResult.settled)
+        ? { persistent: true, count: skeletonResult.skeletonCount }
+        : undefined,
       verdict,
       issues,
       summary,
     };
+
+    // Skeleton PARTIAL takes priority — a scan that captured skeleton-as-content
+    // is structurally incomplete regardless of network/waitFor state.
+    if (skeletonResult && !skeletonResult.settled) {
+      const skeletonTimeout = patience ?? 8000;
+      const skeletonReason = `Persistent skeleton/loading state — ${skeletonResult.skeletonCount} skeleton nodes still present after ${skeletonTimeout}ms; content may not have loaded. Re-scan or use a headed browser.`;
+      const networkReason = (patience && (networkIdleTimedOut || waitForTimedOut))
+        ? ` Additionally: ${networkIdleTimedOut ? 'network still active' : 'selector not found'}.`
+        : '';
+      return {
+        ...baseResult,
+        verdict: 'PARTIAL' as const,
+        partialReason: skeletonReason + networkReason,
+      };
+    }
 
     if (patience && (networkIdleTimedOut || waitForTimedOut)) {
       return {

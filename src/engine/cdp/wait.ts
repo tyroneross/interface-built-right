@@ -191,6 +191,56 @@ export async function waitForHydration(
 }
 
 /**
+ * Poll the live DOM for skeleton/loading placeholder nodes.
+ * Returns once skeleton nodes reach 0 (settled) or the timeout expires.
+ *
+ * Catches common patterns: Tailwind animate-pulse, shimmer/skeleton class names,
+ * ARIA-hidden placeholders, aria-busy, data-loading/data-state attributes.
+ *
+ * Defensive: if evaluate throws, treats count as 0 (cannot detect → do not block scan).
+ *
+ * @param evaluate  - CDP evaluate fn, same shape as used by waitForHydration.
+ * @param options   - timeout (ms, default 8000), interval (ms, default 200),
+ *                    stableTime accepted for API consistency but not applied.
+ */
+export async function waitForSkeletonSettled(
+  evaluate: (expression: string) => Promise<unknown>,
+  options?: { timeout?: number; interval?: number; stableTime?: number },
+): Promise<{ settled: boolean; skeletonCount: number; timedOut: boolean }> {
+  const timeout = options?.timeout ?? 8000
+  const interval = options?.interval ?? 200
+  const deadline = Date.now() + timeout
+
+  const SELECTORS =
+    '[class*="skeleton" i],[class*="shimmer" i],[class*="placeholder" i][aria-hidden],.animate-pulse,[aria-busy="true"],[data-loading="true"],[data-state="loading"]'
+
+  const expr = `(function(){ try { return document.querySelectorAll(${JSON.stringify(SELECTORS)}).length; } catch(e){ return 0; } })()`
+
+  let lastCount = 0
+
+  while (Date.now() < deadline) {
+    let count = 0
+    try {
+      const raw = await evaluate(expr)
+      count = typeof raw === 'number' ? raw : 0
+    } catch {
+      // evaluate threw — treat as 0 (defensive: can't detect, don't block scan)
+      return { settled: true, skeletonCount: 0, timedOut: false }
+    }
+
+    lastCount = count
+
+    if (count === 0) {
+      return { settled: true, skeletonCount: 0, timedOut: false }
+    }
+
+    await new Promise((r) => setTimeout(r, interval))
+  }
+
+  return { settled: false, skeletonCount: lastCount, timedOut: true }
+}
+
+/**
  * Hybrid wait — subscribe to AX events, then confirm with stability check.
  * Best of both: events for notification, polling for confirmation.
  */
