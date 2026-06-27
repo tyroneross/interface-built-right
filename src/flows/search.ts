@@ -5,7 +5,7 @@
  * Includes AI-powered search testing with step screenshots and content extraction.
  */
 
-import type { PageLike as Page } from '../engine/page-like.js';
+import type { PageLike as Page, ElementHandleLike } from '../engine/page-like.js';
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import {
@@ -38,6 +38,106 @@ export interface SearchResult extends FlowResult {
 }
 
 /**
+ * Attempt to open a ⌘K-style command palette and return its search input.
+ *
+ * Strategy (in order, each step fully defensive):
+ *  1. In-page evaluate: find a button/link/role=search element whose visible
+ *     text, aria-label, or title matches /search/i or a ⌘K keyboard hint, OR
+ *     has [data-command-menu-trigger] / class containing "command". Prefers
+ *     elements inside header/nav. Clicks the best match in-page and returns
+ *     true if a click was issued.
+ *  2. If a trigger was clicked, wait for the palette to animate open.
+ *  3. If no trigger was found, fall back to keyboard shortcuts (Meta+k,
+ *     Control+k) if page.keyboard is available.
+ *  4. Re-query for an input that is now visible. Returns it or null.
+ *
+ * `timeoutMs` caps individual wait calls so callers can opt into a tighter
+ * overall budget (e.g. 500 ms in fast unit tests vs the default 4 s).
+ */
+export async function openSearchPaletteAndFindInput(
+  page: Page,
+  timeoutMs = 4000
+): Promise<ElementHandleLike | null> {
+  let triggerClicked = false;
+
+  // Step 1: try to click a search-trigger element entirely inside evaluate so
+  // we don't need a stable selector to hand back to page.$().
+  try {
+    triggerClicked = await page.evaluate(`(function() {
+      try {
+        var searchRe = /search/i;
+        var kbdRe = /⌘\\s*k|ctrl\\s*k|cmd\\s*k/i;
+
+        var base = Array.from(document.querySelectorAll(
+          'button, [role="button"], [role="search"], a, [data-command-menu-trigger]'
+        ));
+
+        // CSS4 case-insensitive attr selector — silently skip if unsupported.
+        try {
+          var cmd = Array.from(document.querySelectorAll('[class*="command" i]'));
+          cmd.forEach(function(el) {
+            if (base.indexOf(el) === -1) base.push(el);
+          });
+        } catch (_e) { /* skip */ }
+
+        // Prefer candidates inside header/nav first.
+        var inHeader = base.filter(function(el) {
+          return !!el.closest('header, nav, [role="banner"], [role="navigation"]');
+        });
+        var ordered = inHeader.concat(base.filter(function(el) {
+          return inHeader.indexOf(el) === -1;
+        }));
+
+        for (var i = 0; i < ordered.length; i++) {
+          var el = ordered[i];
+          var txt  = (el.textContent || '').trim();
+          var aria = el.getAttribute('aria-label') || '';
+          var ttl  = el.getAttribute('title') || '';
+          if (
+            el.hasAttribute('data-command-menu-trigger') ||
+            searchRe.test(txt)  || searchRe.test(aria)  || searchRe.test(ttl) ||
+            kbdRe.test(txt)     || kbdRe.test(aria)     || kbdRe.test(ttl)
+          ) {
+            el.click();
+            return true;
+          }
+        }
+        return false;
+      } catch (_e) { return false; }
+    })()`);
+  } catch {
+    triggerClicked = false;
+  }
+
+  // Step 2: wait for palette animation after a trigger click.
+  if (triggerClicked) {
+    await page.waitForTimeout(Math.min(400, timeoutMs));
+  } else {
+    // Step 3: fall back to keyboard shortcut.
+    try {
+      if (page.keyboard?.press) {
+        await page.keyboard.press('Meta+k');
+        await page.waitForTimeout(Math.min(200, timeoutMs));
+        await page.keyboard.press('Control+k');
+        await page.waitForTimeout(Math.min(200, timeoutMs));
+      }
+    } catch {
+      // keyboard shortcut unavailable — continue to input re-query
+    }
+  }
+
+  // Step 4: re-query for the now-visible input.
+  try {
+    return await page.$(
+      'input[type="search"], input[type="text"], input[placeholder*="search" i], ' +
+      '[role="searchbox"], [role="combobox"] input, [cmdk-input], input[autofocus]'
+    );
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Execute search flow
  */
 export async function searchFlow(
@@ -66,7 +166,14 @@ export async function searchFlow(
       '[role="searchbox"]'
     );
 
-    if (!searchField) {
+    let resolvedField = searchField;
+    if (!resolvedField) {
+      resolvedField = await openSearchPaletteAndFindInput(page);
+      if (resolvedField) {
+        steps.push({ action: 'opened search palette', success: true });
+      }
+    }
+    if (!resolvedField) {
       return {
         success: false,
         resultCount: 0,
@@ -78,14 +185,14 @@ export async function searchFlow(
     }
 
     // Clear existing content and type query
-    await searchField.fill?.('');
-    await searchField.fill?.(options.query);
+    await resolvedField.fill?.('');
+    await resolvedField.fill?.(options.query);
     steps.push({ action: `type "${options.query}"`, success: true });
 
     // Step 2: Submit if requested (default true)
     if (options.submit !== false) {
       // Try pressing Enter first
-      await searchField.press?.('Enter');
+      await resolvedField.press?.('Enter');
       steps.push({ action: 'submit search', success: true });
 
       // Wait for results
@@ -286,7 +393,14 @@ export async function aiSearchFlow(
       '[role="searchbox"]'
     );
 
-    if (!searchField) {
+    let resolvedField = searchField;
+    if (!resolvedField) {
+      resolvedField = await openSearchPaletteAndFindInput(page);
+      if (resolvedField) {
+        steps.push({ action: 'opened search palette', success: true });
+      }
+    }
+    if (!resolvedField) {
       return {
         success: false,
         query: options.query,
@@ -305,8 +419,8 @@ export async function aiSearchFlow(
 
     // Step 3: Type query with timing
     const typingStart = Date.now();
-    await searchField.fill?.('');
-    await searchField.fill?.(options.query);
+    await resolvedField.fill?.('');
+    await resolvedField.fill?.(options.query);
     timing.typing = Date.now() - typingStart;
     steps.push({ action: `type "${options.query}"`, success: true, duration: timing.typing });
 
@@ -320,7 +434,7 @@ export async function aiSearchFlow(
     // Step 5: Submit if requested (default true)
     const waitingStart = Date.now();
     if (options.submit !== false) {
-      await searchField.press?.('Enter');
+      await resolvedField.press?.('Enter');
       steps.push({ action: 'submit search', success: true });
 
       // Wait for results
