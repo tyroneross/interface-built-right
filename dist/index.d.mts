@@ -6446,6 +6446,13 @@ interface ScanResult {
         timedOut: boolean;
         reason: string;
     };
+    /** Skeleton/loading state detection — present when skeleton check ran and nodes were found */
+    skeleton?: {
+        /** true when skeleton nodes persisted past the timeout */
+        persistent: boolean;
+        /** number of skeleton nodes still present at timeout */
+        count: number;
+    };
     /** Pre-processed sensor summaries — condensed patterns for model consumption */
     sensors?: SensorReport;
     /** Deterministic rule engine results — no LLM needed */

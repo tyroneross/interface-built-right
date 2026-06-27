@@ -1836,6 +1836,29 @@ async function waitForHydration(_conn, getSnapshot, evaluate, options) {
     reason: "timeout"
   };
 }
+async function waitForSkeletonSettled(evaluate, options) {
+  const timeout = options?.timeout ?? 8e3;
+  const interval = options?.interval ?? 200;
+  const deadline = Date.now() + timeout;
+  const SELECTORS = '[class*="skeleton" i],[class*="shimmer" i],[class*="placeholder" i][aria-hidden],.animate-pulse,[aria-busy="true"],[data-loading="true"],[data-state="loading"]';
+  const expr = `(function(){ try { return document.querySelectorAll(${JSON.stringify(SELECTORS)}).length; } catch(e){ return 0; } })()`;
+  let lastCount = 0;
+  while (Date.now() < deadline) {
+    let count = 0;
+    try {
+      const raw = await evaluate(expr);
+      count = typeof raw === "number" ? raw : 0;
+    } catch {
+      return { settled: true, skeletonCount: 0, timedOut: false };
+    }
+    lastCount = count;
+    if (count === 0) {
+      return { settled: true, skeletonCount: 0, timedOut: false };
+    }
+    await new Promise((r) => setTimeout(r, interval));
+  }
+  return { settled: false, skeletonCount: lastCount, timedOut: true };
+}
 async function waitForStable(conn, getSnapshot, options) {
   const eventName = options?.eventName;
   const timeout = options?.timeout ?? 1e4;
@@ -2409,8 +2432,13 @@ function scoreRole(intent, role) {
 function scoreLabelSimilarity(intent, label) {
   if (!label) return 0;
   const labelLower = label.toLowerCase();
-  if (intent.includes(labelLower)) return 1;
-  if (labelLower.includes(intent.trim())) return 0.9;
+  const intentTrimmed = intent.trim();
+  if (intentTrimmed === labelLower) return 1;
+  if (labelLower.length >= 3) {
+    const labelAsWord = new RegExp(`\\b${escapeRegex(labelLower)}\\b`).test(intent);
+    if (labelAsWord) return 1;
+  }
+  if (intentTrimmed.length >= 3 && labelLower.includes(intentTrimmed)) return 0.9;
   const jw = jaroWinkler(intent, labelLower);
   const intentWords = intent.split(/\s+/).filter((w) => w.length > 2);
   let bestWordJw = 0;
@@ -2518,13 +2546,35 @@ var init_resolve = __esm({
   "src/engine/resolve.ts"() {
   }
 });
+function normalizeLabel(s) {
+  return s.toLowerCase().replace(/\s+/g, " ").trim();
+}
+function coreLabel(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+function findExactLabel(name, elements, role) {
+  const targetNorm = normalizeLabel(name);
+  if (!targetNorm) return null;
+  const targetCore = coreLabel(name);
+  const pool = role ? elements.filter((e) => e.role === role) : elements;
+  const interactive = pool.filter((e) => e.actions.length > 0);
+  for (const group of [interactive, pool]) {
+    const normMatches = group.filter((e) => e.label && normalizeLabel(e.label) === targetNorm);
+    if (normMatches.length >= 1) return normMatches[0];
+    if (targetCore.length >= 2) {
+      const coreMatches = group.filter((e) => e.label && coreLabel(e.label) === targetCore);
+      if (coreMatches.length === 1) return coreMatches[0];
+    }
+  }
+  return null;
+}
 function chunkElements(elements, maxTokens) {
   const charsPerToken = 4;
   const charsPerElement = 40;
   const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
   return elements.slice(0, maxElements);
 }
-var AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_MIN_MARGIN, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE, DESTRUCTIVE_LABEL_PATTERN, EngineDriver;
+var AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_MIN_MARGIN, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE, DESTRUCTIVE_LABEL_PATTERN, JARO_ACCEPT_MIN, EngineDriver;
 var init_driver = __esm({
   "src/engine/driver.ts"() {
     init_connection();
@@ -2551,6 +2601,7 @@ var init_driver = __esm({
     AUTO_RESOLVE_MIN_MARGIN = 0.15;
     AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95;
     DESTRUCTIVE_LABEL_PATTERN = /\b(?:delete|remove|erase|wipe|purge|revoke|deactivate|disable|discard|destroy|reset|clear|unsubscribe|confirm)\b/i;
+    JARO_ACCEPT_MIN = 0.92;
     EngineDriver = class {
       browser = new BrowserManager();
       conn = new CdpConnection();
@@ -2745,15 +2796,31 @@ var init_driver = __esm({
             totalInteractive: interactive2.length
           };
         }
-        const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
         const allElements = await this.ax.getSnapshot();
         const interactive = allElements.filter((e) => e.actions.length > 0);
+        const exact = findExactLabel(name, allElements, options.role);
+        if (exact) {
+          this.resolutionCache.set(cacheKey, exact.id, {
+            role: exact.role,
+            label: exact.label,
+            confidence: 0.97
+          });
+          return {
+            elementId: exact.id,
+            confidence: 0.97,
+            tier: 2,
+            tierName: "exact",
+            alternatives: [],
+            totalInteractive: interactive.length
+          };
+        }
+        const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
         const result = resolve3({
           intent: options.role ? `${name} ${options.role}` : name,
           elements: allElements,
           mode: "algorithmic"
         });
-        if (result.confidence >= 0.5 && result.element) {
+        if (result.confidence >= JARO_ACCEPT_MIN && result.element) {
           this.resolutionCache.set(cacheKey, result.element.id, {
             role: result.element.role,
             label: result.element.label,
@@ -8775,6 +8842,14 @@ function isInteractiveElement(element) {
   if (role && INTERACTIVE_ROLES.has(role)) return true;
   return false;
 }
+function isNonVisibleOrZeroArea(element) {
+  if (element.computedStyles?.display === "none") return true;
+  if (element.computedStyles?.visibility === "hidden") return true;
+  if (element.computedStyles?.opacity === "0") return true;
+  if (element.bounds.width <= 0) return true;
+  if (element.bounds.height <= 0) return true;
+  return false;
+}
 var INTERACTIVE_ROLES, INTERACTIVE_TAGS, touchTargetRules;
 var init_touch_targets = __esm({
   "src/rules/touch-targets.ts"() {
@@ -8809,7 +8884,7 @@ var init_touch_targets = __esm({
           const isMobile = context.isMobile || context.viewportWidth < 768;
           const minSize = isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
           const { width, height } = element.bounds;
-          if (width === 0 && height === 0) return null;
+          if (isNonVisibleOrZeroArea(element)) return null;
           if (width < minSize || height < minSize) {
             const label = element.text || element.a11y?.ariaLabel || element.selector;
             return {
@@ -10096,6 +10171,13 @@ async function scan(url, options = {}) {
         hydrationReason = hydrationResult.reason;
       }
     }
+    let skeletonResult;
+    if (hydrationStrategy !== "none") {
+      skeletonResult = await waitForSkeletonSettled(
+        (expr) => driver2.evaluate(expr),
+        { timeout: patience ?? 8e3 }
+      );
+    }
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
       extractAndAudit(page, resolvedViewport),
       testInteractivity(page),
@@ -10183,10 +10265,21 @@ async function scan(url, options = {}) {
       themeAnalysis,
       designSystem,
       hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
+      skeleton: skeletonResult && !skeletonResult.settled ? { persistent: true, count: skeletonResult.skeletonCount } : void 0,
       verdict,
       issues,
       summary
     };
+    if (skeletonResult && !skeletonResult.settled) {
+      const skeletonTimeout = patience ?? 8e3;
+      const skeletonReason = `Persistent skeleton/loading state \u2014 ${skeletonResult.skeletonCount} skeleton nodes still present after ${skeletonTimeout}ms; content may not have loaded. Re-scan or use a headed browser.`;
+      const networkReason = patience && (networkIdleTimedOut || waitForTimedOut) ? ` Additionally: ${networkIdleTimedOut ? "network still active" : "selector not found"}.` : "";
+      return {
+        ...baseResult,
+        verdict: "PARTIAL",
+        partialReason: skeletonReason + networkReason
+      };
+    }
     if (patience && (networkIdleTimedOut || waitForTimedOut)) {
       return {
         ...baseResult,
@@ -12944,6 +13037,75 @@ async function loginFlow(page, options) {
 
 // src/flows/search.ts
 init_types();
+async function openSearchPaletteAndFindInput(page, timeoutMs = 4e3) {
+  let triggerClicked = false;
+  try {
+    triggerClicked = await page.evaluate(`(function() {
+      try {
+        var searchRe = /search/i;
+        var kbdRe = /\u2318\\s*k|ctrl\\s*k|cmd\\s*k/i;
+
+        var base = Array.from(document.querySelectorAll(
+          'button, [role="button"], [role="search"], a, [data-command-menu-trigger]'
+        ));
+
+        // CSS4 case-insensitive attr selector \u2014 silently skip if unsupported.
+        try {
+          var cmd = Array.from(document.querySelectorAll('[class*="command" i]'));
+          cmd.forEach(function(el) {
+            if (base.indexOf(el) === -1) base.push(el);
+          });
+        } catch (_e) { /* skip */ }
+
+        // Prefer candidates inside header/nav first.
+        var inHeader = base.filter(function(el) {
+          return !!el.closest('header, nav, [role="banner"], [role="navigation"]');
+        });
+        var ordered = inHeader.concat(base.filter(function(el) {
+          return inHeader.indexOf(el) === -1;
+        }));
+
+        for (var i = 0; i < ordered.length; i++) {
+          var el = ordered[i];
+          var txt  = (el.textContent || '').trim();
+          var aria = el.getAttribute('aria-label') || '';
+          var ttl  = el.getAttribute('title') || '';
+          if (
+            el.hasAttribute('data-command-menu-trigger') ||
+            searchRe.test(txt)  || searchRe.test(aria)  || searchRe.test(ttl) ||
+            kbdRe.test(txt)     || kbdRe.test(aria)     || kbdRe.test(ttl)
+          ) {
+            el.click();
+            return true;
+          }
+        }
+        return false;
+      } catch (_e) { return false; }
+    })()`);
+  } catch {
+    triggerClicked = false;
+  }
+  if (triggerClicked) {
+    await page.waitForTimeout(Math.min(400, timeoutMs));
+  } else {
+    try {
+      if (page.keyboard?.press) {
+        await page.keyboard.press("Meta+k");
+        await page.waitForTimeout(Math.min(200, timeoutMs));
+        await page.keyboard.press("Control+k");
+        await page.waitForTimeout(Math.min(200, timeoutMs));
+      }
+    } catch {
+    }
+  }
+  try {
+    return await page.$(
+      'input[type="search"], input[type="text"], input[placeholder*="search" i], [role="searchbox"], [role="combobox"] input, [cmdk-input], input[autofocus]'
+    );
+  } catch {
+    return null;
+  }
+}
 async function searchFlow(page, options) {
   const startTime = Date.now();
   const steps = [];
@@ -12958,7 +13120,14 @@ async function searchFlow(page, options) {
     const searchField = searchInput || await page.$(
       'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
     );
-    if (!searchField) {
+    let resolvedField = searchField;
+    if (!resolvedField) {
+      resolvedField = await openSearchPaletteAndFindInput(page);
+      if (resolvedField) {
+        steps.push({ action: "opened search palette", success: true });
+      }
+    }
+    if (!resolvedField) {
       return {
         success: false,
         resultCount: 0,
@@ -12968,11 +13137,11 @@ async function searchFlow(page, options) {
         duration: Date.now() - startTime
       };
     }
-    await searchField.fill?.("");
-    await searchField.fill?.(options.query);
+    await resolvedField.fill?.("");
+    await resolvedField.fill?.(options.query);
     steps.push({ action: `type "${options.query}"`, success: true });
     if (options.submit !== false) {
-      await searchField.press?.("Enter");
+      await resolvedField.press?.("Enter");
       steps.push({ action: "submit search", success: true });
       await waitForNavigation(page, timeout);
       steps.push({ action: "wait for results", success: true });
@@ -13097,7 +13266,14 @@ async function aiSearchFlow(page, options) {
     const searchField = searchInput || await page.$(
       'input[type="search"], input[name="q"], input[name="query"], input[placeholder*="search" i], [role="searchbox"]'
     );
-    if (!searchField) {
+    let resolvedField = searchField;
+    if (!resolvedField) {
+      resolvedField = await openSearchPaletteAndFindInput(page);
+      if (resolvedField) {
+        steps.push({ action: "opened search palette", success: true });
+      }
+    }
+    if (!resolvedField) {
       return {
         success: false,
         query: options.query,
@@ -13114,8 +13290,8 @@ async function aiSearchFlow(page, options) {
       };
     }
     const typingStart = Date.now();
-    await searchField.fill?.("");
-    await searchField.fill?.(options.query);
+    await resolvedField.fill?.("");
+    await resolvedField.fill?.(options.query);
     timing.typing = Date.now() - typingStart;
     steps.push({ action: `type "${options.query}"`, success: true, duration: timing.typing });
     if (captureSteps && artifactDir) {
@@ -13125,7 +13301,7 @@ async function aiSearchFlow(page, options) {
     }
     const waitingStart = Date.now();
     if (options.submit !== false) {
-      await searchField.press?.("Enter");
+      await resolvedField.press?.("Enter");
       steps.push({ action: "submit search", success: true });
       await waitForNavigation(page, timeout);
       steps.push({ action: "wait for results", success: true });
