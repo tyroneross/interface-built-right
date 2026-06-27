@@ -125,6 +125,42 @@ function errorResponse(text: string): McpResponse {
 }
 
 /**
+ * Page/window scroll does not require an element target. These helpers let
+ * session_action scroll the document/viewport directly when the caller passes
+ * a page-level target ("body"/"window"/"page"/empty) instead of a specific
+ * element label — previously the handler rejected such targets as
+ * element-not-found before ever reaching the scroll branch.
+ */
+function isPageScrollTarget(target?: string): boolean {
+  if (target == null) return true;
+  const t = target.trim().toLowerCase();
+  return (
+    t === "" ||
+    t === "body" ||
+    t === "window" ||
+    t === "page" ||
+    t === "document" ||
+    t === "html" ||
+    t === "viewport" ||
+    t === "main" ||
+    t === "scroll"
+  );
+}
+
+/** Parse a scroll `value` into a pixel delta. Accepts a number (px) or a
+ * direction keyword: up / down / top / bottom. Defaults to 300 (down). */
+function parseScrollDelta(value?: string): number {
+  if (value == null || String(value).trim() === "") return 300;
+  const t = String(value).trim().toLowerCase();
+  if (t === "up") return -300;
+  if (t === "down") return 300;
+  if (t === "top") return -1_000_000;
+  if (t === "bottom") return 1_000_000;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 300;
+}
+
+/**
  * R2: normalize the `what` arg for session_read / native_session_read.
  *
  * Pre-R2, the three sites that resolved `what` would surface
@@ -1765,6 +1801,40 @@ export async function handleToolCall(
 
         // ── Browser session (Chrome or Safari) ───────────────────────────
         const driver = entry.driver
+
+        // Page/window scroll needs no element target. Short-circuit BEFORE the
+        // element-resolution step so a page-level target ("body"/"window"/
+        // "page"/empty) scrolls the document/viewport instead of failing with
+        // "element not found". `value` is a pixel delta or a direction keyword.
+        if (action === 'scroll' && isPageScrollTarget(target)) {
+          try {
+            const deltaY = parseScrollDelta(value)
+            await driver.scroll(deltaY)
+            await new Promise(r => setTimeout(r, 300))
+            const afterEls = await driver.getSnapshot() as EngineElement[]
+            entry.url = driver.url
+            const scrollResult = {
+              success: true,
+              scrolled: { target: (target && target.trim()) || 'page', deltaY },
+              pageState: {
+                url: driver.url,
+                elementCount: afterEls.filter((e) => e.actions.length > 0).length,
+              },
+            }
+            if (wantScreenshot) {
+              const buf = await driver.screenshot()
+              return {
+                content: [
+                  { type: 'image' as const, data: buf.toString('base64'), mimeType: 'image/png' },
+                  { type: 'text' as const, text: JSON.stringify(scrollResult, null, 2) },
+                ],
+              }
+            }
+            return textResponse(JSON.stringify(scrollResult, null, 2))
+          } catch (err) {
+            return errorResponse(`session_action scroll failed: ${err instanceof Error ? err.message : String(err)}`)
+          }
+        }
 
         try {
           const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined) as FindDiagnostics
