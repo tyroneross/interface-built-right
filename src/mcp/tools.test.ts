@@ -76,6 +76,19 @@ describe('R2: session_read schema defaults', () => {
   });
 });
 
+describe('native_session_action post-action settling schema', () => {
+  it('advertises waitFor and waitTimeoutMs without requiring them', () => {
+    const tool = findTool('native_session_action');
+    const required = (tool.inputSchema as { required?: string[] }).required ?? [];
+    const props = (tool.inputSchema as unknown as { properties: Record<string, { type?: string }> }).properties;
+
+    expect(props.waitFor.type).toBe('string');
+    expect(props.waitTimeoutMs.type).toBe('number');
+    expect(required).not.toContain('waitFor');
+    expect(required).not.toContain('waitTimeoutMs');
+  });
+});
+
 describe('R2: session_read description mentions the default', () => {
   it('session_read description names observe as the default', () => {
     const tool = findTool('session_read');

@@ -11,8 +11,9 @@ Use IBR native tools when the UI runs in a simulator or a macOS app instead of a
 
 1. Confirm the target simulator is booted with `native_devices`.
 2. Run `native_scan` for the visible screen.
-3. Use `native_session_start`, `native_session_action`, and `native_session_read` for multi-step flows.
-4. Use `sim_action` only when coordinate-level simulator interaction is needed.
+3. Use `native_session_start`, `native_session_action`, and `native_session_read` for multi-step flows. Pass `waitFor` on `native_session_action` when the action should open a new screen or async state; read `postAction` before assuming navigation succeeded.
+4. Use `native_session_read` with `what: "screenshot"` when AX data is not enough and visual evidence is needed.
+5. Use `sim_action` only when coordinate-level simulator interaction is needed.
 
 Check for:
 

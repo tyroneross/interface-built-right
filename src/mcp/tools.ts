@@ -28,6 +28,7 @@ import {
   findDevice,
   bootDevice,
   captureNativeScreenshot,
+  captureMacOSScreenshot,
   getDeviceViewport,
   formatDevice,
   findProcess,
@@ -1046,6 +1047,14 @@ export const TOOLS = [
         target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target" },
         value: { type: "string", description: "Text for fill/type/setValue actions" },
         role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+        waitFor: {
+          type: "string",
+          description: "Optional accessible name, AX identifier, description, or visible value expected after the action. The tool polls until it appears or waitTimeoutMs expires.",
+        },
+        waitTimeoutMs: {
+          type: "number",
+          description: "Maximum post-action settle time in milliseconds. Defaults to 2000 when waitFor is provided, otherwise 700. Clamped to 0..5000.",
+        },
       },
       required: ["sessionId", "action", "target"],
     },
@@ -2109,12 +2118,22 @@ async function handleNativeSessionAction(args: Record<string, unknown>): Promise
     target,
     value,
     role,
-  } = args as { sessionId: string; action: string; target: string; value?: string; role?: string }
+    waitFor,
+    waitTimeoutMs,
+  } = args as {
+    sessionId: string
+    action: string
+    target: string
+    value?: string
+    role?: string
+    waitFor?: string
+    waitTimeoutMs?: number
+  }
 
   const entry = sessions.get(sessionId)
   if (!entry) return errorResponse('Session not found. Use native_session_start first.')
-  if (entry.type === 'macos') return await runMacOSSessionAction(entry, { action, target, value, role })
-  if (entry.type === 'simulator') return await runSimulatorSessionAction(entry, { action, target, value, role })
+  if (entry.type === 'macos') return await runMacOSSessionAction(entry, { action, target, value, role, waitFor, waitTimeoutMs })
+  if (entry.type === 'simulator') return await runSimulatorSessionAction(entry, { action, target, value, role, waitFor, waitTimeoutMs })
   return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`)
 }
 
@@ -2188,7 +2207,28 @@ async function startSimulatorSession(
 async function readMacOSSession(entry: SessionEntry, what: string, limit: number): Promise<McpResponse> {
   try {
     if (what === 'screenshot') {
-      return textResponse('macOS screenshot capture is available through scan_macos with a screenshot path.')
+      const { window } = await extractMacOSElements({ pid: entry.pid! })
+      if (window.windowId <= 0) {
+        return errorResponse('macOS screenshot capture failed: no on-screen CGWindowID was available for the current AX window.')
+      }
+      const screenshotPath = join(
+        DEFAULT_OUTPUT_DIR,
+        'native',
+        'macos-sessions',
+        `${safeFilePart(entry.app || `pid-${entry.pid}`)}-${Date.now()}.png`,
+      )
+      await captureMacOSScreenshot(window.windowId, screenshotPath)
+      const { readFile } = await import('fs/promises')
+      const buf = await readFile(screenshotPath)
+      return imageResponse(buf.toString('base64'), JSON.stringify({
+        type: 'macos',
+        backend: 'macos-ax',
+        app: entry.app,
+        pid: entry.pid,
+        window,
+        screenshotPath,
+        hostCursorAffected: false,
+      }, null, 2))
     }
 
     const { elements, window } = await extractMacOSElements({ pid: entry.pid! })
@@ -2233,7 +2273,28 @@ async function readMacOSSession(entry: SessionEntry, what: string, limit: number
 async function readSimulatorSession(entry: SessionEntry, what: string, limit: number): Promise<McpResponse> {
   try {
     if (what === 'screenshot') {
-      return textResponse('Simulator screenshot capture is available through native_scan or native_snapshot.')
+      const device = await findDevice(entry.device!.udid)
+      if (!device) return errorResponse(`Simulator not found: ${entry.device!.udid}`)
+      const screenshotPath = join(
+        DEFAULT_OUTPUT_DIR,
+        'native',
+        'simulator-sessions',
+        `${safeFilePart(device.name)}-${Date.now()}.png`,
+      )
+      const capture = await captureNativeScreenshot({ device, outputPath: screenshotPath })
+      if (!capture.success || !capture.outputPath) {
+        return errorResponse(`Simulator screenshot capture failed: ${capture.error || 'unknown error'}`)
+      }
+      const { readFile } = await import('fs/promises')
+      const buf = await readFile(capture.outputPath)
+      return imageResponse(buf.toString('base64'), JSON.stringify({
+        type: 'simulator',
+        backend: 'simulator-ax',
+        device: entry.device,
+        screenshotPath: capture.outputPath,
+        viewport: getDeviceViewport(device),
+        hostCursorAffected: false,
+      }, null, 2))
     }
 
     const device = await findDevice(entry.device!.udid)
@@ -2287,7 +2348,7 @@ async function readSimulatorSession(entry: SessionEntry, what: string, limit: nu
 
 async function runMacOSSessionAction(
   entry: SessionEntry,
-  request: { action: string; target: string; value?: string; role?: string }
+  request: NativeSessionActionRequest
 ): Promise<McpResponse> {
   // R5: preflight before touching the extractor — surface fixable env errors
   // as one-line instructions instead of raw Swift/shell tracebacks.
@@ -2314,6 +2375,10 @@ async function runMacOSSessionAction(
       value: mapped.value,
     })
 
+    const postAction = actionResult.success
+      ? await waitForMacOSPostAction(entry, request)
+      : undefined
+
     return nativeActionResponse(actionResult.success, {
       backend: 'macos-ax',
       app: entry.app,
@@ -2325,6 +2390,7 @@ async function runMacOSSessionAction(
       confidence: resolution.confidence,
       tier: resolution.tier,
       alternatives: resolution.alternatives,
+      postAction,
       hostCursorAffected: false,
       error: actionResult.error,
     })
@@ -2339,7 +2405,7 @@ async function runMacOSSessionAction(
 
 async function runSimulatorSessionAction(
   entry: SessionEntry,
-  request: { action: string; target: string; value?: string; role?: string }
+  request: NativeSessionActionRequest
 ): Promise<McpResponse> {
   // R5: preflight — surface env errors (no Xcode, no simctl) as one-liners.
   const pre = await simulatorNativePreflight()
@@ -2380,6 +2446,10 @@ async function runSimulatorSessionAction(
       value: mapped.value,
     })
 
+    const postAction = actionResult.success
+      ? await waitForSimulatorPostAction(entry, request)
+      : undefined
+
     return nativeActionResponse(actionResult.success, {
       backend: 'simulator-ax',
       device: entry.device,
@@ -2390,6 +2460,7 @@ async function runSimulatorSessionAction(
       confidence: resolution.confidence,
       tier: resolution.tier,
       alternatives: resolution.alternatives,
+      postAction,
       hostCursorAffected: false,
       error: actionResult.error,
     })
@@ -2456,6 +2527,190 @@ function nativeActionResponse(success: boolean, payload: Record<string, unknown>
   const response = textResponse(JSON.stringify({ success, ...payload }, null, 2))
   if (!success) response.isError = true
   return response
+}
+
+type NativeSessionActionRequest = {
+  action: string
+  target: string
+  value?: string
+  role?: string
+  waitFor?: string
+  waitTimeoutMs?: number
+}
+
+type NativePostActionState = {
+  settled: boolean
+  reason: 'waitFor-found' | 'tree-stable' | 'timeout'
+  attempts: number
+  elapsedMs: number
+  waitFor?: string
+  waitForFound?: boolean
+  window?: unknown
+  totalElements: number
+  interactiveElements: number
+  elements: Array<Record<string, unknown>>
+}
+
+async function waitForMacOSPostAction(
+  entry: SessionEntry,
+  request: NativeSessionActionRequest
+): Promise<NativePostActionState> {
+  const started = Date.now()
+  const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2000 : 700)
+  let previousSignature: string | null = null
+  let latest = emptyPostActionState(started, request.waitFor)
+  let attempts = 0
+
+  do {
+    if (attempts === 0 && timeoutMs > 0) {
+      await sleep(Math.min(120, timeoutMs))
+    }
+
+    const { elements, window } = await extractMacOSElements({ pid: entry.pid! })
+    const candidates = flattenMacOSElements(elements)
+    const interactive = candidates.filter(candidate => candidate.actions.length > 0)
+    const resolution = request.waitFor
+      ? resolveMacOSElement(elements, request.waitFor)
+      : null
+    const signature = nativeStateSignature(window, candidates)
+
+    attempts += 1
+    latest = {
+      settled: false,
+      reason: 'timeout',
+      attempts,
+      elapsedMs: Date.now() - started,
+      waitFor: request.waitFor,
+      waitForFound: Boolean(resolution),
+      window,
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      elements: interactive.slice(0, 10).map(formatNativeCandidate),
+    }
+
+    if (resolution) {
+      return {
+        ...latest,
+        settled: true,
+        reason: 'waitFor-found',
+        elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10),
+      }
+    }
+
+    if (!request.waitFor && previousSignature === signature) {
+      return { ...latest, settled: true, reason: 'tree-stable' }
+    }
+    previousSignature = signature
+  } while (Date.now() - started < timeoutMs)
+
+  return latest
+}
+
+async function waitForSimulatorPostAction(
+  entry: SessionEntry,
+  request: NativeSessionActionRequest
+): Promise<NativePostActionState> {
+  const started = Date.now()
+  const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2000 : 700)
+  let previousSignature: string | null = null
+  let latest = emptyPostActionState(started, request.waitFor)
+  let attempts = 0
+
+  do {
+    if (attempts === 0 && timeoutMs > 0) {
+      await sleep(Math.min(120, timeoutMs))
+    }
+
+    const device = await findDevice(entry.device!.udid)
+    if (!device) {
+      return {
+        ...latest,
+        reason: 'timeout',
+        attempts,
+        elapsedMs: Date.now() - started,
+      }
+    }
+
+    const elements = await extractNativeElements(device)
+    const candidates = flattenSimulatorElements(elements)
+    const interactive = candidates.filter(candidate => candidate.actions.length > 0)
+    const resolution = request.waitFor
+      ? resolveSimulatorElement(elements, request.waitFor)
+      : null
+    const signature = nativeStateSignature(entry.device, candidates)
+
+    attempts += 1
+    latest = {
+      settled: false,
+      reason: 'timeout',
+      attempts,
+      elapsedMs: Date.now() - started,
+      waitFor: request.waitFor,
+      waitForFound: Boolean(resolution),
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      elements: interactive.slice(0, 10).map(formatNativeCandidate),
+    }
+
+    if (resolution) {
+      return {
+        ...latest,
+        settled: true,
+        reason: 'waitFor-found',
+        elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10),
+      }
+    }
+
+    if (!request.waitFor && previousSignature === signature) {
+      return { ...latest, settled: true, reason: 'tree-stable' }
+    }
+    previousSignature = signature
+  } while (Date.now() - started < timeoutMs)
+
+  return latest
+}
+
+function emptyPostActionState(started: number, waitFor?: string): NativePostActionState {
+  return {
+    settled: false,
+    reason: 'timeout',
+    attempts: 0,
+    elapsedMs: Date.now() - started,
+    waitFor,
+    waitForFound: false,
+    totalElements: 0,
+    interactiveElements: 0,
+    elements: [],
+  }
+}
+
+function normalizeNativeWaitTimeout(value: unknown, fallback: number): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.max(0, Math.min(5000, Math.round(n)))
+}
+
+function nativeStateSignature(window: unknown, candidates: NativeElementCandidate[]): string {
+  return JSON.stringify({
+    window,
+    candidates: candidates.slice(0, 200).map(candidate => [
+      candidate.role,
+      candidate.label,
+      candidate.identifier,
+      candidate.value,
+      candidate.enabled,
+      candidate.actions.join(','),
+      candidate.frame,
+    ]),
+  })
+}
+
+function safeFilePart(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'native-session'
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
 }
 
 function formatNativeCandidate(candidate: NativeElementCandidate): Record<string, unknown> {

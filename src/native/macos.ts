@@ -87,36 +87,7 @@ export async function extractMacOSElements(options: {
   }
 
   try {
-    const { stdout, stderr } = await execFileAsync(extractorPath, args, {
-      timeout: 30000,
-    });
-
-    if (stderr && stderr.includes('Error:')) {
-      throw new Error(stderr.trim());
-    }
-
-    // Parse output: first line is WINDOW header, rest is JSON
-    const lines = stdout.split('\n');
-    const headerLine = lines[0];
-    const jsonStr = lines.slice(1).join('\n');
-
-    // Parse window header: WINDOW:<id>:<WxH>:<title>
-    let window: MacOSWindowInfo = { windowId: 0, width: 800, height: 600, title: 'Unknown' };
-    if (headerLine.startsWith('WINDOW:')) {
-      const parts = headerLine.slice(7).split(':');
-      const windowId = parseInt(parts[0], 10);
-      const dims = (parts[1] || '800x600').split('x');
-      const title = parts.slice(2).join(':'); // Title may contain colons
-      window = {
-        windowId,
-        width: parseInt(dims[0], 10) || 800,
-        height: parseInt(dims[1], 10) || 600,
-        title,
-      };
-    }
-
-    const elements: MacOSAXElement[] = JSON.parse(jsonStr);
-    return { elements, window };
+    return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     if (message.includes('Accessibility permission')) {
@@ -128,8 +99,82 @@ export async function extractMacOSElements(options: {
     if (message.includes('No running app')) {
       throw err;
     }
+    if (message.includes('No windows found')) {
+      const retry = await retryMacOSExtractionAfterActivation(options, extractorPath);
+      if (retry) return retry;
+    }
     throw new Error(`macOS element extraction failed: ${message}`);
   }
+}
+
+async function runMacOSExtraction(
+  extractorPath: string,
+  args: string[]
+): Promise<{ elements: MacOSAXElement[]; window: MacOSWindowInfo }> {
+  const { stdout, stderr } = await execFileAsync(extractorPath, args, {
+    timeout: 30000,
+  });
+
+  if (stderr && stderr.includes('Error:')) {
+    throw new Error(stderr.trim());
+  }
+
+  // Parse output: first line is WINDOW header, rest is JSON
+  const lines = stdout.split('\n');
+  const headerLine = lines[0];
+  const jsonStr = lines.slice(1).join('\n');
+
+  // Parse window header: WINDOW:<id>:<WxH>:<title>
+  let window: MacOSWindowInfo = { windowId: 0, width: 800, height: 600, title: 'Unknown' };
+  if (headerLine.startsWith('WINDOW:')) {
+    const parts = headerLine.slice(7).split(':');
+    const windowId = parseInt(parts[0], 10);
+    const dims = (parts[1] || '800x600').split('x');
+    const title = parts.slice(2).join(':'); // Title may contain colons
+    window = {
+      windowId,
+      width: parseInt(dims[0], 10) || 800,
+      height: parseInt(dims[1], 10) || 600,
+      title,
+    };
+  }
+
+  const elements: MacOSAXElement[] = JSON.parse(jsonStr);
+  return { elements, window };
+}
+
+async function retryMacOSExtractionAfterActivation(
+  options: { pid?: number; app?: string },
+  extractorPath: string
+): Promise<{ elements: MacOSAXElement[]; window: MacOSWindowInfo } | null> {
+  const pid = options.pid ?? (options.app ? await findProcess(options.app).catch(() => null) : null);
+  if (!pid) return null;
+
+  const activated = await activateMacOSProcess(pid);
+  if (!activated) return null;
+
+  try {
+    return await runMacOSExtraction(extractorPath, ['--pid', String(pid)]);
+  } catch {
+    return null;
+  }
+}
+
+async function activateMacOSProcess(pid: number): Promise<boolean> {
+  try {
+    await execFileAsync('osascript', [
+      '-e',
+      `tell application "System Events" to set frontmost of first application process whose unix id is ${pid} to true`,
+    ], { timeout: 3000 });
+    await sleep(250);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**

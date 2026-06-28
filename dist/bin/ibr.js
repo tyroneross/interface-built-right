@@ -15459,30 +15459,7 @@ async function extractMacOSElements(options) {
     throw new Error("Either pid or app must be provided");
   }
   try {
-    const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
-      timeout: 3e4
-    });
-    if (stderr && stderr.includes("Error:")) {
-      throw new Error(stderr.trim());
-    }
-    const lines = stdout.split("\n");
-    const headerLine = lines[0];
-    const jsonStr = lines.slice(1).join("\n");
-    let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
-    if (headerLine.startsWith("WINDOW:")) {
-      const parts = headerLine.slice(7).split(":");
-      const windowId = parseInt(parts[0], 10);
-      const dims = (parts[1] || "800x600").split("x");
-      const title = parts.slice(2).join(":");
-      window2 = {
-        windowId,
-        width: parseInt(dims[0], 10) || 800,
-        height: parseInt(dims[1], 10) || 600,
-        title
-      };
-    }
-    const elements = JSON.parse(jsonStr);
-    return { elements, window: window2 };
+    return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     if (message.includes("Accessibility permission")) {
@@ -15493,8 +15470,64 @@ async function extractMacOSElements(options) {
     if (message.includes("No running app")) {
       throw err;
     }
+    if (message.includes("No windows found")) {
+      const retry = await retryMacOSExtractionAfterActivation(options, extractorPath);
+      if (retry) return retry;
+    }
     throw new Error(`macOS element extraction failed: ${message}`);
   }
+}
+async function runMacOSExtraction(extractorPath, args) {
+  const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
+    timeout: 3e4
+  });
+  if (stderr && stderr.includes("Error:")) {
+    throw new Error(stderr.trim());
+  }
+  const lines = stdout.split("\n");
+  const headerLine = lines[0];
+  const jsonStr = lines.slice(1).join("\n");
+  let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
+  if (headerLine.startsWith("WINDOW:")) {
+    const parts = headerLine.slice(7).split(":");
+    const windowId = parseInt(parts[0], 10);
+    const dims = (parts[1] || "800x600").split("x");
+    const title = parts.slice(2).join(":");
+    window2 = {
+      windowId,
+      width: parseInt(dims[0], 10) || 800,
+      height: parseInt(dims[1], 10) || 600,
+      title
+    };
+  }
+  const elements = JSON.parse(jsonStr);
+  return { elements, window: window2 };
+}
+async function retryMacOSExtractionAfterActivation(options, extractorPath) {
+  const pid = options.pid ?? (options.app ? await findProcess(options.app).catch(() => null) : null);
+  if (!pid) return null;
+  const activated = await activateMacOSProcess(pid);
+  if (!activated) return null;
+  try {
+    return await runMacOSExtraction(extractorPath, ["--pid", String(pid)]);
+  } catch {
+    return null;
+  }
+}
+async function activateMacOSProcess(pid) {
+  try {
+    await execFileAsync4("osascript", [
+      "-e",
+      `tell application "System Events" to set frontmost of first application process whose unix id is ${pid} to true`
+    ], { timeout: 3e3 });
+    await sleep(250);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function sleep(ms) {
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const enhanced = [];

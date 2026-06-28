@@ -10723,30 +10723,7 @@ async function extractMacOSElements(options) {
     throw new Error("Either pid or app must be provided");
   }
   try {
-    const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
-      timeout: 3e4
-    });
-    if (stderr && stderr.includes("Error:")) {
-      throw new Error(stderr.trim());
-    }
-    const lines = stdout.split("\n");
-    const headerLine = lines[0];
-    const jsonStr = lines.slice(1).join("\n");
-    let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
-    if (headerLine.startsWith("WINDOW:")) {
-      const parts = headerLine.slice(7).split(":");
-      const windowId = parseInt(parts[0], 10);
-      const dims = (parts[1] || "800x600").split("x");
-      const title = parts.slice(2).join(":");
-      window2 = {
-        windowId,
-        width: parseInt(dims[0], 10) || 800,
-        height: parseInt(dims[1], 10) || 600,
-        title
-      };
-    }
-    const elements = JSON.parse(jsonStr);
-    return { elements, window: window2 };
+    return await runMacOSExtraction(extractorPath, args);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     if (message.includes("Accessibility permission")) {
@@ -10757,8 +10734,64 @@ async function extractMacOSElements(options) {
     if (message.includes("No running app")) {
       throw err;
     }
+    if (message.includes("No windows found")) {
+      const retry = await retryMacOSExtractionAfterActivation(options, extractorPath);
+      if (retry) return retry;
+    }
     throw new Error(`macOS element extraction failed: ${message}`);
   }
+}
+async function runMacOSExtraction(extractorPath, args) {
+  const { stdout, stderr } = await execFileAsync4(extractorPath, args, {
+    timeout: 3e4
+  });
+  if (stderr && stderr.includes("Error:")) {
+    throw new Error(stderr.trim());
+  }
+  const lines = stdout.split("\n");
+  const headerLine = lines[0];
+  const jsonStr = lines.slice(1).join("\n");
+  let window2 = { windowId: 0, width: 800, height: 600, title: "Unknown" };
+  if (headerLine.startsWith("WINDOW:")) {
+    const parts = headerLine.slice(7).split(":");
+    const windowId = parseInt(parts[0], 10);
+    const dims = (parts[1] || "800x600").split("x");
+    const title = parts.slice(2).join(":");
+    window2 = {
+      windowId,
+      width: parseInt(dims[0], 10) || 800,
+      height: parseInt(dims[1], 10) || 600,
+      title
+    };
+  }
+  const elements = JSON.parse(jsonStr);
+  return { elements, window: window2 };
+}
+async function retryMacOSExtractionAfterActivation(options, extractorPath) {
+  const pid = options.pid ?? (options.app ? await findProcess(options.app).catch(() => null) : null);
+  if (!pid) return null;
+  const activated = await activateMacOSProcess(pid);
+  if (!activated) return null;
+  try {
+    return await runMacOSExtraction(extractorPath, ["--pid", String(pid)]);
+  } catch {
+    return null;
+  }
+}
+async function activateMacOSProcess(pid) {
+  try {
+    await execFileAsync4("osascript", [
+      "-e",
+      `tell application "System Events" to set frontmost of first application process whose unix id is ${pid} to true`
+    ], { timeout: 3e3 });
+    await sleep(250);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function sleep(ms) {
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const enhanced = [];
@@ -16836,7 +16869,15 @@ var TOOLS = [
         },
         target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target" },
         value: { type: "string", description: "Text for fill/type/setValue actions" },
-        role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" }
+        role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+        waitFor: {
+          type: "string",
+          description: "Optional accessible name, AX identifier, description, or visible value expected after the action. The tool polls until it appears or waitTimeoutMs expires."
+        },
+        waitTimeoutMs: {
+          type: "number",
+          description: "Maximum post-action settle time in milliseconds. Defaults to 2000 when waitFor is provided, otherwise 700. Clamped to 0..5000."
+        }
       },
       required: ["sessionId", "action", "target"]
     },
@@ -17763,12 +17804,14 @@ async function handleNativeSessionAction(args) {
     action,
     target,
     value,
-    role
+    role,
+    waitFor,
+    waitTimeoutMs
   } = args;
   const entry = sessions.get(sessionId);
   if (!entry) return errorResponse("Session not found. Use native_session_start first.");
-  if (entry.type === "macos") return await runMacOSSessionAction(entry, { action, target, value, role });
-  if (entry.type === "simulator") return await runSimulatorSessionAction(entry, { action, target, value, role });
+  if (entry.type === "macos") return await runMacOSSessionAction(entry, { action, target, value, role, waitFor, waitTimeoutMs });
+  if (entry.type === "simulator") return await runSimulatorSessionAction(entry, { action, target, value, role, waitFor, waitTimeoutMs });
   return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`);
 }
 async function handleNativeSessionClose(args) {
@@ -17827,7 +17870,28 @@ async function startSimulatorSession(sessionId, simulator, errorPrefix) {
 async function readMacOSSession(entry, what, limit) {
   try {
     if (what === "screenshot") {
-      return textResponse("macOS screenshot capture is available through scan_macos with a screenshot path.");
+      const { window: window3 } = await extractMacOSElements({ pid: entry.pid });
+      if (window3.windowId <= 0) {
+        return errorResponse("macOS screenshot capture failed: no on-screen CGWindowID was available for the current AX window.");
+      }
+      const screenshotPath = (0, import_path20.join)(
+        DEFAULT_OUTPUT_DIR,
+        "native",
+        "macos-sessions",
+        `${safeFilePart(entry.app || `pid-${entry.pid}`)}-${Date.now()}.png`
+      );
+      await captureMacOSScreenshot(window3.windowId, screenshotPath);
+      const { readFile: readFile7 } = await import("fs/promises");
+      const buf = await readFile7(screenshotPath);
+      return imageResponse(buf.toString("base64"), JSON.stringify({
+        type: "macos",
+        backend: "macos-ax",
+        app: entry.app,
+        pid: entry.pid,
+        window: window3,
+        screenshotPath,
+        hostCursorAffected: false
+      }, null, 2));
     }
     const { elements, window: window2 } = await extractMacOSElements({ pid: entry.pid });
     const candidates = flattenMacOSElements(elements);
@@ -17867,7 +17931,28 @@ async function readMacOSSession(entry, what, limit) {
 async function readSimulatorSession(entry, what, limit) {
   try {
     if (what === "screenshot") {
-      return textResponse("Simulator screenshot capture is available through native_scan or native_snapshot.");
+      const device2 = await findDevice(entry.device.udid);
+      if (!device2) return errorResponse(`Simulator not found: ${entry.device.udid}`);
+      const screenshotPath = (0, import_path20.join)(
+        DEFAULT_OUTPUT_DIR,
+        "native",
+        "simulator-sessions",
+        `${safeFilePart(device2.name)}-${Date.now()}.png`
+      );
+      const capture = await captureNativeScreenshot({ device: device2, outputPath: screenshotPath });
+      if (!capture.success || !capture.outputPath) {
+        return errorResponse(`Simulator screenshot capture failed: ${capture.error || "unknown error"}`);
+      }
+      const { readFile: readFile7 } = await import("fs/promises");
+      const buf = await readFile7(capture.outputPath);
+      return imageResponse(buf.toString("base64"), JSON.stringify({
+        type: "simulator",
+        backend: "simulator-ax",
+        device: entry.device,
+        screenshotPath: capture.outputPath,
+        viewport: getDeviceViewport(device2),
+        hostCursorAffected: false
+      }, null, 2));
     }
     const device = await findDevice(entry.device.udid);
     if (!device) return errorResponse(`Simulator not found: ${entry.device.udid}`);
@@ -17928,6 +18013,7 @@ async function runMacOSSessionAction(entry, request) {
       action: mapped.action,
       value: mapped.value
     });
+    const postAction = actionResult.success ? await waitForMacOSPostAction(entry, request) : void 0;
     return nativeActionResponse(actionResult.success, {
       backend: "macos-ax",
       app: entry.app,
@@ -17939,6 +18025,7 @@ async function runMacOSSessionAction(entry, request) {
       confidence: resolution.confidence,
       tier: resolution.tier,
       alternatives: resolution.alternatives,
+      postAction,
       hostCursorAffected: false,
       error: actionResult.error
     });
@@ -17977,6 +18064,7 @@ async function runSimulatorSessionAction(entry, request) {
       action: mapped.action,
       value: mapped.value
     });
+    const postAction = actionResult.success ? await waitForSimulatorPostAction(entry, request) : void 0;
     return nativeActionResponse(actionResult.success, {
       backend: "simulator-ax",
       device: entry.device,
@@ -17987,6 +18075,7 @@ async function runSimulatorSessionAction(entry, request) {
       confidence: resolution.confidence,
       tier: resolution.tier,
       alternatives: resolution.alternatives,
+      postAction,
       hostCursorAffected: false,
       error: actionResult.error
     });
@@ -18043,6 +18132,138 @@ function nativeActionResponse(success, payload) {
   const response = textResponse(JSON.stringify({ success, ...payload }, null, 2));
   if (!success) response.isError = true;
   return response;
+}
+async function waitForMacOSPostAction(entry, request) {
+  const started = Date.now();
+  const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
+  let previousSignature = null;
+  let latest = emptyPostActionState(started, request.waitFor);
+  let attempts = 0;
+  do {
+    if (attempts === 0 && timeoutMs > 0) {
+      await sleep2(Math.min(120, timeoutMs));
+    }
+    const { elements, window: window2 } = await extractMacOSElements({ pid: entry.pid });
+    const candidates = flattenMacOSElements(elements);
+    const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+    const resolution = request.waitFor ? resolveMacOSElement(elements, request.waitFor) : null;
+    const signature = nativeStateSignature(window2, candidates);
+    attempts += 1;
+    latest = {
+      settled: false,
+      reason: "timeout",
+      attempts,
+      elapsedMs: Date.now() - started,
+      waitFor: request.waitFor,
+      waitForFound: Boolean(resolution),
+      window: window2,
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      elements: interactive.slice(0, 10).map(formatNativeCandidate)
+    };
+    if (resolution) {
+      return {
+        ...latest,
+        settled: true,
+        reason: "waitFor-found",
+        elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+      };
+    }
+    if (!request.waitFor && previousSignature === signature) {
+      return { ...latest, settled: true, reason: "tree-stable" };
+    }
+    previousSignature = signature;
+  } while (Date.now() - started < timeoutMs);
+  return latest;
+}
+async function waitForSimulatorPostAction(entry, request) {
+  const started = Date.now();
+  const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
+  let previousSignature = null;
+  let latest = emptyPostActionState(started, request.waitFor);
+  let attempts = 0;
+  do {
+    if (attempts === 0 && timeoutMs > 0) {
+      await sleep2(Math.min(120, timeoutMs));
+    }
+    const device = await findDevice(entry.device.udid);
+    if (!device) {
+      return {
+        ...latest,
+        reason: "timeout",
+        attempts,
+        elapsedMs: Date.now() - started
+      };
+    }
+    const elements = await extractNativeElements(device);
+    const candidates = flattenSimulatorElements(elements);
+    const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+    const resolution = request.waitFor ? resolveSimulatorElement(elements, request.waitFor) : null;
+    const signature = nativeStateSignature(entry.device, candidates);
+    attempts += 1;
+    latest = {
+      settled: false,
+      reason: "timeout",
+      attempts,
+      elapsedMs: Date.now() - started,
+      waitFor: request.waitFor,
+      waitForFound: Boolean(resolution),
+      totalElements: candidates.length,
+      interactiveElements: interactive.length,
+      elements: interactive.slice(0, 10).map(formatNativeCandidate)
+    };
+    if (resolution) {
+      return {
+        ...latest,
+        settled: true,
+        reason: "waitFor-found",
+        elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+      };
+    }
+    if (!request.waitFor && previousSignature === signature) {
+      return { ...latest, settled: true, reason: "tree-stable" };
+    }
+    previousSignature = signature;
+  } while (Date.now() - started < timeoutMs);
+  return latest;
+}
+function emptyPostActionState(started, waitFor) {
+  return {
+    settled: false,
+    reason: "timeout",
+    attempts: 0,
+    elapsedMs: Date.now() - started,
+    waitFor,
+    waitForFound: false,
+    totalElements: 0,
+    interactiveElements: 0,
+    elements: []
+  };
+}
+function normalizeNativeWaitTimeout(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(5e3, Math.round(n)));
+}
+function nativeStateSignature(window2, candidates) {
+  return JSON.stringify({
+    window: window2,
+    candidates: candidates.slice(0, 200).map((candidate) => [
+      candidate.role,
+      candidate.label,
+      candidate.identifier,
+      candidate.value,
+      candidate.enabled,
+      candidate.actions.join(","),
+      candidate.frame
+    ])
+  });
+}
+function safeFilePart(value) {
+  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
+}
+function sleep2(ms) {
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
 }
 function formatNativeCandidate(candidate) {
   return {

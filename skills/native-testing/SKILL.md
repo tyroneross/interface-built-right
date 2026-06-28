@@ -56,8 +56,10 @@ npx ibr scan:macos --app "MyApp"                  # scan your own app
 Use `native_session_*` MCP tools when the agent needs to navigate a running macOS app without taking over the user's mouse cursor.
 
 1. `native_session_start` with `app: "MyApp"`, `pid: 12345`, or `simulator: "iPhone 16 Pro"`
-2. `native_session_read` with `what: "observe"` to list actionable AX elements
+2. `native_session_read` with `what: "observe"` to list actionable AX elements, or `what: "screenshot"` when pixel evidence is needed
 3. `native_session_action` with accessible `target` and action (`click`, `fill`, `focus`, `showMenu`, `increment`, `decrement`, `confirm`, `cancel`, `scrollToVisible`)
+   - For navigation or async UI, pass `waitFor: "<expected next label or identifier>"` and optionally `waitTimeoutMs` so the tool polls AX state until the next screen appears.
+   - If `waitFor` is omitted, the tool still performs a short post-action settle poll and returns `postAction` evidence.
 4. `native_session_close` when done
 
 These actions use Accessibility APIs (`AXPress`, `AXSetValue`, focus/menu actions) rather than CGEvent pointer movement. They require macOS Accessibility permission for the terminal/IDE running IBR. Custom canvas controls or simulator guest controls that do not expose AX actions may still require the simulator HID/IDB path.
