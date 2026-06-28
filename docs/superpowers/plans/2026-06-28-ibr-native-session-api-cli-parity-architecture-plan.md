@@ -6,6 +6,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-06-28-ibr-native-session-api-cli-parity-prd.md`
 
+**Planning authority:** build-loop. The `docs/superpowers/` path is the repo's existing artifact location only; do not route this work through superpowers planning.
+
 **Primary files expected to change:**
 - `src/native/session-controller.ts`
 - `src/native/session-controller.test.ts`

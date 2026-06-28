@@ -3,6 +3,7 @@
 **Status:** Draft - backlog-ready
 **Owner:** IBR
 **Date:** 2026-06-28
+**Planning authority:** build-loop
 **Related research:** `/Users/tyroneross/dev/research/topics/tools/tools.ibr-cli-api-mcp-decision.md`
 **Related implementation note:** `3e9375a fix(native): stabilize AX session navigation`
 
@@ -13,6 +14,8 @@
 IBR should make the native session controller API the canonical implementation boundary, keep MCP as the agent-facing adapter, and add CLI parity for deterministic replay, local debugging, and CI smoke tests.
 
 The recent native AX stabilization improved MCP behavior, but the core session orchestration still lives behind the MCP tool handler. That makes the most reliability-sensitive behavior harder to test directly, harder to replay outside Codex or Claude, and harder to expose as a stable package API.
+
+Planning for this work should run through build-loop. The `docs/superpowers/` location is only the existing repository storage convention for spec and plan artifacts; it is not a decision to use superpowers as the planning workflow.
 
 ## Problem
 
@@ -150,7 +153,7 @@ Today, the complete flow is available through MCP tools, but not as a first-clas
 
 ## Backlog Shape
 
-This PRD should be implemented as one feature epic with four implementation slices:
+This PRD should be implemented through build-loop as one feature epic with four implementation slices:
 
 1. Extract controller API with behavior-preserving tests.
 2. Convert MCP native session handlers to thin adapters.
