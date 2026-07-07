@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { EngineDriver } from '../engine/driver.js';
 import type { BrowserConnectionOptions } from '../engine/cdp/browser.js';
 import type { BrowserDriver } from '../engine/types.js';
@@ -30,6 +30,19 @@ import {
   viewportToConfig,
 } from '../devices.js';
 import type { Viewport } from '../schemas.js';
+import { registerNativeSessionCommands } from './native-session-cli.js';
+
+function readPackageVersion(): string {
+  try {
+    const pkg = JSON.parse(readFileSync(join(__dirname, '..', '..', 'package.json'), 'utf8')) as {
+      version?: unknown;
+    };
+    if (typeof pkg.version === 'string') return pkg.version;
+  } catch {
+    // Keep --help/--version usable even from unusual bundled locations.
+  }
+  return '0.0.0';
+}
 
 /**
  * Resolve final viewport from CLI flags. `--device` wins over `--viewport`
@@ -295,7 +308,7 @@ function withBrowserOptions<T extends Record<string, unknown>>(opts: T): T & {
 program
   .name('ibr')
   .description('End-to-end design tool for AI coding agents')
-  .version('1.1.0');
+  .version(readPackageVersion());
 
 // Global options
 program
@@ -4055,7 +4068,7 @@ program
       console.error('Error: at least one --action is required')
       console.error('')
       console.error('Usage:')
-      console.error('  npx ibr interact <url> --action "click:button:Submit" --expect "heading:Success"')
+      console.error('  npx ibr test-interact <url> --action "click:button:Submit" --expect "visible:Success"')
       process.exit(1)
     }
 
@@ -4874,5 +4887,11 @@ program
       await driver.close().catch(() => {})
     }
   })
+
+// native:session:{start,read,action,close} — CLI parity for the native MCP
+// session tools (chunk E4-C). Registered here as the single wiring hunk;
+// command bodies + the cross-process session store live in
+// src/bin/native-session-cli.ts / src/native/session-store.ts.
+registerNativeSessionCommands(program);
 
 program.parse();
