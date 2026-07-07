@@ -5,11 +5,15 @@ per-version release notes for shipped versions live under `docs/releases/`
 (e.g. `docs/releases/v1.4.0.md`); this file tracks the current in-progress
 increment before it is cut into a release.
 
-## [Unreleased] — Increment 1: native session API/MCP/CLI parity + driving foundation
+## [1.5.0] — 2026-07-06 — Increment 1: native session API/MCP/CLI parity + driving foundation
 
-**This is NOT a released version.** No git tag and no GitHub Release exist for
-this content yet — see **Release gate** below. Current shipped version remains
-`1.4.0` (`package.json`).
+**Version bumped to `1.5.0` in `package.json`; awaiting release cut.** The git tag
+and GitHub Release (which trigger `npm publish` via `publish-npm.yml`) have NOT been
+created yet — the maintainer cuts those. Semver note: `1.5.0` (minor) is a pragmatic
+choice given the MCP consumers are LLM agents reading text; the `interact` /
+`session_action` `success`-semantics change (now a real validator, not always-true)
+is the one technically-breaking behavior — see **Behavior changes** — and would be
+`2.0.0` under strict semver.
 
 ### Added
 
