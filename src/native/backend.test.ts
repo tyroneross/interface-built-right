@@ -135,13 +135,27 @@ describe('DaemonBackend auto-fallback (kill-9 / unavailable daemon)', () => {
     expect(fallback.performAction).toHaveBeenCalledWith(target, input);
   });
 
-  it('lifecycle/menu still return structured not-implemented (E2-C/D land later)', async () => {
+  it('lifecycle (E2-C) delegates straight to the respawn fallback — no AX-daemon benefit for OS-level process control', async () => {
+    const fallback = fallbackStub();
+    const stubOutcome: ActionOutcome = {
+      success: true,
+      validator: { expected: 'x', observed: 'switch-confirmed', passed: true },
+      provenance: { waitResult: 'switch-confirmed' },
+    };
+    (fallback.lifecycle as ReturnType<typeof vi.fn>).mockResolvedValue(stubOutcome);
+    const backend = new DaemonBackend({ fallback });
+    const target: NativeSessionTarget = { kind: 'macos', pid: 1 };
+
+    const outcome = await backend.lifecycle(target, { op: 'switch' });
+
+    expect(outcome).toBe(stubOutcome);
+    expect(fallback.lifecycle).toHaveBeenCalledWith(target, { op: 'switch' });
+  });
+
+  it('menu still returns structured not-implemented (E2-D lands later)', async () => {
     const backend = new DaemonBackend({ fallback: fallbackStub() });
     const target: NativeSessionTarget = { kind: 'macos', pid: 1 };
-    const lifecycle = await backend.lifecycle(target, { op: 'switch' });
     const menu = await backend.menu(target, { menuPath: ['File'] });
-    expect(lifecycle.success).toBe(false);
-    expect(lifecycle.validator.passed).toBe(false);
     expect(menu.success).toBe(false);
     expect(menu.validator.passed).toBe(false);
   });

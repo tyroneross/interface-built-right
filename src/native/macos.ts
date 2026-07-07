@@ -160,7 +160,12 @@ async function retryMacOSExtractionAfterActivation(
   }
 }
 
-async function activateMacOSProcess(pid: number): Promise<boolean> {
+/**
+ * Bring a running macOS process to the foreground via System Events. Used by
+ * the extraction retry path above, and reused (E2-C) as the `switch` lifecycle
+ * op's activation primitive.
+ */
+export async function activateMacOSProcess(pid: number): Promise<boolean> {
   try {
     await execFileAsync('osascript', [
       '-e',

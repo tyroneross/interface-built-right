@@ -41,6 +41,7 @@ import {
   runKeystrokeCapability,
   type KeystrokeDeliveryResult,
 } from './keyboard.js';
+import { runLifecycleCapability, defaultLifecycleOps } from './lifecycle.js';
 
 // ─── Target + capability shapes (frozen v1 surface) ──────────────────────────
 
@@ -211,8 +212,13 @@ export class RespawnBackend implements NativeBackend {
     });
   }
 
-  async lifecycle(_target: NativeSessionTarget, _spec: LifecycleSpec): Promise<ActionOutcome> {
-    return notImplementedOutcome('app lifecycle');
+  /**
+   * Drive app lifecycle (E2-C) via OS-level process control (`open`/
+   * `osascript`) — never the AX event path. See `lifecycle.ts` for the
+   * launch/switch/quit state machine and its validators.
+   */
+  async lifecycle(target: NativeSessionTarget, spec: LifecycleSpec): Promise<ActionOutcome> {
+    return runLifecycleCapability(target, spec, defaultLifecycleOps);
   }
 
   async menu(_target: NativeSessionTarget, _spec: MenuSpec): Promise<ActionOutcome> {
@@ -232,8 +238,10 @@ export class RespawnBackend implements NativeBackend {
  * behavior degrades gracefully to today's path rather than failing.
  *
  * `keystroke` is wired to the daemon's `keystroke` op at E2-B (falling back to
- * the one-shot binary if the daemon dies mid-request); `lifecycle`/`menu`
- * still return the structured `not-implemented` outcome until E2-C/E2-D.
+ * the one-shot binary if the daemon dies mid-request); `lifecycle` (E2-C)
+ * delegates straight to the respawn implementation (OS-level process control
+ * gains nothing from the daemon connection); `menu` still returns the
+ * structured `not-implemented` outcome until E2-D.
  *
  * Screenshot capture stays on the existing `screencapture`/`simctl` path — the
  * daemon only supplies the CGWindowID for macOS (via a `resolve` op) so no
@@ -416,8 +424,14 @@ export class DaemonBackend implements NativeBackend {
     });
   }
 
-  async lifecycle(_target: NativeSessionTarget, _spec: LifecycleSpec): Promise<ActionOutcome> {
-    return notImplementedOutcome('app lifecycle');
+  /**
+   * App lifecycle (E2-C) is OS-level process control (`open`/`osascript`), not
+   * an AX-tree operation — the persistent daemon connection offers no benefit,
+   * so this delegates straight to the respawn implementation (same reasoning
+   * as the simulator branch of `captureScreenshot` above).
+   */
+  async lifecycle(target: NativeSessionTarget, spec: LifecycleSpec): Promise<ActionOutcome> {
+    return this.fallback.lifecycle(target, spec);
   }
 
   async menu(_target: NativeSessionTarget, _spec: MenuSpec): Promise<ActionOutcome> {

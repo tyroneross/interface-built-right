@@ -535,12 +535,18 @@ describe('E4-B: per-kind target requiredness', () => {
     expect(p.validator.observed).not.toMatch(/target/i);
   });
 
-  it('capability kind (app) with no target is accepted by the schema and reaches the dormant not-implemented outcome', async () => {
+  it('capability kind (app) with no target is accepted by the schema and reaches the LIVE lifecycle backend (not dormant, not a target error)', async () => {
+    // app lifecycle went live at E2-C (open/osascript process control). It is no
+    // longer the dormant not-implemented stub. `switch` against the seeded fake
+    // pid 9999 (not a real process) fails to activate, so the real lifecycle path
+    // returns success:false with an activation/frontmost mismatch — proving it
+    // reached live handling, not the dormant outcome and not a missing-target
+    // rejection. (menuPath remains dormant until E2-D.)
     const res = await call('native_session_action', { sessionId: SID, action: 'app', op: 'switch' });
-    expect(res.isError).toBe(true);
     const p = parse(res) as { success: boolean; validator: { observed: string } };
     expect(p.success).toBe(false);
-    expect(p.validator.observed).toMatch(/not implemented/i);
+    expect(p.validator.observed).not.toMatch(/not implemented/i);
+    expect(p.validator.observed).not.toMatch(/^unknown op/i);
   });
 
   it('capability kind (menuPath) with no target is accepted by the schema and reaches the dormant not-implemented outcome', async () => {
