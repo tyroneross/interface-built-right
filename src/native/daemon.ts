@@ -54,13 +54,20 @@ export interface DaemonKeystrokeRequest {
   /** false (default): CGEventPostToPid (background). true: activate + global HID tap. */
   foreground?: boolean;
 }
+/** Walk a menu-bar or open-context-menu path and AXPress the final item (E2-D). See `Menu.swift`. */
+export interface DaemonMenuRequest {
+  op: 'menu';
+  target: DaemonTarget;
+  menuPath: string[];
+}
 
 export type DaemonRequest =
   | DaemonExtractRequest
   | DaemonActionRequest
   | DaemonResolveRequest
   | DaemonPingRequest
-  | DaemonKeystrokeRequest;
+  | DaemonKeystrokeRequest
+  | DaemonMenuRequest;
 
 export interface DaemonResponse {
   id?: number;

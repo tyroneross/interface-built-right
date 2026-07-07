@@ -78,11 +78,12 @@ function fallbackStub(): RespawnBackend {
   } as unknown as RespawnBackend;
 }
 
-/** Minimal scriptable daemon stand-in — not a real AXDaemon, so keystroke
+/** Minimal scriptable daemon stand-in — not a real AXDaemon, so keystroke/menu
  *  tests exercise DaemonBackend's wiring without spawning any process. */
 function fakeDaemon(opts: {
   extractResults: unknown[];
-  keystrokeResult: unknown;
+  keystrokeResult?: unknown;
+  menuResult?: unknown;
 }): AXDaemon {
   let extractCall = 0;
   const request = vi.fn(async (req: { op: string }) => {
@@ -92,6 +93,7 @@ function fakeDaemon(opts: {
       return result;
     }
     if (req.op === 'keystroke') return opts.keystrokeResult;
+    if (req.op === 'menu') return opts.menuResult;
     return { ok: false, error: `fakeDaemon: unexpected op ${req.op}` };
   });
   return {
@@ -152,13 +154,6 @@ describe('DaemonBackend auto-fallback (kill-9 / unavailable daemon)', () => {
     expect(fallback.lifecycle).toHaveBeenCalledWith(target, { op: 'switch' });
   });
 
-  it('menu still returns structured not-implemented (E2-D lands later)', async () => {
-    const backend = new DaemonBackend({ fallback: fallbackStub() });
-    const target: NativeSessionTarget = { kind: 'macos', pid: 1 };
-    const menu = await backend.menu(target, { menuPath: ['File'] });
-    expect(menu.success).toBe(false);
-    expect(menu.validator.passed).toBe(false);
-  });
 });
 
 describe('DaemonBackend.keystroke (E2-B)', () => {
@@ -249,5 +244,89 @@ describe('DaemonBackend.keystroke (E2-B)', () => {
     expect(keystrokeCalls.length).toBe(2);
     expect(keystrokeCalls[0][0].foreground).toBe(false);
     expect(keystrokeCalls[1][0].foreground).toBe(true);
+  });
+});
+
+describe('DaemonBackend.menu (E2-D)', () => {
+  it('delegates the whole capability to RespawnBackend.menu when the daemon cannot start', async () => {
+    const daemon = new AXDaemon({
+      binaryPath: '/fake',
+      spawnFn: () => new SilentChild() as unknown as ChildProcessWithoutNullStreams,
+      startTimeoutMs: 50,
+    });
+    const stubOutcome: ActionOutcome = {
+      success: true,
+      validator: { expected: 'x', observed: 'delivered via fallback', passed: true },
+      provenance: {},
+    };
+    const fallback = fallbackStub();
+    (fallback.menu as ReturnType<typeof vi.fn>).mockResolvedValue(stubOutcome);
+    const backend = new DaemonBackend({ daemon, fallback });
+    const target: NativeSessionTarget = { kind: 'macos', pid: 7 };
+
+    const outcome = await backend.menu(target, { menuPath: ['File', 'New Window'] });
+
+    expect(outcome).toBe(stubOutcome);
+    expect(fallback.menu).toHaveBeenCalledWith(target, { menuPath: ['File', 'New Window'] });
+    expect(backend.fellBack).toBe(true);
+  });
+
+  it('once fallen back, a later menu call also routes straight to respawn', async () => {
+    const daemon = new AXDaemon({
+      binaryPath: '/fake',
+      spawnFn: () => new SilentChild() as unknown as ChildProcessWithoutNullStreams,
+      startTimeoutMs: 50,
+    });
+    const fallback = fallbackStub();
+    const backend = new DaemonBackend({ daemon, fallback });
+    const target: NativeSessionTarget = { kind: 'macos', pid: 5 };
+
+    await backend.extract(target); // trips the fallback via a different capability
+    await backend.menu(target, { menuPath: ['File'] });
+    expect(fallback.menu).toHaveBeenCalledWith(target, { menuPath: ['File'] });
+  });
+
+  it('delivers via the daemon menu op and returns a passing outcome when the AX signature changes', async () => {
+    const daemon = fakeDaemon({
+      extractResults: [
+        { ok: true, result: { kind: 'macos', window: { windowId: 1, width: 800, height: 600, title: 'Untitled' }, elements: [] } },
+        { ok: true, result: { kind: 'macos', window: { windowId: 2, width: 800, height: 600, title: 'Untitled 2' }, elements: [] } },
+      ],
+      menuResult: { ok: true, result: { success: true, matchedVia: 'menu-bar' } },
+    });
+    const backend = new DaemonBackend({ daemon, fallback: fallbackStub() });
+    const target: NativeSessionTarget = { kind: 'macos', pid: 42 };
+
+    const outcome = await backend.menu(target, { menuPath: ['File', 'New Window'] });
+
+    expect(outcome.success).toBe(true);
+    expect(outcome.validator.passed).toBe(true);
+    const calls = (daemon.request as ReturnType<typeof vi.fn>).mock.calls as Array<[Record<string, unknown>]>;
+    const menuCall = calls.find(([req]) => req.op === 'menu');
+    expect(menuCall?.[0]).toMatchObject({
+      op: 'menu',
+      target: { kind: 'macos', pid: 42 },
+      menuPath: ['File', 'New Window'],
+    });
+  });
+
+  it('returns a failing outcome with before/after evidence when nothing observably changes', async () => {
+    const unchanged = {
+      ok: true,
+      result: { kind: 'macos', window: { windowId: 1, width: 800, height: 600, title: 'Untitled' }, elements: [] },
+    };
+    const daemon = fakeDaemon({
+      extractResults: [unchanged, unchanged],
+      menuResult: { ok: true, result: { success: true, matchedVia: 'menu-bar' } },
+    });
+    const backend = new DaemonBackend({ daemon, fallback: fallbackStub() });
+    const target: NativeSessionTarget = { kind: 'macos', pid: 42 };
+
+    const outcome = await backend.menu(target, { menuPath: ['File', 'New Window'] });
+
+    expect(outcome.success).toBe(false);
+    expect(outcome.validator.passed).toBe(false);
+    expect(outcome.evidence?.beforeSignature).toBeDefined();
+    expect(outcome.evidence?.afterSignature).toBeDefined();
   });
 });

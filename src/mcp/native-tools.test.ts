@@ -549,11 +549,17 @@ describe('E4-B: per-kind target requiredness', () => {
     expect(p.validator.observed).not.toMatch(/^unknown op/i);
   });
 
-  it('capability kind (menuPath) with no target is accepted by the schema and reaches the dormant not-implemented outcome', async () => {
+  it('capability kind (menuPath) with no target is accepted by the schema and reaches the LIVE menu backend (not dormant, not a target error)', async () => {
+    // menuPath went live at E2-D (AXMenu traversal). It is no longer the
+    // dormant not-implemented stub. Walking a menu path against the seeded
+    // fake pid 9999 (not a real process/app) fails to resolve a menu bar or
+    // open context menu, so the real menu path returns success:false with a
+    // traversal-resolution error — proving it reached live handling, not the
+    // dormant outcome and not a missing-target rejection.
     const res = await call('native_session_action', { sessionId: SID, action: 'menuPath', menuPath: ['File', 'New Window'] });
-    expect(res.isError).toBe(true);
     const p = parse(res) as { success: boolean; validator: { observed: string } };
     expect(p.success).toBe(false);
-    expect(p.validator.observed).toMatch(/not implemented/i);
+    expect(p.validator.observed).not.toMatch(/not implemented/i);
+    expect(p.validator.observed).not.toMatch(/target/i);
   });
 });

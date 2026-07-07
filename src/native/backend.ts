@@ -33,7 +33,7 @@ import type {
   NativeElement,
   SimulatorDevice,
 } from './types.js';
-import { type ActionOutcome, notImplementedOutcome } from '../action-outcome.js';
+import type { ActionOutcome } from '../action-outcome.js';
 import { AXDaemon, DaemonError } from './daemon.js';
 import {
   deliverKeystrokeOneShot,
@@ -42,6 +42,12 @@ import {
   type KeystrokeDeliveryResult,
 } from './keyboard.js';
 import { runLifecycleCapability, defaultLifecycleOps } from './lifecycle.js';
+import {
+  deliverMenuOneShot,
+  resolveMenuTargetPid,
+  runMenuCapability,
+  type MenuDeliveryResult,
+} from './menu.js';
 
 // ─── Target + capability shapes (frozen v1 surface) ──────────────────────────
 
@@ -221,8 +227,19 @@ export class RespawnBackend implements NativeBackend {
     return runLifecycleCapability(target, spec, defaultLifecycleOps);
   }
 
-  async menu(_target: NativeSessionTarget, _spec: MenuSpec): Promise<ActionOutcome> {
-    return notImplementedOutcome('menu');
+  /**
+   * Walk a menu path (menu-bar or already-open context menu) via the
+   * one-shot Swift extractor binary (E2-D). See `menu.ts` for the delivery
+   * wrapper + AX-diff validator that builds the returned `ActionOutcome`.
+   */
+  async menu(target: NativeSessionTarget, spec: MenuSpec): Promise<ActionOutcome> {
+    return runMenuCapability({
+      target,
+      spec,
+      resolvePid: () => resolveMenuTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: deliverMenuOneShot,
+    });
   }
 }
 
@@ -240,8 +257,10 @@ export class RespawnBackend implements NativeBackend {
  * `keystroke` is wired to the daemon's `keystroke` op at E2-B (falling back to
  * the one-shot binary if the daemon dies mid-request); `lifecycle` (E2-C)
  * delegates straight to the respawn implementation (OS-level process control
- * gains nothing from the daemon connection); `menu` still returns the
- * structured `not-implemented` outcome until E2-D.
+ * gains nothing from the daemon connection); `menu` (E2-D) is wired to the
+ * daemon's `menu` op the same way `keystroke` is — full-capability fallback
+ * when the daemon cannot start, per-request fallback to the one-shot binary
+ * if it dies mid-request.
  *
  * Screenshot capture stays on the existing `screencapture`/`simctl` path — the
  * daemon only supplies the CGWindowID for macOS (via a `resolve` op) so no
@@ -434,8 +453,50 @@ export class DaemonBackend implements NativeBackend {
     return this.fallback.lifecycle(target, spec);
   }
 
-  async menu(_target: NativeSessionTarget, _spec: MenuSpec): Promise<ActionOutcome> {
-    return notImplementedOutcome('menu');
+  /**
+   * Walk a menu path via the daemon's `menu` op (E2-D). Mirrors `keystroke`:
+   * if the daemon is already unusable (or fails to start), the ENTIRE
+   * capability delegates to `RespawnBackend.menu` so before/after signatures
+   * come from one consistent backend. If the daemon dies mid-request, this
+   * attempt still completes via the one-shot binary for just the raw
+   * traversal, rather than aborting.
+   */
+  async menu(target: NativeSessionTarget, spec: MenuSpec): Promise<ActionOutcome> {
+    if (!this.usable) return this.fallback.menu(target, spec);
+    try {
+      await this.daemon.start();
+    } catch (err) {
+      if (err instanceof DaemonError) this.usable = false;
+      return this.fallback.menu(target, spec);
+    }
+
+    return runMenuCapability({
+      target,
+      spec,
+      resolvePid: () => resolveMenuTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: async (pid, menuPath) => {
+        try {
+          const resp = await this.daemon.request({
+            op: 'menu',
+            target: target.kind === 'macos'
+              ? { kind: 'macos', pid }
+              : { kind: 'simulator', pid, deviceName: target.device.name },
+            menuPath,
+          });
+          if (!resp.ok) return { success: false, error: resp.error };
+          return resp.result as MenuDeliveryResult;
+        } catch (err) {
+          if (err instanceof DaemonError) {
+            this.usable = false;
+            // Daemon died mid-request — finish this attempt via the one-shot
+            // binary rather than aborting the capability call outright.
+            return deliverMenuOneShot(pid, menuPath);
+          }
+          throw err;
+        }
+      },
+    });
   }
 
   /** Stop the underlying daemon (test/shutdown aid). */

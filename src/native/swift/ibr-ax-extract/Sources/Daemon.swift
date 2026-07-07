@@ -81,6 +81,8 @@ private func handleDaemonRequest(_ line: String) -> [String: Any] {
         response = daemonAction(req)
     case "keystroke":
         response = daemonKeystroke(req)
+    case "menu":
+        response = daemonMenu(req)
     default:
         response = ["ok": false, "error": "unknown op: \(op)"]
     }
@@ -221,6 +223,29 @@ private func daemonKeystroke(_ req: [String: Any]) -> [String: Any] {
     let (success, error) = deliverKeystroke(pid: pid, chord: chord, foreground: foreground)
     var result: [String: Any] = ["success": success]
     if let error = error { result["error"] = error }
+    return ["ok": true, "result": result]
+}
+
+/// menu (E2-D) — traverse the target pid's menu bar (or an already-open
+/// context menu) by title path and AXPress the final item. Mirrors
+/// `daemonKeystroke`'s contract: a traversal failure (item not found, AXPress
+/// failure) is a structured result (success:false), not a protocol error.
+private func daemonMenu(_ req: [String: Any]) -> [String: Any] {
+    guard let target = req["target"] as? [String: Any] else {
+        return ["ok": false, "error": "menu requires target"]
+    }
+    guard let pid = (target["pid"] as? NSNumber)?.int32Value else {
+        return ["ok": false, "error": "menu requires target.pid"]
+    }
+    guard let menuPath = req["menuPath"] as? [String], !menuPath.isEmpty else {
+        return ["ok": false, "error": "menu requires a non-empty menuPath"]
+    }
+
+    let walk = walkMenuPath(pid: pid, menuPath: menuPath)
+    var result: [String: Any] = ["success": walk.success]
+    if let error = walk.error { result["error"] = error }
+    if let failedSegment = walk.failedSegment { result["failedSegment"] = failedSegment }
+    if let matchedVia = walk.matchedVia { result["matchedVia"] = matchedVia }
     return ["ok": true, "result": result]
 }
 

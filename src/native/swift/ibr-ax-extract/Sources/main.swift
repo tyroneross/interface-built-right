@@ -26,6 +26,7 @@ var layoutThreshold: Double = 0.12
 var daemonMode: Bool = false
 var keystrokeChord: String? = nil
 var keystrokeForeground: Bool = false
+var menuPathJSON: String? = nil
 
 var i = 1
 while i < args.count {
@@ -66,6 +67,9 @@ while i < args.count {
         if i < args.count { keystrokeChord = args[i] }
     case "--foreground":
         keystrokeForeground = true
+    case "--menu-path":
+        i += 1
+        if i < args.count { menuPathJSON = args[i] }
     default:
         break
     }
@@ -130,6 +134,34 @@ if let chord = keystrokeChord {
         print(str)
     }
     exit(success ? 0 : 1)
+}
+
+// --- Mode: Menu traversal (--menu-path --pid) ---
+// Walks the target pid's menu bar (or an already-open context menu, if the
+// caller previously fired a `showMenu`/AXShowMenu action) by an ordered list
+// of item titles, e.g. '["File","New Window"]', and AXPresses the final
+// item. See Menu.swift for the traversal (menu-bar vs context-menu, lazy
+// submenu population).
+if let menuJSON = menuPathJSON {
+    guard let pid = targetPid else {
+        fputs("{\"error\":\"--pid is required for menu mode\"}\n", stderr)
+        exit(1)
+    }
+    guard let jsonData = menuJSON.data(using: .utf8),
+          let menuPath = (try? JSONSerialization.jsonObject(with: jsonData)) as? [String] else {
+        fputs("{\"error\":\"--menu-path must be a JSON array of strings\"}\n", stderr)
+        exit(1)
+    }
+    let walk = walkMenuPath(pid: pid, menuPath: menuPath)
+    var result: [String: Any] = ["success": walk.success]
+    if let error = walk.error { result["error"] = error }
+    if let failedSegment = walk.failedSegment { result["failedSegment"] = failedSegment }
+    if let matchedVia = walk.matchedVia { result["matchedVia"] = matchedVia }
+    if let data = try? JSONSerialization.data(withJSONObject: result),
+       let str = String(data: data, encoding: .utf8) {
+        print(str)
+    }
+    exit(walk.success ? 0 : 1)
 }
 
 // --- Mode: Action execution (--action --pid --element-path) ---
