@@ -248,4 +248,3 @@ private func daemonMenu(_ req: [String: Any]) -> [String: Any] {
     if let matchedVia = walk.matchedVia { result["matchedVia"] = matchedVia }
     return ["ok": true, "result": result]
 }
-
