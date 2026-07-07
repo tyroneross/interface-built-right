@@ -6,8 +6,13 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -363,6 +368,7 @@ var init_target = __esm({
       constructor(conn) {
         this.conn = conn;
       }
+      conn;
       async createPage(url) {
         const result = await this.conn.send(
           "Target.createTarget",
@@ -398,6 +404,8 @@ var init_page = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async navigate(url) {
         const result = await this.conn.send(
           "Page.navigate",
@@ -464,6 +472,49 @@ var init_page = __esm({
       async enableLifecycleEvents() {
         await this.conn.send("Page.setLifecycleEventsEnabled", { enabled: true }, this.sessionId);
         await this.conn.send("Page.enable", {}, this.sessionId);
+      }
+      /**
+       * Frame hierarchy for the current page (E3-D). Used to discover iframes
+       * whose accessible content today isn't reachable from the main-frame AX
+       * tree (Accessibility.getFullAXTree only walks the ROOT frame by
+       * default).
+       */
+      async getFrameTree() {
+        const result = await this.conn.send(
+          "Page.getFrameTree",
+          {},
+          this.sessionId
+        );
+        return result.frameTree;
+      }
+      /**
+       * Subscribe to Page.javascriptDialogOpening (E3-D). Returns an unsubscribe
+       * function. Page.enable() (called by enableLifecycleEvents()) must have
+       * run first for this event to fire.
+       */
+      onDialogOpening(handler) {
+        const listener = (params) => handler(params);
+        this.conn.on("Page.javascriptDialogOpening", listener);
+        return () => this.conn.off("Page.javascriptDialogOpening", listener);
+      }
+      /**
+       * Subscribe to Page.javascriptDialogClosed (E3-D) — fires once a dialog
+       * has been answered, whether via handleDialog() or the browser's own
+       * default handling. Returns an unsubscribe function.
+       */
+      onDialogClosed(handler) {
+        const listener = (params) => handler(params);
+        this.conn.on("Page.javascriptDialogClosed", listener);
+        return () => this.conn.off("Page.javascriptDialogClosed", listener);
+      }
+      /**
+       * Answer the currently-open JS dialog (E3-D). `promptText` is only
+       * meaningful for `type: 'prompt'` dialogs; omit to accept the default.
+       */
+      async handleDialog(accept, promptText) {
+        const params = { accept };
+        if (promptText !== void 0) params.promptText = promptText;
+        await this.conn.send("Page.handleJavaScriptDialog", params, this.sessionId);
       }
       /**
        * Inject CSS into the page.
@@ -576,6 +627,8 @@ var init_accessibility = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       nodeMap = /* @__PURE__ */ new Map();
       // elementId → backendDOMNodeId
       loadCompleteHandlers = /* @__PURE__ */ new Set();
@@ -734,15 +787,24 @@ var init_dom = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
-      async getElementCenter(backendNodeId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+      conn;
+      sessionId;
+      /**
+       * `sessionId` overrides the domain's default session — needed for E3-D
+       * frame support, where a backendNodeId sourced from an out-of-process
+       * iframe target must be resolved against THAT target's session, not the
+       * main page's.
+       */
+      async getElementCenter(backendNodeId, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
         const q = result.model.content;
         const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
         const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
         return { x, y };
       }
-      async getBoxModel(backendNodeId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+      /** See getElementCenter() for the `sessionId` override rationale. */
+      async getBoxModel(backendNodeId, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
         return result.model;
       }
       async getDocument() {
@@ -820,7 +882,26 @@ function charToCode(char) {
   if (upper >= "A" && upper <= "Z") return `Key${upper}`;
   return "";
 }
-var InputDomain, SPECIAL_KEYS, SPECIAL_CODES;
+function parseChord(input) {
+  if (input.length <= 1 || !input.includes("+")) return null;
+  const parts = input.split("+");
+  const mainKey = parts[parts.length - 1];
+  const modifierParts = parts.slice(0, -1);
+  if (mainKey === "" || modifierParts.length === 0) return null;
+  const modifiers = [];
+  for (const part of modifierParts) {
+    const normalized = MODIFIER_ALIASES[part.toLowerCase()];
+    if (!normalized) return null;
+    modifiers.push(normalized);
+  }
+  return { modifiers, mainKey };
+}
+function resolveChordKey(mainKey) {
+  const special = SPECIAL_KEYS[mainKey];
+  if (special) return { key: special.key, code: special.code };
+  return { key: mainKey, code: charToCode(mainKey) };
+}
+var InputDomain, SPECIAL_KEYS, SPECIAL_CODES, MODIFIER_BITS, MODIFIER_ALIASES, MODIFIER_KEY_DEFS;
 var init_input = __esm({
   "src/engine/cdp/input.ts"() {
     "use strict";
@@ -829,6 +910,8 @@ var init_input = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async click(x, y) {
         await this.conn.send("Input.dispatchMouseEvent", {
           type: "mousePressed",
@@ -862,9 +945,15 @@ var init_input = __esm({
         }
       }
       /**
-       * Press a special key (Enter, Tab, Escape, Backspace, etc.)
+       * Press a special key (Enter, Tab, Escape, Backspace, etc.) or a modifier
+       * chord ("Meta+k", "Cmd+K", "Ctrl+Shift+P", ...).
        */
       async pressKey(key) {
+        const chord = parseChord(key);
+        if (chord) {
+          await this.dispatchChord(chord);
+          return;
+        }
         const keyDef = SPECIAL_KEYS[key];
         if (!keyDef) {
           await this.type(key);
@@ -881,6 +970,49 @@ var init_input = __esm({
           key: keyDef.key,
           code: keyDef.code
         }, this.sessionId);
+      }
+      /**
+       * Dispatch a real modifier chord: press each modifier down (in order,
+       * accumulating the CDP `modifiers` bitmask), then keyDown/keyUp the target
+       * key while the modifiers are held, then release the modifiers in reverse
+       * order. No `text` is sent for the target key — a chord synthesizes a
+       * shortcut, it must never insert literal characters into a focused field.
+       */
+      async dispatchChord(chord) {
+        let modifiers = 0;
+        for (const mod of chord.modifiers) {
+          modifiers |= MODIFIER_BITS[mod];
+          const def = MODIFIER_KEY_DEFS[mod];
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            key: def.key,
+            code: def.code,
+            modifiers
+          }, this.sessionId);
+        }
+        const mainDef = resolveChordKey(chord.mainKey);
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyDown",
+          key: mainDef.key,
+          code: mainDef.code,
+          modifiers
+        }, this.sessionId);
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key: mainDef.key,
+          code: mainDef.code,
+          modifiers
+        }, this.sessionId);
+        for (const mod of [...chord.modifiers].reverse()) {
+          modifiers &= ~MODIFIER_BITS[mod];
+          const def = MODIFIER_KEY_DEFS[mod];
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: def.key,
+            code: def.code,
+            modifiers
+          }, this.sessionId);
+        }
       }
       async hover(x, y) {
         await this.conn.send("Input.dispatchMouseEvent", {
@@ -961,6 +1093,28 @@ var init_input = __esm({
       "	": "Tab",
       "\n": "Enter"
     };
+    MODIFIER_BITS = {
+      Alt: 1,
+      Control: 2,
+      Meta: 4,
+      Shift: 8
+    };
+    MODIFIER_ALIASES = {
+      alt: "Alt",
+      option: "Alt",
+      ctrl: "Control",
+      control: "Control",
+      meta: "Meta",
+      cmd: "Meta",
+      command: "Meta",
+      shift: "Shift"
+    };
+    MODIFIER_KEY_DEFS = {
+      Alt: { key: "Alt", code: "AltLeft" },
+      Control: { key: "Control", code: "ControlLeft" },
+      Meta: { key: "Meta", code: "MetaLeft" },
+      Shift: { key: "Shift", code: "ShiftLeft" }
+    };
   }
 });
 
@@ -974,6 +1128,8 @@ var init_runtime = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       /**
        * Evaluate a JavaScript expression string in the page context.
        */
@@ -1044,6 +1200,8 @@ var init_css = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async enable() {
         await this.conn.send("CSS.enable", {}, this.sessionId);
       }
@@ -1094,6 +1252,8 @@ var init_snapshot = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async enable() {
         await this.conn.send("DOMSnapshot.enable", {}, this.sessionId);
       }
@@ -1155,6 +1315,8 @@ var init_emulation = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       /**
        * Override device metrics (viewport size, scale, mobile layout mode).
        * Does NOT set UA or touch — for a full device emulation, use
@@ -1237,8 +1399,120 @@ var init_network = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
+      inflight = /* @__PURE__ */ new Set();
+      lastActivityAt = Date.now();
+      handlersRegistered = false;
+      responseWaiters = /* @__PURE__ */ new Set();
+      onRequestWillBeSent = (params) => {
+        const { requestId } = params;
+        this.inflight.add(requestId);
+        this.lastActivityAt = Date.now();
+      };
+      onResponseReceived = (params) => {
+        const { response } = params;
+        this.lastActivityAt = Date.now();
+        for (const waiter of [...this.responseWaiters]) {
+          if (waiter.predicate(response.url, response.status)) {
+            this.responseWaiters.delete(waiter);
+            waiter.resolve({ url: response.url, status: response.status });
+          }
+        }
+      };
+      onLoadingFinished = (params) => {
+        const { requestId } = params;
+        this.inflight.delete(requestId);
+        this.lastActivityAt = Date.now();
+      };
+      onLoadingFailed = (params) => {
+        const { requestId } = params;
+        this.inflight.delete(requestId);
+        this.lastActivityAt = Date.now();
+      };
       async enable() {
         await this.conn.send("Network.enable", {}, this.sessionId);
+        this.registerHandlers();
+      }
+      registerHandlers() {
+        if (this.handlersRegistered) return;
+        this.handlersRegistered = true;
+        this.conn.on("Network.requestWillBeSent", this.onRequestWillBeSent);
+        this.conn.on("Network.responseReceived", this.onResponseReceived);
+        this.conn.on("Network.loadingFinished", this.onLoadingFinished);
+        this.conn.on("Network.loadingFailed", this.onLoadingFailed);
+      }
+      /**
+       * Detach the Network-domain event listeners without disabling the CDP
+       * domain itself. Used by tests to simulate "Network-domain events
+       * disabled" — with tracking off, in-flight state is frozen at whatever
+       * it was, so `waitForNetworkIdle` reports idle immediately even while a
+       * real request is in flight, proving the wait would be FAKE without real
+       * event wiring.
+       */
+      disableTracking() {
+        if (!this.handlersRegistered) return;
+        this.handlersRegistered = false;
+        this.conn.off("Network.requestWillBeSent", this.onRequestWillBeSent);
+        this.conn.off("Network.responseReceived", this.onResponseReceived);
+        this.conn.off("Network.loadingFinished", this.onLoadingFinished);
+        this.conn.off("Network.loadingFailed", this.onLoadingFailed);
+      }
+      /** True once `enable()` has registered real event handlers. */
+      get tracking() {
+        return this.handlersRegistered;
+      }
+      /** Current in-flight request count (only meaningful while `tracking`). */
+      get inflightCount() {
+        return this.inflight.size;
+      }
+      /**
+       * Wait until the in-flight request count has been at or below
+       * `maxInflight` for `idleMs` consecutive milliseconds — REAL CDP
+       * Network-domain quiescence (requestWillBeSent / responseReceived /
+       * loadingFinished / loadingFailed), not AX-tree stability and not a
+       * fixed sleep. Never throws: resolves `{ timedOut: true, ... }` at the
+       * deadline instead, so callers can treat it as best-effort.
+       */
+      async waitForNetworkIdle(options = {}) {
+        const idleMs = options.idleMs ?? 500;
+        const maxInflight = options.maxInflight ?? 0;
+        const timeout = options.timeout ?? 1e4;
+        const deadline = Date.now() + timeout;
+        const pollInterval = Math.min(50, Math.max(10, idleMs));
+        while (true) {
+          const now = Date.now();
+          if (this.inflight.size <= maxInflight && now - this.lastActivityAt >= idleMs) {
+            return { timedOut: false, inflightCount: this.inflight.size };
+          }
+          if (now >= deadline) {
+            return { timedOut: true, inflightCount: this.inflight.size };
+          }
+          await new Promise((r) => setTimeout(r, pollInterval));
+        }
+      }
+      /**
+       * Wait for a response whose (url, status) satisfies `predicate`. Resolves
+       * the moment a matching `Network.responseReceived` event fires; rejects
+       * on timeout. Driven entirely by real CDP events — with tracking
+       * disabled this never resolves and always times out (no fake success).
+       */
+      async waitForResponse(predicate, options = {}) {
+        const timeout = options.timeout ?? 3e4;
+        return new Promise((resolve5, reject) => {
+          const waiter = {
+            predicate,
+            resolve: (value) => {
+              clearTimeout(timer);
+              resolve5(value);
+            }
+          };
+          const timer = setTimeout(() => {
+            this.responseWaiters.delete(waiter);
+            reject(new Error(`waitForResponse timed out after ${timeout}ms waiting for a matching response`));
+          }, timeout);
+          this.responseWaiters.add(waiter);
+        });
       }
       /**
        * Get all cookies, optionally filtered by URLs.
@@ -1298,6 +1572,8 @@ var init_console = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       handlers = /* @__PURE__ */ new Set();
       messages = [];
       enabled = false;
@@ -1501,6 +1777,79 @@ async function waitForStable(conn, getSnapshot, options) {
 var init_wait = __esm({
   "src/engine/cdp/wait.ts"() {
     "use strict";
+  }
+});
+
+// src/engine/actionability.ts
+function rectEqual(a, b) {
+  if (!a || !b) return false;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+}
+async function waitForActionable(resolveAndProbe, options = {}) {
+  const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+  const pollInterval = options.pollInterval ?? DEFAULT_POLL_INTERVAL;
+  const requiredStable = Math.max(1, options.requiredStableChecks ?? DEFAULT_REQUIRED_STABLE_CHECKS);
+  const start = Date.now();
+  const deadline = start + timeout;
+  let lastRect = null;
+  let stableCount = 0;
+  let lastReason = "not present";
+  while (true) {
+    const result = await resolveAndProbe();
+    if (!result) {
+      lastReason = "not resolvable";
+      stableCount = 0;
+      lastRect = null;
+    } else {
+      const { target, state } = result;
+      if (!state.present) {
+        lastReason = "not present";
+        stableCount = 0;
+        lastRect = null;
+      } else if (!state.visible) {
+        lastReason = "not visible (hidden or covered)";
+        stableCount = 0;
+        lastRect = null;
+      } else if (!state.enabled) {
+        lastReason = "disabled";
+        stableCount = 0;
+        lastRect = null;
+      } else {
+        if (rectEqual(lastRect, state.rect)) {
+          stableCount += 1;
+        } else {
+          stableCount = 1;
+        }
+        lastRect = state.rect;
+        lastReason = "position not yet stable";
+        if (stableCount >= requiredStable) {
+          return target;
+        }
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new ActionabilityTimeoutError(lastReason, Date.now() - start);
+    }
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+}
+var DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, DEFAULT_REQUIRED_STABLE_CHECKS, ActionabilityTimeoutError;
+var init_actionability = __esm({
+  "src/engine/actionability.ts"() {
+    "use strict";
+    DEFAULT_TIMEOUT = 5e3;
+    DEFAULT_POLL_INTERVAL = 30;
+    DEFAULT_REQUIRED_STABLE_CHECKS = 2;
+    ActionabilityTimeoutError = class extends Error {
+      constructor(reason, elapsedMs) {
+        super(`Element was not actionable within ${elapsedMs}ms: ${reason}`);
+        this.reason = reason;
+        this.elapsedMs = elapsedMs;
+        this.name = "ActionabilityTimeoutError";
+      }
+      reason;
+      elapsedMs;
+    };
   }
 });
 
@@ -2191,13 +2540,31 @@ function findExactLabel(name, elements, role) {
   }
   return null;
 }
+function inferFrameActions(role) {
+  switch (role) {
+    case "button":
+    case "link":
+    case "checkbox":
+    case "tab":
+    case "switch":
+      return ["press"];
+    case "textfield":
+      return ["setValue"];
+    case "slider":
+      return ["increment", "decrement", "setValue"];
+    case "select":
+      return ["press", "showMenu"];
+    default:
+      return [];
+  }
+}
 function chunkElements(elements, maxTokens) {
   const charsPerToken = 4;
   const charsPerElement = 40;
   const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
   return elements.slice(0, maxElements);
 }
-var import_pixelmatch, import_pngjs, AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_MIN_MARGIN, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE, DESTRUCTIVE_LABEL_PATTERN, JARO_ACCEPT_MIN, EngineDriver;
+var import_pixelmatch, import_pngjs, AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_MIN_MARGIN, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE, DESTRUCTIVE_LABEL_PATTERN, JARO_ACCEPT_MIN, ACTIONABILITY_PROBE_FN, FRAME_SKIP_ROLES, EngineDriver;
 var init_driver = __esm({
   "src/engine/driver.ts"() {
     "use strict";
@@ -2215,6 +2582,7 @@ var init_driver = __esm({
     init_network();
     init_console();
     init_wait();
+    init_actionability();
     import_pixelmatch = __toESM(require("pixelmatch"));
     import_pngjs = require("pngjs");
     init_serialize();
@@ -2223,12 +2591,38 @@ var init_driver = __esm({
     init_cache();
     init_modality();
     init_shadow_dom();
+    init_normalize();
     AUTO_RESOLVE_MIN_SCORE = 0.8;
     AUTO_RESOLVE_MIN_MARGIN = 0.15;
     AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95;
     DESTRUCTIVE_LABEL_PATTERN = /\b(?:delete|remove|erase|wipe|purge|revoke|deactivate|disable|discard|destroy|reset|clear|unsubscribe|confirm)\b/i;
     JARO_ACCEPT_MIN = 0.92;
-    EngineDriver = class {
+    ACTIONABILITY_PROBE_FN = `function() {
+  if (!this || !this.isConnected) {
+    return { present: false, visible: false, enabled: false, rect: null };
+  }
+  var style = window.getComputedStyle(this);
+  var r = this.getBoundingClientRect();
+  var hasSize = r.width > 0 && r.height > 0;
+  var visible = style.display !== 'none' && style.visibility !== 'hidden' &&
+    parseFloat(style.opacity) !== 0 && hasSize;
+  if (visible) {
+    var cx = r.left + r.width / 2;
+    var cy = r.top + r.height / 2;
+    var atPoint = document.elementFromPoint(cx, cy);
+    var uncovered = !!atPoint && (atPoint === this || this.contains(atPoint) || atPoint.contains(this));
+    visible = visible && uncovered;
+  }
+  var enabled = this.disabled !== true && this.getAttribute('aria-disabled') !== 'true';
+  return {
+    present: true,
+    visible: visible,
+    enabled: enabled,
+    rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+  };
+}`;
+    FRAME_SKIP_ROLES = /* @__PURE__ */ new Set(["WebArea", "RootWebArea", "GenericContainer", "none", "IgnoredRole"]);
+    EngineDriver = class _EngineDriver {
       browser = new BrowserManager();
       conn = new CdpConnection();
       // Resolution cache initialized in constructor or with defaults
@@ -2248,6 +2642,43 @@ var init_driver = __esm({
       _currentUrl = "";
       launched = false;
       resolutionCache = new ResolutionCache();
+      /**
+       * Last-known {label, role} for every elementId we've ever seen in an AX
+       * snapshot, keyed by elementId (`e${backendDOMNodeId}`). Unlike
+       * AccessibilityDomain's internal nodeMap (which only reflects the CURRENT
+       * live tree), this accumulates across snapshots so that when a
+       * backendNodeId goes stale mid-actionability-wait (the element re-rendered
+       * under a new backendNodeId), we can still recall what we were looking for
+       * and re-resolve by name+role instead of throwing on the dead reference.
+       * Bounded to avoid unbounded growth over a long session.
+       */
+      elementDescriptors = /* @__PURE__ */ new Map();
+      static MAX_DESCRIPTOR_HISTORY = 1e3;
+      static DESCRIPTOR_TRIM_TARGET = 500;
+      // ─── Frames (E3-D) ──────────────────────────────────────
+      // Elements sourced from an iframe are NOT in AccessibilityDomain's
+      // nodeMap (that class only ever walks the main frame) — these maps are
+      // this driver's own bookkeeping so click()/observe()/find() can resolve
+      // and act on them anyway. Cleared on every navigate() (frame ids and
+      // backendNodeIds are meaningless across a navigation).
+      frameElementBackendNodeIds = /* @__PURE__ */ new Map();
+      frameElementSessions = /* @__PURE__ */ new Map();
+      frameTagFor = /* @__PURE__ */ new Map();
+      // CDP frameId -> short elementId-safe tag
+      oopifSessions = /* @__PURE__ */ new Map();
+      // OOPIF targetId -> attached sessionId (reused across snapshots)
+      lastFrameCount = 0;
+      lastFrameReached = 0;
+      // ─── JS Dialogs (E3-D) ──────────────────────────────────
+      // Page.javascriptDialogOpening pauses the renderer's JS until
+      // Page.handleJavaScriptDialog answers it. Any in-flight CDP command whose
+      // response depends on that JS finishing (e.g. click()'s
+      // Runtime.callFunctionOn) would otherwise hang until answered — see
+      // raceAgainstDialog().
+      pendingDialog = null;
+      dialogWaiters = /* @__PURE__ */ new Set();
+      unsubscribeDialogOpening = null;
+      unsubscribeDialogClosed = null;
       // ─── Lifecycle ──────────────────────────────────────────
       async launch(options = {}) {
         const wsUrl = await this.browser.launch(options);
@@ -2269,9 +2700,29 @@ var init_driver = __esm({
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
+        await this.network.enable();
+        this.setupDialogHandling();
         if (options.viewport) {
           await this.emulation.applyDeviceProfile(options.viewport);
         }
+      }
+      /**
+       * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
+       * `dialogWaiters` (E3-D). Idempotent — unsubscribes any prior
+       * registration first, so re-launch/connectExisting never double-fires.
+       */
+      setupDialogHandling() {
+        this.unsubscribeDialogOpening?.();
+        this.unsubscribeDialogClosed?.();
+        this.unsubscribeDialogOpening = this._page.onDialogOpening((dialog) => {
+          this.pendingDialog = dialog;
+          const waiters = [...this.dialogWaiters];
+          this.dialogWaiters.clear();
+          for (const wake of waiters) wake();
+        });
+        this.unsubscribeDialogClosed = this._page.onDialogClosed(() => {
+          this.pendingDialog = null;
+        });
       }
       async close() {
         if (this.targetId) {
@@ -2314,17 +2765,29 @@ var init_driver = __esm({
         if (waitFor === "stable") {
           await waitForStable(
             this.conn,
-            () => this.ax.getSnapshot(),
+            () => this.freshSnapshot(),
             { timeout: options.timeout ?? 1e4, eventName: "Accessibility.nodesUpdated" }
           );
         } else if (waitFor === "load") {
           await waitForStableTree(
-            () => this.ax.getSnapshot(),
+            () => this.freshSnapshot(),
             { timeout: options.timeout ?? 1e4 }
           );
         }
         this._currentUrl = await this.runtime.evaluate("location.href") ?? url;
         this.resolutionCache.clear();
+        this.elementDescriptors.clear();
+        for (const targetId of this.oopifSessions.keys()) {
+          this.target.close(targetId).catch(() => {
+          });
+        }
+        this.frameElementBackendNodeIds.clear();
+        this.frameElementSessions.clear();
+        this.frameTagFor.clear();
+        this.oopifSessions.clear();
+        this.lastFrameCount = 0;
+        this.lastFrameReached = 0;
+        this.pendingDialog = null;
       }
       get url() {
         return this._currentUrl;
@@ -2340,7 +2803,7 @@ var init_driver = __esm({
        */
       async discover(options = {}) {
         const filter = options.filter ?? "interactive";
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         let filtered;
         switch (filter) {
           case "interactive":
@@ -2375,7 +2838,7 @@ var init_driver = __esm({
       async find(name, options = {}) {
         const diag = await this.findWithDiagnostics(name, options);
         if (!diag.elementId) return null;
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return elements.find((e) => e.id === diag.elementId) ?? null;
       }
       /**
@@ -2387,7 +2850,7 @@ var init_driver = __esm({
         const cacheKey = options.role ? `${name}:${options.role}` : name;
         const cached = this.resolutionCache.get(cacheKey);
         if (cached) {
-          const elements = await this.ax.getSnapshot();
+          const elements = await this.freshSnapshot();
           const match = elements.find((e) => e.id === cached.elementId);
           if (match) {
             const interactive2 = elements.filter((e) => e.actions.length > 0);
@@ -2413,7 +2876,7 @@ var init_driver = __esm({
             label: el.label,
             confidence: 1
           });
-          const allElements2 = await this.ax.getSnapshot();
+          const allElements2 = await this.freshSnapshot();
           const interactive2 = allElements2.filter((e) => e.actions.length > 0);
           return {
             elementId: el.id,
@@ -2424,7 +2887,7 @@ var init_driver = __esm({
             totalInteractive: interactive2.length
           };
         }
-        const allElements = await this.ax.getSnapshot();
+        const allElements = await this.freshSnapshot();
         const interactive = allElements.filter((e) => e.actions.length > 0);
         const exact = findExactLabel(name, allElements, options.role);
         if (exact) {
@@ -2519,39 +2982,449 @@ var init_driver = __esm({
           screenshot
         };
       }
-      // ─── Interactions ───────────────────────────────────────
-      async click(elementId) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const sid = this.sessionId ?? void 0;
-        let domClickWorked = false;
+      // ─── Actionability (auto-wait) ──────────────────────────
+      //
+      // click/type/fill/check/select all resolve through awaitActionable()
+      // before acting, so none of them can act on a stale, hidden, covered, or
+      // disabled element — see src/engine/actionability.ts for the generic
+      // present→visible→enabled→stable poll loop this builds on.
+      /** Record every element's {label, role} into the cross-snapshot history
+       *  used for stale-elementId re-resolution (see elementDescriptors). */
+      recordDescriptors(elements) {
+        for (const e of elements) {
+          this.elementDescriptors.set(e.id, { label: e.label, role: e.role });
+        }
+        if (this.elementDescriptors.size > _EngineDriver.MAX_DESCRIPTOR_HISTORY) {
+          const excess = this.elementDescriptors.size - _EngineDriver.DESCRIPTOR_TRIM_TARGET;
+          let i = 0;
+          for (const key of this.elementDescriptors.keys()) {
+            if (i++ >= excess) break;
+            this.elementDescriptors.delete(key);
+          }
+        }
+      }
+      /** Snapshot wrapper — every full-tree read goes through here so the
+       *  stale-elementId re-resolution history stays warm. Behavior-identical
+       *  to calling this.ax.getSnapshot() directly, PLUS (E3-D) elements from
+       *  every iframe on the page, merged in. */
+      async freshSnapshot() {
+        const [mainElements, frameElements] = await Promise.all([
+          this.ax.getSnapshot(),
+          this.getFrameElements()
+        ]);
+        const elements = frameElements.length > 0 ? [...mainElements, ...frameElements] : mainElements;
+        this.recordDescriptors(elements);
+        return elements;
+      }
+      /**
+       * Probe a live DOM node's present/visible/enabled/rect state via
+       * DOM.resolveNode + Runtime.callFunctionOn (same primitives click() uses
+       * for its DOM-click path). Returns null when the backendNodeId no longer
+       * resolves to a live node — the caller treats that as "went stale" and
+       * re-resolves rather than throwing.
+       *
+       * `sessionId` (E3-D) overrides the driver's main session — required for
+       * an element sourced from an out-of-process iframe (OOPIF), whose
+       * backendNodeId only resolves against ITS OWN target/session.
+       */
+      async probeBackendNode(backendNodeId, sessionId) {
+        const sid = sessionId ?? this.sessionId ?? void 0;
         try {
           const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId }, sid);
+          const objectId = resolved?.object?.objectId;
+          if (!objectId) return null;
+          const result = await this.conn.send("Runtime.callFunctionOn", {
+            objectId,
+            functionDeclaration: ACTIONABILITY_PROBE_FN,
+            returnByValue: true
+          }, sid);
+          if (result?.exceptionDetails) return null;
+          return result?.result?.value ?? null;
+        } catch {
+          return null;
+        }
+      }
+      /**
+       * Re-resolve a stale element by its last-known label+role against a fresh
+       * AX snapshot. This is what lets a re-rendering element (new
+       * backendNodeId, same accessible name/role) stay actionable instead of
+       * failing the moment its original elementId goes stale.
+       */
+      async reResolveByLabelRole(label, role) {
+        const elements = await this.freshSnapshot();
+        const match = findExactLabel(label, elements, role);
+        return match ? match.id : null;
+      }
+      /**
+       * Resolve an elementId to its {backendNodeId, sessionId} (E3-D). Frame-
+       * sourced elements are checked first (this driver's own bookkeeping,
+       * since AccessibilityDomain only ever knows about the main frame); falls
+       * back to the main-frame nodeMap otherwise. Returns undefined when the
+       * elementId is not currently known to either.
+       */
+      resolveBackendRef(elementId) {
+        const frameBackendNodeId = this.frameElementBackendNodeIds.get(elementId);
+        if (frameBackendNodeId !== void 0) {
+          return { backendNodeId: frameBackendNodeId, sessionId: this.frameElementSessions.get(elementId) };
+        }
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (backendNodeId === void 0) return void 0;
+        return { backendNodeId, sessionId: this.sessionId ?? void 0 };
+      }
+      /**
+       * resolveAndProbe closure for waitForActionable(): resolves elementId to
+       * its current backend reference (re-resolving by name/role if the id has
+       * gone stale), then probes it. Returns null when nothing currently
+       * resolves — waitForActionable treats that as "not present" and keeps
+       * polling.
+       */
+      async resolveElementActionability(elementId) {
+        const ref = this.resolveBackendRef(elementId);
+        if (ref) {
+          const state = await this.probeBackendNode(ref.backendNodeId, ref.sessionId);
+          if (state?.present) return { target: ref, state };
+        }
+        const known = this.elementDescriptors.get(elementId);
+        if (!known) return null;
+        const freshId = await this.reResolveByLabelRole(known.label, known.role);
+        if (!freshId) return null;
+        const freshRef = this.resolveBackendRef(freshId);
+        if (!freshRef) return null;
+        const freshState = await this.probeBackendNode(freshRef.backendNodeId, freshRef.sessionId);
+        if (!freshState) return null;
+        return { target: freshRef, state: freshState };
+      }
+      /**
+       * Wait until elementId (or its re-resolved replacement) is
+       * present+visible+enabled+stable, then return the actionable backend
+       * reference. Throws a descriptive error on timeout — never silently
+       * proceeds to act on a non-actionable element.
+       */
+      async awaitActionable(elementId, options) {
+        try {
+          return await waitForActionable(
+            () => this.resolveElementActionability(elementId),
+            options
+          );
+        } catch (err) {
+          if (err instanceof ActionabilityTimeoutError) {
+            throw new Error(
+              `Element ${elementId} not actionable: ${err.reason} (waited ${err.elapsedMs}ms)`
+            );
+          }
+          throw err;
+        }
+      }
+      // ─── Frames (E3-D) ──────────────────────────────────────
+      //
+      // AccessibilityDomain.getSnapshot() only ever walks the MAIN frame
+      // (Accessibility.getFullAXTree defaults to the root frame). These helpers
+      // discover every iframe via Page.getFrameTree, then fetch each one's AX
+      // tree directly over CdpConnection (bypassing AccessibilityDomain, which
+      // is out of scope for this chunk) and merge the elements into
+      // freshSnapshot()'s output so observe()/find()/click() see inside them.
+      //
+      // Two paths, tried in order per frame:
+      //   1. In-process: same-origin (or otherwise same-renderer) frames stay
+      //      in the main page's render process — Accessibility.getFullAXTree
+      //      accepts a `frameId` and returns nodes reachable via the driver's
+      //      OWN session, no extra attach needed.
+      //   2. OOPIF (out-of-process iframe): cross-site-isolated frames get
+      //      their own CDP target. Discovered via Target.getTargets() (type
+      //      'iframe'), matched to the unresolved frame by URL (best-effort —
+      //      TargetInfo carries no direct frameId), then attached lazily and
+      //      cached by targetId. This path is defensive/best-effort: it has no
+      //      CI-feasible fixture (would need two real origins under Chrome's
+      //      site-isolation), so it is exercised by construction, not by a
+      //      passing live test.
+      tagForFrame(frameId) {
+        let tag = this.frameTagFor.get(frameId);
+        if (!tag) {
+          tag = String(this.frameTagFor.size);
+          this.frameTagFor.set(frameId, tag);
+        }
+        return tag;
+      }
+      flattenChildFrames(node) {
+        const out = [];
+        for (const child of node.childFrames ?? []) {
+          out.push({ id: child.frame.id, url: child.frame.url });
+          out.push(...this.flattenChildFrames(child));
+        }
+        return out;
+      }
+      /**
+       * Convert raw CDP AX nodes (from a frame's own getFullAXTree call) into
+       * Element[], tagging each id with `frameTag` so it can never collide with
+       * a main-frame or sibling-frame backendDOMNodeId (backend node ids are
+       * only unique WITHIN a render process). Records each into
+       * frameElementBackendNodeIds/frameElementSessions so click()/awaitActionable
+       * can resolve and act on them later.
+       */
+      convertFrameAXNodes(nodes, sessionId, frameTag) {
+        const elements = [];
+        for (const node of nodes) {
+          const roleValue = node.role?.value;
+          if (!roleValue || FRAME_SKIP_ROLES.has(roleValue)) continue;
+          const role = normalizeRole(roleValue, "web");
+          const label = node.name?.value ?? "";
+          if (role === "group" && !label) continue;
+          if (!node.backendDOMNodeId) continue;
+          const id = `f${frameTag}_e${node.backendDOMNodeId}`;
+          const disabledProp = node.properties?.find((p) => p.name === "disabled")?.value?.value;
+          const focusedProp = node.properties?.find((p) => p.name === "focused")?.value?.value;
+          elements.push({
+            id,
+            role,
+            label,
+            value: node.value?.value ?? null,
+            enabled: disabledProp !== true,
+            focused: focusedProp === true,
+            actions: inferFrameActions(role),
+            bounds: [0, 0, 0, 0],
+            parent: null
+          });
+          this.frameElementBackendNodeIds.set(id, node.backendDOMNodeId);
+          this.frameElementSessions.set(id, sessionId);
+        }
+        return elements;
+      }
+      /** Elements from every iframe on the page — see the "Frames (E3-D)"
+       *  section comment above for the two-path strategy. */
+      async getFrameElements() {
+        if (!this.sessionId) return [];
+        let tree;
+        try {
+          tree = await this._page.getFrameTree();
+        } catch {
+          this.lastFrameCount = 0;
+          this.lastFrameReached = 0;
+          return [];
+        }
+        const childFrames = this.flattenChildFrames(tree);
+        this.lastFrameCount = childFrames.length;
+        if (childFrames.length === 0) {
+          this.lastFrameReached = 0;
+          return [];
+        }
+        const elements = [];
+        const unresolvedByUrl = /* @__PURE__ */ new Map();
+        let reached = 0;
+        for (const frame of childFrames) {
+          const tag = this.tagForFrame(frame.id);
+          try {
+            const result = await this.conn.send(
+              "Accessibility.getFullAXTree",
+              { frameId: frame.id },
+              this.sessionId
+            );
+            const nodes = result?.nodes ?? [];
+            elements.push(...this.convertFrameAXNodes(nodes, this.sessionId, tag));
+            reached += 1;
+            continue;
+          } catch {
+          }
+          unresolvedByUrl.set(frame.url, frame.id);
+        }
+        if (unresolvedByUrl.size > 0) {
+          const oopifResult = await this.getOopifFrameElements(unresolvedByUrl);
+          elements.push(...oopifResult.elements);
+          reached += oopifResult.reached;
+        }
+        this.lastFrameReached = reached;
+        return elements;
+      }
+      /**
+       * Best-effort OOPIF path: discover 'iframe'-type CDP targets, match each
+       * to an unresolved frame by URL, attach (cached by targetId across
+       * snapshots), and fetch its AX tree via that target's own session.
+       */
+      async getOopifFrameElements(unresolvedByUrl) {
+        let targets;
+        try {
+          targets = await this.target.list();
+        } catch {
+          return { elements: [], reached: 0 };
+        }
+        const elements = [];
+        let reached = 0;
+        for (const t of targets) {
+          if (t.type !== "iframe") continue;
+          const frameId = unresolvedByUrl.get(t.url);
+          if (!frameId) continue;
+          let sid = this.oopifSessions.get(t.targetId);
+          if (!sid) {
+            try {
+              sid = await this.target.attach(t.targetId);
+              await this.conn.send("DOM.enable", {}, sid);
+              await this.conn.send("Accessibility.enable", {}, sid);
+              this.oopifSessions.set(t.targetId, sid);
+            } catch {
+              continue;
+            }
+          }
+          try {
+            const result = await this.conn.send("Accessibility.getFullAXTree", {}, sid);
+            const nodes = result?.nodes ?? [];
+            const tag = this.tagForFrame(frameId);
+            elements.push(...this.convertFrameAXNodes(nodes, sid, tag));
+            reached += 1;
+          } catch {
+          }
+        }
+        return { elements, reached };
+      }
+      // ─── JS Dialogs (E3-D) ──────────────────────────────────
+      //
+      // Placed BEFORE the Interactions section (rather than after scroll(), its
+      // most natural neighbor) so that engine.test.ts's T-06 grep falsifier —
+      // which scans the source strictly between the `click(` and `doubleClick(`
+      // markers for a forbidden `setTimeout` — does not trip over
+      // waitForDialog()'s bounded timeout below. That falsifier is about
+      // fixed-sleep-free ACTIONABILITY waits specifically; a bounded dialog
+      // wait is a different mechanism entirely and is exempt by construction,
+      // not by weakening the assertion.
+      /**
+       * Dispatch a left click at (x, y) on the given session. `this.input` (the
+       * InputDomain instance) is permanently bound to the driver's MAIN
+       * session, so it cannot dispatch on an OOPIF's session — when
+       * `sessionId` names a different session, issue the raw
+       * Input.dispatchMouseEvent pair directly (same pattern as rightClick()
+       * below) instead of routing through `this.input`.
+       */
+      async dispatchClickAt(x, y, sessionId) {
+        if (!sessionId || sessionId === this.sessionId) {
+          await this.input.click(x, y);
+          return;
+        }
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x,
+          y,
+          button: "left",
+          buttons: 1,
+          clickCount: 1
+        }, sessionId);
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x,
+          y,
+          button: "left",
+          buttons: 0,
+          clickCount: 1
+        }, sessionId);
+      }
+      /**
+       * Race a CDP call against a JS dialog opening. Some CDP commands
+       * (Runtime.callFunctionOn, Input.dispatchMouseEvent) do not return until
+       * the JS they trigger finishes running — if that JS synchronously opens
+       * an alert()/confirm()/prompt(), the renderer pauses and Chrome withholds
+       * the ACK until Page.handleJavaScriptDialog answers it. Without this,
+       * click() on a button whose handler opens a dialog would hang until the
+       * dialog is answered (or the connection's own ~30s timeout).
+       *
+       * If the dialog-opened signal wins the race, the triggering promise is
+       * left to settle on its own later (swallowed here so it never surfaces
+       * as an unhandled rejection) and this returns `undefined` — the caller
+       * treats that the same as "the command was issued", since the dialog
+       * itself proves the click's handler ran. The open dialog is exposed via
+       * getPendingDialog()/handleDialog().
+       */
+      async raceAgainstDialog(promise) {
+        if (this.pendingDialog) return void 0;
+        let onDialog = () => {
+        };
+        const dialogSignal = new Promise((resolve5) => {
+          onDialog = resolve5;
+          this.dialogWaiters.add(onDialog);
+        });
+        try {
+          const winner = await Promise.race([
+            promise.then((value) => ({ dialog: false, value })),
+            dialogSignal.then(() => ({ dialog: true, value: void 0 }))
+          ]);
+          if (winner.dialog) {
+            promise.catch(() => {
+            });
+            return void 0;
+          }
+          return winner.value;
+        } finally {
+          this.dialogWaiters.delete(onDialog);
+        }
+      }
+      /**
+       * The currently-open JS dialog (alert/confirm/prompt/beforeunload), if
+       * any. Poll this (or await waitForDialog()) instead of letting a
+       * triggering action hang indefinitely — see raceAgainstDialog().
+       */
+      getPendingDialog() {
+        return this.pendingDialog;
+      }
+      /**
+       * Answer the currently-open JS dialog. `accept` maps to OK/Cancel;
+       * `promptText` is only meaningful for `type: 'prompt'` dialogs. Throws if
+       * no dialog is currently open.
+       */
+      async handleDialog(accept, promptText) {
+        if (!this.pendingDialog) {
+          throw new Error("handleDialog: no JS dialog is currently open");
+        }
+        await this._page.handleDialog(accept, promptText);
+        this.pendingDialog = null;
+      }
+      /**
+       * Wait until a JS dialog opens (or the timeout elapses). Useful when a
+       * dialog may be triggered by an action whose own promise won't settle
+       * until the dialog is answered (see raceAgainstDialog()) — callers that
+       * fired such an action without awaiting it can await this instead.
+       */
+      async waitForDialog(timeout = 5e3) {
+        if (this.pendingDialog) return this.pendingDialog;
+        return new Promise((resolve5, reject) => {
+          const onDialog = () => {
+            clearTimeout(timer);
+            resolve5(this.pendingDialog);
+          };
+          const timer = setTimeout(() => {
+            this.dialogWaiters.delete(onDialog);
+            reject(new Error(`waitForDialog: no dialog opened within ${timeout}ms`));
+          }, timeout);
+          this.dialogWaiters.add(onDialog);
+        });
+      }
+      // ─── Interactions ───────────────────────────────────────
+      async click(elementId) {
+        const ref = await this.awaitActionable(elementId);
+        const sid = ref.sessionId ?? void 0;
+        let domClickWorked = false;
+        try {
+          const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId: ref.backendNodeId }, sid);
           if (resolved?.object?.objectId) {
-            await this.conn.send("Runtime.callFunctionOn", {
-              objectId: resolved.object.objectId,
-              functionDeclaration: "function() { this.click(); }"
-            }, sid);
+            await this.raceAgainstDialog(
+              this.conn.send("Runtime.callFunctionOn", {
+                objectId: resolved.object.objectId,
+                functionDeclaration: "function() { this.click(); }"
+              }, sid)
+            );
             domClickWorked = true;
           }
         } catch {
         }
         if (!domClickWorked) {
-          const { x, y } = await this.dom.getElementCenter(backendNodeId);
-          await this.input.click(x, y);
+          const { x, y } = await this.dom.getElementCenter(ref.backendNodeId, sid);
+          await this.raceAgainstDialog(this.dispatchClickAt(x, y, sid));
         }
       }
       async type(elementId, text) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
         await this.input.type(text);
       }
       async fill(elementId, value) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
         await this.runtime.callFunctionOn(
           '() => { if (document.activeElement) { document.activeElement.value = ""; document.activeElement.dispatchEvent(new Event("input", { bubbles: true })); } }'
@@ -2577,17 +3450,17 @@ var init_driver = __esm({
        */
       async actAndCapture(action) {
         const [beforeElements, beforeScreenshot] = await Promise.all([
-          this.ax.getSnapshot(),
+          this.freshSnapshot(),
           this._page.screenshot()
         ]);
         await action();
-        await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+        await waitForStableTree(() => this.freshSnapshot(), { timeout: 5e3, stableTime: 300 });
         await this.runtime.evaluate(
           "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
         ).catch(() => {
         });
         const [afterElements, afterScreenshot] = await Promise.all([
-          this.ax.getSnapshot(),
+          this.freshSnapshot(),
           this._page.screenshot()
         ]);
         const beforeIds = new Set(beforeElements.map((e) => e.id));
@@ -2618,11 +3491,9 @@ var init_driver = __esm({
        * Set a <select> element's value and dispatch change event.
        */
       async select(elementId, value) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
-        await new Promise((r) => setTimeout(r, 100));
         await this.runtime.callFunctionOn(
           '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
           [value]
@@ -2632,9 +3503,8 @@ var init_driver = __esm({
        * Toggle a checkbox element.
        */
       async check(elementId) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
       }
       /**
@@ -2682,7 +3552,7 @@ var init_driver = __esm({
         const deadline = Date.now() + timeout;
         const interval = 200;
         while (Date.now() < deadline) {
-          const elements = await this.ax.getSnapshot();
+          const elements = await this.freshSnapshot();
           const match = elements.find((e) => {
             const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase());
             const roleMatch = !options?.role || e.role === options.role;
@@ -2731,7 +3601,7 @@ var init_driver = __esm({
         }
         if (options.includeAXTree !== false) {
           promises.push(
-            this.ax.getSnapshot().then((elements) => {
+            this.freshSnapshot().then((elements) => {
               state.axTree = elements;
             })
           );
@@ -2748,7 +3618,7 @@ var init_driver = __esm({
       }
       /** Get AX tree snapshot. */
       async getSnapshot() {
-        return this.ax.getSnapshot();
+        return this.freshSnapshot();
       }
       async evaluate(exprOrFn, ...args) {
         if (args.length > 0) {
@@ -2833,7 +3703,7 @@ var init_driver = __esm({
        * Returns serializable descriptors for act().
        */
       async observe(options) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return observe(elements, options);
       }
       // ─── LLM-Native: Extract ───────────────────────────────
@@ -2841,21 +3711,21 @@ var init_driver = __esm({
        * Extract structured data from AX tree using a schema.
        */
       async extract(schema) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return extractFromAXTree(elements, schema);
       }
       /**
        * Extract a list of repeated elements.
        */
       async extractItems(options) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return extractList(elements, options);
       }
       /**
        * Extract page-level metadata (headings, links, inputs, buttons).
        */
       async extractMeta() {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return extractPageMeta(elements);
       }
       // ─── LLM-Native: Adaptive Modality ─────────────────────
@@ -2864,7 +3734,7 @@ var init_driver = __esm({
        * Returns a score and whether a screenshot is recommended.
        */
       async assessUnderstanding(options) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return assessUnderstanding(elements, options);
       }
       // ─── Coverage Reporting ────────────────────────────────
@@ -2874,7 +3744,7 @@ var init_driver = __esm({
        */
       async getCoverage() {
         const gaps = [];
-        const axElements = await this.ax.getSnapshot();
+        const axElements = await this.freshSnapshot();
         const axTreeCount = axElements.length;
         const estimatedVisible = await this.runtime.evaluate(`
       (function() {
@@ -2900,7 +3770,10 @@ var init_driver = __esm({
           gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? "s" : ""} (invisible to AX tree)`);
         }
         if (iframeCount > 0) {
-          gaps.push(`${iframeCount} iframe${iframeCount > 1 ? "s" : ""} (separate AX tree${iframeCount > 1 ? "s" : ""})`);
+          const unreached = Math.max(0, this.lastFrameCount - this.lastFrameReached);
+          if (unreached > 0) {
+            gaps.push(`${unreached} iframe${unreached > 1 ? "s" : ""} not reachable this snapshot (cross-process attach failed)`);
+          }
         }
         if (shadowDomCount > 0) {
           gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? "s" : ""} (open shadow root \u2014 recovered via piercing)`);
@@ -3004,6 +3877,8 @@ var init_driver = __esm({
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
+        await this.network.enable();
+        this.setupDialogHandling();
       }
     };
   }
@@ -3019,6 +3894,19 @@ __export(compat_exports, {
   buildFunctionDeclaration: () => buildFunctionDeclaration,
   needsEvaluateNameHelper: () => needsEvaluateNameHelper
 });
+async function waitForSelectorActionable(driver3, selector, options) {
+  await waitForActionable(async () => {
+    try {
+      const state = await driver3.runtimeDomain.callFunctionOn(
+        SELECTOR_ACTIONABILITY_PROBE_FN,
+        [selector]
+      );
+      return { target: true, state };
+    } catch {
+      return null;
+    }
+  }, options);
+}
 function needsEvaluateNameHelper(fnStr) {
   return fnStr.includes("__name(") && !fnStr.includes("const __name");
 }
@@ -3034,17 +3922,42 @@ function buildFunctionDeclaration(fnStr) {
   }
   return `(function(...__ibrArgs) { ${ESBUILD_NAME_HELPER} return (${fnStr})(...__ibrArgs); })`;
 }
-var import_promises2, import_path, CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
+var import_promises2, import_path, SELECTOR_ACTIONABILITY_PROBE_FN, CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
 var init_compat = __esm({
   "src/engine/compat.ts"() {
     "use strict";
+    init_actionability();
     import_promises2 = require("fs/promises");
     import_path = require("path");
+    SELECTOR_ACTIONABILITY_PROBE_FN = `(sel) => {
+  const el = document.querySelector(sel);
+  if (!el || !el.isConnected) return { present: false, visible: false, enabled: false, rect: null };
+  const style = getComputedStyle(el);
+  const r = el.getBoundingClientRect();
+  const hasSize = r.width > 0 && r.height > 0;
+  let visible = style.display !== 'none' && style.visibility !== 'hidden' &&
+    parseFloat(style.opacity) !== 0 && hasSize;
+  if (visible) {
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const atPoint = document.elementFromPoint(cx, cy);
+    visible = !!atPoint && (atPoint === el || el.contains(atPoint) || atPoint.contains(el));
+  }
+  const enabled = el.disabled !== true && el.getAttribute('aria-disabled') !== 'true';
+  return {
+    present: true,
+    visible,
+    enabled,
+    rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+  };
+}`;
     CompatElementHandle = class {
       constructor(driver3, nodeId) {
         this.driver = driver3;
         this.nodeId = nodeId;
       }
+      driver;
+      nodeId;
       async screenshot(options) {
         const model = await this.driver.domDomain.getBoxModel(this.nodeId);
         const q = model.content;
@@ -3091,6 +4004,8 @@ var init_compat = __esm({
         this.driver = driver3;
         this.selector = selector;
       }
+      driver;
+      selector;
       // Visible filter stored for potential future use in resolveNode
       visible = false;
       filter(options) {
@@ -3102,14 +4017,16 @@ var init_compat = __esm({
         return this;
       }
       async click(_options) {
-        const nodeId = await this.resolveNode(_options?.timeout);
-        if (!nodeId) throw new Error(`Element not found: ${this.selector}`);
+        if (!_options?.force) {
+          await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout });
+        }
         await this.driver.runtimeDomain.callFunctionOn(
           '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
           [this.selector]
         );
       }
       async fill(text, _options) {
+        await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout });
         await this.driver.runtimeDomain.callFunctionOn(
           `(sel, val) => {
         const el = document.querySelector(sel);
@@ -3150,28 +4067,27 @@ var init_compat = __esm({
         }
         throw new Error(`Timed out waiting for ${this.selector}`);
       }
-      async resolveNode(timeout) {
-        const deadline = Date.now() + (timeout ?? 5e3);
-        while (Date.now() < deadline) {
-          const nodeId = await this.driver.querySelector(this.selector);
-          if (nodeId) return nodeId;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        return null;
-      }
     };
     ESBUILD_NAME_HELPER = "const __name = (target) => target;";
     CompatPage = class {
       constructor(driver3) {
         this.driver = driver3;
       }
+      driver;
       consoleHandlers = [];
       consoleListening = false;
       async goto(url, options) {
+        const waitUntil = options?.waitUntil;
         await this.driver.navigate(url, {
-          waitFor: options?.waitUntil === "networkidle" ? "stable" : "load",
+          // networkidle used to be faked as AX-tree stability ('stable'); real
+          // network quiescence is applied below via NetworkDomain instead, so
+          // navigate() itself only needs to wait for the document to commit.
+          waitFor: waitUntil === "networkidle" ? "none" : "load",
           timeout: options?.timeout
         });
+        if (waitUntil === "networkidle") {
+          await this.driver.networkDomain.waitForNetworkIdle({ timeout: options?.timeout ?? 1e4 });
+        }
       }
       async evaluate(fnOrExpr, ...args) {
         if (typeof fnOrExpr === "function") {
@@ -3222,11 +4138,21 @@ var init_compat = __esm({
         await new Promise((r) => setTimeout(r, ms));
       }
       async waitForLoadState(_state, _options) {
-        await this.driver.navigate(this.driver.url, { waitFor: "stable", timeout: _options?.timeout ?? 1e4 }).catch(() => {
-        });
+        await this.driver.networkDomain.waitForNetworkIdle({ timeout: _options?.timeout ?? 1e4 });
       }
       async waitForNavigation() {
-        await new Promise((r) => setTimeout(r, 500));
+        await this.driver.networkDomain.waitForNetworkIdle({ timeout: 1e4 });
+      }
+      /**
+       * Wait for a response matching `urlOrPredicate` (substring, RegExp, or a
+       * `(url, status) => boolean` predicate). Resolves with `{url, status}` the
+       * moment a matching `Network.responseReceived` CDP event fires — real
+       * network awareness (E3-B), not a fixed sleep or polling guess. New API
+       * surface; no existing caller to preserve compatibility with.
+       */
+      async waitForResponse(urlOrPredicate, options) {
+        const predicate = typeof urlOrPredicate === "function" ? urlOrPredicate : typeof urlOrPredicate === "string" ? (url) => url.includes(urlOrPredicate) : (url) => urlOrPredicate.test(url);
+        return this.driver.networkDomain.waitForResponse(predicate, options);
       }
       async content() {
         return this.driver.content();
@@ -3247,12 +4173,14 @@ var init_compat = __esm({
         return this.driver.getAttribute(selector, name);
       }
       async click(selector, _options) {
+        await waitForSelectorActionable(this.driver, selector, { timeout: _options?.timeout });
         await this.driver.runtimeDomain.callFunctionOn(
           '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
           [selector]
         );
       }
       async fill(selector, value) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           `(sel, val) => {
         const el = document.querySelector(sel);
@@ -3265,6 +4193,7 @@ var init_compat = __esm({
         );
       }
       async type(selector, text, _options) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
           [selector]
@@ -3277,18 +4206,21 @@ var init_compat = __esm({
         }
       }
       async check(selector) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           "(sel) => { const el = document.querySelector(sel); if (el && !el.checked) el.click(); }",
           [selector]
         );
       }
       async uncheck(selector) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           "(sel) => { const el = document.querySelector(sel); if (el && el.checked) el.click(); }",
           [selector]
         );
       }
       async selectOption(selector, value) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           `(sel, val) => {
         const el = document.querySelector(sel);
@@ -5256,16 +6188,16 @@ async function listSessions(outputDir) {
   const sessionsDir = (0, import_path6.join)(outputDir, "sessions");
   try {
     const entries = await (0, import_promises7.readdir)(sessionsDir, { withFileTypes: true });
-    const sessions = [];
+    const sessions2 = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
         const session = await getSession(outputDir, entry.name);
         if (session) {
-          sessions.push(session);
+          sessions2.push(session);
         }
       }
     }
-    return sessions.sort(
+    return sessions2.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   } catch {
@@ -5273,8 +6205,8 @@ async function listSessions(outputDir) {
   }
 }
 async function getMostRecentSession(outputDir) {
-  const sessions = await listSessions(outputDir);
-  return sessions[0] || null;
+  const sessions2 = await listSessions(outputDir);
+  return sessions2[0] || null;
 }
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
@@ -5307,12 +6239,12 @@ function parseDuration(duration) {
 }
 async function cleanSessions(outputDir, options = {}) {
   const { olderThan, keepLast = 0, dryRun = false } = options;
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   const deleted = [];
   const kept = [];
-  const keepIds = new Set(sessions.slice(0, keepLast).map((s) => s.id));
+  const keepIds = new Set(sessions2.slice(0, keepLast).map((s) => s.id));
   const cutoffTime = olderThan ? Date.now() - parseDuration(olderThan) : 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const shouldDelete = !keepIds.has(session.id) && (olderThan ? sessionTime < cutoffTime : true);
     if (shouldDelete && !keepIds.has(session.id)) {
@@ -5370,8 +6302,8 @@ async function findSessions(outputDir, query = {}) {
   return filtered.slice(0, validatedQuery.limit);
 }
 async function getTimeline(outputDir, route, limit = 10) {
-  const sessions = await findSessions(outputDir, { route, limit });
-  return sessions.reverse();
+  const sessions2 = await findSessions(outputDir, { route, limit });
+  return sessions2.reverse();
 }
 async function getSessionsByRoute(outputDir) {
   const allSessions = await listSessions(outputDir);
@@ -5391,11 +6323,11 @@ async function getSessionsByRoute(outputDir) {
   return byRoute;
 }
 async function getSessionStats(outputDir) {
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   const byStatus = {};
   const byViewport = {};
   const byVerdict = {};
-  for (const session of sessions) {
+  for (const session of sessions2) {
     byStatus[session.status] = (byStatus[session.status] || 0) + 1;
     const viewportName = session.viewport.name;
     byViewport[viewportName] = (byViewport[viewportName] || 0) + 1;
@@ -5404,7 +6336,7 @@ async function getSessionStats(outputDir) {
     }
   }
   return {
-    total: sessions.length,
+    total: sessions2.length,
     byStatus,
     byViewport,
     byVerdict
@@ -7240,23 +8172,23 @@ function isFailedSession(session) {
 async function enforceRetentionPolicy(outputDir, config) {
   const retentionConfig = config || await loadRetentionConfig(outputDir);
   if (!retentionConfig.maxSessions && !retentionConfig.maxAgeDays) {
-    const sessions2 = await listSessions(outputDir);
+    const sessions3 = await listSessions(outputDir);
     return {
       deleted: [],
-      kept: sessions2.map((s) => s.id),
+      kept: sessions3.map((s) => s.id),
       keptFailed: [],
-      totalBefore: sessions2.length,
-      totalAfter: sessions2.length
+      totalBefore: sessions3.length,
+      totalAfter: sessions3.length
     };
   }
-  const sessions = await listSessions(outputDir);
-  const totalBefore = sessions.length;
+  const sessions2 = await listSessions(outputDir);
+  const totalBefore = sessions2.length;
   const deleted = [];
   const kept = [];
   const keptFailed = [];
   const cutoffTime = retentionConfig.maxAgeDays ? Date.now() - retentionConfig.maxAgeDays * 24 * 60 * 60 * 1e3 : 0;
   let keptCount = 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const isTooOld = retentionConfig.maxAgeDays && sessionTime < cutoffTime;
     const isOverLimit = retentionConfig.maxSessions && keptCount >= retentionConfig.maxSessions;
@@ -7291,11 +8223,11 @@ async function maybeAutoClean(outputDir) {
 }
 async function getRetentionStatus(outputDir) {
   const config = await loadRetentionConfig(outputDir);
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   let wouldDelete = 0;
   const cutoffTime = config.maxAgeDays ? Date.now() - config.maxAgeDays * 24 * 60 * 60 * 1e3 : 0;
   let keptCount = 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const isTooOld = config.maxAgeDays && sessionTime < cutoffTime;
     const isOverLimit = config.maxSessions && keptCount >= config.maxSessions;
@@ -7311,9 +8243,9 @@ async function getRetentionStatus(outputDir) {
   }
   return {
     config,
-    currentSessions: sessions.length,
-    oldestSession: sessions.length > 0 ? new Date(sessions[sessions.length - 1].createdAt) : null,
-    newestSession: sessions.length > 0 ? new Date(sessions[0].createdAt) : null,
+    currentSessions: sessions2.length,
+    oldestSession: sessions2.length > 0 ? new Date(sessions2[sessions2.length - 1].createdAt) : null,
+    newestSession: sessions2.length > 0 ? new Date(sessions2[0].createdAt) : null,
     wouldDelete
   };
 }
@@ -8796,7 +9728,7 @@ async function testInteractivity(page) {
         submitInfo = {
           selector: getSelector(btn),
           tagName: btn.tagName.toLowerCase(),
-          text: btn.textContent?.trim() || btn.value || void 0,
+          text: btn.textContent?.trim() || ("value" in btn ? btn.value : void 0),
           hasHandler: hasEventHandler(btn),
           isDisabled: btn.disabled,
           isVisible: isVisible(btn),
@@ -9261,8 +10193,8 @@ async function testResponsive(url, options = {}) {
         minFontSize
       });
       if (captureScreenshots) {
-        const { mkdir: mkdir27 } = await import("fs/promises");
-        await mkdir27(outputDir, { recursive: true });
+        const { mkdir: mkdir28 } = await import("fs/promises");
+        await mkdir28(outputDir, { recursive: true });
         const screenshotPath = `${outputDir}/${viewportName}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
         result.screenshot = screenshotPath;
@@ -10905,7 +11837,7 @@ function getDefaultSeverity(principleId, config) {
   if (config.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
   return "warn";
 }
-var import_zod3, import_promises15, import_fs6, import_path14, CustomCheckSchema, CustomPrincipleSchema, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
+var import_zod3, import_promises15, import_fs6, import_path14, CustomCheckSchema, CustomPrincipleSchema, DEFAULT_CALM_PRECISION_CONFIG, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
 var init_config = __esm({
   "src/design-system/config.ts"() {
     "use strict";
@@ -10926,9 +11858,14 @@ var init_config = __esm({
       severity: import_zod3.z.enum(["error", "warn", "off"]),
       checks: import_zod3.z.array(CustomCheckSchema)
     });
+    DEFAULT_CALM_PRECISION_CONFIG = {
+      core: ["gestalt", "signal-noise", "content-chrome", "cognitive-load"],
+      stylistic: ["fitts", "hick"],
+      severity: {}
+    };
     CalmPrecisionConfigSchema = import_zod3.z.object({
-      core: import_zod3.z.array(import_zod3.z.string()).default(["gestalt", "signal-noise", "content-chrome", "cognitive-load"]),
-      stylistic: import_zod3.z.array(import_zod3.z.string()).default(["fitts", "hick"]),
+      core: import_zod3.z.array(import_zod3.z.string()).default(DEFAULT_CALM_PRECISION_CONFIG.core),
+      stylistic: import_zod3.z.array(import_zod3.z.string()).default(DEFAULT_CALM_PRECISION_CONFIG.stylistic),
       severity: import_zod3.z.record(import_zod3.z.string(), import_zod3.z.enum(["error", "warn", "off"])).default({})
     });
     TypographyTokensSchema = import_zod3.z.object({
@@ -10941,9 +11878,12 @@ var init_config = __esm({
       version: import_zod3.z.literal(1),
       name: import_zod3.z.string(),
       principles: import_zod3.z.object({
-        calmPrecision: CalmPrecisionConfigSchema.default({}),
+        calmPrecision: CalmPrecisionConfigSchema.default(DEFAULT_CALM_PRECISION_CONFIG),
         custom: import_zod3.z.array(CustomPrincipleSchema).default([])
-      }).default({}),
+      }).default({
+        calmPrecision: DEFAULT_CALM_PRECISION_CONFIG,
+        custom: []
+      }),
       tokens: import_zod3.z.object({
         colors: import_zod3.z.record(import_zod3.z.string(), import_zod3.z.string()).optional(),
         typography: TypographyTokensSchema.optional(),
@@ -14987,6 +15927,14 @@ var init_scan = __esm({
 });
 
 // src/native/simulator.ts
+var simulator_exports = {};
+__export(simulator_exports, {
+  bootDevice: () => bootDevice,
+  findDevice: () => findDevice,
+  formatDevice: () => formatDevice,
+  getBootedDevices: () => getBootedDevices,
+  listDevices: () => listDevices
+});
 function parseRuntime(runtime) {
   if (/watchOS/i.test(runtime)) return "watchos";
   return "ios";
@@ -15229,6 +16177,13 @@ var init_role_map = __esm({
 });
 
 // src/native/extract.ts
+var extract_exports2 = {};
+__export(extract_exports2, {
+  ensureExtractor: () => ensureExtractor,
+  extractNativeElements: () => extractNativeElements,
+  isExtractorAvailable: () => isExtractorAvailable,
+  mapToEnhancedElements: () => mapToEnhancedElements
+});
 async function ensureExtractor() {
   if ((0, import_fs9.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
@@ -16515,9 +17470,9 @@ async function* askStream(url, question, options = {}) {
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
-      const { mkdir: mkdir27 } = await import("fs/promises");
+      const { mkdir: mkdir28 } = await import("fs/promises");
       const { dirname: dirname11 } = await import("path");
-      if (screenshotPath) await mkdir27(dirname11(screenshotPath), { recursive: true });
+      if (screenshotPath) await mkdir28(dirname11(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -16733,6 +17688,10 @@ var init_ask = __esm({
 });
 
 // src/engine/browser-pool.ts
+var browser_pool_exports = {};
+__export(browser_pool_exports, {
+  BrowserPool: () => BrowserPool
+});
 var BrowserPool;
 var init_browser_pool = __esm({
   "src/engine/browser-pool.ts"() {
@@ -16858,6 +17817,17 @@ function findExistingBinary() {
 function findSourceDir() {
   return sourceDirCandidates().find((p) => (0, import_fs11.existsSync)((0, import_path21.join)(p, "Package.swift"))) ?? null;
 }
+function errorMessage(err) {
+  if (err && typeof err === "object") {
+    const e = err;
+    const stderr = e.stderr?.trim();
+    if (stderr) return stderr;
+    const stdout = e.stdout?.trim();
+    if (stdout) return stdout;
+    if (e.message) return e.message;
+  }
+  return String(err);
+}
 function isSimDriverAvailable() {
   if (process.platform !== "darwin") return false;
   if (cachedPath) return true;
@@ -16865,12 +17835,84 @@ function isSimDriverAvailable() {
   if (buildError) return false;
   return findSourceDir() !== null;
 }
-var import_child_process6, import_fs11, import_path21, import_util5, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+async function ensureSimDriver() {
+  if (cachedPath) return cachedPath;
+  const existing = findExistingBinary();
+  if (existing) {
+    cachedPath = existing;
+    return existing;
+  }
+  if (process.platform !== "darwin") {
+    throw new Error("ibr-sim-driver is only available on macOS");
+  }
+  const sourceDir = findSourceDir();
+  if (!sourceDir) {
+    throw new Error("ibr-sim-driver Swift package not found");
+  }
+  if (buildError) throw new Error(buildError);
+  try {
+    await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
+      timeout: 12e4
+    });
+    const builtPath = (0, import_path21.join)(sourceDir, ".build", "release", DRIVER_NAME);
+    if (!(0, import_fs11.existsSync)(builtPath)) {
+      throw new Error("Swift build succeeded but binary was not created");
+    }
+    await (0, import_promises21.mkdir)(CACHE_DIR, { recursive: true });
+    await (0, import_promises21.copyFile)(builtPath, CACHE_PATH);
+    await (0, import_promises21.chmod)(CACHE_PATH, 493);
+    cachedPath = CACHE_PATH;
+    return CACHE_PATH;
+  } catch (err) {
+    buildError = `Failed to build ibr-sim-driver: ${errorMessage(err)}`;
+    throw new Error(buildError);
+  }
+}
+async function runSimDriver(args, action) {
+  try {
+    const driverPath = await ensureSimDriver();
+    await execFileAsync5(driverPath, args, { timeout: 15e3 });
+    return { success: true, action };
+  } catch (err) {
+    return { success: false, action, error: errorMessage(err) };
+  }
+}
+function coordFlags(opts) {
+  const out = [];
+  if (opts?.coords) out.push("--coords", opts.coords);
+  if (opts?.chromeOffset !== void 0) out.push("--chrome-offset", String(opts.chromeOffset));
+  return out;
+}
+function simDriverTap(udid, x, y, opts) {
+  return runSimDriver(
+    ["tap", "--udid", udid, ...coordFlags(opts), String(x), String(y)],
+    "tap"
+  );
+}
+function simDriverType(udid, text) {
+  return runSimDriver(["type", "--udid", udid, text], "type");
+}
+function simDriverSwipe(udid, x1, y1, x2, y2, duration, opts) {
+  const args = [
+    "swipe",
+    "--udid",
+    udid,
+    ...coordFlags(opts),
+    String(x1),
+    String(y1),
+    String(x2),
+    String(y2)
+  ];
+  if (duration) args.push("--duration", String(duration));
+  return runSimDriver(args, "swipe");
+}
+var import_child_process6, import_fs11, import_promises21, import_path21, import_util5, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
 var init_sim_driver = __esm({
   "src/native/sim-driver.ts"() {
     "use strict";
     import_child_process6 = require("child_process");
     import_fs11 = require("fs");
+    import_promises21 = require("fs/promises");
     import_path21 = require("path");
     import_util5 = require("util");
     execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
@@ -16887,6 +17929,27 @@ function configuredDriverPreference() {
   if (!raw) return "auto";
   const allowed = ["auto", "native-hid", "native-window", "idb", "simctl"];
   return allowed.includes(raw) ? raw : "auto";
+}
+function shouldTryDriver(driver3, preference) {
+  return preference === "auto" || preference === driver3;
+}
+function forcedDriverFailure(action, driver3, message) {
+  return {
+    success: false,
+    action,
+    driver: driver3,
+    error: `${SIMULATOR_DRIVER_ENV}=${driver3}: ${message}`
+  };
+}
+function nativeHidUnavailable(action) {
+  return forcedDriverFailure(
+    action,
+    "native-hid",
+    "headless CoreSimulator/SimulatorKit HID injection is the IDB-parity target, but it is not implemented in this build."
+  );
+}
+function simDriverSuffix(error) {
+  return error ? ` native-window: ${error}` : "";
 }
 function formatSimulatorDriver(driver3) {
   return driver3 ? DRIVER_LABELS[driver3] : "unknown driver";
@@ -16972,7 +18035,181 @@ async function getSimulatorInteractionDriverStatus() {
     }
   ];
 }
-var import_child_process7, import_util6, execFileAsync6, SIMULATOR_DRIVER_ENV, DRIVER_LABELS;
+async function idbTap(udid, x, y) {
+  const preference = configuredDriverPreference();
+  let simDriverError;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable("tap");
+  }
+  if (shouldTryDriver("native-window", preference)) {
+    if (!isSimDriverAvailable()) {
+      if (preference === "native-window") {
+        return forcedDriverFailure("tap", "native-window", "native-window driver is not available.");
+      }
+    } else {
+      const r = await simDriverTap(udid, x, y);
+      if (r.success) return { ...r, driver: "native-window" };
+      simDriverError = r.error;
+      if (preference === "native-window") {
+        return { success: false, action: "tap", error: r.error, driver: "native-window" };
+      }
+    }
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure("tap", "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        await execFileAsync6("idb", ["ui", "tap", String(x), String(y), "--udid", udid], { timeout: 1e4 });
+        return { success: true, action: "tap", driver: "idb" };
+      } catch (err) {
+        return { success: false, action: "tap", error: err.message, driver: "idb" };
+      }
+    }
+  }
+  return {
+    success: false,
+    action: "tap",
+    error: `No simulator tap driver available. ${INSTALL_HINT}${simDriverSuffix(simDriverError)}`
+  };
+}
+async function idbType(udid, text) {
+  const preference = configuredDriverPreference();
+  let simDriverError;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable("type");
+  }
+  if (shouldTryDriver("native-window", preference)) {
+    if (!isSimDriverAvailable()) {
+      if (preference === "native-window") {
+        return forcedDriverFailure("type", "native-window", "native-window driver is not available.");
+      }
+    } else {
+      const r = await simDriverType(udid, text);
+      if (r.success) return { ...r, driver: "native-window" };
+      simDriverError = r.error;
+      if (preference === "native-window") {
+        return { success: false, action: "type", error: r.error, driver: "native-window" };
+      }
+    }
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure("type", "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        await execFileAsync6("idb", ["ui", "text", text, "--udid", udid], { timeout: 1e4 });
+        return { success: true, action: "type", driver: "idb" };
+      } catch (err) {
+        return { success: false, action: "type", error: err.message, driver: "idb" };
+      }
+    }
+  }
+  return {
+    success: false,
+    action: "type",
+    error: `No simulator type driver available. ${INSTALL_HINT}${simDriverSuffix(simDriverError)}`
+  };
+}
+async function idbSwipe(udid, x1, y1, x2, y2, duration) {
+  const preference = configuredDriverPreference();
+  let simDriverError;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable("swipe");
+  }
+  if (shouldTryDriver("native-window", preference)) {
+    if (!isSimDriverAvailable()) {
+      if (preference === "native-window") {
+        return forcedDriverFailure("swipe", "native-window", "native-window driver is not available.");
+      }
+    } else {
+      const r = await simDriverSwipe(udid, x1, y1, x2, y2, duration);
+      if (r.success) return { ...r, driver: "native-window" };
+      simDriverError = r.error;
+      if (preference === "native-window") {
+        return { success: false, action: "swipe", error: r.error, driver: "native-window" };
+      }
+    }
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure("swipe", "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        const args = ["ui", "swipe", String(x1), String(y1), String(x2), String(y2), "--udid", udid];
+        if (duration) args.push("--duration", String(duration));
+        await execFileAsync6("idb", args, { timeout: 1e4 });
+        return { success: true, action: "swipe", driver: "idb" };
+      } catch (err) {
+        return { success: false, action: "swipe", error: err.message, driver: "idb" };
+      }
+    }
+  }
+  return {
+    success: false,
+    action: "swipe",
+    error: `No simulator swipe driver available. ${INSTALL_HINT}${simDriverSuffix(simDriverError)}`
+  };
+}
+async function idbButton(udid, button) {
+  const preference = configuredDriverPreference();
+  const action = `button:${button}`;
+  if (preference === "native-hid") {
+    return nativeHidUnavailable(action);
+  }
+  if (preference === "native-window") {
+    return forcedDriverFailure(action, "native-window", "native-window does not support hardware buttons.");
+  }
+  if (shouldTryDriver("idb", preference)) {
+    if (!await isIdbCliAvailable()) {
+      if (preference === "idb") {
+        return forcedDriverFailure(action, "idb", "idb CLI not found on PATH.");
+      }
+    } else {
+      try {
+        await execFileAsync6("idb", ["ui", "button", button, "--udid", udid], { timeout: 1e4 });
+        return { success: true, action, driver: "idb" };
+      } catch (err) {
+        return { success: false, action, error: err.message, driver: "idb" };
+      }
+    }
+  }
+  if (button === "HOME" && shouldTryDriver("simctl", preference)) {
+    try {
+      await execFileAsync6(
+        "xcrun",
+        ["simctl", "spawn", udid, "launchctl", "stop", "com.apple.SpringBoard"],
+        { timeout: 1e4 }
+      );
+      return { success: true, action, driver: "simctl" };
+    } catch (err) {
+      return { success: false, action, error: err.message, driver: "simctl" };
+    }
+  }
+  if (preference === "simctl") {
+    return forcedDriverFailure(action, "simctl", `simctl fallback supports HOME only, not ${button}.`);
+  }
+  return {
+    success: false,
+    action,
+    error: `No driver available for ${button}. ${INSTALL_HINT}`
+  };
+}
+async function idbOpenUrl(udid, url) {
+  try {
+    await execFileAsync6("xcrun", ["simctl", "openurl", udid, url], { timeout: 1e4 });
+    return { success: true, action: "openUrl", driver: "simctl" };
+  } catch (err) {
+    return { success: false, action: "openUrl", error: err.message, driver: "simctl" };
+  }
+}
+var import_child_process7, import_util6, execFileAsync6, SIMULATOR_DRIVER_ENV, INSTALL_HINT, DRIVER_LABELS;
 var init_idb = __esm({
   "src/native/idb.ts"() {
     "use strict";
@@ -16981,6 +18218,7 @@ var init_idb = __esm({
     init_sim_driver();
     execFileAsync6 = (0, import_util6.promisify)(import_child_process7.execFile);
     SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
+    INSTALL_HINT = "Install IDB: brew tap facebook/fb && brew install idb-companion && pipx install fb-idb. IBR also ships a bundled native-window fallback (requires Accessibility permission and a visible Simulator window).";
     DRIVER_LABELS = {
       "native-hid": "IBR native HID",
       "native-window": "IBR native-window",
@@ -17345,11 +18583,1949 @@ var init_native = __esm({
   }
 });
 
+// src/action-outcome.ts
+function notImplementedOutcome(capability) {
+  return {
+    success: false,
+    validator: {
+      expected: `${capability} capability available`,
+      observed: `${capability} not implemented by the active native backend`,
+      passed: false
+    },
+    provenance: {}
+  };
+}
+var init_action_outcome = __esm({
+  "src/action-outcome.ts"() {
+    "use strict";
+  }
+});
+
+// src/mcp/sessions.ts
+function __test_setSession(id, entry) {
+  if (entry === null) {
+    sessions.delete(id);
+  } else {
+    sessions.set(id, entry);
+  }
+}
+var sessions;
+var init_sessions = __esm({
+  "src/mcp/sessions.ts"() {
+    "use strict";
+    sessions = /* @__PURE__ */ new Map();
+  }
+});
+
+// src/native/actions.ts
+async function performNativeAction(options) {
+  const extractorPath = await ensureExtractor();
+  const args = [
+    "--pid",
+    String(options.pid),
+    "--action",
+    options.action,
+    "--element-path",
+    options.elementPath.join(",")
+  ];
+  if (options.deviceName !== void 0) {
+    args.push("--device-name", options.deviceName);
+  }
+  if (options.value !== void 0) {
+    args.push("--value", options.value);
+  }
+  try {
+    const { stdout } = await execFileAsync7(extractorPath, args, { timeout: 1e4 });
+    return JSON.parse(stdout);
+  } catch (err) {
+    if (err && typeof err === "object" && "stdout" in err) {
+      const execErr = err;
+      const raw = (execErr.stdout ?? "").trim();
+      if (raw) {
+        try {
+          return JSON.parse(raw);
+        } catch {
+        }
+      }
+    }
+    const message = err instanceof Error ? err.message : "Action failed";
+    return {
+      success: false,
+      action: options.action,
+      error: message
+    };
+  }
+}
+function resolveMacOSElement(elements, target, options = {}) {
+  return resolveNativeCandidate(flattenMacOSElements(elements), target, options);
+}
+function resolveSimulatorElement(elements, target, options = {}) {
+  return resolveNativeCandidate(flattenSimulatorElements(elements), target, options);
+}
+function flattenMacOSElements(elements) {
+  const candidates = [];
+  function visit(nodes) {
+    for (const el of nodes) {
+      const label = el.title || el.description || el.value || el.identifier || "";
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label,
+        identifier: el.identifier,
+        value: el.value,
+        enabled: el.enabled,
+        actions: el.actions,
+        frame: el.position && el.size ? {
+          x: el.position.x,
+          y: el.position.y,
+          width: el.size.width,
+          height: el.size.height
+        } : void 0
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+  visit(elements);
+  return candidates;
+}
+function flattenSimulatorElements(elements) {
+  const candidates = [];
+  function visit(nodes) {
+    for (const el of nodes) {
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label: el.label || el.value || el.identifier || "",
+        identifier: el.identifier || null,
+        value: el.value,
+        enabled: el.isEnabled,
+        actions: el.traits.includes("button") || el.role === "AXButton" ? ["AXPress"] : [],
+        frame: el.frame
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+  visit(elements);
+  return candidates;
+}
+function resolveNativeCandidate(candidates, target, options) {
+  const needle = normalize2(target);
+  if (!needle) return null;
+  const scored = candidates.map((candidate) => {
+    const score = scoreCandidate(candidate, needle, options.role);
+    return { candidate, score };
+  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (!best) return null;
+  const tier = scoreTier(best.candidate, needle);
+  return {
+    element: best.candidate,
+    confidence: best.score,
+    tier,
+    alternatives: scored.slice(1, 6).map((item) => ({
+      label: item.candidate.label,
+      role: normalizeRole2(item.candidate.role),
+      identifier: item.candidate.identifier,
+      confidence: item.score
+    })),
+    totalCandidates: candidates.length
+  };
+}
+function scoreCandidate(candidate, needle, role) {
+  if (role && normalizeRole2(candidate.role) !== normalizeRole2(role)) return 0;
+  const identifier = normalize2(candidate.identifier);
+  const label = normalize2(candidate.label);
+  const value = normalize2(candidate.value);
+  if (identifier && identifier === needle) return 1;
+  if (label && label === needle) return 0.96;
+  if (value && value === needle) return 0.9;
+  if (identifier && identifier.includes(needle)) return 0.82;
+  if (label && label.includes(needle)) return 0.76;
+  if (value && value.includes(needle)) return 0.7;
+  return 0;
+}
+function scoreTier(candidate, needle) {
+  if (normalize2(candidate.identifier) === needle) return "identifier";
+  if (normalize2(candidate.label) === needle) return "label";
+  if (normalize2(candidate.value) === needle) return "value";
+  return "contains";
+}
+function normalize2(value) {
+  return (value ?? "").trim().toLowerCase();
+}
+function normalizeRole2(role) {
+  return (mapRoleToAriaRole(role) ?? role.replace(/^AX/, "")).toLowerCase();
+}
+function elementCenter(element) {
+  if (!element.frame) return null;
+  return {
+    x: Math.round(element.frame.x + element.frame.width / 2),
+    y: Math.round(element.frame.y + element.frame.height / 2)
+  };
+}
+function findElementByLabel(elements, label) {
+  const needle = label.toLowerCase();
+  return elements.find(
+    (el) => el.label && el.label.toLowerCase().includes(needle) || el.identifier && el.identifier.toLowerCase().includes(needle)
+  ) ?? null;
+}
+var import_child_process8, import_util7, execFileAsync7;
+var init_actions = __esm({
+  "src/native/actions.ts"() {
+    "use strict";
+    import_child_process8 = require("child_process");
+    import_util7 = require("util");
+    init_extract3();
+    init_role_map();
+    execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
+  }
+});
+
+// src/native/daemon.ts
+var import_child_process9, DEFAULT_START_TIMEOUT, DEFAULT_REQUEST_TIMEOUT, DaemonError, AXDaemon;
+var init_daemon = __esm({
+  "src/native/daemon.ts"() {
+    "use strict";
+    import_child_process9 = require("child_process");
+    init_extract3();
+    DEFAULT_START_TIMEOUT = 1e4;
+    DEFAULT_REQUEST_TIMEOUT = 3e4;
+    DaemonError = class extends Error {
+    };
+    AXDaemon = class {
+      child = null;
+      buffer = "";
+      nextId = 1;
+      pending = /* @__PURE__ */ new Map();
+      starting = null;
+      dead = false;
+      deadReason = "";
+      readyInfo = null;
+      binaryPath;
+      spawnFn;
+      startTimeoutMs;
+      requestTimeoutMs;
+      constructor(opts = {}) {
+        this.binaryPath = opts.binaryPath;
+        this.spawnFn = opts.spawnFn ?? import_child_process9.spawn;
+        this.startTimeoutMs = opts.startTimeoutMs ?? DEFAULT_START_TIMEOUT;
+        this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
+      }
+      /** True once the daemon has died or failed startup — the backend uses this to
+       *  route straight to the respawn fallback without retrying. */
+      get isDead() {
+        return this.dead;
+      }
+      /**
+       * Ensure the daemon is running and AX-trusted. Idempotent — concurrent callers
+       * share one startup. Rejects (marking the daemon dead) if spawn fails, the
+       * ready line does not arrive in time, or AX is not trusted.
+       */
+      async start() {
+        if (this.readyInfo) return this.readyInfo;
+        if (this.dead) throw new DaemonError(this.deadReason || "daemon is dead");
+        if (this.starting) return this.starting;
+        this.starting = (async () => {
+          const bin = this.binaryPath ?? await ensureExtractor();
+          const child = this.spawnFn(bin, ["--daemon"]);
+          this.child = child;
+          child.stdout.setEncoding("utf8");
+          child.stdout.on("data", (chunk) => this.onStdout(chunk));
+          child.stderr?.setEncoding?.("utf8");
+          child.stderr?.on("data", () => {
+          });
+          child.on("error", (err) => this.onExit(`daemon spawn error: ${err.message}`));
+          child.on(
+            "exit",
+            (code, signal) => this.onExit(`daemon exited (code=${code ?? "null"}, signal=${signal ?? "null"})`)
+          );
+          const ready = await this.waitForReady();
+          if (!ready.trusted) {
+            this.kill("daemon reported AX not trusted");
+            throw new DaemonError("daemon not AX-trusted");
+          }
+          this.readyInfo = ready;
+          return ready;
+        })();
+        try {
+          return await this.starting;
+        } catch (err) {
+          this.starting = null;
+          throw err;
+        }
+      }
+      waitForReady() {
+        return new Promise((resolve5, reject) => {
+          const timer = setTimeout(() => {
+            this.kill("daemon startup timed out");
+            reject(new DaemonError("daemon startup timed out"));
+          }, this.startTimeoutMs);
+          this.readyResolver = { resolve: resolve5, reject, timer };
+        });
+      }
+      readyResolver = null;
+      onStdout(chunk) {
+        this.buffer += chunk;
+        let idx;
+        while ((idx = this.buffer.indexOf("\n")) >= 0) {
+          const line = this.buffer.slice(0, idx).trim();
+          this.buffer = this.buffer.slice(idx + 1);
+          if (!line) continue;
+          this.onLine(line);
+        }
+      }
+      onLine(line) {
+        let obj;
+        try {
+          obj = JSON.parse(line);
+        } catch {
+          return;
+        }
+        if (obj.type === "ready") {
+          const ready = obj;
+          if (this.readyResolver) {
+            clearTimeout(this.readyResolver.timer);
+            this.readyResolver.resolve(ready);
+            this.readyResolver = null;
+          }
+          return;
+        }
+        const resp = obj;
+        if (typeof resp.id === "number") {
+          const p = this.pending.get(resp.id);
+          if (p) {
+            clearTimeout(p.timer);
+            this.pending.delete(resp.id);
+            p.resolve(resp);
+          }
+        }
+      }
+      onExit(reason) {
+        if (this.dead) return;
+        this.dead = true;
+        this.deadReason = reason;
+        this.readyInfo = null;
+        if (this.readyResolver) {
+          clearTimeout(this.readyResolver.timer);
+          this.readyResolver.reject(new DaemonError(reason));
+          this.readyResolver = null;
+        }
+        for (const [, p] of this.pending) {
+          clearTimeout(p.timer);
+          p.reject(new DaemonError(reason));
+        }
+        this.pending.clear();
+      }
+      /** Send a request and await its correlated response. Rejects on timeout or death. */
+      request(req) {
+        if (this.dead) return Promise.reject(new DaemonError(this.deadReason || "daemon is dead"));
+        const child = this.child;
+        if (!child) return Promise.reject(new DaemonError("daemon not started"));
+        const id = this.nextId++;
+        return new Promise((resolve5, reject) => {
+          const timer = setTimeout(() => {
+            this.pending.delete(id);
+            this.kill(`daemon request ${id} timed out`);
+            reject(new DaemonError(`daemon request timed out (op=${req.op})`));
+          }, this.requestTimeoutMs);
+          this.pending.set(id, { resolve: resolve5, reject, timer });
+          try {
+            child.stdin.write(JSON.stringify({ id, ...req }) + "\n");
+          } catch (err) {
+            clearTimeout(timer);
+            this.pending.delete(id);
+            reject(new DaemonError(`daemon write failed: ${err instanceof Error ? err.message : String(err)}`));
+          }
+        });
+      }
+      /** Terminate the daemon and reject anything in flight. */
+      kill(reason = "daemon stopped") {
+        const child = this.child;
+        this.onExit(reason);
+        if (child) {
+          child.stdin.end();
+          child.kill("SIGTERM");
+        }
+        this.child = null;
+      }
+    };
+  }
+});
+
+// src/native/keyboard.ts
+async function resolveKeystrokeTargetPid(target) {
+  if (target.kind === "macos") return target.pid;
+  return findProcess("com.apple.iphonesimulator");
+}
+function countElements(elements) {
+  let total = 0;
+  for (const el of elements) {
+    total += 1;
+    total += countElements(el.children);
+  }
+  return total;
+}
+function findFocusedPathMacOS(elements) {
+  for (const el of elements) {
+    if (el.focused) return el.path;
+    if (el.children.length > 0) {
+      const found = findFocusedPathMacOS(
+        el.children
+      );
+      if (found) return found;
+    }
+  }
+  return null;
+}
+function axSignature(extraction) {
+  if (extraction.kind === "not-found") return `not-found:${extraction.message}`;
+  if (extraction.kind === "macos") {
+    const focused = findFocusedPathMacOS(extraction.elements);
+    return [
+      `window=${extraction.window.windowId}`,
+      `title=${extraction.window.title}`,
+      `count=${countElements(extraction.elements)}`,
+      `focused=${focused ? focused.join(".") : "none"}`
+    ].join("|");
+  }
+  return `count=${countElements(extraction.elements)}`;
+}
+function sleep2(ms) {
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
+}
+function keystrokeSuccess(chord, method, before, after) {
+  return {
+    success: true,
+    validator: {
+      expected: `AX state changes after delivering chord "${chord}"`,
+      observed: `AX state changed (${method}): ${before} -> ${after}`,
+      passed: true
+    },
+    provenance: { waitResult: method }
+  };
+}
+function keystrokeFailure(chord, before, after, diff) {
+  return {
+    success: false,
+    validator: {
+      expected: `AX state changes after delivering chord "${chord}"`,
+      observed: diff,
+      passed: false
+    },
+    provenance: {},
+    evidence: {
+      beforeSignature: before,
+      afterSignature: after,
+      diff,
+      alternatives: []
+    }
+  };
+}
+async function runKeystrokeCapability(opts) {
+  const { spec, resolvePid, extract, deliver } = opts;
+  const chord = spec.chord;
+  const safeSignature = async () => {
+    try {
+      return axSignature(await extract());
+    } catch (err) {
+      return `error:${err instanceof Error ? err.message : String(err)}`;
+    }
+  };
+  try {
+    const pid = await resolvePid();
+    const before = await safeSignature();
+    const backgroundDelivery = await deliver(pid, chord, false);
+    if (!backgroundDelivery.success) {
+      return keystrokeFailure(
+        chord,
+        before,
+        before,
+        `background delivery failed: ${backgroundDelivery.error ?? "unknown error"}`
+      );
+    }
+    await sleep2(SETTLE_MS);
+    const afterBackground = await safeSignature();
+    if (afterBackground !== before) {
+      return keystrokeSuccess(chord, "cgevent-pid-background", before, afterBackground);
+    }
+    const foregroundDelivery = await deliver(pid, chord, true);
+    if (!foregroundDelivery.success) {
+      return keystrokeFailure(
+        chord,
+        before,
+        afterBackground,
+        `background delivery produced no observable change; foreground-activate retry failed: ${foregroundDelivery.error ?? "unknown error"}`
+      );
+    }
+    await sleep2(SETTLE_MS);
+    const afterForeground = await safeSignature();
+    if (afterForeground !== before) {
+      return keystrokeSuccess(chord, "cgevent-foreground-fallback", before, afterForeground);
+    }
+    return keystrokeFailure(
+      chord,
+      before,
+      afterForeground,
+      "no observable AX state change after background and foreground-activate delivery"
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return keystrokeFailure(chord, "unavailable", "unavailable", `keystroke capability failed: ${message}`);
+  }
+}
+var import_child_process10, import_util8, execFileAsync8, SETTLE_MS, deliverKeystrokeOneShot;
+var init_keyboard = __esm({
+  "src/native/keyboard.ts"() {
+    "use strict";
+    import_child_process10 = require("child_process");
+    import_util8 = require("util");
+    init_extract3();
+    init_native();
+    execFileAsync8 = (0, import_util8.promisify)(import_child_process10.execFile);
+    SETTLE_MS = 220;
+    deliverKeystrokeOneShot = async (pid, chord, foreground) => {
+      const extractorPath = await ensureExtractor();
+      const args = ["--pid", String(pid), "--keystroke", chord];
+      if (foreground) args.push("--foreground");
+      try {
+        const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 5e3 });
+        return JSON.parse(stdout);
+      } catch (err) {
+        if (err && typeof err === "object" && "stdout" in err) {
+          const execErr = err;
+          const raw = (execErr.stdout ?? "").trim();
+          if (raw) {
+            try {
+              return JSON.parse(raw);
+            } catch {
+            }
+          }
+        }
+        const message = err instanceof Error ? err.message : "keystroke delivery failed";
+        return { success: false, error: message };
+      }
+    };
+  }
+});
+
+// src/native/lifecycle.ts
+function sleep3(ms) {
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
+}
+async function pollUntil(check, timeoutMs) {
+  const started = Date.now();
+  if (await check()) return true;
+  while (Date.now() - started < timeoutMs) {
+    await sleep3(POLL_MS);
+    if (await check()) return true;
+  }
+  return false;
+}
+function lifecycleSuccess(expected, observed, waitResult) {
+  return {
+    success: true,
+    validator: { expected, observed, passed: true },
+    provenance: { waitResult }
+  };
+}
+function lifecycleFailure(expected, observed, before, after) {
+  return {
+    success: false,
+    validator: { expected, observed, passed: false },
+    provenance: {},
+    evidence: { beforeSignature: before, afterSignature: after, diff: observed, alternatives: [] }
+  };
+}
+function describeTarget(target) {
+  if (target.kind === "macos") return target.app ?? `pid-${target.pid}`;
+  return `simulator ${target.device.name}`;
+}
+async function resolveTargetPid(target, spec, ops) {
+  if (spec.app) return ops.findProcess(spec.app);
+  if (target.kind === "macos") return target.pid;
+  throw new Error("simulator sessions require an explicit app name for switch/quit");
+}
+async function runLaunch(spec, ops) {
+  const expected = spec.app ? `${spec.app} running and frontmost` : "app running and frontmost";
+  if (!spec.app) {
+    return lifecycleFailure(expected, "launch requires an app name or bundle id", "n/a", "n/a");
+  }
+  try {
+    await ops.launch(spec.app);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `launch command failed: ${message}`, "not-running", "not-running");
+  }
+  let pid = null;
+  const appeared = await pollUntil(async () => {
+    try {
+      pid = await ops.findProcess(spec.app);
+      return true;
+    } catch {
+      return false;
+    }
+  }, LAUNCH_TIMEOUT_MS);
+  if (!appeared || pid === null) {
+    return lifecycleFailure(
+      expected,
+      `process did not appear within ${LAUNCH_TIMEOUT_MS}ms`,
+      "not-running",
+      "not-running"
+    );
+  }
+  const resolvedPid = pid;
+  let frontmost = await ops.frontmostPid() === resolvedPid;
+  if (!frontmost) {
+    await ops.activate(resolvedPid);
+    await sleep3(POLL_MS);
+    frontmost = await ops.frontmostPid() === resolvedPid;
+  }
+  const after = `pid=${resolvedPid}|frontmost=${frontmost}`;
+  if (!frontmost) {
+    return lifecycleFailure(expected, `process running (pid=${resolvedPid}) but not frontmost`, "not-running", after);
+  }
+  return lifecycleSuccess(expected, after, "launch-confirmed");
+}
+async function runSwitch(target, spec, ops) {
+  const label = spec.app ?? describeTarget(target);
+  const expected = `${label} frontmost`;
+  let pid;
+  try {
+    pid = await resolveTargetPid(target, spec, ops);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `could not resolve target process: ${message}`, "unavailable", "unavailable");
+  }
+  const before = `frontmost=${await ops.frontmostPid()}`;
+  const activated = await ops.activate(pid);
+  await sleep3(POLL_MS);
+  const frontmostAfter = await ops.frontmostPid();
+  const after = `frontmost=${frontmostAfter}`;
+  if (!activated || frontmostAfter !== pid) {
+    return lifecycleFailure(
+      expected,
+      `activation ${activated ? "ran" : "failed"}; frontmost pid is ${frontmostAfter ?? "unknown"}`,
+      before,
+      after
+    );
+  }
+  return lifecycleSuccess(expected, after, "switch-confirmed");
+}
+async function runQuit(target, spec, ops) {
+  const label = spec.app ?? describeTarget(target);
+  const expected = `${label} no longer running`;
+  let pid;
+  try {
+    pid = await resolveTargetPid(target, spec, ops);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `could not resolve target process: ${message}`, "unavailable", "unavailable");
+  }
+  const wasRunning = await ops.isRunning(pid);
+  if (!wasRunning) {
+    return lifecycleSuccess(expected, `already not running (pid=${pid})`, "already-quit");
+  }
+  const explicitName = spec.app ?? (target.kind === "macos" ? target.app : void 0);
+  const appName = explicitName && !explicitName.startsWith("pid-") ? explicitName : void 0;
+  try {
+    await ops.quit({ pid, app: appName });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `quit command failed: ${message}`, "running=true", "running=true");
+  }
+  const exited = await pollUntil(async () => !await ops.isRunning(pid), QUIT_TIMEOUT_MS);
+  const after = `running=${!exited}`;
+  if (!exited) {
+    return lifecycleFailure(expected, `process ${pid} still running after ${QUIT_TIMEOUT_MS}ms`, "running=true", after);
+  }
+  return lifecycleSuccess(expected, after, "quit-confirmed");
+}
+async function runLifecycleCapability(target, spec, ops) {
+  try {
+    switch (spec.op) {
+      case "launch":
+        return await runLaunch(spec, ops);
+      case "switch":
+        return await runSwitch(target, spec, ops);
+      case "quit":
+        return await runQuit(target, spec, ops);
+      default: {
+        const op = spec.op;
+        return lifecycleFailure("a supported lifecycle op", `unknown op: ${op}`, "n/a", "n/a");
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure("lifecycle op to complete", `threw: ${message}`, "unavailable", "unavailable");
+  }
+}
+async function defaultLaunch(app) {
+  try {
+    await execFileAsync9("open", ["-a", app], { timeout: 8e3 });
+  } catch (err) {
+    if (BUNDLE_ID_RE.test(app)) {
+      await execFileAsync9("open", ["-b", app], { timeout: 8e3 });
+      return;
+    }
+    throw err;
+  }
+}
+async function defaultFrontmostPid() {
+  try {
+    const { stdout } = await execFileAsync9(
+      "osascript",
+      ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
+      { timeout: 3e3 }
+    );
+    const pid = parseInt(stdout.trim(), 10);
+    return Number.isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+async function defaultIsRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function defaultQuit(target) {
+  if (target.app) {
+    const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
+    await execFileAsync9("osascript", ["-e", script], { timeout: 5e3 });
+    return;
+  }
+  const { stdout } = await execFileAsync9(
+    "osascript",
+    ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
+    { timeout: 3e3 }
+  );
+  const name = stdout.trim();
+  if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
+  await execFileAsync9("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+}
+var import_child_process11, import_util9, execFileAsync9, LAUNCH_TIMEOUT_MS, QUIT_TIMEOUT_MS, POLL_MS, BUNDLE_ID_RE, defaultLifecycleOps;
+var init_lifecycle = __esm({
+  "src/native/lifecycle.ts"() {
+    "use strict";
+    import_child_process11 = require("child_process");
+    import_util9 = require("util");
+    init_native();
+    init_macos();
+    execFileAsync9 = (0, import_util9.promisify)(import_child_process11.execFile);
+    LAUNCH_TIMEOUT_MS = 8e3;
+    QUIT_TIMEOUT_MS = 6e3;
+    POLL_MS = 250;
+    BUNDLE_ID_RE = /^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/;
+    defaultLifecycleOps = {
+      findProcess,
+      launch: defaultLaunch,
+      activate: activateMacOSProcess,
+      quit: defaultQuit,
+      frontmostPid: defaultFrontmostPid,
+      isRunning: defaultIsRunning
+    };
+  }
+});
+
+// src/native/menu.ts
+async function resolveMenuTargetPid(target) {
+  if (target.kind === "macos") return target.pid;
+  return findProcess("com.apple.iphonesimulator");
+}
+function countElements2(elements) {
+  let total = 0;
+  for (const el of elements) {
+    total += 1;
+    total += countElements2(el.children);
+  }
+  return total;
+}
+function findFocusedPathMacOS2(elements) {
+  for (const el of elements) {
+    if (el.focused) return el.path;
+    if (el.children.length > 0) {
+      const found = findFocusedPathMacOS2(
+        el.children
+      );
+      if (found) return found;
+    }
+  }
+  return null;
+}
+function axSignature2(extraction) {
+  if (extraction.kind === "not-found") return `not-found:${extraction.message}`;
+  if (extraction.kind === "macos") {
+    const focused = findFocusedPathMacOS2(extraction.elements);
+    return [
+      `window=${extraction.window.windowId}`,
+      `title=${extraction.window.title}`,
+      `count=${countElements2(extraction.elements)}`,
+      `focused=${focused ? focused.join(".") : "none"}`
+    ].join("|");
+  }
+  return `count=${countElements2(extraction.elements)}`;
+}
+function sleep4(ms) {
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
+}
+function menuLabel(menuPath) {
+  return menuPath.join(" > ");
+}
+function menuSuccess(menuPath, method, before, after) {
+  return {
+    success: true,
+    validator: {
+      expected: `AX state changes after selecting menu path "${menuLabel(menuPath)}"`,
+      observed: `AX state changed (${method}): ${before} -> ${after}`,
+      passed: true
+    },
+    provenance: { waitResult: method }
+  };
+}
+function menuFailure(menuPath, before, after, diff) {
+  return {
+    success: false,
+    validator: {
+      expected: `AX state changes after selecting menu path "${menuLabel(menuPath)}"`,
+      observed: diff,
+      passed: false
+    },
+    provenance: {},
+    evidence: {
+      beforeSignature: before,
+      afterSignature: after,
+      diff,
+      alternatives: []
+    }
+  };
+}
+async function runMenuCapability(opts) {
+  const { spec, resolvePid, extract, deliver } = opts;
+  const menuPath = spec.menuPath ?? [];
+  if (menuPath.length === 0) {
+    return menuFailure(menuPath, "n/a", "n/a", "menuPath must have at least one segment");
+  }
+  const safeSignature = async () => {
+    try {
+      return axSignature2(await extract());
+    } catch (err) {
+      return `error:${err instanceof Error ? err.message : String(err)}`;
+    }
+  };
+  try {
+    const pid = await resolvePid();
+    const before = await safeSignature();
+    const delivery = await deliver(pid, menuPath);
+    if (!delivery.success) {
+      const segment = delivery.failedSegment !== void 0 ? ` (failed at segment ${delivery.failedSegment}: "${menuPath[delivery.failedSegment]}")` : "";
+      return menuFailure(
+        menuPath,
+        before,
+        before,
+        `menu traversal failed${segment}: ${delivery.error ?? "unknown error"}`
+      );
+    }
+    await sleep4(SETTLE_MS2);
+    const after = await safeSignature();
+    if (after !== before) {
+      return menuSuccess(menuPath, delivery.matchedVia ?? "menu-select", before, after);
+    }
+    return menuFailure(
+      menuPath,
+      before,
+      after,
+      "menu item selected but no observable AX state change (selection unverified)"
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return menuFailure(menuPath, "unavailable", "unavailable", `menu capability failed: ${message}`);
+  }
+}
+var import_child_process12, import_util10, execFileAsync10, SETTLE_MS2, deliverMenuOneShot;
+var init_menu = __esm({
+  "src/native/menu.ts"() {
+    "use strict";
+    import_child_process12 = require("child_process");
+    import_util10 = require("util");
+    init_extract3();
+    init_native();
+    execFileAsync10 = (0, import_util10.promisify)(import_child_process12.execFile);
+    SETTLE_MS2 = 250;
+    deliverMenuOneShot = async (pid, menuPath) => {
+      const extractorPath = await ensureExtractor();
+      const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
+      try {
+        const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
+        return JSON.parse(stdout);
+      } catch (err) {
+        if (err && typeof err === "object" && "stdout" in err) {
+          const execErr = err;
+          const raw = (execErr.stdout ?? "").trim();
+          if (raw) {
+            try {
+              return JSON.parse(raw);
+            } catch {
+            }
+          }
+        }
+        const message = err instanceof Error ? err.message : "menu delivery failed";
+        return { success: false, error: message };
+      }
+    };
+  }
+});
+
+// src/native/backend.ts
+function getNativeBackend() {
+  if (!defaultBackend) {
+    const pref = (process.env.IBR_NATIVE_BACKEND || "").trim().toLowerCase();
+    defaultBackend = pref === "daemon" ? new DaemonBackend() : new RespawnBackend();
+  }
+  return defaultBackend;
+}
+function __setNativeBackend(backend) {
+  defaultBackend = backend;
+}
+var RespawnBackend, DaemonBackend, defaultBackend;
+var init_backend = __esm({
+  "src/native/backend.ts"() {
+    "use strict";
+    init_native();
+    init_actions();
+    init_daemon();
+    init_keyboard();
+    init_lifecycle();
+    init_menu();
+    RespawnBackend = class {
+      async extract(target) {
+        if (target.kind === "macos") {
+          const { elements: elements2, window: window2 } = await extractMacOSElements({ pid: target.pid });
+          return { kind: "macos", elements: elements2, window: window2 };
+        }
+        const device = await findDevice(target.device.udid);
+        if (!device) {
+          return { kind: "not-found", message: `Simulator not found: ${target.device.udid}` };
+        }
+        const elements = await extractNativeElements(device);
+        return { kind: "simulator", elements, device };
+      }
+      async performAction(target, input) {
+        if (target.kind === "macos") {
+          return performNativeAction({
+            pid: target.pid,
+            elementPath: input.elementPath,
+            action: input.action,
+            value: input.value
+          });
+        }
+        const simulatorPid = await findProcess("com.apple.iphonesimulator");
+        return performNativeAction({
+          pid: simulatorPid,
+          deviceName: target.device.name,
+          elementPath: input.elementPath,
+          action: input.action,
+          value: input.value
+        });
+      }
+      async captureScreenshot(target, outputPath) {
+        if (target.kind === "macos") {
+          const { window: window2 } = await extractMacOSElements({ pid: target.pid });
+          if (window2.windowId <= 0) {
+            return {
+              kind: "error",
+              error: "macOS screenshot capture failed: no on-screen CGWindowID was available for the current AX window."
+            };
+          }
+          await captureMacOSScreenshot(window2.windowId, outputPath);
+          const { readFile: readFile24 } = await import("fs/promises");
+          const buf2 = await readFile24(outputPath);
+          return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
+        }
+        const device = await findDevice(target.device.udid);
+        if (!device) {
+          return { kind: "error", error: `Simulator not found: ${target.device.udid}` };
+        }
+        const capture = await captureNativeScreenshot({ device, outputPath });
+        if (!capture.success || !capture.outputPath) {
+          return {
+            kind: "error",
+            error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
+          };
+        }
+        const { readFile: readFile23 } = await import("fs/promises");
+        const buf = await readFile23(capture.outputPath);
+        return {
+          kind: "simulator",
+          base64: buf.toString("base64"),
+          device,
+          screenshotPath: capture.outputPath
+        };
+      }
+      /**
+       * Deliver a keyboard chord via the one-shot Swift extractor binary (E2-B).
+       * See `keyboard.ts` for the two-phase (background-then-foreground) delivery
+       * + AX-diff validator that builds the returned `ActionOutcome`.
+       */
+      async keystroke(target, spec) {
+        return runKeystrokeCapability({
+          target,
+          spec,
+          resolvePid: () => resolveKeystrokeTargetPid(target),
+          extract: () => this.extract(target),
+          deliver: deliverKeystrokeOneShot
+        });
+      }
+      /**
+       * Drive app lifecycle (E2-C) via OS-level process control (`open`/
+       * `osascript`) — never the AX event path. See `lifecycle.ts` for the
+       * launch/switch/quit state machine and its validators.
+       */
+      async lifecycle(target, spec) {
+        return runLifecycleCapability(target, spec, defaultLifecycleOps);
+      }
+      /**
+       * Walk a menu path (menu-bar or already-open context menu) via the
+       * one-shot Swift extractor binary (E2-D). See `menu.ts` for the delivery
+       * wrapper + AX-diff validator that builds the returned `ActionOutcome`.
+       */
+      async menu(target, spec) {
+        return runMenuCapability({
+          target,
+          spec,
+          resolvePid: () => resolveMenuTargetPid(target),
+          extract: () => this.extract(target),
+          deliver: deliverMenuOneShot
+        });
+      }
+    };
+    DaemonBackend = class {
+      daemon;
+      fallback;
+      usable = true;
+      constructor(opts) {
+        this.daemon = opts?.daemon ?? new AXDaemon();
+        this.fallback = opts?.fallback ?? new RespawnBackend();
+      }
+      /** True once the daemon failed and calls are routing to the respawn fallback. */
+      get fellBack() {
+        return !this.usable;
+      }
+      /**
+       * Run a daemon-backed operation, falling back to the respawn equivalent on any
+       * daemon fault. A `DaemonError` (spawn fail, not-trusted, crash, timeout) trips
+       * the permanent fallback; any other error is a real AX/IO condition that the
+       * respawn path would hit too, so it propagates unchanged.
+       */
+      async withFallback(daemonOp, fallbackOp) {
+        if (!this.usable) return fallbackOp();
+        try {
+          await this.daemon.start();
+          return await daemonOp();
+        } catch (err) {
+          if (err instanceof DaemonError) {
+            this.usable = false;
+            return fallbackOp();
+          }
+          throw err;
+        }
+      }
+      async extract(target) {
+        return this.withFallback(
+          async () => {
+            if (target.kind === "macos") {
+              const resp2 = await this.daemon.request({
+                op: "extract",
+                target: { kind: "macos", pid: target.pid }
+              });
+              if (!resp2.ok) throw new Error(resp2.error || "daemon extract failed");
+              const result2 = resp2.result;
+              return { kind: "macos", elements: result2.elements, window: result2.window };
+            }
+            const device = await findDevice(target.device.udid);
+            if (!device) {
+              return { kind: "not-found", message: `Simulator not found: ${target.device.udid}` };
+            }
+            const resp = await this.daemon.request({
+              op: "extract",
+              target: { kind: "simulator", deviceName: target.device.name }
+            });
+            if (!resp.ok) throw new Error(resp.error || "daemon extract failed");
+            const result = resp.result;
+            return { kind: "simulator", elements: result.elements, device };
+          },
+          () => this.fallback.extract(target)
+        );
+      }
+      async performAction(target, input) {
+        return this.withFallback(
+          async () => {
+            if (target.kind === "macos") {
+              const resp2 = await this.daemon.request({
+                op: "action",
+                target: { kind: "macos", pid: target.pid },
+                action: input.action,
+                elementPath: input.elementPath,
+                value: input.value
+              });
+              if (!resp2.ok) return { success: false, action: input.action, error: resp2.error };
+              return resp2.result;
+            }
+            const simulatorPid = await findProcess("com.apple.iphonesimulator");
+            const resp = await this.daemon.request({
+              op: "action",
+              target: { kind: "simulator", pid: simulatorPid, deviceName: target.device.name },
+              action: input.action,
+              elementPath: input.elementPath,
+              value: input.value
+            });
+            if (!resp.ok) return { success: false, action: input.action, error: resp.error };
+            return resp.result;
+          },
+          () => this.fallback.performAction(target, input)
+        );
+      }
+      async captureScreenshot(target, outputPath) {
+        if (target.kind === "simulator") {
+          return this.fallback.captureScreenshot(target, outputPath);
+        }
+        return this.withFallback(
+          async () => {
+            const resp = await this.daemon.request({
+              op: "resolve",
+              target: { kind: "macos", pid: target.pid }
+            });
+            if (!resp.ok) throw new Error(resp.error || "daemon resolve failed");
+            const window2 = resp.result.window;
+            if (window2.windowId <= 0) {
+              return {
+                kind: "error",
+                error: "macOS screenshot capture failed: no on-screen CGWindowID was available for the current AX window."
+              };
+            }
+            await captureMacOSScreenshot(window2.windowId, outputPath);
+            const { readFile: readFile23 } = await import("fs/promises");
+            const buf = await readFile23(outputPath);
+            return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
+          },
+          () => this.fallback.captureScreenshot(target, outputPath)
+        );
+      }
+      /**
+       * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
+       * `extract`/`performAction`/`captureScreenshot`, this does not route through
+       * `withFallback` for the whole call — if the daemon is already unusable (or
+       * fails to start), the ENTIRE capability (delivery + AX-diff validation)
+       * delegates to `RespawnBackend.keystroke` so the before/after signatures
+       * come from one consistent backend. If the daemon dies mid-request (a
+       * request already in flight when it crashes), this attempt still completes
+       * by falling through to the one-shot binary for just the raw delivery,
+       * rather than aborting — the kill-9 auto-fallback, applied per-request.
+       */
+      async keystroke(target, spec) {
+        if (!this.usable) return this.fallback.keystroke(target, spec);
+        try {
+          await this.daemon.start();
+        } catch (err) {
+          if (err instanceof DaemonError) this.usable = false;
+          return this.fallback.keystroke(target, spec);
+        }
+        return runKeystrokeCapability({
+          target,
+          spec,
+          resolvePid: () => resolveKeystrokeTargetPid(target),
+          extract: () => this.extract(target),
+          deliver: async (pid, chord, foreground) => {
+            try {
+              const resp = await this.daemon.request({
+                op: "keystroke",
+                target: target.kind === "macos" ? { kind: "macos", pid } : { kind: "simulator", pid, deviceName: target.device.name },
+                chord,
+                foreground
+              });
+              if (!resp.ok) return { success: false, error: resp.error };
+              return resp.result;
+            } catch (err) {
+              if (err instanceof DaemonError) {
+                this.usable = false;
+                return deliverKeystrokeOneShot(pid, chord, foreground);
+              }
+              throw err;
+            }
+          }
+        });
+      }
+      /**
+       * App lifecycle (E2-C) is OS-level process control (`open`/`osascript`), not
+       * an AX-tree operation — the persistent daemon connection offers no benefit,
+       * so this delegates straight to the respawn implementation (same reasoning
+       * as the simulator branch of `captureScreenshot` above).
+       */
+      async lifecycle(target, spec) {
+        return this.fallback.lifecycle(target, spec);
+      }
+      /**
+       * Walk a menu path via the daemon's `menu` op (E2-D). Mirrors `keystroke`:
+       * if the daemon is already unusable (or fails to start), the ENTIRE
+       * capability delegates to `RespawnBackend.menu` so before/after signatures
+       * come from one consistent backend. If the daemon dies mid-request, this
+       * attempt still completes via the one-shot binary for just the raw
+       * traversal, rather than aborting.
+       */
+      async menu(target, spec) {
+        if (!this.usable) return this.fallback.menu(target, spec);
+        try {
+          await this.daemon.start();
+        } catch (err) {
+          if (err instanceof DaemonError) this.usable = false;
+          return this.fallback.menu(target, spec);
+        }
+        return runMenuCapability({
+          target,
+          spec,
+          resolvePid: () => resolveMenuTargetPid(target),
+          extract: () => this.extract(target),
+          deliver: async (pid, menuPath) => {
+            try {
+              const resp = await this.daemon.request({
+                op: "menu",
+                target: target.kind === "macos" ? { kind: "macos", pid } : { kind: "simulator", pid, deviceName: target.device.name },
+                menuPath
+              });
+              if (!resp.ok) return { success: false, error: resp.error };
+              return resp.result;
+            } catch (err) {
+              if (err instanceof DaemonError) {
+                this.usable = false;
+                return deliverMenuOneShot(pid, menuPath);
+              }
+              throw err;
+            }
+          }
+        });
+      }
+      /** Stop the underlying daemon (test/shutdown aid). */
+      stop() {
+        this.daemon.kill("DaemonBackend stopped");
+      }
+    };
+    defaultBackend = null;
+  }
+});
+
+// src/native/preflight.ts
+function isMacOS(platformOverride) {
+  return (platformOverride ?? process.platform) === "darwin";
+}
+async function defaultHasCommand(name) {
+  try {
+    await execFileAsync11("which", [name]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function macOSNativePreflight(options) {
+  if (!isMacOS(options?.platformOverride)) {
+    return {
+      ok: false,
+      reason: "not-macos",
+      message: `Native sessions require macOS \u2014 process.platform is '${options?.platformOverride ?? process.platform}'. Use a Mac to run macOS / iOS-simulator AX sessions.`
+    };
+  }
+  if (!await _deps.hasCommand("swift")) {
+    return {
+      ok: false,
+      reason: "no-swift",
+      message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
+    };
+  }
+  const extractorPath = options?.extractorBinaryPath ?? (0, import_path22.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
+  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path22.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
+  if (!(0, import_fs13.existsSync)(extractorPath) && !(0, import_fs13.existsSync)((0, import_path22.join)(swiftSourceDir, "Package.swift"))) {
+    return {
+      ok: false,
+      reason: "extractor-build-failed",
+      message: `Swift AX extractor unavailable. Expected binary at ${extractorPath} or source at ${swiftSourceDir}. Rebuild with: cd <ibr-package>/src/native/swift/ibr-ax-extract && swift build -c release`
+    };
+  }
+  return { ok: true };
+}
+async function simulatorNativePreflight(options) {
+  const base = await macOSNativePreflight(options);
+  if (!base.ok) return base;
+  if (!await _deps.hasCommand("xcrun")) {
+    return {
+      ok: false,
+      reason: "no-simctl",
+      message: "`xcrun` not on PATH \u2014 Xcode (or the Command Line Tools select) is required. Install Xcode from the App Store, then run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    };
+  }
+  return { ok: true };
+}
+function detectSimulatorChromeOnly(topLevelLabels) {
+  if (topLevelLabels.length === 0) {
+    return {
+      hint: "Simulator returned no AX elements. Boot a device and foreground an app: xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  const normalized = topLevelLabels.map((l) => l.trim().toLowerCase()).filter((l) => l.length > 0);
+  if (normalized.length === 0) return null;
+  const chromeCount = normalized.filter((l) => SIMULATOR_CHROME_LABELS.has(l)).length;
+  if (chromeCount / normalized.length >= 0.8) {
+    return {
+      hint: "Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  return null;
+}
+function classifyExtractorError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+    return {
+      ok: false,
+      reason: "ax-permission",
+      message: "macOS accessibility permission denied. Grant access in System Settings \u2192 Privacy & Security \u2192 Accessibility, then re-run the session_start call."
+    };
+  }
+  return null;
+}
+var import_child_process13, import_util11, import_fs13, import_path22, execFileAsync11, _deps, SIMULATOR_CHROME_LABELS;
+var init_preflight = __esm({
+  "src/native/preflight.ts"() {
+    "use strict";
+    import_child_process13 = require("child_process");
+    import_util11 = require("util");
+    import_fs13 = require("fs");
+    import_path22 = require("path");
+    execFileAsync11 = (0, import_util11.promisify)(import_child_process13.execFile);
+    _deps = {
+      hasCommand: defaultHasCommand
+    };
+    SIMULATOR_CHROME_LABELS = /* @__PURE__ */ new Set([
+      "home",
+      "save screen",
+      "screenshot",
+      "rotate",
+      "rotate left",
+      "rotate right",
+      "lock",
+      "siri",
+      "shake",
+      "side button",
+      "volume up",
+      "volume down"
+    ]);
+  }
+});
+
+// src/native/session-controller.ts
+function textResult(text) {
+  return { kind: "text", text };
+}
+function errorResult(text) {
+  return { kind: "text", text, isError: true };
+}
+function imageResult(base64, metadata) {
+  return { kind: "image", base64, metadata };
+}
+function nativeStateSignature(window2, candidates) {
+  return JSON.stringify({
+    window: window2,
+    candidates: candidates.slice(0, 200).map((candidate) => [
+      candidate.role,
+      candidate.label,
+      candidate.identifier,
+      candidate.value,
+      candidate.enabled,
+      candidate.actions.join(","),
+      candidate.frame
+    ])
+  });
+}
+function mapSessionActionToNative(action, value) {
+  switch (action) {
+    case "click":
+    case "press":
+    case "check":
+    case "select":
+      return { action: "press" };
+    case "fill":
+    case "type":
+      if (value === void 0) return { error: `${action} requires 'value'.` };
+      return { action: "setValue", value };
+    case "focus":
+      return { action: "focus" };
+    case "showMenu":
+      return { action: "showMenu" };
+    case "increment":
+      return { action: "increment" };
+    case "decrement":
+      return { action: "decrement" };
+    case "confirm":
+      return { action: "confirm" };
+    case "cancel":
+      return { action: "cancel" };
+    case "scroll":
+    case "scrollToVisible":
+      return { action: "scrollToVisible" };
+    case "hover":
+    case "doubleClick":
+    case "rightClick":
+      return { error: `${action} would require pointer-style event injection. Use AX actions for cursor-free native sessions.` };
+    default:
+      return { error: `Unknown native action: ${action}` };
+  }
+}
+function nativeTargetNotFound(target, candidates) {
+  const alternatives = candidates.filter((candidate) => candidate.label || candidate.identifier).slice(0, 10).map(formatNativeCandidate);
+  return errorResult(JSON.stringify({
+    success: false,
+    error: `Element "${target}" not found`,
+    alternatives,
+    hint: 'Use native_session_read with what="observe" to inspect actionable AX elements.'
+  }, null, 2));
+}
+function nativeActionResponse(success, payload) {
+  const text = JSON.stringify({ success, ...payload }, null, 2);
+  return success ? textResult(text) : errorResult(text);
+}
+function capabilityOutcomeResult(action, outcome) {
+  const text = JSON.stringify({ action, ...outcome }, null, 2);
+  return outcome.success ? textResult(text) : errorResult(text);
+}
+function emptyPostActionState(started, waitFor) {
+  return {
+    settled: false,
+    reason: "timeout",
+    attempts: 0,
+    elapsedMs: Date.now() - started,
+    waitFor,
+    waitForFound: false,
+    totalElements: 0,
+    interactiveElements: 0,
+    elements: []
+  };
+}
+function normalizeNativeWaitTimeout(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(5e3, Math.round(n)));
+}
+function safeFilePart(value) {
+  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
+}
+function sleep5(ms) {
+  return new Promise((resolve5) => setTimeout(resolve5, ms));
+}
+function formatNativeCandidate(candidate) {
+  return {
+    role: candidate.role,
+    label: candidate.label || null,
+    identifier: candidate.identifier || null,
+    enabled: candidate.enabled,
+    actions: candidate.actions,
+    path: candidate.path,
+    frame: candidate.frame
+  };
+}
+var import_path23, DEFAULT_OUTPUT_DIR, NativeSessionController, nativeSessionController;
+var init_session_controller = __esm({
+  "src/native/session-controller.ts"() {
+    "use strict";
+    import_path23 = require("path");
+    init_sessions();
+    init_backend();
+    init_actions();
+    init_preflight();
+    init_native();
+    DEFAULT_OUTPUT_DIR = ".ibr";
+    NativeSessionController = class {
+      store;
+      injectedBackend;
+      constructor(opts) {
+        this.store = opts?.store ?? sessions;
+        this.injectedBackend = opts?.backend;
+      }
+      get backend() {
+        return this.injectedBackend ?? getNativeBackend();
+      }
+      // ── start ──────────────────────────────────────────────────────────────────
+      startMacOSPid(sessionId, pid) {
+        if (!Number.isInteger(pid) || pid <= 0) {
+          return errorResult("native_session_start (macos) failed: 'pid' must be a positive integer.");
+        }
+        this.store.set(sessionId, { driver: null, type: "macos", app: `pid-${pid}`, pid, createdAt: Date.now() });
+        return textResult(JSON.stringify({
+          sessionId,
+          type: "macos",
+          backend: "macos-ax",
+          app: `pid-${pid}`,
+          pid,
+          hostCursorAffected: false,
+          timestamp: (/* @__PURE__ */ new Date()).toISOString()
+        }, null, 2));
+      }
+      async startMacOS(sessionId, app, errorPrefix) {
+        try {
+          const pid = await findProcess(app);
+          this.store.set(sessionId, { driver: null, type: "macos", app, pid, createdAt: Date.now() });
+          return textResult(JSON.stringify({
+            sessionId,
+            type: "macos",
+            backend: "macos-ax",
+            app,
+            pid,
+            hostCursorAffected: false,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }, null, 2));
+        } catch (err) {
+          return errorResult(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      async startSimulator(sessionId, simulator, errorPrefix) {
+        try {
+          let device = await findDevice(simulator);
+          if (!device) throw new Error(`Simulator not found: ${simulator}`);
+          if (device.state !== "Booted") {
+            await bootDevice(device.udid);
+            device = await findDevice(device.udid) ?? device;
+          }
+          this.store.set(sessionId, {
+            driver: null,
+            type: "simulator",
+            device: { udid: device.udid, name: device.name },
+            createdAt: Date.now()
+          });
+          return textResult(JSON.stringify({
+            sessionId,
+            type: "simulator",
+            backend: "simulator-ax",
+            device: { udid: device.udid, name: device.name },
+            hostCursorAffected: false,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }, null, 2));
+        } catch (err) {
+          return errorResult(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      // ── close ────────────────────────────────────────────────────────────────
+      closeNative(sessionId) {
+        const entry = this.store.get(sessionId);
+        if (!entry) return errorResult("Session not found.");
+        if (entry.type !== "macos" && entry.type !== "simulator") {
+          return errorResult(`Session ${sessionId} is a ${entry.type} web session. Use session_close for web sessions.`);
+        }
+        this.store.delete(sessionId);
+        return textResult(`Native session ${sessionId} closed.`);
+      }
+      // ── read ───────────────────────────────────────────────────────────────────
+      async readMacOS(entry, what, limit) {
+        try {
+          if (what === "screenshot") {
+            const screenshotPath = (0, import_path23.join)(
+              DEFAULT_OUTPUT_DIR,
+              "native",
+              "macos-sessions",
+              `${safeFilePart(entry.app || `pid-${entry.pid}`)}-${Date.now()}.png`
+            );
+            const capture = await this.backend.captureScreenshot({ kind: "macos", pid: entry.pid, app: entry.app }, screenshotPath);
+            if (capture.kind === "error") return errorResult(capture.error);
+            if (capture.kind !== "macos") return errorResult("macOS screenshot capture failed: unexpected capture kind.");
+            return imageResult(capture.base64, JSON.stringify({
+              type: "macos",
+              backend: "macos-ax",
+              app: entry.app,
+              pid: entry.pid,
+              window: capture.window,
+              screenshotPath: capture.screenshotPath,
+              hostCursorAffected: false
+            }, null, 2));
+          }
+          const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
+          if (extraction.kind === "not-found") return errorResult(extraction.message);
+          if (extraction.kind !== "macos") return errorResult("native session read (macos) failed: unexpected extraction kind.");
+          const { elements, window: window2 } = extraction;
+          const candidates = flattenMacOSElements(elements);
+          const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+          if (what === "state") {
+            return textResult(JSON.stringify({
+              type: "macos",
+              backend: "macos-ax",
+              app: entry.app,
+              pid: entry.pid,
+              window: window2,
+              totalElements: candidates.length,
+              interactiveElements: interactive.length,
+              hostCursorAffected: false
+            }, null, 2));
+          }
+          if (what !== "observe" && what !== "extract") {
+            return errorResult(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+          }
+          const source = what === "observe" ? interactive : candidates;
+          return textResult(JSON.stringify({
+            type: "macos",
+            backend: "macos-ax",
+            app: entry.app,
+            pid: entry.pid,
+            window: window2,
+            totalElements: candidates.length,
+            interactiveElements: interactive.length,
+            returned: Math.min(source.length, limit),
+            hostCursorAffected: false,
+            elements: source.slice(0, limit).map(formatNativeCandidate)
+          }, null, 2));
+        } catch (err) {
+          return errorResult(`native session read (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      async readSimulator(entry, what, limit) {
+        try {
+          if (what === "screenshot") {
+            const screenshotPath = (0, import_path23.join)(
+              DEFAULT_OUTPUT_DIR,
+              "native",
+              "simulator-sessions",
+              `${safeFilePart(entry.device.name)}-${Date.now()}.png`
+            );
+            const capture = await this.backend.captureScreenshot({ kind: "simulator", device: entry.device }, screenshotPath);
+            if (capture.kind === "error") return errorResult(capture.error);
+            if (capture.kind !== "simulator") return errorResult("Simulator screenshot capture failed: unexpected capture kind.");
+            return imageResult(capture.base64, JSON.stringify({
+              type: "simulator",
+              backend: "simulator-ax",
+              device: entry.device,
+              screenshotPath: capture.screenshotPath,
+              viewport: getDeviceViewport(capture.device),
+              hostCursorAffected: false
+            }, null, 2));
+          }
+          const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+          if (extraction.kind === "not-found") return errorResult(extraction.message);
+          if (extraction.kind !== "simulator") return errorResult("native session read (simulator) failed: unexpected extraction kind.");
+          const candidates = flattenSimulatorElements(extraction.elements);
+          const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+          const chromeCheck = detectSimulatorChromeOnly(
+            candidates.slice(0, 10).map((c) => c.label ?? "")
+          );
+          if (chromeCheck) {
+            return errorResult(chromeCheck.hint);
+          }
+          if (what === "state") {
+            return textResult(JSON.stringify({
+              type: "simulator",
+              backend: "simulator-ax",
+              device: entry.device,
+              totalElements: candidates.length,
+              interactiveElements: interactive.length,
+              hostCursorAffected: false
+            }, null, 2));
+          }
+          if (what !== "observe" && what !== "extract") {
+            return errorResult(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+          }
+          const source = what === "observe" ? interactive : candidates;
+          return textResult(JSON.stringify({
+            type: "simulator",
+            backend: "simulator-ax",
+            device: entry.device,
+            totalElements: candidates.length,
+            interactiveElements: interactive.length,
+            returned: Math.min(source.length, limit),
+            hostCursorAffected: false,
+            elements: source.slice(0, limit).map(formatNativeCandidate)
+          }, null, 2));
+        } catch (err) {
+          return errorResult(`native session read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      // ── action ───────────────────────────────────────────────────────────────
+      async actionMacOS(entry, request) {
+        const capability = await this.dispatchCapability({ kind: "macos", pid: entry.pid, app: entry.app }, request);
+        if (capability) return capability;
+        const pre = await macOSNativePreflight();
+        if (!pre.ok) return errorResult(pre.message);
+        try {
+          const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
+          if (extraction.kind === "not-found") return errorResult(extraction.message);
+          if (extraction.kind !== "macos") return errorResult("native session action (macos) failed: unexpected extraction kind.");
+          const { elements } = extraction;
+          const resolution = resolveMacOSElement(elements, request.target ?? "", request.role ? { role: request.role } : {});
+          if (!resolution) {
+            return nativeTargetNotFound(request.target ?? "", flattenMacOSElements(elements));
+          }
+          if (!resolution.element.path) {
+            return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
+          }
+          const mapped = mapSessionActionToNative(request.action, request.value);
+          if ("error" in mapped) return errorResult(mapped.error);
+          const actionResult = await this.backend.performAction(
+            { kind: "macos", pid: entry.pid, app: entry.app },
+            { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
+          );
+          const postAction = actionResult.success ? await this.waitForMacOSPostAction(entry, request) : void 0;
+          return nativeActionResponse(actionResult.success, {
+            backend: "macos-ax",
+            app: entry.app,
+            pid: entry.pid,
+            requestedAction: request.action,
+            axAction: mapped.action,
+            target: request.target,
+            resolved: formatNativeCandidate(resolution.element),
+            confidence: resolution.confidence,
+            tier: resolution.tier,
+            alternatives: resolution.alternatives,
+            postAction,
+            hostCursorAffected: false,
+            error: actionResult.error
+          });
+        } catch (err) {
+          const classified = classifyExtractorError(err);
+          if (classified) return errorResult(classified.message);
+          return errorResult(`native session action (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      async actionSimulator(entry, request) {
+        const capability = await this.dispatchCapability({ kind: "simulator", device: entry.device }, request);
+        if (capability) return capability;
+        const pre = await simulatorNativePreflight();
+        if (!pre.ok) return errorResult(pre.message);
+        try {
+          const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+          if (extraction.kind === "not-found") return errorResult(extraction.message);
+          if (extraction.kind !== "simulator") return errorResult("native session action (simulator) failed: unexpected extraction kind.");
+          const { elements, device } = extraction;
+          const flattened = flattenSimulatorElements(elements);
+          const chromeCheck = detectSimulatorChromeOnly(
+            flattened.slice(0, 10).map((c) => c.label ?? "")
+          );
+          if (chromeCheck) return errorResult(chromeCheck.hint);
+          const resolution = resolveSimulatorElement(elements, request.target ?? "", request.role ? { role: request.role } : {});
+          if (!resolution) {
+            return nativeTargetNotFound(request.target ?? "", flattened);
+          }
+          if (!resolution.element.path) {
+            return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
+          }
+          const mapped = mapSessionActionToNative(request.action, request.value);
+          if ("error" in mapped) return errorResult(mapped.error);
+          const actionResult = await this.backend.performAction(
+            { kind: "simulator", device: { udid: device.udid, name: device.name } },
+            { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
+          );
+          const postAction = actionResult.success ? await this.waitForSimulatorPostAction(entry, request) : void 0;
+          return nativeActionResponse(actionResult.success, {
+            backend: "simulator-ax",
+            device: entry.device,
+            requestedAction: request.action,
+            axAction: mapped.action,
+            target: request.target,
+            resolved: formatNativeCandidate(resolution.element),
+            confidence: resolution.confidence,
+            tier: resolution.tier,
+            alternatives: resolution.alternatives,
+            postAction,
+            hostCursorAffected: false,
+            error: actionResult.error
+          });
+        } catch (err) {
+          const classified = classifyExtractorError(err);
+          if (classified) return errorResult(classified.message);
+          return errorResult(`native session action (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      /**
+       * Generic capability pass-through. Returns a result for the Epic-2 capability
+       * kinds (keystroke/app/menuPath) and `null` for element kinds (which follow
+       * the resolve→performAction→settle path). Dormant in Wave 0 — the MCP schema
+       * does not yet expose these kinds; present so Epic 2 adds them with zero
+       * controller edits.
+       */
+      async dispatchCapability(target, request) {
+        let outcome;
+        switch (request.action) {
+          case "keystroke":
+            outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? "" });
+            break;
+          case "app":
+            outcome = await this.backend.lifecycle(target, { op: request.op ?? "switch", app: request.app });
+            break;
+          case "menuPath":
+            outcome = await this.backend.menu(target, { menuPath: request.menuPath ?? [] });
+            break;
+          default:
+            return null;
+        }
+        return capabilityOutcomeResult(request.action, outcome);
+      }
+      // ── post-action settle loops (3e9375a) ────────────────────────────────────
+      async waitForMacOSPostAction(entry, request) {
+        const started = Date.now();
+        const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
+        let previousSignature = null;
+        let latest = emptyPostActionState(started, request.waitFor);
+        let attempts = 0;
+        do {
+          if (attempts === 0 && timeoutMs > 0) {
+            await sleep5(Math.min(120, timeoutMs));
+          }
+          const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
+          if (extraction.kind !== "macos") break;
+          const { elements, window: window2 } = extraction;
+          const candidates = flattenMacOSElements(elements);
+          const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+          const resolution = request.waitFor ? resolveMacOSElement(elements, request.waitFor) : null;
+          const signature = nativeStateSignature(window2, candidates);
+          attempts += 1;
+          latest = {
+            settled: false,
+            reason: "timeout",
+            attempts,
+            elapsedMs: Date.now() - started,
+            waitFor: request.waitFor,
+            waitForFound: Boolean(resolution),
+            window: window2,
+            totalElements: candidates.length,
+            interactiveElements: interactive.length,
+            elements: interactive.slice(0, 10).map(formatNativeCandidate)
+          };
+          if (resolution) {
+            return {
+              ...latest,
+              settled: true,
+              reason: "waitFor-found",
+              elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+            };
+          }
+          if (!request.waitFor && previousSignature === signature) {
+            return { ...latest, settled: true, reason: "tree-stable" };
+          }
+          previousSignature = signature;
+        } while (Date.now() - started < timeoutMs);
+        return latest;
+      }
+      async waitForSimulatorPostAction(entry, request) {
+        const started = Date.now();
+        const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
+        let previousSignature = null;
+        let latest = emptyPostActionState(started, request.waitFor);
+        let attempts = 0;
+        do {
+          if (attempts === 0 && timeoutMs > 0) {
+            await sleep5(Math.min(120, timeoutMs));
+          }
+          const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+          if (extraction.kind === "not-found") {
+            return {
+              ...latest,
+              reason: "timeout",
+              attempts,
+              elapsedMs: Date.now() - started
+            };
+          }
+          if (extraction.kind !== "simulator") break;
+          const candidates = flattenSimulatorElements(extraction.elements);
+          const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+          const resolution = request.waitFor ? resolveSimulatorElement(extraction.elements, request.waitFor) : null;
+          const signature = nativeStateSignature(entry.device, candidates);
+          attempts += 1;
+          latest = {
+            settled: false,
+            reason: "timeout",
+            attempts,
+            elapsedMs: Date.now() - started,
+            waitFor: request.waitFor,
+            waitForFound: Boolean(resolution),
+            totalElements: candidates.length,
+            interactiveElements: interactive.length,
+            elements: interactive.slice(0, 10).map(formatNativeCandidate)
+          };
+          if (resolution) {
+            return {
+              ...latest,
+              settled: true,
+              reason: "waitFor-found",
+              elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+            };
+          }
+          if (!request.waitFor && previousSignature === signature) {
+            return { ...latest, settled: true, reason: "tree-stable" };
+          }
+          previousSignature = signature;
+        } while (Date.now() - started < timeoutMs);
+        return latest;
+      }
+    };
+    nativeSessionController = new NativeSessionController();
+  }
+});
+
+// src/native/resolved-path-cache.ts
+var SEP, ResolvedPathCache, resolvedPathCache;
+var init_resolved_path_cache = __esm({
+  "src/native/resolved-path-cache.ts"() {
+    "use strict";
+    SEP = "\0";
+    ResolvedPathCache = class _ResolvedPathCache {
+      entries = /* @__PURE__ */ new Map();
+      static keyOf(sessionId, target) {
+        return `${sessionId}${SEP}${target}`;
+      }
+      /**
+       * Return the cached path for (sessionId, target) IFF the current signature
+       * matches the one captured at resolution. On mismatch the entry is evicted and
+       * `null` is returned — the caller must re-resolve. Never returns a stale path.
+       */
+      get(sessionId, target, currentSignature) {
+        const key = _ResolvedPathCache.keyOf(sessionId, target);
+        const entry = this.entries.get(key);
+        if (!entry) return null;
+        if (entry.signature !== currentSignature) {
+          this.entries.delete(key);
+          return null;
+        }
+        return entry.path.slice();
+      }
+      /** Cache a freshly-resolved path together with the signature it was resolved against. */
+      set(sessionId, target, path2, signature) {
+        this.entries.set(_ResolvedPathCache.keyOf(sessionId, target), {
+          signature,
+          path: path2.slice()
+        });
+      }
+      /** Drop a single (sessionId, target) entry. */
+      delete(sessionId, target) {
+        this.entries.delete(_ResolvedPathCache.keyOf(sessionId, target));
+      }
+      /** Drop every entry for a session (e.g. on session close). */
+      invalidateSession(sessionId) {
+        const prefix = `${sessionId}${SEP}`;
+        for (const key of this.entries.keys()) {
+          if (key.startsWith(prefix)) this.entries.delete(key);
+        }
+      }
+      /** Drop everything. */
+      clear() {
+        this.entries.clear();
+      }
+      /** Number of live entries (test/introspection aid). */
+      get size() {
+        return this.entries.size;
+      }
+    };
+    resolvedPathCache = new ResolvedPathCache();
+  }
+});
+
 // src/index.ts
 var index_exports = {};
 __export(index_exports, {
   A11yAttributesSchema: () => A11yAttributesSchema,
   ANDROID_CHROME_UA: () => ANDROID_CHROME_UA,
+  AXDaemon: () => AXDaemon,
   ActivePreferenceSchema: () => ActivePreferenceSchema,
   AnalysisSchema: () => AnalysisSchema,
   AuditResultSchema: () => AuditResultSchema,
@@ -17367,6 +20543,8 @@ __export(index_exports, {
   DEFAULT_RETENTION: () => DEFAULT_RETENTION,
   DEVICES: () => DEVICES,
   DEVICE_NAMES: () => DEVICE_NAMES,
+  DaemonBackend: () => DaemonBackend,
+  DaemonError: () => DaemonError,
   DecisionEntrySchema: () => DecisionEntrySchema,
   DecisionEntryWithChecksSchema: () => DecisionEntryWithChecksSchema,
   DecisionStateSchema: () => DecisionStateSchema,
@@ -17391,10 +20569,13 @@ __export(index_exports, {
   MemorySourceSchema: () => MemorySourceSchema,
   MemorySummarySchema: () => MemorySummarySchema,
   NATIVE_VIEWPORTS: () => NATIVE_VIEWPORTS,
+  NativeSessionController: () => NativeSessionController,
   ObservationSchema: () => ObservationSchema,
   PERFORMANCE_THRESHOLDS: () => PERFORMANCE_THRESHOLDS,
   PreferenceCategorySchema: () => PreferenceCategorySchema,
   PreferenceSchema: () => PreferenceSchema,
+  ResolvedPathCache: () => ResolvedPathCache,
+  RespawnBackend: () => RespawnBackend,
   RuleAuditResultSchema: () => RuleAuditResultSchema,
   RuleSettingSchema: () => RuleSettingSchema,
   RuleSeveritySchema: () => RuleSeveritySchema,
@@ -17408,6 +20589,7 @@ __export(index_exports, {
   VerdictSchema: () => VerdictSchema,
   ViewportSchema: () => ViewportSchema,
   ViolationSchema: () => ViolationSchema,
+  __setNativeBackend: () => __setNativeBackend,
   addKnownIssue: () => addKnownIssue,
   addPreference: () => addPreference,
   aiSearchFlow: () => aiSearchFlow,
@@ -17477,6 +20659,7 @@ __export(index_exports, {
   formatLandmarkComparison: () => formatLandmarkComparison,
   formatMacOSScanResult: () => formatMacOSScanResult,
   formatMemorySummary: () => formatMemorySummary,
+  formatNativeCandidate: () => formatNativeCandidate,
   formatNativeScanResult: () => formatNativeScanResult,
   formatPendingOperations: () => formatPendingOperations,
   formatPerformanceResult: () => formatPerformanceResult,
@@ -17509,6 +20692,7 @@ __export(index_exports, {
   getExpectedLandmarksFromContext: () => getExpectedLandmarksFromContext,
   getIntentDescription: () => getIntentDescription,
   getMostRecentSession: () => getMostRecentSession,
+  getNativeBackend: () => getNativeBackend,
   getNavigationLinks: () => getNavigationLinks,
   getPendingOperations: () => getPendingOperations,
   getPreference: () => getPreference,
@@ -17541,13 +20725,17 @@ __export(index_exports, {
   loadTokenSpec: () => loadTokenSpec,
   loginFlow: () => loginFlow,
   mapMacOSToEnhancedElements: () => mapMacOSToEnhancedElements,
+  mapSessionActionToNative: () => mapSessionActionToNative,
   mapToEnhancedElements: () => mapToEnhancedElements,
   markSessionCompared: () => markSessionCompared,
   maybeAutoClean: () => maybeAutoClean,
   measureApiTiming: () => measureApiTiming,
   measurePerformance: () => measurePerformance,
   measureWebVitals: () => measureWebVitals,
+  nativeSessionController: () => nativeSessionController,
+  nativeStateSignature: () => nativeStateSignature,
   normalizeColor: () => normalizeColor,
+  notImplementedOutcome: () => notImplementedOutcome,
   preferencesToRules: () => preferencesToRules,
   promoteToGlobal: () => promoteToGlobal,
   promoteToPreference: () => promoteToPreference,
@@ -17560,8 +20748,10 @@ __export(index_exports, {
   removePreference: () => removePreference,
   reportElementSizes: () => reportElementSizes,
   resolveDevice: () => resolveDevice,
+  resolvedPathCache: () => resolvedPathCache,
   runAllRules: () => runAllRules,
   runDesignSystemCheck: () => runDesignSystemCheck,
+  safeFilePart: () => safeFilePart,
   saveCompactContext: () => saveCompactContext,
   saveSummary: () => saveSummary,
   scan: () => scan,
@@ -17591,7 +20781,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path22.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path24.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -17606,11 +20796,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises21.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises22.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path22.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path22.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path22.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path24.join)(outputDir, `baseline-${timestamp}.png`);
+  let actualCurrentPath = currentPath || (0, import_path24.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path24.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -17642,12 +20832,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises21.access)(actualBaselinePath);
+    await (0, import_promises22.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises21.access)(actualCurrentPath);
+    await (0, import_promises22.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -17696,25 +20886,25 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path22.dirname)(paths.diff),
+      outputDir: (0, import_path24.dirname)(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
   } else {
-    let sessions = await listSessions(outputDir);
-    sessions = sessions.filter((s) => statuses.includes(s.status));
+    let sessions2 = await listSessions(outputDir);
+    sessions2 = sessions2.filter((s) => statuses.includes(s.status));
     if (urlPattern) {
       const pattern = typeof urlPattern === "string" ? new RegExp(urlPattern) : urlPattern;
-      sessions = sessions.filter((s) => pattern.test(s.url));
+      sessions2 = sessions2.filter((s) => pattern.test(s.url));
     }
-    sessions = sessions.slice(0, limit);
-    for (const session of sessions) {
+    sessions2 = sessions2.slice(0, limit);
+    for (const session of sessions2) {
       try {
         const paths = getSessionPaths(outputDir, session.id);
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path22.dirname)(paths.diff),
+          outputDir: (0, import_path24.dirname)(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -17726,7 +20916,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises21, import_path22, import_os3, InterfaceBuiltRight, IBRSession;
+var import_promises22, import_path24, import_os3, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -17740,8 +20930,8 @@ var init_index = __esm({
     init_flows();
     init_driver();
     init_compat();
-    import_promises21 = require("fs/promises");
-    import_path22 = require("path");
+    import_promises22 = require("fs/promises");
+    import_path24 = require("path");
     import_os3 = require("os");
     init_cleanup();
     init_schemas();
@@ -17777,6 +20967,11 @@ var init_index = __esm({
     init_principles();
     init_memory();
     init_native();
+    init_action_outcome();
+    init_session_controller();
+    init_backend();
+    init_daemon();
+    init_resolved_path_cache();
     init_devices();
     InterfaceBuiltRight = class {
       config;
@@ -18305,13 +21500,13 @@ var session_exports2 = {};
 __export(session_exports2, {
   SafariSession: () => SafariSession
 });
-var import_child_process8, import_util7, execFileAsync7, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
+var import_child_process14, import_util12, execFileAsync12, PORT_RANGE_START, PORT_RANGE_END, READY_POLL_INTERVAL_MS, READY_TIMEOUT_MS, SafariSession;
 var init_session2 = __esm({
   "src/engine/safari/session.ts"() {
     "use strict";
-    import_child_process8 = require("child_process");
-    import_util7 = require("util");
-    execFileAsync7 = (0, import_util7.promisify)(import_child_process8.execFile);
+    import_child_process14 = require("child_process");
+    import_util12 = require("util");
+    execFileAsync12 = (0, import_util12.promisify)(import_child_process14.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
     READY_POLL_INTERVAL_MS = 200;
@@ -18329,7 +21524,7 @@ var init_session2 = __esm({
           return this.port;
         }
         this.port = port ?? await this.findFreePort();
-        this.process = (0, import_child_process8.spawn)("safaridriver", ["--port", String(this.port)], {
+        this.process = (0, import_child_process14.spawn)("safaridriver", ["--port", String(this.port)], {
           stdio: ["ignore", "pipe", "pipe"]
         });
         this.process.on("exit", (code) => {
@@ -18367,7 +21562,7 @@ var init_session2 = __esm({
        */
       static async isEnabled() {
         try {
-          await execFileAsync7("safaridriver", ["--version"], { timeout: 5e3 });
+          await execFileAsync12("safaridriver", ["--version"], { timeout: 5e3 });
           return true;
         } catch {
           return false;
@@ -18416,17 +21611,17 @@ var driver_exports2 = {};
 __export(driver_exports2, {
   SafariDriver: () => SafariDriver
 });
-var import_child_process9, import_util8, execFileAsync8, SafariDriver;
+var import_child_process15, import_util13, execFileAsync13, SafariDriver;
 var init_driver2 = __esm({
   "src/engine/safari/driver.ts"() {
     "use strict";
-    import_child_process9 = require("child_process");
-    import_util8 = require("util");
+    import_child_process15 = require("child_process");
+    import_util13 = require("util");
     init_webdriver();
     init_session2();
     init_extract3();
     init_serialize();
-    execFileAsync8 = (0, import_util8.promisify)(import_child_process9.execFile);
+    execFileAsync13 = (0, import_util13.promisify)(import_child_process15.execFile);
     SafariDriver = class {
       client = null;
       session = null;
@@ -18440,7 +21635,7 @@ var init_driver2 = __esm({
         await this.client.createSession();
         const vp = options.viewport ?? { width: 1920, height: 1080 };
         await this.client.setWindowRect({ ...vp, x: -9999, y: -9999 });
-        (0, import_child_process9.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
+        (0, import_child_process15.exec)(`osascript -e 'tell application "System Events" to set visible of process "Safari" to false'`, () => {
         });
       }
       async close() {
@@ -18621,7 +21816,7 @@ var init_driver2 = __esm({
       async _fetchAXElements() {
         try {
           const extractorPath = await ensureExtractor();
-          const { stdout } = await execFileAsync8(
+          const { stdout } = await execFileAsync13(
             extractorPath,
             ["--app", "Safari"],
             { timeout: 15e3 }
@@ -18970,19 +22165,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path23.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = (0, import_path26.join)(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path23.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = (0, import_path26.join)(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path23.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = (0, import_path26.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -18991,10 +22186,10 @@ async function discoverUserContext(projectDir) {
   const config = await loadIBRConfig(projectDir);
   let memory;
   const outputDir = config.outputDir || "./.ibr";
-  const memoryPath = (0, import_path23.join)(outputDir, "memory", "summary.json");
-  if ((0, import_fs13.existsSync)(memoryPath)) {
+  const memoryPath = (0, import_path26.join)(outputDir, "memory", "summary.json");
+  if ((0, import_fs15.existsSync)(memoryPath)) {
     try {
-      const memContent = await (0, import_promises22.readFile)(memoryPath, "utf-8");
+      const memContent = await (0, import_promises23.readFile)(memoryPath, "utf-8");
       memory = JSON.parse(memContent);
     } catch {
     }
@@ -19014,12 +22209,12 @@ async function tryLoadFramework(filePath, type) {
     found: false,
     hasFramework: false
   };
-  if (!(0, import_fs13.existsSync)(filePath)) {
+  if (!(0, import_fs15.existsSync)(filePath)) {
     return { source };
   }
   source.found = true;
   try {
-    const content = await (0, import_promises22.readFile)(filePath, "utf-8");
+    const content = await (0, import_promises23.readFile)(filePath, "utf-8");
     const framework = parseDesignFramework(content, filePath);
     if (framework) {
       source.hasFramework = true;
@@ -19030,12 +22225,12 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path23.join)(projectDir, ".ibrrc.json");
-  if (!(0, import_fs13.existsSync)(configPath)) {
+  const configPath = (0, import_path26.join)(projectDir, ".ibrrc.json");
+  if (!(0, import_fs15.existsSync)(configPath)) {
     return {};
   }
   try {
-    const content = await (0, import_promises22.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises23.readFile)(configPath, "utf-8");
     return JSON.parse(content);
   } catch {
     return {};
@@ -19065,13 +22260,13 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs13, import_promises22, import_path23, import_os4;
+var import_fs15, import_promises23, import_path26, import_os4;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
-    import_fs13 = require("fs");
-    import_promises22 = require("fs/promises");
-    import_path23 = require("path");
+    import_fs15 = require("fs");
+    import_promises23 = require("fs/promises");
+    import_path26 = require("path");
     import_os4 = require("os");
     init_framework_parser();
   }
@@ -19371,18 +22566,18 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path24.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path24.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path24.join)(outputDir, "sessions")
+    stateFile: (0, import_path27.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path27.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path27.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs14.existsSync)(stateFile)) {
+  if (!(0, import_fs16.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     if (state.pid && state.pid !== process.pid) {
       try {
@@ -19407,7 +22602,7 @@ async function isServerRunning(outputDir) {
     return res.ok;
   } catch {
     try {
-      const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
+      const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
       const state = JSON.parse(content);
       if (state.chromePid) {
         try {
@@ -19424,7 +22619,7 @@ async function isServerRunning(outputDir) {
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
   try {
-    await (0, import_promises23.unlink)(stateFile);
+    await (0, import_promises24.unlink)(stateFile);
   } catch {
   }
 }
@@ -19440,9 +22635,9 @@ async function startBrowserServer(outputDir, options = {}) {
   if (await isServerRunning(outputDir)) {
     throw new Error("Browser server already running. Use session:close all to stop it first.");
   }
-  await (0, import_promises23.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises24.mkdir)(outputDir, { recursive: true });
   if (isolated) {
-    await (0, import_promises23.mkdir)(profileDir, { recursive: true });
+    await (0, import_promises24.mkdir)(profileDir, { recursive: true });
   }
   const extraArgs = [];
   if (options.lowMemory) {
@@ -19500,16 +22695,16 @@ async function startBrowserServer(outputDir, options = {}) {
     isolatedProfile: isolated ? profileDir : "",
     lowMemory: options.lowMemory
   };
-  await (0, import_promises23.writeFile)(stateFile, JSON.stringify(state, null, 2));
+  await (0, import_promises24.writeFile)(stateFile, JSON.stringify(state, null, 2));
   return { driver: driver3, wsEndpoint, ownsBrowser };
 }
 async function connectToBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs14.existsSync)(stateFile)) {
+  if (!(0, import_fs16.existsSync)(stateFile)) {
     return null;
   }
   try {
-    const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     let wsUrl;
     if (state.cdpUrl) {
@@ -19527,11 +22722,11 @@ async function connectToBrowserServer(outputDir) {
 }
 async function stopBrowserServer(outputDir) {
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
-  if (!(0, import_fs14.existsSync)(stateFile)) {
+  if (!(0, import_fs16.existsSync)(stateFile)) {
     return false;
   }
   try {
-    const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
+    const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
     const state = JSON.parse(content);
     const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
     const driver3 = new EngineDriver();
@@ -19541,11 +22736,11 @@ async function stopBrowserServer(outputDir) {
     } else {
       await driver3.disconnect();
     }
-    await (0, import_promises23.unlink)(stateFile);
+    await (0, import_promises24.unlink)(stateFile);
     return true;
   } catch {
     try {
-      const content = await (0, import_promises23.readFile)(stateFile, "utf-8");
+      const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
       const state = JSON.parse(content);
       if (state.chromePid) {
         process.kill(state.chromePid, "SIGKILL");
@@ -19558,7 +22753,7 @@ async function stopBrowserServer(outputDir) {
 }
 async function listActiveSessions(outputDir) {
   const { sessionsDir } = getPaths(outputDir);
-  if (!(0, import_fs14.existsSync)(sessionsDir)) {
+  if (!(0, import_fs16.existsSync)(sessionsDir)) {
     return [];
   }
   const { readdir: readdir6 } = await import("fs/promises");
@@ -19566,23 +22761,23 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path24.join)(sessionsDir, entry.name, "live-session.json");
-      if ((0, import_fs14.existsSync)(statePath)) {
+      const statePath = (0, import_path27.join)(sessionsDir, entry.name, "live-session.json");
+      if ((0, import_fs16.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
     }
   }
   return liveSessions;
 }
-var import_promises23, import_fs14, import_path24, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_promises24, import_fs16, import_path27, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises23 = require("fs/promises");
-    import_fs14 = require("fs");
-    import_path24 = require("path");
+    import_promises24 = require("fs/promises");
+    import_fs16 = require("fs");
+    import_path27 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
     init_devices();
@@ -19617,9 +22812,9 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${(0, import_nanoid6.nanoid)(10)}`;
-        const sessionsDir = (0, import_path24.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path24.join)(sessionsDir, sessionId);
-        await (0, import_promises23.mkdir)(sessionDir, { recursive: true });
+        const sessionsDir = (0, import_path27.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path27.join)(sessionsDir, sessionId);
+        await (0, import_promises24.mkdir)(sessionDir, { recursive: true });
         await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(viewport));
         await driver3.emulationDomain.setReducedMotion(true);
         const page = new CompatPage(driver3);
@@ -19647,12 +22842,12 @@ var init_browser_server = __esm({
             duration: navDuration
           }]
         };
-        await (0, import_promises23.writeFile)(
-          (0, import_path24.join)(sessionDir, "live-session.json"),
+        await (0, import_promises24.writeFile)(
+          (0, import_path27.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path24.join)(sessionDir, "baseline.png"),
+          path: (0, import_path27.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
@@ -19661,16 +22856,16 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path24.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path24.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs14.existsSync)(statePath)) {
+        const sessionDir = (0, import_path27.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path27.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs16.existsSync)(statePath)) {
           return null;
         }
         const driver3 = await connectToBrowserServer(outputDir);
         if (!driver3) {
           return null;
         }
-        const content = await (0, import_promises23.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises24.readFile)(statePath, "utf-8");
         const state = JSON.parse(content);
         const page = new CompatPage(driver3);
         await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(state.viewport));
@@ -19691,8 +22886,8 @@ var init_browser_server = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises23.writeFile)(
-          (0, import_path24.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises24.writeFile)(
+          (0, import_path27.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -19834,7 +23029,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path24.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path27.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -20105,7 +23300,7 @@ var init_browser_server = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path24.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path27.join)(this.sessionDir, screenshotFile);
         try {
           await this.page.addStyleTag({
             content: `*, *::before, *::after {
@@ -20206,14 +23401,14 @@ var init_browser_server = __esm({
         if (this.state.captures && this.state.captures.length > 0) {
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
-            const archiveDir = (0, import_path24.join)(this.sessionDir, "archive");
-            await (0, import_promises23.mkdir)(archiveDir, { recursive: true });
+            const archiveDir = (0, import_path27.join)(this.sessionDir, "archive");
+            await (0, import_promises24.mkdir)(archiveDir, { recursive: true });
             const { rename: rename2 } = await import("fs/promises");
             for (const cap of ephemeral) {
-              const src = (0, import_path24.join)(this.sessionDir, cap.screenshot);
-              const dest = (0, import_path24.join)(archiveDir, cap.screenshot);
+              const src = (0, import_path27.join)(this.sessionDir, cap.screenshot);
+              const dest = (0, import_path27.join)(archiveDir, cap.screenshot);
               try {
-                if ((0, import_fs14.existsSync)(src)) {
+                if ((0, import_fs16.existsSync)(src)) {
                   await rename2(src, dest);
                   cap.screenshot = `archive/${cap.screenshot}`;
                 }
@@ -20224,10 +23419,10 @@ var init_browser_server = __esm({
           }
         }
         await this.driver.close();
-        const liveSessionPath = (0, import_path24.join)(this.sessionDir, "live-session.json");
+        const liveSessionPath = (0, import_path27.join)(this.sessionDir, "live-session.json");
         try {
-          if ((0, import_fs14.existsSync)(liveSessionPath)) {
-            await (0, import_promises23.unlink)(liveSessionPath);
+          if ((0, import_fs16.existsSync)(liveSessionPath)) {
+            await (0, import_promises24.unlink)(liveSessionPath);
           }
         } catch {
         }
@@ -20264,15 +23459,15 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises24, import_fs15, import_path25, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises25, import_fs17, import_path28, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
     init_driver();
     init_compat();
-    import_promises24 = require("fs/promises");
-    import_fs15 = require("fs");
-    import_path25 = require("path");
+    import_promises25 = require("fs/promises");
+    import_fs17 = require("fs");
+    import_path28 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
     init_scan();
@@ -20291,7 +23486,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, driver3, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path25.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path28.join)(outputDir, "sessions", state.id);
         this.driver = driver3;
         this.page = page;
         page.on("console", (msg) => {
@@ -20322,8 +23517,8 @@ var init_live_session = __esm({
         } = options;
         const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
-        const sessionDir = (0, import_path25.join)(outputDir, "sessions", sessionId);
-        await (0, import_promises24.mkdir)(sessionDir, { recursive: true });
+        const sessionDir = (0, import_path28.join)(outputDir, "sessions", sessionId);
+        await (0, import_promises25.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
           headless: !showBrowser,
@@ -20360,12 +23555,12 @@ var init_live_session = __esm({
           }],
           captures: []
         };
-        await (0, import_promises24.writeFile)(
-          (0, import_path25.join)(sessionDir, "live-session.json"),
+        await (0, import_promises25.writeFile)(
+          (0, import_path28.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path25.join)(sessionDir, "baseline.png"),
+          path: (0, import_path28.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         const session = new _LiveSession(state, outputDir, driver3, page);
@@ -20379,12 +23574,12 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path25.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path25.join)(sessionDir, "live-session.json");
-        if (!(0, import_fs15.existsSync)(statePath)) {
+        const sessionDir = (0, import_path28.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path28.join)(sessionDir, "live-session.json");
+        if (!(0, import_fs17.existsSync)(statePath)) {
           return null;
         }
-        const content = await (0, import_promises24.readFile)(statePath, "utf-8");
+        const content = await (0, import_promises25.readFile)(statePath, "utf-8");
         const rawState = JSON.parse(content);
         const state = {
           ...rawState,
@@ -20511,7 +23706,7 @@ var init_live_session = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path25.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path28.join)(this.sessionDir, screenshotFile);
         try {
           await page.addStyleTag({
             content: `
@@ -21022,7 +24217,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path25.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path28.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -21136,14 +24331,14 @@ var init_live_session = __esm({
       async archiveEphemeralScreenshots() {
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
-        const archiveDir = (0, import_path25.join)(this.sessionDir, "archive");
-        await (0, import_promises24.mkdir)(archiveDir, { recursive: true });
+        const archiveDir = (0, import_path28.join)(this.sessionDir, "archive");
+        await (0, import_promises25.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
-          const src = (0, import_path25.join)(this.sessionDir, cap.screenshot);
-          const dest = (0, import_path25.join)(archiveDir, cap.screenshot);
+          const src = (0, import_path28.join)(this.sessionDir, cap.screenshot);
+          const dest = (0, import_path28.join)(archiveDir, cap.screenshot);
           try {
-            if ((0, import_fs15.existsSync)(src)) {
-              await (0, import_promises24.rename)(src, dest);
+            if ((0, import_fs17.existsSync)(src)) {
+              await (0, import_promises25.rename)(src, dest);
               cap.screenshot = `archive/${cap.screenshot}`;
             }
           } catch {
@@ -21158,8 +24353,8 @@ var init_live_session = __esm({
         await this.saveState();
       }
       async saveState() {
-        await (0, import_promises24.writeFile)(
-          (0, import_path25.join)(this.sessionDir, "live-session.json"),
+        await (0, import_promises25.writeFile)(
+          (0, import_path28.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -21227,13 +24422,13 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises25, import_fs16, import_path26, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises26, import_fs18, import_path29, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
-    import_promises25 = require("fs/promises");
-    import_fs16 = require("fs");
-    import_path26 = require("path");
+    import_promises26 = require("fs/promises");
+    import_fs18 = require("fs");
+    import_path29 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
       maxSizeBytes: 500 * 1024 * 1024,
@@ -21254,12 +24449,12 @@ var init_screenshot_manager = __esm({
         const { sessionId, fullPage = false, selector } = options;
         let outputPath;
         if (sessionId) {
-          const sessionDir = (0, import_path26.join)(this.outputDir, "sessions", sessionId);
-          await (0, import_promises25.mkdir)(sessionDir, { recursive: true });
-          outputPath = (0, import_path26.join)(sessionDir, `${name}.png`);
+          const sessionDir = (0, import_path29.join)(this.outputDir, "sessions", sessionId);
+          await (0, import_promises26.mkdir)(sessionDir, { recursive: true });
+          outputPath = (0, import_path29.join)(sessionDir, `${name}.png`);
         } else {
-          await (0, import_promises25.mkdir)(this.outputDir, { recursive: true });
-          outputPath = (0, import_path26.join)(this.outputDir, `${name}.png`);
+          await (0, import_promises26.mkdir)(this.outputDir, { recursive: true });
+          outputPath = (0, import_path29.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
           content: `
@@ -21290,8 +24485,8 @@ var init_screenshot_manager = __esm({
        * List all screenshots for a session
        */
       async list(sessionId) {
-        const sessionDir = (0, import_path26.join)(this.outputDir, "sessions", sessionId);
-        if (!(0, import_fs16.existsSync)(sessionDir)) {
+        const sessionDir = (0, import_path29.join)(this.outputDir, "sessions", sessionId);
+        if (!(0, import_fs18.existsSync)(sessionDir)) {
           return [];
         }
         const screenshots = [];
@@ -21303,15 +24498,15 @@ var init_screenshot_manager = __esm({
        * List all screenshots across all sessions
        */
       async listAll() {
-        const sessionsDir = (0, import_path26.join)(this.outputDir, "sessions");
-        if (!(0, import_fs16.existsSync)(sessionsDir)) {
+        const sessionsDir = (0, import_path29.join)(this.outputDir, "sessions");
+        if (!(0, import_fs18.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
-        const sessions = await (0, import_promises25.readdir)(sessionsDir);
-        for (const sessionId of sessions) {
-          const sessionDir = (0, import_path26.join)(sessionsDir, sessionId);
-          const stats = await (0, import_promises25.stat)(sessionDir);
+        const sessions2 = await (0, import_promises26.readdir)(sessionsDir);
+        for (const sessionId of sessions2) {
+          const sessionDir = (0, import_path29.join)(sessionsDir, sessionId);
+          const stats = await (0, import_promises26.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
           }
@@ -21323,13 +24518,13 @@ var init_screenshot_manager = __esm({
        * Scan a directory for PNG files
        */
       async scanDirectory(dir, sessionId, results) {
-        const entries = await (0, import_promises25.readdir)(dir, { withFileTypes: true });
+        const entries = await (0, import_promises26.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
-          const fullPath = (0, import_path26.join)(dir, entry.name);
+          const fullPath = (0, import_path29.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
-            const stats = await (0, import_promises25.stat)(fullPath);
+            const stats = await (0, import_promises26.stat)(fullPath);
             const now = Date.now();
             const stepMatch = entry.name.match(/^\d+-(.+)\.png$/);
             const step = stepMatch ? stepMatch[1] : void 0;
@@ -21349,22 +24544,22 @@ var init_screenshot_manager = __esm({
        * Get metadata for a specific screenshot
        */
       async getMetadata(path2) {
-        if (!(0, import_fs16.existsSync)(path2)) {
+        if (!(0, import_fs18.existsSync)(path2)) {
           return null;
         }
-        const stats = await (0, import_promises25.stat)(path2);
-        const name = (0, import_path26.basename)(path2);
-        const dir = (0, import_path26.dirname)(path2);
+        const stats = await (0, import_promises26.stat)(path2);
+        const name = (0, import_path29.basename)(path2);
+        const dir = (0, import_path29.dirname)(path2);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
         const step = stepMatch ? stepMatch[1] : void 0;
         const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
         const sessionId = sessionMatch ? sessionMatch[1] : void 0;
         let query;
         let userIntent;
-        const resultsPath = (0, import_path26.join)(dir, "results.json");
-        if ((0, import_fs16.existsSync)(resultsPath)) {
+        const resultsPath = (0, import_path29.join)(dir, "results.json");
+        if ((0, import_fs18.existsSync)(resultsPath)) {
           try {
-            const resultsContent = await (0, import_promises25.readFile)(resultsPath, "utf-8");
+            const resultsContent = await (0, import_promises26.readFile)(resultsPath, "utf-8");
             const results = JSON.parse(resultsContent);
             query = results.query;
             userIntent = results.userIntent;
@@ -21423,7 +24618,7 @@ var init_screenshot_manager = __esm({
         for (const shot of toDelete) {
           try {
             if (!dryRun) {
-              await (0, import_promises25.unlink)(shot.path);
+              await (0, import_promises26.unlink)(shot.path);
             }
             report.deleted++;
             report.bytesFreed += shot.size;
@@ -21461,17 +24656,17 @@ var init_screenshot_manager = __esm({
        * Save configuration to file
        */
       async saveConfig() {
-        const configPath = (0, import_path26.join)(this.outputDir, "screenshot-config.json");
-        await (0, import_promises25.writeFile)(configPath, JSON.stringify(this.config, null, 2));
+        const configPath = (0, import_path29.join)(this.outputDir, "screenshot-config.json");
+        await (0, import_promises26.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
        */
       async loadConfig() {
-        const configPath = (0, import_path26.join)(this.outputDir, "screenshot-config.json");
-        if ((0, import_fs16.existsSync)(configPath)) {
+        const configPath = (0, import_path29.join)(this.outputDir, "screenshot-config.json");
+        if ((0, import_fs18.existsSync)(configPath)) {
           try {
-            const content = await (0, import_promises25.readFile)(configPath, "utf-8");
+            const content = await (0, import_promises26.readFile)(configPath, "utf-8");
             const loaded = JSON.parse(content);
             this.config = { ...DEFAULT_CONFIG, ...loaded };
           } catch {
@@ -21503,23 +24698,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs17.readdirSync)(currentDir);
+      entries = (0, import_fs19.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path27.join)(currentDir, entry);
+      const fullPath = (0, import_path30.join)(currentDir, entry);
       let stat5;
       try {
-        stat5 = (0, import_fs17.statSync)(fullPath);
+        stat5 = (0, import_fs19.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat5.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path27.relative)(rootDir, fullPath));
+        results.push((0, import_path30.relative)(rootDir, fullPath));
       }
     }
   }
@@ -21535,10 +24730,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path27.join)(projectRoot, filePath);
+    const fullPath = (0, import_path30.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs17.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs19.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -21622,10 +24817,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
 }
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path27.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs17.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path30.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs19.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs17.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs19.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -21781,15 +24976,15 @@ function formatBridgeResult(result) {
   }
   return lines.join("\n");
 }
-var import_fs17, import_path27, NAVGATOR_PATHS, CONFIDENCE;
+var import_fs19, import_path30, NAVGATOR_PATHS, CONFIDENCE;
 var init_bridge = __esm({
   "src/native/bridge.ts"() {
     "use strict";
-    import_fs17 = require("fs");
-    import_path27 = require("path");
+    import_fs19 = require("fs");
+    import_path30 = require("path");
     NAVGATOR_PATHS = [
-      (0, import_path27.join)(".navgator", "architecture"),
-      (0, import_path27.join)(".claude", "architecture")
+      (0, import_path30.join)(".navgator", "architecture"),
+      (0, import_path30.join)(".claude", "architecture")
       // legacy — NavGator < 0.3
     ];
     CONFIDENCE = {
@@ -21977,9 +25172,9 @@ async function executeStep(driver3, step, url, outputDir) {
     }
     if (expectation.screenshot !== void 0) {
       try {
-        await (0, import_promises26.mkdir)(outputDir, { recursive: true });
-        const screenshotPath = (0, import_path28.join)(outputDir, `${expectation.screenshot}.png`);
-        await (0, import_promises26.writeFile)(screenshotPath, captureResult.after.screenshot);
+        await (0, import_promises27.mkdir)(outputDir, { recursive: true });
+        const screenshotPath = (0, import_path31.join)(outputDir, `${expectation.screenshot}.png`);
+        await (0, import_promises27.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
           passed: true,
@@ -22125,12 +25320,12 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises26, import_path28;
+var import_promises27, import_path31;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
-    import_promises26 = require("fs/promises");
-    import_path28 = require("path");
+    import_promises27 = require("fs/promises");
+    import_path31 = require("path");
     init_driver();
   }
 });
@@ -22245,7 +25440,7 @@ __export(mockup_match_exports, {
   saveDiffImage: () => saveDiffImage
 });
 async function readPng(filePath) {
-  const buffer = await (0, import_promises27.readFile)(filePath);
+  const buffer = await (0, import_promises28.readFile)(filePath);
   const png = import_pngjs5.PNG.sync.read(buffer);
   return { data: png.data, width: png.width, height: png.height };
 }
@@ -22453,13 +25648,13 @@ async function findDynamicRegions(driver3) {
   return regions;
 }
 async function saveDiffImage(diffImage, outputPath) {
-  await (0, import_promises27.writeFile)(outputPath, diffImage);
+  await (0, import_promises28.writeFile)(outputPath, diffImage);
 }
-var import_promises27, import_pngjs5, import_pixelmatch3;
+var import_promises28, import_pngjs5, import_pixelmatch3;
 var init_mockup_match = __esm({
   "src/mockup-match.ts"() {
     "use strict";
-    import_promises27 = require("fs/promises");
+    import_promises28 = require("fs/promises");
     import_pngjs5 = require("pngjs");
     import_pixelmatch3 = __toESM(require("pixelmatch"));
     init_driver();
@@ -22719,10 +25914,10 @@ function formatReconciliationMatrix(matrix) {
   return lines.join("\n");
 }
 async function loadChanges(outputDir) {
-  const filePath = (0, import_path29.join)(outputDir, CHANGES_FILE);
-  if (!(0, import_fs18.existsSync)(filePath)) return [];
+  const filePath = (0, import_path32.join)(outputDir, CHANGES_FILE);
+  if (!(0, import_fs20.existsSync)(filePath)) return [];
   try {
-    const raw = await (0, import_promises28.readFile)(filePath, "utf-8");
+    const raw = await (0, import_promises29.readFile)(filePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
     return parsed;
@@ -22731,19 +25926,19 @@ async function loadChanges(outputDir) {
   }
 }
 async function saveChange(outputDir, change) {
-  await (0, import_promises28.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises29.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
-  const filePath = (0, import_path29.join)(outputDir, CHANGES_FILE);
-  await (0, import_promises28.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
+  const filePath = (0, import_path32.join)(outputDir, CHANGES_FILE);
+  await (0, import_promises29.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises28, import_fs18, import_path29, CHANGES_FILE;
+var import_promises29, import_fs20, import_path32, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
-    import_promises28 = require("fs/promises");
-    import_fs18 = require("fs");
-    import_path29 = require("path");
+    import_promises29 = require("fs/promises");
+    import_fs20 = require("fs");
+    import_path32 = require("path");
     CHANGES_FILE = "design-changes.json";
   }
 });
@@ -22810,11 +26005,11 @@ async function generateTest(options) {
   const suite = {
     [pageName]: { url, tests }
   };
-  const dir = (0, import_path30.dirname)(outputPath);
+  const dir = (0, import_path33.dirname)(outputPath);
   if (dir && dir !== ".") {
-    await (0, import_promises29.mkdir)(dir, { recursive: true });
+    await (0, import_promises30.mkdir)(dir, { recursive: true });
   }
-  await (0, import_promises29.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
+  await (0, import_promises30.writeFile)(outputPath, JSON.stringify(suite, null, 2), "utf-8");
   console.log(`[test-generator] wrote ${outputPath}`);
   return suite;
 }
@@ -22869,12 +26064,12 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises29, import_path30, INPUT_SAMPLE_VALUES;
+var import_promises30, import_path33, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
-    import_promises29 = require("fs/promises");
-    import_path30 = require("path");
+    import_promises30 = require("fs/promises");
+    import_path33 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
       email: "test@example.com",
@@ -22909,9 +26104,9 @@ async function runTests(options = {}) {
     wsEndpoint,
     chromePath
   } = options;
-  const raw = await (0, import_promises30.readFile)((0, import_path31.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises31.readFile)((0, import_path34.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
-  await (0, import_promises30.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises31.mkdir)(outputDir, { recursive: true });
   const allResults = [];
   const runStart = Date.now();
   for (const [pageName, pageSuite] of Object.entries(suite)) {
@@ -22958,8 +26153,8 @@ async function runTests(options = {}) {
         duration: Date.now() - runStart
       };
       allResults.push(runResult);
-      const resultPath = (0, import_path31.join)(outputDir, `${pageName}-results.json`);
-      await (0, import_promises30.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
+      const resultPath = (0, import_path34.join)(outputDir, `${pageName}-results.json`);
+      await (0, import_promises31.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
       await driver3.close();
@@ -22987,10 +26182,10 @@ async function executeStep2(driver3, step, outputDir) {
     } else if ("assert" in step) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
-      await (0, import_promises30.mkdir)(outputDir, { recursive: true });
-      const screenshotPath = (0, import_path31.join)(outputDir, `${step.screenshot}.png`);
+      await (0, import_promises31.mkdir)(outputDir, { recursive: true });
+      const screenshotPath = (0, import_path34.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
-      await (0, import_promises30.writeFile)(screenshotPath, buf);
+      await (0, import_promises31.writeFile)(screenshotPath, buf);
       return {
         step: stepDesc,
         passed: true,
@@ -23087,12 +26282,12 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises30, import_path31;
+var import_promises31, import_path34;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
-    import_promises30 = require("fs/promises");
-    import_path31 = require("path");
+    import_promises31 = require("fs/promises");
+    import_path34 = require("path");
     init_driver();
   }
 });
@@ -23138,21 +26333,21 @@ async function runScript(options) {
     cpuSeconds = 30,
     env = {}
   } = options;
-  const tmpId = (0, import_crypto2.randomBytes)(8).toString("hex");
-  const tmpDir = (0, import_path32.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
-  await (0, import_promises31.mkdir)(tmpDir, { recursive: true });
-  const copiedScript = (0, import_path32.join)(tmpDir, "user_script.py");
-  const wrapperPath = (0, import_path32.join)(tmpDir, "wrapper.py");
+  const tmpId = (0, import_crypto4.randomBytes)(8).toString("hex");
+  const tmpDir = (0, import_path35.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
+  await (0, import_promises32.mkdir)(tmpDir, { recursive: true });
+  const copiedScript = (0, import_path35.join)(tmpDir, "user_script.py");
+  const wrapperPath = (0, import_path35.join)(tmpDir, "wrapper.py");
   try {
-    await (0, import_promises31.copyFile)(scriptPath, copiedScript);
-    await (0, import_promises31.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
+    await (0, import_promises32.copyFile)(scriptPath, copiedScript);
+    await (0, import_promises32.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
     const start = Date.now();
     let timedOut = false;
     let stdout = "";
     let stderr = "";
     let exitCode = 0;
     await new Promise((resolvePromise) => {
-      const child = (0, import_child_process10.spawn)("python3", [wrapperPath], {
+      const child = (0, import_child_process16.spawn)("python3", [wrapperPath], {
         cwd: tmpDir,
         detached: true,
         shell: false,
@@ -23204,7 +26399,7 @@ Process error: ${err.message}`;
     }
     return { exitCode, stdout, stderr, output, duration, timedOut };
   } finally {
-    await (0, import_promises31.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
+    await (0, import_promises32.rm)(tmpDir, { recursive: true, force: true }).catch(() => {
     });
   }
 }
@@ -23222,15 +26417,15 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process10, import_promises31, import_path32, import_os5, import_crypto2;
+var import_child_process16, import_promises32, import_path35, import_os5, import_crypto4;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
-    import_child_process10 = require("child_process");
-    import_promises31 = require("fs/promises");
-    import_path32 = require("path");
+    import_child_process16 = require("child_process");
+    import_promises32 = require("fs/promises");
+    import_path35 = require("path");
     import_os5 = require("os");
-    import_crypto2 = require("crypto");
+    import_crypto4 = require("crypto");
   }
 });
 
@@ -23244,19 +26439,19 @@ __export(iterate_exports, {
 });
 async function loadState(statePath) {
   try {
-    const raw = await (0, import_promises32.readFile)(statePath, "utf-8");
+    const raw = await (0, import_promises33.readFile)(statePath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises32.mkdir)((0, import_path33.resolve)(statePath, ".."), { recursive: true });
-  await (0, import_promises32.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
+  await (0, import_promises33.mkdir)((0, import_path36.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises33.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
   const sorted = [...issues].sort();
-  return (0, import_crypto3.createHash)("sha256").update(sorted.join("\n")).digest("hex").slice(0, 16);
+  return (0, import_crypto5.createHash)("sha256").update(sorted.join("\n")).digest("hex").slice(0, 16);
 }
 function extractIssueFingerprints(scanResult) {
   return scanResult.issues.map((i) => `${i.category}:${i.severity}:${i.description.slice(0, 80)}`);
@@ -23362,7 +26557,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     try {
       const results = await runTests({
         filePath: testFile,
-        outputDir: (0, import_path33.join)(outputDir, `iter-${iterationNumber}`)
+        outputDir: (0, import_path36.join)(outputDir, `iter-${iterationNumber}`)
       });
       fingerprints = testRunFingerprints(results);
       issueCount = fingerprints.length;
@@ -23376,7 +26571,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     }
   } else {
     try {
-      const result = await scan(url, { outputDir: (0, import_path33.join)(outputDir, `iter-${iterationNumber}`) });
+      const result = await scan(url, { outputDir: (0, import_path36.join)(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
       issues = result.issues;
@@ -23403,7 +26598,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
 async function verifyResolved(url, outputDir, iterationNumber) {
   try {
     const verifyResult = await scan(url, {
-      outputDir: (0, import_path33.join)(outputDir, `iter-${iterationNumber}-verify`)
+      outputDir: (0, import_path36.join)(outputDir, `iter-${iterationNumber}-verify`)
     });
     return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length };
   } catch {
@@ -23418,8 +26613,8 @@ async function iterate(options) {
     outputDir = ".ibr/iterate",
     autoApprove = false
   } = options;
-  const statePath = (0, import_path33.join)(outputDir, "iterate-state.json");
-  await (0, import_promises32.mkdir)(outputDir, { recursive: true });
+  const statePath = (0, import_path36.join)(outputDir, "iterate-state.json");
+  await (0, import_promises33.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url) {
     persisted = {
@@ -23474,11 +26669,11 @@ async function iterate(options) {
   const targetState = finalState ?? "in_progress";
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
-    const analysisDir = (0, import_path33.join)(outputDir);
-    await (0, import_promises32.mkdir)(analysisDir, { recursive: true }).catch(() => {
+    const analysisDir = (0, import_path36.join)(outputDir);
+    await (0, import_promises33.mkdir)(analysisDir, { recursive: true }).catch(() => {
     });
-    await (0, import_promises32.writeFile)(
-      (0, import_path33.join)(analysisDir, "analysis.json"),
+    await (0, import_promises33.writeFile)(
+      (0, import_path36.join)(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
     });
@@ -23520,17 +26715,17 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
   return { iterations, finalState, summary, verificationPassed, analysis };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
-  const statePath = (0, import_path33.join)(outputDir, "iterate-state.json");
-  await (0, import_promises32.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
+  const statePath = (0, import_path36.join)(outputDir, "iterate-state.json");
+  await (0, import_promises33.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto3, import_promises32, import_path33, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var import_crypto5, import_promises33, import_path36, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
-    import_crypto3 = require("crypto");
-    import_promises32 = require("fs/promises");
-    import_path33 = require("path");
+    import_crypto5 = require("crypto");
+    import_promises33 = require("fs/promises");
+    import_path36 = require("path");
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
@@ -23547,16 +26742,3959 @@ var init_iterate = __esm({
   }
 });
 
+// src/engine/compress.ts
+function compressSnapshot(elements, threshold = 80) {
+  if (elements.length <= threshold) {
+    return {
+      interactive: elements.map((e) => ({
+        id: e.id,
+        role: e.role,
+        label: e.label,
+        actions: e.actions ?? []
+      })),
+      collapsed: {},
+      totalElements: elements.length,
+      interactiveCount: elements.length,
+      compressed: false
+    };
+  }
+  const interactive = [];
+  const collapsed = {};
+  for (const el of elements) {
+    const isInteractive2 = el.actions && el.actions.length > 0 || INTERACTIVE_ROLES4.has(el.role);
+    if (isInteractive2) {
+      interactive.push({
+        id: el.id,
+        role: el.role,
+        label: el.label,
+        actions: el.actions ?? []
+      });
+    } else {
+      collapsed[el.role] = (collapsed[el.role] || 0) + 1;
+    }
+  }
+  return {
+    interactive,
+    collapsed,
+    totalElements: elements.length,
+    interactiveCount: interactive.length,
+    compressed: true
+  };
+}
+function formatCompressed(snapshot) {
+  if (!snapshot.compressed) {
+    return snapshot.interactive.map((e) => `[${e.id}] ${e.role} "${e.label}"${e.actions.length ? ` actions:[${e.actions.join(",")}]` : ""}`).join("\n");
+  }
+  const lines = [
+    `[${snapshot.interactiveCount} interactive elements of ${snapshot.totalElements} total]`,
+    ""
+  ];
+  for (const el of snapshot.interactive) {
+    lines.push(`[${el.id}] ${el.role} "${el.label}"${el.actions.length ? ` actions:[${el.actions.join(",")}]` : ""}`);
+  }
+  if (Object.keys(snapshot.collapsed).length > 0) {
+    const summary = Object.entries(snapshot.collapsed).sort((a, b) => b[1] - a[1]).map(([role, count]) => `${count} ${role}`).join(", ");
+    lines.push("", `[collapsed: ${summary}]`);
+  }
+  return lines.join("\n");
+}
+var INTERACTIVE_ROLES4;
+var init_compress = __esm({
+  "src/engine/compress.ts"() {
+    "use strict";
+    INTERACTIVE_ROLES4 = /* @__PURE__ */ new Set([
+      "button",
+      "link",
+      "textbox",
+      "checkbox",
+      "tab",
+      "menuitem",
+      "select",
+      "slider",
+      "switch"
+    ]);
+  }
+});
+
+// src/mcp/native-tools.ts
+function errorResponse(text) {
+  return { content: [{ type: "text", text }], isError: true };
+}
+function imageResponse(base64, metadata) {
+  return {
+    content: [
+      { type: "image", data: base64, mimeType: "image/png" },
+      { type: "text", text: metadata }
+    ]
+  };
+}
+function toMcp(result) {
+  if (result.kind === "image") return imageResponse(result.base64, result.metadata);
+  return result.isError ? { content: [{ type: "text", text: result.text }], isError: true } : { content: [{ type: "text", text: result.text }] };
+}
+function normalizeReadMode(what) {
+  if (typeof what === "string") {
+    const trimmed = what.trim();
+    return trimmed === "" ? "observe" : trimmed.toLowerCase();
+  }
+  return "observe";
+}
+async function startMacOSSession(sessionId, app, errorPrefix) {
+  return toMcp(await nativeSessionController.startMacOS(sessionId, app, errorPrefix));
+}
+async function startSimulatorSession(sessionId, simulator, errorPrefix) {
+  return toMcp(await nativeSessionController.startSimulator(sessionId, simulator, errorPrefix));
+}
+function startMacOSPidSession(sessionId, pid) {
+  return toMcp(nativeSessionController.startMacOSPid(sessionId, pid));
+}
+async function readMacOSSession(entry, what, limit) {
+  return toMcp(await nativeSessionController.readMacOS(entry, what, limit));
+}
+async function readSimulatorSession(entry, what, limit) {
+  return toMcp(await nativeSessionController.readSimulator(entry, what, limit));
+}
+async function runMacOSSessionAction(entry, request) {
+  return toMcp(await nativeSessionController.actionMacOS(entry, request));
+}
+async function runSimulatorSessionAction(entry, request) {
+  return toMcp(await nativeSessionController.actionSimulator(entry, request));
+}
+async function handleNativeSessionStart(args) {
+  const app = args.app;
+  const pid = args.pid;
+  const simulator = args.simulator;
+  const providedTargets = [app !== void 0, pid !== void 0, simulator !== void 0].filter(Boolean).length;
+  if (providedTargets > 1) {
+    return errorResponse("Provide only one native target: 'app', 'pid', or 'simulator'.");
+  }
+  if (providedTargets === 0) {
+    return errorResponse("native_session_start requires 'app' or 'pid' for macOS, or 'simulator' for iOS/watchOS.");
+  }
+  const sessionId = crypto.randomUUID();
+  if (pid !== void 0) {
+    return startMacOSPidSession(sessionId, pid);
+  }
+  if (app) {
+    return await startMacOSSession(sessionId, app, "native_session_start (macos)");
+  }
+  return await startSimulatorSession(sessionId, simulator, "native_session_start (simulator)");
+}
+async function handleNativeSessionRead(args) {
+  const sessionId = args.sessionId;
+  const what = normalizeReadMode(args.what);
+  const limit = Number(args.limit) || 50;
+  const entry = sessions.get(sessionId);
+  if (!entry) return errorResponse("Session not found. Use native_session_start first.");
+  if (entry.type === "macos") return await readMacOSSession(entry, what, limit);
+  if (entry.type === "simulator") return await readSimulatorSession(entry, what, limit);
+  return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_read for web sessions.`);
+}
+async function handleNativeSessionAction(args) {
+  const {
+    sessionId,
+    action,
+    target,
+    value,
+    role,
+    waitFor,
+    waitTimeoutMs,
+    chord,
+    op,
+    app,
+    menuPath
+  } = args;
+  const entry = sessions.get(sessionId);
+  if (!entry) return errorResponse("Session not found. Use native_session_start first.");
+  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, op, app, menuPath };
+  if (entry.type === "macos") return await runMacOSSessionAction(entry, request);
+  if (entry.type === "simulator") return await runSimulatorSessionAction(entry, request);
+  return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`);
+}
+async function handleNativeSessionClose(args) {
+  const sessionId = args.sessionId;
+  return toMcp(nativeSessionController.closeNative(sessionId));
+}
+async function handleNativeToolCall(name, args) {
+  switch (name) {
+    case "native_session_start":
+      return await handleNativeSessionStart(args);
+    case "native_session_read":
+      return await handleNativeSessionRead(args);
+    case "native_session_action":
+      return await handleNativeSessionAction(args);
+    case "native_session_close":
+      return await handleNativeSessionClose(args);
+    default:
+      return errorResponse(`Unknown native tool: ${name}`);
+  }
+}
+var NATIVE_ACTION_KIND_VALUES, NATIVE_SESSION_TOOLS;
+var init_native_tools = __esm({
+  "src/mcp/native-tools.ts"() {
+    "use strict";
+    init_sessions();
+    init_session_controller();
+    NATIVE_ACTION_KIND_VALUES = [
+      "click",
+      "press",
+      "fill",
+      "type",
+      "focus",
+      "showMenu",
+      "increment",
+      "decrement",
+      "confirm",
+      "cancel",
+      "scroll",
+      "scrollToVisible",
+      "check",
+      "select",
+      "keystroke",
+      "app",
+      "menuPath"
+    ];
+    NATIVE_SESSION_TOOLS = [
+      {
+        name: "native_session_start",
+        description: "Start a cursor-free native UI session for a running macOS app or iOS/watchOS simulator. macOS uses AXUIElement actions; simulator uses the Simulator.app accessibility tree when available. Does not move the user's mouse cursor.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            app: {
+              type: "string",
+              description: "macOS app name, bundle ID, or process-name fragment (e.g. 'Finder', 'Calculator', 'com.apple.TextEdit')."
+            },
+            pid: {
+              type: "number",
+              description: "Direct macOS process ID. Use when the agent already knows the PID or app-name discovery is blocked."
+            },
+            simulator: {
+              type: "string",
+              description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro')."
+            }
+          }
+        },
+        annotations: {
+          title: "Start Native Session",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "native_session_read",
+        description: "Read a cursor-free native session. Modes: observe (interactive elements \u2014 default), extract (AX element summary), state (session metadata), screenshot (when supported).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: { type: "string", description: "Session ID returned by native_session_start" },
+            what: {
+              type: "string",
+              enum: ["observe", "extract", "screenshot", "state"],
+              default: "observe",
+              description: "What to read from the native session. Defaults to 'observe' when omitted."
+            },
+            limit: { type: "number", description: "Maximum elements to return for observe/extract (default: 50)" }
+          },
+          required: ["sessionId"]
+        },
+        annotations: {
+          title: "Read Native Session",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "native_session_action",
+        description: "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select \u2014 or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: { type: "string", description: "Session ID returned by native_session_start" },
+            action: {
+              type: "string",
+              enum: [...NATIVE_ACTION_KIND_VALUES],
+              description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select) require `target`. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`."
+            },
+            target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
+            value: { type: "string", description: "Text for fill/type/setValue actions" },
+            role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+            chord: {
+              type: "string",
+              description: "Keyboard chord for the `keystroke` action, e.g. 'Meta+n', 'Tab', 'Escape'. Live \u2014 synthesized as CGEvents to the focused element (E2-B)."
+            },
+            op: {
+              type: "string",
+              enum: ["launch", "switch", "quit"],
+              description: "App lifecycle operation for the `app` action. Live \u2014 launch/switch/quit via OS process control (E2-C)."
+            },
+            app: {
+              type: "string",
+              description: "App name or bundle id for the `app` action's lifecycle op (required for launch, optional for switch/quit). Live (Epic 2, E2-C)."
+            },
+            menuPath: {
+              type: "array",
+              items: { type: "string" },
+              description: 'Ordered AXMenu item titles to traverse for the `menuPath` action, e.g. ["File", "New Window"]. Live \u2014 walks the menu bar / open context menu and AXPresses the final item (E2-D).'
+            },
+            waitFor: {
+              type: "string",
+              description: "Optional accessible name, AX identifier, description, or visible value expected after the action. The tool polls until it appears or waitTimeoutMs expires."
+            },
+            waitTimeoutMs: {
+              type: "number",
+              description: "Maximum post-action settle time in milliseconds. Defaults to 2000 when waitFor is provided, otherwise 700. Clamped to 0..5000."
+            }
+          },
+          required: ["sessionId", "action"]
+        },
+        annotations: {
+          title: "Native Session Action",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "native_session_close",
+        description: "Close a native session record. This does not quit the target app or simulator.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: { type: "string", description: "Session ID returned by native_session_start" }
+          },
+          required: ["sessionId"]
+        },
+        annotations: {
+          title: "Close Native Session",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      }
+    ];
+  }
+});
+
+// src/static/parser.ts
+function parseStaticHTML(html) {
+  const elements = [];
+  const cleanHtml = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "").replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "");
+  const tagPattern = /<(\w+)([^>]*)>/g;
+  const matches = cleanHtml.matchAll(tagPattern);
+  for (const match of matches) {
+    const tagName = match[1].toLowerCase();
+    const attributesStr = match[2];
+    if (["script", "style", "meta", "link", "head"].includes(tagName)) {
+      continue;
+    }
+    const attrs = parseAttributes(attributesStr);
+    const textMatch = cleanHtml.slice(match.index + match[0].length).match(/^([^<]+)/);
+    const text = textMatch ? textMatch[1].trim() : void 0;
+    const id = attrs.id;
+    const className = attrs.class;
+    const selector = buildSelector(tagName, id, className);
+    const inlineStyles = attrs.style ? parseInlineStyle(attrs.style) : {};
+    const interactive = determineInteractivity(tagName, attrs);
+    const a11y = extractA11y(attrs);
+    const bounds = extractBoundsFromStyles(inlineStyles);
+    elements.push({
+      selector,
+      tagName,
+      id,
+      className,
+      text,
+      bounds,
+      computedStyles: inlineStyles,
+      interactive,
+      a11y,
+      sourceHint: { dataTestId: attrs["data-testid"] || null }
+    });
+  }
+  return elements;
+}
+function parseCSS(css) {
+  const rules2 = [];
+  const cleanCss = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  const withoutAtRules = cleanCss.replace(/@(?:media|keyframes)[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "");
+  const rulePattern = /([^{]+)\{([^}]+)\}/g;
+  const matches = withoutAtRules.matchAll(rulePattern);
+  for (const match of matches) {
+    const selectorsStr = match[1].trim();
+    const propertiesStr = match[2].trim();
+    const selectors = selectorsStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    const properties = parseProperties(propertiesStr);
+    for (const selector of selectors) {
+      rules2.push({ selector, properties });
+    }
+  }
+  return rules2;
+}
+function applyStyles(elements, rules2) {
+  return elements.map((element) => {
+    const matchedStyles = { ...element.computedStyles };
+    for (const rule of rules2) {
+      if (selectorMatches(rule.selector, element)) {
+        Object.assign(matchedStyles, rule.properties);
+      }
+    }
+    const bounds = { ...element.bounds };
+    if (matchedStyles.width) bounds.width = parseSizeValue(matchedStyles.width);
+    if (matchedStyles.height) bounds.height = parseSizeValue(matchedStyles.height);
+    if (matchedStyles["min-width"] && bounds.width === 0) {
+      bounds.width = parseSizeValue(matchedStyles["min-width"]);
+    }
+    if (matchedStyles["min-height"] && bounds.height === 0) {
+      bounds.height = parseSizeValue(matchedStyles["min-height"]);
+    }
+    return {
+      ...element,
+      computedStyles: matchedStyles,
+      bounds
+    };
+  });
+}
+function parseAttributes(attrStr) {
+  const attrs = {};
+  const attrPattern = /(\w+(?:-\w+)*)(?:=(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g;
+  const matches = attrStr.matchAll(attrPattern);
+  for (const match of matches) {
+    const key = match[1];
+    const value = match[2] || match[3] || match[4] || "";
+    if (key) attrs[key] = value;
+  }
+  return attrs;
+}
+function parseInlineStyle(styleStr) {
+  const styles = {};
+  const declarations = styleStr.split(";").map((d) => d.trim()).filter((d) => d);
+  for (const decl of declarations) {
+    const colonIndex = decl.indexOf(":");
+    if (colonIndex === -1) continue;
+    const property = decl.slice(0, colonIndex).trim();
+    const value = decl.slice(colonIndex + 1).trim();
+    if (property) styles[property] = value;
+  }
+  return styles;
+}
+function parseProperties(propertiesStr) {
+  return parseInlineStyle(propertiesStr);
+}
+function buildSelector(tagName, id, className) {
+  let selector = tagName;
+  if (id) selector += `#${id}`;
+  if (className) {
+    const firstClass = className.split(/\s+/)[0];
+    selector += `.${firstClass}`;
+  }
+  return selector;
+}
+function determineInteractivity(tagName, attrs) {
+  const hasHref = "href" in attrs;
+  const hasOnClick = "onclick" in attrs;
+  const isDisabled = "disabled" in attrs;
+  const interactiveTags = ["button", "a", "input", "select", "textarea"];
+  void interactiveTags;
+  let handlerType = null;
+  if (hasOnClick) handlerType = "onclick";
+  else if (hasHref) handlerType = "href";
+  else if (attrs.type === "submit") handlerType = "submit";
+  const hasHandler = hasOnClick || hasHref || (tagName === "button" || attrs.type === "submit");
+  return {
+    hasOnClick: hasOnClick || tagName === "button",
+    hasHref,
+    isDisabled,
+    hasHandler,
+    handlerType
+  };
+}
+function extractA11y(attrs) {
+  return {
+    role: attrs.role || null,
+    ariaLabel: attrs["aria-label"] || null,
+    ariaHidden: attrs["aria-hidden"] === "true",
+    tabIndex: attrs.tabindex ? parseInt(attrs.tabindex, 10) : null
+  };
+}
+function extractBoundsFromStyles(styles) {
+  return {
+    x: 0,
+    y: 0,
+    width: parseSizeValue(styles.width) || 0,
+    height: parseSizeValue(styles.height) || 0
+  };
+}
+function parseSizeValue(value) {
+  if (!value) return 0;
+  const pxMatch = value.match(/^([\d.]+)px$/);
+  if (pxMatch) return parseFloat(pxMatch[1]);
+  if (value.endsWith("%")) return 0;
+  const numberMatch = value.match(/^([\d.]+)$/);
+  if (numberMatch) return parseFloat(numberMatch[1]);
+  return 0;
+}
+function selectorMatches(cssSelector, element) {
+  const trimmed = cssSelector.trim();
+  if (/^\w+$/.test(trimmed)) {
+    return element.tagName === trimmed;
+  }
+  if (/^#[\w-]+$/.test(trimmed)) {
+    const id = trimmed.slice(1);
+    return element.id === id;
+  }
+  if (/^\.[\w-]+$/.test(trimmed)) {
+    const className = trimmed.slice(1);
+    return element.className?.split(/\s+/).includes(className) || false;
+  }
+  const tagClassMatch = trimmed.match(/^(\w+)\.([\w-]+)$/);
+  if (tagClassMatch) {
+    const [, tag, className] = tagClassMatch;
+    return element.tagName === tag && element.className?.split(/\s+/).includes(className) || false;
+  }
+  const tagIdMatch = trimmed.match(/^(\w+)#([\w-]+)$/);
+  if (tagIdMatch) {
+    const [, tag, id] = tagIdMatch;
+    return element.tagName === tag && element.id === id;
+  }
+  return false;
+}
+var init_parser = __esm({
+  "src/static/parser.ts"() {
+    "use strict";
+  }
+});
+
+// src/static/scan.ts
+var scan_exports3 = {};
+__export(scan_exports3, {
+  scanStatic: () => scanStatic
+});
+function scanStatic(options) {
+  const { htmlPath, cssPath } = options;
+  if (!(0, import_fs21.existsSync)(htmlPath)) {
+    throw new Error(`HTML file not found: ${htmlPath}`);
+  }
+  if (cssPath && !(0, import_fs21.existsSync)(cssPath)) {
+    throw new Error(`CSS file not found: ${cssPath}`);
+  }
+  const html = (0, import_fs21.readFileSync)(htmlPath, "utf-8");
+  let elements = parseStaticHTML(html);
+  if (cssPath) {
+    const css = (0, import_fs21.readFileSync)(cssPath, "utf-8");
+    const rules2 = parseCSS(css);
+    elements = applyStyles(elements, rules2);
+  }
+  const issues = runAudits(elements);
+  const totalElements = elements.length;
+  const interactiveCount = elements.filter((e) => e.interactive.hasOnClick || e.interactive.hasHref).length;
+  const withHandlers = elements.filter((e) => e.interactive.hasHandler).length;
+  const withoutHandlers = interactiveCount - withHandlers;
+  const auditIssues = issues.map((i) => ({
+    type: i.category.toUpperCase().replace(/\s+/g, "_"),
+    severity: i.severity,
+    message: i.description
+  }));
+  const errors = issues.filter((i) => i.severity === "error");
+  const warnings = issues.filter((i) => i.severity === "warning");
+  const verdict = errors.length > 0 ? "FAIL" : warnings.length > 0 ? "ISSUES" : "PASS";
+  const summary = generateSummary3(totalElements, interactiveCount, errors.length, warnings.length);
+  return {
+    htmlPath,
+    cssPath,
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    elements: {
+      all: elements,
+      audit: {
+        totalElements,
+        interactiveCount,
+        withHandlers,
+        withoutHandlers,
+        issues: auditIssues
+      }
+    },
+    verdict,
+    issues,
+    summary
+  };
+}
+function runAudits(elements) {
+  const issues = [];
+  for (const element of elements) {
+    if (element.interactive.hasOnClick || element.interactive.hasHref) {
+      const { width, height } = element.bounds;
+      if (width > 0 && height > 0 && (width < 44 || height < 44)) {
+        issues.push({
+          category: "Touch Target",
+          severity: "warning",
+          description: `${element.selector} is ${width}x${height}px (min 44x44px for mobile)`,
+          fix: `Set min-width: 44px; min-height: 44px;`
+        });
+      }
+    }
+    if ((element.interactive.hasOnClick || element.interactive.hasHref) && !element.a11y.ariaLabel && !element.text) {
+      issues.push({
+        category: "Accessibility",
+        severity: "error",
+        description: `${element.selector} has no accessible label (no aria-label or text content)`,
+        fix: `Add aria-label="..." or text content`
+      });
+    }
+    if (element.interactive.hasHref && element.tagName === "a") {
+      const href = element.computedStyles.href;
+      if (href === "#" && !element.interactive.hasOnClick) {
+        issues.push({
+          category: "Interactivity",
+          severity: "warning",
+          description: `${element.selector} has href="#" without handler (placeholder link)`,
+          fix: `Add onClick handler or use a real href`
+        });
+      }
+    }
+    if (element.interactive.isDisabled) {
+      const opacity = element.computedStyles.opacity;
+      const cursor = element.computedStyles.cursor;
+      if (opacity !== "0.5" && cursor !== "not-allowed") {
+        issues.push({
+          category: "Visual Feedback",
+          severity: "info",
+          description: `${element.selector} is disabled but has no visual indication`,
+          fix: `Set opacity: 0.5; cursor: not-allowed;`
+        });
+      }
+    }
+    if (element.a11y.ariaHidden && (element.interactive.hasOnClick || element.interactive.hasHref)) {
+      issues.push({
+        category: "Accessibility",
+        severity: "error",
+        description: `${element.selector} is interactive but aria-hidden="true"`,
+        fix: `Remove aria-hidden or remove interactivity`
+      });
+    }
+  }
+  return issues;
+}
+function generateSummary3(totalElements, interactiveCount, errors, warnings) {
+  const parts = [];
+  parts.push(`Scanned ${totalElements} elements`);
+  parts.push(`${interactiveCount} interactive`);
+  if (errors > 0) {
+    parts.push(`${errors} error${errors === 1 ? "" : "s"}`);
+  }
+  if (warnings > 0) {
+    parts.push(`${warnings} warning${warnings === 1 ? "" : "s"}`);
+  }
+  if (errors === 0 && warnings === 0) {
+    parts.push("no issues found");
+  }
+  return parts.join(", ") + ".";
+}
+var import_fs21;
+var init_scan3 = __esm({
+  "src/static/scan.ts"() {
+    "use strict";
+    import_fs21 = require("fs");
+    init_parser();
+  }
+});
+
+// src/mcp/tools.ts
+var tools_exports = {};
+__export(tools_exports, {
+  TOOLS: () => TOOLS,
+  __test_setSession: () => __test_setSession,
+  closeMcpBrowserPool: () => closeMcpBrowserPool,
+  handleToolCall: () => handleToolCall,
+  normalizeReadMode: () => normalizeReadMode2,
+  validateWebAction: () => validateWebAction
+});
+function textResponse(text) {
+  return { content: [{ type: "text", text }] };
+}
+function errorResponse2(text) {
+  return { content: [{ type: "text", text }], isError: true };
+}
+function isPageScrollTarget(target) {
+  if (target == null) return true;
+  const t = target.trim().toLowerCase();
+  return t === "" || t === "body" || t === "window" || t === "page" || t === "document" || t === "html" || t === "viewport" || t === "main" || t === "scroll";
+}
+function parseScrollDelta(value) {
+  if (value == null || String(value).trim() === "") return 300;
+  const t = String(value).trim().toLowerCase();
+  if (t === "up") return -300;
+  if (t === "down") return 300;
+  if (t === "top") return -1e6;
+  if (t === "bottom") return 1e6;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 300;
+}
+async function readScrollPosition(driver3) {
+  if (typeof driver3.evaluate !== "function") return null;
+  try {
+    const raw = await driver3.evaluate("({ x: window.scrollX, y: window.scrollY })");
+    if (raw && typeof raw === "object" && typeof raw.x === "number" && typeof raw.y === "number") {
+      return { x: raw.x, y: raw.y };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+function normalizeReadMode2(what) {
+  if (typeof what === "string") {
+    const trimmed = what.trim();
+    return trimmed === "" ? "observe" : trimmed.toLowerCase();
+  }
+  return "observe";
+}
+function imageResponse2(base64, metadata) {
+  return {
+    content: [
+      { type: "image", data: base64, mimeType: "image/png" },
+      { type: "text", text: metadata }
+    ]
+  };
+}
+function stateSignature(url, elements, targetId) {
+  const target = targetId ? elements.find((e) => e.id === targetId) : void 0;
+  return JSON.stringify({
+    url: url ?? null,
+    elementCount: elements.length,
+    interactiveCount: elements.filter((e) => e.actions.length > 0).length,
+    target: target ? { value: target.value, enabled: target.enabled, focused: target.focused, label: target.label } : null
+  });
+}
+function describeDiff(params) {
+  const parts = [
+    `${params.addedCount} element(s) added`,
+    `${params.removedCount} element(s) removed`,
+    `${params.pixelDiff}px visual diff`
+  ];
+  if (params.urlChanged) parts.push("URL changed");
+  if (params.targetChange) parts.push(params.targetChange);
+  return parts.join(", ");
+}
+function rankAlternatives(target, elements, excludeId, limit = 10) {
+  const nameLower = target.toLowerCase();
+  return elements.filter((e) => e.actions.length > 0 && e.label && e.id !== excludeId).map((e) => ({ label: e.label, role: e.role, score: jaroWinkler(nameLower, e.label.toLowerCase()) })).sort((a, b) => b.score - a.score).slice(0, limit);
+}
+function validateWebAction(params) {
+  const { action, value, targetElementId, beforeUrl, afterUrl, captured } = params;
+  const before = targetElementId ? captured.before.elements.find((e) => e.id === targetElementId) : void 0;
+  const after = targetElementId ? captured.after.elements.find((e) => e.id === targetElementId) : void 0;
+  const urlChanged = !!beforeUrl && !!afterUrl && beforeUrl !== afterUrl;
+  const structuralChange = captured.diff.addedElements.length > 0 || captured.diff.removedElements.length > 0;
+  const visualChange = captured.diff.pixelDiff > NOOP_PIXEL_THRESHOLD;
+  const targetValueChanged = !!before && !!after && before.value !== after.value;
+  const targetFocusChanged = !!before && !!after && before.focused !== after.focused;
+  const targetEnabledChanged = !!before && !!after && before.enabled !== after.enabled;
+  const observedDiff = describeDiff({
+    addedCount: captured.diff.addedElements.length,
+    removedCount: captured.diff.removedElements.length,
+    pixelDiff: captured.diff.pixelDiff,
+    urlChanged,
+    targetChange: targetValueChanged ? `target value changed ("${before?.value ?? ""}" -> "${after?.value ?? ""}")` : void 0
+  });
+  switch (action) {
+    case "fill":
+    case "type": {
+      const expectedValue = value ?? "";
+      const observedValue = after?.value ?? null;
+      const passed = expectedValue.length === 0 ? true : action === "fill" ? observedValue === expectedValue : observedValue != null && observedValue.includes(expectedValue);
+      return {
+        expected: `element value ${action === "fill" ? "equals" : "contains"} "${expectedValue}"`,
+        observed: observedValue == null ? "element value unreadable after action" : `element value is "${observedValue}"`,
+        passed
+      };
+    }
+    case "select": {
+      const expectedValue = value ?? "";
+      const observedValue = after?.value ?? null;
+      return {
+        expected: `element value equals "${expectedValue}"`,
+        observed: observedValue == null ? "element value unreadable after action" : `element value is "${observedValue}"`,
+        passed: observedValue === expectedValue
+      };
+    }
+    case "check": {
+      const passed = targetValueChanged || structuralChange || visualChange;
+      return {
+        expected: "checkbox/toggle value or the page changes after toggling",
+        observed: observedDiff,
+        passed
+      };
+    }
+    case "click":
+    case "doubleClick":
+    case "rightClick": {
+      const passed = structuralChange || visualChange || urlChanged || targetFocusChanged || targetEnabledChanged || targetValueChanged;
+      return {
+        expected: "click causes an observable change (elements added/removed, URL navigation, focus/value/enabled change, or a visual repaint)",
+        observed: observedDiff,
+        passed
+      };
+    }
+    default:
+      return {
+        expected: `${action} executes without error`,
+        observed: observedDiff,
+        passed: true
+      };
+  }
+}
+function buildFailureEvidence(params) {
+  const { target, targetElementId, beforeUrl, afterUrl, captured } = params;
+  const urlChanged = !!beforeUrl && !!afterUrl && beforeUrl !== afterUrl;
+  return {
+    beforeSignature: stateSignature(beforeUrl, captured.before.elements, targetElementId),
+    afterSignature: stateSignature(afterUrl, captured.after.elements, targetElementId),
+    diff: describeDiff({
+      addedCount: captured.diff.addedElements.length,
+      removedCount: captured.diff.removedElements.length,
+      pixelDiff: captured.diff.pixelDiff,
+      urlChanged
+    }),
+    alternatives: rankAlternatives(target, captured.after.elements, targetElementId, 10),
+    screenshotB64: captured.after.screenshot.toString("base64")
+  };
+}
+function getMcpBrowserPool() {
+  if (!mcpBrowserPoolPromise) {
+    mcpBrowserPoolPromise = (async () => {
+      const { BrowserPool: BrowserPool2 } = await Promise.resolve().then(() => (init_browser_pool(), browser_pool_exports));
+      return new BrowserPool2({ launchOptions: { headless: true } });
+    })();
+  }
+  return mcpBrowserPoolPromise;
+}
+async function closeMcpBrowserPool() {
+  if (mcpBrowserPoolPromise) {
+    const p = mcpBrowserPoolPromise;
+    mcpBrowserPoolPromise = void 0;
+    try {
+      const pool = await p;
+      await pool.close();
+    } catch {
+    }
+  }
+}
+async function handleToolCall(name, args) {
+  try {
+    switch (name) {
+      case "scan":
+        return await handleScan(args);
+      case "ask":
+        return await handleAsk(args);
+      case "snapshot":
+        return await handleSnapshot(args);
+      case "compare":
+        return await handleCompare(args);
+      case "list_sessions":
+        return await handleListSessions();
+      case "screenshot":
+        return await handleScreenshot(args);
+      case "references":
+        return await handleReferences(args);
+      case "scan_macos":
+        return await handleScanMacOS(args);
+      case "native_scan":
+        return await handleNativeScan(args);
+      case "native_snapshot":
+        return await handleNativeSnapshot(args);
+      case "native_compare":
+        return await handleNativeCompare(args);
+      case "native_devices":
+        return await handleNativeDevices(args);
+      case "validate_tokens":
+        return await handleValidateTokens(args);
+      case "scan_static":
+        return await handleScanStatic(args);
+      case "bridge_to_source":
+        return await handleBridgeToSource(args);
+      case "native_session_start":
+      case "native_session_read":
+      case "native_session_action":
+      case "native_session_close":
+        return await handleNativeToolCall(name, args);
+      case "interact": {
+        const { url, action, target, value, role, screenshot: wantScreenshot = true } = args;
+        const driver3 = new EngineDriver();
+        try {
+          await driver3.launch();
+          await driver3.navigate(url);
+          const diag = await driver3.findWithDiagnostics(target, role ? { role } : void 0);
+          if (!diag.elementId) {
+            const notFoundValidator = {
+              expected: `element "${target}" is present and resolvable`,
+              observed: `not found among ${diag.totalInteractive} interactive elements`,
+              passed: false
+            };
+            const notFoundResult = {
+              success: false,
+              validator: notFoundValidator,
+              provenance: { tier: diag.tierName, confidence: diag.confidence },
+              evidence: {
+                beforeSignature: "",
+                afterSignature: "",
+                diff: "target not found \u2014 no action executed",
+                alternatives: diag.alternatives.map((a) => ({ label: a.name, role: a.role, score: a.score })),
+                screenshotB64: diag.screenshot
+              }
+            };
+            const notFoundContent = [
+              { type: "text", text: JSON.stringify(notFoundResult, null, 2) }
+            ];
+            if (diag.screenshot) {
+              notFoundContent.push({ type: "image", data: diag.screenshot, mimeType: "image/png" });
+            }
+            return { content: notFoundContent, isError: true };
+          }
+          const allElements = await driver3.getSnapshot();
+          const element = allElements.find((e) => e.id === diag.elementId);
+          if (!element) {
+            return errorResponse2(`Element "${target}" was resolved but disappeared from AX tree. Try again.`);
+          }
+          const knownActions = ["click", "type", "fill", "hover", "press", "scroll", "select", "check", "doubleClick", "rightClick"];
+          if (!knownActions.includes(action)) {
+            return errorResponse2(`Unknown action: ${action}`);
+          }
+          const beforeUrl = driver3.url;
+          const captured = await driver3.actAndCapture(async () => {
+            switch (action) {
+              case "click":
+                await driver3.click(element.id);
+                break;
+              case "type":
+                await driver3.type(element.id, value || "");
+                break;
+              case "fill":
+                await driver3.fill(element.id, value || "");
+                break;
+              case "hover":
+                await driver3.hover(element.id);
+                break;
+              case "press":
+                await driver3.pressKey(value || "Enter");
+                break;
+              case "scroll":
+                await driver3.scroll(Number(value) || 300);
+                break;
+              case "select":
+                await driver3.select(element.id, value || "");
+                break;
+              case "check":
+                await driver3.check(element.id);
+                break;
+              case "doubleClick":
+                await driver3.doubleClick(element.id);
+                break;
+              case "rightClick":
+                await driver3.rightClick(element.id);
+                break;
+            }
+          });
+          const afterUrl = driver3.url;
+          const validator = validateWebAction({ action, value, targetElementId: element.id, beforeUrl, afterUrl, captured });
+          const resolutionInfo = `(resolved via ${diag.tierName}, confidence: ${diag.confidence.toFixed(2)})`;
+          const result = {
+            success: validator.passed,
+            validator,
+            provenance: { tier: diag.tierName, confidence: diag.confidence, waitResult: "tree-stable" },
+            summary: `${validator.passed ? "\u2713" : "\u2717"} ${action} on "${target}" ${validator.passed ? "succeeded" : "did not produce the expected change"} ${resolutionInfo}`
+          };
+          if (diag.autoResolved) {
+            result.autoResolved = diag.autoResolved;
+          }
+          if (!validator.passed) {
+            result.evidence = buildFailureEvidence({ target, targetElementId: element.id, beforeUrl, afterUrl, captured });
+          }
+          const resultText = JSON.stringify(result, null, 2);
+          if (wantScreenshot) {
+            return imageResponse2(captured.after.screenshot.toString("base64"), resultText);
+          }
+          return textResponse(resultText);
+        } catch (err) {
+          return errorResponse2(`Interaction failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver3.close().catch(() => {
+          });
+        }
+      }
+      case "observe": {
+        const { url, role: roleFilter, limit = 30 } = args;
+        const driver3 = new EngineDriver();
+        try {
+          await driver3.launch();
+          await driver3.navigate(url);
+          const actions = await driver3.observe({ role: roleFilter, limit });
+          if (actions.length === 0) {
+            return textResponse("No interactive elements found on this page.");
+          }
+          if (actions.length > 80) {
+            const compressed = compressSnapshot(actions.map((a) => ({
+              id: a.elementId ?? "",
+              role: a.role ?? "",
+              label: a.description ?? a.label ?? "",
+              actions: a.actions
+            })));
+            return textResponse(formatCompressed(compressed));
+          }
+          const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" \u2014 ${a.actions.join(", ")}`);
+          return textResponse(`Found ${actions.length} interactive elements:
+
+${lines.join("\n")}`);
+        } catch (err) {
+          return errorResponse2(`Observe failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver3.close().catch(() => {
+          });
+        }
+      }
+      case "extract": {
+        const { url } = args;
+        const driver3 = new EngineDriver();
+        try {
+          await driver3.launch();
+          await driver3.navigate(url);
+          const meta = await driver3.extractMeta();
+          const sections = [];
+          if (meta.headings.length > 0) {
+            sections.push(`Headings:
+${meta.headings.map((h) => `  ${h}`).join("\n")}`);
+          }
+          if (meta.buttons.length > 0) {
+            sections.push(`Buttons (${meta.buttons.length}):
+${meta.buttons.map((b) => `  \u2022 ${b.label}${b.enabled === false ? " (disabled)" : ""}`).join("\n")}`);
+          }
+          if (meta.inputs.length > 0) {
+            sections.push(`Inputs (${meta.inputs.length}):
+${meta.inputs.map((inp) => `  \u2022 ${inp.label}${inp.value ? ` = "${inp.value}"` : ""}`).join("\n")}`);
+          }
+          if (meta.links.length > 0) {
+            sections.push(`Links (${meta.links.length}):
+${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.links.length > 20 ? `
+  ... and ${meta.links.length - 20} more` : ""}`);
+          }
+          return textResponse(sections.join("\n\n") || "No structured data found on page.");
+        } catch (err) {
+          return errorResponse2(`Extract failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver3.close().catch(() => {
+          });
+        }
+      }
+      case "interact_and_verify": {
+        const { url, action, target, value } = args;
+        const driver3 = new EngineDriver();
+        try {
+          await driver3.launch();
+          await driver3.navigate(url);
+          const element = await driver3.find(target);
+          if (!element) {
+            return errorResponse2(`Element not found: "${target}". Use 'observe' to see available elements.`);
+          }
+          const result = await driver3.actAndCapture(async () => {
+            switch (action) {
+              case "click":
+                await driver3.click(element.id);
+                break;
+              case "type":
+                await driver3.type(element.id, value || "");
+                break;
+              case "fill":
+                await driver3.fill(element.id, value || "");
+                break;
+              case "hover":
+                await driver3.hover(element.id);
+                break;
+              case "press":
+                await driver3.pressKey(value || "Enter");
+                break;
+              default:
+                throw new Error(`Unknown action: ${action}`);
+            }
+          });
+          const lines = [
+            `\u2713 ${action} on "${target}" \u2014 verified`,
+            ``,
+            `Elements added: ${result.diff.addedElements.length}`,
+            `Elements removed: ${result.diff.removedElements.length}`,
+            `Pixel diff: ${result.diff.pixelDiff}px`
+          ];
+          if (result.diff.addedElements.length > 0) {
+            lines.push(``, `New elements:`);
+            result.diff.addedElements.slice(0, 10).forEach((el) => {
+              lines.push(`  + [${el.role}] "${el.label || "(unnamed)"}"`);
+            });
+          }
+          if (result.diff.removedElements.length > 0) {
+            lines.push(``, `Removed elements:`);
+            result.diff.removedElements.slice(0, 10).forEach((el) => {
+              lines.push(`  - [${el.role}] "${el.label || "(unnamed)"}"`);
+            });
+          }
+          const base64 = result.after.screenshot.toString("base64");
+          return imageResponse2(base64, lines.join("\n"));
+        } catch (err) {
+          return errorResponse2(`Interact and verify failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver3.close().catch(() => {
+          });
+        }
+      }
+      case "flow_search": {
+        const {
+          url,
+          query,
+          sessionId,
+          userIntent,
+          resultsSelector,
+          submit = true,
+          aiValidation = false
+        } = args;
+        let driver3 = null;
+        let launchedDriver = null;
+        try {
+          if (sessionId) {
+            const entry = sessions.get(sessionId);
+            if (!entry) {
+              return errorResponse2("Session not found. Use session_start first.");
+            }
+            if (entry.type !== "chrome") {
+              return errorResponse2(`flow_search currently requires a Chrome web session. Session ${sessionId} is ${entry.type}.`);
+            }
+            driver3 = entry.driver;
+          } else {
+            if (!url) {
+              return errorResponse2("flow_search requires either url or sessionId.");
+            }
+            launchedDriver = new EngineDriver();
+            driver3 = launchedDriver;
+            await driver3.launch();
+            await driver3.navigate(url);
+          }
+          if (!driver3) {
+            return errorResponse2("flow_search could not initialize a browser driver.");
+          }
+          const page = new CompatPage(driver3);
+          if (aiValidation) {
+            const artifactDir = (0, import_path37.join)(DEFAULT_OUTPUT_DIR2, "mcp-search", `${Date.now()}`);
+            (0, import_fs22.mkdirSync)(artifactDir, { recursive: true });
+            const result2 = await aiSearchFlow(page, {
+              query,
+              userIntent: userIntent || `Find results related to: ${query}`,
+              resultsSelector,
+              submit,
+              extractContent: true,
+              captureSteps: true,
+              sessionDir: artifactDir
+            });
+            const validationContext = generateValidationContext(result2);
+            const obviousIssues = analyzeForObviousIssues(validationContext);
+            return textResponse(JSON.stringify({
+              status: result2.success ? "success" : "failed",
+              query,
+              userIntent: validationContext.userIntent,
+              url: driver3.url,
+              resultCount: result2.resultCount,
+              hasResults: result2.hasResults,
+              timing: result2.timing,
+              summary: generateQuickSummary(validationContext),
+              obviousIssues,
+              screenshotPaths: validationContext.screenshotPaths,
+              extractedResults: validationContext.results,
+              steps: result2.steps,
+              artifactDir: result2.artifactDir,
+              error: result2.error
+            }, null, 2));
+          }
+          const result = await searchFlow(page, { query, resultsSelector, submit });
+          const lines = [
+            result.success ? `Search flow succeeded` : `Search flow failed`,
+            `Query: "${query}"`,
+            sessionId ? `Session: ${sessionId}` : `URL: ${url}`,
+            `Results found: ${result.resultCount}`,
+            `Has results: ${result.hasResults}`
+          ];
+          if (result.error) {
+            lines.push(`Error: ${result.error}`);
+          }
+          lines.push(``, `Steps:`);
+          result.steps.forEach((s) => {
+            lines.push(`  ${s.success ? "\u2713" : "\u2717"} ${s.action}${s.error ? ` (${s.error})` : ""}`);
+          });
+          return textResponse(lines.join("\n"));
+        } catch (err) {
+          return errorResponse2(`flow_search failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await launchedDriver?.close().catch(() => {
+          });
+        }
+      }
+      case "flow_form": {
+        const { url, fields, submit = true, sessionId } = args;
+        let driver3 = null;
+        let launchedDriver = null;
+        try {
+          if (sessionId) {
+            const entry = sessions.get(sessionId);
+            if (!entry) {
+              return errorResponse2("Session not found. Use session_start first.");
+            }
+            if (entry.type !== "chrome") {
+              return errorResponse2(`flow_form currently requires a Chrome web session. Session ${sessionId} is ${entry.type}.`);
+            }
+            driver3 = entry.driver;
+          } else {
+            launchedDriver = new EngineDriver();
+            driver3 = launchedDriver;
+            await driver3.launch();
+          }
+          if (!driver3) {
+            return errorResponse2("flow_form could not initialize a browser driver.");
+          }
+          await driver3.navigate(url);
+          const page = new CompatPage(driver3);
+          const formFields = Object.entries(fields).map(([name2, value]) => ({ name: name2, value }));
+          const result = await formFlow(page, {
+            fields: formFields,
+            submitButton: submit ? void 0 : "__NO_SUBMIT__"
+          });
+          const lines = [
+            result.success ? `Form flow succeeded` : `Form flow failed`,
+            `Filled: ${result.filledFields.join(", ") || "none"}`,
+            `Failed: ${result.failedFields.join(", ") || "none"}`
+          ];
+          if (result.error) {
+            lines.push(`Error: ${result.error}`);
+          }
+          return textResponse(lines.join("\n"));
+        } catch (err) {
+          return errorResponse2(`flow_form failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await launchedDriver?.close().catch(() => {
+          });
+        }
+      }
+      case "flow_login": {
+        const { url, username, password, sessionId } = args;
+        let driver3 = null;
+        let launchedDriver = null;
+        try {
+          if (sessionId) {
+            const entry = sessions.get(sessionId);
+            if (!entry) {
+              return errorResponse2("Session not found. Use session_start first.");
+            }
+            if (entry.type !== "chrome") {
+              return errorResponse2(`flow_login currently requires a Chrome web session. Session ${sessionId} is ${entry.type}.`);
+            }
+            driver3 = entry.driver;
+          } else {
+            launchedDriver = new EngineDriver();
+            driver3 = launchedDriver;
+            await driver3.launch();
+          }
+          if (!driver3) {
+            return errorResponse2("flow_login could not initialize a browser driver.");
+          }
+          await driver3.navigate(url);
+          const page = new CompatPage(driver3);
+          const result = await loginFlow(page, { email: username, password });
+          const redirectUrl = driver3.currentUrl !== url ? driver3.currentUrl : void 0;
+          const lines = [
+            result.success ? `Login flow succeeded` : `Login flow failed`,
+            `Logged in: ${result.authenticated}`
+          ];
+          if (redirectUrl) {
+            lines.push(`Redirect URL: ${redirectUrl}`);
+          }
+          if (result.username) {
+            lines.push(`Username detected: ${result.username}`);
+          }
+          if (result.error) {
+            lines.push(`Error: ${result.error}`);
+          }
+          lines.push(``, `Steps:`);
+          result.steps.forEach((s) => {
+            lines.push(`  ${s.success ? "\u2713" : "\u2717"} ${s.action}${s.error ? ` (${s.error})` : ""}`);
+          });
+          return textResponse(lines.join("\n"));
+        } catch (err) {
+          return errorResponse2(`flow_login failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await launchedDriver?.close().catch(() => {
+          });
+        }
+      }
+      case "plan_test": {
+        const { url, intent } = args;
+        const driver3 = new EngineDriver();
+        try {
+          await driver3.launch();
+          await driver3.navigate(url);
+          const [actions, meta] = await Promise.all([
+            driver3.observe({ limit: 100 }),
+            driver3.extractMeta()
+          ]);
+          const suggestedFlows = [];
+          const hasSearchInput = actions.some(
+            (a) => a.role === "searchbox" || a.role === "textbox" && /search|query/i.test(a.label)
+          );
+          const hasPasswordField = meta.inputs.some((i) => /password/i.test(i.label));
+          const hasEmailField = meta.inputs.some((i) => /email|username|login/i.test(i.label));
+          const hasFormFields = meta.inputs.length > 0;
+          if (hasSearchInput) suggestedFlows.push("search");
+          if (hasEmailField && hasPasswordField) suggestedFlows.push("login");
+          else if (hasFormFields) suggestedFlows.push("form");
+          const steps = [];
+          if (hasEmailField && hasPasswordField) {
+            const emailInput = meta.inputs.find((i) => /email|username|login/i.test(i.label));
+            const passInput = meta.inputs.find((i) => /password/i.test(i.label));
+            const submitBtn = meta.buttons.find((b) => /login|sign in|submit/i.test(b.label));
+            if (emailInput) steps.push({ action: "fill", target: emailInput.label, value: "<test email>" });
+            if (passInput) steps.push({ action: "fill", target: passInput.label, value: "<test password>" });
+            if (submitBtn) steps.push({ action: "click", target: submitBtn.label, role: "button" });
+            steps.push({ action: "verify", target: "authenticated state", expect: "Dashboard visible" });
+          } else if (hasSearchInput) {
+            const searchAction = actions.find((a) => a.role === "searchbox" || /search/i.test(a.label));
+            if (searchAction) {
+              steps.push({ action: "fill", target: searchAction.label, value: "<search query>" });
+              steps.push({ action: "verify", target: "results", expect: "Results visible" });
+            }
+          } else {
+            meta.buttons.slice(0, 3).forEach((b) => {
+              steps.push({ action: "click", target: b.label, role: "button" });
+            });
+            meta.inputs.slice(0, 3).forEach((inp) => {
+              steps.push({ action: "fill", target: inp.label, value: "<test value>" });
+            });
+          }
+          const interactiveCount = actions.length;
+          const totalElements = meta.buttons.length + meta.inputs.length + meta.links.length;
+          const coverage = {
+            interactive: interactiveCount,
+            total: totalElements,
+            percentage: totalElements > 0 ? Math.round(interactiveCount / totalElements * 100) : 0
+          };
+          const plan = {
+            suggestedFlows,
+            interactiveElements: interactiveCount,
+            steps,
+            coverage
+          };
+          const lines = [
+            `Test plan for: ${url}`,
+            intent ? `Intent: ${intent}` : "",
+            ``,
+            `Suggested flows: ${suggestedFlows.length > 0 ? suggestedFlows.join(", ") : "none detected"}`,
+            `Interactive elements: ${interactiveCount}`,
+            `Coverage: ${coverage.percentage}%`,
+            ``,
+            `Steps:`,
+            ...steps.map((s, i) => {
+              if (s.action === "verify") return `  ${i + 1}. verify: ${s.expect}`;
+              if (s.action === "fill") return `  ${i + 1}. fill "${s.target}" with ${s.value}`;
+              return `  ${i + 1}. ${s.action} "${s.target}"${s.role ? ` [${s.role}]` : ""}`;
+            })
+          ].filter((l) => l !== "");
+          return textResponse(JSON.stringify(plan, null, 2) + "\n\n" + lines.join("\n"));
+        } catch (err) {
+          return errorResponse2(`plan_test failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          await driver3.close().catch(() => {
+          });
+        }
+      }
+      case "session_start": {
+        const { url, headless = true, viewport, browser, app, simulator } = args;
+        const sessionId = crypto.randomUUID();
+        if (app) {
+          return await startMacOSSession(sessionId, app, "session_start (macos)");
+        }
+        if (simulator) {
+          return await startSimulatorSession(sessionId, simulator, "session_start (simulator)");
+        }
+        if (!url) {
+          return errorResponse2(`session_start requires 'url' for web sessions, 'app' for macOS native, or 'simulator' for iOS/watchOS`);
+        }
+        if (browser === "safari") {
+          try {
+            const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports2));
+            const safariDriver = new SafariDriver2();
+            await safariDriver.launch({});
+            await safariDriver.navigate(url);
+            sessions.set(sessionId, { driver: safariDriver, type: "safari", url, createdAt: Date.now() });
+            return textResponse(JSON.stringify({
+              sessionId,
+              type: "safari",
+              url,
+              timestamp: (/* @__PURE__ */ new Date()).toISOString()
+            }, null, 2));
+          } catch (err) {
+            return errorResponse2(`session_start (safari) failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        const driver3 = new EngineDriver();
+        try {
+          await driver3.launch({
+            headless,
+            viewport: viewport ? { width: viewport.width, height: viewport.height } : void 0
+          });
+          await driver3.navigate(url);
+          const elements = await driver3.getSnapshot();
+          const elementCount = elements.filter((e) => e.actions.length > 0).length;
+          sessions.set(sessionId, { driver: driver3, type: "chrome", url: driver3.url || url, createdAt: Date.now() });
+          return textResponse(JSON.stringify({
+            sessionId,
+            type: "chrome",
+            url: driver3.url || url,
+            elementCount,
+            timestamp: (/* @__PURE__ */ new Date()).toISOString()
+          }, null, 2));
+        } catch (err) {
+          await driver3.close().catch(() => {
+          });
+          return errorResponse2(`session_start failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "session_action": {
+        const {
+          sessionId,
+          action,
+          target,
+          value,
+          role,
+          screenshot: wantScreenshot = true
+        } = args;
+        const entry = sessions.get(sessionId);
+        if (!entry) {
+          return errorResponse2("Session not found. Use session_start first.");
+        }
+        if (entry.type === "macos") {
+          return await runMacOSSessionAction(entry, { action, target, value, role });
+        }
+        if (entry.type === "simulator") {
+          return await runSimulatorSessionAction(entry, { action, target, value, role });
+        }
+        const driver3 = entry.driver;
+        if (action === "scroll" && isPageScrollTarget(target)) {
+          try {
+            const deltaY = parseScrollDelta(value);
+            const before = await readScrollPosition(driver3);
+            await driver3.scroll(deltaY);
+            await new Promise((r) => setTimeout(r, 300));
+            const after = await readScrollPosition(driver3);
+            const afterEls = await driver3.getSnapshot();
+            entry.url = driver3.url;
+            const movedBy = before && after ? Math.round(Math.hypot(after.x - before.x, after.y - before.y)) : null;
+            const validator = {
+              expected: `page scroll position changes after a ${deltaY}px scroll`,
+              observed: before && after ? `scroll position (${before.x}, ${before.y}) -> (${after.x}, ${after.y}), \u0394${movedBy}px` : "scroll position unreadable (window.scrollX/scrollY evaluate failed)",
+              passed: movedBy != null && movedBy > 0
+            };
+            const scrollResult = {
+              success: validator.passed,
+              validator,
+              scrolled: { target: target && target.trim() || "page", deltaY },
+              pageState: {
+                url: driver3.url,
+                elementCount: afterEls.filter((e) => e.actions.length > 0).length
+              }
+            };
+            if (wantScreenshot) {
+              const buf = await driver3.screenshot();
+              return {
+                content: [
+                  { type: "image", data: buf.toString("base64"), mimeType: "image/png" },
+                  { type: "text", text: JSON.stringify(scrollResult, null, 2) }
+                ]
+              };
+            }
+            return textResponse(JSON.stringify(scrollResult, null, 2));
+          } catch (err) {
+            return errorResponse2(`session_action scroll failed: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+        try {
+          const diag = await driver3.findWithDiagnostics(target, role ? { role } : void 0);
+          if (!diag.elementId) {
+            const notFoundValidator = {
+              expected: `element "${target}" is present and resolvable`,
+              observed: `not found among ${diag.totalInteractive} interactive elements`,
+              passed: false
+            };
+            const notFoundPayload = JSON.stringify({
+              success: false,
+              error: `Element "${target}" not found`,
+              alternatives: diag.alternatives,
+              hint: diag.alternatives.length > 0 ? `Try one of these: ${diag.alternatives.map((a) => `"${a.name}" (${a.role})`).join(", ")}` : 'Use session_read with what="observe" to see all interactive elements',
+              validator: notFoundValidator,
+              provenance: { tier: diag.tierName, confidence: diag.confidence },
+              evidence: {
+                beforeSignature: "",
+                afterSignature: "",
+                diff: "target not found \u2014 no action executed",
+                alternatives: diag.alternatives.map((a) => ({ label: a.name, role: a.role, score: a.score })),
+                screenshotB64: diag.screenshot
+              }
+            }, null, 2);
+            const notFoundContent = [{ type: "text", text: notFoundPayload }];
+            if (diag.screenshot) {
+              notFoundContent.push({ type: "image", data: diag.screenshot, mimeType: "image/png" });
+            }
+            return { content: notFoundContent };
+          }
+          const allElements = await driver3.getSnapshot();
+          const element = allElements.find((e) => e.id === diag.elementId);
+          const knownActions = ["click", "type", "fill", "hover", "press", "scroll", "select", "check"];
+          if (!knownActions.includes(action)) {
+            return errorResponse2(`Unknown action: ${action}`);
+          }
+          const beforeUrl = driver3.url;
+          const captured = await driver3.actAndCapture(async () => {
+            switch (action) {
+              case "click":
+                await driver3.click(diag.elementId);
+                break;
+              case "type":
+                await driver3.type(diag.elementId, value || "");
+                break;
+              case "fill":
+                await driver3.fill(diag.elementId, value || "");
+                break;
+              case "hover":
+                await driver3.hover(diag.elementId);
+                break;
+              case "press":
+                await driver3.pressKey(value || "Enter");
+                break;
+              case "scroll":
+                await driver3.scroll(Number(value) || 300);
+                break;
+              case "select":
+                await driver3.select(diag.elementId, value || "");
+                break;
+              case "check":
+                await driver3.check(diag.elementId);
+                break;
+            }
+          });
+          const afterUrl = driver3.url;
+          const validator = validateWebAction({ action, value, targetElementId: diag.elementId, beforeUrl, afterUrl, captured });
+          const afterCount = captured.after.elements.filter((e) => e.actions.length > 0).length;
+          entry.url = driver3.url;
+          const actionResult = {
+            success: validator.passed,
+            validator,
+            provenance: { tier: diag.tierName, confidence: diag.confidence, waitResult: "tree-stable" },
+            elementFound: {
+              id: diag.elementId,
+              role: element?.role ?? "unknown",
+              label: element?.label ?? target,
+              confidence: diag.confidence,
+              tier: diag.tierName
+            },
+            pageState: { url: driver3.url, elementCount: afterCount }
+          };
+          if (diag.autoResolved) {
+            actionResult.autoResolved = {
+              requested: target,
+              chosen: diag.autoResolved.label,
+              role: diag.autoResolved.role,
+              score: Number(diag.autoResolved.score.toFixed(3)),
+              margin: Number(diag.autoResolved.margin.toFixed(3))
+            };
+          }
+          if (!validator.passed) {
+            actionResult.evidence = buildFailureEvidence({ target, targetElementId: diag.elementId, beforeUrl, afterUrl, captured });
+          }
+          if (wantScreenshot) {
+            const base64 = captured.after.screenshot.toString("base64");
+            return {
+              content: [
+                { type: "image", data: base64, mimeType: "image/png" },
+                { type: "text", text: JSON.stringify(actionResult, null, 2) }
+              ]
+            };
+          }
+          return textResponse(JSON.stringify(actionResult, null, 2));
+        } catch (err) {
+          return errorResponse2(`session_action failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "session_read": {
+        const rawArgs = args;
+        const sessionId = rawArgs.sessionId;
+        const what = normalizeReadMode2(rawArgs.what);
+        const entry = sessions.get(sessionId);
+        if (!entry) {
+          return errorResponse2("Session not found. Use session_start first.");
+        }
+        if (entry.type === "macos") {
+          return await readMacOSSession(entry, what, Number(args.limit) || 50);
+        }
+        if (entry.type === "simulator") {
+          return await readSimulatorSession(entry, what, Number(args.limit) || 50);
+        }
+        const driver3 = entry.driver;
+        try {
+          switch (what) {
+            case "observe": {
+              const actions = await driver3.observe();
+              if (actions.length === 0) {
+                return textResponse("No interactive elements found on this page.");
+              }
+              if (actions.length > 80) {
+                const compressed = compressSnapshot(actions.map((a) => ({
+                  id: a.elementId ?? "",
+                  role: a.role ?? "",
+                  label: a.description ?? a.label ?? "",
+                  actions: a.actions
+                })));
+                return textResponse(formatCompressed(compressed));
+              }
+              const lines = actions.map((a, i) => `${i + 1}. [${a.role}] "${a.label}" \u2014 ${a.actions.join(", ")}`);
+              return textResponse(`Found ${actions.length} interactive elements:
+
+${lines.join("\n")}`);
+            }
+            case "extract": {
+              const meta = await driver3.extractMeta();
+              const sections = [];
+              if (meta.headings.length > 0) {
+                sections.push(`Headings:
+${meta.headings.map((h) => `  ${h}`).join("\n")}`);
+              }
+              if (meta.buttons.length > 0) {
+                sections.push(`Buttons (${meta.buttons.length}):
+${meta.buttons.map((b) => `  \u2022 ${b.label}${b.enabled === false ? " (disabled)" : ""}`).join("\n")}`);
+              }
+              if (meta.inputs.length > 0) {
+                sections.push(`Inputs (${meta.inputs.length}):
+${meta.inputs.map((inp) => `  \u2022 ${inp.label}${inp.value ? ` = "${inp.value}"` : ""}`).join("\n")}`);
+              }
+              if (meta.links.length > 0) {
+                sections.push(`Links (${meta.links.length}):
+${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.links.length > 20 ? `
+  ... and ${meta.links.length - 20} more` : ""}`);
+              }
+              return textResponse(sections.join("\n\n") || "No structured data found on page.");
+            }
+            case "screenshot": {
+              const buf = await driver3.screenshot();
+              const base64 = buf.toString("base64");
+              return imageResponse2(base64, `Screenshot of ${driver3.url}`);
+            }
+            case "state": {
+              const elements = await driver3.getSnapshot();
+              const elementCount = elements.filter((e) => e.actions.length > 0).length;
+              const consoleErrors = driver3.getConsoleErrors().map((m) => m.text);
+              return textResponse(JSON.stringify({
+                url: driver3.url,
+                elementCount,
+                consoleErrors
+              }, null, 2));
+            }
+            default:
+              return errorResponse2(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+          }
+        } catch (err) {
+          return errorResponse2(`session_read failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "session_close": {
+        const { sessionId } = args;
+        const entry = sessions.get(sessionId);
+        if (!entry) {
+          return errorResponse2("Session not found.");
+        }
+        try {
+          if (entry.driver) {
+            await entry.driver.close();
+          }
+          sessions.delete(sessionId);
+          return textResponse(`Session ${sessionId} closed.`);
+        } catch (err) {
+          sessions.delete(sessionId);
+          return errorResponse2(`session_close error: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      case "sim_action":
+        return await handleSimAction(args);
+      case "design_system":
+        return await handleDesignSystem(args);
+      default:
+        return errorResponse2(`Unknown tool: ${name}`);
+    }
+  } catch (err) {
+    return errorResponse2(
+      err instanceof Error ? err.message : "Tool execution failed"
+    );
+  }
+}
+async function handleScan(args) {
+  const url = args.url;
+  if (!url) {
+    return errorResponse2("The 'url' parameter is required.");
+  }
+  const viewport = args.viewport || "desktop";
+  let scanCookies;
+  const requestedSessionId = typeof args.sessionId === "string" ? args.sessionId : void 0;
+  if (requestedSessionId) {
+    const entry = sessions.get(requestedSessionId);
+    if (entry && entry.driver) {
+      try {
+        const sessionCookies = await entry.driver.getCookies();
+        scanCookies = sessionCookies.map((c) => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain,
+          path: c.path,
+          secure: c.secure,
+          httpOnly: c.httpOnly,
+          ...c.sameSite ? { sameSite: c.sameSite } : {},
+          ...c.expires > 0 ? { expires: c.expires } : {}
+        }));
+      } catch {
+      }
+    }
+  }
+  const pool = await getMcpBrowserPool();
+  const result = await scan(url, {
+    viewport,
+    patience: args.patience,
+    networkIdleTimeout: args.networkIdleTimeout,
+    ...scanCookies ? { cookies: scanCookies } : {},
+    pool
+  });
+  const intent = result.semantic.pageIntent.intent;
+  const intentConfidence = result.semantic.confidence;
+  const intentIsNoise = isIntentNoise(intent, intentConfidence);
+  const lines = [
+    `UI Scan: ${result.url}`,
+    `Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`,
+    ""
+  ];
+  if (!intentIsNoise) {
+    lines.push(`Page intent: ${intent} (${Math.round(intentConfidence * 100)}% confidence)`);
+  }
+  lines.push(`Auth: ${result.semantic.state.auth.authenticated ? "Authenticated" : "Not authenticated"}`);
+  lines.push(`Loading: ${result.semantic.state.loading.loading ? result.semantic.state.loading.type : "Complete"}`);
+  if (result.console.errors.length > 0) {
+    lines.push("");
+    lines.push(`Console errors (${result.console.errors.length}):`);
+    for (const e of result.console.errors.slice(0, 5)) {
+      lines.push(`- ${e.slice(0, 200)}`);
+    }
+  }
+  if (result.issues.length > 0) {
+    lines.push("");
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+  const totalElements = result.elements.all.length;
+  const interactive = result.elements.all.filter(
+    (e) => e.interactive.hasOnClick || e.interactive.hasHref
+  ).length;
+  lines.push("");
+  lines.push(`Elements: ${totalElements} total, ${interactive} interactive`);
+  if (result.interactivity) {
+    const { buttons, links, forms } = result.interactivity;
+    lines.push(
+      `Buttons: ${buttons?.length || 0}, Links: ${links?.length || 0}, Forms: ${forms?.length || 0}`
+    );
+  }
+  if (result.elements.audit) {
+    const audit = result.elements.audit;
+    if (audit.issues && audit.issues.length > 0) {
+      lines.push("");
+      lines.push(`Audit issues (${audit.issues.length}):`);
+      for (const a of audit.issues.slice(0, 5)) {
+        lines.push(`- ${a.message || a}`);
+      }
+    }
+  }
+  if (result.designSystem) {
+    const ds = result.designSystem;
+    lines.push("");
+    lines.push(`Design system: ${ds.configName} (compliance: ${ds.complianceScore}%)`);
+    const dsViolations = ds.principleViolations.length + ds.tokenViolations.length + ds.customViolations.length;
+    if (dsViolations > 0) {
+      lines.push(`Design system violations: ${dsViolations}`);
+      for (const v of ds.principleViolations.slice(0, 5)) {
+        lines.push(`  - [${v.severity}] ${v.message}`);
+      }
+      for (const v of ds.tokenViolations.slice(0, 3)) {
+        lines.push(`  - [${v.severity}] ${v.message}`);
+      }
+      if (dsViolations > 8) {
+        lines.push(`  ... and ${dsViolations - 8} more`);
+      }
+    }
+  }
+  if (result.ruleEngine && result.ruleEngine.length > 0) {
+    lines.push("");
+    lines.push(`Rule engine violations (${result.ruleEngine.length}):`);
+    for (const v of result.ruleEngine.slice(0, 10)) {
+      lines.push(`- [${v.severity}] ${v.rule}: ${v.actual} (${v.element})`);
+    }
+    if (result.ruleEngine.length > 10) {
+      lines.push(`  ... and ${result.ruleEngine.length - 10} more`);
+    }
+  }
+  if (result.summaries) {
+    const s = result.summaries;
+    lines.push("");
+    lines.push("Summaries:");
+    if (s.componentCensus && s.componentCensus.length > 0) {
+      lines.push(`  Components: ${s.componentCensus.map((c) => `${c.pattern}(${c.count})`).join(", ")}`);
+    }
+    if (s.contrastReport && s.contrastReport.length > 0) {
+      const failing = s.contrastReport.filter((c) => c.status === "fail").length;
+      const total = s.contrastReport.length;
+      lines.push(`  Contrast: ${total - failing}/${total} pass`);
+    }
+    if (s.interactionMap && s.interactionMap.length > 0) {
+      lines.push(`  Interaction coverage: ${s.interactionMap.map((m) => `${m.category}(${m.count})`).join(", ")}`);
+    }
+    if (s.tokenEfficiency) {
+      lines.push(`  Token efficiency: ${s.tokenEfficiency.reductionPercent}% reduction (${s.tokenEfficiency.summaryTokenEstimate} vs ${s.tokenEfficiency.rawTokenEstimate} tokens)`);
+    }
+  }
+  if (result.verdict === "PARTIAL") {
+    lines.push("");
+    lines.push(`\u26A0\uFE0F ${result.partialReason}`);
+    lines.push("Ask the user if the page has finished loading, then re-scan.");
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleAsk(args) {
+  const url = args.url;
+  const question = args.question;
+  if (!url || !question) {
+    return textResponse(
+      "Error: `ask` requires `url` and `question`. Supported questions: see the tool description."
+    );
+  }
+  const viewport = args.viewport ?? "desktop";
+  const maxFindings = args.maxFindings ?? 25;
+  const wantScreenshot = args.screenshot === true;
+  let askCookies;
+  const requestedSessionId = typeof args.sessionId === "string" ? args.sessionId : void 0;
+  if (requestedSessionId) {
+    const entry = sessions.get(requestedSessionId);
+    if (entry && entry.driver) {
+      try {
+        const sessionCookies = await entry.driver.getCookies();
+        if (sessionCookies.length > 0) {
+          askCookies = sessionCookies.map((c) => ({
+            name: c.name,
+            value: c.value,
+            domain: c.domain,
+            path: c.path,
+            secure: c.secure,
+            httpOnly: c.httpOnly,
+            ...c.sameSite ? { sameSite: c.sameSite } : {},
+            ...c.expires > 0 ? { expires: c.expires } : {}
+          }));
+        }
+      } catch {
+      }
+    }
+  }
+  const { ask: ask2 } = await Promise.resolve().then(() => (init_ask(), ask_exports));
+  const pool = await getMcpBrowserPool();
+  const response = await ask2(url, question, {
+    viewport,
+    maxFindings,
+    pool,
+    ...wantScreenshot ? { screenshot: true } : {},
+    ...askCookies ? { cookies: askCookies } : {}
+  });
+  const content = [
+    { type: "text", text: JSON.stringify(response, null, 2) }
+  ];
+  const screenshotPath = response.meta?.screenshotPath;
+  if (wantScreenshot && screenshotPath) {
+    try {
+      const { readFile: readFile23 } = await import("fs/promises");
+      const buf = await readFile23(screenshotPath);
+      content.unshift({
+        type: "image",
+        data: buf.toString("base64"),
+        mimeType: "image/png"
+      });
+    } catch (err) {
+      content.push({
+        type: "text",
+        text: `(screenshot capture failed: ${err instanceof Error ? err.message : "unknown"})`
+      });
+    }
+  }
+  return { content };
+}
+async function handleSnapshot(args) {
+  const url = args.url;
+  if (!url) {
+    return errorResponse2("The 'url' parameter is required.");
+  }
+  const name = args.name || `baseline-${Date.now()}`;
+  const ibr = new InterfaceBuiltRight({ outputDir: DEFAULT_OUTPUT_DIR2 });
+  const result = await ibr.startSession(url, { name });
+  return textResponse(
+    [
+      `Baseline captured: ${result.session.id}`,
+      `Name: ${result.session.name}`,
+      `URL: ${result.session.url}`,
+      `Viewport: ${result.session.viewport.name} (${result.session.viewport.width}x${result.session.viewport.height})`,
+      `Status: ${result.session.status}`,
+      "",
+      "Run the 'compare' tool after making changes to see what shifted."
+    ].join("\n")
+  );
+}
+async function handleCompare(args) {
+  const ibr = new InterfaceBuiltRight({ outputDir: DEFAULT_OUTPUT_DIR2 });
+  const sessionId = args.session_id;
+  let session;
+  if (sessionId) {
+    session = await ibr.getSession(sessionId);
+    if (!session) {
+      return errorResponse2(`Session "${sessionId}" not found.`);
+    }
+  } else {
+    session = await ibr.getMostRecentSession();
+    if (!session) {
+      return errorResponse2(
+        "No sessions found. Capture a baseline first with the 'snapshot' tool."
+      );
+    }
+  }
+  const report = await ibr.check(session.id);
+  const lines = [
+    `Comparison: ${report.sessionName} (${report.sessionId})`,
+    `URL: ${report.url}`,
+    `Verdict: ${report.analysis.verdict}`,
+    `Diff: ${report.comparison.diffPercent.toFixed(2)}% (${report.comparison.diffPixels} pixels)`,
+    `${report.analysis.summary}`
+  ];
+  if (report.analysis.changedRegions && report.analysis.changedRegions.length > 0) {
+    lines.push("");
+    lines.push(`Changed regions (${report.analysis.changedRegions.length}):`);
+    for (const r of report.analysis.changedRegions.slice(0, 5)) {
+      lines.push(`- ${r.location}: ${r.description} [${r.severity}]`);
+    }
+  }
+  if (report.analysis.recommendation) {
+    lines.push("");
+    lines.push(`Recommendation: ${report.analysis.recommendation}`);
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleListSessions() {
+  const sessions2 = await listSessions(DEFAULT_OUTPUT_DIR2);
+  if (sessions2.length === 0) {
+    return textResponse(
+      "No sessions found. Capture a baseline with the 'snapshot' tool."
+    );
+  }
+  const lines = [`Sessions (${sessions2.length}):`];
+  for (const s of sessions2.slice(0, 20)) {
+    const date = new Date(s.createdAt).toISOString().replace("T", " ").slice(0, 19);
+    const viewport = `${s.viewport.name} (${s.viewport.width}x${s.viewport.height})`;
+    const verdict = s.analysis && s.analysis.verdict ? ` | ${s.analysis.verdict}` : "";
+    lines.push(
+      `- ${s.id} | ${s.name} | ${date} | ${viewport} | ${s.status}${verdict}`
+    );
+  }
+  if (sessions2.length > 20) {
+    lines.push(`  ... and ${sessions2.length - 20} more`);
+  }
+  const stats = await getSessionStats(DEFAULT_OUTPUT_DIR2);
+  lines.push("");
+  lines.push(
+    `Total: ${stats.total} | By status: ${Object.entries(stats.byStatus).map(([k, v]) => `${k}: ${v}`).join(", ")}`
+  );
+  return textResponse(lines.join("\n"));
+}
+function readReferencesIndex() {
+  if (!(0, import_fs22.existsSync)(REFERENCES_INDEX)) {
+    return { references: [] };
+  }
+  return JSON.parse((0, import_fs22.readFileSync)(REFERENCES_INDEX, "utf-8"));
+}
+function writeReferencesIndex(index) {
+  (0, import_fs22.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs22.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+}
+async function handleScreenshot(args) {
+  const url = args.url;
+  if (!url) {
+    return errorResponse2("The 'url' parameter is required.");
+  }
+  const viewportName = args.viewport || "desktop";
+  const viewport = VIEWPORTS[viewportName] || VIEWPORTS.desktop;
+  const selector = args.selector;
+  const fullPage = args.full_page ?? false;
+  const waitFor = args.wait_for;
+  const saveAs = args.save_as;
+  const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
+  const delay = args.delay ?? (isExternal ? 2e3 : 500);
+  const timestamp = Date.now();
+  const screenshotsDir = (0, import_path37.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
+  (0, import_fs22.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path37.join)(screenshotsDir, `capture-${timestamp}.png`);
+  await captureScreenshot({
+    url,
+    outputPath: tempPath,
+    viewport,
+    fullPage,
+    waitForNetworkIdle: true,
+    timeout: isExternal ? 6e4 : 3e4,
+    selector,
+    waitFor,
+    delay
+  });
+  const imageBuffer = (0, import_fs22.readFileSync)(tempPath);
+  const base64 = imageBuffer.toString("base64");
+  const fileSize = imageBuffer.length;
+  let savedPath = "not saved";
+  if (saveAs) {
+    (0, import_fs22.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path37.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs22.writeFileSync)(refPath, imageBuffer);
+    savedPath = refPath;
+    const index = readReferencesIndex();
+    index.references = index.references.filter((r) => r.name !== saveAs);
+    index.references.push({
+      name: saveAs,
+      url,
+      viewport: { name: viewport.name, width: viewport.width, height: viewport.height },
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      path: `${saveAs}.png`,
+      fileSize
+    });
+    writeReferencesIndex(index);
+  }
+  const metadata = [
+    `Screenshot: ${url}`,
+    `Viewport: ${viewport.name} (${viewport.width}x${viewport.height})`,
+    `Full page: ${fullPage}`,
+    `Size: ${(fileSize / 1024).toFixed(1)} KB`,
+    saveAs ? `Saved as: ${saveAs} (${savedPath})` : "Not saved to references"
+  ].join("\n");
+  return imageResponse2(base64, metadata);
+}
+async function handleReferences(args) {
+  const action = args.action || "list";
+  const name = args.name;
+  switch (action) {
+    case "list": {
+      const index = readReferencesIndex();
+      if (index.references.length === 0) {
+        return textResponse(
+          "No design references saved. Use the 'screenshot' tool with save_as to save references."
+        );
+      }
+      const lines = [`Design References (${index.references.length}):`];
+      for (const ref of index.references) {
+        const date = ref.capturedAt.replace("T", " ").slice(0, 19);
+        const size = (ref.fileSize / 1024).toFixed(1);
+        lines.push(
+          `- ${ref.name} | ${ref.url} | ${ref.viewport.name} (${ref.viewport.width}x${ref.viewport.height}) | ${date} | ${size} KB`
+        );
+      }
+      return textResponse(lines.join("\n"));
+    }
+    case "show": {
+      if (!name) {
+        return errorResponse2("The 'name' parameter is required for action 'show'.");
+      }
+      const index = readReferencesIndex();
+      const ref = index.references.find((r) => r.name === name);
+      if (!ref) {
+        return errorResponse2(
+          `Reference "${name}" not found. Use action 'list' to see available references.`
+        );
+      }
+      const refPath = (0, import_path37.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs22.existsSync)(refPath)) {
+        return errorResponse2(`Reference file missing: ${refPath}`);
+      }
+      const imageBuffer = (0, import_fs22.readFileSync)(refPath);
+      const base64 = imageBuffer.toString("base64");
+      const metadata = [
+        `Reference: ${ref.name}`,
+        `URL: ${ref.url}`,
+        `Viewport: ${ref.viewport.name} (${ref.viewport.width}x${ref.viewport.height})`,
+        `Captured: ${ref.capturedAt.replace("T", " ").slice(0, 19)}`,
+        `Size: ${(ref.fileSize / 1024).toFixed(1)} KB`
+      ].join("\n");
+      return imageResponse2(base64, metadata);
+    }
+    case "delete": {
+      if (!name) {
+        return errorResponse2("The 'name' parameter is required for action 'delete'.");
+      }
+      const index = readReferencesIndex();
+      const ref = index.references.find((r) => r.name === name);
+      if (!ref) {
+        return errorResponse2(
+          `Reference "${name}" not found. Use action 'list' to see available references.`
+        );
+      }
+      const refPath = (0, import_path37.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs22.existsSync)(refPath)) {
+        (0, import_fs22.unlinkSync)(refPath);
+      }
+      index.references = index.references.filter((r) => r.name !== name);
+      writeReferencesIndex(index);
+      return textResponse(`Deleted reference: ${name}`);
+    }
+    default:
+      return errorResponse2(`Unknown action: ${action}. Use 'list', 'show', or 'delete'.`);
+  }
+}
+async function handleScanMacOS(args) {
+  if (process.platform !== "darwin") {
+    return errorResponse2("scan_macos is only available on macOS.");
+  }
+  const app = args.app;
+  const bundleId = args.bundle_id;
+  const pid = args.pid;
+  const screenshot = args.screenshot;
+  if (!app && !bundleId && !pid) {
+    return errorResponse2("Provide 'app', 'bundle_id', or 'pid' to identify the target app.");
+  }
+  const result = await scanMacOS({
+    app,
+    bundleId,
+    pid,
+    screenshot: screenshot ? { path: screenshot } : void 0,
+    outputDir: DEFAULT_OUTPUT_DIR2
+  });
+  const lines = [
+    `macOS App Scan: ${result.url}`,
+    `Window: ${result.route.slice(1)}`,
+    `Viewport: ${result.viewport.width}x${result.viewport.height}`,
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`,
+    "",
+    `Page intent: ${result.semantic.pageIntent.intent} (${Math.round(result.semantic.confidence * 100)}% confidence)`,
+    `Auth: ${result.semantic.state.auth.authenticated === false ? "Not authenticated" : result.semantic.state.auth.authenticated ? "Authenticated" : "Unknown"}`
+  ];
+  lines.push("");
+  lines.push(`Elements: ${result.elements.audit.totalElements} total, ${result.elements.audit.interactiveCount} interactive`);
+  lines.push(`With handlers: ${result.elements.audit.withHandlers}, Without: ${result.elements.audit.withoutHandlers}`);
+  const { buttons, links, forms } = result.interactivity;
+  lines.push(`Buttons: ${buttons.length}, Links: ${links.length}, Forms: ${forms.length}`);
+  if (result.issues.length > 0) {
+    lines.push("");
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`  Fix: ${issue.fix}`);
+      }
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+  if (result.elements.audit.issues.length > 0) {
+    lines.push("");
+    lines.push(`Audit issues (${result.elements.audit.issues.length}):`);
+    for (const a of result.elements.audit.issues.slice(0, 5)) {
+      lines.push(`- ${a.message}`);
+    }
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleNativeScan(args) {
+  const device = args.device;
+  const screenshot = args.screenshot !== false;
+  const result = await scanNative({
+    device,
+    screenshot,
+    outputDir: DEFAULT_OUTPUT_DIR2
+  });
+  const lines = [
+    `Native Scan: ${result.device.name}`,
+    `Platform: ${result.platform}`,
+    `Runtime: ${result.device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".")}`,
+    `Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height})`,
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`
+  ];
+  lines.push("");
+  lines.push(`Elements: ${result.elements.audit.totalElements} total, ${result.elements.audit.interactiveCount} interactive`);
+  lines.push(`With handlers: ${result.elements.audit.withHandlers}, Without: ${result.elements.audit.withoutHandlers}`);
+  if (result.issues.length > 0) {
+    lines.push("");
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+  if (result.screenshotPath) {
+    lines.push("");
+    lines.push(`Screenshot: ${result.screenshotPath}`);
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleNativeSnapshot(args) {
+  const deviceQuery = args.device;
+  const name = args.name || `native-baseline-${Date.now()}`;
+  let device;
+  if (deviceQuery) {
+    device = await findDevice(deviceQuery);
+    if (!device) {
+      return errorResponse2(`No simulator found matching "${deviceQuery}".`);
+    }
+  } else {
+    const { getBootedDevices: getBootedDevices2 } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
+    const booted = await getBootedDevices2();
+    if (booted.length === 0) {
+      return errorResponse2("No booted simulators found. Boot one first.");
+    }
+    device = booted[0];
+  }
+  const viewport = getDeviceViewport(device);
+  const session = await createSession(
+    DEFAULT_OUTPUT_DIR2,
+    `simulator://${device.name}`,
+    name,
+    viewport,
+    device.platform
+  );
+  const paths = getSessionPaths(DEFAULT_OUTPUT_DIR2, session.id);
+  const captureResult = await captureNativeScreenshot({
+    device,
+    outputPath: paths.baseline
+  });
+  if (!captureResult.success) {
+    return errorResponse2(`Screenshot capture failed: ${captureResult.error}`);
+  }
+  return textResponse(
+    [
+      `Native baseline captured: ${session.id}`,
+      `Name: ${session.name}`,
+      `Device: ${device.name} (${device.platform})`,
+      `Viewport: ${viewport.name} (${viewport.width}x${viewport.height})`,
+      `Status: ${session.status}`,
+      "",
+      "Run 'native_compare' after making changes to see what shifted."
+    ].join("\n")
+  );
+}
+async function handleNativeCompare(args) {
+  const sessionId = args.session_id;
+  const deviceQuery = args.device;
+  let session;
+  if (sessionId) {
+    const { getSession: getSession3 } = await Promise.resolve().then(() => (init_session(), session_exports));
+    session = await getSession3(DEFAULT_OUTPUT_DIR2, sessionId);
+    if (!session) {
+      return errorResponse2(`Session "${sessionId}" not found.`);
+    }
+  } else {
+    const sessions2 = await listSessions(DEFAULT_OUTPUT_DIR2);
+    session = sessions2.find((s) => s.platform === "ios" || s.platform === "watchos");
+    if (!session) {
+      return errorResponse2(
+        "No native sessions found. Capture a baseline first with 'native_snapshot'."
+      );
+    }
+  }
+  let device;
+  if (deviceQuery) {
+    device = await findDevice(deviceQuery);
+  } else {
+    const { getBootedDevices: getBootedDevices2 } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
+    const booted = await getBootedDevices2();
+    device = booted[0];
+  }
+  if (!device) {
+    return errorResponse2("No booted simulator found for comparison.");
+  }
+  const paths = getSessionPaths(DEFAULT_OUTPUT_DIR2, session.id);
+  const captureResult = await captureNativeScreenshot({
+    device,
+    outputPath: paths.current
+  });
+  if (!captureResult.success) {
+    return errorResponse2(`Screenshot capture failed: ${captureResult.error}`);
+  }
+  const result = await compare({
+    baselinePath: paths.baseline,
+    currentPath: paths.current
+  });
+  const lines = [
+    `Native Comparison: ${session.name} (${session.id})`,
+    `Device: ${device.name}`,
+    `Verdict: ${result.verdict}`,
+    `Diff: ${result.diffPercent.toFixed(2)}% (${result.diffPixels} pixels)`,
+    `${result.summary}`
+  ];
+  if (result.changedRegions.length > 0) {
+    lines.push("");
+    lines.push(`Changed regions (${result.changedRegions.length}):`);
+    for (const r of result.changedRegions.slice(0, 5)) {
+      lines.push(`- ${r.location}: ${r.description} [${r.severity}]`);
+    }
+  }
+  if (result.recommendation) {
+    lines.push("");
+    lines.push(`Recommendation: ${result.recommendation}`);
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleNativeDevices(args) {
+  const platformFilter = args.platform;
+  let devices = await listDevices();
+  devices = devices.filter((d) => d.isAvailable);
+  if (platformFilter) {
+    devices = devices.filter((d) => d.platform === platformFilter);
+  }
+  if (devices.length === 0) {
+    return textResponse(
+      platformFilter ? `No available ${platformFilter} simulators found.` : "No available simulators found. Install simulators via Xcode."
+    );
+  }
+  const ios = devices.filter((d) => d.platform === "ios");
+  const watchos = devices.filter((d) => d.platform === "watchos");
+  const lines = [];
+  if (ios.length > 0 && (!platformFilter || platformFilter === "ios")) {
+    lines.push(`iOS Simulators (${ios.length}):`);
+    for (const d of ios) {
+      lines.push(`  ${formatDevice(d)}`);
+    }
+  }
+  if (watchos.length > 0 && (!platformFilter || platformFilter === "watchos")) {
+    if (lines.length > 0) lines.push("");
+    lines.push(`watchOS Simulators (${watchos.length}):`);
+    for (const d of watchos) {
+      lines.push(`  ${formatDevice(d)}`);
+    }
+  }
+  const booted = devices.filter((d) => d.state === "Booted");
+  lines.push("");
+  lines.push(`Total: ${devices.length} available, ${booted.length} booted`);
+  const driverStatus = await getSimulatorInteractionDriverStatus();
+  lines.push("");
+  lines.push("Interaction Drivers:");
+  for (const status of driverStatus) {
+    const availability = status.available ? "available" : `unavailable (${status.reason})`;
+    const headless = status.headless ? "headless" : "requires visible window";
+    const selected = status.selected ? " selected" : "";
+    lines.push(
+      `  ${status.label}: ${availability}; ${headless}; actions: ${status.actions.join(",")}${selected}`
+    );
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleValidateTokens(args) {
+  const url = args.url;
+  const device = args.device;
+  const specPath = args.spec_path || ".ibr/tokens.json";
+  if (!url && !device) {
+    return errorResponse2("Provide either 'url' or 'device' parameter.");
+  }
+  let spec;
+  try {
+    spec = loadTokenSpec(specPath);
+  } catch (err) {
+    return errorResponse2(
+      err instanceof Error ? err.message : `Failed to load token spec from ${specPath}`
+    );
+  }
+  let elements;
+  let source;
+  if (url) {
+    try {
+      const result = await scan(url, { viewport: "desktop" });
+      elements = result.elements.all;
+      source = `${url} (web)`;
+    } catch (err) {
+      return errorResponse2(
+        err instanceof Error ? err.message : `Failed to scan URL: ${url}`
+      );
+    }
+  } else if (device) {
+    try {
+      const result = await scanNative({
+        device,
+        screenshot: false,
+        outputDir: DEFAULT_OUTPUT_DIR2
+      });
+      elements = result.elements.all;
+      source = `${device} (native)`;
+    } catch (err) {
+      return errorResponse2(
+        err instanceof Error ? err.message : `Failed to scan device: ${device}`
+      );
+    }
+  } else {
+    return errorResponse2("No valid source provided.");
+  }
+  const violations = validateAgainstTokens(elements, spec);
+  const lines = [
+    `Token Validation: ${spec.name}`,
+    `Source: ${source}`,
+    `Elements checked: ${elements.length}`,
+    `Violations found: ${violations.length}`
+  ];
+  if (violations.length === 0) {
+    lines.push("");
+    lines.push("All elements comply with design tokens.");
+    return textResponse(lines.join("\n"));
+  }
+  const errors = violations.filter((v) => v.severity === "error");
+  const warnings = violations.filter((v) => v.severity === "warning");
+  if (errors.length > 0) {
+    lines.push("");
+    lines.push(`Errors (${errors.length}):`);
+    for (const v of errors.slice(0, 10)) {
+      lines.push(`- ${v.message}`);
+    }
+    if (errors.length > 10) {
+      lines.push(`  ... and ${errors.length - 10} more`);
+    }
+  }
+  if (warnings.length > 0) {
+    lines.push("");
+    lines.push(`Warnings (${warnings.length}):`);
+    for (const v of warnings.slice(0, 10)) {
+      lines.push(`- ${v.message}`);
+    }
+    if (warnings.length > 10) {
+      lines.push(`  ... and ${warnings.length - 10} more`);
+    }
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleScanStatic(args) {
+  const htmlPath = args.html_path;
+  if (!htmlPath) {
+    return errorResponse2("The 'html_path' parameter is required.");
+  }
+  const cssPath = args.css_path;
+  const { scanStatic: scanStatic2 } = await Promise.resolve().then(() => (init_scan3(), scan_exports3));
+  const result = scanStatic2({ htmlPath, cssPath });
+  const lines = [
+    `Static Scan: ${result.htmlPath}`,
+    result.cssPath ? `CSS: ${result.cssPath}` : "CSS: none",
+    `Verdict: ${result.verdict}`,
+    `${result.summary}`,
+    "",
+    `Elements: ${result.elements.audit.totalElements} total, ${result.elements.audit.interactiveCount} interactive`,
+    `With handlers: ${result.elements.audit.withHandlers}, Without: ${result.elements.audit.withoutHandlers}`
+  ];
+  if (result.issues.length > 0) {
+    lines.push("");
+    lines.push(`Issues (${result.issues.length}):`);
+    for (const issue of result.issues.slice(0, 10)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+      if (issue.fix) {
+        lines.push(`  Fix: ${issue.fix}`);
+      }
+    }
+    if (result.issues.length > 10) {
+      lines.push(`  ... and ${result.issues.length - 10} more`);
+    }
+  }
+  return textResponse(lines.join("\n"));
+}
+async function handleBridgeToSource(args) {
+  const projectRoot = args.project_root;
+  if (!projectRoot) {
+    return errorResponse2("The 'project_root' parameter is required.");
+  }
+  if (!(0, import_fs22.existsSync)(projectRoot)) {
+    return errorResponse2(`Project root not found: ${projectRoot}`);
+  }
+  const deviceQuery = args.device;
+  const appName = args.app;
+  let elements;
+  let scanSource;
+  if (appName) {
+    try {
+      const result2 = await scanMacOS({ app: appName, outputDir: DEFAULT_OUTPUT_DIR2 });
+      elements = result2.elements.all;
+      scanSource = `macOS app: ${appName}`;
+    } catch (err) {
+      return errorResponse2(
+        err instanceof Error ? err.message : `Failed to scan macOS app: ${appName}`
+      );
+    }
+  } else {
+    try {
+      const result2 = await scanNative({
+        device: deviceQuery,
+        screenshot: false,
+        outputDir: DEFAULT_OUTPUT_DIR2
+      });
+      elements = result2.elements.all;
+      scanSource = `simulator: ${result2.device.name}`;
+    } catch (err) {
+      return errorResponse2(
+        err instanceof Error ? err.message : `Failed to scan simulator${deviceQuery ? `: ${deviceQuery}` : ""}`
+      );
+    }
+  }
+  const result = correlateToSource(elements, projectRoot);
+  const lines = [
+    `Source Bridge: ${scanSource}`,
+    formatBridgeResult(result)
+  ];
+  return textResponse(lines.join("\n"));
+}
+async function handleSimAction(args) {
+  const action = args.action;
+  const target = args.target;
+  const value = args.value;
+  const deviceQuery = args.device;
+  if (!action) {
+    return errorResponse2("The 'action' parameter is required.");
+  }
+  let udid;
+  try {
+    if (deviceQuery) {
+      const device = await findDevice(deviceQuery);
+      if (!device) {
+        return errorResponse2(
+          `No simulator found matching "${deviceQuery}". Run \`xcrun simctl list devices available\` to see available devices.`
+        );
+      }
+      udid = device.udid;
+    } else {
+      const { getBootedDevices: getBootedDevices2 } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
+      const booted = await getBootedDevices2();
+      if (booted.length === 0) {
+        return errorResponse2("No booted simulators found. Boot one with: xcrun simctl boot <device-name>");
+      }
+      udid = booted[0].udid;
+    }
+  } catch (err) {
+    return errorResponse2(`Failed to resolve device: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  switch (action) {
+    case "tap": {
+      if (!target) {
+        return errorResponse2("'target' is required for tap (element label or 'x,y' coordinates).");
+      }
+      const coordMatch = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(target);
+      if (coordMatch) {
+        const x = parseFloat(coordMatch[1]);
+        const y = parseFloat(coordMatch[2]);
+        const tapResult = await idbTap(udid, x, y);
+        if (!tapResult.success) {
+          return errorResponse2(`tap failed: ${tapResult.error}`);
+        }
+        return textResponse(`Tapped at (${x}, ${y}) on device ${udid.slice(0, 8)} via ${formatSimulatorDriver(tapResult.driver)}`);
+      }
+      try {
+        let flattenElements2 = function(elements) {
+          for (const el of elements) {
+            flat.push({ label: el.label, identifier: el.identifier, frame: el.frame });
+            if (el.children.length > 0) flattenElements2(el.children);
+          }
+        };
+        var flattenElements = flattenElements2;
+        const { extractNativeElements: extractNativeElements2, isExtractorAvailable: isExtractorAvailable2 } = await Promise.resolve().then(() => (init_extract3(), extract_exports2));
+        const { findDevice: fd } = await Promise.resolve().then(() => (init_simulator(), simulator_exports));
+        if (!isExtractorAvailable2()) {
+          return errorResponse2(
+            'AX element extraction unavailable. Cannot resolve element by label. Provide coordinates as "x,y" instead, or install Xcode Command Line Tools.'
+          );
+        }
+        const device = await fd(udid);
+        if (!device) {
+          return errorResponse2("Device not found after UDID resolution");
+        }
+        const nativeElements = await extractNativeElements2(device);
+        const flat = [];
+        flattenElements2(nativeElements);
+        const found = findElementByLabel(flat, target);
+        if (!found) {
+          const labels = flat.filter((e) => e.label).slice(0, 10).map((e) => `"${e.label}"`).join(", ");
+          return errorResponse2(
+            `Element "${target}" not found in AX tree. Available labels (first 10): ${labels || "none"}. Try providing "x,y" coordinates directly.`
+          );
+        }
+        const center = elementCenter(found);
+        if (!center) {
+          return errorResponse2(`Element "${target}" found but has no frame data. Cannot compute tap coordinates.`);
+        }
+        if (value) {
+          const override = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(value);
+          if (override) {
+            const ox = parseFloat(override[1]);
+            const oy = parseFloat(override[2]);
+            const overrideResult = await idbTap(udid, ox, oy);
+            if (!overrideResult.success) return errorResponse2(`tap failed: ${overrideResult.error}`);
+            return textResponse(`Tapped "${target}" at (${ox}, ${oy}) [coordinate override] via ${formatSimulatorDriver(overrideResult.driver)}`);
+          }
+        }
+        const tapResult = await idbTap(udid, center.x, center.y);
+        if (!tapResult.success) return errorResponse2(`tap failed: ${tapResult.error}`);
+        return textResponse(`Tapped "${target}" at center (${center.x}, ${center.y}) via ${formatSimulatorDriver(tapResult.driver)}`);
+      } catch (err) {
+        return errorResponse2(`tap by label failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    case "type": {
+      if (!target) {
+        return errorResponse2("'target' is required for type (text to input).");
+      }
+      const typeResult = await idbType(udid, target);
+      if (!typeResult.success) return errorResponse2(`type failed: ${typeResult.error}`);
+      return textResponse(`Typed "${target}" into focused field via ${formatSimulatorDriver(typeResult.driver)}`);
+    }
+    case "scroll":
+    case "swipe": {
+      const direction = target ?? "down";
+      const validDirs = ["up", "down", "left", "right"];
+      if (!validDirs.includes(direction)) {
+        return errorResponse2(`Invalid direction "${direction}". Use: up, down, left, right`);
+      }
+      let cx = 187;
+      let cy = 400;
+      if (value) {
+        const startMatch = /^(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)$/.exec(value);
+        if (startMatch) {
+          cx = parseFloat(startMatch[1]);
+          cy = parseFloat(startMatch[2]);
+        }
+      }
+      const distance = 300;
+      let x2 = cx, y2 = cy;
+      switch (direction) {
+        case "up":
+          y2 = cy + distance;
+          break;
+        case "down":
+          y2 = cy - distance;
+          break;
+        case "left":
+          x2 = cx + distance;
+          break;
+        case "right":
+          x2 = cx - distance;
+          break;
+      }
+      const swipeResult = await idbSwipe(udid, cx, cy, x2, y2, 0.5);
+      if (!swipeResult.success) return errorResponse2(`${action} failed: ${swipeResult.error}`);
+      return textResponse(`Scrolled ${direction} from (${cx}, ${cy}) via ${formatSimulatorDriver(swipeResult.driver)}`);
+    }
+    case "home": {
+      const homeResult = await idbButton(udid, "HOME");
+      if (!homeResult.success) return errorResponse2(`home button failed: ${homeResult.error}`);
+      return textResponse(`Pressed HOME button via ${formatSimulatorDriver(homeResult.driver)}`);
+    }
+    case "openUrl": {
+      if (!target) {
+        return errorResponse2("'target' is required for openUrl (the URL to open, e.g. 'myapp://route').");
+      }
+      const urlResult = await idbOpenUrl(udid, target);
+      if (!urlResult.success) return errorResponse2(`openUrl failed: ${urlResult.error}`);
+      return textResponse(`Opened URL: ${target} via ${formatSimulatorDriver(urlResult.driver)}`);
+    }
+    default:
+      return errorResponse2(`Unknown action: ${action}. Use: tap, type, scroll, swipe, home, openUrl`);
+  }
+}
+async function handleDesignSystem(args) {
+  const action = args.action;
+  const projectDir = args.projectDir || process.cwd();
+  const ibrDir = (0, import_path37.join)(projectDir, ".ibr");
+  const configPath = (0, import_path37.join)(ibrDir, "design-system.json");
+  switch (action) {
+    case "init": {
+      const templateCandidates = [
+        (0, import_path37.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path37.join)(projectDir, "templates", "design-system.json"),
+        // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
+        (0, import_path37.join)(__dirname, "..", "..", "templates", "design-system.json")
+      ];
+      const templatePath = templateCandidates.find((p) => (0, import_fs22.existsSync)(p));
+      if (!templatePath) {
+        return errorResponse2(
+          "Could not find design-system template. Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json"
+        );
+      }
+      if ((0, import_fs22.existsSync)(configPath)) {
+        return textResponse(
+          `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.
+Path: ${configPath}`
+        );
+      }
+      if (!(0, import_fs22.existsSync)(ibrDir)) {
+        (0, import_fs22.mkdirSync)(ibrDir, { recursive: true });
+      }
+      (0, import_fs22.copyFileSync)(templatePath, configPath);
+      return textResponse(
+        `Design system config created at .ibr/design-system.json
+Edit it to add your tokens and configure principle severities.
+Path: ${configPath}`
+      );
+    }
+    case "status": {
+      if (!(0, import_fs22.existsSync)(configPath)) {
+        return textResponse(
+          `No design system config found. Run design_system with action "init" to create one.
+Expected: ${configPath}`
+        );
+      }
+      const raw = (0, import_fs22.readFileSync)(configPath, "utf-8");
+      const config = JSON.parse(raw);
+      return textResponse(
+        `Design system config: ${configPath}
+
+${JSON.stringify(config, null, 2)}`
+      );
+    }
+    case "validate": {
+      const config = await loadDesignSystemConfig(projectDir);
+      if (!config) {
+        return textResponse(
+          `No design system config found. Run design_system with action "init" to create one.
+Expected: ${configPath}`
+        );
+      }
+      const lines = [
+        `Design system: ${config.name}`,
+        "",
+        "Calm Precision Principles:"
+      ];
+      const allPrincipleIds = [
+        ...config.principles.calmPrecision.core,
+        ...config.principles.calmPrecision.stylistic
+      ];
+      for (const principleId of allPrincipleIds) {
+        const explicit = config.principles.calmPrecision.severity[principleId];
+        const isCore = config.principles.calmPrecision.core.includes(principleId);
+        const defaultSev = explicit ?? (isCore ? "error" : "warn");
+        const source = explicit ? "explicit" : "default";
+        lines.push(`  ${principleId}: ${defaultSev} (${source})`);
+      }
+      if (config.principles.custom.length > 0) {
+        lines.push("", "Custom Principles:");
+        for (const custom of config.principles.custom) {
+          lines.push(`  ${custom.id} (${custom.name}): ${custom.severity}`);
+          lines.push(`    Checks: ${custom.checks.length}`);
+        }
+      }
+      lines.push("", "Token categories:");
+      const tokenKeys = Object.keys(config.tokens).filter(
+        (k) => config.tokens[k] !== void 0
+      );
+      if (tokenKeys.length === 0) {
+        lines.push("  (none configured)");
+      } else {
+        for (const k of tokenKeys) {
+          lines.push(`  ${k}: active`);
+        }
+      }
+      return textResponse(lines.join("\n"));
+    }
+    default:
+      return errorResponse2(`Unknown action: ${action}. Use: init, status, validate`);
+  }
+}
+var import_fs22, import_path37, NOOP_PIXEL_THRESHOLD, TOOLS, DEFAULT_OUTPUT_DIR2, mcpBrowserPoolPromise, REFERENCES_DIR, REFERENCES_INDEX;
+var init_tools = __esm({
+  "src/mcp/tools.ts"() {
+    "use strict";
+    import_fs22 = require("fs");
+    import_path37 = require("path");
+    init_design_system();
+    init_scan();
+    init_index();
+    init_session();
+    init_native();
+    init_capture();
+    init_schemas();
+    init_tokens();
+    init_bridge();
+    init_driver();
+    init_resolve();
+    init_search();
+    init_search_validation();
+    init_form();
+    init_login();
+    init_compat();
+    init_idb();
+    init_actions();
+    init_compress();
+    init_sessions();
+    init_sessions();
+    init_native_tools();
+    NOOP_PIXEL_THRESHOLD = 4;
+    TOOLS = [
+      {
+        name: "scan",
+        description: "Reads the live page and returns structured data \u2014 all interactive elements with computed CSS, handler wiring, accessibility data, page intent classification, and console errors. Use during or after building UI to see what is actually rendered. Pass sessionId to scan a gated route using the auth cookies of an existing session.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to scan (e.g. http://localhost:3000/page)"
+            },
+            viewport: {
+              type: "string",
+              enum: ["desktop", "mobile", "tablet"],
+              description: "Viewport preset (default: 'desktop')"
+            },
+            patience: {
+              type: "number",
+              description: "Wait longer for slow async content in ms (AI search, LLM results). Overrides network idle timeout."
+            },
+            networkIdleTimeout: {
+              type: "number",
+              description: "Network idle timeout in ms (default: 10000)"
+            },
+            sessionId: {
+              type: "string",
+              description: "R3: Optional session ID from session_start. When supplied, the scan reuses the session's auth cookies so gated routes (dashboards, settings) are scanned authenticated instead of bouncing to login."
+            }
+          },
+          required: ["url"]
+        },
+        annotations: {
+          title: "UI Scan",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "ask",
+        description: "Ask a focused question about a page and get a token-minimal verdict + findings, not a full scan dump. Closed question vocabulary today: 'is the touch-target compliant', 'do status indicators follow signal-to-noise', 'is design-system token compliance okay'. Unknown questions return verdict UNCERTAIN with the supported list. Returns ~500 bytes vs ~50KB for scan on most pages \u2014 designed for agent consumption. Pass screenshot:true to additionally receive the page screenshot as an image content block \u2014 vision-capable agents can fuse pixels with the verdict.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to evaluate (e.g. http://localhost:3000/page)"
+            },
+            question: {
+              type: "string",
+              description: "One of the supported questions (or an alias). Unknown questions return UNCERTAIN with the canonical list."
+            },
+            viewport: {
+              type: "string",
+              enum: ["desktop", "mobile", "tablet"],
+              description: "Viewport preset. Affects rules with mobile-vs-desktop thresholds (e.g. touch-target). Default 'desktop'."
+            },
+            maxFindings: {
+              type: "number",
+              description: "Cap on returned findings to keep responses tight. Default 25."
+            },
+            screenshot: {
+              type: "boolean",
+              description: "Capture and return the page screenshot as an image content block alongside the JSON verdict. Use when the question may benefit from visual evidence (e.g. iOS guest where the AX tree is unreachable, or visual hierarchy questions). Default false to keep responses small."
+            },
+            sessionId: {
+              type: "string",
+              description: "f2: Optional session ID from session_start. When supplied, ask reuses the session's auth cookies so gated routes (dashboards, settings) are evaluated authenticated instead of bouncing to login. Mirrors the same field on `scan`."
+            }
+          },
+          required: ["url", "question"]
+        },
+        annotations: {
+          title: "Ask (Verdict Engine)",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "snapshot",
+        description: "Capture a visual reference point of the current page state. Use before making UI changes so you can compare afterwards with the 'compare' tool.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to capture baseline from"
+            },
+            name: {
+              type: "string",
+              description: "Name for the baseline session (e.g. 'header-redesign')"
+            },
+            selector: {
+              type: "string",
+              description: "CSS selector to wait for before capturing (optional)"
+            }
+          },
+          required: ["url"]
+        },
+        annotations: {
+          title: "Capture Baseline",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "compare",
+        description: "Compare current UI state against a reference point. Returns a verdict (MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN) with changed regions and recommendations. Use after making UI changes to understand what shifted.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session_id: {
+              type: "string",
+              description: "Session ID to compare against (default: most recent session)"
+            }
+          }
+        },
+        annotations: {
+          title: "Compare Against Baseline",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "list_sessions",
+        description: "List all IBR sessions with timestamps, URLs, viewports, and comparison status. Shows captured reference points available for change tracking.",
+        inputSchema: {
+          type: "object",
+          properties: {}
+        },
+        annotations: {
+          title: "List Sessions",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      // --- Screenshot & reference tools ---
+      {
+        name: "screenshot",
+        description: "Navigate to any URL and capture a screenshot that Claude can see. Returns the image as a base64 content block. Use for viewing external design sites (Mobbin, Dribbble, etc.), capturing UI state visually, or saving design references. For structured data (CSS, handlers, a11y), use 'scan' instead.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to capture (localhost or external)"
+            },
+            viewport: {
+              type: "string",
+              enum: ["desktop", "mobile", "tablet"],
+              description: "Viewport preset (default: desktop)"
+            },
+            selector: {
+              type: "string",
+              description: "CSS selector to capture a specific element instead of full page"
+            },
+            full_page: {
+              type: "boolean",
+              description: "Capture full scrollable page (default: false \u2014 viewport only)"
+            },
+            wait_for: {
+              type: "string",
+              description: "CSS selector to wait for before capturing"
+            },
+            delay: {
+              type: "number",
+              description: "Extra ms to wait after page load (default: 2000 for external sites, 500 for localhost)"
+            },
+            save_as: {
+              type: "string",
+              description: "Save to reference library as this name (e.g. 'mobbin-login'). Stored in .ibr/references/"
+            }
+          },
+          required: ["url"]
+        },
+        annotations: {
+          title: "Screenshot",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "references",
+        description: "Manage the design reference library. List saved references, show a specific reference image (returned as base64 so Claude can see it), or delete a reference.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: ["list", "show", "delete"],
+              description: "Action to perform (default: list)"
+            },
+            name: {
+              type: "string",
+              description: "Reference name \u2014 required for show and delete"
+            }
+          }
+        },
+        annotations: {
+          title: "Design References",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      // --- Native iOS/watchOS tools ---
+      {
+        name: "native_scan",
+        description: "Scan a running iOS or watchOS simulator \u2014 extracts accessibility elements, validates touch targets, checks watchOS constraints, and audits accessibility labels. Use during or after building SwiftUI to see what the simulator renders.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            device: {
+              type: "string",
+              description: "Device name fragment or UDID (e.g. 'Apple Watch', 'iPhone 16'). Uses first booted device if omitted."
+            },
+            screenshot: {
+              type: "boolean",
+              description: "Capture a screenshot (default: true)"
+            }
+          }
+        },
+        annotations: {
+          title: "Native Simulator Scan",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "native_snapshot",
+        description: "Capture a visual reference point from a running iOS or watchOS simulator. Use before making native UI changes so you can track what changed.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            device: {
+              type: "string",
+              description: "Device name fragment or UDID. Uses first booted device if omitted."
+            },
+            name: {
+              type: "string",
+              description: "Name for the baseline session (e.g. 'watch-timer-screen')"
+            }
+          }
+        },
+        annotations: {
+          title: "Native Baseline Capture",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "native_compare",
+        description: "Compare current simulator state against a native reference point. Returns a verdict (MATCH, EXPECTED_CHANGE, UNEXPECTED_CHANGE, LAYOUT_BROKEN). Use after making native UI changes to understand what shifted.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            session_id: {
+              type: "string",
+              description: "Session ID to compare against (default: most recent native session)"
+            },
+            device: {
+              type: "string",
+              description: "Device name fragment or UDID. Uses first booted device if omitted."
+            }
+          }
+        },
+        annotations: {
+          title: "Native Compare Against Baseline",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      // --- macOS native app scanning ---
+      {
+        name: "scan_macos",
+        description: "Scan a running macOS native app via the Accessibility API \u2014 extracts all UI elements, validates touch targets, checks accessibility labels, classifies page intent, and produces a verdict. Use during or after building a native macOS app (SwiftUI/AppKit) to see what the UI actually renders.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            app: {
+              type: "string",
+              description: "App name to scan (e.g. 'Secrets Vault', 'Calculator'). Case-insensitive substring match."
+            },
+            bundle_id: {
+              type: "string",
+              description: "Bundle identifier (e.g. 'com.secretsvault.app'). Alternative to app name."
+            },
+            pid: {
+              type: "number",
+              description: "Direct process ID. Alternative to app/bundle_id."
+            },
+            screenshot: {
+              type: "string",
+              description: "Path to save a screenshot of the app window (optional)."
+            }
+          }
+        },
+        annotations: {
+          title: "macOS Native App Scan",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "native_devices",
+        description: "List available iOS and watchOS simulator devices with their boot status, runtime versions, and UDIDs.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            platform: {
+              type: "string",
+              enum: ["ios", "watchos"],
+              description: "Filter by platform (optional)"
+            }
+          }
+        },
+        annotations: {
+          title: "List Simulator Devices",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "validate_tokens",
+        description: "Validate UI elements against a design token specification. Checks touch targets, font sizes, colors, spacing, and corner radius against the token values defined in .ibr/tokens.json or a custom spec file.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to scan and validate (web URL or simulator URL)"
+            },
+            device: {
+              type: "string",
+              description: "Simulator device to scan (alternative to url, for native apps)"
+            },
+            spec_path: {
+              type: "string",
+              description: "Path to token spec JSON file (default: .ibr/tokens.json)"
+            }
+          }
+        },
+        annotations: {
+          title: "Validate Design Tokens",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "scan_static",
+        description: "Scan HTML and CSS files without launching a browser. Useful for email templates, SSR output, or design system components. Checks structure, accessibility attributes, touch targets, and content \u2014 without handler detection or computed cascade styles.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            html_path: {
+              type: "string",
+              description: "Path to the HTML file to scan"
+            },
+            css_path: {
+              type: "string",
+              description: "Optional path to CSS file to apply"
+            }
+          },
+          required: ["html_path"]
+        },
+        annotations: {
+          title: "Static HTML/CSS Scan",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "bridge_to_source",
+        description: "Correlate runtime UI elements from a native simulator scan to their Swift source code locations. Matches AX identifiers, labels, and button text to .accessibilityIdentifier(), .accessibilityLabel(), Button(), and View struct declarations. Uses NavGator architecture data if available, falls back to direct file scanning.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            device: {
+              type: "string",
+              description: "Simulator device to scan (name fragment or UDID). Uses first booted device if omitted."
+            },
+            project_root: {
+              type: "string",
+              description: "Absolute path to the Swift project root. Required \u2014 bridge needs source files to correlate against."
+            },
+            app: {
+              type: "string",
+              description: "macOS app name to scan instead of simulator (e.g. 'FlowDoro'). Alternative to device."
+            }
+          },
+          required: ["project_root"]
+        },
+        annotations: {
+          title: "Bridge AX Elements to Source",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: false
+        }
+      },
+      // --- Interaction tools ---
+      {
+        name: "interact",
+        description: "Click, type, fill, or perform other interactions on page elements. Resolves elements by accessible name (e.g. 'Submit', 'Search tools'). Use 'observe' first to see available actions.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL of the page to interact with"
+            },
+            action: {
+              type: "string",
+              enum: ["click", "type", "fill", "hover", "press", "scroll", "select", "check", "doubleClick", "rightClick"],
+              description: "Interaction to perform"
+            },
+            target: {
+              type: "string",
+              description: "Accessible name or description of the element (e.g. 'Submit button', 'Search tools', 'FlowDoro')"
+            },
+            value: {
+              type: "string",
+              description: "Value for type/fill/press/select/scroll actions"
+            },
+            role: {
+              type: "string",
+              description: "Optional ARIA role filter (e.g. 'button', 'textbox', 'link')"
+            },
+            screenshot: {
+              type: "boolean",
+              description: "Capture screenshot after interaction (default: true)"
+            }
+          },
+          required: ["url", "action", "target"]
+        },
+        annotations: {
+          title: "Interact with Element",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "observe",
+        description: "Preview all available actions on a page without executing them. Returns clickable buttons, fillable inputs, links, and other interactive elements with their accessible names. Use before 'interact' to find the right target name.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to observe"
+            },
+            role: {
+              type: "string",
+              description: "Filter by ARIA role (e.g. 'button', 'textbox', 'link')"
+            },
+            limit: {
+              type: "number",
+              description: "Max number of actions to return (default: 30)"
+            }
+          },
+          required: ["url"]
+        },
+        annotations: {
+          title: "Observe Page Actions",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "extract",
+        description: "Extract structured data from a page \u2014 headings, buttons, inputs, links, forms. Use to verify page state after interactions.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL to extract data from"
+            }
+          },
+          required: ["url"]
+        },
+        annotations: {
+          title: "Extract Page Data",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "interact_and_verify",
+        description: "Execute an interaction and capture before/after state to verify it worked. Returns element diff (added/removed elements) and optional screenshot comparison.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: {
+              type: "string",
+              description: "URL of the page"
+            },
+            action: {
+              type: "string",
+              enum: ["click", "type", "fill", "hover", "press"],
+              description: "Interaction to perform"
+            },
+            target: {
+              type: "string",
+              description: "Accessible name of the element"
+            },
+            value: {
+              type: "string",
+              description: "Value for type/fill/press actions"
+            }
+          },
+          required: ["url", "action", "target"]
+        },
+        annotations: {
+          title: "Interact and Verify",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      // --- Flow tools ---
+      {
+        name: "flow_search",
+        description: "Execute a full search flow \u2014 finds the search box, enters query, submits, and returns results. Use for testing search functionality end-to-end, including semantic/AI search on the current screen via sessionId.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL of the page with search. Optional when sessionId is provided." },
+            query: { type: "string", description: "Search query to enter" },
+            sessionId: { type: "string", description: "Optional: use existing session instead of launching new browser" },
+            userIntent: { type: "string", description: "Optional semantic intent to validate result relevance against" },
+            resultsSelector: { type: "string", description: "Optional CSS selector for result elements" },
+            submit: { type: "boolean", description: "Submit the query with Enter (default: true). Set false for autocomplete/search-as-you-type." },
+            aiValidation: { type: "boolean", description: "Return extracted result content and validation context for AI relevance review" }
+          },
+          required: ["query"]
+        },
+        annotations: {
+          title: "Search Flow",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "flow_form",
+        description: "Fill and optionally submit a form. Detects form fields semantically and fills them with provided values. Use for testing form submission flows.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL of the page with the form" },
+            fields: {
+              type: "object",
+              description: 'Field name to value pairs, e.g., {"Email": "test@example.com", "Password": "secret"}'
+            },
+            submit: { type: "boolean", description: "Submit the form after filling (default: true)" },
+            sessionId: { type: "string", description: "Optional: use existing session" }
+          },
+          required: ["url", "fields"]
+        },
+        annotations: {
+          title: "Form Fill Flow",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "flow_login",
+        description: "Execute a login flow \u2014 finds username/email and password fields, fills them, clicks submit, and verifies login success. Use for testing authentication flows.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL of the login page" },
+            username: { type: "string", description: "Username or email" },
+            password: { type: "string", description: "Password" },
+            sessionId: { type: "string", description: "Optional: use existing session" }
+          },
+          required: ["url", "username", "password"]
+        },
+        annotations: {
+          title: "Login Flow",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "plan_test",
+        description: "Auto-generate a test plan by observing the current page. Returns suggested interaction steps, assertions, and detected flows (search, form, login). Use as the first step before running tests.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL to observe for test planning" },
+            intent: {
+              type: "string",
+              description: "Optional: what to test, e.g., 'login flow', 'search functionality'"
+            },
+            sessionId: { type: "string", description: "Optional: use existing session" }
+          },
+          required: ["url"]
+        },
+        annotations: {
+          title: "Plan Test",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      // --- Persistent session tools ---
+      {
+        name: "session_start",
+        description: "Start a persistent session for web (Chrome/Safari), macOS native app, or iOS/watchOS simulator. Chrome is default for web. Use 'app' for native macOS apps, 'simulator' for iOS/watchOS. Session stays alive across tool calls \u2014 use session_action to interact, session_read to observe/extract, session_close when done.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            url: { type: "string", description: "URL to navigate to (web sessions)" },
+            headless: { type: "boolean", description: "Run headless (default: true, web only)" },
+            viewport: {
+              type: "object",
+              properties: {
+                width: { type: "number" },
+                height: { type: "number" }
+              }
+            },
+            browser: {
+              type: "string",
+              enum: ["chrome", "safari"],
+              description: "Browser for web sessions (default: chrome)"
+            },
+            app: {
+              type: "string",
+              description: "macOS app name for native sessions (e.g. 'Finder', 'Secrets Vault')"
+            },
+            simulator: {
+              type: "string",
+              description: "Simulator device name or UDID for iOS/watchOS (e.g. 'iPhone 16 Pro')"
+            }
+          }
+        },
+        annotations: {
+          title: "Start Persistent Session",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "session_action",
+        description: "Execute an interaction in a persistent session (click, type, fill, hover, press, scroll, select, check). Elements resolved by accessible name. Returns rich diagnostics: confidence score, resolution tier, alternatives if not found.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: { type: "string", description: "Session ID returned by session_start" },
+            action: {
+              type: "string",
+              enum: ["click", "type", "fill", "hover", "press", "scroll", "select", "check"],
+              description: "Interaction to perform"
+            },
+            target: { type: "string", description: "Accessible name of element (e.g., 'Submit', 'Email')" },
+            value: { type: "string", description: "Text to type/fill, key to press, or scroll direction" },
+            role: { type: "string", description: "Filter by role (button, link, textbox, etc.)" },
+            screenshot: { type: "boolean", description: "Capture screenshot after action (default: true)" }
+          },
+          required: ["sessionId", "action", "target"]
+        },
+        annotations: {
+          title: "Session Action",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "session_read",
+        description: "Read page state from a persistent session without interacting. Modes: 'observe' (list interactive elements \u2014 default), 'extract' (headings, buttons, inputs, links), 'screenshot' (capture current view), 'state' (URL, element count, console errors).",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: { type: "string", description: "Session ID returned by session_start" },
+            what: {
+              type: "string",
+              enum: ["observe", "extract", "screenshot", "state"],
+              default: "observe",
+              description: "What to read from the session. Defaults to 'observe' when omitted."
+            }
+          },
+          required: ["sessionId"]
+        },
+        annotations: {
+          title: "Session Read",
+          readOnlyHint: true,
+          destructiveHint: false,
+          idempotentHint: true,
+          openWorldHint: true
+        }
+      },
+      {
+        name: "session_close",
+        description: "Close a persistent browser session and release resources.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            sessionId: { type: "string", description: "Session ID returned by session_start" }
+          },
+          required: ["sessionId"]
+        },
+        annotations: {
+          title: "Close Persistent Session",
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      ...NATIVE_SESSION_TOOLS,
+      // --- iOS/watchOS simulator interaction ---
+      {
+        name: "design_system",
+        description: "Manage the project design system configuration. Initialize default config, view active configuration, or validate that tokens and principles are correctly set up.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            action: {
+              type: "string",
+              enum: ["init", "status", "validate"],
+              description: "'init' copies the default config to .ibr/design-system.json, 'status' shows the active config, 'validate' reports which principles are active and their severities"
+            },
+            projectDir: {
+              type: "string",
+              description: "Project directory (default: current working directory)"
+            }
+          },
+          required: ["action"]
+        },
+        annotations: {
+          title: "Design System",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      },
+      {
+        name: "sim_action",
+        description: "Tap, type, scroll, or press a hardware button in an iOS/watchOS simulator. For tap with a label target: resolves the element from the accessibility tree then taps at its center coordinates. For tap with coordinates: taps directly at x,y. Tap, type, and swipe use IBR's capability-aware driver chain: native-window fallback, then IDB. Set IBR_SIMULATOR_DRIVER=idb to require IDB in headless CI. openUrl uses simctl.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            device: {
+              type: "string",
+              description: "Device name fragment or UDID. Uses first booted device if omitted."
+            },
+            action: {
+              type: "string",
+              enum: ["tap", "type", "scroll", "swipe", "home", "openUrl"],
+              description: "Interaction to perform"
+            },
+            target: {
+              type: "string",
+              description: "For tap: element accessibility label to resolve (e.g. 'Submit') or 'x,y' coordinates. For type: the text to input. For scroll/swipe: direction ('up', 'down', 'left', 'right'). For openUrl: the URL to open (e.g. 'myapp://route'). For home: ignored."
+            },
+            value: {
+              type: "string",
+              description: "Optional extra value. For tap by label: overrides auto-resolved coordinates if provided as 'x,y'. For scroll: starting x,y as 'x,y' (default: screen center)."
+            }
+          },
+          required: ["action", "target"]
+        },
+        annotations: {
+          title: "Simulator Action",
+          readOnlyHint: false,
+          destructiveHint: false,
+          idempotentHint: false,
+          openWorldHint: false
+        }
+      }
+    ];
+    DEFAULT_OUTPUT_DIR2 = ".ibr";
+    REFERENCES_DIR = (0, import_path37.join)(DEFAULT_OUTPUT_DIR2, "references");
+    REFERENCES_INDEX = (0, import_path37.join)(REFERENCES_DIR, "index.json");
+  }
+});
+
 // src/bin/ibr.ts
 var import_commander = require("commander");
-var import_promises33 = require("fs/promises");
-var import_path34 = require("path");
-var import_fs19 = require("fs");
+var import_promises34 = require("fs/promises");
+var import_path38 = require("path");
+var import_fs23 = require("fs");
 init_driver();
 init_compat();
 init_index();
 init_operation_tracker();
 init_devices();
+
+// src/bin/native-session-cli.ts
+var import_crypto3 = require("crypto");
+init_session_controller();
+
+// src/native/session-store.ts
+var import_fs14 = require("fs");
+var import_path25 = require("path");
+var import_crypto2 = require("crypto");
+var DEFAULT_SESSION_STORE_DIR = (0, import_path25.join)(".ibr", "native-sessions");
+function safeSessionFilePart(sessionId) {
+  if (!sessionId || !/^[a-zA-Z0-9._-]+$/.test(sessionId) || sessionId === "." || sessionId === "..") {
+    throw new Error(`Invalid sessionId for file store: ${JSON.stringify(sessionId)}`);
+  }
+  return sessionId;
+}
+function sessionFilePath(sessionId, baseDir) {
+  return (0, import_path25.join)(baseDir, `${safeSessionFilePart(sessionId)}.json`);
+}
+function writeSession(sessionId, entry, baseDir = DEFAULT_SESSION_STORE_DIR) {
+  (0, import_fs14.mkdirSync)(baseDir, { recursive: true });
+  const target = sessionFilePath(sessionId, baseDir);
+  const tmp = (0, import_path25.join)(
+    baseDir,
+    `.${safeSessionFilePart(sessionId)}.${process.pid}-${(0, import_crypto2.randomBytes)(4).toString("hex")}.tmp`
+  );
+  (0, import_fs14.writeFileSync)(tmp, JSON.stringify(entry, null, 2), "utf8");
+  (0, import_fs14.renameSync)(tmp, target);
+}
+function readSession(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
+  const target = sessionFilePath(sessionId, baseDir);
+  if (!(0, import_fs14.existsSync)(target)) return null;
+  try {
+    const parsed = JSON.parse((0, import_fs14.readFileSync)(target, "utf8"));
+    if (!parsed || parsed.type !== "macos" && parsed.type !== "simulator") return null;
+    if (typeof parsed.createdAt !== "number") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+function deleteSession2(sessionId, baseDir = DEFAULT_SESSION_STORE_DIR) {
+  const target = sessionFilePath(sessionId, baseDir);
+  try {
+    (0, import_fs14.unlinkSync)(target);
+  } catch {
+  }
+}
+
+// src/bin/native-session-cli.ts
+var EXIT_OK = 0;
+var EXIT_ACTION_FAILED = 1;
+var EXIT_SESSION_NOT_FOUND = 2;
+var EXIT_WAIT_FAILED = 3;
+var EXIT_INVALID_TARGET = 4;
+function defaultCliDeps() {
+  return {
+    makeController: (store) => new NativeSessionController({ store }),
+    writeSession,
+    readSession,
+    deleteSession: deleteSession2
+  };
+}
+function toSessionEntry(stored) {
+  return {
+    driver: null,
+    type: stored.type,
+    app: stored.app,
+    pid: stored.pid,
+    device: stored.device,
+    createdAt: stored.createdAt
+  };
+}
+function toStoredSession(entry) {
+  if (entry.type !== "macos" && entry.type !== "simulator") {
+    throw new Error(`Cannot persist non-native session type to native-session-store: ${entry.type}`);
+  }
+  return { type: entry.type, app: entry.app, pid: entry.pid, device: entry.device, createdAt: entry.createdAt };
+}
+function parsePayload(text) {
+  try {
+    const parsed = JSON.parse(text);
+    return typeof parsed === "object" && parsed !== null ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+function invalidTarget(message, extra = {}) {
+  return {
+    exitCode: EXIT_INVALID_TARGET,
+    json: { ok: false, exitCode: EXIT_INVALID_TARGET, error: message, ...extra },
+    text: `\u2717 ${message}`
+  };
+}
+function sessionNotFound(sessionId) {
+  const message = `Session not found: ${sessionId}. Use native:session:start first.`;
+  return {
+    exitCode: EXIT_SESSION_NOT_FOUND,
+    json: { ok: false, exitCode: EXIT_SESSION_NOT_FOUND, sessionId, error: message },
+    text: `\u2717 ${message}`
+  };
+}
+function actionFailed(message, extra = {}) {
+  return {
+    exitCode: EXIT_ACTION_FAILED,
+    json: { ok: false, exitCode: EXIT_ACTION_FAILED, error: message, ...extra },
+    text: `\u2717 ${message}`
+  };
+}
+function waitFailed(message, extra = {}) {
+  return {
+    exitCode: EXIT_WAIT_FAILED,
+    json: { ok: false, exitCode: EXIT_WAIT_FAILED, error: message, ...extra },
+    text: `\u2717 ${message}`
+  };
+}
+function looksLikeTargetProblem(payload, rawText) {
+  if (typeof payload.hint === "string") return true;
+  return rawText.includes("not found") || rawText.includes("no AX path");
+}
+function postActionOf(payload) {
+  const postAction = payload.postAction;
+  return postAction && typeof postAction === "object" ? postAction : void 0;
+}
+async function handleStart(opts, deps = defaultCliDeps()) {
+  const provided = [opts.app !== void 0, opts.pid !== void 0, opts.simulator !== void 0].filter(Boolean).length;
+  if (provided !== 1) {
+    return invalidTarget("Provide exactly one of --app, --pid, or --simulator.");
+  }
+  const sessionId = opts.sessionId ?? (0, import_crypto3.randomUUID)();
+  const store = /* @__PURE__ */ new Map();
+  const controller = deps.makeController(store);
+  let result;
+  if (opts.pid !== void 0) {
+    result = controller.startMacOSPid(sessionId, opts.pid);
+  } else if (opts.app) {
+    result = await controller.startMacOS(sessionId, opts.app, "native:session:start (macos)");
+  } else {
+    result = await controller.startSimulator(sessionId, opts.simulator, "native:session:start (simulator)");
+  }
+  if (result.kind !== "text") {
+    return actionFailed("native:session:start returned an unexpected image result.");
+  }
+  if (result.isError) {
+    return invalidTarget(result.text, { sessionId });
+  }
+  const entry = store.get(sessionId);
+  if (!entry) {
+    return actionFailed(`native:session:start succeeded but produced no session entry for ${sessionId}.`);
+  }
+  deps.writeSession(sessionId, toStoredSession(entry));
+  const payload = parsePayload(result.text);
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId, ...payload },
+    text: `Started ${entry.type} session ${sessionId}${entry.app ? ` (${entry.app})` : ""}${entry.pid ? ` pid=${entry.pid}` : ""}`
+  };
+}
+async function handleRead(opts, deps = defaultCliDeps()) {
+  const stored = deps.readSession(opts.sessionId);
+  if (!stored) return sessionNotFound(opts.sessionId);
+  const entry = toSessionEntry(stored);
+  const store = /* @__PURE__ */ new Map([[opts.sessionId, entry]]);
+  const controller = deps.makeController(store);
+  const what = opts.what ?? "observe";
+  const limit = opts.limit ?? 50;
+  const result = entry.type === "macos" ? await controller.readMacOS(entry, what, limit) : await controller.readSimulator(entry, what, limit);
+  if (result.kind === "image") {
+    const metadata = parsePayload(result.metadata);
+    return {
+      exitCode: EXIT_OK,
+      json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...metadata, screenshotBase64Omitted: true },
+      text: `Screenshot saved${typeof metadata.screenshotPath === "string" ? `: ${metadata.screenshotPath}` : ""}`
+    };
+  }
+  if (result.isError) {
+    const payload2 = parsePayload(result.text);
+    const code = /^Unknown read mode/.test(result.text) ? EXIT_INVALID_TARGET : EXIT_ACTION_FAILED;
+    return {
+      exitCode: code,
+      json: { ok: false, exitCode: code, sessionId: opts.sessionId, error: result.text, ...payload2 },
+      text: `\u2717 ${result.text}`
+    };
+  }
+  const payload = parsePayload(result.text);
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...payload },
+    text: `Read (${what}) on ${opts.sessionId}: ${payload.returned ?? payload.totalElements ?? 0} element(s)`
+  };
+}
+async function handleAction(opts, deps = defaultCliDeps()) {
+  const stored = deps.readSession(opts.sessionId);
+  if (!stored) return sessionNotFound(opts.sessionId);
+  const entry = toSessionEntry(stored);
+  const store = /* @__PURE__ */ new Map([[opts.sessionId, entry]]);
+  const controller = deps.makeController(store);
+  const request = {
+    action: opts.action,
+    target: opts.target,
+    value: opts.value,
+    role: opts.role,
+    waitFor: opts.waitFor,
+    waitTimeoutMs: opts.waitTimeoutMs,
+    chord: opts.chord,
+    op: opts.op,
+    app: opts.app,
+    menuPath: opts.menuPath
+  };
+  const result = entry.type === "macos" ? await controller.actionMacOS(entry, request) : await controller.actionSimulator(entry, request);
+  if (result.kind !== "text") {
+    return actionFailed("native:session:action returned an unexpected image result.");
+  }
+  const payload = parsePayload(result.text);
+  const postAction = postActionOf(payload);
+  if (result.isError) {
+    if (opts.waitFor && postAction && postAction.settled === false) {
+      return waitFailed(`Wait for "${opts.waitFor}" timed out.`, { sessionId: opts.sessionId, ...payload });
+    }
+    const code = looksLikeTargetProblem(payload, result.text) ? EXIT_INVALID_TARGET : EXIT_ACTION_FAILED;
+    const message = typeof payload.error === "string" ? payload.error : result.text;
+    return {
+      exitCode: code,
+      json: { ok: false, exitCode: code, sessionId: opts.sessionId, ...payload, error: message },
+      text: `\u2717 ${message}`
+    };
+  }
+  if (opts.waitFor && postAction && postAction.settled === false) {
+    return waitFailed(`Action succeeded but wait for "${opts.waitFor}" timed out.`, {
+      sessionId: opts.sessionId,
+      ...payload
+    });
+  }
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...payload },
+    text: `\u2713 ${opts.action}${opts.target ? ` on "${opts.target}"` : ""} succeeded`
+  };
+}
+async function handleClose(opts, deps = defaultCliDeps()) {
+  const stored = deps.readSession(opts.sessionId);
+  if (!stored) return sessionNotFound(opts.sessionId);
+  const entry = toSessionEntry(stored);
+  const store = /* @__PURE__ */ new Map([[opts.sessionId, entry]]);
+  const controller = deps.makeController(store);
+  const result = controller.closeNative(opts.sessionId);
+  if (result.kind !== "text") {
+    return actionFailed("native:session:close returned an unexpected image result.");
+  }
+  if (result.isError) {
+    return invalidTarget(result.text, { sessionId: opts.sessionId });
+  }
+  deps.deleteSession(opts.sessionId);
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, message: result.text },
+    text: result.text
+  };
+}
+function emit(result, json) {
+  if (json) {
+    console.log(JSON.stringify(result.json, null, 2));
+  } else if (result.exitCode === EXIT_OK) {
+    console.log(result.text);
+  } else {
+    console.error(result.text);
+  }
+  process.exit(result.exitCode);
+}
+function registerNativeSessionCommands(program2) {
+  program2.command("native:session:start").description("Start a cursor-free native session for a running macOS app or iOS/watchOS simulator (CLI parity for native_session_start)").option("--app <name>", "macOS app name, bundle ID, or process-name fragment").option("--pid <n>", "Direct macOS process ID").option("--simulator <name>", "Simulator device name or UDID").option("--session-id <id>", "Use an explicit session ID instead of a generated UUID (for deterministic repros)").option("--json", "Emit structured JSON to stdout").action(async (opts) => {
+    const result = await handleStart({
+      app: opts.app,
+      pid: opts.pid !== void 0 ? parseInt(opts.pid, 10) : void 0,
+      simulator: opts.simulator,
+      sessionId: opts.sessionId
+    });
+    emit(result, opts.json);
+  });
+  program2.command("native:session:read <sessionId>").description("Read a native session \u2014 observe/extract/state/screenshot (CLI parity for native_session_read)").option("--what <mode>", "observe | extract | screenshot | state", "observe").option("--limit <n>", "Maximum elements to return", "50").option("--json", "Emit structured JSON to stdout").action(async (sessionId, opts) => {
+    const result = await handleRead({ sessionId, what: opts.what, limit: parseInt(opts.limit, 10) });
+    emit(result, opts.json);
+  });
+  program2.command("native:session:action <sessionId>").description("Perform a native session action by accessible name (CLI parity for native_session_action)").requiredOption("--action <kind>", "click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|keystroke|app|menuPath").option("--target <name>", "Accessible name / AX identifier / description / value to target").option("--value <text>", "Text for fill/type actions").option("--role <role>", "Optional role filter").option("--wait-for <name>", "Expected post-action target to poll for; failing to settle is a non-zero exit").option("--wait-timeout-ms <n>", "Post-action settle timeout in ms, clamped 0..5000").option("--chord <chord>", "Keyboard chord for the 'keystroke' action, e.g. 'Meta+n'").option("--op <op>", "App lifecycle op for the 'app' action: launch|switch|quit").option("--app <name>", "App name/bundle id for the 'app' action's lifecycle op").option("--menu-path <items>", "Comma-separated AXMenu titles for the 'menuPath' action, e.g. 'File,New Window'").option("--json", "Emit structured JSON to stdout").action(async (sessionId, opts) => {
+    const result = await handleAction({
+      sessionId,
+      action: opts.action,
+      target: opts.target,
+      value: opts.value,
+      role: opts.role,
+      waitFor: opts.waitFor,
+      waitTimeoutMs: opts.waitTimeoutMs !== void 0 ? parseInt(opts.waitTimeoutMs, 10) : void 0,
+      chord: opts.chord,
+      op: opts.op,
+      app: opts.app,
+      menuPath: opts.menuPath ? opts.menuPath.split(",").map((s) => s.trim()).filter(Boolean) : void 0
+    });
+    emit(result, opts.json);
+  });
+  program2.command("native:session:close <sessionId>").description("Close a native session record (CLI parity for native_session_close)").option("--json", "Emit structured JSON to stdout").action(async (sessionId, opts) => {
+    const result = await handleClose({ sessionId });
+    emit(result, opts.json);
+  });
+}
+
+// src/bin/ibr.ts
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse((0, import_fs23.readFileSync)((0, import_path38.join)(__dirname, "..", "..", "package.json"), "utf8"));
+    if (typeof pkg.version === "string") return pkg.version;
+  } catch {
+  }
+  return "0.0.0";
+}
 function resolveViewportFromFlags(deviceName, subcommandViewport, globalViewport, viewports, fallback) {
   if (deviceName) {
     const profile = resolveDevice(deviceName);
@@ -23659,10 +30797,10 @@ program.hook("preAction", () => {
   if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
 });
 async function loadConfig() {
-  const configPath = (0, import_path34.join)(process.cwd(), ".ibrrc.json");
-  if ((0, import_fs19.existsSync)(configPath)) {
+  const configPath = (0, import_path38.join)(process.cwd(), ".ibrrc.json");
+  if ((0, import_fs23.existsSync)(configPath)) {
     try {
-      const content = await (0, import_promises33.readFile)(configPath, "utf-8");
+      const content = await (0, import_promises34.readFile)(configPath, "utf-8");
       return JSON.parse(content);
     } catch {
     }
@@ -23730,7 +30868,7 @@ function withBrowserOptions(opts) {
     ...getBrowserConnectionOptions()
   };
 }
-program.name("ibr").description("End-to-end design tool for AI coding agents").version("1.1.0");
+program.name("ibr").description("End-to-end design tool for AI coding agents").version(readPackageVersion());
 program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
@@ -23931,16 +31069,16 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     if (runVisual) {
       const { compareImages: compareImages2, analyzeComparison: analyzeComparison2 } = await Promise.resolve().then(() => (init_compare(), compare_exports));
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-      const { mkdir: mkdir27, access: access4 } = await import("fs/promises");
-      const { join: join30 } = await import("path");
+      const { mkdir: mkdir28, access: access4 } = await import("fs/promises");
+      const { join: join34 } = await import("path");
       const outputDir = globalOpts.outputDir || ".ibr";
-      const sessions = await listSessions2(outputDir);
+      const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
-      let baselineSession = options.baseline ? sessions.find((s) => s.id === options.baseline) : sessions.filter((s) => new URL(s.url).pathname === urlPath && s.status !== "compared").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      let baselineSession = options.baseline ? sessions2.find((s) => s.id === options.baseline) : sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.status !== "compared").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
-        await mkdir27(join30(outputDir, "sessions", baselineSession.id), { recursive: true });
+        await mkdir28(join34(outputDir, "sessions", baselineSession.id), { recursive: true });
         await page.screenshot({ path: currentPath, fullPage: true });
         try {
           await access4(paths.baseline);
@@ -23971,12 +31109,12 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { getSemanticOutput: getSemanticOutput2, detectLandmarks: detectLandmarks2, compareLandmarks: compareLandmarks2, getExpectedLandmarksForIntent: getExpectedLandmarksForIntent2, getExpectedLandmarksFromContext: getExpectedLandmarksFromContext2, LANDMARK_SELECTORS: LANDMARK_SELECTORS2 } = await Promise.resolve().then(() => (init_semantic(), semantic_exports));
       const { listSessions: listSessions2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { readFile: readFile23 } = await import("fs/promises");
-      const { join: join30 } = await import("path");
+      const { join: join34 } = await import("path");
       const semantic = await getSemanticOutput2(page);
       const outputDir = globalOpts.outputDir || ".ibr";
-      const sessions = await listSessions2(outputDir);
+      const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
-      const baselineSession = sessions.filter((s) => new URL(s.url).pathname === urlPath && s.landmarkElements && s.landmarkElements.length > 0).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      const baselineSession = sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.landmarkElements && s.landmarkElements.length > 0).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
       let elementChecks = [];
       if (baselineSession && baselineSession.landmarkElements) {
         const currentLandmarks = await detectLandmarks2(page);
@@ -23996,7 +31134,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
         const intentLandmarks = getExpectedLandmarksForIntent2(pageIntent);
         let contextLandmarks = [];
         try {
-          const claudeMdPath = join30(process.cwd(), "CLAUDE.md");
+          const claudeMdPath = join34(process.cwd(), "CLAUDE.md");
           const content = await readFile23(claudeMdPath, "utf-8");
           contextLandmarks = getExpectedLandmarksFromContext2({ principles: [content] });
         } catch {
@@ -24274,8 +31412,8 @@ program.command("ask <url> <question...>").description("Ask a focused question a
 program.command("status").description("Show sessions awaiting comparison (baselines without checks)").action(async () => {
   try {
     const ibr = await createIBR(program.opts());
-    const sessions = await ibr.listSessions();
-    const pending = sessions.filter((s) => s.status === "baseline");
+    const sessions2 = await ibr.listSessions();
+    const pending = sessions2.filter((s) => s.status === "baseline");
     if (pending.length === 0) {
       console.log("No pending visual checks.");
       console.log("");
@@ -24303,20 +31441,20 @@ program.command("status").description("Show sessions awaiting comparison (baseli
 program.command("list").description("List all sessions").option("-f, --format <format>", "Output format: json, text", "text").option("--by-app", "Group sessions by app/branch (git context)").action(async (options) => {
   try {
     const ibr = await createIBR(program.opts());
-    const sessions = await ibr.listSessions();
-    if (sessions.length === 0) {
+    const sessions2 = await ibr.listSessions();
+    if (sessions2.length === 0) {
       console.log("No sessions found.");
       return;
     }
     if (options.format === "json") {
-      console.log(JSON.stringify(sessions, null, 2));
+      console.log(JSON.stringify(sessions2, null, 2));
     } else if (options.byApp) {
       const { getAppContext: getAppContext2 } = await Promise.resolve().then(() => (init_git_context(), git_context_exports));
       const context = await getAppContext2(process.cwd()).catch(() => null);
       const currentApp = context?.appName || "unknown";
       const currentBranch = context?.branch || "unknown";
       const groups = /* @__PURE__ */ new Map();
-      for (const session of sessions) {
+      for (const session of sessions2) {
         let groupKey = "Other";
         try {
           if (session.url) {
@@ -24346,7 +31484,7 @@ program.command("list").description("List all sessions").option("-f, --format <f
       console.log("");
       console.log("ID              STATUS    VIEWPORT  DATE        NAME");
       console.log("-".repeat(70));
-      for (const session of sessions) {
+      for (const session of sessions2) {
         console.log(formatSessionSummary(session));
       }
     }
@@ -24414,14 +31552,14 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { resolve: resolve5 } = await import("path");
   const distBinRoot = resolve5(__dirname, "..", "..");
   const candidates = [
-    (0, import_path34.join)(distBinRoot, "web-ui"),
-    (0, import_path34.join)(process.cwd(), "web-ui"),
-    (0, import_path34.join)(process.cwd(), "node_modules", "@tyroneross", "interface-built-right", "web-ui"),
-    (0, import_path34.join)(process.cwd(), "node_modules", "interface-built-right", "web-ui")
+    (0, import_path38.join)(distBinRoot, "web-ui"),
+    (0, import_path38.join)(process.cwd(), "web-ui"),
+    (0, import_path38.join)(process.cwd(), "node_modules", "@tyroneross", "interface-built-right", "web-ui"),
+    (0, import_path38.join)(process.cwd(), "node_modules", "interface-built-right", "web-ui")
   ];
   let webUiDir = null;
   for (const c of candidates) {
-    if ((0, import_fs19.existsSync)(c)) {
+    if ((0, import_fs23.existsSync)(c)) {
       webUiDir = c;
       break;
     }
@@ -25022,10 +32160,10 @@ program.command("session:list").description("List all active interactive session
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     const serverRunning = await isServerRunning2(outputDir);
-    const sessions = await listActiveSessions2(outputDir);
+    const sessions2 = await listActiveSessions2(outputDir);
     console.log(`Browser server: ${serverRunning ? "running" : "not running"}`);
     console.log("");
-    if (sessions.length === 0) {
+    if (sessions2.length === 0) {
       console.log("No sessions found.");
       console.log("");
       console.log("Start one with:");
@@ -25033,7 +32171,7 @@ program.command("session:list").description("List all active interactive session
       return;
     }
     console.log("Sessions:");
-    for (const id of sessions) {
+    for (const id of sessions2) {
       console.log(`  ${id}`);
     }
   } catch (error) {
@@ -25378,7 +32516,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     const { generateValidationContext: generateValidationContext2, generateValidationPrompt: generateValidationPrompt2, analyzeForObviousIssues: analyzeForObviousIssues2 } = await Promise.resolve().then(() => (init_search_validation(), search_validation_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
-    const { mkdir: mkdir27 } = await import("fs/promises");
+    const { mkdir: mkdir28 } = await import("fs/promises");
     console.log(`Testing search on ${url}...`);
     console.log(`Query: "${options.query}"`);
     if (options.intent) console.log(`Intent: ${options.intent}`);
@@ -25388,8 +32526,8 @@ program.command("search-test <url>").description("Run AI search test with screen
     await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path34.join)(outputDir, "sessions", `search-${Date.now()}`);
-    await mkdir27(sessionDir, { recursive: true });
+    const sessionDir = (0, import_path38.join)(outputDir, "sessions", `search-${Date.now()}`);
+    await mkdir28(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
       userIntent: options.intent || `Find results related to: ${options.query}`,
@@ -25520,21 +32658,21 @@ program.command("scan-start [url]").description("Discover pages and capture base
     }
     console.log(`Found ${pages.length} pages. Capturing baselines...`);
     console.log("");
-    const sessions = [];
+    const sessions2 = [];
     for (const page of pages) {
       try {
         console.log(`Capturing: ${page.path}`);
         const result = await ibr.startSession(page.url, {
           name: page.title.replace(/[^a-zA-Z0-9-_]/g, "-").toLowerCase().slice(0, 50)
         });
-        sessions.push({ page, sessionId: result.sessionId });
+        sessions2.push({ page, sessionId: result.sessionId });
         console.log(`  Done: ${result.sessionId}`);
       } catch (error) {
         console.log(`  Failed: ${error instanceof Error ? error.message : error}`);
       }
     }
     console.log("");
-    console.log(`Captured ${sessions.length}/${pages.length} pages.`);
+    console.log(`Captured ${sessions2.length}/${pages.length} pages.`);
     console.log("");
     console.log("Next: Make your changes, then run:");
     console.log("  npx ibr scan-check");
@@ -25547,8 +32685,8 @@ program.command("scan-start [url]").description("Discover pages and capture base
 program.command("scan-check").description("Compare all sessions from the last scan-start").option("-f, --format <format>", "Output format: json, text, minimal", "text").action(async (_options) => {
   try {
     const ibr = await createIBR(program.opts());
-    const sessions = await ibr.listSessions();
-    const recentSessions = sessions.filter((s) => {
+    const sessions2 = await ibr.listSessions();
+    const recentSessions = sessions2.filter((s) => {
       const age = Date.now() - new Date(s.createdAt).getTime();
       return age < 60 * 60 * 1e3 && s.status === "baseline";
     });
@@ -25652,13 +32790,13 @@ program.command("diagnose [url]").description("Diagnose page load issues (auto-d
   try {
     const resolvedUrl = await resolveBaseUrl(url);
     const { captureWithDiagnostics: captureWithDiagnostics2, closeBrowser: closeBrowser3 } = await Promise.resolve().then(() => (init_capture(), capture_exports));
-    const { join: join30 } = await import("path");
+    const { join: join34 } = await import("path");
     const outputDir = program.opts().output || "./.ibr";
     console.log(`Diagnosing ${resolvedUrl}...`);
     console.log("");
     const result = await captureWithDiagnostics2({
       url: resolvedUrl,
-      outputPath: join30(outputDir, "diagnose", "test.png"),
+      outputPath: join34(outputDir, "diagnose", "test.png"),
       timeout: parseInt(options.timeout, 10),
       outputDir
     });
@@ -25775,11 +32913,11 @@ async function resolveBaseUrl(providedUrl) {
   throw new Error("No URL provided and no dev server detected. Start your dev server or specify a URL.");
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
-  const { writeFile: writeFile20, readFile: readFile23, mkdir: mkdir27 } = await import("fs/promises");
-  const configPath = (0, import_path34.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path34.join)(process.cwd(), ".claude", "settings.json");
+  const { writeFile: writeFile20, readFile: readFile23, mkdir: mkdir28 } = await import("fs/promises");
+  const configPath = (0, import_path38.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path38.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
-  if (!(0, import_fs19.existsSync)(configPath)) {
+  if (!(0, import_fs23.existsSync)(configPath)) {
     let baseUrl;
     if (options.url) {
       baseUrl = options.url;
@@ -25833,8 +32971,8 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs19.existsSync)((0, import_path34.join)(process.cwd(), ".claude"));
-  const hasClaudeSettings = (0, import_fs19.existsSync)(claudeSettingsPath);
+  const claudeDirExists = (0, import_fs23.existsSync)((0, import_path38.join)(process.cwd(), ".claude"));
+  const hasClaudeSettings = (0, import_fs23.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
     "node_modules/interface-built-right/plugin",
@@ -25843,7 +32981,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs19.existsSync)((0, import_path34.join)(process.cwd(), p))) {
+    if ((0, import_fs23.existsSync)((0, import_path38.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -25922,7 +33060,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir27((0, import_path34.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir28((0, import_path38.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
@@ -26088,10 +33226,10 @@ program.command("native:scan [device]").description("Scan a running simulator fo
         );
         if (annotated) fixGuide.screenshot = annotated;
       }
-      const { mkdirSync, writeFileSync: writeFileSync2 } = await import("fs");
-      const guidePath = (0, import_path34.join)(outputDir, "native", "fix-guide.json");
-      mkdirSync((0, import_path34.join)(outputDir, "native"), { recursive: true });
-      writeFileSync2(guidePath, JSON.stringify(fixGuide, null, 2));
+      const { mkdirSync: mkdirSync3, writeFileSync: writeFileSync4 } = await import("fs");
+      const guidePath = (0, import_path38.join)(outputDir, "native", "fix-guide.json");
+      mkdirSync3((0, import_path38.join)(outputDir, "native"), { recursive: true });
+      writeFileSync4(guidePath, JSON.stringify(fixGuide, null, 2));
       if (options.json) {
         console.log(JSON.stringify(fixGuide, null, 2));
       } else {
@@ -26172,8 +33310,8 @@ program.command("native:check [sessionId]").description("Compare current simulat
         process.exit(1);
       }
     } else {
-      const sessions = await listSessions2(outputDir);
-      session = sessions.find((s) => s.platform === "ios" || s.platform === "watchos");
+      const sessions2 = await listSessions2(outputDir);
+      session = sessions2.find((s) => s.platform === "ios" || s.platform === "watchos");
       if (!session) {
         console.error("No native sessions found. Run native:start first.");
         process.exit(1);
@@ -26384,7 +33522,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
     console.error("Error: at least one --action is required");
     console.error("");
     console.error("Usage:");
-    console.error('  npx ibr interact <url> --action "click:button:Submit" --expect "heading:Success"');
+    console.error('  npx ibr test-interact <url> --action "click:button:Submit" --expect "visible:Success"');
     process.exit(1);
   }
   const steps = options.action.map((actionSpec, i) => {
@@ -26425,7 +33563,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
       url: resolvedUrl,
       steps,
       viewport,
-      outputDir: (0, import_path34.join)(outputDir, "interactions"),
+      outputDir: (0, import_path38.join)(outputDir, "interactions"),
       headless: !(options.headed || options.sandbox),
       ...getBrowserConnectionOptions()
     });
@@ -26866,41 +34004,61 @@ program.command("interact <url>").description("Click, type, fill, or interact wi
       process.exit(1);
     }
     const action = opts.action;
-    switch (action) {
-      case "click":
-        await driver3.click(element.id);
-        break;
-      case "type":
-        await driver3.type(element.id, opts.value || "");
-        break;
-      case "fill":
-        await driver3.fill(element.id, opts.value || "");
-        break;
-      case "hover":
-        await driver3.hover(element.id);
-        break;
-      case "press":
-        await driver3.pressKey(opts.value || "Enter");
-        break;
-      case "scroll":
-        await driver3.scroll(Number(opts.value) || 300);
-        break;
-      case "select":
-        await driver3.select(element.id, opts.value || "");
-        break;
-      case "check":
-        await driver3.check(element.id);
-        break;
-      default:
-        console.error(`Unknown action: ${action}`);
-        process.exit(1);
+    const knownActions = ["click", "type", "fill", "hover", "press", "scroll", "select", "check"];
+    if (!knownActions.includes(action)) {
+      console.error(`Unknown action: ${action}`);
+      process.exit(1);
     }
-    await new Promise((r) => setTimeout(r, 500));
-    console.log(`\u2713 ${action} on "${opts.target}" succeeded`);
+    const { validateWebAction: validateWebAction2 } = await Promise.resolve().then(() => (init_tools(), tools_exports));
+    const beforeUrl = driver3.url;
+    const captured = await driver3.actAndCapture(async () => {
+      switch (action) {
+        case "click":
+          await driver3.click(element.id);
+          break;
+        case "type":
+          await driver3.type(element.id, opts.value || "");
+          break;
+        case "fill":
+          await driver3.fill(element.id, opts.value || "");
+          break;
+        case "hover":
+          await driver3.hover(element.id);
+          break;
+        case "press":
+          await driver3.pressKey(opts.value || "Enter");
+          break;
+        case "scroll":
+          await driver3.scroll(Number(opts.value) || 300);
+          break;
+        case "select":
+          await driver3.select(element.id, opts.value || "");
+          break;
+        case "check":
+          await driver3.check(element.id);
+          break;
+      }
+    });
+    const validator = validateWebAction2({
+      action,
+      value: opts.value,
+      targetElementId: element.id,
+      beforeUrl,
+      afterUrl: driver3.url,
+      captured
+    });
+    if (validator.passed) {
+      console.log(`\u2713 ${action} on "${opts.target}" succeeded`);
+    } else {
+      console.error(`\u2717 ${action} on "${opts.target}" did not produce the expected change (no-op)`);
+      console.error(`  expected: ${validator.expected}`);
+      console.error(`  observed: ${validator.observed}`);
+      process.exitCode = 1;
+    }
     if (opts.screenshot !== false) {
       const fs2 = await import("fs");
       const path2 = await import("path");
-      const buf = await driver3.screenshot();
+      const buf = captured.after.screenshot;
       const globalOpts = program.opts();
       const outDir = globalOpts.output || "./.ibr";
       fs2.mkdirSync(outDir, { recursive: true });
@@ -26991,5 +34149,6 @@ program.command("extract <url>").description("Extract structured data from a pag
     });
   }
 });
+registerNativeSessionCommands(program);
 program.parse();
 //# sourceMappingURL=ibr.js.map

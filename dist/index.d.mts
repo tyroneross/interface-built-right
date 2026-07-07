@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ChildProcessWithoutNullStreams } from 'child_process';
 
 /**
  * PageLike — structural interface that both Playwright's Page and CompatPage satisfy.
@@ -608,23 +609,7 @@ declare const ViewportSchema: z.ZodObject<{
     mobile: z.ZodOptional<z.ZodBoolean>;
     userAgent: z.ZodOptional<z.ZodString>;
     hasTouch: z.ZodOptional<z.ZodBoolean>;
-}, "strip", z.ZodTypeAny, {
-    name: string;
-    width: number;
-    height: number;
-    deviceScaleFactor?: number | undefined;
-    mobile?: boolean | undefined;
-    userAgent?: string | undefined;
-    hasTouch?: boolean | undefined;
-}, {
-    name: string;
-    width: number;
-    height: number;
-    deviceScaleFactor?: number | undefined;
-    mobile?: boolean | undefined;
-    userAgent?: string | undefined;
-    hasTouch?: boolean | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Predefined viewport configurations.
  *
@@ -755,23 +740,7 @@ declare const ConfigSchema: z.ZodObject<{
         mobile: z.ZodOptional<z.ZodBoolean>;
         userAgent: z.ZodOptional<z.ZodString>;
         hasTouch: z.ZodOptional<z.ZodBoolean>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }>>;
+    }, z.core.$strip>>;
     viewports: z.ZodOptional<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         width: z.ZodNumber;
@@ -780,121 +749,36 @@ declare const ConfigSchema: z.ZodObject<{
         mobile: z.ZodOptional<z.ZodBoolean>;
         userAgent: z.ZodOptional<z.ZodString>;
         hasTouch: z.ZodOptional<z.ZodBoolean>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }>, "many">>;
+    }, z.core.$strip>>>;
     threshold: z.ZodDefault<z.ZodNumber>;
     fullPage: z.ZodDefault<z.ZodBoolean>;
     waitForNetworkIdle: z.ZodDefault<z.ZodBoolean>;
     timeout: z.ZodDefault<z.ZodNumber>;
-    browserMode: z.ZodOptional<z.ZodEnum<["local", "connect"]>>;
+    browserMode: z.ZodOptional<z.ZodEnum<{
+        local: "local";
+        connect: "connect";
+    }>>;
     cdpUrl: z.ZodOptional<z.ZodString>;
     wsEndpoint: z.ZodOptional<z.ZodString>;
     chromePath: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    threshold: number;
-    outputDir: string;
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    };
-    fullPage: boolean;
-    waitForNetworkIdle: boolean;
-    timeout: number;
-    baseUrl: string;
-    browserMode?: "local" | "connect" | undefined;
-    cdpUrl?: string | undefined;
-    wsEndpoint?: string | undefined;
-    chromePath?: string | undefined;
-    viewports?: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }[] | undefined;
-}, {
-    baseUrl: string;
-    threshold?: number | undefined;
-    outputDir?: string | undefined;
-    viewport?: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    } | undefined;
-    fullPage?: boolean | undefined;
-    waitForNetworkIdle?: boolean | undefined;
-    timeout?: number | undefined;
-    browserMode?: "local" | "connect" | undefined;
-    cdpUrl?: string | undefined;
-    wsEndpoint?: string | undefined;
-    chromePath?: string | undefined;
-    viewports?: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }[] | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Session query options
  */
 declare const SessionQuerySchema: z.ZodObject<{
     route: z.ZodOptional<z.ZodString>;
     url: z.ZodOptional<z.ZodString>;
-    status: z.ZodOptional<z.ZodEnum<["baseline", "compared", "pending"]>>;
+    status: z.ZodOptional<z.ZodEnum<{
+        baseline: "baseline";
+        compared: "compared";
+        pending: "pending";
+    }>>;
     name: z.ZodOptional<z.ZodString>;
     createdAfter: z.ZodOptional<z.ZodDate>;
     createdBefore: z.ZodOptional<z.ZodDate>;
     viewport: z.ZodOptional<z.ZodString>;
     limit: z.ZodDefault<z.ZodNumber>;
-}, "strip", z.ZodTypeAny, {
-    limit: number;
-    url?: string | undefined;
-    viewport?: string | undefined;
-    name?: string | undefined;
-    status?: "baseline" | "compared" | "pending" | undefined;
-    route?: string | undefined;
-    createdAfter?: Date | undefined;
-    createdBefore?: Date | undefined;
-}, {
-    url?: string | undefined;
-    viewport?: string | undefined;
-    name?: string | undefined;
-    status?: "baseline" | "compared" | "pending" | undefined;
-    limit?: number | undefined;
-    route?: string | undefined;
-    createdAfter?: Date | undefined;
-    createdBefore?: Date | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Comparison result from pixelmatch
  */
@@ -904,213 +788,106 @@ declare const ComparisonResultSchema: z.ZodObject<{
     diffPixels: z.ZodNumber;
     totalPixels: z.ZodNumber;
     threshold: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    threshold: number;
-    match: boolean;
-    diffPercent: number;
-    diffPixels: number;
-    totalPixels: number;
-}, {
-    threshold: number;
-    match: boolean;
-    diffPercent: number;
-    diffPixels: number;
-    totalPixels: number;
-}>;
+}, z.core.$strip>;
 /**
  * Changed region detected in comparison
  */
 declare const ChangedRegionSchema: z.ZodObject<{
-    location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+    location: z.ZodEnum<{
+        top: "top";
+        bottom: "bottom";
+        left: "left";
+        right: "right";
+        center: "center";
+        full: "full";
+    }>;
     bounds: z.ZodObject<{
         x: z.ZodNumber;
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>;
+    }, z.core.$strip>;
     description: z.ZodString;
-    severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-}, "strip", z.ZodTypeAny, {
-    location: "top" | "bottom" | "left" | "right" | "center" | "full";
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    description: string;
-    severity: "expected" | "unexpected" | "critical";
-}, {
-    location: "top" | "bottom" | "left" | "right" | "center" | "full";
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    description: string;
-    severity: "expected" | "unexpected" | "critical";
-}>;
+    severity: z.ZodEnum<{
+        expected: "expected";
+        unexpected: "unexpected";
+        critical: "critical";
+    }>;
+}, z.core.$strip>;
 /**
  * Analysis verdict types
  */
-declare const VerdictSchema: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+declare const VerdictSchema: z.ZodEnum<{
+    MATCH: "MATCH";
+    EXPECTED_CHANGE: "EXPECTED_CHANGE";
+    UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+    LAYOUT_BROKEN: "LAYOUT_BROKEN";
+}>;
 /**
  * Analysis result
  */
 declare const AnalysisSchema: z.ZodObject<{
-    verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+    verdict: z.ZodEnum<{
+        MATCH: "MATCH";
+        EXPECTED_CHANGE: "EXPECTED_CHANGE";
+        UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+        LAYOUT_BROKEN: "LAYOUT_BROKEN";
+    }>;
     summary: z.ZodString;
     changedRegions: z.ZodArray<z.ZodObject<{
-        location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+        location: z.ZodEnum<{
+            top: "top";
+            bottom: "bottom";
+            left: "left";
+            right: "right";
+            center: "center";
+            full: "full";
+        }>;
         bounds: z.ZodObject<{
             x: z.ZodNumber;
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>;
+        }, z.core.$strip>;
         description: z.ZodString;
-        severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-    }, "strip", z.ZodTypeAny, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }>, "many">;
+        severity: z.ZodEnum<{
+            expected: "expected";
+            unexpected: "unexpected";
+            critical: "critical";
+        }>;
+    }, z.core.$strip>>;
     unexpectedChanges: z.ZodArray<z.ZodObject<{
-        location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+        location: z.ZodEnum<{
+            top: "top";
+            bottom: "bottom";
+            left: "left";
+            right: "right";
+            center: "center";
+            full: "full";
+        }>;
         bounds: z.ZodObject<{
             x: z.ZodNumber;
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>;
+        }, z.core.$strip>;
         description: z.ZodString;
-        severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-    }, "strip", z.ZodTypeAny, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }, {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }>, "many">;
+        severity: z.ZodEnum<{
+            expected: "expected";
+            unexpected: "unexpected";
+            critical: "critical";
+        }>;
+    }, z.core.$strip>>;
     recommendation: z.ZodNullable<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-    summary: string;
-    changedRegions: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    unexpectedChanges: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    recommendation: string | null;
-}, {
-    verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-    summary: string;
-    changedRegions: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    unexpectedChanges: {
-        location: "top" | "bottom" | "left" | "right" | "center" | "full";
-        bounds: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        };
-        description: string;
-        severity: "expected" | "unexpected" | "critical";
-    }[];
-    recommendation: string | null;
-}>;
+}, z.core.$strip>;
 /**
  * Session status
  */
-declare const SessionStatusSchema: z.ZodEnum<["baseline", "compared", "pending"]>;
+declare const SessionStatusSchema: z.ZodEnum<{
+    baseline: "baseline";
+    compared: "compared";
+    pending: "pending";
+}>;
 /**
  * Element bounds (moved up for LandmarkElementSchema dependency)
  */
@@ -1119,17 +896,7 @@ declare const BoundsSchema: z.ZodObject<{
     y: z.ZodNumber;
     width: z.ZodNumber;
     height: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    width: number;
-    height: number;
-    x: number;
-    y: number;
-}, {
-    width: number;
-    height: number;
-    x: number;
-    y: number;
-}>;
+}, z.core.$strip>;
 /**
  * Landmark element detected on page
  */
@@ -1142,38 +909,8 @@ declare const LandmarkElementSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    name: string;
-    selector: string;
-    found: boolean;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-}, {
-    name: string;
-    selector: string;
-    found: boolean;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 /**
  * Visual session
  */
@@ -1189,25 +926,17 @@ declare const SessionSchema: z.ZodObject<{
         mobile: z.ZodOptional<z.ZodBoolean>;
         userAgent: z.ZodOptional<z.ZodString>;
         hasTouch: z.ZodOptional<z.ZodBoolean>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
+    }, z.core.$strip>;
+    status: z.ZodEnum<{
+        baseline: "baseline";
+        compared: "compared";
+        pending: "pending";
     }>;
-    status: z.ZodEnum<["baseline", "compared", "pending"]>;
-    platform: z.ZodOptional<z.ZodEnum<["web", "ios", "watchos"]>>;
+    platform: z.ZodOptional<z.ZodEnum<{
+        web: "web";
+        ios: "ios";
+        watchos: "watchos";
+    }>>;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
     comparison: z.ZodOptional<z.ZodObject<{
@@ -1216,158 +945,61 @@ declare const SessionSchema: z.ZodObject<{
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }>>;
+    }, z.core.$strip>>;
     analysis: z.ZodOptional<z.ZodObject<{
-        verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+        verdict: z.ZodEnum<{
+            MATCH: "MATCH";
+            EXPECTED_CHANGE: "EXPECTED_CHANGE";
+            UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+            LAYOUT_BROKEN: "LAYOUT_BROKEN";
+        }>;
         summary: z.ZodString;
         changedRegions: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         recommendation: z.ZodNullable<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }>>;
+    }, z.core.$strip>>;
     landmarkElements: z.ZodOptional<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
         selector: z.ZodString;
@@ -1377,166 +1009,10 @@ declare const SessionSchema: z.ZodObject<{
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        selector: string;
-        found: boolean;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-    }, {
-        name: string;
-        selector: string;
-        found: boolean;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-    }>, "many">>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>>>;
     pageIntent: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    url: string;
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    };
-    name: string;
-    status: "baseline" | "compared" | "pending";
-    id: string;
-    createdAt: string;
-    updatedAt: string;
-    platform?: "web" | "ios" | "watchos" | undefined;
-    comparison?: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    } | undefined;
-    analysis?: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    } | undefined;
-    landmarkElements?: {
-        name: string;
-        selector: string;
-        found: boolean;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-    }[] | undefined;
-    pageIntent?: string | undefined;
-}, {
-    url: string;
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    };
-    name: string;
-    status: "baseline" | "compared" | "pending";
-    id: string;
-    createdAt: string;
-    updatedAt: string;
-    platform?: "web" | "ios" | "watchos" | undefined;
-    comparison?: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    } | undefined;
-    analysis?: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    } | undefined;
-    landmarkElements?: {
-        name: string;
-        selector: string;
-        found: boolean;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-    }[] | undefined;
-    pageIntent?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Full comparison report
  */
@@ -1553,304 +1029,75 @@ declare const ComparisonReportSchema: z.ZodObject<{
         mobile: z.ZodOptional<z.ZodBoolean>;
         userAgent: z.ZodOptional<z.ZodString>;
         hasTouch: z.ZodOptional<z.ZodBoolean>;
-    }, "strip", z.ZodTypeAny, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }, {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    }>;
+    }, z.core.$strip>;
     comparison: z.ZodObject<{
         match: z.ZodBoolean;
         diffPercent: z.ZodNumber;
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }, {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    }>;
+    }, z.core.$strip>;
     analysis: z.ZodObject<{
-        verdict: z.ZodEnum<["MATCH", "EXPECTED_CHANGE", "UNEXPECTED_CHANGE", "LAYOUT_BROKEN"]>;
+        verdict: z.ZodEnum<{
+            MATCH: "MATCH";
+            EXPECTED_CHANGE: "EXPECTED_CHANGE";
+            UNEXPECTED_CHANGE: "UNEXPECTED_CHANGE";
+            LAYOUT_BROKEN: "LAYOUT_BROKEN";
+        }>;
         summary: z.ZodString;
         changedRegions: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
-            location: z.ZodEnum<["top", "bottom", "left", "right", "center", "full"]>;
+            location: z.ZodEnum<{
+                top: "top";
+                bottom: "bottom";
+                left: "left";
+                right: "right";
+                center: "center";
+                full: "full";
+            }>;
             bounds: z.ZodObject<{
                 x: z.ZodNumber;
                 y: z.ZodNumber;
                 width: z.ZodNumber;
                 height: z.ZodNumber;
-            }, "strip", z.ZodTypeAny, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }, {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            }>;
+            }, z.core.$strip>;
             description: z.ZodString;
-            severity: z.ZodEnum<["expected", "unexpected", "critical"]>;
-        }, "strip", z.ZodTypeAny, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }, {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }>, "many">;
+            severity: z.ZodEnum<{
+                expected: "expected";
+                unexpected: "unexpected";
+                critical: "critical";
+            }>;
+        }, z.core.$strip>>;
         recommendation: z.ZodNullable<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }, {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    }>;
+    }, z.core.$strip>;
     files: z.ZodObject<{
         baseline: z.ZodString;
         current: z.ZodString;
         diff: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        baseline: string;
-        current: string;
-        diff: string;
-    }, {
-        baseline: string;
-        current: string;
-        diff: string;
-    }>;
+    }, z.core.$strip>;
     webViewUrl: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    url: string;
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    };
-    sessionId: string;
-    comparison: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    };
-    analysis: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    };
-    sessionName: string;
-    timestamp: string;
-    files: {
-        baseline: string;
-        current: string;
-        diff: string;
-    };
-    webViewUrl?: string | undefined;
-}, {
-    url: string;
-    viewport: {
-        name: string;
-        width: number;
-        height: number;
-        deviceScaleFactor?: number | undefined;
-        mobile?: boolean | undefined;
-        userAgent?: string | undefined;
-        hasTouch?: boolean | undefined;
-    };
-    sessionId: string;
-    comparison: {
-        threshold: number;
-        match: boolean;
-        diffPercent: number;
-        diffPixels: number;
-        totalPixels: number;
-    };
-    analysis: {
-        verdict: "MATCH" | "EXPECTED_CHANGE" | "UNEXPECTED_CHANGE" | "LAYOUT_BROKEN";
-        summary: string;
-        changedRegions: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        unexpectedChanges: {
-            location: "top" | "bottom" | "left" | "right" | "center" | "full";
-            bounds: {
-                width: number;
-                height: number;
-                x: number;
-                y: number;
-            };
-            description: string;
-            severity: "expected" | "unexpected" | "critical";
-        }[];
-        recommendation: string | null;
-    };
-    sessionName: string;
-    timestamp: string;
-    files: {
-        baseline: string;
-        current: string;
-        diff: string;
-    };
-    webViewUrl?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Element interactivity detection
  */
@@ -1863,25 +1110,7 @@ declare const InteractiveStateSchema: z.ZodObject<{
     hasReactHandler: z.ZodOptional<z.ZodBoolean>;
     hasVueHandler: z.ZodOptional<z.ZodBoolean>;
     hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
-}, "strip", z.ZodTypeAny, {
-    hasOnClick: boolean;
-    hasHref: boolean;
-    isDisabled: boolean;
-    tabIndex: number;
-    cursor: string;
-    hasReactHandler?: boolean | undefined;
-    hasVueHandler?: boolean | undefined;
-    hasAngularHandler?: boolean | undefined;
-}, {
-    hasOnClick: boolean;
-    hasHref: boolean;
-    isDisabled: boolean;
-    tabIndex: number;
-    cursor: string;
-    hasReactHandler?: boolean | undefined;
-    hasVueHandler?: boolean | undefined;
-    hasAngularHandler?: boolean | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Accessibility attributes
  */
@@ -1891,19 +1120,7 @@ declare const A11yAttributesSchema: z.ZodObject<{
     ariaDescribedBy: z.ZodNullable<z.ZodString>;
     ariaHidden: z.ZodOptional<z.ZodBoolean>;
     ariaHaspopup: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-}, "strip", z.ZodTypeAny, {
-    role: string | null;
-    ariaLabel: string | null;
-    ariaDescribedBy: string | null;
-    ariaHidden?: boolean | undefined;
-    ariaHaspopup?: string | null | undefined;
-}, {
-    role: string | null;
-    ariaLabel: string | null;
-    ariaDescribedBy: string | null;
-    ariaHidden?: boolean | undefined;
-    ariaHaspopup?: string | null | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Enhanced element with interactivity and accessibility
  */
@@ -1918,17 +1135,7 @@ declare const EnhancedElementSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>;
+    }, z.core.$strip>;
     computedStyles: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     interactive: z.ZodObject<{
         hasOnClick: z.ZodBoolean;
@@ -1939,25 +1146,7 @@ declare const EnhancedElementSchema: z.ZodObject<{
         hasReactHandler: z.ZodOptional<z.ZodBoolean>;
         hasVueHandler: z.ZodOptional<z.ZodBoolean>;
         hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
-    }, "strip", z.ZodTypeAny, {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    }, {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    }>;
+    }, z.core.$strip>;
     inForm: z.ZodOptional<z.ZodBoolean>;
     buttonType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     a11y: z.ZodObject<{
@@ -1966,113 +1155,29 @@ declare const EnhancedElementSchema: z.ZodObject<{
         ariaDescribedBy: z.ZodNullable<z.ZodString>;
         ariaHidden: z.ZodOptional<z.ZodBoolean>;
         ariaHaspopup: z.ZodOptional<z.ZodNullable<z.ZodString>>;
-    }, "strip", z.ZodTypeAny, {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-        ariaHaspopup?: string | null | undefined;
-    }, {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-        ariaHaspopup?: string | null | undefined;
-    }>;
+    }, z.core.$strip>;
     sourceHint: z.ZodOptional<z.ZodObject<{
         dataTestId: z.ZodNullable<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        dataTestId: string | null;
-    }, {
-        dataTestId: string | null;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    selector: string;
-    tagName: string;
-    interactive: {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    };
-    a11y: {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-        ariaHaspopup?: string | null | undefined;
-    };
-    id?: string | undefined;
-    className?: string | undefined;
-    text?: string | undefined;
-    computedStyles?: Record<string, string> | undefined;
-    inForm?: boolean | undefined;
-    buttonType?: string | null | undefined;
-    sourceHint?: {
-        dataTestId: string | null;
-    } | undefined;
-}, {
-    bounds: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    };
-    selector: string;
-    tagName: string;
-    interactive: {
-        hasOnClick: boolean;
-        hasHref: boolean;
-        isDisabled: boolean;
-        tabIndex: number;
-        cursor: string;
-        hasReactHandler?: boolean | undefined;
-        hasVueHandler?: boolean | undefined;
-        hasAngularHandler?: boolean | undefined;
-    };
-    a11y: {
-        role: string | null;
-        ariaLabel: string | null;
-        ariaDescribedBy: string | null;
-        ariaHidden?: boolean | undefined;
-        ariaHaspopup?: string | null | undefined;
-    };
-    id?: string | undefined;
-    className?: string | undefined;
-    text?: string | undefined;
-    computedStyles?: Record<string, string> | undefined;
-    inForm?: boolean | undefined;
-    buttonType?: string | null | undefined;
-    sourceHint?: {
-        dataTestId: string | null;
-    } | undefined;
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 /**
  * Element issue detected during audit
  */
 declare const ElementIssueSchema: z.ZodObject<{
-    type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
-    severity: z.ZodEnum<["error", "warning", "info"]>;
+    type: z.ZodEnum<{
+        NO_HANDLER: "NO_HANDLER";
+        PLACEHOLDER_LINK: "PLACEHOLDER_LINK";
+        TOUCH_TARGET_SMALL: "TOUCH_TARGET_SMALL";
+        MISSING_ARIA_LABEL: "MISSING_ARIA_LABEL";
+        DISABLED_NO_VISUAL: "DISABLED_NO_VISUAL";
+    }>;
+    severity: z.ZodEnum<{
+        error: "error";
+        warning: "warning";
+        info: "info";
+    }>;
     message: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-    severity: "error" | "warning" | "info";
-}, {
-    message: string;
-    type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-    severity: "error" | "warning" | "info";
-}>;
+}, z.core.$strip>;
 /**
  * Audit result for a captured page
  */
@@ -2082,39 +1187,21 @@ declare const AuditResultSchema: z.ZodObject<{
     withHandlers: z.ZodNumber;
     withoutHandlers: z.ZodNumber;
     issues: z.ZodArray<z.ZodObject<{
-        type: z.ZodEnum<["NO_HANDLER", "PLACEHOLDER_LINK", "TOUCH_TARGET_SMALL", "MISSING_ARIA_LABEL", "DISABLED_NO_VISUAL"]>;
-        severity: z.ZodEnum<["error", "warning", "info"]>;
+        type: z.ZodEnum<{
+            NO_HANDLER: "NO_HANDLER";
+            PLACEHOLDER_LINK: "PLACEHOLDER_LINK";
+            TOUCH_TARGET_SMALL: "TOUCH_TARGET_SMALL";
+            MISSING_ARIA_LABEL: "MISSING_ARIA_LABEL";
+            DISABLED_NO_VISUAL: "DISABLED_NO_VISUAL";
+        }>;
+        severity: z.ZodEnum<{
+            error: "error";
+            warning: "warning";
+            info: "info";
+        }>;
         message: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }, {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }>, "many">;
-}, "strip", z.ZodTypeAny, {
-    issues: {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }[];
-    totalElements: number;
-    interactiveCount: number;
-    withHandlers: number;
-    withoutHandlers: number;
-}, {
-    issues: {
-        message: string;
-        type: "NO_HANDLER" | "PLACEHOLDER_LINK" | "TOUCH_TARGET_SMALL" | "MISSING_ARIA_LABEL" | "DISABLED_NO_VISUAL";
-        severity: "error" | "warning" | "info";
-    }[];
-    totalElements: number;
-    interactiveCount: number;
-    withHandlers: number;
-    withoutHandlers: number;
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 type Viewport = z.infer<typeof ViewportSchema>;
 type Config = z.infer<typeof ConfigSchema>;
 type SessionQuery = z.infer<typeof SessionQuerySchema>;
@@ -2135,31 +1222,48 @@ type AuditResult = z.infer<typeof AuditResultSchema>;
 /**
  * Rule severity levels
  */
-declare const RuleSeveritySchema: z.ZodEnum<["off", "warn", "error"]>;
+declare const RuleSeveritySchema: z.ZodEnum<{
+    error: "error";
+    off: "off";
+    warn: "warn";
+}>;
 /**
  * Individual rule setting
  */
-declare const RuleSettingSchema: z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>;
+declare const RuleSettingSchema: z.ZodUnion<readonly [z.ZodEnum<{
+    error: "error";
+    off: "off";
+    warn: "warn";
+}>, z.ZodTuple<[z.ZodEnum<{
+    error: "error";
+    off: "off";
+    warn: "warn";
+}>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>;
 /**
  * Rules configuration (user's .ibr/rules.json)
  */
 declare const RulesConfigSchema: z.ZodObject<{
-    extends: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-    rules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<[z.ZodEnum<["off", "warn", "error"]>, z.ZodTuple<[z.ZodEnum<["off", "warn", "error"]>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>>>;
-}, "strip", z.ZodTypeAny, {
-    extends?: string[] | undefined;
-    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
-}, {
-    extends?: string[] | undefined;
-    rules?: Record<string, "error" | "off" | "warn" | ["error" | "off" | "warn", Record<string, unknown>]> | undefined;
-}>;
+    extends: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    rules: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodEnum<{
+        error: "error";
+        off: "off";
+        warn: "warn";
+    }>, z.ZodTuple<[z.ZodEnum<{
+        error: "error";
+        off: "off";
+        warn: "warn";
+    }>, z.ZodRecord<z.ZodString, z.ZodUnknown>], null>]>>>;
+}, z.core.$strip>;
 /**
  * Violation detected by a rule
  */
 declare const ViolationSchema: z.ZodObject<{
     ruleId: z.ZodString;
     ruleName: z.ZodString;
-    severity: z.ZodEnum<["warn", "error"]>;
+    severity: z.ZodEnum<{
+        error: "error";
+        warn: "warn";
+    }>;
     message: z.ZodString;
     element: z.ZodOptional<z.ZodString>;
     bounds: z.ZodOptional<z.ZodObject<{
@@ -2167,45 +1271,9 @@ declare const ViolationSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>>;
+    }, z.core.$strip>>;
     fix: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    severity: "error" | "warn";
-    ruleId: string;
-    ruleName: string;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-    element?: string | undefined;
-    fix?: string | undefined;
-}, {
-    message: string;
-    severity: "error" | "warn";
-    ruleId: string;
-    ruleName: string;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-    element?: string | undefined;
-    fix?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Full audit report with rule violations
  */
@@ -2216,7 +1284,10 @@ declare const RuleAuditResultSchema: z.ZodObject<{
     violations: z.ZodArray<z.ZodObject<{
         ruleId: z.ZodString;
         ruleName: z.ZodString;
-        severity: z.ZodEnum<["warn", "error"]>;
+        severity: z.ZodEnum<{
+            error: "error";
+            warn: "warn";
+        }>;
         message: z.ZodString;
         element: z.ZodOptional<z.ZodString>;
         bounds: z.ZodOptional<z.ZodObject<{
@@ -2224,105 +1295,15 @@ declare const RuleAuditResultSchema: z.ZodObject<{
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>>;
+        }, z.core.$strip>>;
         fix: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }, {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }>, "many">;
+    }, z.core.$strip>>;
     summary: z.ZodObject<{
         errors: z.ZodNumber;
         warnings: z.ZodNumber;
         passed: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        errors: number;
-        warnings: number;
-        passed: number;
-    }, {
-        errors: number;
-        warnings: number;
-        passed: number;
-    }>;
-}, "strip", z.ZodTypeAny, {
-    url: string;
-    summary: {
-        errors: number;
-        warnings: number;
-        passed: number;
-    };
-    timestamp: string;
-    elementsScanned: number;
-    violations: {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-}, {
-    url: string;
-    summary: {
-        errors: number;
-        warnings: number;
-        passed: number;
-    };
-    timestamp: string;
-    elementsScanned: number;
-    violations: {
-        message: string;
-        severity: "error" | "warn";
-        ruleId: string;
-        ruleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-}>;
+    }, z.core.$strip>;
+}, z.core.$strip>;
 type RuleSeverity = z.infer<typeof RuleSeveritySchema>;
 type RuleSetting = z.infer<typeof RuleSettingSchema>;
 type RulesConfig = z.infer<typeof RulesConfigSchema>;
@@ -2331,110 +1312,105 @@ type RuleAuditResult = z.infer<typeof RuleAuditResultSchema>;
 /**
  * Source of a UI/UX preference
  */
-declare const MemorySourceSchema: z.ZodEnum<["user", "learned", "framework"]>;
+declare const MemorySourceSchema: z.ZodEnum<{
+    user: "user";
+    learned: "learned";
+    framework: "framework";
+}>;
 /**
  * Preference categories
  */
-declare const PreferenceCategorySchema: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
+declare const PreferenceCategorySchema: z.ZodEnum<{
+    color: "color";
+    layout: "layout";
+    typography: "typography";
+    navigation: "navigation";
+    component: "component";
+    spacing: "spacing";
+    interaction: "interaction";
+    content: "content";
+}>;
 /**
  * Expectation operator for comparing values
  */
-declare const ExpectationOperatorSchema: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
+declare const ExpectationOperatorSchema: z.ZodEnum<{
+    equals: "equals";
+    contains: "contains";
+    matches: "matches";
+    gte: "gte";
+    lte: "lte";
+}>;
 /**
  * A single UI/UX expectation
  */
 declare const ExpectationSchema: z.ZodObject<{
     property: z.ZodString;
-    operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
+    operator: z.ZodEnum<{
+        equals: "equals";
+        contains: "contains";
+        matches: "matches";
+        gte: "gte";
+        lte: "lte";
+    }>;
     value: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    value: string;
-    property: string;
-    operator: "equals" | "contains" | "matches" | "gte" | "lte";
-}, {
-    value: string;
-    property: string;
-    operator: "equals" | "contains" | "matches" | "gte" | "lte";
-}>;
+}, z.core.$strip>;
 /**
  * Full preference with history
  */
 declare const PreferenceSchema: z.ZodObject<{
     id: z.ZodString;
     description: z.ZodString;
-    category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
-    source: z.ZodEnum<["user", "learned", "framework"]>;
+    category: z.ZodEnum<{
+        color: "color";
+        layout: "layout";
+        typography: "typography";
+        navigation: "navigation";
+        component: "component";
+        spacing: "spacing";
+        interaction: "interaction";
+        content: "content";
+    }>;
+    source: z.ZodEnum<{
+        user: "user";
+        learned: "learned";
+        framework: "framework";
+    }>;
     route: z.ZodOptional<z.ZodString>;
     componentType: z.ZodOptional<z.ZodString>;
     expectation: z.ZodObject<{
         property: z.ZodString;
-        operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
+        operator: z.ZodEnum<{
+            equals: "equals";
+            contains: "contains";
+            matches: "matches";
+            gte: "gte";
+            lte: "lte";
+        }>;
         value: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        value: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-    }, {
-        value: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-    }>;
+    }, z.core.$strip>;
     confidence: z.ZodDefault<z.ZodNumber>;
     createdAt: z.ZodString;
     updatedAt: z.ZodString;
-    sessionIds: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-}, "strip", z.ZodTypeAny, {
-    description: string;
-    id: string;
-    createdAt: string;
-    updatedAt: string;
-    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    source: "user" | "learned" | "framework";
-    expectation: {
-        value: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-    };
-    confidence: number;
-    route?: string | undefined;
-    componentType?: string | undefined;
-    sessionIds?: string[] | undefined;
-}, {
-    description: string;
-    id: string;
-    createdAt: string;
-    updatedAt: string;
-    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    source: "user" | "learned" | "framework";
-    expectation: {
-        value: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-    };
-    route?: string | undefined;
-    componentType?: string | undefined;
-    confidence?: number | undefined;
-    sessionIds?: string[] | undefined;
-}>;
+    sessionIds: z.ZodOptional<z.ZodArray<z.ZodString>>;
+}, z.core.$strip>;
 /**
  * Observation extracted from a session
  */
 declare const ObservationSchema: z.ZodObject<{
     description: z.ZodString;
-    category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
+    category: z.ZodEnum<{
+        color: "color";
+        layout: "layout";
+        typography: "typography";
+        navigation: "navigation";
+        component: "component";
+        spacing: "spacing";
+        interaction: "interaction";
+        content: "content";
+    }>;
     property: z.ZodString;
     value: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    value: string;
-    description: string;
-    property: string;
-    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-}, {
-    value: string;
-    description: string;
-    property: string;
-    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-}>;
+}, z.core.$strip>;
 /**
  * Learned expectation from an approved session
  */
@@ -2444,81 +1420,51 @@ declare const LearnedExpectationSchema: z.ZodObject<{
     route: z.ZodString;
     observations: z.ZodArray<z.ZodObject<{
         description: z.ZodString;
-        category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
+        category: z.ZodEnum<{
+            color: "color";
+            layout: "layout";
+            typography: "typography";
+            navigation: "navigation";
+            component: "component";
+            spacing: "spacing";
+            interaction: "interaction";
+            content: "content";
+        }>;
         property: z.ZodString;
         value: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        value: string;
-        description: string;
-        property: string;
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    }, {
-        value: string;
-        description: string;
-        property: string;
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    }>, "many">;
+    }, z.core.$strip>>;
     approved: z.ZodBoolean;
     createdAt: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    sessionId: string;
-    id: string;
-    createdAt: string;
-    route: string;
-    observations: {
-        value: string;
-        description: string;
-        property: string;
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    }[];
-    approved: boolean;
-}, {
-    sessionId: string;
-    id: string;
-    createdAt: string;
-    route: string;
-    observations: {
-        value: string;
-        description: string;
-        property: string;
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    }[];
-    approved: boolean;
-}>;
+}, z.core.$strip>;
 /**
  * Compact preference pointer for summary
  */
 declare const ActivePreferenceSchema: z.ZodObject<{
     id: z.ZodString;
     description: z.ZodString;
-    category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
+    category: z.ZodEnum<{
+        color: "color";
+        layout: "layout";
+        typography: "typography";
+        navigation: "navigation";
+        component: "component";
+        spacing: "spacing";
+        interaction: "interaction";
+        content: "content";
+    }>;
     route: z.ZodOptional<z.ZodString>;
     componentType: z.ZodOptional<z.ZodString>;
     property: z.ZodString;
-    operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
+    operator: z.ZodEnum<{
+        equals: "equals";
+        contains: "contains";
+        matches: "matches";
+        gte: "gte";
+        lte: "lte";
+    }>;
     value: z.ZodString;
     confidence: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    value: string;
-    description: string;
-    id: string;
-    property: string;
-    operator: "equals" | "contains" | "matches" | "gte" | "lte";
-    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    confidence: number;
-    route?: string | undefined;
-    componentType?: string | undefined;
-}, {
-    value: string;
-    description: string;
-    id: string;
-    property: string;
-    operator: "equals" | "contains" | "matches" | "gte" | "lte";
-    category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-    confidence: number;
-    route?: string | undefined;
-    componentType?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Memory summary - always-loaded compact file
  */
@@ -2530,89 +1476,34 @@ declare const MemorySummarySchema: z.ZodObject<{
         totalLearned: z.ZodNumber;
         byCategory: z.ZodRecord<z.ZodString, z.ZodNumber>;
         bySource: z.ZodRecord<z.ZodString, z.ZodNumber>;
-    }, "strip", z.ZodTypeAny, {
-        totalPreferences: number;
-        totalLearned: number;
-        byCategory: Record<string, number>;
-        bySource: Record<string, number>;
-    }, {
-        totalPreferences: number;
-        totalLearned: number;
-        byCategory: Record<string, number>;
-        bySource: Record<string, number>;
-    }>;
+    }, z.core.$strip>;
     activePreferences: z.ZodArray<z.ZodObject<{
         id: z.ZodString;
         description: z.ZodString;
-        category: z.ZodEnum<["color", "layout", "typography", "navigation", "component", "spacing", "interaction", "content"]>;
+        category: z.ZodEnum<{
+            color: "color";
+            layout: "layout";
+            typography: "typography";
+            navigation: "navigation";
+            component: "component";
+            spacing: "spacing";
+            interaction: "interaction";
+            content: "content";
+        }>;
         route: z.ZodOptional<z.ZodString>;
         componentType: z.ZodOptional<z.ZodString>;
         property: z.ZodString;
-        operator: z.ZodEnum<["equals", "contains", "matches", "gte", "lte"]>;
+        operator: z.ZodEnum<{
+            equals: "equals";
+            contains: "contains";
+            matches: "matches";
+            gte: "gte";
+            lte: "lte";
+        }>;
         value: z.ZodString;
         confidence: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        value: string;
-        description: string;
-        id: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-        confidence: number;
-        route?: string | undefined;
-        componentType?: string | undefined;
-    }, {
-        value: string;
-        description: string;
-        id: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-        confidence: number;
-        route?: string | undefined;
-        componentType?: string | undefined;
-    }>, "many">;
-}, "strip", z.ZodTypeAny, {
-    updatedAt: string;
-    version: 1;
-    stats: {
-        totalPreferences: number;
-        totalLearned: number;
-        byCategory: Record<string, number>;
-        bySource: Record<string, number>;
-    };
-    activePreferences: {
-        value: string;
-        description: string;
-        id: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-        confidence: number;
-        route?: string | undefined;
-        componentType?: string | undefined;
-    }[];
-}, {
-    updatedAt: string;
-    version: 1;
-    stats: {
-        totalPreferences: number;
-        totalLearned: number;
-        byCategory: Record<string, number>;
-        bySource: Record<string, number>;
-    };
-    activePreferences: {
-        value: string;
-        description: string;
-        id: string;
-        property: string;
-        operator: "equals" | "contains" | "matches" | "gte" | "lte";
-        category: "color" | "layout" | "typography" | "navigation" | "component" | "spacing" | "interaction" | "content";
-        confidence: number;
-        route?: string | undefined;
-        componentType?: string | undefined;
-    }[];
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 type MemorySource = z.infer<typeof MemorySourceSchema>;
 type PreferenceCategory = z.infer<typeof PreferenceCategorySchema>;
 type ExpectationOperator = z.infer<typeof ExpectationOperatorSchema>;
@@ -2628,7 +1519,10 @@ type MemorySummary = z.infer<typeof MemorySummarySchema>;
 declare const DesignSystemViolationSchema: z.ZodObject<{
     principleId: z.ZodString;
     principleName: z.ZodString;
-    severity: z.ZodEnum<["error", "warn"]>;
+    severity: z.ZodEnum<{
+        error: "error";
+        warn: "warn";
+    }>;
     message: z.ZodString;
     element: z.ZodOptional<z.ZodString>;
     bounds: z.ZodOptional<z.ZodObject<{
@@ -2636,45 +1530,9 @@ declare const DesignSystemViolationSchema: z.ZodObject<{
         y: z.ZodNumber;
         width: z.ZodNumber;
         height: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }, {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    }>>;
+    }, z.core.$strip>>;
     fix: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    message: string;
-    severity: "error" | "warn";
-    principleId: string;
-    principleName: string;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-    element?: string | undefined;
-    fix?: string | undefined;
-}, {
-    message: string;
-    severity: "error" | "warn";
-    principleId: string;
-    principleName: string;
-    bounds?: {
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-    } | undefined;
-    element?: string | undefined;
-    fix?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Design system check result (added to ScanResult)
  */
@@ -2683,7 +1541,10 @@ declare const DesignSystemResultSchema: z.ZodObject<{
     principleViolations: z.ZodArray<z.ZodObject<{
         principleId: z.ZodString;
         principleName: z.ZodString;
-        severity: z.ZodEnum<["error", "warn"]>;
+        severity: z.ZodEnum<{
+            error: "error";
+            warn: "warn";
+        }>;
         message: z.ZodString;
         element: z.ZodOptional<z.ZodString>;
         bounds: z.ZodOptional<z.ZodObject<{
@@ -2691,71 +1552,27 @@ declare const DesignSystemResultSchema: z.ZodObject<{
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>>;
+        }, z.core.$strip>>;
         fix: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }, {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }>, "many">;
+    }, z.core.$strip>>;
     tokenViolations: z.ZodArray<z.ZodObject<{
         element: z.ZodString;
         property: z.ZodString;
-        expected: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
-        actual: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
-        severity: z.ZodEnum<["error", "warning"]>;
+        expected: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
+        actual: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
+        severity: z.ZodEnum<{
+            error: "error";
+            warning: "warning";
+        }>;
         message: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        message: string;
-        expected: string | number;
-        severity: "error" | "warning";
-        element: string;
-        property: string;
-        actual: string | number;
-    }, {
-        message: string;
-        expected: string | number;
-        severity: "error" | "warning";
-        element: string;
-        property: string;
-        actual: string | number;
-    }>, "many">;
+    }, z.core.$strip>>;
     customViolations: z.ZodArray<z.ZodObject<{
         principleId: z.ZodString;
         principleName: z.ZodString;
-        severity: z.ZodEnum<["error", "warn"]>;
+        severity: z.ZodEnum<{
+            error: "error";
+            warn: "warn";
+        }>;
         message: z.ZodString;
         element: z.ZodOptional<z.ZodString>;
         bounds: z.ZodOptional<z.ZodObject<{
@@ -2763,125 +1580,11 @@ declare const DesignSystemResultSchema: z.ZodObject<{
             y: z.ZodNumber;
             width: z.ZodNumber;
             height: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }, {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        }>>;
+        }, z.core.$strip>>;
         fix: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }, {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }>, "many">;
+    }, z.core.$strip>>;
     complianceScore: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    configName: string;
-    principleViolations: {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-    tokenViolations: {
-        message: string;
-        expected: string | number;
-        severity: "error" | "warning";
-        element: string;
-        property: string;
-        actual: string | number;
-    }[];
-    customViolations: {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-    complianceScore: number;
-}, {
-    configName: string;
-    principleViolations: {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-    tokenViolations: {
-        message: string;
-        expected: string | number;
-        severity: "error" | "warning";
-        element: string;
-        property: string;
-        actual: string | number;
-    }[];
-    customViolations: {
-        message: string;
-        severity: "error" | "warn";
-        principleId: string;
-        principleName: string;
-        bounds?: {
-            width: number;
-            height: number;
-            x: number;
-            y: number;
-        } | undefined;
-        element?: string | undefined;
-        fix?: string | undefined;
-    }[];
-    complianceScore: number;
-}>;
+}, z.core.$strip>;
 type DesignSystemViolation = z.infer<typeof DesignSystemViolationSchema>;
 type DesignSystemResult = z.infer<typeof DesignSystemResultSchema>;
 
@@ -3409,6 +2112,40 @@ interface LayoutMetrics {
         scale: number;
     };
 }
+/**
+ * A node in the frame hierarchy returned by Page.getFrameTree — verified
+ * against the official CDP Page domain docs (chromedevtools.github.io/
+ * devtools-protocol/tot/Page/#method-getFrameTree): `frame` carries at
+ * least {id, parentId?, url}; `childFrames` is present only when the
+ * frame has children (recursive).
+ */
+interface FrameTreeNode {
+    frame: {
+        id: string;
+        parentId?: string;
+        url: string;
+        securityOrigin?: string;
+        mimeType?: string;
+    };
+    childFrames?: FrameTreeNode[];
+}
+/**
+ * Page.javascriptDialogOpening event payload (E3-D / T-11) — verified
+ * against the official CDP Page domain docs: fires when an alert/confirm/
+ * prompt/beforeunload dialog is ABOUT TO OPEN. The renderer's JS execution
+ * is paused until Page.handleJavaScriptDialog answers it — any in-flight
+ * CDP command whose response depends on that JS call completing (e.g. a
+ * Runtime.callFunctionOn that synchronously triggered the dialog) will not
+ * resolve until then either.
+ */
+interface JSDialogInfo {
+    message: string;
+    type: 'alert' | 'confirm' | 'prompt' | 'beforeunload';
+    url: string;
+    frameId?: string;
+    hasBrowserHandler: boolean;
+    defaultPrompt?: string;
+}
 declare class PageDomain {
     private conn;
     private sessionId?;
@@ -3423,6 +2160,33 @@ declare class PageDomain {
     private fullPageScreenshot;
     getLayoutMetrics(): Promise<LayoutMetrics>;
     enableLifecycleEvents(): Promise<void>;
+    /**
+     * Frame hierarchy for the current page (E3-D). Used to discover iframes
+     * whose accessible content today isn't reachable from the main-frame AX
+     * tree (Accessibility.getFullAXTree only walks the ROOT frame by
+     * default).
+     */
+    getFrameTree(): Promise<FrameTreeNode>;
+    /**
+     * Subscribe to Page.javascriptDialogOpening (E3-D). Returns an unsubscribe
+     * function. Page.enable() (called by enableLifecycleEvents()) must have
+     * run first for this event to fire.
+     */
+    onDialogOpening(handler: (dialog: JSDialogInfo) => void): () => void;
+    /**
+     * Subscribe to Page.javascriptDialogClosed (E3-D) — fires once a dialog
+     * has been answered, whether via handleDialog() or the browser's own
+     * default handling. Returns an unsubscribe function.
+     */
+    onDialogClosed(handler: (info: {
+        result: boolean;
+        userInput: string;
+    }) => void): () => void;
+    /**
+     * Answer the currently-open JS dialog (E3-D). `promptText` is only
+     * meaningful for `type: 'prompt'` dialogs; omit to accept the default.
+     */
+    handleDialog(accept: boolean, promptText?: string): Promise<void>;
     /**
      * Inject CSS into the page.
      * Uses callFunctionOn with CSS passed as a proper argument (not interpolated)
@@ -3573,11 +2337,18 @@ declare class DomDomain {
     private conn;
     private sessionId?;
     constructor(conn: CdpConnection, sessionId?: string | undefined);
-    getElementCenter(backendNodeId: number): Promise<{
+    /**
+     * `sessionId` overrides the domain's default session — needed for E3-D
+     * frame support, where a backendNodeId sourced from an out-of-process
+     * iframe target must be resolved against THAT target's session, not the
+     * main page's.
+     */
+    getElementCenter(backendNodeId: number, sessionId?: string): Promise<{
         x: number;
         y: number;
     }>;
-    getBoxModel(backendNodeId: number): Promise<{
+    /** See getElementCenter() for the `sessionId` override rationale. */
+    getBoxModel(backendNodeId: number, sessionId?: string): Promise<{
         content: number[];
         padding: number[];
         border: number[];
@@ -3887,10 +2658,50 @@ declare class EmulationDomain {
 }
 
 /**
- * CDP Network domain — cookie management for auth state.
- * NEW for IBR — replaces Playwright's storageState for auth persistence.
+ * CDP Network domain — cookie management for auth state, plus real
+ * request/response tracking for network-aware waits (E3-B).
+ *
+ * The in-flight tracking below replaces two historically FAKE waits:
+ * - `networkidle` used to mean "AX tree stopped mutating" (compat.ts, pre
+ *   E3-B) — it could report idle while a fetch/XHR was still in flight, or
+ *   never report idle on a page whose AX tree legitimately never settles.
+ * - `waitForNavigation`/`waitForLoadState` used to mean "sleep 500ms" or
+ *   "re-navigate to the same URL and wait for AX stability" — neither
+ *   reflects actual network activity.
+ *
+ * This tracker only reflects reality once `enable()` has been called AND
+ * its event handlers are registered on the live CDP connection — see
+ * `tracking` / `disableTracking()`, used by the falsifier tests in
+ * engine.test.ts to prove `waitForNetworkIdle`/`waitForResponse` are driven
+ * by real `Network.*` events, not a fixed sleep.
  */
 
+interface WaitForNetworkIdleOptions {
+    /** How long the in-flight count must stay at/below `maxInflight` before
+     *  considering the network idle. Default 500ms (matches the common
+     *  Playwright/Puppeteer `networkidle`/`networkidle0` convention). */
+    idleMs?: number;
+    /** Max concurrent in-flight requests still considered "idle" (Puppeteer's
+     *  networkidle0 = 0, networkidle2 = 2). Default 0. */
+    maxInflight?: number;
+    /** Max total wait, ms. Default 10000. */
+    timeout?: number;
+}
+interface NetworkIdleResult {
+    /** True if the timeout elapsed before the network reached idle. */
+    timedOut: boolean;
+    /** In-flight request count at the time this result was produced. */
+    inflightCount: number;
+}
+interface WaitForResponseOptions {
+    /** Max total wait, ms. Default 30000. */
+    timeout?: number;
+}
+interface MatchedResponse {
+    url: string;
+    status: number;
+}
+type ResponsePredicate = (url: string, status: number) => boolean;
 interface Cookie {
     name: string;
     value: string;
@@ -3917,8 +2728,46 @@ interface SetCookieParams {
 declare class NetworkDomain {
     private conn;
     private sessionId?;
+    private inflight;
+    private lastActivityAt;
+    private handlersRegistered;
+    private responseWaiters;
+    private readonly onRequestWillBeSent;
+    private readonly onResponseReceived;
+    private readonly onLoadingFinished;
+    private readonly onLoadingFailed;
     constructor(conn: CdpConnection, sessionId?: string | undefined);
     enable(): Promise<void>;
+    private registerHandlers;
+    /**
+     * Detach the Network-domain event listeners without disabling the CDP
+     * domain itself. Used by tests to simulate "Network-domain events
+     * disabled" — with tracking off, in-flight state is frozen at whatever
+     * it was, so `waitForNetworkIdle` reports idle immediately even while a
+     * real request is in flight, proving the wait would be FAKE without real
+     * event wiring.
+     */
+    disableTracking(): void;
+    /** True once `enable()` has registered real event handlers. */
+    get tracking(): boolean;
+    /** Current in-flight request count (only meaningful while `tracking`). */
+    get inflightCount(): number;
+    /**
+     * Wait until the in-flight request count has been at or below
+     * `maxInflight` for `idleMs` consecutive milliseconds — REAL CDP
+     * Network-domain quiescence (requestWillBeSent / responseReceived /
+     * loadingFinished / loadingFailed), not AX-tree stability and not a
+     * fixed sleep. Never throws: resolves `{ timedOut: true, ... }` at the
+     * deadline instead, so callers can treat it as best-effort.
+     */
+    waitForNetworkIdle(options?: WaitForNetworkIdleOptions): Promise<NetworkIdleResult>;
+    /**
+     * Wait for a response whose (url, status) satisfies `predicate`. Resolves
+     * the moment a matching `Network.responseReceived` event fires; rejects
+     * on timeout. Driven entirely by real CDP events — with tracking
+     * disabled this never resolves and always times out (no fake success).
+     */
+    waitForResponse(predicate: ResponsePredicate, options?: WaitForResponseOptions): Promise<MatchedResponse>;
     /**
      * Get all cookies, optionally filtered by URLs.
      */
@@ -4190,7 +3039,9 @@ interface CoverageReport {
     shadowDomCount: number;
     /** Canvas elements on the page (completely opaque to AX tree) */
     canvasCount: number;
-    /** Iframe elements on the page (separate AX trees) */
+    /** Iframe elements on the page. As of E3-D, their content is descended
+     *  into and merged into the AX snapshot — this count is informational,
+     *  not an automatic gap (see `gaps` for any that stayed unreachable). */
     iframeCount: number;
     /** Elements recovered via shadow DOM piercing */
     recovered: number;
@@ -4274,7 +3125,36 @@ declare class EngineDriver implements BrowserDriver {
     private _currentUrl;
     private launched;
     private resolutionCache;
+    /**
+     * Last-known {label, role} for every elementId we've ever seen in an AX
+     * snapshot, keyed by elementId (`e${backendDOMNodeId}`). Unlike
+     * AccessibilityDomain's internal nodeMap (which only reflects the CURRENT
+     * live tree), this accumulates across snapshots so that when a
+     * backendNodeId goes stale mid-actionability-wait (the element re-rendered
+     * under a new backendNodeId), we can still recall what we were looking for
+     * and re-resolve by name+role instead of throwing on the dead reference.
+     * Bounded to avoid unbounded growth over a long session.
+     */
+    private elementDescriptors;
+    private static readonly MAX_DESCRIPTOR_HISTORY;
+    private static readonly DESCRIPTOR_TRIM_TARGET;
+    private frameElementBackendNodeIds;
+    private frameElementSessions;
+    private frameTagFor;
+    private oopifSessions;
+    private lastFrameCount;
+    private lastFrameReached;
+    private pendingDialog;
+    private dialogWaiters;
+    private unsubscribeDialogOpening;
+    private unsubscribeDialogClosed;
     launch(options?: LaunchOptions): Promise<void>;
+    /**
+     * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
+     * `dialogWaiters` (E3-D). Idempotent — unsubscribes any prior
+     * registration first, so re-launch/connectExisting never double-fires.
+     */
+    private setupDialogHandling;
     close(): Promise<void>;
     /**
      * Release the CDP WebSocket for this driver without terminating the browser.
@@ -4309,6 +3189,121 @@ declare class EngineDriver implements BrowserDriver {
      * Includes confidence, resolution tier, and fuzzy alternatives when not found.
      */
     findWithDiagnostics(name: string, options?: FindOptions): Promise<FindDiagnostics>;
+    /** Record every element's {label, role} into the cross-snapshot history
+     *  used for stale-elementId re-resolution (see elementDescriptors). */
+    private recordDescriptors;
+    /** Snapshot wrapper — every full-tree read goes through here so the
+     *  stale-elementId re-resolution history stays warm. Behavior-identical
+     *  to calling this.ax.getSnapshot() directly, PLUS (E3-D) elements from
+     *  every iframe on the page, merged in. */
+    private freshSnapshot;
+    /**
+     * Probe a live DOM node's present/visible/enabled/rect state via
+     * DOM.resolveNode + Runtime.callFunctionOn (same primitives click() uses
+     * for its DOM-click path). Returns null when the backendNodeId no longer
+     * resolves to a live node — the caller treats that as "went stale" and
+     * re-resolves rather than throwing.
+     *
+     * `sessionId` (E3-D) overrides the driver's main session — required for
+     * an element sourced from an out-of-process iframe (OOPIF), whose
+     * backendNodeId only resolves against ITS OWN target/session.
+     */
+    private probeBackendNode;
+    /**
+     * Re-resolve a stale element by its last-known label+role against a fresh
+     * AX snapshot. This is what lets a re-rendering element (new
+     * backendNodeId, same accessible name/role) stay actionable instead of
+     * failing the moment its original elementId goes stale.
+     */
+    private reResolveByLabelRole;
+    /**
+     * Resolve an elementId to its {backendNodeId, sessionId} (E3-D). Frame-
+     * sourced elements are checked first (this driver's own bookkeeping,
+     * since AccessibilityDomain only ever knows about the main frame); falls
+     * back to the main-frame nodeMap otherwise. Returns undefined when the
+     * elementId is not currently known to either.
+     */
+    private resolveBackendRef;
+    /**
+     * resolveAndProbe closure for waitForActionable(): resolves elementId to
+     * its current backend reference (re-resolving by name/role if the id has
+     * gone stale), then probes it. Returns null when nothing currently
+     * resolves — waitForActionable treats that as "not present" and keeps
+     * polling.
+     */
+    private resolveElementActionability;
+    /**
+     * Wait until elementId (or its re-resolved replacement) is
+     * present+visible+enabled+stable, then return the actionable backend
+     * reference. Throws a descriptive error on timeout — never silently
+     * proceeds to act on a non-actionable element.
+     */
+    private awaitActionable;
+    private tagForFrame;
+    private flattenChildFrames;
+    /**
+     * Convert raw CDP AX nodes (from a frame's own getFullAXTree call) into
+     * Element[], tagging each id with `frameTag` so it can never collide with
+     * a main-frame or sibling-frame backendDOMNodeId (backend node ids are
+     * only unique WITHIN a render process). Records each into
+     * frameElementBackendNodeIds/frameElementSessions so click()/awaitActionable
+     * can resolve and act on them later.
+     */
+    private convertFrameAXNodes;
+    /** Elements from every iframe on the page — see the "Frames (E3-D)"
+     *  section comment above for the two-path strategy. */
+    private getFrameElements;
+    /**
+     * Best-effort OOPIF path: discover 'iframe'-type CDP targets, match each
+     * to an unresolved frame by URL, attach (cached by targetId across
+     * snapshots), and fetch its AX tree via that target's own session.
+     */
+    private getOopifFrameElements;
+    /**
+     * Dispatch a left click at (x, y) on the given session. `this.input` (the
+     * InputDomain instance) is permanently bound to the driver's MAIN
+     * session, so it cannot dispatch on an OOPIF's session — when
+     * `sessionId` names a different session, issue the raw
+     * Input.dispatchMouseEvent pair directly (same pattern as rightClick()
+     * below) instead of routing through `this.input`.
+     */
+    private dispatchClickAt;
+    /**
+     * Race a CDP call against a JS dialog opening. Some CDP commands
+     * (Runtime.callFunctionOn, Input.dispatchMouseEvent) do not return until
+     * the JS they trigger finishes running — if that JS synchronously opens
+     * an alert()/confirm()/prompt(), the renderer pauses and Chrome withholds
+     * the ACK until Page.handleJavaScriptDialog answers it. Without this,
+     * click() on a button whose handler opens a dialog would hang until the
+     * dialog is answered (or the connection's own ~30s timeout).
+     *
+     * If the dialog-opened signal wins the race, the triggering promise is
+     * left to settle on its own later (swallowed here so it never surfaces
+     * as an unhandled rejection) and this returns `undefined` — the caller
+     * treats that the same as "the command was issued", since the dialog
+     * itself proves the click's handler ran. The open dialog is exposed via
+     * getPendingDialog()/handleDialog().
+     */
+    private raceAgainstDialog;
+    /**
+     * The currently-open JS dialog (alert/confirm/prompt/beforeunload), if
+     * any. Poll this (or await waitForDialog()) instead of letting a
+     * triggering action hang indefinitely — see raceAgainstDialog().
+     */
+    getPendingDialog(): JSDialogInfo | null;
+    /**
+     * Answer the currently-open JS dialog. `accept` maps to OK/Cancel;
+     * `promptText` is only meaningful for `type: 'prompt'` dialogs. Throws if
+     * no dialog is currently open.
+     */
+    handleDialog(accept: boolean, promptText?: string): Promise<void>;
+    /**
+     * Wait until a JS dialog opens (or the timeout elapses). Useful when a
+     * dialog may be triggered by an action whose own promise won't settle
+     * until the dialog is answered (see raceAgainstDialog()) — callers that
+     * fired such an action without awaiting it can await this instead.
+     */
+    waitForDialog(timeout?: number): Promise<JSDialogInfo>;
     click(elementId: string): Promise<void>;
     type(elementId: string, text: string): Promise<void>;
     fill(elementId: string, value: string): Promise<void>;
@@ -4535,7 +3530,6 @@ declare class CompatLocator {
         state?: string;
         timeout?: number;
     }): Promise<void>;
-    private resolveNode;
 }
 type ConsoleHandler = (msg: {
     type: () => string;
@@ -4572,6 +3566,19 @@ declare class CompatPage {
         timeout?: number;
     }): Promise<void>;
     waitForNavigation(): Promise<void>;
+    /**
+     * Wait for a response matching `urlOrPredicate` (substring, RegExp, or a
+     * `(url, status) => boolean` predicate). Resolves with `{url, status}` the
+     * moment a matching `Network.responseReceived` CDP event fires — real
+     * network awareness (E3-B), not a fixed sleep or polling guess. New API
+     * surface; no existing caller to preserve compatibility with.
+     */
+    waitForResponse(urlOrPredicate: string | RegExp | ((url: string, status: number) => boolean), options?: {
+        timeout?: number;
+    }): Promise<{
+        url: string;
+        status: number;
+    }>;
     content(): Promise<string>;
     title(): Promise<string>;
     textContent(selector: string): Promise<string | null>;
@@ -5367,7 +4374,16 @@ declare function formatGlobalMemory(prefs: Preference[]): string;
 /**
  * Types of UI decisions that can be tracked
  */
-declare const DecisionTypeSchema: z.ZodEnum<["css_change", "layout_change", "color_change", "spacing_change", "component_add", "component_remove", "component_modify", "content_change"]>;
+declare const DecisionTypeSchema: z.ZodEnum<{
+    css_change: "css_change";
+    layout_change: "layout_change";
+    color_change: "color_change";
+    spacing_change: "spacing_change";
+    component_add: "component_add";
+    component_remove: "component_remove";
+    component_modify: "component_modify";
+    content_change: "content_change";
+}>;
 /**
  * Before/after state snapshot for a decision
  */
@@ -5375,15 +4391,7 @@ declare const DecisionStateSchema: z.ZodObject<{
     css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     html_snippet: z.ZodOptional<z.ZodString>;
     screenshot_ref: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    css?: Record<string, string> | undefined;
-    html_snippet?: string | undefined;
-    screenshot_ref?: string | undefined;
-}, {
-    css?: Record<string, string> | undefined;
-    html_snippet?: string | undefined;
-    screenshot_ref?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * A single UI decision entry stored in JSONL logs
  */
@@ -5392,78 +4400,31 @@ declare const DecisionEntrySchema: z.ZodObject<{
     timestamp: z.ZodString;
     route: z.ZodString;
     component: z.ZodOptional<z.ZodString>;
-    type: z.ZodEnum<["css_change", "layout_change", "color_change", "spacing_change", "component_add", "component_remove", "component_modify", "content_change"]>;
+    type: z.ZodEnum<{
+        css_change: "css_change";
+        layout_change: "layout_change";
+        color_change: "color_change";
+        spacing_change: "spacing_change";
+        component_add: "component_add";
+        component_remove: "component_remove";
+        component_modify: "component_modify";
+        content_change: "content_change";
+    }>;
     description: z.ZodString;
     rationale: z.ZodOptional<z.ZodString>;
     before: z.ZodOptional<z.ZodObject<{
         css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         html_snippet: z.ZodOptional<z.ZodString>;
         screenshot_ref: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }>>;
+    }, z.core.$strip>>;
     after: z.ZodOptional<z.ZodObject<{
         css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         html_snippet: z.ZodOptional<z.ZodString>;
         screenshot_ref: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }>>;
-    files_changed: z.ZodArray<z.ZodString, "many">;
+    }, z.core.$strip>>;
+    files_changed: z.ZodArray<z.ZodString>;
     session_id: z.ZodOptional<z.ZodString>;
-}, "strip", z.ZodTypeAny, {
-    type: "css_change" | "layout_change" | "color_change" | "spacing_change" | "component_add" | "component_remove" | "component_modify" | "content_change";
-    description: string;
-    id: string;
-    timestamp: string;
-    route: string;
-    files_changed: string[];
-    component?: string | undefined;
-    before?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    after?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    rationale?: string | undefined;
-    session_id?: string | undefined;
-}, {
-    type: "css_change" | "layout_change" | "color_change" | "spacing_change" | "component_add" | "component_remove" | "component_modify" | "content_change";
-    description: string;
-    id: string;
-    timestamp: string;
-    route: string;
-    files_changed: string[];
-    component?: string | undefined;
-    before?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    after?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    rationale?: string | undefined;
-    session_id?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Route-level decision summary for compact context
  */
@@ -5473,35 +4434,15 @@ declare const DecisionSummarySchema: z.ZodObject<{
     latest_change: z.ZodString;
     decision_count: z.ZodNumber;
     full_log_ref: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    route: string;
-    latest_change: string;
-    decision_count: number;
-    full_log_ref: string;
-    component?: string | undefined;
-}, {
-    route: string;
-    latest_change: string;
-    decision_count: number;
-    full_log_ref: string;
-    component?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Current UI state tracking in compact context
  */
 declare const CurrentUIStateSchema: z.ZodObject<{
     last_snapshot_ref: z.ZodOptional<z.ZodString>;
     pending_verifications: z.ZodNumber;
-    known_issues: z.ZodArray<z.ZodString, "many">;
-}, "strip", z.ZodTypeAny, {
-    pending_verifications: number;
-    known_issues: string[];
-    last_snapshot_ref?: string | undefined;
-}, {
-    pending_verifications: number;
-    known_issues: string[];
-    last_snapshot_ref?: string | undefined;
-}>;
+    known_issues: z.ZodArray<z.ZodString>;
+}, z.core.$strip>;
 /**
  * Compact context — always-loaded LLM-friendly summary (<4KB target)
  */
@@ -5516,83 +4457,25 @@ declare const CompactContextSchema: z.ZodObject<{
         latest_change: z.ZodString;
         decision_count: z.ZodNumber;
         full_log_ref: z.ZodString;
-    }, "strip", z.ZodTypeAny, {
-        route: string;
-        latest_change: string;
-        decision_count: number;
-        full_log_ref: string;
-        component?: string | undefined;
-    }, {
-        route: string;
-        latest_change: string;
-        decision_count: number;
-        full_log_ref: string;
-        component?: string | undefined;
-    }>, "many">;
+    }, z.core.$strip>>;
     current_ui_state: z.ZodObject<{
         last_snapshot_ref: z.ZodOptional<z.ZodString>;
         pending_verifications: z.ZodNumber;
-        known_issues: z.ZodArray<z.ZodString, "many">;
-    }, "strip", z.ZodTypeAny, {
-        pending_verifications: number;
-        known_issues: string[];
-        last_snapshot_ref?: string | undefined;
-    }, {
-        pending_verifications: number;
-        known_issues: string[];
-        last_snapshot_ref?: string | undefined;
-    }>;
+        known_issues: z.ZodArray<z.ZodString>;
+    }, z.core.$strip>;
     preferences_active: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    version: 1;
-    session_id: string;
-    updated_at: string;
-    decisions_summary: {
-        route: string;
-        latest_change: string;
-        decision_count: number;
-        full_log_ref: string;
-        component?: string | undefined;
-    }[];
-    current_ui_state: {
-        pending_verifications: number;
-        known_issues: string[];
-        last_snapshot_ref?: string | undefined;
-    };
-    preferences_active: number;
-    active_route?: string | undefined;
-}, {
-    version: 1;
-    session_id: string;
-    updated_at: string;
-    decisions_summary: {
-        route: string;
-        latest_change: string;
-        decision_count: number;
-        full_log_ref: string;
-        component?: string | undefined;
-    }[];
-    current_ui_state: {
-        pending_verifications: number;
-        known_issues: string[];
-        last_snapshot_ref?: string | undefined;
-    };
-    preferences_active: number;
-    active_route?: string | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Request to compact current context
  */
 declare const CompactionRequestSchema: z.ZodObject<{
-    reason: z.ZodEnum<["session_ending", "context_limit", "manual"]>;
-    preserve_decisions: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
-}, "strip", z.ZodTypeAny, {
-    reason: "session_ending" | "context_limit" | "manual";
-    preserve_decisions?: string[] | undefined;
-}, {
-    reason: "session_ending" | "context_limit" | "manual";
-    preserve_decisions?: string[] | undefined;
-}>;
+    reason: z.ZodEnum<{
+        session_ending: "session_ending";
+        context_limit: "context_limit";
+        manual: "manual";
+    }>;
+    preserve_decisions: z.ZodOptional<z.ZodArray<z.ZodString>>;
+}, z.core.$strip>;
 /**
  * Result of context compaction
  */
@@ -5608,143 +4491,47 @@ declare const CompactionResultSchema: z.ZodObject<{
             latest_change: z.ZodString;
             decision_count: z.ZodNumber;
             full_log_ref: z.ZodString;
-        }, "strip", z.ZodTypeAny, {
-            route: string;
-            latest_change: string;
-            decision_count: number;
-            full_log_ref: string;
-            component?: string | undefined;
-        }, {
-            route: string;
-            latest_change: string;
-            decision_count: number;
-            full_log_ref: string;
-            component?: string | undefined;
-        }>, "many">;
+        }, z.core.$strip>>;
         current_ui_state: z.ZodObject<{
             last_snapshot_ref: z.ZodOptional<z.ZodString>;
             pending_verifications: z.ZodNumber;
-            known_issues: z.ZodArray<z.ZodString, "many">;
-        }, "strip", z.ZodTypeAny, {
-            pending_verifications: number;
-            known_issues: string[];
-            last_snapshot_ref?: string | undefined;
-        }, {
-            pending_verifications: number;
-            known_issues: string[];
-            last_snapshot_ref?: string | undefined;
-        }>;
+            known_issues: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>;
         preferences_active: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        version: 1;
-        session_id: string;
-        updated_at: string;
-        decisions_summary: {
-            route: string;
-            latest_change: string;
-            decision_count: number;
-            full_log_ref: string;
-            component?: string | undefined;
-        }[];
-        current_ui_state: {
-            pending_verifications: number;
-            known_issues: string[];
-            last_snapshot_ref?: string | undefined;
-        };
-        preferences_active: number;
-        active_route?: string | undefined;
-    }, {
-        version: 1;
-        session_id: string;
-        updated_at: string;
-        decisions_summary: {
-            route: string;
-            latest_change: string;
-            decision_count: number;
-            full_log_ref: string;
-            component?: string | undefined;
-        }[];
-        current_ui_state: {
-            pending_verifications: number;
-            known_issues: string[];
-            last_snapshot_ref?: string | undefined;
-        };
-        preferences_active: number;
-        active_route?: string | undefined;
-    }>;
+    }, z.core.$strip>;
     archived_to: z.ZodString;
     decisions_compacted: z.ZodNumber;
     decisions_preserved: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    compact_context: {
-        version: 1;
-        session_id: string;
-        updated_at: string;
-        decisions_summary: {
-            route: string;
-            latest_change: string;
-            decision_count: number;
-            full_log_ref: string;
-            component?: string | undefined;
-        }[];
-        current_ui_state: {
-            pending_verifications: number;
-            known_issues: string[];
-            last_snapshot_ref?: string | undefined;
-        };
-        preferences_active: number;
-        active_route?: string | undefined;
-    };
-    archived_to: string;
-    decisions_compacted: number;
-    decisions_preserved: number;
-}, {
-    compact_context: {
-        version: 1;
-        session_id: string;
-        updated_at: string;
-        decisions_summary: {
-            route: string;
-            latest_change: string;
-            decision_count: number;
-            full_log_ref: string;
-            component?: string | undefined;
-        }[];
-        current_ui_state: {
-            pending_verifications: number;
-            known_issues: string[];
-            last_snapshot_ref?: string | undefined;
-        };
-        preferences_active: number;
-        active_route?: string | undefined;
-    };
-    archived_to: string;
-    decisions_compacted: number;
-    decisions_preserved: number;
-}>;
+}, z.core.$strip>;
 /**
  * Operators for comparing CSS/semantic property values
  */
-declare const DesignCheckOperatorSchema: z.ZodEnum<["eq", "gt", "lt", "contains", "not", "exists", "truthy"]>;
+declare const DesignCheckOperatorSchema: z.ZodEnum<{
+    contains: "contains";
+    exists: "exists";
+    eq: "eq";
+    gt: "gt";
+    lt: "lt";
+    not: "not";
+    truthy: "truthy";
+}>;
 /**
  * A single verifiable check against a CSS property or semantic state
  */
 declare const DesignCheckSchema: z.ZodObject<{
     property: z.ZodString;
-    operator: z.ZodEnum<["eq", "gt", "lt", "contains", "not", "exists", "truthy"]>;
-    value: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+    operator: z.ZodEnum<{
+        contains: "contains";
+        exists: "exists";
+        eq: "eq";
+        gt: "gt";
+        lt: "lt";
+        not: "not";
+        truthy: "truthy";
+    }>;
+    value: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
     confidence: z.ZodNumber;
-}, "strip", z.ZodTypeAny, {
-    value: string | number;
-    property: string;
-    operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-    confidence: number;
-}, {
-    value: string | number;
-    property: string;
-    operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-    confidence: number;
-}>;
+}, z.core.$strip>;
 /**
  * A structured UI change description captured at write-time (~95% accuracy)
  */
@@ -5753,48 +4540,29 @@ declare const DesignChangeSchema: z.ZodObject<{
     element: z.ZodString;
     checks: z.ZodArray<z.ZodObject<{
         property: z.ZodString;
-        operator: z.ZodEnum<["eq", "gt", "lt", "contains", "not", "exists", "truthy"]>;
-        value: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        operator: z.ZodEnum<{
+            contains: "contains";
+            exists: "exists";
+            eq: "eq";
+            gt: "gt";
+            lt: "lt";
+            not: "not";
+            truthy: "truthy";
+        }>;
+        value: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
         confidence: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }, {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }>, "many">;
-    source: z.ZodEnum<["structured", "parsed"]>;
-    platform: z.ZodOptional<z.ZodEnum<["web", "ios", "macos"]>>;
+    }, z.core.$strip>>;
+    source: z.ZodEnum<{
+        structured: "structured";
+        parsed: "parsed";
+    }>;
+    platform: z.ZodOptional<z.ZodEnum<{
+        web: "web";
+        ios: "ios";
+        macos: "macos";
+    }>>;
     timestamp: z.ZodString;
-}, "strip", z.ZodTypeAny, {
-    description: string;
-    timestamp: string;
-    element: string;
-    source: "structured" | "parsed";
-    checks: {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }[];
-    platform?: "web" | "ios" | "macos" | undefined;
-}, {
-    description: string;
-    timestamp: string;
-    element: string;
-    source: "structured" | "parsed";
-    checks: {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }[];
-    platform?: "web" | "ios" | "macos" | undefined;
-}>;
+}, z.core.$strip>;
 /**
  * Extended DecisionEntry with optional design checks attached
  */
@@ -5803,107 +4571,45 @@ declare const DecisionEntryWithChecksSchema: z.ZodObject<{
     timestamp: z.ZodString;
     route: z.ZodString;
     component: z.ZodOptional<z.ZodString>;
-    type: z.ZodEnum<["css_change", "layout_change", "color_change", "spacing_change", "component_add", "component_remove", "component_modify", "content_change"]>;
+    type: z.ZodEnum<{
+        css_change: "css_change";
+        layout_change: "layout_change";
+        color_change: "color_change";
+        spacing_change: "spacing_change";
+        component_add: "component_add";
+        component_remove: "component_remove";
+        component_modify: "component_modify";
+        content_change: "content_change";
+    }>;
     description: z.ZodString;
     rationale: z.ZodOptional<z.ZodString>;
     before: z.ZodOptional<z.ZodObject<{
         css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         html_snippet: z.ZodOptional<z.ZodString>;
         screenshot_ref: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }>>;
+    }, z.core.$strip>>;
     after: z.ZodOptional<z.ZodObject<{
         css: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         html_snippet: z.ZodOptional<z.ZodString>;
         screenshot_ref: z.ZodOptional<z.ZodString>;
-    }, "strip", z.ZodTypeAny, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }, {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    }>>;
-    files_changed: z.ZodArray<z.ZodString, "many">;
+    }, z.core.$strip>>;
+    files_changed: z.ZodArray<z.ZodString>;
     session_id: z.ZodOptional<z.ZodString>;
-} & {
     checks: z.ZodOptional<z.ZodArray<z.ZodObject<{
         property: z.ZodString;
-        operator: z.ZodEnum<["eq", "gt", "lt", "contains", "not", "exists", "truthy"]>;
-        value: z.ZodUnion<[z.ZodString, z.ZodNumber]>;
+        operator: z.ZodEnum<{
+            contains: "contains";
+            exists: "exists";
+            eq: "eq";
+            gt: "gt";
+            lt: "lt";
+            not: "not";
+            truthy: "truthy";
+        }>;
+        value: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
         confidence: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }, {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }>, "many">>;
-}, "strip", z.ZodTypeAny, {
-    type: "css_change" | "layout_change" | "color_change" | "spacing_change" | "component_add" | "component_remove" | "component_modify" | "content_change";
-    description: string;
-    id: string;
-    timestamp: string;
-    route: string;
-    files_changed: string[];
-    component?: string | undefined;
-    before?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    after?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    rationale?: string | undefined;
-    session_id?: string | undefined;
-    checks?: {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }[] | undefined;
-}, {
-    type: "css_change" | "layout_change" | "color_change" | "spacing_change" | "component_add" | "component_remove" | "component_modify" | "content_change";
-    description: string;
-    id: string;
-    timestamp: string;
-    route: string;
-    files_changed: string[];
-    component?: string | undefined;
-    before?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    after?: {
-        css?: Record<string, string> | undefined;
-        html_snippet?: string | undefined;
-        screenshot_ref?: string | undefined;
-    } | undefined;
-    rationale?: string | undefined;
-    session_id?: string | undefined;
-    checks?: {
-        value: string | number;
-        property: string;
-        operator: "contains" | "gt" | "lt" | "exists" | "eq" | "not" | "truthy";
-        confidence: number;
-    }[] | undefined;
-}>;
+    }, z.core.$strip>>>;
+}, z.core.$strip>;
 type DecisionType = z.infer<typeof DecisionTypeSchema>;
 type DecisionState = z.infer<typeof DecisionStateSchema>;
 type DecisionEntry = z.infer<typeof DecisionEntrySchema>;
@@ -6707,97 +5413,38 @@ declare const DesignSystemConfigSchema: z.ZodObject<{
     name: z.ZodString;
     principles: z.ZodDefault<z.ZodObject<{
         calmPrecision: z.ZodDefault<z.ZodObject<{
-            core: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-            stylistic: z.ZodDefault<z.ZodArray<z.ZodString, "many">>;
-            severity: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodEnum<["error", "warn", "off"]>>>;
-        }, "strip", z.ZodTypeAny, {
-            severity: Record<string, "error" | "off" | "warn">;
-            core: string[];
-            stylistic: string[];
-        }, {
-            severity?: Record<string, "error" | "off" | "warn"> | undefined;
-            core?: string[] | undefined;
-            stylistic?: string[] | undefined;
-        }>>;
+            core: z.ZodDefault<z.ZodArray<z.ZodString>>;
+            stylistic: z.ZodDefault<z.ZodArray<z.ZodString>>;
+            severity: z.ZodDefault<z.ZodRecord<z.ZodString, z.ZodEnum<{
+                error: "error";
+                off: "off";
+                warn: "warn";
+            }>>>;
+        }, z.core.$strip>>;
         custom: z.ZodDefault<z.ZodArray<z.ZodObject<{
             id: z.ZodString;
             name: z.ZodString;
             description: z.ZodString;
             category: z.ZodString;
-            severity: z.ZodEnum<["error", "warn", "off"]>;
+            severity: z.ZodEnum<{
+                error: "error";
+                off: "off";
+                warn: "warn";
+            }>;
             checks: z.ZodArray<z.ZodObject<{
                 property: z.ZodString;
-                operator: z.ZodEnum<["equals", "in-set", "not-in-set", "gte", "lte", "contains"]>;
-                values: z.ZodArray<z.ZodUnion<[z.ZodString, z.ZodNumber]>, "many">;
-            }, "strip", z.ZodTypeAny, {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }, {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }>, "many">;
-        }, "strip", z.ZodTypeAny, {
-            name: string;
-            description: string;
-            severity: "error" | "off" | "warn";
-            id: string;
-            category: string;
-            checks: {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }[];
-        }, {
-            name: string;
-            description: string;
-            severity: "error" | "off" | "warn";
-            id: string;
-            category: string;
-            checks: {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }[];
-        }>, "many">>;
-    }, "strip", z.ZodTypeAny, {
-        custom: {
-            name: string;
-            description: string;
-            severity: "error" | "off" | "warn";
-            id: string;
-            category: string;
-            checks: {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }[];
-        }[];
-        calmPrecision: {
-            severity: Record<string, "error" | "off" | "warn">;
-            core: string[];
-            stylistic: string[];
-        };
-    }, {
-        custom?: {
-            name: string;
-            description: string;
-            severity: "error" | "off" | "warn";
-            id: string;
-            category: string;
-            checks: {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }[];
-        }[] | undefined;
-        calmPrecision?: {
-            severity?: Record<string, "error" | "off" | "warn"> | undefined;
-            core?: string[] | undefined;
-            stylistic?: string[] | undefined;
-        } | undefined;
-    }>>;
+                operator: z.ZodEnum<{
+                    equals: "equals";
+                    contains: "contains";
+                    gte: "gte";
+                    lte: "lte";
+                    "in-set": "in-set";
+                    "not-in-set": "not-in-set";
+                }>;
+                values: z.ZodArray<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+            }, z.core.$strip>>;
+        }, z.core.$strip>>>;
+    }, z.core.$strip>>;
     tokens: z.ZodDefault<z.ZodObject<{
         colors: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         typography: z.ZodOptional<z.ZodObject<{
@@ -6805,136 +5452,16 @@ declare const DesignSystemConfigSchema: z.ZodObject<{
             fontSizes: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
             fontWeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
             lineHeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
-        }, "strip", z.ZodTypeAny, {
-            fontFamilies?: Record<string, string> | undefined;
-            fontSizes?: Record<string, number> | undefined;
-            fontWeights?: Record<string, number> | undefined;
-            lineHeights?: Record<string, number> | undefined;
-        }, {
-            fontFamilies?: Record<string, string> | undefined;
-            fontSizes?: Record<string, number> | undefined;
-            fontWeights?: Record<string, number> | undefined;
-            lineHeights?: Record<string, number> | undefined;
-        }>>;
-        spacing: z.ZodOptional<z.ZodArray<z.ZodNumber, "many">>;
+        }, z.core.$strip>>;
+        spacing: z.ZodOptional<z.ZodArray<z.ZodNumber>>;
         borderRadius: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
         shadows: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         transitions: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
         touchTargets: z.ZodOptional<z.ZodObject<{
             min: z.ZodNumber;
-        }, "strip", z.ZodTypeAny, {
-            min: number;
-        }, {
-            min: number;
-        }>>;
-    }, "strip", z.ZodTypeAny, {
-        typography?: {
-            fontFamilies?: Record<string, string> | undefined;
-            fontSizes?: Record<string, number> | undefined;
-            fontWeights?: Record<string, number> | undefined;
-            lineHeights?: Record<string, number> | undefined;
-        } | undefined;
-        spacing?: number[] | undefined;
-        colors?: Record<string, string> | undefined;
-        touchTargets?: {
-            min: number;
-        } | undefined;
-        borderRadius?: Record<string, number> | undefined;
-        shadows?: Record<string, string> | undefined;
-        transitions?: Record<string, string> | undefined;
-    }, {
-        typography?: {
-            fontFamilies?: Record<string, string> | undefined;
-            fontSizes?: Record<string, number> | undefined;
-            fontWeights?: Record<string, number> | undefined;
-            lineHeights?: Record<string, number> | undefined;
-        } | undefined;
-        spacing?: number[] | undefined;
-        colors?: Record<string, string> | undefined;
-        touchTargets?: {
-            min: number;
-        } | undefined;
-        borderRadius?: Record<string, number> | undefined;
-        shadows?: Record<string, string> | undefined;
-        transitions?: Record<string, string> | undefined;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    name: string;
-    version: 1;
-    principles: {
-        custom: {
-            name: string;
-            description: string;
-            severity: "error" | "off" | "warn";
-            id: string;
-            category: string;
-            checks: {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }[];
-        }[];
-        calmPrecision: {
-            severity: Record<string, "error" | "off" | "warn">;
-            core: string[];
-            stylistic: string[];
-        };
-    };
-    tokens: {
-        typography?: {
-            fontFamilies?: Record<string, string> | undefined;
-            fontSizes?: Record<string, number> | undefined;
-            fontWeights?: Record<string, number> | undefined;
-            lineHeights?: Record<string, number> | undefined;
-        } | undefined;
-        spacing?: number[] | undefined;
-        colors?: Record<string, string> | undefined;
-        touchTargets?: {
-            min: number;
-        } | undefined;
-        borderRadius?: Record<string, number> | undefined;
-        shadows?: Record<string, string> | undefined;
-        transitions?: Record<string, string> | undefined;
-    };
-}, {
-    name: string;
-    version: 1;
-    principles?: {
-        custom?: {
-            name: string;
-            description: string;
-            severity: "error" | "off" | "warn";
-            id: string;
-            category: string;
-            checks: {
-                values: (string | number)[];
-                property: string;
-                operator: "equals" | "contains" | "gte" | "lte" | "in-set" | "not-in-set";
-            }[];
-        }[] | undefined;
-        calmPrecision?: {
-            severity?: Record<string, "error" | "off" | "warn"> | undefined;
-            core?: string[] | undefined;
-            stylistic?: string[] | undefined;
-        } | undefined;
-    } | undefined;
-    tokens?: {
-        typography?: {
-            fontFamilies?: Record<string, string> | undefined;
-            fontSizes?: Record<string, number> | undefined;
-            fontWeights?: Record<string, number> | undefined;
-            lineHeights?: Record<string, number> | undefined;
-        } | undefined;
-        spacing?: number[] | undefined;
-        colors?: Record<string, string> | undefined;
-        touchTargets?: {
-            min: number;
-        } | undefined;
-        borderRadius?: Record<string, number> | undefined;
-        shadows?: Record<string, string> | undefined;
-        transitions?: Record<string, string> | undefined;
-    } | undefined;
-}>;
+        }, z.core.$strip>>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 type DesignSystemConfig = z.infer<typeof DesignSystemConfigSchema>;
 /**
  * Load design system config from .ibr/design-system.json
@@ -6961,59 +5488,15 @@ declare const ExtendedTokenSpecSchema: z.ZodObject<{
         fontSizes: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
         fontWeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
         lineHeights: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
-    }, "strip", z.ZodTypeAny, {
-        fontFamilies?: Record<string, string> | undefined;
-        fontSizes?: Record<string, number> | undefined;
-        fontWeights?: Record<string, number> | undefined;
-        lineHeights?: Record<string, number> | undefined;
-    }, {
-        fontFamilies?: Record<string, string> | undefined;
-        fontSizes?: Record<string, number> | undefined;
-        fontWeights?: Record<string, number> | undefined;
-        lineHeights?: Record<string, number> | undefined;
-    }>>;
-    spacing: z.ZodOptional<z.ZodArray<z.ZodNumber, "many">>;
+    }, z.core.$strip>>;
+    spacing: z.ZodOptional<z.ZodArray<z.ZodNumber>>;
     borderRadius: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodNumber>>;
     shadows: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     transitions: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     touchTargets: z.ZodOptional<z.ZodObject<{
         min: z.ZodNumber;
-    }, "strip", z.ZodTypeAny, {
-        min: number;
-    }, {
-        min: number;
-    }>>;
-}, "strip", z.ZodTypeAny, {
-    typography?: {
-        fontFamilies?: Record<string, string> | undefined;
-        fontSizes?: Record<string, number> | undefined;
-        fontWeights?: Record<string, number> | undefined;
-        lineHeights?: Record<string, number> | undefined;
-    } | undefined;
-    spacing?: number[] | undefined;
-    colors?: Record<string, string> | undefined;
-    touchTargets?: {
-        min: number;
-    } | undefined;
-    borderRadius?: Record<string, number> | undefined;
-    shadows?: Record<string, string> | undefined;
-    transitions?: Record<string, string> | undefined;
-}, {
-    typography?: {
-        fontFamilies?: Record<string, string> | undefined;
-        fontSizes?: Record<string, number> | undefined;
-        fontWeights?: Record<string, number> | undefined;
-        lineHeights?: Record<string, number> | undefined;
-    } | undefined;
-    spacing?: number[] | undefined;
-    colors?: Record<string, string> | undefined;
-    touchTargets?: {
-        min: number;
-    } | undefined;
-    borderRadius?: Record<string, number> | undefined;
-    shadows?: Record<string, string> | undefined;
-    transitions?: Record<string, string> | undefined;
-}>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 type ExtendedTokenSpec = z.infer<typeof ExtendedTokenSpecSchema>;
 
 /**
@@ -7593,6 +6076,684 @@ interface FixGuide {
 declare function generateFixGuide(scanResult: NativeScanResult, bridgeResult: BridgeResult | null, annotatedScreenshot: string | null): FixGuide;
 
 /**
+ * ActionOutcome — the per-action feedback-loop contract (Increment 1, F-09).
+ *
+ * A driven action "succeeded" ONLY when an expected-outcome validator passed —
+ * not merely because the underlying CDP/AX call did not throw. Every action
+ * carries provenance (how the target was resolved, what we waited for) and, on
+ * failure, structured evidence (before/after signatures, a diff, ranked
+ * alternatives, an optional screenshot) so a later escalation layer can reason
+ * about what went wrong.
+ *
+ * FROZEN at Wave 0 (chunk C0). This type is the shape the Increment-2
+ * capture→replay→escalate spine consumes, and the shape E2-B / E3-E emit on the
+ * wire. Extend `provenance` and `evidence`; never strip existing fields.
+ *
+ * Adoption timing: INTERNAL-ONLY at C0. The native controller returns it, but
+ * the native MCP wire stays byte-identical in Wave 0. The native wire gains
+ * `validator`/`evidence` at E2-B; the web wire at E3-E.
+ */
+/** A candidate the resolver considered but did not act on, ranked by score. */
+interface RankedCandidate {
+    /** Accessible name / label of the candidate. */
+    label: string;
+    /** Semantic role (button, textbox, AXButton, …). */
+    role: string;
+    /** Stable identifier when the surface exposes one. */
+    identifier?: string | null;
+    /** Match score for the requested target (higher = closer). */
+    score: number;
+}
+/**
+ * Expected-outcome check. `success` on the enclosing ActionOutcome is true ONLY
+ * when `passed` is true.
+ */
+interface ActionValidator {
+    /** What the caller expected to observe after the action. */
+    expected: string;
+    /** What was actually observed. */
+    observed: string;
+    /** Whether the observation satisfied the expectation. */
+    passed: boolean;
+}
+/**
+ * How the action's target was resolved and what post-action settling occurred.
+ * Extend with new fields; existing consumers must keep working.
+ */
+interface ActionProvenance {
+    /** Resolution tier (e.g. 'identifier' | 'label' | 'value' | 'contains'). */
+    tier?: string;
+    /** Resolver confidence for the chosen element (0..1). */
+    confidence?: number;
+    /** Resolved AX/DOM path of the acted-on element, when available. */
+    resolvedPath?: string;
+    /** The post-action expectation the caller asked us to wait for, if any. */
+    waitFor?: string;
+    /** How the post-action wait resolved (e.g. 'waitFor-found' | 'tree-stable' | 'timeout'). */
+    waitResult?: string;
+}
+/** Structured failure evidence — REQUIRED on failure, spine-ready. */
+interface ActionEvidence {
+    /** Signature of the observed state before the action. */
+    beforeSignature: string;
+    /** Signature of the observed state after the action. */
+    afterSignature: string;
+    /** Human/diff summary of what changed (or did not). */
+    diff: string;
+    /** Ranked alternatives the resolver considered (≤10). */
+    alternatives: RankedCandidate[];
+    /** Optional base64 PNG capturing the failure state. */
+    screenshotB64?: string;
+}
+/**
+ * The outcome of a single driven action.
+ *
+ * `success` is true ONLY if `validator.passed` is true. On failure, `evidence`
+ * is populated.
+ */
+interface ActionOutcome {
+    success: boolean;
+    validator: ActionValidator;
+    provenance: ActionProvenance;
+    evidence?: ActionEvidence;
+}
+/**
+ * Build an ActionOutcome for a capability the active backend does not yet
+ * implement (keyboard/lifecycle/menu on RespawnBackend). Epic 2's DaemonBackend
+ * replaces these with real outcomes; until then the controller surfaces a
+ * structured, non-throwing "not implemented" result.
+ */
+declare function notImplementedOutcome(capability: string): ActionOutcome;
+
+/**
+ * Shared MCP session registry.
+ *
+ * The in-memory session store is the one piece of state shared between the web
+ * MCP handlers (`tools.ts`) and the native MCP handlers (`native-tools.ts`).
+ * It was extracted here (from `tools.ts`) at Wave 0 (chunk C0) and is FROZEN
+ * afterward — its shape ripples into both the web (Epic 3) and native (Epic 4)
+ * threads.
+ *
+ * Import direction is ONE-WAY and explicit: `tools.ts` and `native-tools.ts`
+ * (and the native session controller) import FROM here; this module imports
+ * from NEITHER. `sessions.ts` must never `import … from './tools'`.
+ */
+/** Kind of surface a session drives. */
+type SessionType = 'chrome' | 'safari' | 'macos' | 'simulator';
+/**
+ * One live session. Web sessions carry a driver; native (macos/simulator)
+ * sessions carry no driver and are addressed by pid / device instead.
+ */
+type SessionEntry = {
+    driver: any;
+    type: SessionType;
+    url?: string;
+    app?: string;
+    device?: {
+        udid: string;
+        name: string;
+    };
+    pid?: number;
+    createdAt: number;
+};
+
+/**
+ * Coordinate helpers for native element interaction
+ *
+ * These utilities bridge the gap between AX element data (frames with x/y/width/height)
+ * and the coordinate-based IDB interaction API.
+ */
+
+type NativeAction = 'press' | 'setValue' | 'increment' | 'decrement' | 'showMenu' | 'confirm' | 'cancel' | 'focus' | 'scrollToVisible';
+interface NativeActionResult {
+    success: boolean;
+    action: string;
+    error?: string;
+}
+interface NativeElementCandidate {
+    path?: number[];
+    role: string;
+    label: string;
+    identifier?: string | null;
+    value?: string | null;
+    enabled: boolean;
+    actions: string[];
+    frame?: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+}
+
+/**
+ * AXDaemon — Node-side manager for the long-lived Swift AX daemon (`--daemon`).
+ *
+ * Spawns the extractor in daemon mode and speaks its JSON-lines protocol: one
+ * request object per stdin line, one response object per stdout line, correlated
+ * by an integer `id`. Holds the AX connection open across many extract / action /
+ * resolve calls, eliminating the per-call binary respawn.
+ *
+ * Lifetime & safety:
+ * - The daemon reads stdin and exits on EOF, so when THIS process dies (normal
+ *   exit or SIGKILL) the pipe closes and the daemon reaps itself — no orphan.
+ *   (Verified live in the E2-A spike: SIGKILL of the parent → daemon exits.)
+ * - On the daemon's `ready` line we check `trusted`. If AX is not trusted, start()
+ *   rejects so the caller (DaemonBackend) can fall back to RespawnBackend rather
+ *   than hang.
+ * - On child exit / spawn error, every in-flight and future request rejects; the
+ *   backend flips to the respawn fallback (kill-9 auto-fallback).
+ *
+ * `spawnFn` is injectable so the protocol framing can be unit-tested without a
+ * real Swift binary.
+ */
+
+type DaemonTarget = {
+    kind: 'macos';
+    pid: number;
+} | {
+    kind: 'simulator';
+    pid?: number;
+    deviceName?: string;
+};
+interface DaemonExtractRequest {
+    op: 'extract';
+    target: DaemonTarget;
+}
+interface DaemonActionRequest {
+    op: 'action';
+    target: DaemonTarget;
+    action: string;
+    elementPath: number[];
+    value?: string;
+}
+interface DaemonResolveRequest {
+    op: 'resolve';
+    target: DaemonTarget;
+}
+interface DaemonPingRequest {
+    op: 'ping';
+}
+/** Deliver a keyboard chord to the target pid (E2-B). See `Keyboard.swift`. */
+interface DaemonKeystrokeRequest {
+    op: 'keystroke';
+    target: DaemonTarget;
+    chord: string;
+    /** false (default): CGEventPostToPid (background). true: activate + global HID tap. */
+    foreground?: boolean;
+}
+/** Walk a menu-bar or open-context-menu path and AXPress the final item (E2-D). See `Menu.swift`. */
+interface DaemonMenuRequest {
+    op: 'menu';
+    target: DaemonTarget;
+    menuPath: string[];
+}
+type DaemonRequest = DaemonExtractRequest | DaemonActionRequest | DaemonResolveRequest | DaemonPingRequest | DaemonKeystrokeRequest | DaemonMenuRequest;
+interface DaemonResponse {
+    id?: number;
+    ok: boolean;
+    result?: unknown;
+    error?: string;
+}
+interface ReadyLine {
+    type: 'ready';
+    trusted: boolean;
+    pid: number;
+}
+type SpawnFn = (command: string, args: string[]) => ChildProcessWithoutNullStreams;
+interface AXDaemonOptions {
+    /** Override the binary path (default: resolved via ensureExtractor). */
+    binaryPath?: string;
+    /** Injectable spawn for tests. */
+    spawnFn?: SpawnFn;
+    /** Startup timeout waiting for the `ready` line (ms). */
+    startTimeoutMs?: number;
+    /** Per-request timeout (ms). */
+    requestTimeoutMs?: number;
+}
+declare class DaemonError extends Error {
+}
+declare class AXDaemon {
+    private child;
+    private buffer;
+    private nextId;
+    private readonly pending;
+    private starting;
+    private dead;
+    private deadReason;
+    private readyInfo;
+    private readonly binaryPath?;
+    private readonly spawnFn;
+    private readonly startTimeoutMs;
+    private readonly requestTimeoutMs;
+    constructor(opts?: AXDaemonOptions);
+    /** True once the daemon has died or failed startup — the backend uses this to
+     *  route straight to the respawn fallback without retrying. */
+    get isDead(): boolean;
+    /**
+     * Ensure the daemon is running and AX-trusted. Idempotent — concurrent callers
+     * share one startup. Rejects (marking the daemon dead) if spawn fails, the
+     * ready line does not arrive in time, or AX is not trusted.
+     */
+    start(): Promise<ReadyLine>;
+    private waitForReady;
+    private readyResolver;
+    private onStdout;
+    private onLine;
+    private onExit;
+    /** Send a request and await its correlated response. Rejects on timeout or death. */
+    request(req: DaemonRequest): Promise<DaemonResponse>;
+    /** Terminate the daemon and reject anything in flight. */
+    kill(reason?: string): void;
+}
+
+/**
+ * NativeBackend — the primitive I/O seam beneath the native session controller.
+ *
+ * The controller (`session-controller.ts`) owns session lifecycle, element
+ * resolution, post-action settling and all wire-shape construction. It performs
+ * NO low-level AX I/O directly; every extract / action / screenshot goes through
+ * a `NativeBackend`. This is the seam Epic 2 swaps: today's `RespawnBackend`
+ * shells out to the one-shot Swift extractor per call; E2-A introduces a
+ * long-lived `DaemonBackend` that implements the same interface with an
+ * in-process AX tree + resolved-path cache.
+ *
+ * FROZEN at Wave 0 (chunk C0). Epic 2 implemented `keystroke`/`lifecycle`/`menu`
+ * as LIVE capabilities (RespawnBackend delivers each and returns a validated
+ * ActionOutcome) and added `DaemonBackend`; it never edits the controller or the
+ * MCP adapters.
+ */
+
+/** The addressable target of a native session. */
+type NativeSessionTarget = {
+    kind: 'macos';
+    pid: number;
+    app?: string;
+} | {
+    kind: 'simulator';
+    device: {
+        udid: string;
+        name: string;
+    };
+};
+/** Result of an AX-tree extraction. `not-found` carries a caller-facing message. */
+type NativeExtraction = {
+    kind: 'macos';
+    elements: MacOSAXElement[];
+    window: MacOSWindowInfo;
+} | {
+    kind: 'simulator';
+    elements: NativeElement[];
+    device: SimulatorDevice;
+} | {
+    kind: 'not-found';
+    message: string;
+};
+/** A resolved AX action to execute against an element path. */
+interface NativePerformInput {
+    elementPath: number[];
+    action: NativeAction;
+    value?: string;
+}
+/** Raw screenshot capture. `error` carries a caller-facing message. */
+type NativeScreenshotCapture = {
+    kind: 'macos';
+    base64: string;
+    window: MacOSWindowInfo;
+    screenshotPath: string;
+} | {
+    kind: 'simulator';
+    base64: string;
+    device: SimulatorDevice;
+    screenshotPath: string;
+} | {
+    kind: 'error';
+    error: string;
+};
+/** Keyboard chord / key delivered to the focused element (Epic 2). */
+interface KeystrokeSpec {
+    /** Chord in `Modifier+Modifier+Key` form (e.g. "Meta+n", "Tab", "Escape"). */
+    chord: string;
+}
+/** App lifecycle operation (Epic 2). */
+type AppLifecycleOp = 'launch' | 'switch' | 'quit';
+/** App lifecycle request (Epic 2). */
+interface LifecycleSpec {
+    op: AppLifecycleOp;
+    /** App name / bundle id — required for launch, optional for switch/quit. */
+    app?: string;
+}
+/** Menu traversal request over an opened AXMenu (Epic 2). */
+interface MenuSpec {
+    /** Ordered menu-item titles to walk, e.g. ["File", "New Window"]. */
+    menuPath: string[];
+}
+/**
+ * The primitive native I/O contract. Every method is target-aware. The three
+ * capability methods (`keystroke`/`lifecycle`/`menu`) return an `ActionOutcome`
+ * so every result — delivery success or a validated failure — is structured,
+ * never a throw.
+ */
+interface NativeBackend {
+    /** Extract the AX tree for the target's front window/screen. */
+    extract(target: NativeSessionTarget): Promise<NativeExtraction>;
+    /** Execute a resolved AX action on an element path. */
+    performAction(target: NativeSessionTarget, input: NativePerformInput): Promise<NativeActionResult>;
+    /** Capture a screenshot of the target, writing PNG to `outputPath`. */
+    captureScreenshot(target: NativeSessionTarget, outputPath: string): Promise<NativeScreenshotCapture>;
+    /** Deliver a keyboard chord / key sequence to the focused element. */
+    keystroke(target: NativeSessionTarget, spec: KeystrokeSpec): Promise<ActionOutcome>;
+    /** Drive app lifecycle: launch | switch | quit. */
+    lifecycle(target: NativeSessionTarget, spec: LifecycleSpec): Promise<ActionOutcome>;
+    /** Traverse an opened AXMenu by path. */
+    menu(target: NativeSessionTarget, spec: MenuSpec): Promise<ActionOutcome>;
+}
+/**
+ * The default backend: wraps the existing one-shot Swift extractor
+ * (`extractMacOSElements` / `extractNativeElements` / `performNativeAction`).
+ * Behavior-identical to pre-C0 code for extract/action/screenshot. The three
+ * capabilities are LIVE (Epic 2): `keystroke` synthesizes chords, `lifecycle`
+ * drives launch/switch/quit, and `menu` traverses AXMenus — each via the
+ * one-shot binary / OS process control, returning a validated ActionOutcome.
+ */
+declare class RespawnBackend implements NativeBackend {
+    extract(target: NativeSessionTarget): Promise<NativeExtraction>;
+    performAction(target: NativeSessionTarget, input: NativePerformInput): Promise<NativeActionResult>;
+    captureScreenshot(target: NativeSessionTarget, outputPath: string): Promise<NativeScreenshotCapture>;
+    /**
+     * Deliver a keyboard chord via the one-shot Swift extractor binary (E2-B).
+     * See `keyboard.ts` for the two-phase (background-then-foreground) delivery
+     * + AX-diff validator that builds the returned `ActionOutcome`.
+     */
+    keystroke(target: NativeSessionTarget, spec: KeystrokeSpec): Promise<ActionOutcome>;
+    /**
+     * Drive app lifecycle (E2-C) via OS-level process control (`open`/
+     * `osascript`) — never the AX event path. See `lifecycle.ts` for the
+     * launch/switch/quit state machine and its validators.
+     */
+    lifecycle(target: NativeSessionTarget, spec: LifecycleSpec): Promise<ActionOutcome>;
+    /**
+     * Walk a menu path (menu-bar or already-open context menu) via the
+     * one-shot Swift extractor binary (E2-D). See `menu.ts` for the delivery
+     * wrapper + AX-diff validator that builds the returned `ActionOutcome`.
+     */
+    menu(target: NativeSessionTarget, spec: MenuSpec): Promise<ActionOutcome>;
+}
+/**
+ * The E2-A backend: routes extract / performAction / screenshot through a
+ * long-lived Swift AX daemon (`AXDaemon`) instead of respawning the one-shot
+ * binary per call. Holds a `RespawnBackend` as a fallback and delegates to it
+ * whenever the daemon is unavailable — startup fails, AX is not trusted, the
+ * daemon crashes, or a request times out (the kill-9 auto-fallback). Once the
+ * daemon is marked unusable every subsequent call goes straight to respawn, so
+ * behavior degrades gracefully to today's path rather than failing.
+ *
+ * `keystroke` is wired to the daemon's `keystroke` op at E2-B (falling back to
+ * the one-shot binary if the daemon dies mid-request); `lifecycle` (E2-C)
+ * delegates straight to the respawn implementation (OS-level process control
+ * gains nothing from the daemon connection); `menu` (E2-D) is wired to the
+ * daemon's `menu` op the same way `keystroke` is — full-capability fallback
+ * when the daemon cannot start, per-request fallback to the one-shot binary
+ * if it dies mid-request.
+ *
+ * Screenshot capture stays on the existing `screencapture`/`simctl` path — the
+ * daemon only supplies the CGWindowID for macOS (via a `resolve` op) so no
+ * second tree walk is needed.
+ */
+declare class DaemonBackend implements NativeBackend {
+    private readonly daemon;
+    private readonly fallback;
+    private usable;
+    constructor(opts?: {
+        daemon?: AXDaemon;
+        fallback?: RespawnBackend;
+    });
+    /** True once the daemon failed and calls are routing to the respawn fallback. */
+    get fellBack(): boolean;
+    /**
+     * Run a daemon-backed operation, falling back to the respawn equivalent on any
+     * daemon fault. A `DaemonError` (spawn fail, not-trusted, crash, timeout) trips
+     * the permanent fallback; any other error is a real AX/IO condition that the
+     * respawn path would hit too, so it propagates unchanged.
+     */
+    private withFallback;
+    extract(target: NativeSessionTarget): Promise<NativeExtraction>;
+    performAction(target: NativeSessionTarget, input: NativePerformInput): Promise<NativeActionResult>;
+    captureScreenshot(target: NativeSessionTarget, outputPath: string): Promise<NativeScreenshotCapture>;
+    /**
+     * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
+     * `extract`/`performAction`/`captureScreenshot`, this does not route through
+     * `withFallback` for the whole call — if the daemon is already unusable (or
+     * fails to start), the ENTIRE capability (delivery + AX-diff validation)
+     * delegates to `RespawnBackend.keystroke` so the before/after signatures
+     * come from one consistent backend. If the daemon dies mid-request (a
+     * request already in flight when it crashes), this attempt still completes
+     * by falling through to the one-shot binary for just the raw delivery,
+     * rather than aborting — the kill-9 auto-fallback, applied per-request.
+     */
+    keystroke(target: NativeSessionTarget, spec: KeystrokeSpec): Promise<ActionOutcome>;
+    /**
+     * App lifecycle (E2-C) is OS-level process control (`open`/`osascript`), not
+     * an AX-tree operation — the persistent daemon connection offers no benefit,
+     * so this delegates straight to the respawn implementation (same reasoning
+     * as the simulator branch of `captureScreenshot` above).
+     */
+    lifecycle(target: NativeSessionTarget, spec: LifecycleSpec): Promise<ActionOutcome>;
+    /**
+     * Walk a menu path via the daemon's `menu` op (E2-D). Mirrors `keystroke`:
+     * if the daemon is already unusable (or fails to start), the ENTIRE
+     * capability delegates to `RespawnBackend.menu` so before/after signatures
+     * come from one consistent backend. If the daemon dies mid-request, this
+     * attempt still completes via the one-shot binary for just the raw
+     * traversal, rather than aborting.
+     */
+    menu(target: NativeSessionTarget, spec: MenuSpec): Promise<ActionOutcome>;
+    /** Stop the underlying daemon (test/shutdown aid). */
+    stop(): void;
+}
+declare function getNativeBackend(): NativeBackend;
+/** Test seam: override the process-wide backend. Pass `null` to reset. */
+declare function __setNativeBackend(backend: NativeBackend | null): void;
+
+/**
+ * NativeSessionController — typed session controller for native (macOS AX /
+ * iOS-watchOS simulator) driving.
+ *
+ * Owns session lifecycle (start/read/action/close), element resolution and
+ * post-action settling. Performs NO low-level AX I/O directly — every extract /
+ * action / screenshot goes through a `NativeBackend` (respawn today, daemon in
+ * Epic 2). Returns typed `NativeToolResult`s; the MCP layer (`native-tools.ts`)
+ * maps them to the wire.
+ *
+ * FROZEN at Wave 0 (chunk C0). The full v1 action surface — element verbs plus
+ * the Epic-2 capability kinds `keystroke` / `app` / `menuPath` — is declared up
+ * front. Action dispatch is a generic pass-through to the backend, so Epic 2
+ * adds capabilities without editing this file. `target` requiredness is frozen
+ * here: optional for `keystroke`/`app`, required for element-targeting kinds
+ * (see `NativeActionRequest`). The Wave-0 MCP wire is unchanged — schema enum
+ * extension is E4-B's job.
+ *
+ * 3e9375a reliability behavior is preserved verbatim: preflight, foreground/
+ * settle polling (`waitFor`, `waitTimeoutMs`), post-action evidence, and the
+ * screenshot read mode.
+ */
+
+/**
+ * A native operation's result, independent of the MCP wire wrapper. `text`
+ * becomes a text McpResponse (with `isError` when set); `image` becomes an
+ * image+metadata McpResponse.
+ */
+type NativeToolResult = {
+    kind: 'text';
+    text: string;
+    isError?: boolean;
+} | {
+    kind: 'image';
+    base64: string;
+    metadata: string;
+};
+/** Element-targeting action kinds — `target` is REQUIRED. */
+type ElementActionKind = 'click' | 'press' | 'fill' | 'type' | 'focus' | 'showMenu' | 'increment' | 'decrement' | 'confirm' | 'cancel' | 'scroll' | 'scrollToVisible' | 'check' | 'select';
+/** The full v1 native action kind union (element verbs + Epic-2 capabilities). */
+type NativeActionKind = ElementActionKind | 'keystroke' | 'app' | 'menuPath';
+/** Element action — `target` required. */
+interface ElementActionRequest {
+    action: ElementActionKind;
+    target: string;
+    value?: string;
+    role?: string;
+    waitFor?: string;
+    waitTimeoutMs?: number;
+}
+/** Keyboard chord (Epic 2) — `target` optional (chord may hit the focused element). */
+interface KeystrokeActionRequest {
+    action: 'keystroke';
+    chord: string;
+    target?: string;
+    waitFor?: string;
+    waitTimeoutMs?: number;
+}
+/** App lifecycle (Epic 2) — `target` optional (op targets the app itself). */
+interface AppLifecycleActionRequest {
+    action: 'app';
+    op: AppLifecycleOp;
+    app?: string;
+    target?: string;
+    waitFor?: string;
+    waitTimeoutMs?: number;
+}
+/** Menu traversal (Epic 2) — `target` optional. */
+interface MenuActionRequest {
+    action: 'menuPath';
+    menuPath: string[];
+    target?: string;
+    waitFor?: string;
+    waitTimeoutMs?: number;
+}
+/**
+ * FROZEN v1 typed action request. `target` requiredness is enforced per-kind by
+ * this union: required for element kinds, optional for `keystroke`/`app`/menu.
+ * The Wave-0 MCP wire does not yet expose the capability kinds (E4-B extends the
+ * enum against this union).
+ */
+type NativeActionRequest = ElementActionRequest | KeystrokeActionRequest | AppLifecycleActionRequest | MenuActionRequest;
+/**
+ * Loose runtime carrier for an action request, as built by the MCP handlers
+ * (web `session_action` and `native_session_action`). Frozen delegation
+ * signature — `runMacOSSessionAction`/`runSimulatorSessionAction` in
+ * `native-tools.ts` accept this. Superset of the strict union's fields so the
+ * generic backend dispatch can read capability params without controller edits.
+ */
+interface NativeSessionActionRequest {
+    action: string;
+    target?: string;
+    value?: string;
+    role?: string;
+    waitFor?: string;
+    waitTimeoutMs?: number;
+    chord?: string;
+    op?: AppLifecycleOp;
+    app?: string;
+    menuPath?: string[];
+}
+declare class NativeSessionController {
+    private readonly store;
+    private readonly injectedBackend?;
+    constructor(opts?: {
+        store?: Map<string, SessionEntry>;
+        backend?: NativeBackend;
+    });
+    private get backend();
+    startMacOSPid(sessionId: string, pid: number): NativeToolResult;
+    startMacOS(sessionId: string, app: string, errorPrefix: string): Promise<NativeToolResult>;
+    startSimulator(sessionId: string, simulator: string, errorPrefix: string): Promise<NativeToolResult>;
+    closeNative(sessionId: string): NativeToolResult;
+    readMacOS(entry: SessionEntry, what: string, limit: number): Promise<NativeToolResult>;
+    readSimulator(entry: SessionEntry, what: string, limit: number): Promise<NativeToolResult>;
+    actionMacOS(entry: SessionEntry, request: NativeSessionActionRequest): Promise<NativeToolResult>;
+    actionSimulator(entry: SessionEntry, request: NativeSessionActionRequest): Promise<NativeToolResult>;
+    /**
+     * Generic capability pass-through. Returns a result for the Epic-2 capability
+     * kinds (keystroke/app/menuPath) and `null` for element kinds (which follow
+     * the resolve→performAction→settle path). Dormant in Wave 0 — the MCP schema
+     * does not yet expose these kinds; present so Epic 2 adds them with zero
+     * controller edits.
+     */
+    private dispatchCapability;
+    private waitForMacOSPostAction;
+    private waitForSimulatorPostAction;
+}
+/** Process-wide controller instance (shared session store + default backend). */
+declare const nativeSessionController: NativeSessionController;
+/** Signature used for post-action tree-stability detection. E2-A cache invalidation reads this shape. */
+declare function nativeStateSignature(window: unknown, candidates: NativeElementCandidate[]): string;
+declare function mapSessionActionToNative(action: string, value?: string): {
+    action: NativeAction;
+    value?: string;
+} | {
+    error: string;
+};
+declare function safeFilePart(value: string): string;
+declare function formatNativeCandidate(candidate: NativeElementCandidate): Record<string, unknown>;
+
+/**
+ * ResolvedPathCache — caches resolved AX index-paths per (sessionId, target),
+ * invalidated the moment the target surface's `nativeStateSignature` changes.
+ *
+ * The expensive step in a native flow is walking the AX tree to resolve a target
+ * string ("Submit") to an index-path ([0,2,1]). Re-resolving on every action of a
+ * stable UI is waste. This cache returns a previously-resolved path ONLY when the
+ * current tree signature matches the signature captured at resolution time; a
+ * signature mismatch (any UI mutation) drops the entry and forces re-resolution.
+ *
+ * SAFETY (T-12): index-paths are positional — after a UI mutation the same path
+ * may address a DIFFERENT element. A cache that returned a stale path would fire
+ * an action against the wrong element. `get()` therefore never returns a path
+ * whose signature has drifted; the stale entry is evicted instead. This invariant
+ * is verified by resolved-path-cache.test.ts and is backend-agnostic.
+ *
+ * STATUS — STAGED FOR INCREMENT 2 (not yet wired into any action path). The
+ * target-string -> index-path resolution it would accelerate happens only inside
+ * NativeSessionController (resolveMacOSElement / resolveSimulatorElement), which
+ * was FROZEN in chunk C0 of Increment 1. Wiring the cache at the DaemonBackend
+ * layer is impossible without the controller's keys (sessionId + target string +
+ * pre-resolution signature), so consumption is deferred to Increment 2 (the
+ * capture->replay->escalate spine), which revises the controller resolve-site and
+ * owns replay. Built + unit-tested now as a deliberate, honestly-labeled seam
+ * (pay-it-forward), NOT an active feature. Criterion 4 (goal.md) is therefore
+ * scored PARTIAL: per-action process-respawn eliminated on the opt-in daemon
+ * path; per-action tree-walk reduction (this cache) deferred to Increment 2.
+ */
+interface ResolvedPathEntry {
+    /** The `nativeStateSignature` at the time this path was resolved. */
+    signature: string;
+    /** The resolved AX index-path. */
+    path: number[];
+}
+declare class ResolvedPathCache {
+    private readonly entries;
+    private static keyOf;
+    /**
+     * Return the cached path for (sessionId, target) IFF the current signature
+     * matches the one captured at resolution. On mismatch the entry is evicted and
+     * `null` is returned — the caller must re-resolve. Never returns a stale path.
+     */
+    get(sessionId: string, target: string, currentSignature: string): number[] | null;
+    /** Cache a freshly-resolved path together with the signature it was resolved against. */
+    set(sessionId: string, target: string, path: number[], signature: string): void;
+    /** Drop a single (sessionId, target) entry. */
+    delete(sessionId: string, target: string): void;
+    /** Drop every entry for a session (e.g. on session close). */
+    invalidateSession(sessionId: string): void;
+    /** Drop everything. */
+    clear(): void;
+    /** Number of live entries (test/introspection aid). */
+    get size(): number;
+}
+/** Process-wide shared cache instance. */
+declare const resolvedPathCache: ResolvedPathCache;
+
+/**
  * Canonical device profiles for CDP-direct emulation.
  *
  * IBR has no Playwright dependency, so we keep our own profile table
@@ -8048,4 +7209,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, NATIVE_VIEWPORTS, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeScanOptions, type NativeScanResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

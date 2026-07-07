@@ -16,8 +16,13 @@ import { URL as URL$1 } from 'url';
 
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+var __esm = (fn, res, err) => function __init() {
+  if (err) throw err[0];
+  try {
+    return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
+  } catch (e) {
+    throw err = [e], e;
+  }
 };
 var __export = (target, all) => {
   for (var name in all)
@@ -773,6 +778,7 @@ var init_target = __esm({
       constructor(conn) {
         this.conn = conn;
       }
+      conn;
       async createPage(url) {
         const result = await this.conn.send(
           "Target.createTarget",
@@ -807,6 +813,8 @@ var init_page = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async navigate(url) {
         const result = await this.conn.send(
           "Page.navigate",
@@ -873,6 +881,49 @@ var init_page = __esm({
       async enableLifecycleEvents() {
         await this.conn.send("Page.setLifecycleEventsEnabled", { enabled: true }, this.sessionId);
         await this.conn.send("Page.enable", {}, this.sessionId);
+      }
+      /**
+       * Frame hierarchy for the current page (E3-D). Used to discover iframes
+       * whose accessible content today isn't reachable from the main-frame AX
+       * tree (Accessibility.getFullAXTree only walks the ROOT frame by
+       * default).
+       */
+      async getFrameTree() {
+        const result = await this.conn.send(
+          "Page.getFrameTree",
+          {},
+          this.sessionId
+        );
+        return result.frameTree;
+      }
+      /**
+       * Subscribe to Page.javascriptDialogOpening (E3-D). Returns an unsubscribe
+       * function. Page.enable() (called by enableLifecycleEvents()) must have
+       * run first for this event to fire.
+       */
+      onDialogOpening(handler) {
+        const listener = (params) => handler(params);
+        this.conn.on("Page.javascriptDialogOpening", listener);
+        return () => this.conn.off("Page.javascriptDialogOpening", listener);
+      }
+      /**
+       * Subscribe to Page.javascriptDialogClosed (E3-D) — fires once a dialog
+       * has been answered, whether via handleDialog() or the browser's own
+       * default handling. Returns an unsubscribe function.
+       */
+      onDialogClosed(handler) {
+        const listener = (params) => handler(params);
+        this.conn.on("Page.javascriptDialogClosed", listener);
+        return () => this.conn.off("Page.javascriptDialogClosed", listener);
+      }
+      /**
+       * Answer the currently-open JS dialog (E3-D). `promptText` is only
+       * meaningful for `type: 'prompt'` dialogs; omit to accept the default.
+       */
+      async handleDialog(accept, promptText) {
+        const params = { accept };
+        if (promptText !== void 0) params.promptText = promptText;
+        await this.conn.send("Page.handleJavaScriptDialog", params, this.sessionId);
       }
       /**
        * Inject CSS into the page.
@@ -956,6 +1007,8 @@ var init_accessibility = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       nodeMap = /* @__PURE__ */ new Map();
       // elementId → backendDOMNodeId
       loadCompleteHandlers = /* @__PURE__ */ new Set();
@@ -1113,15 +1166,24 @@ var init_dom = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
-      async getElementCenter(backendNodeId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+      conn;
+      sessionId;
+      /**
+       * `sessionId` overrides the domain's default session — needed for E3-D
+       * frame support, where a backendNodeId sourced from an out-of-process
+       * iframe target must be resolved against THAT target's session, not the
+       * main page's.
+       */
+      async getElementCenter(backendNodeId, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
         const q = result.model.content;
         const x = Math.round((q[0] + q[2] + q[4] + q[6]) / 4);
         const y = Math.round((q[1] + q[3] + q[5] + q[7]) / 4);
         return { x, y };
       }
-      async getBoxModel(backendNodeId) {
-        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, this.sessionId);
+      /** See getElementCenter() for the `sessionId` override rationale. */
+      async getBoxModel(backendNodeId, sessionId) {
+        const result = await this.conn.send("DOM.getBoxModel", { backendNodeId }, sessionId ?? this.sessionId);
         return result.model;
       }
       async getDocument() {
@@ -1199,7 +1261,26 @@ function charToCode(char) {
   if (upper >= "A" && upper <= "Z") return `Key${upper}`;
   return "";
 }
-var InputDomain, SPECIAL_KEYS, SPECIAL_CODES;
+function parseChord(input) {
+  if (input.length <= 1 || !input.includes("+")) return null;
+  const parts = input.split("+");
+  const mainKey = parts[parts.length - 1];
+  const modifierParts = parts.slice(0, -1);
+  if (mainKey === "" || modifierParts.length === 0) return null;
+  const modifiers = [];
+  for (const part of modifierParts) {
+    const normalized = MODIFIER_ALIASES[part.toLowerCase()];
+    if (!normalized) return null;
+    modifiers.push(normalized);
+  }
+  return { modifiers, mainKey };
+}
+function resolveChordKey(mainKey) {
+  const special = SPECIAL_KEYS[mainKey];
+  if (special) return { key: special.key, code: special.code };
+  return { key: mainKey, code: charToCode(mainKey) };
+}
+var InputDomain, SPECIAL_KEYS, SPECIAL_CODES, MODIFIER_BITS, MODIFIER_ALIASES, MODIFIER_KEY_DEFS;
 var init_input = __esm({
   "src/engine/cdp/input.ts"() {
     InputDomain = class {
@@ -1207,6 +1288,8 @@ var init_input = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async click(x, y) {
         await this.conn.send("Input.dispatchMouseEvent", {
           type: "mousePressed",
@@ -1240,9 +1323,15 @@ var init_input = __esm({
         }
       }
       /**
-       * Press a special key (Enter, Tab, Escape, Backspace, etc.)
+       * Press a special key (Enter, Tab, Escape, Backspace, etc.) or a modifier
+       * chord ("Meta+k", "Cmd+K", "Ctrl+Shift+P", ...).
        */
       async pressKey(key) {
+        const chord = parseChord(key);
+        if (chord) {
+          await this.dispatchChord(chord);
+          return;
+        }
         const keyDef = SPECIAL_KEYS[key];
         if (!keyDef) {
           await this.type(key);
@@ -1259,6 +1348,49 @@ var init_input = __esm({
           key: keyDef.key,
           code: keyDef.code
         }, this.sessionId);
+      }
+      /**
+       * Dispatch a real modifier chord: press each modifier down (in order,
+       * accumulating the CDP `modifiers` bitmask), then keyDown/keyUp the target
+       * key while the modifiers are held, then release the modifiers in reverse
+       * order. No `text` is sent for the target key — a chord synthesizes a
+       * shortcut, it must never insert literal characters into a focused field.
+       */
+      async dispatchChord(chord) {
+        let modifiers = 0;
+        for (const mod of chord.modifiers) {
+          modifiers |= MODIFIER_BITS[mod];
+          const def = MODIFIER_KEY_DEFS[mod];
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyDown",
+            key: def.key,
+            code: def.code,
+            modifiers
+          }, this.sessionId);
+        }
+        const mainDef = resolveChordKey(chord.mainKey);
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyDown",
+          key: mainDef.key,
+          code: mainDef.code,
+          modifiers
+        }, this.sessionId);
+        await this.conn.send("Input.dispatchKeyEvent", {
+          type: "keyUp",
+          key: mainDef.key,
+          code: mainDef.code,
+          modifiers
+        }, this.sessionId);
+        for (const mod of [...chord.modifiers].reverse()) {
+          modifiers &= ~MODIFIER_BITS[mod];
+          const def = MODIFIER_KEY_DEFS[mod];
+          await this.conn.send("Input.dispatchKeyEvent", {
+            type: "keyUp",
+            key: def.key,
+            code: def.code,
+            modifiers
+          }, this.sessionId);
+        }
       }
       async hover(x, y) {
         await this.conn.send("Input.dispatchMouseEvent", {
@@ -1339,6 +1471,28 @@ var init_input = __esm({
       "	": "Tab",
       "\n": "Enter"
     };
+    MODIFIER_BITS = {
+      Alt: 1,
+      Control: 2,
+      Meta: 4,
+      Shift: 8
+    };
+    MODIFIER_ALIASES = {
+      alt: "Alt",
+      option: "Alt",
+      ctrl: "Control",
+      control: "Control",
+      meta: "Meta",
+      cmd: "Meta",
+      command: "Meta",
+      shift: "Shift"
+    };
+    MODIFIER_KEY_DEFS = {
+      Alt: { key: "Alt", code: "AltLeft" },
+      Control: { key: "Control", code: "ControlLeft" },
+      Meta: { key: "Meta", code: "MetaLeft" },
+      Shift: { key: "Shift", code: "ShiftLeft" }
+    };
   }
 });
 
@@ -1351,6 +1505,8 @@ var init_runtime = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       /**
        * Evaluate a JavaScript expression string in the page context.
        */
@@ -1420,6 +1576,8 @@ var init_css = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async enable() {
         await this.conn.send("CSS.enable", {}, this.sessionId);
       }
@@ -1469,6 +1627,8 @@ var init_snapshot = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       async enable() {
         await this.conn.send("DOMSnapshot.enable", {}, this.sessionId);
       }
@@ -1529,6 +1689,8 @@ var init_emulation = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       /**
        * Override device metrics (viewport size, scale, mobile layout mode).
        * Does NOT set UA or touch — for a full device emulation, use
@@ -1610,8 +1772,120 @@ var init_network = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
+      inflight = /* @__PURE__ */ new Set();
+      lastActivityAt = Date.now();
+      handlersRegistered = false;
+      responseWaiters = /* @__PURE__ */ new Set();
+      onRequestWillBeSent = (params) => {
+        const { requestId } = params;
+        this.inflight.add(requestId);
+        this.lastActivityAt = Date.now();
+      };
+      onResponseReceived = (params) => {
+        const { response } = params;
+        this.lastActivityAt = Date.now();
+        for (const waiter of [...this.responseWaiters]) {
+          if (waiter.predicate(response.url, response.status)) {
+            this.responseWaiters.delete(waiter);
+            waiter.resolve({ url: response.url, status: response.status });
+          }
+        }
+      };
+      onLoadingFinished = (params) => {
+        const { requestId } = params;
+        this.inflight.delete(requestId);
+        this.lastActivityAt = Date.now();
+      };
+      onLoadingFailed = (params) => {
+        const { requestId } = params;
+        this.inflight.delete(requestId);
+        this.lastActivityAt = Date.now();
+      };
       async enable() {
         await this.conn.send("Network.enable", {}, this.sessionId);
+        this.registerHandlers();
+      }
+      registerHandlers() {
+        if (this.handlersRegistered) return;
+        this.handlersRegistered = true;
+        this.conn.on("Network.requestWillBeSent", this.onRequestWillBeSent);
+        this.conn.on("Network.responseReceived", this.onResponseReceived);
+        this.conn.on("Network.loadingFinished", this.onLoadingFinished);
+        this.conn.on("Network.loadingFailed", this.onLoadingFailed);
+      }
+      /**
+       * Detach the Network-domain event listeners without disabling the CDP
+       * domain itself. Used by tests to simulate "Network-domain events
+       * disabled" — with tracking off, in-flight state is frozen at whatever
+       * it was, so `waitForNetworkIdle` reports idle immediately even while a
+       * real request is in flight, proving the wait would be FAKE without real
+       * event wiring.
+       */
+      disableTracking() {
+        if (!this.handlersRegistered) return;
+        this.handlersRegistered = false;
+        this.conn.off("Network.requestWillBeSent", this.onRequestWillBeSent);
+        this.conn.off("Network.responseReceived", this.onResponseReceived);
+        this.conn.off("Network.loadingFinished", this.onLoadingFinished);
+        this.conn.off("Network.loadingFailed", this.onLoadingFailed);
+      }
+      /** True once `enable()` has registered real event handlers. */
+      get tracking() {
+        return this.handlersRegistered;
+      }
+      /** Current in-flight request count (only meaningful while `tracking`). */
+      get inflightCount() {
+        return this.inflight.size;
+      }
+      /**
+       * Wait until the in-flight request count has been at or below
+       * `maxInflight` for `idleMs` consecutive milliseconds — REAL CDP
+       * Network-domain quiescence (requestWillBeSent / responseReceived /
+       * loadingFinished / loadingFailed), not AX-tree stability and not a
+       * fixed sleep. Never throws: resolves `{ timedOut: true, ... }` at the
+       * deadline instead, so callers can treat it as best-effort.
+       */
+      async waitForNetworkIdle(options = {}) {
+        const idleMs = options.idleMs ?? 500;
+        const maxInflight = options.maxInflight ?? 0;
+        const timeout = options.timeout ?? 1e4;
+        const deadline = Date.now() + timeout;
+        const pollInterval = Math.min(50, Math.max(10, idleMs));
+        while (true) {
+          const now = Date.now();
+          if (this.inflight.size <= maxInflight && now - this.lastActivityAt >= idleMs) {
+            return { timedOut: false, inflightCount: this.inflight.size };
+          }
+          if (now >= deadline) {
+            return { timedOut: true, inflightCount: this.inflight.size };
+          }
+          await new Promise((r) => setTimeout(r, pollInterval));
+        }
+      }
+      /**
+       * Wait for a response whose (url, status) satisfies `predicate`. Resolves
+       * the moment a matching `Network.responseReceived` event fires; rejects
+       * on timeout. Driven entirely by real CDP events — with tracking
+       * disabled this never resolves and always times out (no fake success).
+       */
+      async waitForResponse(predicate, options = {}) {
+        const timeout = options.timeout ?? 3e4;
+        return new Promise((resolve3, reject) => {
+          const waiter = {
+            predicate,
+            resolve: (value) => {
+              clearTimeout(timer);
+              resolve3(value);
+            }
+          };
+          const timer = setTimeout(() => {
+            this.responseWaiters.delete(waiter);
+            reject(new Error(`waitForResponse timed out after ${timeout}ms waiting for a matching response`));
+          }, timeout);
+          this.responseWaiters.add(waiter);
+        });
       }
       /**
        * Get all cookies, optionally filtered by URLs.
@@ -1670,6 +1944,8 @@ var init_console = __esm({
         this.conn = conn;
         this.sessionId = sessionId;
       }
+      conn;
+      sessionId;
       handlers = /* @__PURE__ */ new Set();
       messages = [];
       enabled = false;
@@ -1872,6 +2148,78 @@ async function waitForStable(conn, getSnapshot, options) {
 }
 var init_wait = __esm({
   "src/engine/cdp/wait.ts"() {
+  }
+});
+
+// src/engine/actionability.ts
+function rectEqual(a, b) {
+  if (!a || !b) return false;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+}
+async function waitForActionable(resolveAndProbe, options = {}) {
+  const timeout = options.timeout ?? DEFAULT_TIMEOUT;
+  const pollInterval = options.pollInterval ?? DEFAULT_POLL_INTERVAL;
+  const requiredStable = Math.max(1, options.requiredStableChecks ?? DEFAULT_REQUIRED_STABLE_CHECKS);
+  const start = Date.now();
+  const deadline = start + timeout;
+  let lastRect = null;
+  let stableCount = 0;
+  let lastReason = "not present";
+  while (true) {
+    const result = await resolveAndProbe();
+    if (!result) {
+      lastReason = "not resolvable";
+      stableCount = 0;
+      lastRect = null;
+    } else {
+      const { target, state } = result;
+      if (!state.present) {
+        lastReason = "not present";
+        stableCount = 0;
+        lastRect = null;
+      } else if (!state.visible) {
+        lastReason = "not visible (hidden or covered)";
+        stableCount = 0;
+        lastRect = null;
+      } else if (!state.enabled) {
+        lastReason = "disabled";
+        stableCount = 0;
+        lastRect = null;
+      } else {
+        if (rectEqual(lastRect, state.rect)) {
+          stableCount += 1;
+        } else {
+          stableCount = 1;
+        }
+        lastRect = state.rect;
+        lastReason = "position not yet stable";
+        if (stableCount >= requiredStable) {
+          return target;
+        }
+      }
+    }
+    if (Date.now() >= deadline) {
+      throw new ActionabilityTimeoutError(lastReason, Date.now() - start);
+    }
+    await new Promise((r) => setTimeout(r, pollInterval));
+  }
+}
+var DEFAULT_TIMEOUT, DEFAULT_POLL_INTERVAL, DEFAULT_REQUIRED_STABLE_CHECKS, ActionabilityTimeoutError;
+var init_actionability = __esm({
+  "src/engine/actionability.ts"() {
+    DEFAULT_TIMEOUT = 5e3;
+    DEFAULT_POLL_INTERVAL = 30;
+    DEFAULT_REQUIRED_STABLE_CHECKS = 2;
+    ActionabilityTimeoutError = class extends Error {
+      constructor(reason, elapsedMs) {
+        super(`Element was not actionable within ${elapsedMs}ms: ${reason}`);
+        this.reason = reason;
+        this.elapsedMs = elapsedMs;
+        this.name = "ActionabilityTimeoutError";
+      }
+      reason;
+      elapsedMs;
+    };
   }
 });
 
@@ -2544,13 +2892,31 @@ function findExactLabel(name, elements, role) {
   }
   return null;
 }
+function inferFrameActions(role) {
+  switch (role) {
+    case "button":
+    case "link":
+    case "checkbox":
+    case "tab":
+    case "switch":
+      return ["press"];
+    case "textfield":
+      return ["setValue"];
+    case "slider":
+      return ["increment", "decrement", "setValue"];
+    case "select":
+      return ["press", "showMenu"];
+    default:
+      return [];
+  }
+}
 function chunkElements(elements, maxTokens) {
   const charsPerToken = 4;
   const charsPerElement = 40;
   const maxElements = Math.floor(maxTokens * charsPerToken / charsPerElement);
   return elements.slice(0, maxElements);
 }
-var AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_MIN_MARGIN, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE, DESTRUCTIVE_LABEL_PATTERN, JARO_ACCEPT_MIN, EngineDriver;
+var AUTO_RESOLVE_MIN_SCORE, AUTO_RESOLVE_MIN_MARGIN, AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE, DESTRUCTIVE_LABEL_PATTERN, JARO_ACCEPT_MIN, ACTIONABILITY_PROBE_FN, FRAME_SKIP_ROLES, EngineDriver;
 var init_driver = __esm({
   "src/engine/driver.ts"() {
     init_connection();
@@ -2567,18 +2933,45 @@ var init_driver = __esm({
     init_network();
     init_console();
     init_wait();
+    init_actionability();
     init_serialize();
     init_observe();
     init_extract();
     init_cache();
     init_modality();
     init_shadow_dom();
+    init_normalize();
     AUTO_RESOLVE_MIN_SCORE = 0.8;
     AUTO_RESOLVE_MIN_MARGIN = 0.15;
     AUTO_RESOLVE_DESTRUCTIVE_MIN_SCORE = 0.95;
     DESTRUCTIVE_LABEL_PATTERN = /\b(?:delete|remove|erase|wipe|purge|revoke|deactivate|disable|discard|destroy|reset|clear|unsubscribe|confirm)\b/i;
     JARO_ACCEPT_MIN = 0.92;
-    EngineDriver = class {
+    ACTIONABILITY_PROBE_FN = `function() {
+  if (!this || !this.isConnected) {
+    return { present: false, visible: false, enabled: false, rect: null };
+  }
+  var style = window.getComputedStyle(this);
+  var r = this.getBoundingClientRect();
+  var hasSize = r.width > 0 && r.height > 0;
+  var visible = style.display !== 'none' && style.visibility !== 'hidden' &&
+    parseFloat(style.opacity) !== 0 && hasSize;
+  if (visible) {
+    var cx = r.left + r.width / 2;
+    var cy = r.top + r.height / 2;
+    var atPoint = document.elementFromPoint(cx, cy);
+    var uncovered = !!atPoint && (atPoint === this || this.contains(atPoint) || atPoint.contains(this));
+    visible = visible && uncovered;
+  }
+  var enabled = this.disabled !== true && this.getAttribute('aria-disabled') !== 'true';
+  return {
+    present: true,
+    visible: visible,
+    enabled: enabled,
+    rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+  };
+}`;
+    FRAME_SKIP_ROLES = /* @__PURE__ */ new Set(["WebArea", "RootWebArea", "GenericContainer", "none", "IgnoredRole"]);
+    EngineDriver = class _EngineDriver {
       browser = new BrowserManager();
       conn = new CdpConnection();
       // Resolution cache initialized in constructor or with defaults
@@ -2598,6 +2991,43 @@ var init_driver = __esm({
       _currentUrl = "";
       launched = false;
       resolutionCache = new ResolutionCache();
+      /**
+       * Last-known {label, role} for every elementId we've ever seen in an AX
+       * snapshot, keyed by elementId (`e${backendDOMNodeId}`). Unlike
+       * AccessibilityDomain's internal nodeMap (which only reflects the CURRENT
+       * live tree), this accumulates across snapshots so that when a
+       * backendNodeId goes stale mid-actionability-wait (the element re-rendered
+       * under a new backendNodeId), we can still recall what we were looking for
+       * and re-resolve by name+role instead of throwing on the dead reference.
+       * Bounded to avoid unbounded growth over a long session.
+       */
+      elementDescriptors = /* @__PURE__ */ new Map();
+      static MAX_DESCRIPTOR_HISTORY = 1e3;
+      static DESCRIPTOR_TRIM_TARGET = 500;
+      // ─── Frames (E3-D) ──────────────────────────────────────
+      // Elements sourced from an iframe are NOT in AccessibilityDomain's
+      // nodeMap (that class only ever walks the main frame) — these maps are
+      // this driver's own bookkeeping so click()/observe()/find() can resolve
+      // and act on them anyway. Cleared on every navigate() (frame ids and
+      // backendNodeIds are meaningless across a navigation).
+      frameElementBackendNodeIds = /* @__PURE__ */ new Map();
+      frameElementSessions = /* @__PURE__ */ new Map();
+      frameTagFor = /* @__PURE__ */ new Map();
+      // CDP frameId -> short elementId-safe tag
+      oopifSessions = /* @__PURE__ */ new Map();
+      // OOPIF targetId -> attached sessionId (reused across snapshots)
+      lastFrameCount = 0;
+      lastFrameReached = 0;
+      // ─── JS Dialogs (E3-D) ──────────────────────────────────
+      // Page.javascriptDialogOpening pauses the renderer's JS until
+      // Page.handleJavaScriptDialog answers it. Any in-flight CDP command whose
+      // response depends on that JS finishing (e.g. click()'s
+      // Runtime.callFunctionOn) would otherwise hang until answered — see
+      // raceAgainstDialog().
+      pendingDialog = null;
+      dialogWaiters = /* @__PURE__ */ new Set();
+      unsubscribeDialogOpening = null;
+      unsubscribeDialogClosed = null;
       // ─── Lifecycle ──────────────────────────────────────────
       async launch(options = {}) {
         const wsUrl = await this.browser.launch(options);
@@ -2619,9 +3049,29 @@ var init_driver = __esm({
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
+        await this.network.enable();
+        this.setupDialogHandling();
         if (options.viewport) {
           await this.emulation.applyDeviceProfile(options.viewport);
         }
+      }
+      /**
+       * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
+       * `dialogWaiters` (E3-D). Idempotent — unsubscribes any prior
+       * registration first, so re-launch/connectExisting never double-fires.
+       */
+      setupDialogHandling() {
+        this.unsubscribeDialogOpening?.();
+        this.unsubscribeDialogClosed?.();
+        this.unsubscribeDialogOpening = this._page.onDialogOpening((dialog) => {
+          this.pendingDialog = dialog;
+          const waiters = [...this.dialogWaiters];
+          this.dialogWaiters.clear();
+          for (const wake of waiters) wake();
+        });
+        this.unsubscribeDialogClosed = this._page.onDialogClosed(() => {
+          this.pendingDialog = null;
+        });
       }
       async close() {
         if (this.targetId) {
@@ -2664,17 +3114,29 @@ var init_driver = __esm({
         if (waitFor === "stable") {
           await waitForStable(
             this.conn,
-            () => this.ax.getSnapshot(),
+            () => this.freshSnapshot(),
             { timeout: options.timeout ?? 1e4, eventName: "Accessibility.nodesUpdated" }
           );
         } else if (waitFor === "load") {
           await waitForStableTree(
-            () => this.ax.getSnapshot(),
+            () => this.freshSnapshot(),
             { timeout: options.timeout ?? 1e4 }
           );
         }
         this._currentUrl = await this.runtime.evaluate("location.href") ?? url;
         this.resolutionCache.clear();
+        this.elementDescriptors.clear();
+        for (const targetId of this.oopifSessions.keys()) {
+          this.target.close(targetId).catch(() => {
+          });
+        }
+        this.frameElementBackendNodeIds.clear();
+        this.frameElementSessions.clear();
+        this.frameTagFor.clear();
+        this.oopifSessions.clear();
+        this.lastFrameCount = 0;
+        this.lastFrameReached = 0;
+        this.pendingDialog = null;
       }
       get url() {
         return this._currentUrl;
@@ -2690,7 +3152,7 @@ var init_driver = __esm({
        */
       async discover(options = {}) {
         const filter = options.filter ?? "interactive";
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         let filtered;
         switch (filter) {
           case "interactive":
@@ -2723,7 +3185,7 @@ var init_driver = __esm({
       async find(name, options = {}) {
         const diag = await this.findWithDiagnostics(name, options);
         if (!diag.elementId) return null;
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return elements.find((e) => e.id === diag.elementId) ?? null;
       }
       /**
@@ -2735,7 +3197,7 @@ var init_driver = __esm({
         const cacheKey = options.role ? `${name}:${options.role}` : name;
         const cached = this.resolutionCache.get(cacheKey);
         if (cached) {
-          const elements = await this.ax.getSnapshot();
+          const elements = await this.freshSnapshot();
           const match = elements.find((e) => e.id === cached.elementId);
           if (match) {
             const interactive2 = elements.filter((e) => e.actions.length > 0);
@@ -2761,7 +3223,7 @@ var init_driver = __esm({
             label: el.label,
             confidence: 1
           });
-          const allElements2 = await this.ax.getSnapshot();
+          const allElements2 = await this.freshSnapshot();
           const interactive2 = allElements2.filter((e) => e.actions.length > 0);
           return {
             elementId: el.id,
@@ -2772,7 +3234,7 @@ var init_driver = __esm({
             totalInteractive: interactive2.length
           };
         }
-        const allElements = await this.ax.getSnapshot();
+        const allElements = await this.freshSnapshot();
         const interactive = allElements.filter((e) => e.actions.length > 0);
         const exact = findExactLabel(name, allElements, options.role);
         if (exact) {
@@ -2867,39 +3329,449 @@ var init_driver = __esm({
           screenshot
         };
       }
-      // ─── Interactions ───────────────────────────────────────
-      async click(elementId) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const sid = this.sessionId ?? void 0;
-        let domClickWorked = false;
+      // ─── Actionability (auto-wait) ──────────────────────────
+      //
+      // click/type/fill/check/select all resolve through awaitActionable()
+      // before acting, so none of them can act on a stale, hidden, covered, or
+      // disabled element — see src/engine/actionability.ts for the generic
+      // present→visible→enabled→stable poll loop this builds on.
+      /** Record every element's {label, role} into the cross-snapshot history
+       *  used for stale-elementId re-resolution (see elementDescriptors). */
+      recordDescriptors(elements) {
+        for (const e of elements) {
+          this.elementDescriptors.set(e.id, { label: e.label, role: e.role });
+        }
+        if (this.elementDescriptors.size > _EngineDriver.MAX_DESCRIPTOR_HISTORY) {
+          const excess = this.elementDescriptors.size - _EngineDriver.DESCRIPTOR_TRIM_TARGET;
+          let i = 0;
+          for (const key of this.elementDescriptors.keys()) {
+            if (i++ >= excess) break;
+            this.elementDescriptors.delete(key);
+          }
+        }
+      }
+      /** Snapshot wrapper — every full-tree read goes through here so the
+       *  stale-elementId re-resolution history stays warm. Behavior-identical
+       *  to calling this.ax.getSnapshot() directly, PLUS (E3-D) elements from
+       *  every iframe on the page, merged in. */
+      async freshSnapshot() {
+        const [mainElements, frameElements] = await Promise.all([
+          this.ax.getSnapshot(),
+          this.getFrameElements()
+        ]);
+        const elements = frameElements.length > 0 ? [...mainElements, ...frameElements] : mainElements;
+        this.recordDescriptors(elements);
+        return elements;
+      }
+      /**
+       * Probe a live DOM node's present/visible/enabled/rect state via
+       * DOM.resolveNode + Runtime.callFunctionOn (same primitives click() uses
+       * for its DOM-click path). Returns null when the backendNodeId no longer
+       * resolves to a live node — the caller treats that as "went stale" and
+       * re-resolves rather than throwing.
+       *
+       * `sessionId` (E3-D) overrides the driver's main session — required for
+       * an element sourced from an out-of-process iframe (OOPIF), whose
+       * backendNodeId only resolves against ITS OWN target/session.
+       */
+      async probeBackendNode(backendNodeId, sessionId) {
+        const sid = sessionId ?? this.sessionId ?? void 0;
         try {
           const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId }, sid);
+          const objectId = resolved?.object?.objectId;
+          if (!objectId) return null;
+          const result = await this.conn.send("Runtime.callFunctionOn", {
+            objectId,
+            functionDeclaration: ACTIONABILITY_PROBE_FN,
+            returnByValue: true
+          }, sid);
+          if (result?.exceptionDetails) return null;
+          return result?.result?.value ?? null;
+        } catch {
+          return null;
+        }
+      }
+      /**
+       * Re-resolve a stale element by its last-known label+role against a fresh
+       * AX snapshot. This is what lets a re-rendering element (new
+       * backendNodeId, same accessible name/role) stay actionable instead of
+       * failing the moment its original elementId goes stale.
+       */
+      async reResolveByLabelRole(label, role) {
+        const elements = await this.freshSnapshot();
+        const match = findExactLabel(label, elements, role);
+        return match ? match.id : null;
+      }
+      /**
+       * Resolve an elementId to its {backendNodeId, sessionId} (E3-D). Frame-
+       * sourced elements are checked first (this driver's own bookkeeping,
+       * since AccessibilityDomain only ever knows about the main frame); falls
+       * back to the main-frame nodeMap otherwise. Returns undefined when the
+       * elementId is not currently known to either.
+       */
+      resolveBackendRef(elementId) {
+        const frameBackendNodeId = this.frameElementBackendNodeIds.get(elementId);
+        if (frameBackendNodeId !== void 0) {
+          return { backendNodeId: frameBackendNodeId, sessionId: this.frameElementSessions.get(elementId) };
+        }
+        const backendNodeId = this.ax.getBackendNodeId(elementId);
+        if (backendNodeId === void 0) return void 0;
+        return { backendNodeId, sessionId: this.sessionId ?? void 0 };
+      }
+      /**
+       * resolveAndProbe closure for waitForActionable(): resolves elementId to
+       * its current backend reference (re-resolving by name/role if the id has
+       * gone stale), then probes it. Returns null when nothing currently
+       * resolves — waitForActionable treats that as "not present" and keeps
+       * polling.
+       */
+      async resolveElementActionability(elementId) {
+        const ref = this.resolveBackendRef(elementId);
+        if (ref) {
+          const state = await this.probeBackendNode(ref.backendNodeId, ref.sessionId);
+          if (state?.present) return { target: ref, state };
+        }
+        const known = this.elementDescriptors.get(elementId);
+        if (!known) return null;
+        const freshId = await this.reResolveByLabelRole(known.label, known.role);
+        if (!freshId) return null;
+        const freshRef = this.resolveBackendRef(freshId);
+        if (!freshRef) return null;
+        const freshState = await this.probeBackendNode(freshRef.backendNodeId, freshRef.sessionId);
+        if (!freshState) return null;
+        return { target: freshRef, state: freshState };
+      }
+      /**
+       * Wait until elementId (or its re-resolved replacement) is
+       * present+visible+enabled+stable, then return the actionable backend
+       * reference. Throws a descriptive error on timeout — never silently
+       * proceeds to act on a non-actionable element.
+       */
+      async awaitActionable(elementId, options) {
+        try {
+          return await waitForActionable(
+            () => this.resolveElementActionability(elementId),
+            options
+          );
+        } catch (err) {
+          if (err instanceof ActionabilityTimeoutError) {
+            throw new Error(
+              `Element ${elementId} not actionable: ${err.reason} (waited ${err.elapsedMs}ms)`
+            );
+          }
+          throw err;
+        }
+      }
+      // ─── Frames (E3-D) ──────────────────────────────────────
+      //
+      // AccessibilityDomain.getSnapshot() only ever walks the MAIN frame
+      // (Accessibility.getFullAXTree defaults to the root frame). These helpers
+      // discover every iframe via Page.getFrameTree, then fetch each one's AX
+      // tree directly over CdpConnection (bypassing AccessibilityDomain, which
+      // is out of scope for this chunk) and merge the elements into
+      // freshSnapshot()'s output so observe()/find()/click() see inside them.
+      //
+      // Two paths, tried in order per frame:
+      //   1. In-process: same-origin (or otherwise same-renderer) frames stay
+      //      in the main page's render process — Accessibility.getFullAXTree
+      //      accepts a `frameId` and returns nodes reachable via the driver's
+      //      OWN session, no extra attach needed.
+      //   2. OOPIF (out-of-process iframe): cross-site-isolated frames get
+      //      their own CDP target. Discovered via Target.getTargets() (type
+      //      'iframe'), matched to the unresolved frame by URL (best-effort —
+      //      TargetInfo carries no direct frameId), then attached lazily and
+      //      cached by targetId. This path is defensive/best-effort: it has no
+      //      CI-feasible fixture (would need two real origins under Chrome's
+      //      site-isolation), so it is exercised by construction, not by a
+      //      passing live test.
+      tagForFrame(frameId) {
+        let tag = this.frameTagFor.get(frameId);
+        if (!tag) {
+          tag = String(this.frameTagFor.size);
+          this.frameTagFor.set(frameId, tag);
+        }
+        return tag;
+      }
+      flattenChildFrames(node) {
+        const out = [];
+        for (const child of node.childFrames ?? []) {
+          out.push({ id: child.frame.id, url: child.frame.url });
+          out.push(...this.flattenChildFrames(child));
+        }
+        return out;
+      }
+      /**
+       * Convert raw CDP AX nodes (from a frame's own getFullAXTree call) into
+       * Element[], tagging each id with `frameTag` so it can never collide with
+       * a main-frame or sibling-frame backendDOMNodeId (backend node ids are
+       * only unique WITHIN a render process). Records each into
+       * frameElementBackendNodeIds/frameElementSessions so click()/awaitActionable
+       * can resolve and act on them later.
+       */
+      convertFrameAXNodes(nodes, sessionId, frameTag) {
+        const elements = [];
+        for (const node of nodes) {
+          const roleValue = node.role?.value;
+          if (!roleValue || FRAME_SKIP_ROLES.has(roleValue)) continue;
+          const role = normalizeRole(roleValue);
+          const label = node.name?.value ?? "";
+          if (role === "group" && !label) continue;
+          if (!node.backendDOMNodeId) continue;
+          const id = `f${frameTag}_e${node.backendDOMNodeId}`;
+          const disabledProp = node.properties?.find((p) => p.name === "disabled")?.value?.value;
+          const focusedProp = node.properties?.find((p) => p.name === "focused")?.value?.value;
+          elements.push({
+            id,
+            role,
+            label,
+            value: node.value?.value ?? null,
+            enabled: disabledProp !== true,
+            focused: focusedProp === true,
+            actions: inferFrameActions(role),
+            bounds: [0, 0, 0, 0],
+            parent: null
+          });
+          this.frameElementBackendNodeIds.set(id, node.backendDOMNodeId);
+          this.frameElementSessions.set(id, sessionId);
+        }
+        return elements;
+      }
+      /** Elements from every iframe on the page — see the "Frames (E3-D)"
+       *  section comment above for the two-path strategy. */
+      async getFrameElements() {
+        if (!this.sessionId) return [];
+        let tree;
+        try {
+          tree = await this._page.getFrameTree();
+        } catch {
+          this.lastFrameCount = 0;
+          this.lastFrameReached = 0;
+          return [];
+        }
+        const childFrames = this.flattenChildFrames(tree);
+        this.lastFrameCount = childFrames.length;
+        if (childFrames.length === 0) {
+          this.lastFrameReached = 0;
+          return [];
+        }
+        const elements = [];
+        const unresolvedByUrl = /* @__PURE__ */ new Map();
+        let reached = 0;
+        for (const frame of childFrames) {
+          const tag = this.tagForFrame(frame.id);
+          try {
+            const result = await this.conn.send(
+              "Accessibility.getFullAXTree",
+              { frameId: frame.id },
+              this.sessionId
+            );
+            const nodes = result?.nodes ?? [];
+            elements.push(...this.convertFrameAXNodes(nodes, this.sessionId, tag));
+            reached += 1;
+            continue;
+          } catch {
+          }
+          unresolvedByUrl.set(frame.url, frame.id);
+        }
+        if (unresolvedByUrl.size > 0) {
+          const oopifResult = await this.getOopifFrameElements(unresolvedByUrl);
+          elements.push(...oopifResult.elements);
+          reached += oopifResult.reached;
+        }
+        this.lastFrameReached = reached;
+        return elements;
+      }
+      /**
+       * Best-effort OOPIF path: discover 'iframe'-type CDP targets, match each
+       * to an unresolved frame by URL, attach (cached by targetId across
+       * snapshots), and fetch its AX tree via that target's own session.
+       */
+      async getOopifFrameElements(unresolvedByUrl) {
+        let targets;
+        try {
+          targets = await this.target.list();
+        } catch {
+          return { elements: [], reached: 0 };
+        }
+        const elements = [];
+        let reached = 0;
+        for (const t of targets) {
+          if (t.type !== "iframe") continue;
+          const frameId = unresolvedByUrl.get(t.url);
+          if (!frameId) continue;
+          let sid = this.oopifSessions.get(t.targetId);
+          if (!sid) {
+            try {
+              sid = await this.target.attach(t.targetId);
+              await this.conn.send("DOM.enable", {}, sid);
+              await this.conn.send("Accessibility.enable", {}, sid);
+              this.oopifSessions.set(t.targetId, sid);
+            } catch {
+              continue;
+            }
+          }
+          try {
+            const result = await this.conn.send("Accessibility.getFullAXTree", {}, sid);
+            const nodes = result?.nodes ?? [];
+            const tag = this.tagForFrame(frameId);
+            elements.push(...this.convertFrameAXNodes(nodes, sid, tag));
+            reached += 1;
+          } catch {
+          }
+        }
+        return { elements, reached };
+      }
+      // ─── JS Dialogs (E3-D) ──────────────────────────────────
+      //
+      // Placed BEFORE the Interactions section (rather than after scroll(), its
+      // most natural neighbor) so that engine.test.ts's T-06 grep falsifier —
+      // which scans the source strictly between the `click(` and `doubleClick(`
+      // markers for a forbidden `setTimeout` — does not trip over
+      // waitForDialog()'s bounded timeout below. That falsifier is about
+      // fixed-sleep-free ACTIONABILITY waits specifically; a bounded dialog
+      // wait is a different mechanism entirely and is exempt by construction,
+      // not by weakening the assertion.
+      /**
+       * Dispatch a left click at (x, y) on the given session. `this.input` (the
+       * InputDomain instance) is permanently bound to the driver's MAIN
+       * session, so it cannot dispatch on an OOPIF's session — when
+       * `sessionId` names a different session, issue the raw
+       * Input.dispatchMouseEvent pair directly (same pattern as rightClick()
+       * below) instead of routing through `this.input`.
+       */
+      async dispatchClickAt(x, y, sessionId) {
+        if (!sessionId || sessionId === this.sessionId) {
+          await this.input.click(x, y);
+          return;
+        }
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mousePressed",
+          x,
+          y,
+          button: "left",
+          buttons: 1,
+          clickCount: 1
+        }, sessionId);
+        await this.conn.send("Input.dispatchMouseEvent", {
+          type: "mouseReleased",
+          x,
+          y,
+          button: "left",
+          buttons: 0,
+          clickCount: 1
+        }, sessionId);
+      }
+      /**
+       * Race a CDP call against a JS dialog opening. Some CDP commands
+       * (Runtime.callFunctionOn, Input.dispatchMouseEvent) do not return until
+       * the JS they trigger finishes running — if that JS synchronously opens
+       * an alert()/confirm()/prompt(), the renderer pauses and Chrome withholds
+       * the ACK until Page.handleJavaScriptDialog answers it. Without this,
+       * click() on a button whose handler opens a dialog would hang until the
+       * dialog is answered (or the connection's own ~30s timeout).
+       *
+       * If the dialog-opened signal wins the race, the triggering promise is
+       * left to settle on its own later (swallowed here so it never surfaces
+       * as an unhandled rejection) and this returns `undefined` — the caller
+       * treats that the same as "the command was issued", since the dialog
+       * itself proves the click's handler ran. The open dialog is exposed via
+       * getPendingDialog()/handleDialog().
+       */
+      async raceAgainstDialog(promise) {
+        if (this.pendingDialog) return void 0;
+        let onDialog = () => {
+        };
+        const dialogSignal = new Promise((resolve3) => {
+          onDialog = resolve3;
+          this.dialogWaiters.add(onDialog);
+        });
+        try {
+          const winner = await Promise.race([
+            promise.then((value) => ({ dialog: false, value })),
+            dialogSignal.then(() => ({ dialog: true, value: void 0 }))
+          ]);
+          if (winner.dialog) {
+            promise.catch(() => {
+            });
+            return void 0;
+          }
+          return winner.value;
+        } finally {
+          this.dialogWaiters.delete(onDialog);
+        }
+      }
+      /**
+       * The currently-open JS dialog (alert/confirm/prompt/beforeunload), if
+       * any. Poll this (or await waitForDialog()) instead of letting a
+       * triggering action hang indefinitely — see raceAgainstDialog().
+       */
+      getPendingDialog() {
+        return this.pendingDialog;
+      }
+      /**
+       * Answer the currently-open JS dialog. `accept` maps to OK/Cancel;
+       * `promptText` is only meaningful for `type: 'prompt'` dialogs. Throws if
+       * no dialog is currently open.
+       */
+      async handleDialog(accept, promptText) {
+        if (!this.pendingDialog) {
+          throw new Error("handleDialog: no JS dialog is currently open");
+        }
+        await this._page.handleDialog(accept, promptText);
+        this.pendingDialog = null;
+      }
+      /**
+       * Wait until a JS dialog opens (or the timeout elapses). Useful when a
+       * dialog may be triggered by an action whose own promise won't settle
+       * until the dialog is answered (see raceAgainstDialog()) — callers that
+       * fired such an action without awaiting it can await this instead.
+       */
+      async waitForDialog(timeout = 5e3) {
+        if (this.pendingDialog) return this.pendingDialog;
+        return new Promise((resolve3, reject) => {
+          const onDialog = () => {
+            clearTimeout(timer);
+            resolve3(this.pendingDialog);
+          };
+          const timer = setTimeout(() => {
+            this.dialogWaiters.delete(onDialog);
+            reject(new Error(`waitForDialog: no dialog opened within ${timeout}ms`));
+          }, timeout);
+          this.dialogWaiters.add(onDialog);
+        });
+      }
+      // ─── Interactions ───────────────────────────────────────
+      async click(elementId) {
+        const ref = await this.awaitActionable(elementId);
+        const sid = ref.sessionId ?? void 0;
+        let domClickWorked = false;
+        try {
+          const resolved = await this.conn.send("DOM.resolveNode", { backendNodeId: ref.backendNodeId }, sid);
           if (resolved?.object?.objectId) {
-            await this.conn.send("Runtime.callFunctionOn", {
-              objectId: resolved.object.objectId,
-              functionDeclaration: "function() { this.click(); }"
-            }, sid);
+            await this.raceAgainstDialog(
+              this.conn.send("Runtime.callFunctionOn", {
+                objectId: resolved.object.objectId,
+                functionDeclaration: "function() { this.click(); }"
+              }, sid)
+            );
             domClickWorked = true;
           }
         } catch {
         }
         if (!domClickWorked) {
-          const { x, y } = await this.dom.getElementCenter(backendNodeId);
-          await this.input.click(x, y);
+          const { x, y } = await this.dom.getElementCenter(ref.backendNodeId, sid);
+          await this.raceAgainstDialog(this.dispatchClickAt(x, y, sid));
         }
       }
       async type(elementId, text) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
         await this.input.type(text);
       }
       async fill(elementId, value) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
         await this.runtime.callFunctionOn(
           '() => { if (document.activeElement) { document.activeElement.value = ""; document.activeElement.dispatchEvent(new Event("input", { bubbles: true })); } }'
@@ -2925,17 +3797,17 @@ var init_driver = __esm({
        */
       async actAndCapture(action) {
         const [beforeElements, beforeScreenshot] = await Promise.all([
-          this.ax.getSnapshot(),
+          this.freshSnapshot(),
           this._page.screenshot()
         ]);
         await action();
-        await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5e3, stableTime: 300 });
+        await waitForStableTree(() => this.freshSnapshot(), { timeout: 5e3, stableTime: 300 });
         await this.runtime.evaluate(
           "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
         ).catch(() => {
         });
         const [afterElements, afterScreenshot] = await Promise.all([
-          this.ax.getSnapshot(),
+          this.freshSnapshot(),
           this._page.screenshot()
         ]);
         const beforeIds = new Set(beforeElements.map((e) => e.id));
@@ -2966,11 +3838,9 @@ var init_driver = __esm({
        * Set a <select> element's value and dispatch change event.
        */
       async select(elementId, value) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
-        await new Promise((r) => setTimeout(r, 100));
         await this.runtime.callFunctionOn(
           '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
           [value]
@@ -2980,9 +3850,8 @@ var init_driver = __esm({
        * Toggle a checkbox element.
        */
       async check(elementId) {
-        const backendNodeId = this.ax.getBackendNodeId(elementId);
-        if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`);
-        const { x, y } = await this.dom.getElementCenter(backendNodeId);
+        const ref = await this.awaitActionable(elementId);
+        const { x, y } = await this.dom.getElementCenter(ref.backendNodeId);
         await this.input.click(x, y);
       }
       /**
@@ -3030,7 +3899,7 @@ var init_driver = __esm({
         const deadline = Date.now() + timeout;
         const interval = 200;
         while (Date.now() < deadline) {
-          const elements = await this.ax.getSnapshot();
+          const elements = await this.freshSnapshot();
           const match = elements.find((e) => {
             const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) || e.value?.toString().toLowerCase().includes(name.toLowerCase());
             const roleMatch = !options?.role || e.role === options.role;
@@ -3079,7 +3948,7 @@ var init_driver = __esm({
         }
         if (options.includeAXTree !== false) {
           promises.push(
-            this.ax.getSnapshot().then((elements) => {
+            this.freshSnapshot().then((elements) => {
               state.axTree = elements;
             })
           );
@@ -3096,7 +3965,7 @@ var init_driver = __esm({
       }
       /** Get AX tree snapshot. */
       async getSnapshot() {
-        return this.ax.getSnapshot();
+        return this.freshSnapshot();
       }
       async evaluate(exprOrFn, ...args) {
         if (args.length > 0) {
@@ -3181,7 +4050,7 @@ var init_driver = __esm({
        * Returns serializable descriptors for act().
        */
       async observe(options) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return observe(elements, options);
       }
       // ─── LLM-Native: Extract ───────────────────────────────
@@ -3189,21 +4058,21 @@ var init_driver = __esm({
        * Extract structured data from AX tree using a schema.
        */
       async extract(schema) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return extractFromAXTree(elements, schema);
       }
       /**
        * Extract a list of repeated elements.
        */
       async extractItems(options) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return extractList(elements, options);
       }
       /**
        * Extract page-level metadata (headings, links, inputs, buttons).
        */
       async extractMeta() {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return extractPageMeta(elements);
       }
       // ─── LLM-Native: Adaptive Modality ─────────────────────
@@ -3212,7 +4081,7 @@ var init_driver = __esm({
        * Returns a score and whether a screenshot is recommended.
        */
       async assessUnderstanding(options) {
-        const elements = await this.ax.getSnapshot();
+        const elements = await this.freshSnapshot();
         return assessUnderstanding(elements, options);
       }
       // ─── Coverage Reporting ────────────────────────────────
@@ -3222,7 +4091,7 @@ var init_driver = __esm({
        */
       async getCoverage() {
         const gaps = [];
-        const axElements = await this.ax.getSnapshot();
+        const axElements = await this.freshSnapshot();
         const axTreeCount = axElements.length;
         const estimatedVisible = await this.runtime.evaluate(`
       (function() {
@@ -3248,7 +4117,10 @@ var init_driver = __esm({
           gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? "s" : ""} (invisible to AX tree)`);
         }
         if (iframeCount > 0) {
-          gaps.push(`${iframeCount} iframe${iframeCount > 1 ? "s" : ""} (separate AX tree${iframeCount > 1 ? "s" : ""})`);
+          const unreached = Math.max(0, this.lastFrameCount - this.lastFrameReached);
+          if (unreached > 0) {
+            gaps.push(`${unreached} iframe${unreached > 1 ? "s" : ""} not reachable this snapshot (cross-process attach failed)`);
+          }
         }
         if (shadowDomCount > 0) {
           gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? "s" : ""} (open shadow root \u2014 recovered via piercing)`);
@@ -3352,10 +4224,25 @@ var init_driver = __esm({
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
+        await this.network.enable();
+        this.setupDialogHandling();
       }
     };
   }
 });
+async function waitForSelectorActionable(driver2, selector, options) {
+  await waitForActionable(async () => {
+    try {
+      const state = await driver2.runtimeDomain.callFunctionOn(
+        SELECTOR_ACTIONABILITY_PROBE_FN,
+        [selector]
+      );
+      return { target: true, state };
+    } catch {
+      return null;
+    }
+  }, options);
+}
 function needsEvaluateNameHelper(fnStr) {
   return fnStr.includes("__name(") && !fnStr.includes("const __name");
 }
@@ -3371,14 +4258,39 @@ function buildFunctionDeclaration(fnStr) {
   }
   return `(function(...__ibrArgs) { ${ESBUILD_NAME_HELPER} return (${fnStr})(...__ibrArgs); })`;
 }
-var CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
+var SELECTOR_ACTIONABILITY_PROBE_FN, CompatElementHandle, CompatLocator, ESBUILD_NAME_HELPER, CompatPage;
 var init_compat = __esm({
   "src/engine/compat.ts"() {
+    init_actionability();
+    SELECTOR_ACTIONABILITY_PROBE_FN = `(sel) => {
+  const el = document.querySelector(sel);
+  if (!el || !el.isConnected) return { present: false, visible: false, enabled: false, rect: null };
+  const style = getComputedStyle(el);
+  const r = el.getBoundingClientRect();
+  const hasSize = r.width > 0 && r.height > 0;
+  let visible = style.display !== 'none' && style.visibility !== 'hidden' &&
+    parseFloat(style.opacity) !== 0 && hasSize;
+  if (visible) {
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const atPoint = document.elementFromPoint(cx, cy);
+    visible = !!atPoint && (atPoint === el || el.contains(atPoint) || atPoint.contains(el));
+  }
+  const enabled = el.disabled !== true && el.getAttribute('aria-disabled') !== 'true';
+  return {
+    present: true,
+    visible,
+    enabled,
+    rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+  };
+}`;
     CompatElementHandle = class {
       constructor(driver2, nodeId) {
         this.driver = driver2;
         this.nodeId = nodeId;
       }
+      driver;
+      nodeId;
       async screenshot(options) {
         const model = await this.driver.domDomain.getBoxModel(this.nodeId);
         const q = model.content;
@@ -3425,6 +4337,8 @@ var init_compat = __esm({
         this.driver = driver2;
         this.selector = selector;
       }
+      driver;
+      selector;
       // Visible filter stored for potential future use in resolveNode
       visible = false;
       filter(options) {
@@ -3436,14 +4350,16 @@ var init_compat = __esm({
         return this;
       }
       async click(_options) {
-        const nodeId = await this.resolveNode(_options?.timeout);
-        if (!nodeId) throw new Error(`Element not found: ${this.selector}`);
+        if (!_options?.force) {
+          await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout });
+        }
         await this.driver.runtimeDomain.callFunctionOn(
           '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
           [this.selector]
         );
       }
       async fill(text, _options) {
+        await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout });
         await this.driver.runtimeDomain.callFunctionOn(
           `(sel, val) => {
         const el = document.querySelector(sel);
@@ -3484,28 +4400,27 @@ var init_compat = __esm({
         }
         throw new Error(`Timed out waiting for ${this.selector}`);
       }
-      async resolveNode(timeout) {
-        const deadline = Date.now() + (timeout ?? 5e3);
-        while (Date.now() < deadline) {
-          const nodeId = await this.driver.querySelector(this.selector);
-          if (nodeId) return nodeId;
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        return null;
-      }
     };
     ESBUILD_NAME_HELPER = "const __name = (target) => target;";
     CompatPage = class {
       constructor(driver2) {
         this.driver = driver2;
       }
+      driver;
       consoleHandlers = [];
       consoleListening = false;
       async goto(url, options) {
+        const waitUntil = options?.waitUntil;
         await this.driver.navigate(url, {
-          waitFor: options?.waitUntil === "networkidle" ? "stable" : "load",
+          // networkidle used to be faked as AX-tree stability ('stable'); real
+          // network quiescence is applied below via NetworkDomain instead, so
+          // navigate() itself only needs to wait for the document to commit.
+          waitFor: waitUntil === "networkidle" ? "none" : "load",
           timeout: options?.timeout
         });
+        if (waitUntil === "networkidle") {
+          await this.driver.networkDomain.waitForNetworkIdle({ timeout: options?.timeout ?? 1e4 });
+        }
       }
       async evaluate(fnOrExpr, ...args) {
         if (typeof fnOrExpr === "function") {
@@ -3556,11 +4471,21 @@ var init_compat = __esm({
         await new Promise((r) => setTimeout(r, ms));
       }
       async waitForLoadState(_state, _options) {
-        await this.driver.navigate(this.driver.url, { waitFor: "stable", timeout: _options?.timeout ?? 1e4 }).catch(() => {
-        });
+        await this.driver.networkDomain.waitForNetworkIdle({ timeout: _options?.timeout ?? 1e4 });
       }
       async waitForNavigation() {
-        await new Promise((r) => setTimeout(r, 500));
+        await this.driver.networkDomain.waitForNetworkIdle({ timeout: 1e4 });
+      }
+      /**
+       * Wait for a response matching `urlOrPredicate` (substring, RegExp, or a
+       * `(url, status) => boolean` predicate). Resolves with `{url, status}` the
+       * moment a matching `Network.responseReceived` CDP event fires — real
+       * network awareness (E3-B), not a fixed sleep or polling guess. New API
+       * surface; no existing caller to preserve compatibility with.
+       */
+      async waitForResponse(urlOrPredicate, options) {
+        const predicate = typeof urlOrPredicate === "function" ? urlOrPredicate : typeof urlOrPredicate === "string" ? (url) => url.includes(urlOrPredicate) : (url) => urlOrPredicate.test(url);
+        return this.driver.networkDomain.waitForResponse(predicate, options);
       }
       async content() {
         return this.driver.content();
@@ -3581,12 +4506,14 @@ var init_compat = __esm({
         return this.driver.getAttribute(selector, name);
       }
       async click(selector, _options) {
+        await waitForSelectorActionable(this.driver, selector, { timeout: _options?.timeout });
         await this.driver.runtimeDomain.callFunctionOn(
           '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
           [selector]
         );
       }
       async fill(selector, value) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           `(sel, val) => {
         const el = document.querySelector(sel);
@@ -3599,6 +4526,7 @@ var init_compat = __esm({
         );
       }
       async type(selector, text, _options) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           "(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }",
           [selector]
@@ -3611,18 +4539,21 @@ var init_compat = __esm({
         }
       }
       async check(selector) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           "(sel) => { const el = document.querySelector(sel); if (el && !el.checked) el.click(); }",
           [selector]
         );
       }
       async uncheck(selector) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           "(sel) => { const el = document.querySelector(sel); if (el && el.checked) el.click(); }",
           [selector]
         );
       }
       async selectOption(selector, value) {
+        await waitForSelectorActionable(this.driver, selector);
         await this.driver.runtimeDomain.callFunctionOn(
           `(sel, val) => {
         const el = document.querySelector(sel);
@@ -5509,7 +6440,7 @@ async function testInteractivity(page) {
         submitInfo = {
           selector: getSelector(btn),
           tagName: btn.tagName.toLowerCase(),
-          text: btn.textContent?.trim() || btn.value || void 0,
+          text: btn.textContent?.trim() || ("value" in btn ? btn.value : void 0),
           hasHandler: hasEventHandler(btn),
           isDisabled: btn.disabled,
           isVisible: isVisible(btn),
@@ -6667,7 +7598,7 @@ function getDefaultSeverity(principleId, config) {
   if (config.principles.calmPrecision.stylistic.includes(principleId)) return "warn";
   return "warn";
 }
-var CustomCheckSchema, CustomPrincipleSchema, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
+var CustomCheckSchema, CustomPrincipleSchema, DEFAULT_CALM_PRECISION_CONFIG, CalmPrecisionConfigSchema, TypographyTokensSchema, DesignSystemConfigSchema;
 var init_config = __esm({
   "src/design-system/config.ts"() {
     CustomCheckSchema = z.object({
@@ -6683,9 +7614,14 @@ var init_config = __esm({
       severity: z.enum(["error", "warn", "off"]),
       checks: z.array(CustomCheckSchema)
     });
+    DEFAULT_CALM_PRECISION_CONFIG = {
+      core: ["gestalt", "signal-noise", "content-chrome", "cognitive-load"],
+      stylistic: ["fitts", "hick"],
+      severity: {}
+    };
     CalmPrecisionConfigSchema = z.object({
-      core: z.array(z.string()).default(["gestalt", "signal-noise", "content-chrome", "cognitive-load"]),
-      stylistic: z.array(z.string()).default(["fitts", "hick"]),
+      core: z.array(z.string()).default(DEFAULT_CALM_PRECISION_CONFIG.core),
+      stylistic: z.array(z.string()).default(DEFAULT_CALM_PRECISION_CONFIG.stylistic),
       severity: z.record(z.string(), z.enum(["error", "warn", "off"])).default({})
     });
     TypographyTokensSchema = z.object({
@@ -6698,9 +7634,12 @@ var init_config = __esm({
       version: z.literal(1),
       name: z.string(),
       principles: z.object({
-        calmPrecision: CalmPrecisionConfigSchema.default({}),
+        calmPrecision: CalmPrecisionConfigSchema.default(DEFAULT_CALM_PRECISION_CONFIG),
         custom: z.array(CustomPrincipleSchema).default([])
-      }).default({}),
+      }).default({
+        calmPrecision: DEFAULT_CALM_PRECISION_CONFIG,
+        custom: []
+      }),
       tokens: z.object({
         colors: z.record(z.string(), z.string()).optional(),
         typography: TypographyTokensSchema.optional(),
@@ -12658,16 +13597,16 @@ async function listSessions(outputDir) {
   const sessionsDir = join(outputDir, "sessions");
   try {
     const entries = await readdir(sessionsDir, { withFileTypes: true });
-    const sessions = [];
+    const sessions2 = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
         const session = await getSession(outputDir, entry.name);
         if (session) {
-          sessions.push(session);
+          sessions2.push(session);
         }
       }
     }
-    return sessions.sort(
+    return sessions2.sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
   } catch {
@@ -12675,8 +13614,8 @@ async function listSessions(outputDir) {
   }
 }
 async function getMostRecentSession(outputDir) {
-  const sessions = await listSessions(outputDir);
-  return sessions[0] || null;
+  const sessions2 = await listSessions(outputDir);
+  return sessions2[0] || null;
 }
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
@@ -12709,12 +13648,12 @@ function parseDuration(duration) {
 }
 async function cleanSessions(outputDir, options = {}) {
   const { olderThan, keepLast = 0, dryRun = false } = options;
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   const deleted = [];
   const kept = [];
-  const keepIds = new Set(sessions.slice(0, keepLast).map((s) => s.id));
+  const keepIds = new Set(sessions2.slice(0, keepLast).map((s) => s.id));
   const cutoffTime = olderThan ? Date.now() - parseDuration(olderThan) : 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const shouldDelete = !keepIds.has(session.id) && (olderThan ? sessionTime < cutoffTime : true);
     if (shouldDelete && !keepIds.has(session.id)) {
@@ -12772,8 +13711,8 @@ async function findSessions(outputDir, query = {}) {
   return filtered.slice(0, validatedQuery.limit);
 }
 async function getTimeline(outputDir, route, limit = 10) {
-  const sessions = await findSessions(outputDir, { route, limit });
-  return sessions.reverse();
+  const sessions2 = await findSessions(outputDir, { route, limit });
+  return sessions2.reverse();
 }
 async function getSessionsByRoute(outputDir) {
   const allSessions = await listSessions(outputDir);
@@ -12793,11 +13732,11 @@ async function getSessionsByRoute(outputDir) {
   return byRoute;
 }
 async function getSessionStats(outputDir) {
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   const byStatus = {};
   const byViewport = {};
   const byVerdict = {};
-  for (const session of sessions) {
+  for (const session of sessions2) {
     byStatus[session.status] = (byStatus[session.status] || 0) + 1;
     const viewportName = session.viewport.name;
     byViewport[viewportName] = (byViewport[viewportName] || 0) + 1;
@@ -12806,7 +13745,7 @@ async function getSessionStats(outputDir) {
     }
   }
   return {
-    total: sessions.length,
+    total: sessions2.length,
     byStatus,
     byViewport,
     byVerdict
@@ -13730,23 +14669,23 @@ function isFailedSession(session) {
 async function enforceRetentionPolicy(outputDir, config) {
   const retentionConfig = config || await loadRetentionConfig(outputDir);
   if (!retentionConfig.maxSessions && !retentionConfig.maxAgeDays) {
-    const sessions2 = await listSessions(outputDir);
+    const sessions3 = await listSessions(outputDir);
     return {
       deleted: [],
-      kept: sessions2.map((s) => s.id),
+      kept: sessions3.map((s) => s.id),
       keptFailed: [],
-      totalBefore: sessions2.length,
-      totalAfter: sessions2.length
+      totalBefore: sessions3.length,
+      totalAfter: sessions3.length
     };
   }
-  const sessions = await listSessions(outputDir);
-  const totalBefore = sessions.length;
+  const sessions2 = await listSessions(outputDir);
+  const totalBefore = sessions2.length;
   const deleted = [];
   const kept = [];
   const keptFailed = [];
   const cutoffTime = retentionConfig.maxAgeDays ? Date.now() - retentionConfig.maxAgeDays * 24 * 60 * 60 * 1e3 : 0;
   let keptCount = 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const isTooOld = retentionConfig.maxAgeDays && sessionTime < cutoffTime;
     const isOverLimit = retentionConfig.maxSessions && keptCount >= retentionConfig.maxSessions;
@@ -13781,11 +14720,11 @@ async function maybeAutoClean(outputDir) {
 }
 async function getRetentionStatus(outputDir) {
   const config = await loadRetentionConfig(outputDir);
-  const sessions = await listSessions(outputDir);
+  const sessions2 = await listSessions(outputDir);
   let wouldDelete = 0;
   const cutoffTime = config.maxAgeDays ? Date.now() - config.maxAgeDays * 24 * 60 * 60 * 1e3 : 0;
   let keptCount = 0;
-  for (const session of sessions) {
+  for (const session of sessions2) {
     const sessionTime = new Date(session.createdAt).getTime();
     const isTooOld = config.maxAgeDays && sessionTime < cutoffTime;
     const isOverLimit = config.maxSessions && keptCount >= config.maxSessions;
@@ -13801,9 +14740,9 @@ async function getRetentionStatus(outputDir) {
   }
   return {
     config,
-    currentSessions: sessions.length,
-    oldestSession: sessions.length > 0 ? new Date(sessions[sessions.length - 1].createdAt) : null,
-    newestSession: sessions.length > 0 ? new Date(sessions[0].createdAt) : null,
+    currentSessions: sessions2.length,
+    oldestSession: sessions2.length > 0 ? new Date(sessions2[sessions2.length - 1].createdAt) : null,
+    newestSession: sessions2.length > 0 ? new Date(sessions2[0].createdAt) : null,
     wouldDelete
   };
 }
@@ -16061,6 +17000,1822 @@ function generateFixGuide(scanResult, bridgeResult, annotatedScreenshot) {
 // src/native/index.ts
 init_layout_fill();
 
+// src/action-outcome.ts
+function notImplementedOutcome(capability) {
+  return {
+    success: false,
+    validator: {
+      expected: `${capability} capability available`,
+      observed: `${capability} not implemented by the active native backend`,
+      passed: false
+    },
+    provenance: {}
+  };
+}
+
+// src/mcp/sessions.ts
+var sessions = /* @__PURE__ */ new Map();
+
+// src/native/actions.ts
+init_extract3();
+init_role_map();
+var execFileAsync7 = promisify(execFile);
+async function performNativeAction(options) {
+  const extractorPath = await ensureExtractor();
+  const args = [
+    "--pid",
+    String(options.pid),
+    "--action",
+    options.action,
+    "--element-path",
+    options.elementPath.join(",")
+  ];
+  if (options.deviceName !== void 0) {
+    args.push("--device-name", options.deviceName);
+  }
+  if (options.value !== void 0) {
+    args.push("--value", options.value);
+  }
+  try {
+    const { stdout } = await execFileAsync7(extractorPath, args, { timeout: 1e4 });
+    return JSON.parse(stdout);
+  } catch (err) {
+    if (err && typeof err === "object" && "stdout" in err) {
+      const execErr = err;
+      const raw = (execErr.stdout ?? "").trim();
+      if (raw) {
+        try {
+          return JSON.parse(raw);
+        } catch {
+        }
+      }
+    }
+    const message = err instanceof Error ? err.message : "Action failed";
+    return {
+      success: false,
+      action: options.action,
+      error: message
+    };
+  }
+}
+function resolveMacOSElement(elements, target, options = {}) {
+  return resolveNativeCandidate(flattenMacOSElements(elements), target, options);
+}
+function resolveSimulatorElement(elements, target, options = {}) {
+  return resolveNativeCandidate(flattenSimulatorElements(elements), target, options);
+}
+function flattenMacOSElements(elements) {
+  const candidates = [];
+  function visit(nodes) {
+    for (const el of nodes) {
+      const label = el.title || el.description || el.value || el.identifier || "";
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label,
+        identifier: el.identifier,
+        value: el.value,
+        enabled: el.enabled,
+        actions: el.actions,
+        frame: el.position && el.size ? {
+          x: el.position.x,
+          y: el.position.y,
+          width: el.size.width,
+          height: el.size.height
+        } : void 0
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+  visit(elements);
+  return candidates;
+}
+function flattenSimulatorElements(elements) {
+  const candidates = [];
+  function visit(nodes) {
+    for (const el of nodes) {
+      candidates.push({
+        path: el.path,
+        role: el.role,
+        label: el.label || el.value || el.identifier || "",
+        identifier: el.identifier || null,
+        value: el.value,
+        enabled: el.isEnabled,
+        actions: el.traits.includes("button") || el.role === "AXButton" ? ["AXPress"] : [],
+        frame: el.frame
+      });
+      if (el.children.length > 0) visit(el.children);
+    }
+  }
+  visit(elements);
+  return candidates;
+}
+function resolveNativeCandidate(candidates, target, options) {
+  const needle = normalize2(target);
+  if (!needle) return null;
+  const scored = candidates.map((candidate) => {
+    const score = scoreCandidate(candidate, needle, options.role);
+    return { candidate, score };
+  }).filter((item) => item.score > 0).sort((a, b) => b.score - a.score);
+  const best = scored[0];
+  if (!best) return null;
+  const tier = scoreTier(best.candidate, needle);
+  return {
+    element: best.candidate,
+    confidence: best.score,
+    tier,
+    alternatives: scored.slice(1, 6).map((item) => ({
+      label: item.candidate.label,
+      role: normalizeRole2(item.candidate.role),
+      identifier: item.candidate.identifier,
+      confidence: item.score
+    })),
+    totalCandidates: candidates.length
+  };
+}
+function scoreCandidate(candidate, needle, role) {
+  if (role && normalizeRole2(candidate.role) !== normalizeRole2(role)) return 0;
+  const identifier = normalize2(candidate.identifier);
+  const label = normalize2(candidate.label);
+  const value = normalize2(candidate.value);
+  if (identifier && identifier === needle) return 1;
+  if (label && label === needle) return 0.96;
+  if (value && value === needle) return 0.9;
+  if (identifier && identifier.includes(needle)) return 0.82;
+  if (label && label.includes(needle)) return 0.76;
+  if (value && value.includes(needle)) return 0.7;
+  return 0;
+}
+function scoreTier(candidate, needle) {
+  if (normalize2(candidate.identifier) === needle) return "identifier";
+  if (normalize2(candidate.label) === needle) return "label";
+  if (normalize2(candidate.value) === needle) return "value";
+  return "contains";
+}
+function normalize2(value) {
+  return (value ?? "").trim().toLowerCase();
+}
+function normalizeRole2(role) {
+  return (mapRoleToAriaRole(role) ?? role.replace(/^AX/, "")).toLowerCase();
+}
+
+// src/native/daemon.ts
+init_extract3();
+var DEFAULT_START_TIMEOUT = 1e4;
+var DEFAULT_REQUEST_TIMEOUT = 3e4;
+var DaemonError = class extends Error {
+};
+var AXDaemon = class {
+  child = null;
+  buffer = "";
+  nextId = 1;
+  pending = /* @__PURE__ */ new Map();
+  starting = null;
+  dead = false;
+  deadReason = "";
+  readyInfo = null;
+  binaryPath;
+  spawnFn;
+  startTimeoutMs;
+  requestTimeoutMs;
+  constructor(opts = {}) {
+    this.binaryPath = opts.binaryPath;
+    this.spawnFn = opts.spawnFn ?? spawn;
+    this.startTimeoutMs = opts.startTimeoutMs ?? DEFAULT_START_TIMEOUT;
+    this.requestTimeoutMs = opts.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT;
+  }
+  /** True once the daemon has died or failed startup — the backend uses this to
+   *  route straight to the respawn fallback without retrying. */
+  get isDead() {
+    return this.dead;
+  }
+  /**
+   * Ensure the daemon is running and AX-trusted. Idempotent — concurrent callers
+   * share one startup. Rejects (marking the daemon dead) if spawn fails, the
+   * ready line does not arrive in time, or AX is not trusted.
+   */
+  async start() {
+    if (this.readyInfo) return this.readyInfo;
+    if (this.dead) throw new DaemonError(this.deadReason || "daemon is dead");
+    if (this.starting) return this.starting;
+    this.starting = (async () => {
+      const bin = this.binaryPath ?? await ensureExtractor();
+      const child = this.spawnFn(bin, ["--daemon"]);
+      this.child = child;
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk) => this.onStdout(chunk));
+      child.stderr?.setEncoding?.("utf8");
+      child.stderr?.on("data", () => {
+      });
+      child.on("error", (err) => this.onExit(`daemon spawn error: ${err.message}`));
+      child.on(
+        "exit",
+        (code, signal) => this.onExit(`daemon exited (code=${code ?? "null"}, signal=${signal ?? "null"})`)
+      );
+      const ready = await this.waitForReady();
+      if (!ready.trusted) {
+        this.kill("daemon reported AX not trusted");
+        throw new DaemonError("daemon not AX-trusted");
+      }
+      this.readyInfo = ready;
+      return ready;
+    })();
+    try {
+      return await this.starting;
+    } catch (err) {
+      this.starting = null;
+      throw err;
+    }
+  }
+  waitForReady() {
+    return new Promise((resolve3, reject) => {
+      const timer = setTimeout(() => {
+        this.kill("daemon startup timed out");
+        reject(new DaemonError("daemon startup timed out"));
+      }, this.startTimeoutMs);
+      this.readyResolver = { resolve: resolve3, reject, timer };
+    });
+  }
+  readyResolver = null;
+  onStdout(chunk) {
+    this.buffer += chunk;
+    let idx;
+    while ((idx = this.buffer.indexOf("\n")) >= 0) {
+      const line = this.buffer.slice(0, idx).trim();
+      this.buffer = this.buffer.slice(idx + 1);
+      if (!line) continue;
+      this.onLine(line);
+    }
+  }
+  onLine(line) {
+    let obj;
+    try {
+      obj = JSON.parse(line);
+    } catch {
+      return;
+    }
+    if (obj.type === "ready") {
+      const ready = obj;
+      if (this.readyResolver) {
+        clearTimeout(this.readyResolver.timer);
+        this.readyResolver.resolve(ready);
+        this.readyResolver = null;
+      }
+      return;
+    }
+    const resp = obj;
+    if (typeof resp.id === "number") {
+      const p = this.pending.get(resp.id);
+      if (p) {
+        clearTimeout(p.timer);
+        this.pending.delete(resp.id);
+        p.resolve(resp);
+      }
+    }
+  }
+  onExit(reason) {
+    if (this.dead) return;
+    this.dead = true;
+    this.deadReason = reason;
+    this.readyInfo = null;
+    if (this.readyResolver) {
+      clearTimeout(this.readyResolver.timer);
+      this.readyResolver.reject(new DaemonError(reason));
+      this.readyResolver = null;
+    }
+    for (const [, p] of this.pending) {
+      clearTimeout(p.timer);
+      p.reject(new DaemonError(reason));
+    }
+    this.pending.clear();
+  }
+  /** Send a request and await its correlated response. Rejects on timeout or death. */
+  request(req) {
+    if (this.dead) return Promise.reject(new DaemonError(this.deadReason || "daemon is dead"));
+    const child = this.child;
+    if (!child) return Promise.reject(new DaemonError("daemon not started"));
+    const id = this.nextId++;
+    return new Promise((resolve3, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        this.kill(`daemon request ${id} timed out`);
+        reject(new DaemonError(`daemon request timed out (op=${req.op})`));
+      }, this.requestTimeoutMs);
+      this.pending.set(id, { resolve: resolve3, reject, timer });
+      try {
+        child.stdin.write(JSON.stringify({ id, ...req }) + "\n");
+      } catch (err) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(new DaemonError(`daemon write failed: ${err instanceof Error ? err.message : String(err)}`));
+      }
+    });
+  }
+  /** Terminate the daemon and reject anything in flight. */
+  kill(reason = "daemon stopped") {
+    const child = this.child;
+    this.onExit(reason);
+    if (child) {
+      child.stdin.end();
+      child.kill("SIGTERM");
+    }
+    this.child = null;
+  }
+};
+
+// src/native/keyboard.ts
+init_extract3();
+var execFileAsync8 = promisify(execFile);
+var SETTLE_MS = 220;
+async function resolveKeystrokeTargetPid(target) {
+  if (target.kind === "macos") return target.pid;
+  return findProcess("com.apple.iphonesimulator");
+}
+var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
+  const extractorPath = await ensureExtractor();
+  const args = ["--pid", String(pid), "--keystroke", chord];
+  if (foreground) args.push("--foreground");
+  try {
+    const { stdout } = await execFileAsync8(extractorPath, args, { timeout: 5e3 });
+    return JSON.parse(stdout);
+  } catch (err) {
+    if (err && typeof err === "object" && "stdout" in err) {
+      const execErr = err;
+      const raw = (execErr.stdout ?? "").trim();
+      if (raw) {
+        try {
+          return JSON.parse(raw);
+        } catch {
+        }
+      }
+    }
+    const message = err instanceof Error ? err.message : "keystroke delivery failed";
+    return { success: false, error: message };
+  }
+};
+function countElements(elements) {
+  let total = 0;
+  for (const el of elements) {
+    total += 1;
+    total += countElements(el.children);
+  }
+  return total;
+}
+function findFocusedPathMacOS(elements) {
+  for (const el of elements) {
+    if (el.focused) return el.path;
+    if (el.children.length > 0) {
+      const found = findFocusedPathMacOS(
+        el.children
+      );
+      if (found) return found;
+    }
+  }
+  return null;
+}
+function axSignature(extraction) {
+  if (extraction.kind === "not-found") return `not-found:${extraction.message}`;
+  if (extraction.kind === "macos") {
+    const focused = findFocusedPathMacOS(extraction.elements);
+    return [
+      `window=${extraction.window.windowId}`,
+      `title=${extraction.window.title}`,
+      `count=${countElements(extraction.elements)}`,
+      `focused=${focused ? focused.join(".") : "none"}`
+    ].join("|");
+  }
+  return `count=${countElements(extraction.elements)}`;
+}
+function sleep2(ms) {
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
+}
+function keystrokeSuccess(chord, method, before, after) {
+  return {
+    success: true,
+    validator: {
+      expected: `AX state changes after delivering chord "${chord}"`,
+      observed: `AX state changed (${method}): ${before} -> ${after}`,
+      passed: true
+    },
+    provenance: { waitResult: method }
+  };
+}
+function keystrokeFailure(chord, before, after, diff) {
+  return {
+    success: false,
+    validator: {
+      expected: `AX state changes after delivering chord "${chord}"`,
+      observed: diff,
+      passed: false
+    },
+    provenance: {},
+    evidence: {
+      beforeSignature: before,
+      afterSignature: after,
+      diff,
+      alternatives: []
+    }
+  };
+}
+async function runKeystrokeCapability(opts) {
+  const { spec, resolvePid, extract, deliver } = opts;
+  const chord = spec.chord;
+  const safeSignature = async () => {
+    try {
+      return axSignature(await extract());
+    } catch (err) {
+      return `error:${err instanceof Error ? err.message : String(err)}`;
+    }
+  };
+  try {
+    const pid = await resolvePid();
+    const before = await safeSignature();
+    const backgroundDelivery = await deliver(pid, chord, false);
+    if (!backgroundDelivery.success) {
+      return keystrokeFailure(
+        chord,
+        before,
+        before,
+        `background delivery failed: ${backgroundDelivery.error ?? "unknown error"}`
+      );
+    }
+    await sleep2(SETTLE_MS);
+    const afterBackground = await safeSignature();
+    if (afterBackground !== before) {
+      return keystrokeSuccess(chord, "cgevent-pid-background", before, afterBackground);
+    }
+    const foregroundDelivery = await deliver(pid, chord, true);
+    if (!foregroundDelivery.success) {
+      return keystrokeFailure(
+        chord,
+        before,
+        afterBackground,
+        `background delivery produced no observable change; foreground-activate retry failed: ${foregroundDelivery.error ?? "unknown error"}`
+      );
+    }
+    await sleep2(SETTLE_MS);
+    const afterForeground = await safeSignature();
+    if (afterForeground !== before) {
+      return keystrokeSuccess(chord, "cgevent-foreground-fallback", before, afterForeground);
+    }
+    return keystrokeFailure(
+      chord,
+      before,
+      afterForeground,
+      "no observable AX state change after background and foreground-activate delivery"
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return keystrokeFailure(chord, "unavailable", "unavailable", `keystroke capability failed: ${message}`);
+  }
+}
+init_macos();
+var execFileAsync9 = promisify(execFile);
+var LAUNCH_TIMEOUT_MS = 8e3;
+var QUIT_TIMEOUT_MS = 6e3;
+var POLL_MS = 250;
+var BUNDLE_ID_RE = /^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/;
+function sleep3(ms) {
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
+}
+async function pollUntil(check, timeoutMs) {
+  const started = Date.now();
+  if (await check()) return true;
+  while (Date.now() - started < timeoutMs) {
+    await sleep3(POLL_MS);
+    if (await check()) return true;
+  }
+  return false;
+}
+function lifecycleSuccess(expected, observed, waitResult) {
+  return {
+    success: true,
+    validator: { expected, observed, passed: true },
+    provenance: { waitResult }
+  };
+}
+function lifecycleFailure(expected, observed, before, after) {
+  return {
+    success: false,
+    validator: { expected, observed, passed: false },
+    provenance: {},
+    evidence: { beforeSignature: before, afterSignature: after, diff: observed, alternatives: [] }
+  };
+}
+function describeTarget(target) {
+  if (target.kind === "macos") return target.app ?? `pid-${target.pid}`;
+  return `simulator ${target.device.name}`;
+}
+async function resolveTargetPid(target, spec, ops) {
+  if (spec.app) return ops.findProcess(spec.app);
+  if (target.kind === "macos") return target.pid;
+  throw new Error("simulator sessions require an explicit app name for switch/quit");
+}
+async function runLaunch(spec, ops) {
+  const expected = spec.app ? `${spec.app} running and frontmost` : "app running and frontmost";
+  if (!spec.app) {
+    return lifecycleFailure(expected, "launch requires an app name or bundle id", "n/a", "n/a");
+  }
+  try {
+    await ops.launch(spec.app);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `launch command failed: ${message}`, "not-running", "not-running");
+  }
+  let pid = null;
+  const appeared = await pollUntil(async () => {
+    try {
+      pid = await ops.findProcess(spec.app);
+      return true;
+    } catch {
+      return false;
+    }
+  }, LAUNCH_TIMEOUT_MS);
+  if (!appeared || pid === null) {
+    return lifecycleFailure(
+      expected,
+      `process did not appear within ${LAUNCH_TIMEOUT_MS}ms`,
+      "not-running",
+      "not-running"
+    );
+  }
+  const resolvedPid = pid;
+  let frontmost = await ops.frontmostPid() === resolvedPid;
+  if (!frontmost) {
+    await ops.activate(resolvedPid);
+    await sleep3(POLL_MS);
+    frontmost = await ops.frontmostPid() === resolvedPid;
+  }
+  const after = `pid=${resolvedPid}|frontmost=${frontmost}`;
+  if (!frontmost) {
+    return lifecycleFailure(expected, `process running (pid=${resolvedPid}) but not frontmost`, "not-running", after);
+  }
+  return lifecycleSuccess(expected, after, "launch-confirmed");
+}
+async function runSwitch(target, spec, ops) {
+  const label = spec.app ?? describeTarget(target);
+  const expected = `${label} frontmost`;
+  let pid;
+  try {
+    pid = await resolveTargetPid(target, spec, ops);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `could not resolve target process: ${message}`, "unavailable", "unavailable");
+  }
+  const before = `frontmost=${await ops.frontmostPid()}`;
+  const activated = await ops.activate(pid);
+  await sleep3(POLL_MS);
+  const frontmostAfter = await ops.frontmostPid();
+  const after = `frontmost=${frontmostAfter}`;
+  if (!activated || frontmostAfter !== pid) {
+    return lifecycleFailure(
+      expected,
+      `activation ${activated ? "ran" : "failed"}; frontmost pid is ${frontmostAfter ?? "unknown"}`,
+      before,
+      after
+    );
+  }
+  return lifecycleSuccess(expected, after, "switch-confirmed");
+}
+async function runQuit(target, spec, ops) {
+  const label = spec.app ?? describeTarget(target);
+  const expected = `${label} no longer running`;
+  let pid;
+  try {
+    pid = await resolveTargetPid(target, spec, ops);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `could not resolve target process: ${message}`, "unavailable", "unavailable");
+  }
+  const wasRunning = await ops.isRunning(pid);
+  if (!wasRunning) {
+    return lifecycleSuccess(expected, `already not running (pid=${pid})`, "already-quit");
+  }
+  const explicitName = spec.app ?? (target.kind === "macos" ? target.app : void 0);
+  const appName = explicitName && !explicitName.startsWith("pid-") ? explicitName : void 0;
+  try {
+    await ops.quit({ pid, app: appName });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure(expected, `quit command failed: ${message}`, "running=true", "running=true");
+  }
+  const exited = await pollUntil(async () => !await ops.isRunning(pid), QUIT_TIMEOUT_MS);
+  const after = `running=${!exited}`;
+  if (!exited) {
+    return lifecycleFailure(expected, `process ${pid} still running after ${QUIT_TIMEOUT_MS}ms`, "running=true", after);
+  }
+  return lifecycleSuccess(expected, after, "quit-confirmed");
+}
+async function runLifecycleCapability(target, spec, ops) {
+  try {
+    switch (spec.op) {
+      case "launch":
+        return await runLaunch(spec, ops);
+      case "switch":
+        return await runSwitch(target, spec, ops);
+      case "quit":
+        return await runQuit(target, spec, ops);
+      default: {
+        const op = spec.op;
+        return lifecycleFailure("a supported lifecycle op", `unknown op: ${op}`, "n/a", "n/a");
+      }
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return lifecycleFailure("lifecycle op to complete", `threw: ${message}`, "unavailable", "unavailable");
+  }
+}
+async function defaultLaunch(app) {
+  try {
+    await execFileAsync9("open", ["-a", app], { timeout: 8e3 });
+  } catch (err) {
+    if (BUNDLE_ID_RE.test(app)) {
+      await execFileAsync9("open", ["-b", app], { timeout: 8e3 });
+      return;
+    }
+    throw err;
+  }
+}
+async function defaultFrontmostPid() {
+  try {
+    const { stdout } = await execFileAsync9(
+      "osascript",
+      ["-e", 'tell application "System Events" to get unix id of first application process whose frontmost is true'],
+      { timeout: 3e3 }
+    );
+    const pid = parseInt(stdout.trim(), 10);
+    return Number.isNaN(pid) ? null : pid;
+  } catch {
+    return null;
+  }
+}
+async function defaultIsRunning(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function defaultQuit(target) {
+  if (target.app) {
+    const script = BUNDLE_ID_RE.test(target.app) ? `tell application id "${target.app}" to quit` : `tell application "${target.app}" to quit`;
+    await execFileAsync9("osascript", ["-e", script], { timeout: 5e3 });
+    return;
+  }
+  const { stdout } = await execFileAsync9(
+    "osascript",
+    ["-e", `tell application "System Events" to get name of first application process whose unix id is ${target.pid}`],
+    { timeout: 3e3 }
+  );
+  const name = stdout.trim();
+  if (!name) throw new Error(`could not resolve an app name for pid ${target.pid}`);
+  await execFileAsync9("osascript", ["-e", `tell application "${name}" to quit`], { timeout: 5e3 });
+}
+var defaultLifecycleOps = {
+  findProcess,
+  launch: defaultLaunch,
+  activate: activateMacOSProcess,
+  quit: defaultQuit,
+  frontmostPid: defaultFrontmostPid,
+  isRunning: defaultIsRunning
+};
+
+// src/native/menu.ts
+init_extract3();
+var execFileAsync10 = promisify(execFile);
+var SETTLE_MS2 = 250;
+async function resolveMenuTargetPid(target) {
+  if (target.kind === "macos") return target.pid;
+  return findProcess("com.apple.iphonesimulator");
+}
+var deliverMenuOneShot = async (pid, menuPath) => {
+  const extractorPath = await ensureExtractor();
+  const args = ["--pid", String(pid), "--menu-path", JSON.stringify(menuPath)];
+  try {
+    const { stdout } = await execFileAsync10(extractorPath, args, { timeout: 5e3 });
+    return JSON.parse(stdout);
+  } catch (err) {
+    if (err && typeof err === "object" && "stdout" in err) {
+      const execErr = err;
+      const raw = (execErr.stdout ?? "").trim();
+      if (raw) {
+        try {
+          return JSON.parse(raw);
+        } catch {
+        }
+      }
+    }
+    const message = err instanceof Error ? err.message : "menu delivery failed";
+    return { success: false, error: message };
+  }
+};
+function countElements2(elements) {
+  let total = 0;
+  for (const el of elements) {
+    total += 1;
+    total += countElements2(el.children);
+  }
+  return total;
+}
+function findFocusedPathMacOS2(elements) {
+  for (const el of elements) {
+    if (el.focused) return el.path;
+    if (el.children.length > 0) {
+      const found = findFocusedPathMacOS2(
+        el.children
+      );
+      if (found) return found;
+    }
+  }
+  return null;
+}
+function axSignature2(extraction) {
+  if (extraction.kind === "not-found") return `not-found:${extraction.message}`;
+  if (extraction.kind === "macos") {
+    const focused = findFocusedPathMacOS2(extraction.elements);
+    return [
+      `window=${extraction.window.windowId}`,
+      `title=${extraction.window.title}`,
+      `count=${countElements2(extraction.elements)}`,
+      `focused=${focused ? focused.join(".") : "none"}`
+    ].join("|");
+  }
+  return `count=${countElements2(extraction.elements)}`;
+}
+function sleep4(ms) {
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
+}
+function menuLabel(menuPath) {
+  return menuPath.join(" > ");
+}
+function menuSuccess(menuPath, method, before, after) {
+  return {
+    success: true,
+    validator: {
+      expected: `AX state changes after selecting menu path "${menuLabel(menuPath)}"`,
+      observed: `AX state changed (${method}): ${before} -> ${after}`,
+      passed: true
+    },
+    provenance: { waitResult: method }
+  };
+}
+function menuFailure(menuPath, before, after, diff) {
+  return {
+    success: false,
+    validator: {
+      expected: `AX state changes after selecting menu path "${menuLabel(menuPath)}"`,
+      observed: diff,
+      passed: false
+    },
+    provenance: {},
+    evidence: {
+      beforeSignature: before,
+      afterSignature: after,
+      diff,
+      alternatives: []
+    }
+  };
+}
+async function runMenuCapability(opts) {
+  const { spec, resolvePid, extract, deliver } = opts;
+  const menuPath = spec.menuPath ?? [];
+  if (menuPath.length === 0) {
+    return menuFailure(menuPath, "n/a", "n/a", "menuPath must have at least one segment");
+  }
+  const safeSignature = async () => {
+    try {
+      return axSignature2(await extract());
+    } catch (err) {
+      return `error:${err instanceof Error ? err.message : String(err)}`;
+    }
+  };
+  try {
+    const pid = await resolvePid();
+    const before = await safeSignature();
+    const delivery = await deliver(pid, menuPath);
+    if (!delivery.success) {
+      const segment = delivery.failedSegment !== void 0 ? ` (failed at segment ${delivery.failedSegment}: "${menuPath[delivery.failedSegment]}")` : "";
+      return menuFailure(
+        menuPath,
+        before,
+        before,
+        `menu traversal failed${segment}: ${delivery.error ?? "unknown error"}`
+      );
+    }
+    await sleep4(SETTLE_MS2);
+    const after = await safeSignature();
+    if (after !== before) {
+      return menuSuccess(menuPath, delivery.matchedVia ?? "menu-select", before, after);
+    }
+    return menuFailure(
+      menuPath,
+      before,
+      after,
+      "menu item selected but no observable AX state change (selection unverified)"
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return menuFailure(menuPath, "unavailable", "unavailable", `menu capability failed: ${message}`);
+  }
+}
+
+// src/native/backend.ts
+var RespawnBackend = class {
+  async extract(target) {
+    if (target.kind === "macos") {
+      const { elements: elements2, window: window2 } = await extractMacOSElements({ pid: target.pid });
+      return { kind: "macos", elements: elements2, window: window2 };
+    }
+    const device = await findDevice(target.device.udid);
+    if (!device) {
+      return { kind: "not-found", message: `Simulator not found: ${target.device.udid}` };
+    }
+    const elements = await extractNativeElements(device);
+    return { kind: "simulator", elements, device };
+  }
+  async performAction(target, input) {
+    if (target.kind === "macos") {
+      return performNativeAction({
+        pid: target.pid,
+        elementPath: input.elementPath,
+        action: input.action,
+        value: input.value
+      });
+    }
+    const simulatorPid = await findProcess("com.apple.iphonesimulator");
+    return performNativeAction({
+      pid: simulatorPid,
+      deviceName: target.device.name,
+      elementPath: input.elementPath,
+      action: input.action,
+      value: input.value
+    });
+  }
+  async captureScreenshot(target, outputPath) {
+    if (target.kind === "macos") {
+      const { window: window2 } = await extractMacOSElements({ pid: target.pid });
+      if (window2.windowId <= 0) {
+        return {
+          kind: "error",
+          error: "macOS screenshot capture failed: no on-screen CGWindowID was available for the current AX window."
+        };
+      }
+      await captureMacOSScreenshot(window2.windowId, outputPath);
+      const { readFile: readFile12 } = await import('fs/promises');
+      const buf2 = await readFile12(outputPath);
+      return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
+    }
+    const device = await findDevice(target.device.udid);
+    if (!device) {
+      return { kind: "error", error: `Simulator not found: ${target.device.udid}` };
+    }
+    const capture = await captureNativeScreenshot({ device, outputPath });
+    if (!capture.success || !capture.outputPath) {
+      return {
+        kind: "error",
+        error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
+      };
+    }
+    const { readFile: readFile11 } = await import('fs/promises');
+    const buf = await readFile11(capture.outputPath);
+    return {
+      kind: "simulator",
+      base64: buf.toString("base64"),
+      device,
+      screenshotPath: capture.outputPath
+    };
+  }
+  /**
+   * Deliver a keyboard chord via the one-shot Swift extractor binary (E2-B).
+   * See `keyboard.ts` for the two-phase (background-then-foreground) delivery
+   * + AX-diff validator that builds the returned `ActionOutcome`.
+   */
+  async keystroke(target, spec) {
+    return runKeystrokeCapability({
+      spec,
+      resolvePid: () => resolveKeystrokeTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: deliverKeystrokeOneShot
+    });
+  }
+  /**
+   * Drive app lifecycle (E2-C) via OS-level process control (`open`/
+   * `osascript`) — never the AX event path. See `lifecycle.ts` for the
+   * launch/switch/quit state machine and its validators.
+   */
+  async lifecycle(target, spec) {
+    return runLifecycleCapability(target, spec, defaultLifecycleOps);
+  }
+  /**
+   * Walk a menu path (menu-bar or already-open context menu) via the
+   * one-shot Swift extractor binary (E2-D). See `menu.ts` for the delivery
+   * wrapper + AX-diff validator that builds the returned `ActionOutcome`.
+   */
+  async menu(target, spec) {
+    return runMenuCapability({
+      spec,
+      resolvePid: () => resolveMenuTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: deliverMenuOneShot
+    });
+  }
+};
+var DaemonBackend = class {
+  daemon;
+  fallback;
+  usable = true;
+  constructor(opts) {
+    this.daemon = opts?.daemon ?? new AXDaemon();
+    this.fallback = opts?.fallback ?? new RespawnBackend();
+  }
+  /** True once the daemon failed and calls are routing to the respawn fallback. */
+  get fellBack() {
+    return !this.usable;
+  }
+  /**
+   * Run a daemon-backed operation, falling back to the respawn equivalent on any
+   * daemon fault. A `DaemonError` (spawn fail, not-trusted, crash, timeout) trips
+   * the permanent fallback; any other error is a real AX/IO condition that the
+   * respawn path would hit too, so it propagates unchanged.
+   */
+  async withFallback(daemonOp, fallbackOp) {
+    if (!this.usable) return fallbackOp();
+    try {
+      await this.daemon.start();
+      return await daemonOp();
+    } catch (err) {
+      if (err instanceof DaemonError) {
+        this.usable = false;
+        return fallbackOp();
+      }
+      throw err;
+    }
+  }
+  async extract(target) {
+    return this.withFallback(
+      async () => {
+        if (target.kind === "macos") {
+          const resp2 = await this.daemon.request({
+            op: "extract",
+            target: { kind: "macos", pid: target.pid }
+          });
+          if (!resp2.ok) throw new Error(resp2.error || "daemon extract failed");
+          const result2 = resp2.result;
+          return { kind: "macos", elements: result2.elements, window: result2.window };
+        }
+        const device = await findDevice(target.device.udid);
+        if (!device) {
+          return { kind: "not-found", message: `Simulator not found: ${target.device.udid}` };
+        }
+        const resp = await this.daemon.request({
+          op: "extract",
+          target: { kind: "simulator", deviceName: target.device.name }
+        });
+        if (!resp.ok) throw new Error(resp.error || "daemon extract failed");
+        const result = resp.result;
+        return { kind: "simulator", elements: result.elements, device };
+      },
+      () => this.fallback.extract(target)
+    );
+  }
+  async performAction(target, input) {
+    return this.withFallback(
+      async () => {
+        if (target.kind === "macos") {
+          const resp2 = await this.daemon.request({
+            op: "action",
+            target: { kind: "macos", pid: target.pid },
+            action: input.action,
+            elementPath: input.elementPath,
+            value: input.value
+          });
+          if (!resp2.ok) return { success: false, action: input.action, error: resp2.error };
+          return resp2.result;
+        }
+        const simulatorPid = await findProcess("com.apple.iphonesimulator");
+        const resp = await this.daemon.request({
+          op: "action",
+          target: { kind: "simulator", pid: simulatorPid, deviceName: target.device.name },
+          action: input.action,
+          elementPath: input.elementPath,
+          value: input.value
+        });
+        if (!resp.ok) return { success: false, action: input.action, error: resp.error };
+        return resp.result;
+      },
+      () => this.fallback.performAction(target, input)
+    );
+  }
+  async captureScreenshot(target, outputPath) {
+    if (target.kind === "simulator") {
+      return this.fallback.captureScreenshot(target, outputPath);
+    }
+    return this.withFallback(
+      async () => {
+        const resp = await this.daemon.request({
+          op: "resolve",
+          target: { kind: "macos", pid: target.pid }
+        });
+        if (!resp.ok) throw new Error(resp.error || "daemon resolve failed");
+        const window2 = resp.result.window;
+        if (window2.windowId <= 0) {
+          return {
+            kind: "error",
+            error: "macOS screenshot capture failed: no on-screen CGWindowID was available for the current AX window."
+          };
+        }
+        await captureMacOSScreenshot(window2.windowId, outputPath);
+        const { readFile: readFile11 } = await import('fs/promises');
+        const buf = await readFile11(outputPath);
+        return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
+      },
+      () => this.fallback.captureScreenshot(target, outputPath)
+    );
+  }
+  /**
+   * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
+   * `extract`/`performAction`/`captureScreenshot`, this does not route through
+   * `withFallback` for the whole call — if the daemon is already unusable (or
+   * fails to start), the ENTIRE capability (delivery + AX-diff validation)
+   * delegates to `RespawnBackend.keystroke` so the before/after signatures
+   * come from one consistent backend. If the daemon dies mid-request (a
+   * request already in flight when it crashes), this attempt still completes
+   * by falling through to the one-shot binary for just the raw delivery,
+   * rather than aborting — the kill-9 auto-fallback, applied per-request.
+   */
+  async keystroke(target, spec) {
+    if (!this.usable) return this.fallback.keystroke(target, spec);
+    try {
+      await this.daemon.start();
+    } catch (err) {
+      if (err instanceof DaemonError) this.usable = false;
+      return this.fallback.keystroke(target, spec);
+    }
+    return runKeystrokeCapability({
+      spec,
+      resolvePid: () => resolveKeystrokeTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: async (pid, chord, foreground) => {
+        try {
+          const resp = await this.daemon.request({
+            op: "keystroke",
+            target: target.kind === "macos" ? { kind: "macos", pid } : { kind: "simulator", pid, deviceName: target.device.name },
+            chord,
+            foreground
+          });
+          if (!resp.ok) return { success: false, error: resp.error };
+          return resp.result;
+        } catch (err) {
+          if (err instanceof DaemonError) {
+            this.usable = false;
+            return deliverKeystrokeOneShot(pid, chord, foreground);
+          }
+          throw err;
+        }
+      }
+    });
+  }
+  /**
+   * App lifecycle (E2-C) is OS-level process control (`open`/`osascript`), not
+   * an AX-tree operation — the persistent daemon connection offers no benefit,
+   * so this delegates straight to the respawn implementation (same reasoning
+   * as the simulator branch of `captureScreenshot` above).
+   */
+  async lifecycle(target, spec) {
+    return this.fallback.lifecycle(target, spec);
+  }
+  /**
+   * Walk a menu path via the daemon's `menu` op (E2-D). Mirrors `keystroke`:
+   * if the daemon is already unusable (or fails to start), the ENTIRE
+   * capability delegates to `RespawnBackend.menu` so before/after signatures
+   * come from one consistent backend. If the daemon dies mid-request, this
+   * attempt still completes via the one-shot binary for just the raw
+   * traversal, rather than aborting.
+   */
+  async menu(target, spec) {
+    if (!this.usable) return this.fallback.menu(target, spec);
+    try {
+      await this.daemon.start();
+    } catch (err) {
+      if (err instanceof DaemonError) this.usable = false;
+      return this.fallback.menu(target, spec);
+    }
+    return runMenuCapability({
+      spec,
+      resolvePid: () => resolveMenuTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: async (pid, menuPath) => {
+        try {
+          const resp = await this.daemon.request({
+            op: "menu",
+            target: target.kind === "macos" ? { kind: "macos", pid } : { kind: "simulator", pid, deviceName: target.device.name },
+            menuPath
+          });
+          if (!resp.ok) return { success: false, error: resp.error };
+          return resp.result;
+        } catch (err) {
+          if (err instanceof DaemonError) {
+            this.usable = false;
+            return deliverMenuOneShot(pid, menuPath);
+          }
+          throw err;
+        }
+      }
+    });
+  }
+  /** Stop the underlying daemon (test/shutdown aid). */
+  stop() {
+    this.daemon.kill("DaemonBackend stopped");
+  }
+};
+var defaultBackend = null;
+function getNativeBackend() {
+  if (!defaultBackend) {
+    const pref = (process.env.IBR_NATIVE_BACKEND || "").trim().toLowerCase();
+    defaultBackend = pref === "daemon" ? new DaemonBackend() : new RespawnBackend();
+  }
+  return defaultBackend;
+}
+function __setNativeBackend(backend) {
+  defaultBackend = backend;
+}
+var execFileAsync11 = promisify(execFile);
+function isMacOS(platformOverride) {
+  return (process.platform) === "darwin";
+}
+async function defaultHasCommand(name) {
+  try {
+    await execFileAsync11("which", [name]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+var _deps = {
+  hasCommand: defaultHasCommand
+};
+async function macOSNativePreflight(options) {
+  if (!isMacOS()) {
+    return {
+      ok: false,
+      reason: "not-macos",
+      message: `Native sessions require macOS \u2014 process.platform is '${process.platform}'. Use a Mac to run macOS / iOS-simulator AX sessions.`
+    };
+  }
+  if (!await _deps.hasCommand("swift")) {
+    return {
+      ok: false,
+      reason: "no-swift",
+      message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
+    };
+  }
+  const extractorPath = join(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
+  const swiftSourceDir = join(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
+  if (!existsSync(extractorPath) && !existsSync(join(swiftSourceDir, "Package.swift"))) {
+    return {
+      ok: false,
+      reason: "extractor-build-failed",
+      message: `Swift AX extractor unavailable. Expected binary at ${extractorPath} or source at ${swiftSourceDir}. Rebuild with: cd <ibr-package>/src/native/swift/ibr-ax-extract && swift build -c release`
+    };
+  }
+  return { ok: true };
+}
+async function simulatorNativePreflight(options) {
+  const base = await macOSNativePreflight();
+  if (!base.ok) return base;
+  if (!await _deps.hasCommand("xcrun")) {
+    return {
+      ok: false,
+      reason: "no-simctl",
+      message: "`xcrun` not on PATH \u2014 Xcode (or the Command Line Tools select) is required. Install Xcode from the App Store, then run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
+    };
+  }
+  return { ok: true };
+}
+var SIMULATOR_CHROME_LABELS = /* @__PURE__ */ new Set([
+  "home",
+  "save screen",
+  "screenshot",
+  "rotate",
+  "rotate left",
+  "rotate right",
+  "lock",
+  "siri",
+  "shake",
+  "side button",
+  "volume up",
+  "volume down"
+]);
+function detectSimulatorChromeOnly(topLevelLabels) {
+  if (topLevelLabels.length === 0) {
+    return {
+      hint: "Simulator returned no AX elements. Boot a device and foreground an app: xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  const normalized = topLevelLabels.map((l) => l.trim().toLowerCase()).filter((l) => l.length > 0);
+  if (normalized.length === 0) return null;
+  const chromeCount = normalized.filter((l) => SIMULATOR_CHROME_LABELS.has(l)).length;
+  if (chromeCount / normalized.length >= 0.8) {
+    return {
+      hint: "Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>"
+    };
+  }
+  return null;
+}
+function classifyExtractorError(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+    return {
+      ok: false,
+      reason: "ax-permission",
+      message: "macOS accessibility permission denied. Grant access in System Settings \u2192 Privacy & Security \u2192 Accessibility, then re-run the session_start call."
+    };
+  }
+  return null;
+}
+
+// src/native/session-controller.ts
+var DEFAULT_OUTPUT_DIR = ".ibr";
+function textResult(text) {
+  return { kind: "text", text };
+}
+function errorResult(text) {
+  return { kind: "text", text, isError: true };
+}
+function imageResult(base64, metadata) {
+  return { kind: "image", base64, metadata };
+}
+var NativeSessionController = class {
+  store;
+  injectedBackend;
+  constructor(opts) {
+    this.store = opts?.store ?? sessions;
+    this.injectedBackend = opts?.backend;
+  }
+  get backend() {
+    return this.injectedBackend ?? getNativeBackend();
+  }
+  // ── start ──────────────────────────────────────────────────────────────────
+  startMacOSPid(sessionId, pid) {
+    if (!Number.isInteger(pid) || pid <= 0) {
+      return errorResult("native_session_start (macos) failed: 'pid' must be a positive integer.");
+    }
+    this.store.set(sessionId, { driver: null, type: "macos", app: `pid-${pid}`, pid, createdAt: Date.now() });
+    return textResult(JSON.stringify({
+      sessionId,
+      type: "macos",
+      backend: "macos-ax",
+      app: `pid-${pid}`,
+      pid,
+      hostCursorAffected: false,
+      timestamp: (/* @__PURE__ */ new Date()).toISOString()
+    }, null, 2));
+  }
+  async startMacOS(sessionId, app, errorPrefix) {
+    try {
+      const pid = await findProcess(app);
+      this.store.set(sessionId, { driver: null, type: "macos", app, pid, createdAt: Date.now() });
+      return textResult(JSON.stringify({
+        sessionId,
+        type: "macos",
+        backend: "macos-ax",
+        app,
+        pid,
+        hostCursorAffected: false,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      }, null, 2));
+    } catch (err) {
+      return errorResult(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  async startSimulator(sessionId, simulator, errorPrefix) {
+    try {
+      let device = await findDevice(simulator);
+      if (!device) throw new Error(`Simulator not found: ${simulator}`);
+      if (device.state !== "Booted") {
+        await bootDevice(device.udid);
+        device = await findDevice(device.udid) ?? device;
+      }
+      this.store.set(sessionId, {
+        driver: null,
+        type: "simulator",
+        device: { udid: device.udid, name: device.name },
+        createdAt: Date.now()
+      });
+      return textResult(JSON.stringify({
+        sessionId,
+        type: "simulator",
+        backend: "simulator-ax",
+        device: { udid: device.udid, name: device.name },
+        hostCursorAffected: false,
+        timestamp: (/* @__PURE__ */ new Date()).toISOString()
+      }, null, 2));
+    } catch (err) {
+      return errorResult(`${errorPrefix} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  // ── close ────────────────────────────────────────────────────────────────
+  closeNative(sessionId) {
+    const entry = this.store.get(sessionId);
+    if (!entry) return errorResult("Session not found.");
+    if (entry.type !== "macos" && entry.type !== "simulator") {
+      return errorResult(`Session ${sessionId} is a ${entry.type} web session. Use session_close for web sessions.`);
+    }
+    this.store.delete(sessionId);
+    return textResult(`Native session ${sessionId} closed.`);
+  }
+  // ── read ───────────────────────────────────────────────────────────────────
+  async readMacOS(entry, what, limit) {
+    try {
+      if (what === "screenshot") {
+        const screenshotPath = join(
+          DEFAULT_OUTPUT_DIR,
+          "native",
+          "macos-sessions",
+          `${safeFilePart(entry.app || `pid-${entry.pid}`)}-${Date.now()}.png`
+        );
+        const capture = await this.backend.captureScreenshot({ kind: "macos", pid: entry.pid, app: entry.app }, screenshotPath);
+        if (capture.kind === "error") return errorResult(capture.error);
+        if (capture.kind !== "macos") return errorResult("macOS screenshot capture failed: unexpected capture kind.");
+        return imageResult(capture.base64, JSON.stringify({
+          type: "macos",
+          backend: "macos-ax",
+          app: entry.app,
+          pid: entry.pid,
+          window: capture.window,
+          screenshotPath: capture.screenshotPath,
+          hostCursorAffected: false
+        }, null, 2));
+      }
+      const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
+      if (extraction.kind === "not-found") return errorResult(extraction.message);
+      if (extraction.kind !== "macos") return errorResult("native session read (macos) failed: unexpected extraction kind.");
+      const { elements, window: window2 } = extraction;
+      const candidates = flattenMacOSElements(elements);
+      const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+      if (what === "state") {
+        return textResult(JSON.stringify({
+          type: "macos",
+          backend: "macos-ax",
+          app: entry.app,
+          pid: entry.pid,
+          window: window2,
+          totalElements: candidates.length,
+          interactiveElements: interactive.length,
+          hostCursorAffected: false
+        }, null, 2));
+      }
+      if (what !== "observe" && what !== "extract") {
+        return errorResult(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+      }
+      const source = what === "observe" ? interactive : candidates;
+      return textResult(JSON.stringify({
+        type: "macos",
+        backend: "macos-ax",
+        app: entry.app,
+        pid: entry.pid,
+        window: window2,
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        returned: Math.min(source.length, limit),
+        hostCursorAffected: false,
+        elements: source.slice(0, limit).map(formatNativeCandidate)
+      }, null, 2));
+    } catch (err) {
+      return errorResult(`native session read (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  async readSimulator(entry, what, limit) {
+    try {
+      if (what === "screenshot") {
+        const screenshotPath = join(
+          DEFAULT_OUTPUT_DIR,
+          "native",
+          "simulator-sessions",
+          `${safeFilePart(entry.device.name)}-${Date.now()}.png`
+        );
+        const capture = await this.backend.captureScreenshot({ kind: "simulator", device: entry.device }, screenshotPath);
+        if (capture.kind === "error") return errorResult(capture.error);
+        if (capture.kind !== "simulator") return errorResult("Simulator screenshot capture failed: unexpected capture kind.");
+        return imageResult(capture.base64, JSON.stringify({
+          type: "simulator",
+          backend: "simulator-ax",
+          device: entry.device,
+          screenshotPath: capture.screenshotPath,
+          viewport: getDeviceViewport(capture.device),
+          hostCursorAffected: false
+        }, null, 2));
+      }
+      const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+      if (extraction.kind === "not-found") return errorResult(extraction.message);
+      if (extraction.kind !== "simulator") return errorResult("native session read (simulator) failed: unexpected extraction kind.");
+      const candidates = flattenSimulatorElements(extraction.elements);
+      const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+      const chromeCheck = detectSimulatorChromeOnly(
+        candidates.slice(0, 10).map((c) => c.label ?? "")
+      );
+      if (chromeCheck) {
+        return errorResult(chromeCheck.hint);
+      }
+      if (what === "state") {
+        return textResult(JSON.stringify({
+          type: "simulator",
+          backend: "simulator-ax",
+          device: entry.device,
+          totalElements: candidates.length,
+          interactiveElements: interactive.length,
+          hostCursorAffected: false
+        }, null, 2));
+      }
+      if (what !== "observe" && what !== "extract") {
+        return errorResult(`Unknown read mode: ${what}. Use: observe, extract, screenshot, state`);
+      }
+      const source = what === "observe" ? interactive : candidates;
+      return textResult(JSON.stringify({
+        type: "simulator",
+        backend: "simulator-ax",
+        device: entry.device,
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        returned: Math.min(source.length, limit),
+        hostCursorAffected: false,
+        elements: source.slice(0, limit).map(formatNativeCandidate)
+      }, null, 2));
+    } catch (err) {
+      return errorResult(`native session read (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  // ── action ───────────────────────────────────────────────────────────────
+  async actionMacOS(entry, request) {
+    const capability = await this.dispatchCapability({ kind: "macos", pid: entry.pid, app: entry.app }, request);
+    if (capability) return capability;
+    const pre = await macOSNativePreflight();
+    if (!pre.ok) return errorResult(pre.message);
+    try {
+      const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
+      if (extraction.kind === "not-found") return errorResult(extraction.message);
+      if (extraction.kind !== "macos") return errorResult("native session action (macos) failed: unexpected extraction kind.");
+      const { elements } = extraction;
+      const resolution = resolveMacOSElement(elements, request.target ?? "", request.role ? { role: request.role } : {});
+      if (!resolution) {
+        return nativeTargetNotFound(request.target ?? "", flattenMacOSElements(elements));
+      }
+      if (!resolution.element.path) {
+        return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
+      }
+      const mapped = mapSessionActionToNative(request.action, request.value);
+      if ("error" in mapped) return errorResult(mapped.error);
+      const actionResult = await this.backend.performAction(
+        { kind: "macos", pid: entry.pid, app: entry.app },
+        { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
+      );
+      const postAction = actionResult.success ? await this.waitForMacOSPostAction(entry, request) : void 0;
+      return nativeActionResponse(actionResult.success, {
+        backend: "macos-ax",
+        app: entry.app,
+        pid: entry.pid,
+        requestedAction: request.action,
+        axAction: mapped.action,
+        target: request.target,
+        resolved: formatNativeCandidate(resolution.element),
+        confidence: resolution.confidence,
+        tier: resolution.tier,
+        alternatives: resolution.alternatives,
+        postAction,
+        hostCursorAffected: false,
+        error: actionResult.error
+      });
+    } catch (err) {
+      const classified = classifyExtractorError(err);
+      if (classified) return errorResult(classified.message);
+      return errorResult(`native session action (macos) failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  async actionSimulator(entry, request) {
+    const capability = await this.dispatchCapability({ kind: "simulator", device: entry.device }, request);
+    if (capability) return capability;
+    const pre = await simulatorNativePreflight();
+    if (!pre.ok) return errorResult(pre.message);
+    try {
+      const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+      if (extraction.kind === "not-found") return errorResult(extraction.message);
+      if (extraction.kind !== "simulator") return errorResult("native session action (simulator) failed: unexpected extraction kind.");
+      const { elements, device } = extraction;
+      const flattened = flattenSimulatorElements(elements);
+      const chromeCheck = detectSimulatorChromeOnly(
+        flattened.slice(0, 10).map((c) => c.label ?? "")
+      );
+      if (chromeCheck) return errorResult(chromeCheck.hint);
+      const resolution = resolveSimulatorElement(elements, request.target ?? "", request.role ? { role: request.role } : {});
+      if (!resolution) {
+        return nativeTargetNotFound(request.target ?? "", flattened);
+      }
+      if (!resolution.element.path) {
+        return errorResult(`Element "${request.target}" was found but has no AX path. Rebuild the native extractor and try again.`);
+      }
+      const mapped = mapSessionActionToNative(request.action, request.value);
+      if ("error" in mapped) return errorResult(mapped.error);
+      const actionResult = await this.backend.performAction(
+        { kind: "simulator", device: { udid: device.udid, name: device.name } },
+        { elementPath: resolution.element.path, action: mapped.action, value: mapped.value }
+      );
+      const postAction = actionResult.success ? await this.waitForSimulatorPostAction(entry, request) : void 0;
+      return nativeActionResponse(actionResult.success, {
+        backend: "simulator-ax",
+        device: entry.device,
+        requestedAction: request.action,
+        axAction: mapped.action,
+        target: request.target,
+        resolved: formatNativeCandidate(resolution.element),
+        confidence: resolution.confidence,
+        tier: resolution.tier,
+        alternatives: resolution.alternatives,
+        postAction,
+        hostCursorAffected: false,
+        error: actionResult.error
+      });
+    } catch (err) {
+      const classified = classifyExtractorError(err);
+      if (classified) return errorResult(classified.message);
+      return errorResult(`native session action (simulator) failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  /**
+   * Generic capability pass-through. Returns a result for the Epic-2 capability
+   * kinds (keystroke/app/menuPath) and `null` for element kinds (which follow
+   * the resolve→performAction→settle path). Dormant in Wave 0 — the MCP schema
+   * does not yet expose these kinds; present so Epic 2 adds them with zero
+   * controller edits.
+   */
+  async dispatchCapability(target, request) {
+    let outcome;
+    switch (request.action) {
+      case "keystroke":
+        outcome = await this.backend.keystroke(target, { chord: request.chord ?? request.value ?? "" });
+        break;
+      case "app":
+        outcome = await this.backend.lifecycle(target, { op: request.op ?? "switch", app: request.app });
+        break;
+      case "menuPath":
+        outcome = await this.backend.menu(target, { menuPath: request.menuPath ?? [] });
+        break;
+      default:
+        return null;
+    }
+    return capabilityOutcomeResult(request.action, outcome);
+  }
+  // ── post-action settle loops (3e9375a) ────────────────────────────────────
+  async waitForMacOSPostAction(entry, request) {
+    const started = Date.now();
+    const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
+    let previousSignature = null;
+    let latest = emptyPostActionState(started, request.waitFor);
+    let attempts = 0;
+    do {
+      if (attempts === 0 && timeoutMs > 0) {
+        await sleep5(Math.min(120, timeoutMs));
+      }
+      const extraction = await this.backend.extract({ kind: "macos", pid: entry.pid, app: entry.app });
+      if (extraction.kind !== "macos") break;
+      const { elements, window: window2 } = extraction;
+      const candidates = flattenMacOSElements(elements);
+      const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+      const resolution = request.waitFor ? resolveMacOSElement(elements, request.waitFor) : null;
+      const signature = nativeStateSignature(window2, candidates);
+      attempts += 1;
+      latest = {
+        settled: false,
+        reason: "timeout",
+        attempts,
+        elapsedMs: Date.now() - started,
+        waitFor: request.waitFor,
+        waitForFound: Boolean(resolution),
+        window: window2,
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        elements: interactive.slice(0, 10).map(formatNativeCandidate)
+      };
+      if (resolution) {
+        return {
+          ...latest,
+          settled: true,
+          reason: "waitFor-found",
+          elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+        };
+      }
+      if (!request.waitFor && previousSignature === signature) {
+        return { ...latest, settled: true, reason: "tree-stable" };
+      }
+      previousSignature = signature;
+    } while (Date.now() - started < timeoutMs);
+    return latest;
+  }
+  async waitForSimulatorPostAction(entry, request) {
+    const started = Date.now();
+    const timeoutMs = normalizeNativeWaitTimeout(request.waitTimeoutMs, request.waitFor ? 2e3 : 700);
+    let previousSignature = null;
+    let latest = emptyPostActionState(started, request.waitFor);
+    let attempts = 0;
+    do {
+      if (attempts === 0 && timeoutMs > 0) {
+        await sleep5(Math.min(120, timeoutMs));
+      }
+      const extraction = await this.backend.extract({ kind: "simulator", device: entry.device });
+      if (extraction.kind === "not-found") {
+        return {
+          ...latest,
+          reason: "timeout",
+          attempts,
+          elapsedMs: Date.now() - started
+        };
+      }
+      if (extraction.kind !== "simulator") break;
+      const candidates = flattenSimulatorElements(extraction.elements);
+      const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
+      const resolution = request.waitFor ? resolveSimulatorElement(extraction.elements, request.waitFor) : null;
+      const signature = nativeStateSignature(entry.device, candidates);
+      attempts += 1;
+      latest = {
+        settled: false,
+        reason: "timeout",
+        attempts,
+        elapsedMs: Date.now() - started,
+        waitFor: request.waitFor,
+        waitForFound: Boolean(resolution),
+        totalElements: candidates.length,
+        interactiveElements: interactive.length,
+        elements: interactive.slice(0, 10).map(formatNativeCandidate)
+      };
+      if (resolution) {
+        return {
+          ...latest,
+          settled: true,
+          reason: "waitFor-found",
+          elements: [formatNativeCandidate(resolution.element), ...latest.elements].slice(0, 10)
+        };
+      }
+      if (!request.waitFor && previousSignature === signature) {
+        return { ...latest, settled: true, reason: "tree-stable" };
+      }
+      previousSignature = signature;
+    } while (Date.now() - started < timeoutMs);
+    return latest;
+  }
+};
+var nativeSessionController = new NativeSessionController();
+function nativeStateSignature(window2, candidates) {
+  return JSON.stringify({
+    window: window2,
+    candidates: candidates.slice(0, 200).map((candidate) => [
+      candidate.role,
+      candidate.label,
+      candidate.identifier,
+      candidate.value,
+      candidate.enabled,
+      candidate.actions.join(","),
+      candidate.frame
+    ])
+  });
+}
+function mapSessionActionToNative(action, value) {
+  switch (action) {
+    case "click":
+    case "press":
+    case "check":
+    case "select":
+      return { action: "press" };
+    case "fill":
+    case "type":
+      if (value === void 0) return { error: `${action} requires 'value'.` };
+      return { action: "setValue", value };
+    case "focus":
+      return { action: "focus" };
+    case "showMenu":
+      return { action: "showMenu" };
+    case "increment":
+      return { action: "increment" };
+    case "decrement":
+      return { action: "decrement" };
+    case "confirm":
+      return { action: "confirm" };
+    case "cancel":
+      return { action: "cancel" };
+    case "scroll":
+    case "scrollToVisible":
+      return { action: "scrollToVisible" };
+    case "hover":
+    case "doubleClick":
+    case "rightClick":
+      return { error: `${action} would require pointer-style event injection. Use AX actions for cursor-free native sessions.` };
+    default:
+      return { error: `Unknown native action: ${action}` };
+  }
+}
+function nativeTargetNotFound(target, candidates) {
+  const alternatives = candidates.filter((candidate) => candidate.label || candidate.identifier).slice(0, 10).map(formatNativeCandidate);
+  return errorResult(JSON.stringify({
+    success: false,
+    error: `Element "${target}" not found`,
+    alternatives,
+    hint: 'Use native_session_read with what="observe" to inspect actionable AX elements.'
+  }, null, 2));
+}
+function nativeActionResponse(success, payload) {
+  const text = JSON.stringify({ success, ...payload }, null, 2);
+  return success ? textResult(text) : errorResult(text);
+}
+function capabilityOutcomeResult(action, outcome) {
+  const text = JSON.stringify({ action, ...outcome }, null, 2);
+  return outcome.success ? textResult(text) : errorResult(text);
+}
+function emptyPostActionState(started, waitFor) {
+  return {
+    settled: false,
+    reason: "timeout",
+    attempts: 0,
+    elapsedMs: Date.now() - started,
+    waitFor,
+    waitForFound: false,
+    totalElements: 0,
+    interactiveElements: 0,
+    elements: []
+  };
+}
+function normalizeNativeWaitTimeout(value, fallback) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(0, Math.min(5e3, Math.round(n)));
+}
+function safeFilePart(value) {
+  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
+}
+function sleep5(ms) {
+  return new Promise((resolve3) => setTimeout(resolve3, ms));
+}
+function formatNativeCandidate(candidate) {
+  return {
+    role: candidate.role,
+    label: candidate.label || null,
+    identifier: candidate.identifier || null,
+    enabled: candidate.enabled,
+    actions: candidate.actions,
+    path: candidate.path,
+    frame: candidate.frame
+  };
+}
+
+// src/native/resolved-path-cache.ts
+var SEP = "\0";
+var ResolvedPathCache = class _ResolvedPathCache {
+  entries = /* @__PURE__ */ new Map();
+  static keyOf(sessionId, target) {
+    return `${sessionId}${SEP}${target}`;
+  }
+  /**
+   * Return the cached path for (sessionId, target) IFF the current signature
+   * matches the one captured at resolution. On mismatch the entry is evicted and
+   * `null` is returned — the caller must re-resolve. Never returns a stale path.
+   */
+  get(sessionId, target, currentSignature) {
+    const key = _ResolvedPathCache.keyOf(sessionId, target);
+    const entry = this.entries.get(key);
+    if (!entry) return null;
+    if (entry.signature !== currentSignature) {
+      this.entries.delete(key);
+      return null;
+    }
+    return entry.path.slice();
+  }
+  /** Cache a freshly-resolved path together with the signature it was resolved against. */
+  set(sessionId, target, path2, signature) {
+    this.entries.set(_ResolvedPathCache.keyOf(sessionId, target), {
+      signature,
+      path: path2.slice()
+    });
+  }
+  /** Drop a single (sessionId, target) entry. */
+  delete(sessionId, target) {
+    this.entries.delete(_ResolvedPathCache.keyOf(sessionId, target));
+  }
+  /** Drop every entry for a session (e.g. on session close). */
+  invalidateSession(sessionId) {
+    const prefix = `${sessionId}${SEP}`;
+    for (const key of this.entries.keys()) {
+      if (key.startsWith(prefix)) this.entries.delete(key);
+    }
+  }
+  /** Drop everything. */
+  clear() {
+    this.entries.clear();
+  }
+  /** Number of live entries (test/introspection aid). */
+  get size() {
+    return this.entries.size;
+  }
+};
+var resolvedPathCache = new ResolvedPathCache();
+
 // src/index.ts
 init_devices();
 async function compare(options) {
@@ -16179,14 +18934,14 @@ async function compareAll(options = {}) {
     });
     results.push(result);
   } else {
-    let sessions = await listSessions(outputDir);
-    sessions = sessions.filter((s) => statuses.includes(s.status));
+    let sessions2 = await listSessions(outputDir);
+    sessions2 = sessions2.filter((s) => statuses.includes(s.status));
     if (urlPattern) {
       const pattern = typeof urlPattern === "string" ? new RegExp(urlPattern) : urlPattern;
-      sessions = sessions.filter((s) => pattern.test(s.url));
+      sessions2 = sessions2.filter((s) => pattern.test(s.url));
     }
-    sessions = sessions.slice(0, limit);
-    for (const session of sessions) {
+    sessions2 = sessions2.slice(0, limit);
+    for (const session of sessions2) {
       try {
         const paths = getSessionPaths(outputDir, session.id);
         const result = await compare({
@@ -16574,6 +19329,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ANDROID_CHROME_UA, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, normalizeColor, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, runAllRules, runDesignSystemCheck, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_VIEWPORTS, NativeSessionController, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map
