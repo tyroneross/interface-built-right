@@ -24,6 +24,8 @@ var actionValue: String? = nil
 var analyzeLayout: Bool = false
 var layoutThreshold: Double = 0.12
 var daemonMode: Bool = false
+var keystrokeChord: String? = nil
+var keystrokeForeground: Bool = false
 
 var i = 1
 while i < args.count {
@@ -59,6 +61,11 @@ while i < args.count {
         if i < args.count, let t = Double(args[i]) { layoutThreshold = t }
     case "--daemon":
         daemonMode = true
+    case "--keystroke":
+        i += 1
+        if i < args.count { keystrokeChord = args[i] }
+    case "--foreground":
+        keystrokeForeground = true
     default:
         break
     }
@@ -102,6 +109,28 @@ guard AXIsProcessTrustedWithOptions(checkOpts) else {
 
 let encoder = JSONEncoder()
 encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+// --- Mode: Keyboard synthesis (--keystroke --pid [--foreground]) ---
+// Delivers a chord (e.g. "Meta+n", "Tab", "Escape") to an arbitrary macOS app
+// via CGEvent. No --element-path — the chord goes to whatever is focused
+// (background: CGEventPostToPid) or frontmost (--foreground: activate + post
+// via the global HID tap). See Keyboard.swift for the delivery mechanism.
+if let chord = keystrokeChord {
+    guard let pid = targetPid else {
+        fputs("{\"error\":\"--pid is required for keystroke mode\"}\n", stderr)
+        exit(1)
+    }
+    let (success, error) = deliverKeystroke(pid: pid, chord: chord, foreground: keystrokeForeground)
+    var result: [String: Any] = ["success": success, "chord": chord]
+    if let error = error {
+        result["error"] = error
+    }
+    if let data = try? JSONSerialization.data(withJSONObject: result),
+       let str = String(data: data, encoding: .utf8) {
+        print(str)
+    }
+    exit(success ? 0 : 1)
+}
 
 // --- Mode: Action execution (--action --pid --element-path) ---
 if let actionName = actionName, let pathStr = elementPathStr {

@@ -79,6 +79,8 @@ private func handleDaemonRequest(_ line: String) -> [String: Any] {
         response = daemonExtract(req)
     case "action":
         response = daemonAction(req)
+    case "keystroke":
+        response = daemonKeystroke(req)
     default:
         response = ["ok": false, "error": "unknown op: \(op)"]
     }
@@ -197,6 +199,27 @@ private func daemonAction(_ req: [String: Any]) -> [String: Any] {
     // Mirror the one-shot contract: an AX action that fails is a structured
     // result (success:false), not a protocol error (ok stays true).
     var result: [String: Any] = ["success": success, "action": action]
+    if let error = error { result["error"] = error }
+    return ["ok": true, "result": result]
+}
+
+/// keystroke (E2-B) — deliver a chord to the target pid via CGEvent synthesis.
+/// Mirrors `daemonAction`'s contract: a delivery failure (bad chord, no such
+/// app) is a structured result (success:false), not a protocol error.
+private func daemonKeystroke(_ req: [String: Any]) -> [String: Any] {
+    guard let target = req["target"] as? [String: Any] else {
+        return ["ok": false, "error": "keystroke requires target"]
+    }
+    guard let pid = (target["pid"] as? NSNumber)?.int32Value else {
+        return ["ok": false, "error": "keystroke requires target.pid"]
+    }
+    guard let chord = req["chord"] as? String else {
+        return ["ok": false, "error": "keystroke requires chord"]
+    }
+    let foreground = (req["foreground"] as? NSNumber)?.boolValue ?? false
+
+    let (success, error) = deliverKeystroke(pid: pid, chord: chord, foreground: foreground)
+    var result: [String: Any] = ["success": success]
     if let error = error { result["error"] = error }
     return ["ok": true, "result": result]
 }

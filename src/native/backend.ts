@@ -35,6 +35,12 @@ import type {
 } from './types.js';
 import { type ActionOutcome, notImplementedOutcome } from '../action-outcome.js';
 import { AXDaemon, DaemonError } from './daemon.js';
+import {
+  deliverKeystrokeOneShot,
+  resolveKeystrokeTargetPid,
+  runKeystrokeCapability,
+  type KeystrokeDeliveryResult,
+} from './keyboard.js';
 
 // ─── Target + capability shapes (frozen v1 surface) ──────────────────────────
 
@@ -190,8 +196,19 @@ export class RespawnBackend implements NativeBackend {
     };
   }
 
-  async keystroke(_target: NativeSessionTarget, _spec: KeystrokeSpec): Promise<ActionOutcome> {
-    return notImplementedOutcome('keystroke');
+  /**
+   * Deliver a keyboard chord via the one-shot Swift extractor binary (E2-B).
+   * See `keyboard.ts` for the two-phase (background-then-foreground) delivery
+   * + AX-diff validator that builds the returned `ActionOutcome`.
+   */
+  async keystroke(target: NativeSessionTarget, spec: KeystrokeSpec): Promise<ActionOutcome> {
+    return runKeystrokeCapability({
+      target,
+      spec,
+      resolvePid: () => resolveKeystrokeTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: deliverKeystrokeOneShot,
+    });
   }
 
   async lifecycle(_target: NativeSessionTarget, _spec: LifecycleSpec): Promise<ActionOutcome> {
@@ -214,8 +231,9 @@ export class RespawnBackend implements NativeBackend {
  * daemon is marked unusable every subsequent call goes straight to respawn, so
  * behavior degrades gracefully to today's path rather than failing.
  *
- * The three capability methods (keystroke/lifecycle/menu) return the structured
- * `not-implemented` outcome in Wave-1/E2-A; E2-B/C/D wire them to daemon ops.
+ * `keystroke` is wired to the daemon's `keystroke` op at E2-B (falling back to
+ * the one-shot binary if the daemon dies mid-request); `lifecycle`/`menu`
+ * still return the structured `not-implemented` outcome until E2-C/E2-D.
  *
  * Screenshot capture stays on the existing `screencapture`/`simctl` path — the
  * daemon only supplies the CGWindowID for macOS (via a `resolve` op) so no
@@ -348,8 +366,54 @@ export class DaemonBackend implements NativeBackend {
     );
   }
 
-  async keystroke(_target: NativeSessionTarget, _spec: KeystrokeSpec): Promise<ActionOutcome> {
-    return notImplementedOutcome('keystroke');
+  /**
+   * Deliver a keyboard chord via the daemon's `keystroke` op (E2-B). Unlike
+   * `extract`/`performAction`/`captureScreenshot`, this does not route through
+   * `withFallback` for the whole call — if the daemon is already unusable (or
+   * fails to start), the ENTIRE capability (delivery + AX-diff validation)
+   * delegates to `RespawnBackend.keystroke` so the before/after signatures
+   * come from one consistent backend. If the daemon dies mid-request (a
+   * request already in flight when it crashes), this attempt still completes
+   * by falling through to the one-shot binary for just the raw delivery,
+   * rather than aborting — the kill-9 auto-fallback, applied per-request.
+   */
+  async keystroke(target: NativeSessionTarget, spec: KeystrokeSpec): Promise<ActionOutcome> {
+    if (!this.usable) return this.fallback.keystroke(target, spec);
+    try {
+      await this.daemon.start();
+    } catch (err) {
+      if (err instanceof DaemonError) this.usable = false;
+      return this.fallback.keystroke(target, spec);
+    }
+
+    return runKeystrokeCapability({
+      target,
+      spec,
+      resolvePid: () => resolveKeystrokeTargetPid(target),
+      extract: () => this.extract(target),
+      deliver: async (pid, chord, foreground) => {
+        try {
+          const resp = await this.daemon.request({
+            op: 'keystroke',
+            target: target.kind === 'macos'
+              ? { kind: 'macos', pid }
+              : { kind: 'simulator', pid, deviceName: target.device.name },
+            chord,
+            foreground,
+          });
+          if (!resp.ok) return { success: false, error: resp.error };
+          return resp.result as KeystrokeDeliveryResult;
+        } catch (err) {
+          if (err instanceof DaemonError) {
+            this.usable = false;
+            // Daemon died mid-request — finish this attempt via the one-shot
+            // binary rather than aborting the capability call outright.
+            return deliverKeystrokeOneShot(pid, chord, foreground);
+          }
+          throw err;
+        }
+      },
+    });
   }
 
   async lifecycle(_target: NativeSessionTarget, _spec: LifecycleSpec): Promise<ActionOutcome> {

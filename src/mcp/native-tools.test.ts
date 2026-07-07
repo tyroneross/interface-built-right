@@ -522,13 +522,17 @@ describe('E4-B: per-kind target requiredness', () => {
     expect(p.success).toBe(false);
   });
 
-  it('capability kind (keystroke) with no target is accepted by the schema and reaches the dormant not-implemented outcome, not a target error', async () => {
+  it('capability kind (keystroke) with no target is accepted by the schema and reaches the LIVE keystroke backend (not dormant, not a target error)', async () => {
+    // keystroke went live at E2-B (macOS CGEvent synthesis). It is no longer the
+    // dormant not-implemented stub. Delivering to the seeded fake pid 9999 produces
+    // no observable AX change, so the real keystroke path returns success:false with
+    // a delivery error — proving it reached live handling, not the dormant outcome
+    // and not a missing-target rejection. (app/menuPath remain dormant until E2-C/E2-D.)
     const res = await call('native_session_action', { sessionId: SID, action: 'keystroke', chord: 'Meta+n' });
-    expect(res.isError).toBe(true);
     const p = parse(res) as { success: boolean; validator: { observed: string } };
     expect(p.success).toBe(false);
-    // Dormant Epic-2 capability, not a missing-target rejection.
-    expect(p.validator.observed).toMatch(/not implemented/i);
+    expect(p.validator.observed).not.toMatch(/not implemented/i);
+    expect(p.validator.observed).not.toMatch(/target/i);
   });
 
   it('capability kind (app) with no target is accepted by the schema and reaches the dormant not-implemented outcome', async () => {

@@ -46,12 +46,21 @@ export interface DaemonResolveRequest {
 export interface DaemonPingRequest {
   op: 'ping';
 }
+/** Deliver a keyboard chord to the target pid (E2-B). See `Keyboard.swift`. */
+export interface DaemonKeystrokeRequest {
+  op: 'keystroke';
+  target: DaemonTarget;
+  chord: string;
+  /** false (default): CGEventPostToPid (background). true: activate + global HID tap. */
+  foreground?: boolean;
+}
 
 export type DaemonRequest =
   | DaemonExtractRequest
   | DaemonActionRequest
   | DaemonResolveRequest
-  | DaemonPingRequest;
+  | DaemonPingRequest
+  | DaemonKeystrokeRequest;
 
 export interface DaemonResponse {
   id?: number;
