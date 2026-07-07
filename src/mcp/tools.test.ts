@@ -280,3 +280,326 @@ describe('E3-C2: flow_form/flow_login honor sessionId (no relaunch, no borrowed-
     expect(stub.navigate).toHaveBeenCalledWith('https://example.com/login');
   });
 });
+
+// ─── E3-E: web verify-then-proceed (T-09) ────────────────────────────────
+//
+// `session_action`/`interact` used to return `success: true` unconditionally
+// — the underlying CDP call not throwing was treated as "success" even when
+// a click was a no-op. These tests exercise the fix via the `__test_setSession`
+// seam: a fully-stubbed driver lets us control before/after state precisely
+// (no real browser), which is exactly what's needed to prove a NO-OP is
+// detected (identical before/after) vs a REAL change (elements/value differ).
+
+type StubElement = {
+  id: string;
+  role: string;
+  label: string;
+  value: string | null;
+  enabled: boolean;
+  focused: boolean;
+  actions: string[];
+  bounds: [number, number, number, number];
+  parent: string | null;
+};
+
+function makeStubElement(overrides: Partial<StubElement> & { id: string }): StubElement {
+  return {
+    role: 'button',
+    label: 'Submit',
+    value: null,
+    enabled: true,
+    focused: false,
+    actions: ['click'],
+    bounds: [0, 0, 10, 10],
+    parent: null,
+    ...overrides,
+  };
+}
+
+type CapturedActionStub = {
+  before: { elements: StubElement[]; screenshot: Buffer };
+  after: { elements: StubElement[]; screenshot: Buffer };
+  diff: { addedElements: StubElement[]; removedElements: StubElement[]; pixelDiff: number };
+};
+
+function makeActAndCaptureStub(result: CapturedActionStub) {
+  return vi.fn(async (fn: () => Promise<void>) => {
+    await fn();
+    return result;
+  });
+}
+
+async function getHandleToolCall() {
+  const mod = await import('./tools.js');
+  return (mod as unknown as {
+    handleToolCall: (name: string, args: Record<string, unknown>) => Promise<{ content: Array<{ type: string; text?: string; data?: string }>; isError?: boolean }>;
+  }).handleToolCall;
+}
+
+async function getSetSession() {
+  const mod = await import('./tools.js');
+  return (mod as unknown as {
+    __test_setSession: (id: string, entry: unknown) => void;
+  }).__test_setSession;
+}
+
+function jsonOf(result: { content: Array<{ type: string; text?: string }> }): Record<string, unknown> {
+  const textPart = result.content.find((c) => c.type === 'text');
+  if (!textPart?.text) throw new Error('No text content in response');
+  return JSON.parse(textPart.text);
+}
+
+describe('E3-E: session_action verify-then-proceed (T-09)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('falsifier: a click that changes nothing returns success:false + evidence {before/after diff, ranked alternatives, screenshot}', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const setSession = await getSetSession();
+
+    const target = makeStubElement({ id: 'el-submit', label: 'Submit' });
+    const other = makeStubElement({ id: 'el-cancel', label: 'Cancel', role: 'link' });
+    const screenshot = Buffer.from('fake-png-bytes');
+
+    const stub = {
+      url: 'https://example.com/page',
+      findWithDiagnostics: vi.fn(async () => ({
+        elementId: 'el-submit',
+        confidence: 0.95,
+        tier: 2,
+        tierName: 'queryAXTree',
+        alternatives: [],
+        totalInteractive: 2,
+      })),
+      getSnapshot: vi.fn(async () => [target, other]),
+      // NO-OP: before and after are byte-identical — nothing added/removed,
+      // zero pixel diff, same URL.
+      actAndCapture: makeActAndCaptureStub({
+        before: { elements: [target, other], screenshot },
+        after: { elements: [target, other], screenshot },
+        diff: { addedElements: [], removedElements: [], pixelDiff: 0 },
+      }),
+      click: vi.fn(async () => {}),
+    };
+
+    const sessionId = 'e3e-noop-click';
+    setSession(sessionId, { driver: stub, type: 'chrome', url: stub.url, createdAt: Date.now() });
+
+    let result;
+    try {
+      result = await handleToolCall('session_action', { sessionId, action: 'click', target: 'Submit' });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    const parsed = jsonOf(result);
+    expect(parsed.success).toBe(false);
+    expect((parsed.validator as { passed: boolean }).passed).toBe(false);
+
+    const evidence = parsed.evidence as {
+      beforeSignature: string; afterSignature: string; diff: string;
+      alternatives: unknown[]; screenshotB64: string;
+    };
+    expect(evidence).toBeDefined();
+    expect(typeof evidence.beforeSignature).toBe('string');
+    expect(typeof evidence.afterSignature).toBe('string');
+    expect(evidence.diff).toMatch(/0 element\(s\) added/);
+    expect(evidence.diff).toMatch(/0 element\(s\) removed/);
+    expect(Array.isArray(evidence.alternatives)).toBe(true);
+    expect(evidence.screenshotB64).toBe(screenshot.toString('base64'));
+
+    // Provenance preserved (tier/confidence), not stripped.
+    const provenance = parsed.provenance as { tier: string; confidence: number };
+    expect(provenance.tier).toBe('queryAXTree');
+    expect(provenance.confidence).toBe(0.95);
+
+    expect(stub.click).toHaveBeenCalledTimes(1);
+  });
+
+  it('a click that adds an element returns success:true with no evidence key', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const setSession = await getSetSession();
+
+    const target = makeStubElement({ id: 'el-submit', label: 'Submit' });
+    const newModal = makeStubElement({ id: 'el-modal', label: 'Confirmation', role: 'dialog', actions: [] });
+    const screenshot = Buffer.from('fake-png-bytes');
+
+    const stub = {
+      url: 'https://example.com/page',
+      findWithDiagnostics: vi.fn(async () => ({
+        elementId: 'el-submit',
+        confidence: 1,
+        tier: 2,
+        tierName: 'queryAXTree',
+        alternatives: [],
+        totalInteractive: 1,
+      })),
+      getSnapshot: vi.fn(async () => [target]),
+      actAndCapture: makeActAndCaptureStub({
+        before: { elements: [target], screenshot },
+        after: { elements: [target, newModal], screenshot },
+        diff: { addedElements: [newModal], removedElements: [], pixelDiff: 12 },
+      }),
+      click: vi.fn(async () => {}),
+    };
+
+    const sessionId = 'e3e-real-click';
+    setSession(sessionId, { driver: stub, type: 'chrome', url: stub.url, createdAt: Date.now() });
+
+    let result;
+    try {
+      result = await handleToolCall('session_action', { sessionId, action: 'click', target: 'Submit' });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    const parsed = jsonOf(result);
+    expect(parsed.success).toBe(true);
+    expect((parsed.validator as { passed: boolean }).passed).toBe(true);
+    expect(parsed.evidence).toBeUndefined();
+  });
+
+  it('preserves autoResolved provenance on the wire (never stripped)', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const setSession = await getSetSession();
+
+    const target = makeStubElement({ id: 'el-submit', label: 'Submit' });
+    const screenshot = Buffer.from('fake-png-bytes');
+
+    const stub = {
+      url: 'https://example.com/page',
+      findWithDiagnostics: vi.fn(async () => ({
+        elementId: 'el-submit',
+        confidence: 0.83,
+        tier: 4,
+        tierName: 'auto-resolve',
+        alternatives: [{ name: 'Submit', role: 'button', score: 0.83 }],
+        totalInteractive: 1,
+        autoResolved: { label: 'Submit', role: 'button', score: 0.83, margin: 0.2 },
+      })),
+      getSnapshot: vi.fn(async () => [target]),
+      actAndCapture: makeActAndCaptureStub({
+        before: { elements: [target], screenshot },
+        after: { elements: [{ ...target, focused: true }], screenshot },
+        diff: { addedElements: [], removedElements: [], pixelDiff: 0 },
+      }),
+      click: vi.fn(async () => {}),
+    };
+
+    const sessionId = 'e3e-autoresolve';
+    setSession(sessionId, { driver: stub, type: 'chrome', url: stub.url, createdAt: Date.now() });
+
+    let result;
+    try {
+      result = await handleToolCall('session_action', { sessionId, action: 'click', target: 'Sbmit' });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    const parsed = jsonOf(result);
+    expect(parsed.autoResolved).toBeDefined();
+    expect((parsed.autoResolved as { chosen: string }).chosen).toBe('Submit');
+  });
+
+  it('a no-op click on an unresolved target still returns success:false + evidence (not-found leg)', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const setSession = await getSetSession();
+
+    const other = makeStubElement({ id: 'el-cancel', label: 'Cancel', role: 'link' });
+    const screenshot64 = Buffer.from('fake-png-bytes').toString('base64');
+
+    const stub = {
+      url: 'https://example.com/page',
+      findWithDiagnostics: vi.fn(async () => ({
+        elementId: null,
+        confidence: 0,
+        tier: 4,
+        tierName: 'vision',
+        alternatives: [{ name: 'Cancel', role: 'link', score: 0.4 }],
+        totalInteractive: 1,
+        screenshot: screenshot64,
+      })),
+      getSnapshot: vi.fn(async () => [other]),
+      actAndCapture: vi.fn(),
+      click: vi.fn(async () => {}),
+    };
+
+    const sessionId = 'e3e-not-found';
+    setSession(sessionId, { driver: stub, type: 'chrome', url: stub.url, createdAt: Date.now() });
+
+    let result;
+    try {
+      result = await handleToolCall('session_action', { sessionId, action: 'click', target: 'Submit' });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    const parsed = jsonOf(result);
+    expect(parsed.success).toBe(false);
+    expect((parsed.validator as { passed: boolean }).passed).toBe(false);
+    expect((parsed.evidence as { alternatives: unknown[] }).alternatives.length).toBe(1);
+    expect(stub.actAndCapture).not.toHaveBeenCalled();
+  });
+});
+
+// ─── E3-E: interact (ephemeral-driver) verify-then-proceed (T-09) ────────
+
+describe('E3-E: interact verify-then-proceed (T-09)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('a click that changes nothing returns success:false + evidence via the `interact` tool', async () => {
+    const { EngineDriver } = await import('../engine/driver.js');
+    const handleToolCall = await getHandleToolCall();
+
+    const target = makeStubElement({ id: 'el-submit', label: 'Submit' });
+    const screenshot = Buffer.from('fake-png-bytes');
+
+    vi.spyOn(EngineDriver.prototype, 'launch').mockResolvedValue(undefined);
+    vi.spyOn(EngineDriver.prototype, 'navigate').mockResolvedValue(undefined);
+    vi.spyOn(EngineDriver.prototype, 'close').mockResolvedValue(undefined);
+    vi.spyOn(EngineDriver.prototype, 'url', 'get').mockReturnValue('https://example.com/page');
+    vi.spyOn(EngineDriver.prototype, 'findWithDiagnostics').mockResolvedValue({
+      elementId: 'el-submit',
+      confidence: 0.95,
+      tier: 2,
+      tierName: 'queryAXTree',
+      alternatives: [],
+      totalInteractive: 1,
+    } as unknown as Awaited<ReturnType<InstanceType<typeof EngineDriver>['findWithDiagnostics']>>);
+    vi.spyOn(EngineDriver.prototype, 'getSnapshot').mockResolvedValue([target] as unknown as Awaited<ReturnType<InstanceType<typeof EngineDriver>['getSnapshot']>>);
+    const clickSpy = vi.spyOn(EngineDriver.prototype, 'click').mockResolvedValue(undefined);
+    vi.spyOn(EngineDriver.prototype, 'actAndCapture').mockImplementation(async (fn: () => Promise<void>) => {
+      await fn();
+      return {
+        before: { elements: [target], screenshot },
+        after: { elements: [target], screenshot },
+        diff: { addedElements: [], removedElements: [], pixelDiff: 0 },
+      };
+    });
+
+    const result = await handleToolCall('interact', {
+      url: 'https://example.com/page',
+      action: 'click',
+      target: 'Submit',
+    });
+
+    const parsed = jsonOf(result as { content: Array<{ type: string; text?: string }> });
+    expect(parsed.success).toBe(false);
+    expect((parsed.validator as { passed: boolean }).passed).toBe(false);
+    expect(parsed.evidence).toBeDefined();
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── E3-E: fixed 500ms sleeps removed from the verified action paths ────
+
+describe('E3-E: no fixed 500ms sleeps on the verified interact/session_action paths', () => {
+  it('the element-targeted interact/session_action handlers no longer sleep a fixed 500ms', async () => {
+    const fs = await import('fs');
+    const src = fs.readFileSync('src/mcp/tools.ts', 'utf8');
+    expect(src).not.toMatch(/setTimeout\(r,\s*500\)/);
+  });
+});

@@ -4765,25 +4765,48 @@ program
       }
 
       const action = opts.action
-      switch (action) {
-        case 'click': await driver.click(element.id); break
-        case 'type': await driver.type(element.id, opts.value || ''); break
-        case 'fill': await driver.fill(element.id, opts.value || ''); break
-        case 'hover': await driver.hover(element.id); break
-        case 'press': await driver.pressKey(opts.value || 'Enter'); break
-        case 'scroll': await driver.scroll(Number(opts.value) || 300); break
-        case 'select': await driver.select(element.id, opts.value || ''); break
-        case 'check': await driver.check(element.id); break
-        default: console.error(`Unknown action: ${action}`); process.exit(1)
+      const knownActions = ['click', 'type', 'fill', 'hover', 'press', 'scroll', 'select', 'check']
+      if (!knownActions.includes(action)) {
+        console.error(`Unknown action: ${action}`)
+        process.exit(1)
       }
 
-      await new Promise(r => setTimeout(r, 500))
-      console.log(`✓ ${action} on "${opts.target}" succeeded`)
+      // F7 / T-09 (CLI leg): this used to print "✓ ... succeeded"
+      // unconditionally after a fixed 500ms sleep, even when the action was a
+      // no-op. Wrap the action in actAndCapture (E3-A's before/after AX +
+      // pixel diff, which also replaces the fixed sleep with a real
+      // tree-stability wait) and only report success when something observably
+      // changed — matching the ActionOutcome success semantics used on the
+      // MCP wire (src/mcp/tools.ts interact/session_action).
+      const beforeUrl = driver.url
+      const captured = await driver.actAndCapture(async () => {
+        switch (action) {
+          case 'click': await driver.click(element.id); break
+          case 'type': await driver.type(element.id, opts.value || ''); break
+          case 'fill': await driver.fill(element.id, opts.value || ''); break
+          case 'hover': await driver.hover(element.id); break
+          case 'press': await driver.pressKey(opts.value || 'Enter'); break
+          case 'scroll': await driver.scroll(Number(opts.value) || 300); break
+          case 'select': await driver.select(element.id, opts.value || ''); break
+          case 'check': await driver.check(element.id); break
+        }
+      })
+      const changed = captured.diff.addedElements.length > 0 ||
+        captured.diff.removedElements.length > 0 ||
+        captured.diff.pixelDiff > 4 ||
+        driver.url !== beforeUrl
+
+      if (changed) {
+        console.log(`✓ ${action} on "${opts.target}" succeeded`)
+      } else {
+        console.error(`✗ ${action} on "${opts.target}" completed but produced no observable change (no-op)`)
+        process.exitCode = 1
+      }
 
       if (opts.screenshot !== false) {
         const fs = await import('fs')
         const path = await import('path')
-        const buf = await driver.screenshot()
+        const buf = captured.after.screenshot
         const globalOpts = program.opts()
         const outDir = globalOpts.output || './.ibr'
         fs.mkdirSync(outDir, { recursive: true })

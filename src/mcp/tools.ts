@@ -37,6 +37,13 @@ import { correlateToSource, formatBridgeResult } from '../native/bridge.js';
 import { EngineDriver, type FindDiagnostics } from '../engine/driver.js';
 import type { ActionDescriptor } from '../engine/observe.js';
 import type { Element as EngineElement } from '../engine/types.js';
+import { jaroWinkler } from '../engine/resolve.js';
+import type {
+  ActionValidator,
+  ActionProvenance,
+  ActionEvidence,
+  RankedCandidate,
+} from '../action-outcome.js';
 import { aiSearchFlow, searchFlow } from '../flows/search.js';
 import { analyzeForObviousIssues, generateQuickSummary, generateValidationContext } from '../flows/search-validation.js';
 import { formFlow } from '../flows/form.js';
@@ -163,6 +170,190 @@ function imageResponse(base64: string, metadata: string): McpResponse {
       { type: "image" as const, data: base64, mimeType: "image/png" },
       { type: "text" as const, text: metadata },
     ],
+  };
+}
+
+// ─── E3-E: web verify-then-proceed helpers ───────────────────────────────
+//
+// `interact`/`session_action` used to report success unconditionally — the
+// underlying CDP call not throwing was treated as "success" even when the
+// action was a no-op. These helpers implement the ActionOutcome contract
+// (src/action-outcome.ts, frozen at C0): success is true ONLY when an
+// expected-outcome validator passes, and failures carry structured evidence
+// (before/after diff, ranked alternatives, screenshot) instead of a bare
+// error string. See T-09 (falsifier: a click that changes nothing must
+// return success:false).
+
+/** Pixel-diff floor below which two screenshots count as visually identical
+ *  (actAndCapture's pixelmatch already excludes anti-aliased pixels; this
+ *  tolerates residual render noise from timing/compositing jitter). */
+const NOOP_PIXEL_THRESHOLD = 4;
+
+interface CapturedAction {
+  before: { elements: EngineElement[]; screenshot: Buffer };
+  after: { elements: EngineElement[]; screenshot: Buffer };
+  diff: { addedElements: EngineElement[]; removedElements: EngineElement[]; pixelDiff: number };
+}
+
+/** Compact, comparable signature of an observed page/element state — used as
+ *  ActionEvidence.beforeSignature/afterSignature. */
+function stateSignature(url: string | undefined, elements: EngineElement[], targetId: string | null): string {
+  const target = targetId ? elements.find((e) => e.id === targetId) : undefined;
+  return JSON.stringify({
+    url: url ?? null,
+    elementCount: elements.length,
+    interactiveCount: elements.filter((e) => e.actions.length > 0).length,
+    target: target
+      ? { value: target.value, enabled: target.enabled, focused: target.focused, label: target.label }
+      : null,
+  });
+}
+
+/** Human-readable diff summary for ActionEvidence.diff / validator.observed. */
+function describeDiff(params: {
+  addedCount: number;
+  removedCount: number;
+  pixelDiff: number;
+  urlChanged: boolean;
+  targetChange?: string;
+}): string {
+  const parts = [
+    `${params.addedCount} element(s) added`,
+    `${params.removedCount} element(s) removed`,
+    `${params.pixelDiff}px visual diff`,
+  ];
+  if (params.urlChanged) parts.push('URL changed');
+  if (params.targetChange) parts.push(params.targetChange);
+  return parts.join(', ');
+}
+
+/** Rank up to `limit` interactive elements by label similarity to `target` —
+ *  populates ActionEvidence.alternatives on failure regardless of whether the
+ *  resolver found `target` (a no-op click on the right element still benefits
+ *  from seeing what else was on the page). */
+function rankAlternatives(
+  target: string,
+  elements: EngineElement[],
+  excludeId: string | null,
+  limit = 10,
+): RankedCandidate[] {
+  const nameLower = target.toLowerCase();
+  return elements
+    .filter((e) => e.actions.length > 0 && e.label && e.id !== excludeId)
+    .map((e) => ({ label: e.label, role: e.role, score: jaroWinkler(nameLower, e.label.toLowerCase()) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
+}
+
+/**
+ * Expected-outcome validator for a single web-driving action (F-09 / T-09).
+ * `success` on the returned ActionOutcome is true ONLY when this returns
+ * `passed: true` — never merely because the underlying CDP call did not throw.
+ */
+function validateWebAction(params: {
+  action: string;
+  value?: string;
+  targetElementId: string | null;
+  beforeUrl?: string;
+  afterUrl?: string;
+  captured: CapturedAction;
+}): ActionValidator {
+  const { action, value, targetElementId, beforeUrl, afterUrl, captured } = params;
+  const before = targetElementId ? captured.before.elements.find((e) => e.id === targetElementId) : undefined;
+  const after = targetElementId ? captured.after.elements.find((e) => e.id === targetElementId) : undefined;
+  const urlChanged = !!beforeUrl && !!afterUrl && beforeUrl !== afterUrl;
+  const structuralChange = captured.diff.addedElements.length > 0 || captured.diff.removedElements.length > 0;
+  const visualChange = captured.diff.pixelDiff > NOOP_PIXEL_THRESHOLD;
+  const targetValueChanged = !!before && !!after && before.value !== after.value;
+  const targetFocusChanged = !!before && !!after && before.focused !== after.focused;
+  const targetEnabledChanged = !!before && !!after && before.enabled !== after.enabled;
+  const observedDiff = describeDiff({
+    addedCount: captured.diff.addedElements.length,
+    removedCount: captured.diff.removedElements.length,
+    pixelDiff: captured.diff.pixelDiff,
+    urlChanged,
+    targetChange: targetValueChanged
+      ? `target value changed ("${before?.value ?? ''}" -> "${after?.value ?? ''}")`
+      : undefined,
+  });
+
+  switch (action) {
+    case 'fill':
+    case 'type': {
+      const expectedValue = value ?? '';
+      const observedValue = after?.value ?? null;
+      const passed =
+        expectedValue.length === 0
+          ? true
+          : action === 'fill'
+            ? observedValue === expectedValue
+            : observedValue != null && observedValue.includes(expectedValue);
+      return {
+        expected: `element value ${action === 'fill' ? 'equals' : 'contains'} "${expectedValue}"`,
+        observed: observedValue == null ? 'element value unreadable after action' : `element value is "${observedValue}"`,
+        passed,
+      };
+    }
+    case 'select': {
+      const expectedValue = value ?? '';
+      const observedValue = after?.value ?? null;
+      return {
+        expected: `element value equals "${expectedValue}"`,
+        observed: observedValue == null ? 'element value unreadable after action' : `element value is "${observedValue}"`,
+        passed: observedValue === expectedValue,
+      };
+    }
+    case 'check': {
+      const passed = targetValueChanged || structuralChange || visualChange;
+      return {
+        expected: 'checkbox/toggle value or the page changes after toggling',
+        observed: observedDiff,
+        passed,
+      };
+    }
+    case 'click':
+    case 'doubleClick':
+    case 'rightClick': {
+      const passed = structuralChange || visualChange || urlChanged || targetFocusChanged || targetEnabledChanged || targetValueChanged;
+      return {
+        expected: 'click causes an observable change (elements added/removed, URL navigation, focus/value/enabled change, or a visual repaint)',
+        observed: observedDiff,
+        passed,
+      };
+    }
+    default:
+      // hover/press/scroll: no single deterministic expected-outcome contract —
+      // treat non-throwing execution as success, but still surface the diff so
+      // callers can inspect whether anything changed.
+      return {
+        expected: `${action} executes without error`,
+        observed: observedDiff,
+        passed: true,
+      };
+  }
+}
+
+/** Assemble ActionEvidence for a failed (validator.passed === false) action. */
+function buildFailureEvidence(params: {
+  target: string;
+  targetElementId: string | null;
+  beforeUrl?: string;
+  afterUrl?: string;
+  captured: CapturedAction;
+}): ActionEvidence {
+  const { target, targetElementId, beforeUrl, afterUrl, captured } = params;
+  const urlChanged = !!beforeUrl && !!afterUrl && beforeUrl !== afterUrl;
+  return {
+    beforeSignature: stateSignature(beforeUrl, captured.before.elements, targetElementId),
+    afterSignature: stateSignature(afterUrl, captured.after.elements, targetElementId),
+    diff: describeDiff({
+      addedCount: captured.diff.addedElements.length,
+      removedCount: captured.diff.removedElements.length,
+      pixelDiff: captured.diff.pixelDiff,
+      urlChanged,
+    }),
+    alternatives: rankAlternatives(target, captured.after.elements, targetElementId, 10),
+    screenshotB64: captured.after.screenshot.toString('base64'),
   };
 }
 
@@ -1124,14 +1315,28 @@ export async function handleToolCall(
           // Find element with diagnostics
           const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined) as FindDiagnostics
           if (!diag.elementId) {
-            const altNames = diag.alternatives.map(a => `"${a.name}" (${a.role}, score: ${a.score.toFixed(2)})`).join(', ')
+            // T-09 / F-09: not-found is a validator failure too, shaped like
+            // every other ActionOutcome — no action executed, so before/after
+            // signatures are empty and the diff says so explicitly.
+            const notFoundValidator: ActionValidator = {
+              expected: `element "${target}" is present and resolvable`,
+              observed: `not found among ${diag.totalInteractive} interactive elements`,
+              passed: false,
+            }
+            const notFoundResult = {
+              success: false,
+              validator: notFoundValidator,
+              provenance: { tier: diag.tierName, confidence: diag.confidence } as ActionProvenance,
+              evidence: {
+                beforeSignature: '',
+                afterSignature: '',
+                diff: 'target not found — no action executed',
+                alternatives: diag.alternatives.map((a) => ({ label: a.name, role: a.role, score: a.score })),
+                screenshotB64: diag.screenshot,
+              } as ActionEvidence,
+            }
             const notFoundContent: McpContent[] = [
-              {
-                type: 'text',
-                text: `Element "${target}" not found (${diag.totalInteractive} interactive elements on page). ` +
-                  `Best matches: ${altNames || 'none'}. ` +
-                  `Hint: Use 'observe' to see all interactive elements, or try one of the alternatives.`,
-              },
+              { type: 'text', text: JSON.stringify(notFoundResult, null, 2) },
             ]
             if (diag.screenshot) {
               notFoundContent.push({ type: 'image', data: diag.screenshot, mimeType: 'image/png' })
@@ -1146,34 +1351,57 @@ export async function handleToolCall(
             return errorResponse(`Element "${target}" was resolved but disappeared from AX tree. Try again.`)
           }
 
-          // Execute action
-          switch (action) {
-            case 'click': await driver.click(element.id); break
-            case 'type': await driver.type(element.id, value || ''); break
-            case 'fill': await driver.fill(element.id, value || ''); break
-            case 'hover': await driver.hover(element.id); break
-            case 'press': await driver.pressKey(value || 'Enter'); break
-            case 'scroll': await driver.scroll(Number(value) || 300); break
-            case 'select': await driver.select(element.id, value || ''); break
-            case 'check': await driver.check(element.id); break
-            case 'doubleClick': await driver.doubleClick(element.id); break
-            case 'rightClick': await driver.rightClick(element.id); break
-            default: return errorResponse(`Unknown action: ${action}`)
+          const knownActions = ['click', 'type', 'fill', 'hover', 'press', 'scroll', 'select', 'check', 'doubleClick', 'rightClick']
+          if (!knownActions.includes(action)) {
+            return errorResponse(`Unknown action: ${action}`)
           }
 
-          // Wait for UI to settle
-          await new Promise(r => setTimeout(r, 500))
+          const beforeUrl = driver.url
+          // Execute action, then wait for AX-tree stability + a settled paint
+          // (E3-A's actionability/tree-stability wait, via actAndCapture) —
+          // replaces the fixed 500ms sleep this handler used to take on faith.
+          const captured = await driver.actAndCapture(async () => {
+            switch (action) {
+              case 'click': await driver.click(element.id); break
+              case 'type': await driver.type(element.id, value || ''); break
+              case 'fill': await driver.fill(element.id, value || ''); break
+              case 'hover': await driver.hover(element.id); break
+              case 'press': await driver.pressKey(value || 'Enter'); break
+              case 'scroll': await driver.scroll(Number(value) || 300); break
+              case 'select': await driver.select(element.id, value || ''); break
+              case 'check': await driver.check(element.id); break
+              case 'doubleClick': await driver.doubleClick(element.id); break
+              case 'rightClick': await driver.rightClick(element.id); break
+            }
+          })
+          const afterUrl = driver.url
+
+          // F-09 / T-09: success is true ONLY when the validator observes the
+          // expected outcome — not merely because the action above didn't throw.
+          const validator = validateWebAction({ action, value, targetElementId: element.id, beforeUrl, afterUrl, captured })
 
           const resolutionInfo = `(resolved via ${diag.tierName}, confidence: ${diag.confidence.toFixed(2)})`
+          const result: Record<string, unknown> = {
+            success: validator.passed,
+            validator,
+            provenance: { tier: diag.tierName, confidence: diag.confidence, waitResult: 'tree-stable' } as ActionProvenance,
+            summary: `${validator.passed ? '✓' : '✗'} ${action} on "${target}" ${validator.passed ? 'succeeded' : 'did not produce the expected change'} ${resolutionInfo}`,
+          }
+          if (diag.autoResolved) {
+            result.autoResolved = diag.autoResolved
+          }
+          if (!validator.passed) {
+            result.evidence = buildFailureEvidence({ target, targetElementId: element.id, beforeUrl, afterUrl, captured })
+          }
+
+          const resultText = JSON.stringify(result, null, 2)
 
           // Capture screenshot if requested
           if (wantScreenshot) {
-            const buf = await driver.screenshot()
-            const base64 = buf.toString('base64')
-            return imageResponse(base64, `✓ ${action} on "${target}" succeeded ${resolutionInfo}`)
+            return imageResponse(captured.after.screenshot.toString('base64'), resultText)
           }
 
-          return textResponse(`✓ ${action} on "${target}" succeeded ${resolutionInfo}`)
+          return textResponse(resultText)
         } catch (err) {
           return errorResponse(`Interaction failed: ${err instanceof Error ? err.message : String(err)}`)
         } finally {
@@ -1756,6 +1984,15 @@ export async function handleToolCall(
         try {
           const diag = await driver.findWithDiagnostics(target, role ? { role } : undefined) as FindDiagnostics
           if (!diag.elementId) {
+            // T-09 / F-09: not-found is a validator failure too, shaped like
+            // every other ActionOutcome. `success`/`error`/`alternatives`/`hint`
+            // are preserved verbatim for existing callers; `validator`,
+            // `provenance`, and `evidence` are additive.
+            const notFoundValidator: ActionValidator = {
+              expected: `element "${target}" is present and resolvable`,
+              observed: `not found among ${diag.totalInteractive} interactive elements`,
+              passed: false,
+            }
             const notFoundPayload = JSON.stringify({
               success: false,
               error: `Element "${target}" not found`,
@@ -1763,6 +2000,15 @@ export async function handleToolCall(
               hint: diag.alternatives.length > 0
                 ? `Try one of these: ${diag.alternatives.map((a) => `"${a.name}" (${a.role})`).join(', ')}`
                 : 'Use session_read with what="observe" to see all interactive elements',
+              validator: notFoundValidator,
+              provenance: { tier: diag.tierName, confidence: diag.confidence } as ActionProvenance,
+              evidence: {
+                beforeSignature: '',
+                afterSignature: '',
+                diff: 'target not found — no action executed',
+                alternatives: diag.alternatives.map((a) => ({ label: a.name, role: a.role, score: a.score })),
+                screenshotB64: diag.screenshot,
+              } as ActionEvidence,
             }, null, 2)
             const notFoundContent: McpContent[] = [{ type: 'text', text: notFoundPayload }]
             if (diag.screenshot) {
@@ -1774,26 +2020,42 @@ export async function handleToolCall(
           const allElements = await driver.getSnapshot() as EngineElement[]
           const element = allElements.find((e) => e.id === diag.elementId)
 
-          switch (action) {
-            case 'click': await driver.click(diag.elementId); break
-            case 'type': await driver.type(diag.elementId, value || ''); break
-            case 'fill': await driver.fill(diag.elementId, value || ''); break
-            case 'hover': await driver.hover(diag.elementId); break
-            case 'press': await driver.pressKey(value || 'Enter'); break
-            case 'scroll': await driver.scroll(Number(value) || 300); break
-            case 'select': await driver.select(diag.elementId, value || ''); break
-            case 'check': await driver.check(diag.elementId); break
-            default: return errorResponse(`Unknown action: ${action}`)
+          const knownActions = ['click', 'type', 'fill', 'hover', 'press', 'scroll', 'select', 'check']
+          if (!knownActions.includes(action)) {
+            return errorResponse(`Unknown action: ${action}`)
           }
 
-          await new Promise(r => setTimeout(r, 500))
+          const beforeUrl = driver.url
+          // Execute action, then wait for AX-tree stability + a settled paint
+          // (E3-A's actionability/tree-stability wait, via actAndCapture) —
+          // replaces the fixed 500ms sleep this handler used to take on faith.
+          // `entry.driver` is typed `any` (SessionEntry, frozen at C0) — cast
+          // the return to CapturedAction so downstream diffing is typed.
+          const captured = await driver.actAndCapture(async () => {
+            switch (action) {
+              case 'click': await driver.click(diag.elementId); break
+              case 'type': await driver.type(diag.elementId, value || ''); break
+              case 'fill': await driver.fill(diag.elementId, value || ''); break
+              case 'hover': await driver.hover(diag.elementId); break
+              case 'press': await driver.pressKey(value || 'Enter'); break
+              case 'scroll': await driver.scroll(Number(value) || 300); break
+              case 'select': await driver.select(diag.elementId, value || ''); break
+              case 'check': await driver.check(diag.elementId); break
+            }
+          }) as CapturedAction
+          const afterUrl = driver.url
 
-          const afterElements = await driver.getSnapshot() as EngineElement[]
-          const afterCount = afterElements.filter((e) => e.actions.length > 0).length
+          // F-09 / T-09: success is true ONLY when the validator observes the
+          // expected outcome — not merely because the action above didn't throw.
+          const validator = validateWebAction({ action, value, targetElementId: diag.elementId, beforeUrl, afterUrl, captured })
+
+          const afterCount = captured.after.elements.filter((e) => e.actions.length > 0).length
           entry.url = driver.url
 
           const actionResult: Record<string, unknown> = {
-            success: true,
+            success: validator.passed,
+            validator,
+            provenance: { tier: diag.tierName, confidence: diag.confidence, waitResult: 'tree-stable' } as ActionProvenance,
             elementFound: {
               id: diag.elementId,
               role: element?.role ?? 'unknown',
@@ -1815,10 +2077,12 @@ export async function handleToolCall(
               margin: Number(diag.autoResolved.margin.toFixed(3)),
             }
           }
+          if (!validator.passed) {
+            actionResult.evidence = buildFailureEvidence({ target, targetElementId: diag.elementId, beforeUrl, afterUrl, captured })
+          }
 
           if (wantScreenshot) {
-            const buf = await driver.screenshot()
-            const base64 = buf.toString('base64')
+            const base64 = captured.after.screenshot.toString('base64')
             return {
               content: [
                 { type: 'image' as const, data: base64, mimeType: 'image/png' },
