@@ -1070,6 +1070,7 @@ export type {
 } from './native/session-controller.js';
 export {
   RespawnBackend,
+  DaemonBackend,
   getNativeBackend,
   __setNativeBackend,
 } from './native/backend.js';
@@ -1084,6 +1085,16 @@ export type {
   MenuSpec,
   AppLifecycleOp,
 } from './native/backend.js';
+// Persistent AX daemon + resolved-path cache (E2-A).
+export { AXDaemon, DaemonError } from './native/daemon.js';
+export type {
+  DaemonTarget,
+  DaemonRequest,
+  DaemonResponse,
+  AXDaemonOptions,
+} from './native/daemon.js';
+export { ResolvedPathCache, resolvedPathCache } from './native/resolved-path-cache.js';
+export type { ResolvedPathEntry } from './native/resolved-path-cache.js';
 
 // Browser transport exports
 export type { BrowserMode, BrowserConnectionOptions, BrowserOptions } from './engine/cdp/browser.js';

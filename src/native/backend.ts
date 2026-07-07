@@ -34,6 +34,7 @@ import type {
   SimulatorDevice,
 } from './types.js';
 import { type ActionOutcome, notImplementedOutcome } from '../action-outcome.js';
+import { AXDaemon, DaemonError } from './daemon.js';
 
 // ─── Target + capability shapes (frozen v1 surface) ──────────────────────────
 
@@ -202,15 +203,183 @@ export class RespawnBackend implements NativeBackend {
   }
 }
 
+// ─── DaemonBackend — persistent AX daemon with respawn auto-fallback ─────────
+
 /**
- * Backend selection. Today only `RespawnBackend` exists; E2-A adds
- * `DaemonBackend` (default once it lands) with `IBR_NATIVE_BACKEND=respawn`
- * override and kill-9 auto-fallback. Returns a shared instance.
+ * The E2-A backend: routes extract / performAction / screenshot through a
+ * long-lived Swift AX daemon (`AXDaemon`) instead of respawning the one-shot
+ * binary per call. Holds a `RespawnBackend` as a fallback and delegates to it
+ * whenever the daemon is unavailable — startup fails, AX is not trusted, the
+ * daemon crashes, or a request times out (the kill-9 auto-fallback). Once the
+ * daemon is marked unusable every subsequent call goes straight to respawn, so
+ * behavior degrades gracefully to today's path rather than failing.
+ *
+ * The three capability methods (keystroke/lifecycle/menu) return the structured
+ * `not-implemented` outcome in Wave-1/E2-A; E2-B/C/D wire them to daemon ops.
+ *
+ * Screenshot capture stays on the existing `screencapture`/`simctl` path — the
+ * daemon only supplies the CGWindowID for macOS (via a `resolve` op) so no
+ * second tree walk is needed.
+ */
+export class DaemonBackend implements NativeBackend {
+  private readonly daemon: AXDaemon;
+  private readonly fallback: RespawnBackend;
+  private usable = true;
+
+  constructor(opts?: { daemon?: AXDaemon; fallback?: RespawnBackend }) {
+    this.daemon = opts?.daemon ?? new AXDaemon();
+    this.fallback = opts?.fallback ?? new RespawnBackend();
+  }
+
+  /** True once the daemon failed and calls are routing to the respawn fallback. */
+  get fellBack(): boolean {
+    return !this.usable;
+  }
+
+  /**
+   * Run a daemon-backed operation, falling back to the respawn equivalent on any
+   * daemon fault. A `DaemonError` (spawn fail, not-trusted, crash, timeout) trips
+   * the permanent fallback; any other error is a real AX/IO condition that the
+   * respawn path would hit too, so it propagates unchanged.
+   */
+  private async withFallback<T>(daemonOp: () => Promise<T>, fallbackOp: () => Promise<T>): Promise<T> {
+    if (!this.usable) return fallbackOp();
+    try {
+      await this.daemon.start();
+      return await daemonOp();
+    } catch (err) {
+      if (err instanceof DaemonError) {
+        this.usable = false;
+        return fallbackOp();
+      }
+      throw err;
+    }
+  }
+
+  async extract(target: NativeSessionTarget): Promise<NativeExtraction> {
+    return this.withFallback(
+      async () => {
+        if (target.kind === 'macos') {
+          const resp = await this.daemon.request({
+            op: 'extract',
+            target: { kind: 'macos', pid: target.pid },
+          });
+          if (!resp.ok) throw new Error(resp.error || 'daemon extract failed');
+          const result = resp.result as { window: MacOSWindowInfo; elements: MacOSAXElement[] };
+          return { kind: 'macos', elements: result.elements, window: result.window };
+        }
+        const device = await findDevice(target.device.udid);
+        if (!device) {
+          return { kind: 'not-found', message: `Simulator not found: ${target.device.udid}` };
+        }
+        const resp = await this.daemon.request({
+          op: 'extract',
+          target: { kind: 'simulator', deviceName: target.device.name },
+        });
+        if (!resp.ok) throw new Error(resp.error || 'daemon extract failed');
+        const result = resp.result as { elements: NativeElement[] };
+        return { kind: 'simulator', elements: result.elements, device };
+      },
+      () => this.fallback.extract(target),
+    );
+  }
+
+  async performAction(
+    target: NativeSessionTarget,
+    input: NativePerformInput,
+  ): Promise<NativeActionResult> {
+    return this.withFallback(
+      async () => {
+        if (target.kind === 'macos') {
+          const resp = await this.daemon.request({
+            op: 'action',
+            target: { kind: 'macos', pid: target.pid },
+            action: input.action,
+            elementPath: input.elementPath,
+            value: input.value,
+          });
+          if (!resp.ok) return { success: false, action: input.action, error: resp.error };
+          return resp.result as NativeActionResult;
+        }
+        const simulatorPid = await findProcess('com.apple.iphonesimulator');
+        const resp = await this.daemon.request({
+          op: 'action',
+          target: { kind: 'simulator', pid: simulatorPid, deviceName: target.device.name },
+          action: input.action,
+          elementPath: input.elementPath,
+          value: input.value,
+        });
+        if (!resp.ok) return { success: false, action: input.action, error: resp.error };
+        return resp.result as NativeActionResult;
+      },
+      () => this.fallback.performAction(target, input),
+    );
+  }
+
+  async captureScreenshot(
+    target: NativeSessionTarget,
+    outputPath: string,
+  ): Promise<NativeScreenshotCapture> {
+    // Simulator screenshots go through simctl (no daemon benefit); reuse respawn.
+    if (target.kind === 'simulator') {
+      return this.fallback.captureScreenshot(target, outputPath);
+    }
+    return this.withFallback(
+      async () => {
+        const resp = await this.daemon.request({
+          op: 'resolve',
+          target: { kind: 'macos', pid: target.pid },
+        });
+        if (!resp.ok) throw new Error(resp.error || 'daemon resolve failed');
+        const window = (resp.result as { window: MacOSWindowInfo }).window;
+        if (window.windowId <= 0) {
+          return {
+            kind: 'error',
+            error:
+              'macOS screenshot capture failed: no on-screen CGWindowID was available for the current AX window.',
+          };
+        }
+        await captureMacOSScreenshot(window.windowId, outputPath);
+        const { readFile } = await import('fs/promises');
+        const buf = await readFile(outputPath);
+        return { kind: 'macos', base64: buf.toString('base64'), window, screenshotPath: outputPath };
+      },
+      () => this.fallback.captureScreenshot(target, outputPath),
+    );
+  }
+
+  async keystroke(_target: NativeSessionTarget, _spec: KeystrokeSpec): Promise<ActionOutcome> {
+    return notImplementedOutcome('keystroke');
+  }
+
+  async lifecycle(_target: NativeSessionTarget, _spec: LifecycleSpec): Promise<ActionOutcome> {
+    return notImplementedOutcome('app lifecycle');
+  }
+
+  async menu(_target: NativeSessionTarget, _spec: MenuSpec): Promise<ActionOutcome> {
+    return notImplementedOutcome('menu');
+  }
+
+  /** Stop the underlying daemon (test/shutdown aid). */
+  stop(): void {
+    this.daemon.kill('DaemonBackend stopped');
+  }
+}
+
+/**
+ * Backend selection. Default is `RespawnBackend` (today's proven one-shot path);
+ * `IBR_NATIVE_BACKEND=daemon` opts into the persistent `DaemonBackend` (which
+ * itself auto-falls-back to respawn on any daemon fault). `IBR_NATIVE_BACKEND=respawn`
+ * (or unset) forces respawn — the documented rollback. The E2-A spike proved the
+ * daemon stable on this platform (TCC-inherited, orphan-safe, rebuild-safe), but
+ * the default stays respawn until the V1 chunk validates it more broadly; the
+ * daemon is opt-in and auto-fallback-guarded, never dormant.
  */
 let defaultBackend: NativeBackend | null = null;
 export function getNativeBackend(): NativeBackend {
   if (!defaultBackend) {
-    defaultBackend = new RespawnBackend();
+    const pref = (process.env.IBR_NATIVE_BACKEND || '').trim().toLowerCase();
+    defaultBackend = pref === 'daemon' ? new DaemonBackend() : new RespawnBackend();
   }
   return defaultBackend;
 }
