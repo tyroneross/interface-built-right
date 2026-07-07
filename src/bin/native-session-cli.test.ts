@@ -213,7 +213,7 @@ describe('handleAction', () => {
     expect(res.json.error).toBe('AX action rejected');
   });
 
-  it('a dormant Epic-2 capability (keystroke, not-implemented) exits EXIT_ACTION_FAILED, not EXIT_INVALID_TARGET', async () => {
+  it('a live capability (keystroke) that fails delivery exits EXIT_ACTION_FAILED, not EXIT_INVALID_TARGET', async () => {
     const deps = fakeDeps(new FakeBackend(), { s1: { type: 'macos', app: 'TextEdit', pid: 4242, createdAt: 1 } });
     const res = await handleAction({ sessionId: 's1', action: 'keystroke', chord: 'Meta+n' }, deps);
     expect(res.exitCode).toBe(EXIT_ACTION_FAILED);

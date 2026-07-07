@@ -210,8 +210,8 @@ async function handleNativeSessionAction(args: Record<string, unknown>): Promise
     role?: string;
     waitFor?: string;
     waitTimeoutMs?: number;
-    // Capability params (Epic 2) — additive; dormant until Epic 2 lands (E4-B
-    // only wires them through to the controller's generic pass-through).
+    // Capability params (Epic 2, now LIVE) — additive; wired through to the
+    // controller's generic capability dispatch (keystroke/app/menuPath).
     chord?: string;
     op?: AppLifecycleOp;
     app?: string;
@@ -314,7 +314,7 @@ export const NATIVE_SESSION_TOOLS = [
   {
     name: "native_session_action",
     description:
-      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select — or an Epic-2 capability kind: keystroke (chord to the focused element), app (lifecycle op: launch/switch/quit), menuPath (AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target` and are DORMANT until Epic 2 lands — they currently return a structured not-implemented outcome.",
+      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select — or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -322,28 +322,28 @@ export const NATIVE_SESSION_TOOLS = [
         action: {
           type: "string",
           enum: [...NATIVE_ACTION_KIND_VALUES],
-          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select) require `target`. Capability kinds keystroke/app/menuPath are dormant (structured not-implemented) until Epic 2 lands.",
+          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select) require `target`. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`.",
         },
         target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
         value: { type: "string", description: "Text for fill/type/setValue actions" },
         role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
         chord: {
           type: "string",
-          description: "Keyboard chord for the `keystroke` action, e.g. 'Meta+n', 'Tab', 'Escape'. Dormant until Epic 2 (E2-B) implements DaemonBackend.keystroke.",
+          description: "Keyboard chord for the `keystroke` action, e.g. 'Meta+n', 'Tab', 'Escape'. Live — synthesized as CGEvents to the focused element (E2-B).",
         },
         op: {
           type: "string",
           enum: ["launch", "switch", "quit"],
-          description: "App lifecycle operation for the `app` action. Dormant until Epic 2 (E2-C) implements DaemonBackend.lifecycle.",
+          description: "App lifecycle operation for the `app` action. Live — launch/switch/quit via OS process control (E2-C).",
         },
         app: {
           type: "string",
-          description: "App name or bundle id for the `app` action's lifecycle op (required for launch, optional for switch/quit). Dormant until Epic 2 (E2-C) lands.",
+          description: "App name or bundle id for the `app` action's lifecycle op (required for launch, optional for switch/quit). Live (Epic 2, E2-C).",
         },
         menuPath: {
           type: "array",
           items: { type: "string" },
-          description: "Ordered AXMenu item titles to traverse for the `menuPath` action, e.g. [\"File\", \"New Window\"]. Dormant until Epic 2 (E2-D) implements DaemonBackend.menu.",
+          description: "Ordered AXMenu item titles to traverse for the `menuPath` action, e.g. [\"File\", \"New Window\"]. Live — walks the menu bar / open context menu and AXPresses the final item (E2-D).",
         },
         waitFor: {
           type: "string",

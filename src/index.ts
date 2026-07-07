@@ -1093,6 +1093,9 @@ export type {
   DaemonResponse,
   AXDaemonOptions,
 } from './native/daemon.js';
+// ResolvedPathCache: Increment-2-staged seam (built + unit-tested, not yet wired
+// into an action path — belongs at the frozen controller resolve-site; see the
+// file header). Exported so the Increment-2 spine can consume it.
 export { ResolvedPathCache, resolvedPathCache } from './native/resolved-path-cache.js';
 export type { ResolvedPathEntry } from './native/resolved-path-cache.js';
 

@@ -68,6 +68,50 @@ vi.mock('fs/promises', async () => {
   return { ...actual, readFile: vi.fn().mockResolvedValue(Buffer.from('fake-png-bytes')) };
 });
 
+// ─── Capability delivery seams (f4 test-safety) ──────────────────────────────
+//
+// The keystroke/app/menuPath capabilities are LIVE. Their real delivery seams
+// touch the host OS: keystroke/menu execFile the Swift binary posting CGEvents /
+// walking menus, and lifecycle runs open/osascript/process.kill. The per-kind
+// requiredness tests below only need to prove dispatch REACHES the live
+// capability function (not the old dormant not-implemented stub) — they must NOT
+// deliver to the real machine. We therefore mock ONLY the OS-touching seams
+// (deliver fns / defaultLifecycleOps), keeping the real capability runners
+// (runKeystrokeCapability / runLifecycleCapability / runMenuCapability) so live
+// dispatch is still exercised and asserted.
+const kbd = vi.hoisted(() => ({
+  // Reports a delivery attempt that produced no OS effect — enough to prove the
+  // live keystroke path ran, without synthesizing a real CGEvent.
+  deliverKeystrokeOneShot: vi.fn(async () => ({ success: false, error: 'stubbed: no OS delivery in test' })),
+}));
+vi.mock('../native/keyboard.js', async () => {
+  const actual = await vi.importActual<typeof import('../native/keyboard.js')>('../native/keyboard.js');
+  return { ...actual, deliverKeystrokeOneShot: kbd.deliverKeystrokeOneShot };
+});
+
+const mnu = vi.hoisted(() => ({
+  deliverMenuOneShot: vi.fn(async () => ({ success: false, error: 'stubbed: no OS delivery in test', failedSegment: 0 })),
+}));
+vi.mock('../native/menu.js', async () => {
+  const actual = await vi.importActual<typeof import('../native/menu.js')>('../native/menu.js');
+  return { ...actual, deliverMenuOneShot: mnu.deliverMenuOneShot };
+});
+
+const life = vi.hoisted(() => ({
+  // No-op ops: none of these touch the OS. `switch` calls frontmostPid+activate;
+  // returning null/false yields a structured "activation failed" outcome.
+  activate: vi.fn(async () => false),
+  frontmostPid: vi.fn(async () => null),
+  findProcess: vi.fn(async () => { throw new Error('stubbed: no process lookup in test'); }),
+  launch: vi.fn(async () => {}),
+  quit: vi.fn(async () => {}),
+  isRunning: vi.fn(async () => false),
+}));
+vi.mock('../native/lifecycle.js', async () => {
+  const actual = await vi.importActual<typeof import('../native/lifecycle.js')>('../native/lifecycle.js');
+  return { ...actual, defaultLifecycleOps: { ...actual.defaultLifecycleOps, ...life } };
+});
+
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 const windowInfo: MacOSWindowInfo = { windowId: 42, width: 800, height: 600, title: 'DemoApp' };
@@ -524,42 +568,51 @@ describe('E4-B: per-kind target requiredness', () => {
 
   it('capability kind (keystroke) with no target is accepted by the schema and reaches the LIVE keystroke backend (not dormant, not a target error)', async () => {
     // keystroke went live at E2-B (macOS CGEvent synthesis). It is no longer the
-    // dormant not-implemented stub. Delivering to the seeded fake pid 9999 produces
-    // no observable AX change, so the real keystroke path returns success:false with
-    // a delivery error — proving it reached live handling, not the dormant outcome
-    // and not a missing-target rejection. (app/menuPath remain dormant until E2-C/E2-D.)
+    // dormant not-implemented stub. The OS-touching delivery seam
+    // (deliverKeystrokeOneShot) is mocked, so no CGEvent is posted; the real
+    // runKeystrokeCapability still runs and folds the stubbed delivery into a
+    // success:false outcome — proving dispatch reached live handling (the seam
+    // spy was called), not the dormant outcome and not a missing-target rejection.
     const res = await call('native_session_action', { sessionId: SID, action: 'keystroke', chord: 'Meta+n' });
     const p = parse(res) as { success: boolean; validator: { observed: string } };
     expect(p.success).toBe(false);
     expect(p.validator.observed).not.toMatch(/not implemented/i);
     expect(p.validator.observed).not.toMatch(/target/i);
+    // Live dispatch reached the keystroke capability's delivery seam (no OS I/O).
+    expect(kbd.deliverKeystrokeOneShot).toHaveBeenCalled();
   });
 
   it('capability kind (app) with no target is accepted by the schema and reaches the LIVE lifecycle backend (not dormant, not a target error)', async () => {
     // app lifecycle went live at E2-C (open/osascript process control). It is no
-    // longer the dormant not-implemented stub. `switch` against the seeded fake
-    // pid 9999 (not a real process) fails to activate, so the real lifecycle path
-    // returns success:false with an activation/frontmost mismatch — proving it
-    // reached live handling, not the dormant outcome and not a missing-target
-    // rejection. (menuPath remains dormant until E2-D.)
+    // longer the dormant not-implemented stub. The OS-touching ops
+    // (defaultLifecycleOps: activate/frontmostPid) are mocked, so no osascript
+    // runs; the real runLifecycleCapability still executes the `switch` state
+    // machine and, with activate()→false, returns success:false with an
+    // activation mismatch — proving dispatch reached live handling (the activate
+    // op spy was called), not the dormant outcome and not an unknown-op error.
     const res = await call('native_session_action', { sessionId: SID, action: 'app', op: 'switch' });
     const p = parse(res) as { success: boolean; validator: { observed: string } };
     expect(p.success).toBe(false);
     expect(p.validator.observed).not.toMatch(/not implemented/i);
     expect(p.validator.observed).not.toMatch(/^unknown op/i);
+    // Live dispatch reached the lifecycle capability's OS-ops seam (no osascript).
+    expect(life.activate).toHaveBeenCalled();
   });
 
   it('capability kind (menuPath) with no target is accepted by the schema and reaches the LIVE menu backend (not dormant, not a target error)', async () => {
     // menuPath went live at E2-D (AXMenu traversal). It is no longer the
-    // dormant not-implemented stub. Walking a menu path against the seeded
-    // fake pid 9999 (not a real process/app) fails to resolve a menu bar or
-    // open context menu, so the real menu path returns success:false with a
-    // traversal-resolution error — proving it reached live handling, not the
-    // dormant outcome and not a missing-target rejection.
+    // dormant not-implemented stub. The OS-touching delivery seam
+    // (deliverMenuOneShot) is mocked, so no Swift binary runs; the real
+    // runMenuCapability still executes and folds the stubbed traversal failure
+    // into a success:false outcome — proving dispatch reached live handling (the
+    // seam spy was called), not the dormant outcome and not a missing-target
+    // rejection.
     const res = await call('native_session_action', { sessionId: SID, action: 'menuPath', menuPath: ['File', 'New Window'] });
     const p = parse(res) as { success: boolean; validator: { observed: string } };
     expect(p.success).toBe(false);
     expect(p.validator.observed).not.toMatch(/not implemented/i);
     expect(p.validator.observed).not.toMatch(/target/i);
+    // Live dispatch reached the menu capability's delivery seam (no OS I/O).
+    expect(mnu.deliverMenuOneShot).toHaveBeenCalled();
   });
 });

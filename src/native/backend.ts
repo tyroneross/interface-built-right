@@ -9,9 +9,10 @@
  * long-lived `DaemonBackend` that implements the same interface with an
  * in-process AX tree + resolved-path cache.
  *
- * FROZEN at Wave 0 (chunk C0). Epic 2 implements `keystroke`/`lifecycle`/`menu`
- * (RespawnBackend returns a structured `not-implemented` ActionOutcome for them)
- * and adds `DaemonBackend`; it never edits the controller or the MCP adapters.
+ * FROZEN at Wave 0 (chunk C0). Epic 2 implemented `keystroke`/`lifecycle`/`menu`
+ * as LIVE capabilities (RespawnBackend delivers each and returns a validated
+ * ActionOutcome) and added `DaemonBackend`; it never edits the controller or the
+ * MCP adapters.
  */
 
 // Import through the native barrel (not concrete modules) so existing test
@@ -102,7 +103,8 @@ export interface MenuSpec {
 /**
  * The primitive native I/O contract. Every method is target-aware. The three
  * capability methods (`keystroke`/`lifecycle`/`menu`) return an `ActionOutcome`
- * so a "not implemented" result is structured, never a throw.
+ * so every result — delivery success or a validated failure — is structured,
+ * never a throw.
  */
 export interface NativeBackend {
   /** Extract the AX tree for the target's front window/screen. */
@@ -124,8 +126,10 @@ export interface NativeBackend {
 /**
  * The default backend: wraps the existing one-shot Swift extractor
  * (`extractMacOSElements` / `extractNativeElements` / `performNativeAction`).
- * Behavior-identical to pre-C0 code. The three new capabilities return a
- * structured `not-implemented` outcome until Epic 2's DaemonBackend fills them.
+ * Behavior-identical to pre-C0 code for extract/action/screenshot. The three
+ * capabilities are LIVE (Epic 2): `keystroke` synthesizes chords, `lifecycle`
+ * drives launch/switch/quit, and `menu` traverses AXMenus — each via the
+ * one-shot binary / OS process control, returning a validated ActionOutcome.
  */
 export class RespawnBackend implements NativeBackend {
   async extract(target: NativeSessionTarget): Promise<NativeExtraction> {
