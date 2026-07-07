@@ -31,6 +31,27 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 | `screenshot` | Capture screenshot of any URL |
 | `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app` (live lifecycle launch/switch/quit; `quit` can fail with `osascript -128` on unsaved docs under `NSCloseAlwaysConfirmsChanges=1` — no force-quit fallback), `menuPath` (live AXMenu traversal). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` |
 
+## Native App Driving (macOS/iOS) — use the CLI, not MCP
+
+**Standard (2026-07-07): drive running native apps with the CLI `ibr native:session:{start,read,action,close}` via Bash, not the `native_session_*` MCP tools.** MCP, CLI, and the library API share one core (`NativeSessionController → performAction → ibr-ax-extract`); the MCP native tools are explicit "CLI parity" — no capability the CLI lacks.
+
+Why CLI wins for native (and only native): native sessions are **driverless** — session state is just `{pid, app}` on disk (`src/native/session-store.ts`, file-backed cross-process by design), so every call re-reads the pid and re-queries the AX tree. There is no live connection to hold open, which is the only thing an MCP server's persistent process buys. The MCP server also runs the **installed** plugin, so a dev-repo fix is invisible until reinstall; the CLI can point at this repo's fresh `dist/`. (Web sessions are the opposite — they hold a live CDP driver, so MCP has real value there.)
+
+Recipe (JSON + Bash; persist reads to files — command substitution truncates at ~64KB):
+
+```bash
+BIN=dist/bin/ibr.js
+node $BIN native:session:start --pid <PID> --session-id s1 --json
+node $BIN native:session:read s1 --what observe --json > /tmp/obs.json   # or extract | screenshot
+node $BIN native:session:action s1 --action select --target "<name>" --json
+node $BIN native:session:action s1 --action drag --target "<name>" --value "-200,0" --json  # opt-in, see below
+node $BIN native:session:close s1 --json
+```
+
+- `select` selects SwiftUI List/table/outline rows: dispatches `AXSelected` and climbs the child-index path to the enclosing `AXRow` (name-targeting lands on the leaf `AXStaticText`). A plain `press` is a no-op on such rows.
+- `drag` is the one non-cursor-free verb (CGEvent) for split/inspector dividers with no settable `AXValue`. Refused unless `IBR_ALLOW_POINTER_INJECTION=1`; it moves the host cursor and needs the app frontmost (self-activates). Target elements by name; a nameless divider is reachable by path via the `ibr-ax-extract` binary directly.
+- `success:true` is not proof of actuation — verify the observable effect (re-read state/frame) after any state-changing action.
+
 ## Core Workflow
 
 ```bash
