@@ -1,0 +1,124 @@
+<!doctype html>
+<!--
+  IBR actionability fixture (E3-A / T-06).
+
+  Every element below starts in a NON-actionable state (hidden / disabled /
+  moving / covered / not-yet-inserted / about-to-be-replaced) and becomes
+  actionable only after a short timer. EngineDriver.click/type/fill/select
+  must poll until present+visible+enabled+stable before acting — clicking
+  too early lands on the wrong (non-actionable) state and is recorded as
+  such in window.__ibrEvents, which the test asserts against.
+
+  No personal content — synthetic labels only.
+-->
+<html>
+<head><title>IBR Actionability Fixture</title></head>
+<body>
+  <script>
+    window.__ibrEvents = [];
+    function ibrLog(name) { window.__ibrEvents.push({ name: name, t: performance.now() }); }
+  </script>
+
+  <!-- 1. Hidden (opacity:0) -> visible -->
+  <button id="hidden-btn" style="opacity:0" onclick="ibrLog('hidden-clicked')">Hidden Button</button>
+  <script>
+    setTimeout(function () {
+      document.getElementById('hidden-btn').style.opacity = '1';
+      ibrLog('hidden-revealed');
+    }, 90);
+  </script>
+
+  <!-- 2. Disabled -> enabled -->
+  <button id="disabled-btn" disabled onclick="ibrLog('disabled-clicked')">Disabled Button</button>
+  <script>
+    setTimeout(function () {
+      document.getElementById('disabled-btn').disabled = false;
+      ibrLog('disabled-enabled');
+    }, 90);
+  </script>
+
+  <!-- 3. Moving -> settled -->
+  <button id="moving-btn" style="position:relative; left:0px;" onclick="ibrLog('moving-clicked')">Moving Button</button>
+  <script>
+    (function () {
+      var btn = document.getElementById('moving-btn');
+      var frames = 0;
+      var mover = setInterval(function () {
+        frames++;
+        btn.style.left = (frames * 20) + 'px';
+        if (frames >= 6) {
+          clearInterval(mover);
+          ibrLog('moving-settled');
+        }
+      }, 15);
+    })();
+  </script>
+
+  <!-- 4. Covered by overlay -> uncovered -->
+  <div style="position:relative;">
+    <button id="covered-btn" onclick="ibrLog('covered-clicked')">Covered Button</button>
+    <div id="covered-overlay" style="position:absolute; top:0; left:0; width:200px; height:50px; background:rgba(200,0,0,0.9);"></div>
+  </div>
+  <script>
+    setTimeout(function () {
+      document.getElementById('covered-overlay').remove();
+      ibrLog('covered-uncovered');
+    }, 90);
+  </script>
+
+  <!-- 5. Delayed render: not in the DOM at all, inserted hidden, then revealed -->
+  <div id="delayed-container"></div>
+  <script>
+    setTimeout(function () {
+      var btn = document.createElement('button');
+      btn.id = 'delayed-btn';
+      btn.textContent = 'Delayed Button';
+      btn.style.opacity = '0';
+      btn.onclick = function () { ibrLog('delayed-clicked'); };
+      document.getElementById('delayed-container').appendChild(btn);
+      ibrLog('delayed-inserted');
+      setTimeout(function () {
+        btn.style.opacity = '1';
+        ibrLog('delayed-revealed');
+      }, 45);
+    }, 90);
+  </script>
+
+  <!-- 6. Stale elementId: original node replaced by a new node with the
+       same accessible name+role (same backendNodeId identity is NOT
+       preserved — this is the re-render staleness case). -->
+  <div id="rerender-container">
+    <button id="rerender-btn" onclick="ibrLog('rerender-clicked-original')">Rerender Button</button>
+  </div>
+  <script>
+    setTimeout(function () {
+      var container = document.getElementById('rerender-container');
+      var fresh = document.createElement('button');
+      fresh.id = 'rerender-btn';
+      fresh.textContent = 'Rerender Button';
+      fresh.onclick = function () { ibrLog('rerender-clicked-fresh'); };
+      container.innerHTML = '';
+      container.appendChild(fresh);
+      ibrLog('rerender-swapped');
+    }, 90);
+  </script>
+
+  <!-- 7. Fill target: disabled input -> enabled -->
+  <input id="fill-input" type="text" value="" disabled aria-label="Fill Input">
+  <script>
+    setTimeout(function () {
+      document.getElementById('fill-input').disabled = false;
+      ibrLog('fill-input-enabled');
+    }, 90);
+  </script>
+
+  <!-- 8. Type target: hidden input -> visible -->
+  <input id="type-input" type="text" value="" style="opacity:0" aria-label="Type Input">
+  <script>
+    setTimeout(function () {
+      document.getElementById('type-input').style.opacity = '1';
+      ibrLog('type-input-revealed');
+    }, 90);
+  </script>
+</body>
+</html>

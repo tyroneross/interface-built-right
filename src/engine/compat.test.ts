@@ -4,6 +4,8 @@
  */
 
 import { describe, it, expect, afterAll } from 'vitest'
+import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { EngineDriver } from './driver.js'
 import {
   CompatPage,
@@ -174,4 +176,134 @@ describe('CompatPage', () => {
     await page.waitForTimeout(300)
     expect(messages.some(m => m.includes('compat-console-test'))).toBe(true)
   })
+})
+
+// ─── Actionability (live Chrome, E3-A / T-06) ──────────────────────────
+//
+// Exercises EngineDriver.click/type/fill directly (not through CompatPage,
+// which has its own selector-based verbs — also covered below) against a
+// real fixture page whose elements start non-actionable (hidden / disabled
+// / moving / covered / not-yet-rendered / about-to-be-replaced) and only
+// become actionable after a short timer. Proves the auto-wait folded into
+// the verbs (src/engine/actionability.ts) actually waited — not just that
+// the final state happens to be correct — by asserting the click/fill
+// timestamp is >= the element's own "became actionable" timestamp, both
+// recorded by the fixture page itself.
+//
+// Reuses this file's already-launched `driver` (via ensureLaunched()) so
+// this chunk's live-Chrome coverage doesn't pay for a second Chrome process.
+
+describe('EngineDriver actionability (live Chrome fixture)', () => {
+  const fixtureUrl = pathToFileURL(join(__dirname, 'fixtures', 'actionability.html')).href
+
+  async function events(): Promise<Array<{ name: string; t: number }>> {
+    return (await driver.evaluate('window.__ibrEvents')) as Array<{ name: string; t: number }>
+  }
+
+  async function eventTime(name: string): Promise<number | undefined> {
+    return (await events()).find((e) => e.name === name)?.t
+  }
+
+  it('click waits for a hidden (opacity:0) element to become visible before acting', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.find('Hidden Button', { role: 'button' })
+    expect(el).not.toBeNull()
+    await driver.click(el!.id)
+    const revealedAt = await eventTime('hidden-revealed')
+    const clickedAt = await eventTime('hidden-clicked')
+    expect(revealedAt).toBeDefined()
+    expect(clickedAt).toBeDefined()
+    expect(clickedAt!).toBeGreaterThanOrEqual(revealedAt!)
+  }, 15000)
+
+  it('click waits for a disabled element to become enabled before acting', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.find('Disabled Button', { role: 'button' })
+    expect(el).not.toBeNull()
+    await driver.click(el!.id)
+    const enabledAt = await eventTime('disabled-enabled')
+    const clickedAt = await eventTime('disabled-clicked')
+    expect(enabledAt).toBeDefined()
+    expect(clickedAt!).toBeGreaterThanOrEqual(enabledAt!)
+  }, 15000)
+
+  it('click waits for a moving element to settle before acting', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.find('Moving Button', { role: 'button' })
+    expect(el).not.toBeNull()
+    await driver.click(el!.id)
+    const settledAt = await eventTime('moving-settled')
+    const clickedAt = await eventTime('moving-clicked')
+    expect(settledAt).toBeDefined()
+    expect(clickedAt!).toBeGreaterThanOrEqual(settledAt!)
+  }, 15000)
+
+  it('click waits for a covered element to be uncovered before acting', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.find('Covered Button', { role: 'button' })
+    expect(el).not.toBeNull()
+    await driver.click(el!.id)
+    const uncoveredAt = await eventTime('covered-uncovered')
+    const clickedAt = await eventTime('covered-clicked')
+    expect(uncoveredAt).toBeDefined()
+    expect(clickedAt!).toBeGreaterThanOrEqual(uncoveredAt!)
+  }, 15000)
+
+  it('waitForElement + click handle a delayed-render element that also fades in', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.waitForElement('Delayed Button', { role: 'button', timeout: 5000 })
+    await driver.click(el.id)
+    const revealedAt = await eventTime('delayed-revealed')
+    const clickedAt = await eventTime('delayed-clicked')
+    expect(revealedAt).toBeDefined()
+    expect(clickedAt!).toBeGreaterThanOrEqual(revealedAt!)
+  }, 15000)
+
+  it('click re-resolves a stale elementId after the target re-renders — never throws, never acts on the dead node', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.find('Rerender Button', { role: 'button' })
+    expect(el).not.toBeNull()
+    // The original elementId's backendNodeId goes stale ~120ms into the
+    // wait (the fixture replaces the DOM node). click() must re-resolve by
+    // name+role and act on the replacement instead of throwing.
+    await driver.click(el!.id)
+    const swappedAt = await eventTime('rerender-swapped')
+    const all = await events()
+    const clickedOriginal = all.find((e) => e.name === 'rerender-clicked-original')
+    const clickedFresh = all.find((e) => e.name === 'rerender-clicked-fresh')
+    expect(swappedAt).toBeDefined()
+    expect(clickedOriginal).toBeUndefined() // never landed on the dead node
+    expect(clickedFresh).toBeDefined()
+    expect(clickedFresh!.t).toBeGreaterThanOrEqual(swappedAt!)
+  }, 15000)
+
+  it('fill waits for a disabled input to become enabled before acting', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.find('Fill Input', { role: 'textfield' })
+    expect(el).not.toBeNull()
+    await driver.fill(el!.id, 'hello')
+    const enabledAt = await eventTime('fill-input-enabled')
+    expect(enabledAt).toBeDefined()
+    const value = await driver.evaluate('document.getElementById("fill-input").value')
+    expect(value).toBe('hello')
+  }, 15000)
+
+  it('type waits for a hidden input to become visible before acting', async () => {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'none' })
+    const el = await driver.find('Type Input', { role: 'textfield' })
+    expect(el).not.toBeNull()
+    await driver.type(el!.id, 'hi')
+    const revealedAt = await eventTime('type-input-revealed')
+    expect(revealedAt).toBeDefined()
+    const value = await driver.evaluate('document.getElementById("type-input").value')
+    expect(value).toBe('hi')
+  }, 15000)
 })

@@ -17,6 +17,13 @@ import { EmulationDomain, type ViewportConfig } from './cdp/emulation.js'
 import { NetworkDomain, type Cookie, type SetCookieParams } from './cdp/network.js'
 import { ConsoleDomain, type ConsoleMessage } from './cdp/console.js'
 import { waitForStableTree, waitForStable } from './cdp/wait.js'
+import {
+  waitForActionable,
+  ActionabilityTimeoutError,
+  type ActionabilityState,
+  type ProbeResult,
+  type WaitForActionableOptions,
+} from './actionability.js'
 import pixelmatch from 'pixelmatch'
 import { PNG } from 'pngjs'
 import type { Element, Snapshot, BrowserDriver } from './types.js'
@@ -216,6 +223,42 @@ export interface CapturedState {
   timestamp: number
 }
 
+/**
+ * Actionability probe — evaluated with `this` bound to the resolved DOM
+ * node (via DOM.resolveNode + Runtime.callFunctionOn, same pattern as
+ * click()'s DOM-click path). Reports present/visible/enabled/rect so
+ * waitForActionable() can decide whether the verb may act yet.
+ *
+ * "visible" folds in occlusion: an element that is on-screen and painted
+ * but covered by another element at its own center point (e.g. a modal
+ * overlay, a loading spinner) is reported as not visible — acting on it
+ * would silently hit the covering element instead.
+ */
+const ACTIONABILITY_PROBE_FN = `function() {
+  if (!this || !this.isConnected) {
+    return { present: false, visible: false, enabled: false, rect: null };
+  }
+  var style = window.getComputedStyle(this);
+  var r = this.getBoundingClientRect();
+  var hasSize = r.width > 0 && r.height > 0;
+  var visible = style.display !== 'none' && style.visibility !== 'hidden' &&
+    parseFloat(style.opacity) !== 0 && hasSize;
+  if (visible) {
+    var cx = r.left + r.width / 2;
+    var cy = r.top + r.height / 2;
+    var atPoint = document.elementFromPoint(cx, cy);
+    var uncovered = !!atPoint && (atPoint === this || this.contains(atPoint) || atPoint.contains(this));
+    visible = visible && uncovered;
+  }
+  var enabled = this.disabled !== true && this.getAttribute('aria-disabled') !== 'true';
+  return {
+    present: true,
+    visible: visible,
+    enabled: enabled,
+    rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+  };
+}`
+
 export class EngineDriver implements BrowserDriver {
   private browser = new BrowserManager()
   private conn = new CdpConnection()
@@ -237,6 +280,20 @@ export class EngineDriver implements BrowserDriver {
   private _currentUrl = ''
   private launched = false
   private resolutionCache = new ResolutionCache()
+
+  /**
+   * Last-known {label, role} for every elementId we've ever seen in an AX
+   * snapshot, keyed by elementId (`e${backendDOMNodeId}`). Unlike
+   * AccessibilityDomain's internal nodeMap (which only reflects the CURRENT
+   * live tree), this accumulates across snapshots so that when a
+   * backendNodeId goes stale mid-actionability-wait (the element re-rendered
+   * under a new backendNodeId), we can still recall what we were looking for
+   * and re-resolve by name+role instead of throwing on the dead reference.
+   * Bounded to avoid unbounded growth over a long session.
+   */
+  private elementDescriptors = new Map<string, { label: string; role: string }>()
+  private static readonly MAX_DESCRIPTOR_HISTORY = 1000
+  private static readonly DESCRIPTOR_TRIM_TARGET = 500
 
   // ─── Lifecycle ──────────────────────────────────────────
 
@@ -317,12 +374,12 @@ export class EngineDriver implements BrowserDriver {
     if (waitFor === 'stable') {
       await waitForStable(
         this.conn,
-        () => this.ax.getSnapshot(),
+        () => this.freshSnapshot(),
         { timeout: options.timeout ?? 10000, eventName: 'Accessibility.nodesUpdated' },
       )
     } else if (waitFor === 'load') {
       await waitForStableTree(
-        () => this.ax.getSnapshot(),
+        () => this.freshSnapshot(),
         { timeout: options.timeout ?? 10000 },
       )
     }
@@ -331,8 +388,10 @@ export class EngineDriver implements BrowserDriver {
     // Read actual URL after navigation (handles redirects)
     this._currentUrl = await this.runtime.evaluate('location.href') as string ?? url
 
-    // Clear resolution cache on navigation (element IDs change)
+    // Clear resolution cache + stale-id re-resolution history on navigation
+    // (element IDs are meaningless across a navigation).
     this.resolutionCache.clear()
+    this.elementDescriptors.clear()
   }
 
   get url(): string {
@@ -353,7 +412,7 @@ export class EngineDriver implements BrowserDriver {
    */
   async discover(options: DiscoverOptions = {}): Promise<Element[] | string> {
     const filter = options.filter ?? 'interactive'
-    const elements = await this.ax.getSnapshot()
+    const elements = await this.freshSnapshot()
 
     let filtered: Element[]
     switch (filter) {
@@ -395,7 +454,7 @@ export class EngineDriver implements BrowserDriver {
     const diag = await this.findWithDiagnostics(name, options)
     if (!diag.elementId) return null
 
-    const elements = await this.ax.getSnapshot()
+    const elements = await this.freshSnapshot()
     return elements.find((e) => e.id === diag.elementId) ?? null
   }
 
@@ -410,7 +469,7 @@ export class EngineDriver implements BrowserDriver {
     // Tier 1: Check resolution cache
     const cached = this.resolutionCache.get(cacheKey)
     if (cached) {
-      const elements = await this.ax.getSnapshot()
+      const elements = await this.freshSnapshot()
       const match = elements.find((e) => e.id === cached.elementId)
       if (match) {
         const interactive = elements.filter((e) => e.actions.length > 0)
@@ -437,7 +496,7 @@ export class EngineDriver implements BrowserDriver {
       this.resolutionCache.set(cacheKey, el.id, {
         role: el.role, label: el.label, confidence: 1.0,
       })
-      const allElements = await this.ax.getSnapshot()
+      const allElements = await this.freshSnapshot()
       const interactive = allElements.filter((e) => e.actions.length > 0)
       return {
         elementId: el.id,
@@ -449,7 +508,7 @@ export class EngineDriver implements BrowserDriver {
       }
     }
 
-    const allElements = await this.ax.getSnapshot()
+    const allElements = await this.freshSnapshot()
     const interactive = allElements.filter((e) => e.actions.length > 0)
 
     // Tier 2.5: Normalized-exact match over the full snapshot. CDP queryAXTree
@@ -575,11 +634,141 @@ export class EngineDriver implements BrowserDriver {
     }
   }
 
+  // ─── Actionability (auto-wait) ──────────────────────────
+  //
+  // click/type/fill/check/select all resolve through awaitActionable()
+  // before acting, so none of them can act on a stale, hidden, covered, or
+  // disabled element — see src/engine/actionability.ts for the generic
+  // present→visible→enabled→stable poll loop this builds on.
+
+  /** Record every element's {label, role} into the cross-snapshot history
+   *  used for stale-elementId re-resolution (see elementDescriptors). */
+  private recordDescriptors(elements: Element[]): void {
+    for (const e of elements) {
+      this.elementDescriptors.set(e.id, { label: e.label, role: e.role })
+    }
+    if (this.elementDescriptors.size > EngineDriver.MAX_DESCRIPTOR_HISTORY) {
+      const excess = this.elementDescriptors.size - EngineDriver.DESCRIPTOR_TRIM_TARGET
+      let i = 0
+      for (const key of this.elementDescriptors.keys()) {
+        if (i++ >= excess) break
+        this.elementDescriptors.delete(key)
+      }
+    }
+  }
+
+  /** Snapshot wrapper — every full-tree read goes through here so the
+   *  stale-elementId re-resolution history stays warm. Behavior-identical
+   *  to calling this.ax.getSnapshot() directly. */
+  private async freshSnapshot(): Promise<Element[]> {
+    const elements = await this.ax.getSnapshot()
+    this.recordDescriptors(elements)
+    return elements
+  }
+
+  /**
+   * Probe a live DOM node's present/visible/enabled/rect state via
+   * DOM.resolveNode + Runtime.callFunctionOn (same primitives click() uses
+   * for its DOM-click path). Returns null when the backendNodeId no longer
+   * resolves to a live node — the caller treats that as "went stale" and
+   * re-resolves rather than throwing.
+   */
+  private async probeBackendNode(backendNodeId: number): Promise<ActionabilityState | null> {
+    const sid = this.sessionId ?? undefined
+    try {
+      const resolved: any = await this.conn.send('DOM.resolveNode', { backendNodeId }, sid)
+      const objectId = resolved?.object?.objectId
+      if (!objectId) return null
+      const result: any = await this.conn.send('Runtime.callFunctionOn', {
+        objectId,
+        functionDeclaration: ACTIONABILITY_PROBE_FN,
+        returnByValue: true,
+      }, sid)
+      if (result?.exceptionDetails) return null
+      return (result?.result?.value as ActionabilityState) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Re-resolve a stale element by its last-known label+role against a fresh
+   * AX snapshot. This is what lets a re-rendering element (new
+   * backendNodeId, same accessible name/role) stay actionable instead of
+   * failing the moment its original elementId goes stale.
+   */
+  private async reResolveByLabelRole(label: string, role: string): Promise<string | null> {
+    const elements = await this.freshSnapshot()
+    const match = findExactLabel(label, elements, role)
+    return match ? match.id : null
+  }
+
+  /**
+   * resolveAndProbe closure for waitForActionable(): resolves elementId to
+   * its current backendNodeId (re-resolving by name/role if the id has gone
+   * stale), then probes it. Returns null when nothing currently resolves —
+   * waitForActionable treats that as "not present" and keeps polling.
+   */
+  private async resolveElementActionability(elementId: string): Promise<ProbeResult<number> | null> {
+    // NOTE: AccessibilityDomain's elementId→backendNodeId map is only
+    // rebuilt when a fresh snapshot is taken — it does NOT get invalidated
+    // just because the underlying DOM node was removed/replaced. So a
+    // "stale" element does not surface as getBackendNodeId() returning
+    // undefined; it surfaces as probeBackendNode() failing (DOM.resolveNode
+    // throws for a dead backendNodeId). Both cases fall through to
+    // re-resolution by last-known label/role below.
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+
+    if (backendNodeId !== undefined) {
+      const state = await this.probeBackendNode(backendNodeId)
+      // A detached-but-not-yet-GC'd node can still resolve via
+      // DOM.resolveNode and report present:false (isConnected===false)
+      // rather than throwing — treat that the same as a hard resolve
+      // failure and fall through to re-resolution, don't just report
+      // "not present" forever on a dead reference.
+      if (state?.present) return { target: backendNodeId, state }
+    }
+
+    const known = this.elementDescriptors.get(elementId)
+    if (!known) return null
+
+    const freshId = await this.reResolveByLabelRole(known.label, known.role)
+    if (!freshId) return null
+
+    const freshBackendNodeId = this.ax.getBackendNodeId(freshId)
+    if (freshBackendNodeId === undefined) return null
+
+    const freshState = await this.probeBackendNode(freshBackendNodeId)
+    if (!freshState) return null
+    return { target: freshBackendNodeId, state: freshState }
+  }
+
+  /**
+   * Wait until elementId (or its re-resolved replacement) is
+   * present+visible+enabled+stable, then return the actionable
+   * backendNodeId. Throws a descriptive error on timeout — never silently
+   * proceeds to act on a non-actionable element.
+   */
+  private async awaitActionable(elementId: string, options?: WaitForActionableOptions): Promise<number> {
+    try {
+      return await waitForActionable<number>(
+        () => this.resolveElementActionability(elementId),
+        options,
+      )
+    } catch (err) {
+      if (err instanceof ActionabilityTimeoutError) {
+        throw new Error(
+          `Element ${elementId} not actionable: ${err.reason} (waited ${err.elapsedMs}ms)`,
+        )
+      }
+      throw err
+    }
+  }
+
   // ─── Interactions ───────────────────────────────────────
 
   async click(elementId: string): Promise<void> {
-    const backendNodeId = this.ax.getBackendNodeId(elementId)
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+    const backendNodeId = await this.awaitActionable(elementId)
 
     // Use DOM.resolveNode + callFunctionOn to call .click() on the DOM element.
     // This triggers ALL click handlers: addEventListener, inline onclick, and href navigation.
@@ -606,8 +795,7 @@ export class EngineDriver implements BrowserDriver {
   }
 
   async type(elementId: string, text: string): Promise<void> {
-    const backendNodeId = this.ax.getBackendNodeId(elementId)
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+    const backendNodeId = await this.awaitActionable(elementId)
 
     const { x, y } = await this.dom.getElementCenter(backendNodeId)
     await this.input.click(x, y)
@@ -615,8 +803,7 @@ export class EngineDriver implements BrowserDriver {
   }
 
   async fill(elementId: string, value: string): Promise<void> {
-    const backendNodeId = this.ax.getBackendNodeId(elementId)
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+    const backendNodeId = await this.awaitActionable(elementId)
 
     const { x, y } = await this.dom.getElementCenter(backendNodeId)
     await this.input.click(x, y)
@@ -658,7 +845,7 @@ export class EngineDriver implements BrowserDriver {
   }> {
     // Capture before state
     const [beforeElements, beforeScreenshot] = await Promise.all([
-      this.ax.getSnapshot(),
+      this.freshSnapshot(),
       this._page.screenshot(),
     ])
 
@@ -666,7 +853,7 @@ export class EngineDriver implements BrowserDriver {
     await action()
 
     // Wait for AX tree stability (elements stop changing)
-    await waitForStableTree(() => this.ax.getSnapshot(), { timeout: 5000, stableTime: 300 })
+    await waitForStableTree(() => this.freshSnapshot(), { timeout: 5000, stableTime: 300 })
 
     // Wait for visual rendering to complete — CSS transitions, layout shifts,
     // and repaint after DOM changes. requestAnimationFrame fires after the next
@@ -677,7 +864,7 @@ export class EngineDriver implements BrowserDriver {
 
     // Capture after state
     const [afterElements, afterScreenshot] = await Promise.all([
-      this.ax.getSnapshot(),
+      this.freshSnapshot(),
       this._page.screenshot(),
     ])
 
@@ -715,12 +902,10 @@ export class EngineDriver implements BrowserDriver {
    * Set a <select> element's value and dispatch change event.
    */
   async select(elementId: string, value: string): Promise<void> {
-    const backendNodeId = this.ax.getBackendNodeId(elementId)
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+    const backendNodeId = await this.awaitActionable(elementId)
 
     const { x, y } = await this.dom.getElementCenter(backendNodeId)
     await this.input.click(x, y)
-    await new Promise((r) => setTimeout(r, 100))
 
     await this.runtime.callFunctionOn(
       '(val) => { const el = document.activeElement; if (el && el.tagName === "SELECT") { el.value = val; el.dispatchEvent(new Event("change", { bubbles: true })); el.dispatchEvent(new Event("input", { bubbles: true })); } }',
@@ -732,8 +917,7 @@ export class EngineDriver implements BrowserDriver {
    * Toggle a checkbox element.
    */
   async check(elementId: string): Promise<void> {
-    const backendNodeId = this.ax.getBackendNodeId(elementId)
-    if (!backendNodeId) throw new Error(`Element ${elementId} not found in AX tree`)
+    const backendNodeId = await this.awaitActionable(elementId)
 
     const { x, y } = await this.dom.getElementCenter(backendNodeId)
     await this.input.click(x, y)
@@ -782,7 +966,7 @@ export class EngineDriver implements BrowserDriver {
     const interval = 200
 
     while (Date.now() < deadline) {
-      const elements = await this.ax.getSnapshot()
+      const elements = await this.freshSnapshot()
       const match = elements.find((e) => {
         const nameMatch = e.label?.toLowerCase().includes(name.toLowerCase()) ||
           e.value?.toString().toLowerCase().includes(name.toLowerCase())
@@ -841,7 +1025,7 @@ export class EngineDriver implements BrowserDriver {
 
     if (options.includeAXTree !== false) {
       promises.push(
-        this.ax.getSnapshot().then((elements) => { state.axTree = elements }),
+        this.freshSnapshot().then((elements) => { state.axTree = elements }),
       )
     }
 
@@ -857,7 +1041,7 @@ export class EngineDriver implements BrowserDriver {
 
   /** Get AX tree snapshot. */
   async getSnapshot(): Promise<Element[]> {
-    return this.ax.getSnapshot()
+    return this.freshSnapshot()
   }
 
   // ─── Evaluation ─────────────────────────────────────────
@@ -980,7 +1164,7 @@ export class EngineDriver implements BrowserDriver {
    * Returns serializable descriptors for act().
    */
   async observe(options?: ObserveOptions): Promise<ActionDescriptor[]> {
-    const elements = await this.ax.getSnapshot()
+    const elements = await this.freshSnapshot()
     return observe(elements, options)
   }
 
@@ -990,7 +1174,7 @@ export class EngineDriver implements BrowserDriver {
    * Extract structured data from AX tree using a schema.
    */
   async extract(schema: ExtractSchema): Promise<ExtractResult> {
-    const elements = await this.ax.getSnapshot()
+    const elements = await this.freshSnapshot()
     return extractFromAXTree(elements, schema)
   }
 
@@ -1002,7 +1186,7 @@ export class EngineDriver implements BrowserDriver {
     labelPattern?: RegExp
     maxItems?: number
   }): Promise<Array<{ label: string; value: string | null; id: string }>> {
-    const elements = await this.ax.getSnapshot()
+    const elements = await this.freshSnapshot()
     return extractList(elements, options)
   }
 
@@ -1010,7 +1194,7 @@ export class EngineDriver implements BrowserDriver {
    * Extract page-level metadata (headings, links, inputs, buttons).
    */
   async extractMeta(): Promise<ReturnType<typeof extractPageMeta>> {
-    const elements = await this.ax.getSnapshot()
+    const elements = await this.freshSnapshot()
     return extractPageMeta(elements)
   }
 
@@ -1021,7 +1205,7 @@ export class EngineDriver implements BrowserDriver {
    * Returns a score and whether a screenshot is recommended.
    */
   async assessUnderstanding(options?: ModalityOptions): Promise<UnderstandingScore> {
-    const elements = await this.ax.getSnapshot()
+    const elements = await this.freshSnapshot()
     return assessUnderstanding(elements, options)
   }
 
@@ -1035,7 +1219,7 @@ export class EngineDriver implements BrowserDriver {
     const gaps: string[] = []
 
     // 1. AX tree count
-    const axElements = await this.ax.getSnapshot()
+    const axElements = await this.freshSnapshot()
     const axTreeCount = axElements.length
 
     // 2. Estimated visible DOM elements (not aria-hidden, has layout dimensions)

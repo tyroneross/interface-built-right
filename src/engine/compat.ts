@@ -22,8 +22,63 @@
  */
 
 import { EngineDriver } from './driver.js'
+import { waitForActionable, type ActionabilityState } from './actionability.js'
 import { writeFile, mkdir } from 'fs/promises'
 import { dirname } from 'path'
+
+/**
+ * Actionability probe for CSS-selector-based verbs (CompatPage/CompatLocator
+ * act on selectors, not elementIds, so unlike EngineDriver there's no
+ * backendNodeId staleness to re-resolve — re-querying the selector fresh on
+ * every poll tick already gets the current live node for free, including
+ * across a re-render). Executed via runtimeDomain.callFunctionOn, same
+ * primitive every other compat verb uses.
+ */
+const SELECTOR_ACTIONABILITY_PROBE_FN = `(sel) => {
+  const el = document.querySelector(sel);
+  if (!el || !el.isConnected) return { present: false, visible: false, enabled: false, rect: null };
+  const style = getComputedStyle(el);
+  const r = el.getBoundingClientRect();
+  const hasSize = r.width > 0 && r.height > 0;
+  let visible = style.display !== 'none' && style.visibility !== 'hidden' &&
+    parseFloat(style.opacity) !== 0 && hasSize;
+  if (visible) {
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const atPoint = document.elementFromPoint(cx, cy);
+    visible = !!atPoint && (atPoint === el || el.contains(atPoint) || atPoint.contains(el));
+  }
+  const enabled = el.disabled !== true && el.getAttribute('aria-disabled') !== 'true';
+  return {
+    present: true,
+    visible,
+    enabled,
+    rect: { x: Math.round(r.x), y: Math.round(r.y), width: Math.round(r.width), height: Math.round(r.height) },
+  };
+}`
+
+/**
+ * Wait until `selector` resolves to a present+visible+enabled+stable
+ * element before a verb acts on it. Re-queries the selector fresh every
+ * poll tick — no fixed sleep before/after the action.
+ */
+async function waitForSelectorActionable(
+  driver: EngineDriver,
+  selector: string,
+  options?: { timeout?: number },
+): Promise<void> {
+  await waitForActionable<true>(async () => {
+    try {
+      const state = await driver.runtimeDomain.callFunctionOn(
+        SELECTOR_ACTIONABILITY_PROBE_FN,
+        [selector],
+      ) as ActionabilityState
+      return { target: true, state }
+    } catch {
+      return null
+    }
+  }, options)
+}
 
 /**
  * Element handle returned by $() and $$()
@@ -107,8 +162,11 @@ export class CompatLocator {
   }
 
   async click(_options?: { timeout?: number; force?: boolean }): Promise<void> {
-    const nodeId = await this.resolveNode(_options?.timeout)
-    if (!nodeId) throw new Error(`Element not found: ${this.selector}`)
+    // force: true is Playwright's escape hatch to bypass actionability
+    // checks — preserved here for parity.
+    if (!_options?.force) {
+      await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout })
+    }
     // Use direct DOM click for reliability (matches Playwright behavior)
     await this.driver.runtimeDomain.callFunctionOn(
       '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
@@ -117,6 +175,7 @@ export class CompatLocator {
   }
 
   async fill(text: string, _options?: { timeout?: number }): Promise<void> {
+    await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout })
     await this.driver.runtimeDomain.callFunctionOn(
       `(sel, val) => {
         const el = document.querySelector(sel);
@@ -160,16 +219,6 @@ export class CompatLocator {
       await new Promise((r) => setTimeout(r, 100))
     }
     throw new Error(`Timed out waiting for ${this.selector}`)
-  }
-
-  private async resolveNode(timeout?: number): Promise<number | null> {
-    const deadline = Date.now() + (timeout ?? 5000)
-    while (Date.now() < deadline) {
-      const nodeId = await this.driver.querySelector(this.selector)
-      if (nodeId) return nodeId
-      await new Promise((r) => setTimeout(r, 100))
-    }
-    return null
   }
 }
 
@@ -300,6 +349,7 @@ export class CompatPage {
   }
 
   async click(selector: string, _options?: { timeout?: number }): Promise<void> {
+    await waitForSelectorActionable(this.driver, selector, { timeout: _options?.timeout })
     await this.driver.runtimeDomain.callFunctionOn(
       '(sel) => { const el = document.querySelector(sel); if (el) el.click(); else throw new Error("Not found: " + sel); }',
       [selector],
@@ -307,6 +357,7 @@ export class CompatPage {
   }
 
   async fill(selector: string, value: string): Promise<void> {
+    await waitForSelectorActionable(this.driver, selector)
     await this.driver.runtimeDomain.callFunctionOn(
       `(sel, val) => {
         const el = document.querySelector(sel);
@@ -320,6 +371,7 @@ export class CompatPage {
   }
 
   async type(selector: string, text: string, _options?: { delay?: number }): Promise<void> {
+    await waitForSelectorActionable(this.driver, selector)
     // Focus the element first, then type
     await this.driver.runtimeDomain.callFunctionOn(
       '(sel) => { const el = document.querySelector(sel); if (el) el.focus(); }',
@@ -334,6 +386,7 @@ export class CompatPage {
   }
 
   async check(selector: string): Promise<void> {
+    await waitForSelectorActionable(this.driver, selector)
     await this.driver.runtimeDomain.callFunctionOn(
       '(sel) => { const el = document.querySelector(sel); if (el && !el.checked) el.click(); }',
       [selector],
@@ -341,6 +394,7 @@ export class CompatPage {
   }
 
   async uncheck(selector: string): Promise<void> {
+    await waitForSelectorActionable(this.driver, selector)
     await this.driver.runtimeDomain.callFunctionOn(
       '(sel) => { const el = document.querySelector(sel); if (el && el.checked) el.click(); }',
       [selector],
@@ -348,6 +402,7 @@ export class CompatPage {
   }
 
   async selectOption(selector: string, value: string): Promise<void> {
+    await waitForSelectorActionable(this.driver, selector)
     await this.driver.runtimeDomain.callFunctionOn(
       `(sel, val) => {
         const el = document.querySelector(sel);

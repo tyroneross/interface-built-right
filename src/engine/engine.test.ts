@@ -3,10 +3,15 @@
  * Tests that don't need a live Chrome instance (unit tests for
  * connection, resolve, serialize, normalize, wait, etc.)
  *
- * Integration tests (requiring Chrome) are in engine.integration.test.ts
+ * Integration tests (requiring Chrome) are in engine.integration.test.ts.
+ * The live-Chrome actionability fixture tests for E3-A / T-06 live in
+ * compat.test.ts instead (reusing that file's already-launched
+ * EngineDriver rather than paying for a second Chrome process here).
  */
 
 import { describe, it, expect, vi } from 'vitest'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import {
   buildFingerprint,
   normalizeRole,
@@ -503,5 +508,35 @@ describe('assessUnderstanding', () => {
   it('provides reasoning string', () => {
     const result = assessUnderstanding([])
     expect(result.reasoning.length).toBeGreaterThan(0)
+  })
+})
+
+// ─── Actionability static falsifier (T-06, no browser needed) ─────────────
+//
+// The live-Chrome fixture tests (click/type/fill against delayed-render /
+// hidden / disabled / moving / covered / re-rendering targets) live in
+// compat.test.ts, reusing that file's already-launched EngineDriver instead
+// of paying for a second Chrome process in this file.
+
+describe('actionability verbs — static falsifier', () => {
+  it('click/type/fill/check/select contain zero fixed sleeps (T-06 grep falsifier)', () => {
+    // Regression guard for the T-06 grep-provability requirement: the ONLY
+    // setTimeout on the verified path is the bounded poll tick inside
+    // waitForActionable() (actionability.ts) — a poll interval, not a fixed
+    // "sleep and hope" delay, and it lives in a different file/function
+    // from the verbs themselves. This asserts driver.ts's click..select
+    // region contains no raw setTimeout call.
+    const driverSrcPath = join(__dirname, 'driver.ts')
+    const src = readFileSync(driverSrcPath, 'utf-8')
+
+    const startMarker = 'async click(elementId: string): Promise<void> {'
+    const endMarker = 'async doubleClick(elementId: string): Promise<void> {'
+    const startIdx = src.indexOf(startMarker)
+    const endIdx = src.indexOf(endMarker)
+    expect(startIdx).toBeGreaterThan(-1)
+    expect(endIdx).toBeGreaterThan(startIdx)
+
+    const verbRegion = src.slice(startIdx, endIdx)
+    expect(verbRegion).not.toMatch(/setTimeout/)
   })
 })
