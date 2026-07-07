@@ -6204,7 +6204,7 @@ type SessionEntry = {
  * and the coordinate-based IDB interaction API.
  */
 
-type NativeAction = 'press' | 'setValue' | 'increment' | 'decrement' | 'showMenu' | 'confirm' | 'cancel' | 'focus' | 'scrollToVisible';
+type NativeAction = 'press' | 'select' | 'setValue' | 'increment' | 'decrement' | 'showMenu' | 'confirm' | 'cancel' | 'focus' | 'scrollToVisible';
 interface NativeActionResult {
     success: boolean;
     action: string;

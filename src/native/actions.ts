@@ -17,6 +17,7 @@ const execFileAsync = promisify(execFile);
 
 export type NativeAction =
   | 'press'
+  | 'select'
   | 'setValue'
   | 'increment'
   | 'decrement'

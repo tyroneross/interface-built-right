@@ -19950,8 +19950,9 @@ function mapSessionActionToNative(action, value) {
     case "click":
     case "press":
     case "check":
-    case "select":
       return { action: "press" };
+    case "select":
+      return { action: "select" };
     case "fill":
     case "type":
       if (value === void 0) return { error: `${action} requires 'value'.` };

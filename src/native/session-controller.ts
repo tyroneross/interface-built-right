@@ -705,8 +705,12 @@ export function mapSessionActionToNative(
     case 'click':
     case 'press':
     case 'check':
-    case 'select':
       return { action: 'press' };
+    case 'select':
+      // SwiftUI List / table rows expose selection as the AXSelected
+      // attribute, not an AXPress action — dispatch a dedicated select verb
+      // so the row actually selects (a plain press is a no-op on such rows).
+      return { action: 'select' };
     case 'fill':
     case 'type':
       if (value === undefined) return { error: `${action} requires 'value'.` };

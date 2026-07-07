@@ -15,6 +15,7 @@ import type { MacOSAXElement, MacOSWindowInfo } from './types.js';
 import type { NativeActionResult } from './actions.js';
 import {
   NativeSessionController,
+  mapSessionActionToNative,
   type ElementActionRequest,
   type KeystrokeActionRequest,
   type AppLifecycleActionRequest,
@@ -48,6 +49,21 @@ function macElement(overrides: Partial<MacOSAXElement> & { path: number[] }): Ma
     position: { x: 0, y: 0 }, size: { width: 100, height: 40 }, children: [], ...overrides,
   };
 }
+
+describe('mapSessionActionToNative — verb dispatch', () => {
+  it('maps select to the dedicated select verb (AXSelected), NOT press', () => {
+    // Regression guard: select used to collapse into press, which is a no-op on
+    // SwiftUI List/table rows (they select via the AXSelected attribute, not
+    // AXPress). See AXCore.swift `case "select"`.
+    expect(mapSessionActionToNative('select')).toEqual({ action: 'select' });
+  });
+
+  it('still maps click/press/check to press', () => {
+    expect(mapSessionActionToNative('click')).toEqual({ action: 'press' });
+    expect(mapSessionActionToNative('press')).toEqual({ action: 'press' });
+    expect(mapSessionActionToNative('check')).toEqual({ action: 'press' });
+  });
+});
 
 /** Configurable fake backend. */
 class FakeBackend implements NativeBackend {

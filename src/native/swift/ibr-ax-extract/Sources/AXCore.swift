@@ -348,6 +348,38 @@ func navigateToElement(root: AXUIElement, path: [Int]) -> AXUIElement? {
     return current
 }
 
+/// Roles that carry list/table/outline selection (settable AXSelected).
+/// AXCell is deliberately excluded: in SwiftUI Lists the enclosing AXRow is the
+/// selection target, and an intermediate AXCell reports a row-ish role but
+/// rejects the AXSelected write — including it would shadow the real AXRow.
+private let selectableRoles: Set<String> = ["AXRow", "AXOutlineRow"]
+
+func isSelectableRole(_ element: AXUIElement) -> Bool {
+    guard let role = getStringAttribute(element, kAXRoleAttribute) else { return false }
+    return selectableRoles.contains(role)
+}
+
+/// Find the nearest selectable ancestor (AXRow/AXCell) of the element at
+/// `elementPath` by walking the child-index path upward. Name-based targeting
+/// resolves to a leaf (e.g. the AXStaticText inside a row), but SwiftUI
+/// List/table selection lives on the row. We climb by re-navigating shorter
+/// path prefixes from the root — the same child-index mechanism that produced
+/// the path — because SwiftUI's live kAXParentAttribute chain is unreliable and
+/// can diverge from the child tree. Returns the element itself if already
+/// selectable, else the nearest selectable ancestor, else nil.
+func nearestSelectableByPath(root: AXUIElement, element: AXUIElement, elementPath: [Int]) -> AXUIElement? {
+    if isSelectableRole(element) { return element }
+    var i = elementPath.count - 1
+    while i >= 0 {
+        let prefix = Array(elementPath[0..<i])
+        if let ancestor = navigateToElement(root: root, path: prefix), isSelectableRole(ancestor) {
+            return ancestor
+        }
+        i -= 1
+    }
+    return nil
+}
+
 /// Resolve the action root window for a pid (simulator chrome-aware).
 func actionRootWindow(pid: pid_t, deviceName: String?) -> AXUIElement? {
     if let app = findAppByPid(pid),
@@ -375,6 +407,15 @@ func performAction(pid: pid_t, deviceName: String?, elementPath: [Int], action: 
     case "press":
         let ok = AXUIElementPerformAction(element, kAXPressAction as CFString) == .success
         return (ok, ok ? nil : "AXPress failed")
+    case "select":
+        // SwiftUI List / table rows select via the AXSelected attribute, not
+        // an AXPress action. Name-based targeting resolves to a leaf (the
+        // AXStaticText inside the row), so climb to the nearest selectable
+        // AXRow/AXCell ancestor before setting kAXSelectedAttribute — that is
+        // the cursor-free equivalent of clicking the row to select it.
+        let selectTarget = nearestSelectableByPath(root: actionRoot, element: element, elementPath: elementPath) ?? element
+        let ok = AXUIElementSetAttributeValue(selectTarget, kAXSelectedAttribute as CFString, true as CFTypeRef) == .success
+        return (ok, ok ? nil : "AXSelect failed (no selectable row for the targeted element)")
     case "setValue":
         guard let value = value else {
             return (false, "setValue requires --value")
