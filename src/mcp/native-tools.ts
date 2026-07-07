@@ -21,7 +21,43 @@ import {
   nativeSessionController,
   type NativeToolResult,
   type NativeSessionActionRequest,
+  type NativeActionKind,
 } from '../native/session-controller.js';
+import type { AppLifecycleOp } from '../native/backend.js';
+
+// ─── E4-B: wire enum ↔ frozen-type single source of truth ────────────────────
+
+/**
+ * The `native_session_action` wire enum, additive over C0's Wave-0 element
+ * verbs with the Epic-2 capability kinds (`keystroke`/`app`/`menuPath`). This
+ * array IS the schema's `enum` (spread below) — never hand-duplicated — so a
+ * hand-edit of the schema literal without updating this array is caught by the
+ * runtime equality test in native-tools.test.ts. Element ordering/content is
+ * additive-only: every Wave-0 value is preserved verbatim.
+ */
+export const NATIVE_ACTION_KIND_VALUES = [
+  'click', 'press', 'fill', 'type', 'focus', 'showMenu', 'increment',
+  'decrement', 'confirm', 'cancel', 'scroll', 'scrollToVisible', 'check',
+  'select', 'keystroke', 'app', 'menuPath',
+] as const;
+
+/**
+ * Compile-time equality falsifier (checked by `npm run typecheck`, NOT by
+ * `vitest run` — vitest transpiles without type-checking): `AssertTypeEqual`
+ * fails to compile unless `NATIVE_ACTION_KIND_VALUES`'s literal union is
+ * EXACTLY C0's frozen `NativeActionKind` union — no value present without a
+ * frozen type, and no frozen kind absent from the array. This is the single
+ * source of truth the plan requires; if C0's union ever changes, `tsc` fails
+ * here rather than drifting silently.
+ */
+type AssertTypeEqual<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _nativeActionKindEnumMatchesFrozenType: AssertTypeEqual<
+  (typeof NATIVE_ACTION_KIND_VALUES)[number],
+  NativeActionKind
+> = true;
+void _nativeActionKindEnumMatchesFrozenType;
 
 // ─── MCP content/response shapes (structurally identical to tools.ts) ────────
 
@@ -162,20 +198,31 @@ async function handleNativeSessionAction(args: Record<string, unknown>): Promise
     role,
     waitFor,
     waitTimeoutMs,
+    chord,
+    op,
+    app,
+    menuPath,
   } = args as {
     sessionId: string;
     action: string;
-    target: string;
+    target?: string;
     value?: string;
     role?: string;
     waitFor?: string;
     waitTimeoutMs?: number;
+    // Capability params (Epic 2) — additive; dormant until Epic 2 lands (E4-B
+    // only wires them through to the controller's generic pass-through).
+    chord?: string;
+    op?: AppLifecycleOp;
+    app?: string;
+    menuPath?: string[];
   };
 
   const entry = sessions.get(sessionId);
   if (!entry) return errorResponse('Session not found. Use native_session_start first.');
-  if (entry.type === 'macos') return await runMacOSSessionAction(entry, { action, target, value, role, waitFor, waitTimeoutMs });
-  if (entry.type === 'simulator') return await runSimulatorSessionAction(entry, { action, target, value, role, waitFor, waitTimeoutMs });
+  const request = { action, target, value, role, waitFor, waitTimeoutMs, chord, op, app, menuPath };
+  if (entry.type === 'macos') return await runMacOSSessionAction(entry, request);
+  if (entry.type === 'simulator') return await runSimulatorSessionAction(entry, request);
   return errorResponse(`Session ${sessionId} is a ${entry.type} web session. Use session_action for web sessions.`);
 }
 
@@ -267,19 +314,37 @@ export const NATIVE_SESSION_TOOLS = [
   {
     name: "native_session_action",
     description:
-      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, or scrollToVisible. Uses Accessibility APIs instead of moving the host cursor.",
+      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select — or an Epic-2 capability kind: keystroke (chord to the focused element), app (lifecycle op: launch/switch/quit), menuPath (AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target` and are DORMANT until Epic 2 lands — they currently return a structured not-implemented outcome.",
     inputSchema: {
       type: "object" as const,
       properties: {
         sessionId: { type: "string", description: "Session ID returned by native_session_start" },
         action: {
           type: "string",
-          enum: ["click", "press", "fill", "type", "focus", "showMenu", "increment", "decrement", "confirm", "cancel", "scroll", "scrollToVisible", "check", "select"],
-          description: "Native action to perform",
+          enum: [...NATIVE_ACTION_KIND_VALUES],
+          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select) require `target`. Capability kinds keystroke/app/menuPath are dormant (structured not-implemented) until Epic 2 lands.",
         },
-        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target" },
+        target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
         value: { type: "string", description: "Text for fill/type/setValue actions" },
         role: { type: "string", description: "Optional role filter (button, textbox, checkbox, AXButton, etc.)" },
+        chord: {
+          type: "string",
+          description: "Keyboard chord for the `keystroke` action, e.g. 'Meta+n', 'Tab', 'Escape'. Dormant until Epic 2 (E2-B) implements DaemonBackend.keystroke.",
+        },
+        op: {
+          type: "string",
+          enum: ["launch", "switch", "quit"],
+          description: "App lifecycle operation for the `app` action. Dormant until Epic 2 (E2-C) implements DaemonBackend.lifecycle.",
+        },
+        app: {
+          type: "string",
+          description: "App name or bundle id for the `app` action's lifecycle op (required for launch, optional for switch/quit). Dormant until Epic 2 (E2-C) lands.",
+        },
+        menuPath: {
+          type: "array",
+          items: { type: "string" },
+          description: "Ordered AXMenu item titles to traverse for the `menuPath` action, e.g. [\"File\", \"New Window\"]. Dormant until Epic 2 (E2-D) implements DaemonBackend.menu.",
+        },
         waitFor: {
           type: "string",
           description: "Optional accessible name, AX identifier, description, or visible value expected after the action. The tool polls until it appears or waitTimeoutMs expires.",
@@ -289,7 +354,7 @@ export const NATIVE_SESSION_TOOLS = [
           description: "Maximum post-action settle time in milliseconds. Defaults to 2000 when waitFor is provided, otherwise 700. Clamped to 0..5000.",
         },
       },
-      required: ["sessionId", "action", "target"],
+      required: ["sessionId", "action"],
     },
     annotations: {
       title: "Native Session Action",

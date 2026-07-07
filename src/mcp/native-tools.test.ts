@@ -391,7 +391,11 @@ describe('native tool schemas (relocated from session-tools.test.ts)', () => {
     const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>;
     expect(props.action.enum).toContain('showMenu');
     expect(props.action.enum).toContain('scrollToVisible');
-    expect(tool.inputSchema.required).toEqual(['sessionId', 'action', 'target']);
+    // E4-B: target moves out of the top-level `required` array — it is now
+    // enforced per-kind (element kinds still reject a missing target; see the
+    // "per-kind target requiredness" describe block below). This is an
+    // EXPLICIT, coherent change (never silent) — see plan E4-B signature row.
+    expect(tool.inputSchema.required).toEqual(['sessionId', 'action']);
   });
 
   it('native_session_start accepts a direct macOS pid and can close it', async () => {
@@ -438,5 +442,108 @@ describe('native_session_action post-action settling schema (relocated from tool
     expect(props.waitTimeoutMs.type).toBe('number');
     expect(required).not.toContain('waitFor');
     expect(required).not.toContain('waitTimeoutMs');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// E4-B — enum ↔ frozen-type equality falsifier (plan scope-auditor Gap 3)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// TypeScript types are erased at runtime, so no vitest assertion can directly
+// interrogate C0's frozen `NativeActionKind` union. Two complementary
+// falsifiers close the gap instead:
+//   1. Compile-time (native-tools.ts, checked by `npm run typecheck`, NOT by
+//      vitest — vitest transpiles without type-checking): `NATIVE_ACTION_KIND_VALUES`
+//      is asserted exactly type-equal to `NativeActionKind` via `AssertTypeEqual`.
+//      Any drift (a frozen kind added/removed without updating the array, in
+//      EITHER direction) fails `tsc`.
+//   2. Runtime (here): the wire schema's `action.enum` must be the exact same
+//      array as `NATIVE_ACTION_KIND_VALUES` — proving the schema is generated
+//      from the single source of truth, not hand-duplicated and free to drift
+//      independently of the (typecheck-verified) frozen-type-equal array.
+describe('E4-B: native_session_action enum ↔ frozen NativeActionKind equality', () => {
+  it('schema action.enum is exactly NATIVE_ACTION_KIND_VALUES (single source of truth)', async () => {
+    const { NATIVE_ACTION_KIND_VALUES } = await import('./native-tools.js');
+    const tool = await getTool('native_session_action');
+    const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>;
+    expect(props.action.enum).toEqual([...NATIVE_ACTION_KIND_VALUES]);
+  });
+
+  it('enum is additive: every Wave-0 element verb is still present', async () => {
+    const tool = await getTool('native_session_action');
+    const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>;
+    const wave0ElementVerbs = [
+      'click', 'press', 'fill', 'type', 'focus', 'showMenu', 'increment',
+      'decrement', 'confirm', 'cancel', 'scroll', 'scrollToVisible', 'check', 'select',
+    ];
+    for (const verb of wave0ElementVerbs) expect(props.action.enum).toContain(verb);
+  });
+
+  it('enum exposes the three Epic-2 capability kinds', async () => {
+    const tool = await getTool('native_session_action');
+    const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>;
+    for (const kind of ['keystroke', 'app', 'menuPath']) expect(props.action.enum).toContain(kind);
+  });
+
+  it('capability param schemas are present: chord, op (launch/switch/quit), app, menuPath', async () => {
+    const tool = await getTool('native_session_action');
+    const props = tool.inputSchema.properties as Record<
+      string,
+      { type?: string; enum?: string[]; items?: { type?: string } }
+    >;
+    expect(props.chord.type).toBe('string');
+    expect(props.op.enum).toEqual(['launch', 'switch', 'quit']);
+    expect(props.app.type).toBe('string');
+    expect(props.menuPath.type).toBe('array');
+    expect(props.menuPath.items?.type).toBe('string');
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// E4-B — per-kind target requiredness (target left the top-level `required`
+// array; element kinds must still reject a missing target at runtime)
+// ════════════════════════════════════════════════════════════════════════════
+describe('E4-B: per-kind target requiredness', () => {
+  const SID = 'e4b-target-requiredness';
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    await seed(SID, { driver: null, type: 'macos', app: 'DemoApp', pid: 9999, createdAt: Date.now() });
+  });
+  afterEach(async () => { await seed(SID, null); });
+
+  it('element kind (press) with no target is rejected, not silently accepted', async () => {
+    idx.extractMacOSElements.mockResolvedValue({
+      window: windowInfo,
+      elements: [macElement({ title: 'Save', path: [0] })],
+    });
+    const res = await call('native_session_action', { sessionId: SID, action: 'press' });
+    expect(res.isError).toBe(true);
+    const p = parse(res);
+    expect(p.success).toBe(false);
+  });
+
+  it('capability kind (keystroke) with no target is accepted by the schema and reaches the dormant not-implemented outcome, not a target error', async () => {
+    const res = await call('native_session_action', { sessionId: SID, action: 'keystroke', chord: 'Meta+n' });
+    expect(res.isError).toBe(true);
+    const p = parse(res) as { success: boolean; validator: { observed: string } };
+    expect(p.success).toBe(false);
+    // Dormant Epic-2 capability, not a missing-target rejection.
+    expect(p.validator.observed).toMatch(/not implemented/i);
+  });
+
+  it('capability kind (app) with no target is accepted by the schema and reaches the dormant not-implemented outcome', async () => {
+    const res = await call('native_session_action', { sessionId: SID, action: 'app', op: 'switch' });
+    expect(res.isError).toBe(true);
+    const p = parse(res) as { success: boolean; validator: { observed: string } };
+    expect(p.success).toBe(false);
+    expect(p.validator.observed).toMatch(/not implemented/i);
+  });
+
+  it('capability kind (menuPath) with no target is accepted by the schema and reaches the dormant not-implemented outcome', async () => {
+    const res = await call('native_session_action', { sessionId: SID, action: 'menuPath', menuPath: ['File', 'New Window'] });
+    expect(res.isError).toBe(true);
+    const p = parse(res) as { success: boolean; validator: { observed: string } };
+    expect(p.success).toBe(false);
+    expect(p.validator.observed).toMatch(/not implemented/i);
   });
 });
