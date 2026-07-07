@@ -1037,6 +1037,54 @@ export { promoteToGlobal, seedFromGlobal, listGlobalPreferences, removeGlobalPre
 // Native iOS/watchOS simulator support
 export * from './native/index.js';
 
+// Per-action feedback-loop contract (frozen v1, chunk C0). INTERNAL-ONLY on the
+// wire at C0; native wire gains validator/evidence at E2-B, web wire at E3-E.
+export type {
+  ActionOutcome,
+  ActionValidator,
+  ActionProvenance,
+  ActionEvidence,
+  RankedCandidate,
+} from './action-outcome.js';
+export { notImplementedOutcome } from './action-outcome.js';
+
+// Native session controller + backend seam (frozen v1 contract, chunk C0).
+export {
+  NativeSessionController,
+  nativeSessionController,
+  nativeStateSignature,
+  mapSessionActionToNative,
+  formatNativeCandidate,
+  safeFilePart,
+} from './native/session-controller.js';
+export type {
+  NativeToolResult,
+  NativeActionKind,
+  ElementActionKind,
+  NativeActionRequest,
+  ElementActionRequest,
+  KeystrokeActionRequest,
+  AppLifecycleActionRequest,
+  MenuActionRequest,
+  NativeSessionActionRequest,
+} from './native/session-controller.js';
+export {
+  RespawnBackend,
+  getNativeBackend,
+  __setNativeBackend,
+} from './native/backend.js';
+export type {
+  NativeBackend,
+  NativeSessionTarget,
+  NativeExtraction,
+  NativePerformInput,
+  NativeScreenshotCapture,
+  KeystrokeSpec,
+  LifecycleSpec,
+  MenuSpec,
+  AppLifecycleOp,
+} from './native/backend.js';
+
 // Browser transport exports
 export type { BrowserMode, BrowserConnectionOptions, BrowserOptions } from './engine/cdp/browser.js';
 export type { BrowserLaunchOptions } from './types.js';

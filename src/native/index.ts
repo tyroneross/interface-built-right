@@ -47,3 +47,8 @@ export type {
   LayoutFillOptions,
   ElementSizeReport,
 } from './layout-fill.js';
+
+// NOTE: the native session controller + backend seam are exported from the
+// package root (src/index.ts), not re-exported here — `backend.ts` and
+// `session-controller.ts` import from this barrel, so re-exporting them here
+// would create an import cycle.

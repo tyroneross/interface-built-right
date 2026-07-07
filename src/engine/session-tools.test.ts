@@ -137,11 +137,7 @@ describe('TOOLS array completeness', () => {
     for (const property of ['browser', 'app', 'simulator']) expect(props).toHaveProperty(property)
   })
 
-  it('native_session_start schema includes app, pid, and simulator target fields', async () => {
-    const tool = await getTool('native_session_start')
-    const props = (tool.inputSchema.properties as Record<string, unknown>)
-    for (const property of ['app', 'pid', 'simulator']) expect(props).toHaveProperty(property)
-  })
+  // native_session_start schema test relocated to src/mcp/native-tools.test.ts (C0).
 
   it('session_start browser field has chrome/safari enum', async () => {
     const tool = await getTool('session_start')
@@ -189,25 +185,8 @@ describe('TOOLS array completeness', () => {
     expect(text).toContain('requires either url or sessionId')
   })
 
-  it('native_session_action supports cursor-free AX action verbs', async () => {
-    const tool = await getTool('native_session_action')
-    const props = tool.inputSchema.properties as Record<string, { enum?: string[] }>
-    expect(props.action.enum).toContain('showMenu')
-    expect(props.action.enum).toContain('scrollToVisible')
-    expect(tool.inputSchema.required).toEqual(['sessionId', 'action', 'target'])
-  })
-
-  it('native_session_start accepts a direct macOS pid and can close it', async () => {
-    const start = await callTool('native_session_start', { pid: 12345 })
-    expect(start.isError).not.toBe(true)
-    const startText = (start.content[0] as { text: string }).text
-    const parsed = JSON.parse(startText) as { sessionId: string; pid: number; hostCursorAffected: boolean }
-    expect(parsed.pid).toBe(12345)
-    expect(parsed.hostCursorAffected).toBe(false)
-
-    const close = await callTool('native_session_close', { sessionId: parsed.sessionId })
-    expect(close.isError).not.toBe(true)
-  })
+  // native_session_action verbs + native_session_start pid tests relocated to
+  // src/mcp/native-tools.test.ts (C0).
 })
 
 // ─── Multi-platform session dispatch ─────────────────────────────────────────

@@ -62,32 +62,12 @@ describe('R2: session_read schema defaults', () => {
     expect(props.what.default).toBe('observe');
   });
 
-  it('native_session_read does NOT require `what` (defaults to observe)', () => {
-    const tool = findTool('native_session_read');
-    const required = (tool.inputSchema as { required?: string[] }).required ?? [];
-    expect(required).toContain('sessionId');
-    expect(required).not.toContain('what');
-  });
-
-  it('native_session_read `what` schema advertises default=observe', () => {
-    const tool = findTool('native_session_read');
-    const props = (tool.inputSchema as unknown as { properties: Record<string, { default?: string }> }).properties;
-    expect(props.what.default).toBe('observe');
-  });
+  // native_session_read schema-default tests relocated to
+  // src/mcp/native-tools.test.ts (C0).
 });
 
-describe('native_session_action post-action settling schema', () => {
-  it('advertises waitFor and waitTimeoutMs without requiring them', () => {
-    const tool = findTool('native_session_action');
-    const required = (tool.inputSchema as { required?: string[] }).required ?? [];
-    const props = (tool.inputSchema as unknown as { properties: Record<string, { type?: string }> }).properties;
-
-    expect(props.waitFor.type).toBe('string');
-    expect(props.waitTimeoutMs.type).toBe('number');
-    expect(required).not.toContain('waitFor');
-    expect(required).not.toContain('waitTimeoutMs');
-  });
-});
+// native_session_action post-action settling schema test relocated to
+// src/mcp/native-tools.test.ts (C0).
 
 describe('R2: session_read description mentions the default', () => {
   it('session_read description names observe as the default', () => {
@@ -96,11 +76,8 @@ describe('R2: session_read description mentions the default', () => {
     expect(tool.description).toMatch(/observe/);
   });
 
-  it('native_session_read description names observe as the default', () => {
-    const tool = findTool('native_session_read');
-    expect(tool.description).toMatch(/default/i);
-    expect(tool.description).toMatch(/observe/);
-  });
+  // native_session_read description test relocated to
+  // src/mcp/native-tools.test.ts (C0).
 });
 
 // ─── f5: normalizeReadMode must lowercase its input ──────────────────────────
