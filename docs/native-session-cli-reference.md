@@ -12,14 +12,15 @@ is identical across surfaces (PRD: `docs/superpowers/specs/2026-06-28-ibr-native
 | MCP — `native_session_start/read/action/close` | Thin agent adapter for Claude Code / Codex. |
 | CLI — `ibr native:session:{start,read,action,close}` | Deterministic replay, CI smoke tests, shell repro of an agent-reported failure. |
 
-> **Status note (2026-07-06):** the `keystroke` action kind is live (both
-> `RespawnBackend` and `DaemonBackend` implement it — E2-B). The `app` (lifecycle)
-> and `menuPath` action kinds are **exposed on the MCP schema and CLI flags but
-> dormant** — every backend currently returns a structured `not-implemented`
-> outcome for them (`notImplementedOutcome()` in `src/action-outcome.ts`) until
-> Epic 2's remaining chunks (E2-C lifecycle, E2-D menu) land. See
-> `CHANGELOG.md` for the release gate this implies — **no version bump or
-> GitHub Release ships while `app`/`menuPath` are still dormant.**
+> **Status note (2026-07-06):** all three capability action kinds are **live** —
+> `keystroke` (CGEvent chord synthesis, E2-B), `app` (launch/switch/quit lifecycle,
+> E2-C), and `menuPath` (AXMenu traversal, E2-D). No backend returns
+> `not-implemented` for them anymore. Known limitation: `app` `quit` can fail with
+> `osascript -128` when the machine has `NSCloseAlwaysConfirmsChanges=1` and the app
+> has an unsaved document — surfaced honestly as `success:false` with evidence (no
+> force-quit, to avoid discarding unsaved work). See `CHANGELOG.md` for the release
+> gate: no version bump / GitHub Release ships until the Increment-1 final
+> verification (V1) passes.
 
 ---
 
@@ -96,9 +97,10 @@ Response (`content[0].text`, live via `DaemonBackend`/`RespawnBackend` keystroke
 
 `target` is optional for `keystroke` — omit it to send the chord to the
 currently focused element, or pass an accessible name to focus first. `app`
-and `menuPath` accept the same request shape but currently return
-`success: false` with `validator.observed: "<capability> not implemented by
-the active native backend"` (dormant — see the status note above).
+(`op: launch|switch|quit`) and `menuPath` (an array of menu titles) accept the
+same request shape and are **live**: they execute the lifecycle / menu action and
+return a real `ActionOutcome` with a validator confirming the observed state
+change (`success: false` only when the action genuinely did not take effect).
 
 ### CLI — the shell repro
 
