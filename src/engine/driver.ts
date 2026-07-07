@@ -323,6 +323,9 @@ export class EngineDriver implements BrowserDriver {
     await this._page.enableLifecycleEvents()
     await this.ax.enable()
     await this.console.enable()
+    // E3-B: real Network-domain request/response tracking, backing
+    // networkidle/waitForResponse in compat.ts (see cdp/network.ts).
+    await this.network.enable()
 
     // Apply device emulation (metrics + UA + touch) BEFORE the first
     // navigate so the initial document request sees the emulated device.
@@ -1348,6 +1351,7 @@ export class EngineDriver implements BrowserDriver {
     await this._page.enableLifecycleEvents()
     await this.ax.enable()
     await this.console.enable()
+    await this.network.enable()
   }
 }
 

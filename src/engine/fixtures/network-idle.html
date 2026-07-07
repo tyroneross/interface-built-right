@@ -1,0 +1,32 @@
+<!doctype html>
+<!--
+  IBR network-idle fixture (E3-B / T-07).
+
+  Served over a local HTTP server (not file://, since file:// pages cannot
+  reliably fetch() same-directory resources due to CORS). After a short
+  delay, fires a same-origin fetch() to a slow endpoint that the test's
+  server holds open for a known duration. Used to prove
+  waitForNetworkIdle()/waitForResponse() are driven by REAL CDP
+  Network-domain events (requestWillBeSent -> responseReceived ->
+  loadingFinished), not AX-tree stability or a fixed sleep.
+
+  No personal content — synthetic labels only.
+-->
+<html>
+<head><title>IBR Network Idle Fixture</title></head>
+<body>
+  <div id="status">idle</div>
+  <script>
+    window.__ibrNet = { fetchStarted: false, fetchDone: false, startedAt: null, doneAt: null };
+    setTimeout(function () {
+      window.__ibrNet.fetchStarted = true;
+      window.__ibrNet.startedAt = performance.now();
+      fetch('/slow-endpoint').then(function () {
+        window.__ibrNet.fetchDone = true;
+        window.__ibrNet.doneAt = performance.now();
+        document.getElementById('status').textContent = 'done';
+      });
+    }, 50);
+  </script>
+</body>
+</html>

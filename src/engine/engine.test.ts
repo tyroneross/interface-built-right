@@ -28,6 +28,8 @@ import {
   assessUnderstanding,
 } from './index.js'
 import type { Element, Snapshot } from './types.js'
+import { NetworkDomain } from './cdp/network.js'
+import type { CdpConnection } from './cdp/connection.js'
 
 // ─── Normalize ──────────────────────────────────────────────
 
@@ -538,5 +540,130 @@ describe('actionability verbs — static falsifier', () => {
 
     const verbRegion = src.slice(startIdx, endIdx)
     expect(verbRegion).not.toMatch(/setTimeout/)
+  })
+})
+
+// ─── NetworkDomain — real event tracking (E3-B / T-07 falsifier) ──────────
+//
+// The live-Chrome fixture test (real fetch, real timing) lives in
+// compat.test.ts. This block is the deterministic falsifier: a fake
+// CdpConnection double gives full control over whether Network.* CDP
+// events are ever delivered, so it can directly prove the negative case
+// named in the acceptance criterion — "test passes with Network-domain
+// events disabled -> the wait is fake" — without depending on browser
+// timing.
+
+interface FakeCdpConnection {
+  send: (method: string, params?: Record<string, unknown>, sessionId?: string) => Promise<unknown>
+  on: (method: string, handler: (params: unknown) => void) => void
+  off: (method: string, handler: (params: unknown) => void) => void
+  emit: (method: string, params: unknown) => void
+}
+
+function createFakeConnection(): FakeCdpConnection {
+  const handlers = new Map<string, Set<(params: unknown) => void>>()
+  return {
+    async send() {
+      return {}
+    },
+    on(method, handler) {
+      if (!handlers.has(method)) handlers.set(method, new Set())
+      handlers.get(method)!.add(handler)
+    },
+    off(method, handler) {
+      handlers.get(method)?.delete(handler)
+    },
+    emit(method, params) {
+      for (const h of handlers.get(method) ?? []) h(params)
+    },
+  }
+}
+
+describe('NetworkDomain — real event tracking (falsifier for E3-B / T-07)', () => {
+  it('FALSIFIER: reports idle immediately (WRONG) when Network-domain events are never wired', async () => {
+    // enable() is deliberately NOT called — simulates "Network-domain
+    // events disabled". A request is announced directly on the fake
+    // connection's event bus, but since NetworkDomain never registered a
+    // handler for it, the request is invisible to the tracker.
+    const fake = createFakeConnection()
+    const net = new NetworkDomain(fake as unknown as CdpConnection)
+    expect(net.tracking).toBe(false)
+
+    fake.emit('Network.requestWillBeSent', { requestId: 'r1', request: { url: 'http://x.test/slow' } })
+
+    const result = await net.waitForNetworkIdle({ idleMs: 10, maxInflight: 0, timeout: 100 })
+    // A REAL wait would still see the in-flight request and time out; this
+    // proves that without event wiring, "idle" is reported immediately and
+    // incorrectly — the disabled path is fake by construction.
+    expect(result.timedOut).toBe(false)
+    expect(result.inflightCount).toBe(0)
+  })
+
+  it('correctly blocks idle on a real in-flight request once tracking is enabled, and resolves after loadingFinished', async () => {
+    const fake = createFakeConnection()
+    const net = new NetworkDomain(fake as unknown as CdpConnection)
+    await net.enable()
+    expect(net.tracking).toBe(true)
+
+    fake.emit('Network.requestWillBeSent', { requestId: 'r1', request: { url: 'http://x.test/slow' } })
+
+    const blocked = await net.waitForNetworkIdle({ idleMs: 10, maxInflight: 0, timeout: 100 })
+    expect(blocked.timedOut).toBe(true) // correctly NOT idle — request still in flight
+    expect(blocked.inflightCount).toBe(1)
+
+    fake.emit('Network.loadingFinished', { requestId: 'r1' })
+
+    const idleNow = await net.waitForNetworkIdle({ idleMs: 10, maxInflight: 0, timeout: 200 })
+    expect(idleNow.timedOut).toBe(false)
+    expect(idleNow.inflightCount).toBe(0)
+  })
+
+  it('a failed request (loadingFailed) also clears in-flight state', async () => {
+    const fake = createFakeConnection()
+    const net = new NetworkDomain(fake as unknown as CdpConnection)
+    await net.enable()
+
+    fake.emit('Network.requestWillBeSent', { requestId: 'r1', request: { url: 'http://x.test/broken' } })
+    expect(net.inflightCount).toBe(1)
+
+    fake.emit('Network.loadingFailed', { requestId: 'r1' })
+    expect(net.inflightCount).toBe(0)
+  })
+
+  it('disableTracking() re-creates the disabled falsifier after enable() — proves tracking is what matters, not construction order', async () => {
+    const fake = createFakeConnection()
+    const net = new NetworkDomain(fake as unknown as CdpConnection)
+    await net.enable()
+    net.disableTracking()
+    expect(net.tracking).toBe(false)
+
+    fake.emit('Network.requestWillBeSent', { requestId: 'r1', request: { url: 'http://x.test/slow' } })
+    const result = await net.waitForNetworkIdle({ idleMs: 10, maxInflight: 0, timeout: 100 })
+    expect(result.timedOut).toBe(false)
+    expect(result.inflightCount).toBe(0)
+  })
+
+  it('waitForResponse resolves only once a matching Network.responseReceived event fires', async () => {
+    const fake = createFakeConnection()
+    const net = new NetworkDomain(fake as unknown as CdpConnection)
+    await net.enable()
+
+    const pending = net.waitForResponse((url) => url.includes('/match'), { timeout: 500 })
+    fake.emit('Network.responseReceived', { requestId: 'r2', response: { url: 'http://x.test/no-match', status: 200 } })
+    fake.emit('Network.responseReceived', { requestId: 'r3', response: { url: 'http://x.test/match', status: 201 } })
+
+    const result = await pending
+    expect(result.status).toBe(201)
+    expect(result.url).toBe('http://x.test/match')
+  })
+
+  it('waitForResponse rejects on timeout when no matching response ever arrives', async () => {
+    const fake = createFakeConnection()
+    const net = new NetworkDomain(fake as unknown as CdpConnection)
+    await net.enable()
+
+    await expect(
+      net.waitForResponse((url) => url.includes('/never'), { timeout: 100 }),
+    ).rejects.toThrow(/timed out/i)
   })
 })

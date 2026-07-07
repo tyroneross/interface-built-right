@@ -3,9 +3,11 @@
  * Verifies that CompatPage provides the same API surface IBR modules expect.
  */
 
-import { describe, it, expect, afterAll } from 'vitest'
+import { describe, it, expect, afterAll, beforeAll } from 'vitest'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
+import { readFileSync } from 'fs'
+import { createServer, type Server } from 'http'
 import { EngineDriver } from './driver.js'
 import {
   CompatPage,
@@ -305,5 +307,98 @@ describe('EngineDriver actionability (live Chrome fixture)', () => {
     expect(revealedAt).toBeDefined()
     const value = await driver.evaluate('document.getElementById("type-input").value')
     expect(value).toBe('hi')
+  }, 15000)
+})
+
+// ─── Real network awareness (live Chrome, E3-B / T-07) ────────────────────
+//
+// The fixture fires a same-origin fetch() ~50ms after load, held open by
+// the test's own HTTP server for FETCH_DELAY_MS. Proves
+// waitForNetworkIdle/waitForLoadState('networkidle')/waitForResponse are
+// driven by REAL CDP Network-domain events (requestWillBeSent ->
+// responseReceived -> loadingFinished), not AX-tree stability or a fixed
+// sleep. A local HTTP server is used instead of file:// because file://
+// pages cannot reliably fetch() same-directory resources (blocked as
+// cross-origin).
+//
+// The deterministic falsifier ("test passes with Network-domain events
+// disabled -> the wait is fake") lives in engine.test.ts as a fake-CDP-
+// connection unit test — it directly proves the disabled path reports
+// false idle. This block is the live-Chrome end-to-end proof: real timing
+// against a real fetch.
+
+describe('CompatPage / NetworkDomain — real network events (live Chrome fixture)', () => {
+  const FETCH_DELAY_MS = 400
+  const fixtureHtml = readFileSync(join(__dirname, 'fixtures', 'network-idle.html'), 'utf-8')
+  let server: Server
+  let baseUrl: string
+
+  beforeAll(async () => {
+    const result = await new Promise<{ server: Server; url: string }>((resolve) => {
+      const srv = createServer((req, res) => {
+        if (req.url === '/slow-endpoint') {
+          setTimeout(() => {
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: true }))
+          }, FETCH_DELAY_MS)
+          return
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html' })
+        res.end(fixtureHtml)
+      })
+      srv.listen(0, '127.0.0.1', () => {
+        const address = srv.address()
+        const port = typeof address === 'object' && address ? address.port : 0
+        resolve({ server: srv, url: `http://127.0.0.1:${port}/` })
+      })
+    })
+    server = result.server
+    baseUrl = result.url
+  })
+
+  afterAll(async () => {
+    // Chrome keeps the HTTP/1.1 keep-alive socket open after each fetch, so
+    // a plain server.close() would hang waiting for it to close naturally.
+    // closeAllConnections() (Node 18.2+) forces them shut so close()'s
+    // callback actually fires.
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  it('waitForNetworkIdle does NOT report idle while the fetch is still in flight (short deadline times out)', async () => {
+    await ensureLaunched()
+    await driver.navigate(baseUrl, { waitFor: 'none' })
+    // The fetch fires ~50ms after load and stays open for FETCH_DELAY_MS.
+    // A 150ms total budget is well short of that — a REAL wait must report
+    // timedOut:true here; a faked/AX-based wait would report idle instantly
+    // since the AX tree never changes on this page.
+    const result = await driver.networkDomain.waitForNetworkIdle({
+      idleMs: 50, maxInflight: 0, timeout: 150,
+    })
+    expect(result.timedOut).toBe(true)
+  }, 15000)
+
+  it('waitForLoadState("networkidle") resolves only after the real fetch completes', async () => {
+    await ensureLaunched()
+    await driver.navigate(baseUrl, { waitFor: 'none' })
+    const start = Date.now()
+    await page.waitForLoadState('networkidle', { timeout: 5000 })
+    const elapsed = Date.now() - start
+    const fetchDone = await driver.evaluate('window.__ibrNet.fetchDone')
+    expect(fetchDone).toBe(true)
+    // Must have actually waited roughly the fetch's duration, not returned
+    // instantly — proves this isn't a no-op or a short fixed sleep.
+    expect(elapsed).toBeGreaterThanOrEqual(FETCH_DELAY_MS - 50)
+  }, 15000)
+
+  it('waitForResponse resolves with the matched response once it actually arrives', async () => {
+    await ensureLaunched()
+    await driver.navigate(baseUrl, { waitFor: 'none' })
+    const start = Date.now()
+    const response = await page.waitForResponse((url) => url.includes('/slow-endpoint'), { timeout: 5000 })
+    const elapsed = Date.now() - start
+    expect(response.status).toBe(200)
+    expect(response.url).toContain('/slow-endpoint')
+    expect(elapsed).toBeGreaterThanOrEqual(FETCH_DELAY_MS - 50)
   }, 15000)
 })

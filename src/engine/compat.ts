@@ -254,10 +254,18 @@ export class CompatPage {
   constructor(private driver: EngineDriver) {}
 
   async goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<void> {
+    const waitUntil = options?.waitUntil
     await this.driver.navigate(url, {
-      waitFor: options?.waitUntil === 'networkidle' ? 'stable' : 'load',
+      // networkidle used to be faked as AX-tree stability ('stable'); real
+      // network quiescence is applied below via NetworkDomain instead, so
+      // navigate() itself only needs to wait for the document to commit.
+      waitFor: waitUntil === 'networkidle' ? 'none' : 'load',
       timeout: options?.timeout,
     })
+    if (waitUntil === 'networkidle') {
+      // Real CDP Network-domain quiescence (E3-B) — see cdp/network.ts.
+      await this.driver.networkDomain.waitForNetworkIdle({ timeout: options?.timeout ?? 10000 })
+    }
   }
 
   async evaluate<T>(fnOrExpr: string | ((...args: unknown[]) => T), ...args: unknown[]): Promise<T> {
@@ -316,13 +324,39 @@ export class CompatPage {
   }
 
   async waitForLoadState(_state?: string, _options?: { timeout?: number }): Promise<void> {
-    // Best effort: wait for AX tree stability
-    await this.driver.navigate(this.driver.url, { waitFor: 'stable', timeout: _options?.timeout ?? 10000 }).catch(() => {})
+    // Real CDP Network-domain quiescence (E3-B) — replaces the previous
+    // re-navigate-to-current-URL AX-stability hack, which re-triggered a
+    // full navigation just to get an AX "settled" signal. `_state` is kept
+    // for Playwright-shape parity; every current caller (scan.ts,
+    // browser-server.ts, index.ts, flows/types.ts) passes 'networkidle'.
+    await this.driver.networkDomain.waitForNetworkIdle({ timeout: _options?.timeout ?? 10000 })
   }
 
   async waitForNavigation(): Promise<void> {
-    // Wait a bit for navigation to settle
-    await new Promise((r) => setTimeout(r, 500))
+    // Real CDP Network-domain quiescence (E3-B) — replaces the previous
+    // fixed 500ms sleep. Never throws (matches the old fire-and-forget
+    // semantics); bounded by a generous default timeout.
+    await this.driver.networkDomain.waitForNetworkIdle({ timeout: 10000 })
+  }
+
+  /**
+   * Wait for a response matching `urlOrPredicate` (substring, RegExp, or a
+   * `(url, status) => boolean` predicate). Resolves with `{url, status}` the
+   * moment a matching `Network.responseReceived` CDP event fires — real
+   * network awareness (E3-B), not a fixed sleep or polling guess. New API
+   * surface; no existing caller to preserve compatibility with.
+   */
+  async waitForResponse(
+    urlOrPredicate: string | RegExp | ((url: string, status: number) => boolean),
+    options?: { timeout?: number },
+  ): Promise<{ url: string; status: number }> {
+    const predicate: (url: string, status: number) => boolean =
+      typeof urlOrPredicate === 'function'
+        ? urlOrPredicate
+        : typeof urlOrPredicate === 'string'
+          ? (url) => url.includes(urlOrPredicate)
+          : (url) => (urlOrPredicate as RegExp).test(url)
+    return this.driver.networkDomain.waitForResponse(predicate, options)
   }
 
   async content(): Promise<string> {
