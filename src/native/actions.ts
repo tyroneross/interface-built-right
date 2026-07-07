@@ -25,7 +25,8 @@ export type NativeAction =
   | 'confirm'
   | 'cancel'
   | 'focus'
-  | 'scrollToVisible';
+  | 'scrollToVisible'
+  | 'drag';
 
 export interface NativeActionOptions {
   pid: number;

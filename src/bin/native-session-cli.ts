@@ -421,7 +421,7 @@ export function registerNativeSessionCommands(program: Command): void {
   program
     .command('native:session:action <sessionId>')
     .description('Perform a native session action by accessible name (CLI parity for native_session_action)')
-    .requiredOption('--action <kind>', 'click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|keystroke|app|menuPath')
+    .requiredOption('--action <kind>', 'click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|drag|keystroke|app|menuPath')
     .option('--target <name>', 'Accessible name / AX identifier / description / value to target')
     .option('--value <text>', 'Text for fill/type actions')
     .option('--role <role>', 'Optional role filter')

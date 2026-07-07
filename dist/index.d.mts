@@ -6204,7 +6204,7 @@ type SessionEntry = {
  * and the coordinate-based IDB interaction API.
  */
 
-type NativeAction = 'press' | 'select' | 'setValue' | 'increment' | 'decrement' | 'showMenu' | 'confirm' | 'cancel' | 'focus' | 'scrollToVisible';
+type NativeAction = 'press' | 'select' | 'setValue' | 'increment' | 'decrement' | 'showMenu' | 'confirm' | 'cancel' | 'focus' | 'scrollToVisible' | 'drag';
 interface NativeActionResult {
     success: boolean;
     action: string;
@@ -6593,7 +6593,7 @@ type NativeToolResult = {
     metadata: string;
 };
 /** Element-targeting action kinds — `target` is REQUIRED. */
-type ElementActionKind = 'click' | 'press' | 'fill' | 'type' | 'focus' | 'showMenu' | 'increment' | 'decrement' | 'confirm' | 'cancel' | 'scroll' | 'scrollToVisible' | 'check' | 'select';
+type ElementActionKind = 'click' | 'press' | 'fill' | 'type' | 'focus' | 'showMenu' | 'increment' | 'decrement' | 'confirm' | 'cancel' | 'scroll' | 'scrollToVisible' | 'check' | 'select' | 'drag';
 /** The full v1 native action kind union (element verbs + Epic-2 capabilities). */
 type NativeActionKind = ElementActionKind | 'keystroke' | 'app' | 'menuPath';
 /** Element action — `target` required. */

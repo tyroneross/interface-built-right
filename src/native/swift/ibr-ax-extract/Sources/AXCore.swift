@@ -443,6 +443,25 @@ func performAction(pid: pid_t, deviceName: String?, elementPath: [Int], action: 
     case "scrollToVisible":
         let ok = AXUIElementPerformAction(element, "AXScrollToVisible" as CFString) == .success
         return (ok, ok ? nil : "AXScrollToVisible failed")
+    case "drag":
+        // Pointer-injection drag from the element's center by a "dx,dy" point
+        // delta. Used for split/inspector dividers that expose no settable
+        // AXValue and no increment/decrement. Gated upstream by the Node
+        // controller (IBR_ALLOW_POINTER_INJECTION); reaching here means the
+        // caller opted in. NOT cursor-free — see Mouse.swift.
+        guard let value = value else {
+            return (false, "drag requires --value \"dx,dy\" (point delta from element center)")
+        }
+        let parts = value.split(separator: ",").map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 2, let dx = parts[0], let dy = parts[1] else {
+            return (false, "drag --value must be \"dx,dy\" in points, e.g. \"-150,0\"")
+        }
+        guard let pos = getPosition(element), let size = getSize(element) else {
+            return (false, "drag: targeted element has no frame")
+        }
+        let start = CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+        let end = CGPoint(x: start.x + dx, y: start.y + dy)
+        return performMouseDrag(pid: pid, from: start, to: end)
     default:
         return (false, "Unknown action: \(action)")
     }

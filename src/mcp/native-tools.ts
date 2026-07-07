@@ -38,7 +38,7 @@ import type { AppLifecycleOp } from '../native/backend.js';
 export const NATIVE_ACTION_KIND_VALUES = [
   'click', 'press', 'fill', 'type', 'focus', 'showMenu', 'increment',
   'decrement', 'confirm', 'cancel', 'scroll', 'scrollToVisible', 'check',
-  'select', 'keystroke', 'app', 'menuPath',
+  'select', 'drag', 'keystroke', 'app', 'menuPath',
 ] as const;
 
 /**
@@ -314,7 +314,7 @@ export const NATIVE_SESSION_TOOLS = [
   {
     name: "native_session_action",
     description:
-      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select — or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`.",
+      "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select — or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`. `drag` (target + `value` \"dx,dy\" point delta) is the one non-cursor-free verb — for split/inspector dividers with no settable AXValue — and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -322,7 +322,7 @@ export const NATIVE_SESSION_TOOLS = [
         action: {
           type: "string",
           enum: [...NATIVE_ACTION_KIND_VALUES],
-          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select) require `target`. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`.",
+          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value=\"dx,dy\" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`.",
         },
         target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
         value: { type: "string", description: "Text for fill/type/setValue actions" },

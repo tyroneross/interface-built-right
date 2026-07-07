@@ -90,7 +90,8 @@ export type ElementActionKind =
   | 'scroll'
   | 'scrollToVisible'
   | 'check'
-  | 'select';
+  | 'select'
+  | 'drag';
 
 /** The full v1 native action kind union (element verbs + Epic-2 capabilities). */
 export type NativeActionKind = ElementActionKind | 'keystroke' | 'app' | 'menuPath';
@@ -697,6 +698,16 @@ export function nativeStateSignature(window: unknown, candidates: NativeElementC
   });
 }
 
+/**
+ * Whether pointer-style event injection (real cursor drag) is opted in.
+ * Off by default so native sessions stay cursor-free; enabled via
+ * IBR_ALLOW_POINTER_INJECTION (`1`/`true`/`yes`, case-insensitive).
+ */
+export function isPointerInjectionAllowed(): boolean {
+  const flag = (process.env.IBR_ALLOW_POINTER_INJECTION ?? '').trim().toLowerCase();
+  return flag === '1' || flag === 'true' || flag === 'yes';
+}
+
 export function mapSessionActionToNative(
   action: string,
   value?: string,
@@ -730,6 +741,22 @@ export function mapSessionActionToNative(
     case 'scroll':
     case 'scrollToVisible':
       return { action: 'scrollToVisible' };
+    case 'drag':
+      // Pointer-injection drag (e.g. a split/inspector divider with no settable
+      // AXValue). Refused by default to preserve the cursor-free stance; the
+      // caller must opt in via IBR_ALLOW_POINTER_INJECTION. When enabled it
+      // moves the real cursor. `value` carries the "dx,dy" point delta.
+      if (!isPointerInjectionAllowed()) {
+        return {
+          error:
+            `drag requires pointer-style event injection, which is off by default (cursor-free stance). ` +
+            `Set IBR_ALLOW_POINTER_INJECTION=1 to enable it — note this moves the host cursor.`,
+        };
+      }
+      if (value === undefined) {
+        return { error: `drag requires 'value' as "dx,dy" point delta from the element center, e.g. "-150,0".` };
+      }
+      return { action: 'drag', value };
     case 'hover':
     case 'doubleClick':
     case 'rightClick':

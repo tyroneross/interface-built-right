@@ -17541,6 +17541,10 @@ function nativeStateSignature(window2, candidates) {
     ])
   });
 }
+function isPointerInjectionAllowed() {
+  const flag = (process.env.IBR_ALLOW_POINTER_INJECTION ?? "").trim().toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes";
+}
 function mapSessionActionToNative(action, value) {
   switch (action) {
     case "click":
@@ -17568,6 +17572,16 @@ function mapSessionActionToNative(action, value) {
     case "scroll":
     case "scrollToVisible":
       return { action: "scrollToVisible" };
+    case "drag":
+      if (!isPointerInjectionAllowed()) {
+        return {
+          error: `drag requires pointer-style event injection, which is off by default (cursor-free stance). Set IBR_ALLOW_POINTER_INJECTION=1 to enable it \u2014 note this moves the host cursor.`
+        };
+      }
+      if (value === void 0) {
+        return { error: `drag requires 'value' as "dx,dy" point delta from the element center, e.g. "-150,0".` };
+      }
+      return { action: "drag", value };
     case "hover":
     case "doubleClick":
     case "rightClick":
@@ -18547,6 +18561,7 @@ var NATIVE_ACTION_KIND_VALUES = [
   "scrollToVisible",
   "check",
   "select",
+  "drag",
   "keystroke",
   "app",
   "menuPath"
@@ -18719,7 +18734,7 @@ var NATIVE_SESSION_TOOLS = [
   },
   {
     name: "native_session_action",
-    description: "Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select \u2014 or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`.",
+    description: 'Perform a cursor-free native action by accessible name: click/press, fill/type, focus, showMenu, increment, decrement, confirm, cancel, scrollToVisible, check, select \u2014 or an Epic-2 capability kind: keystroke (live chord synthesis to the focused element), app (live lifecycle op: launch/switch/quit), menuPath (live AXMenu traversal). Uses Accessibility APIs instead of moving the host cursor. Element verbs require `target`; keystroke/app/menuPath accept an optional `target`. `drag` (target + `value` "dx,dy" point delta) is the one non-cursor-free verb \u2014 for split/inspector dividers with no settable AXValue \u2014 and is refused unless IBR_ALLOW_POINTER_INJECTION is set, because it moves the host cursor.',
     inputSchema: {
       type: "object",
       properties: {
@@ -18727,7 +18742,7 @@ var NATIVE_SESSION_TOOLS = [
         action: {
           type: "string",
           enum: [...NATIVE_ACTION_KIND_VALUES],
-          description: "Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select) require `target`. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`."
+          description: 'Native action to perform. Element verbs (click/press/fill/type/focus/showMenu/increment/decrement/confirm/cancel/scroll/scrollToVisible/check/select/drag) require `target`. `drag` (value="dx,dy" point delta) is opt-in via IBR_ALLOW_POINTER_INJECTION and moves the host cursor. Capability kinds keystroke/app/menuPath are live (Epic 2) and accept an optional `target`.'
         },
         target: { type: "string", description: "Accessible name, AX identifier, description, or visible value to target. Required for element verbs; optional for keystroke/app/menuPath." },
         value: { type: "string", description: "Text for fill/type/setValue actions" },

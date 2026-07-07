@@ -18678,6 +18678,10 @@ function nativeStateSignature(window2, candidates) {
     ])
   });
 }
+function isPointerInjectionAllowed() {
+  const flag = (process.env.IBR_ALLOW_POINTER_INJECTION ?? "").trim().toLowerCase();
+  return flag === "1" || flag === "true" || flag === "yes";
+}
 function mapSessionActionToNative(action, value) {
   switch (action) {
     case "click":
@@ -18705,6 +18709,16 @@ function mapSessionActionToNative(action, value) {
     case "scroll":
     case "scrollToVisible":
       return { action: "scrollToVisible" };
+    case "drag":
+      if (!isPointerInjectionAllowed()) {
+        return {
+          error: `drag requires pointer-style event injection, which is off by default (cursor-free stance). Set IBR_ALLOW_POINTER_INJECTION=1 to enable it \u2014 note this moves the host cursor.`
+        };
+      }
+      if (value === void 0) {
+        return { error: `drag requires 'value' as "dx,dy" point delta from the element center, e.g. "-150,0".` };
+      }
+      return { action: "drag", value };
     case "hover":
     case "doubleClick":
     case "rightClick":

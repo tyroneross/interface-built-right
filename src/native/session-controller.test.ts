@@ -63,6 +63,23 @@ describe('mapSessionActionToNative — verb dispatch', () => {
     expect(mapSessionActionToNative('press')).toEqual({ action: 'press' });
     expect(mapSessionActionToNative('check')).toEqual({ action: 'press' });
   });
+
+  it('refuses drag by default (cursor-free stance), with an opt-in hint', () => {
+    delete process.env.IBR_ALLOW_POINTER_INJECTION;
+    const r = mapSessionActionToNative('drag', '-150,0');
+    expect('error' in r && /IBR_ALLOW_POINTER_INJECTION/.test(r.error)).toBe(true);
+  });
+
+  it('maps drag to the drag verb when pointer injection is opted in', () => {
+    process.env.IBR_ALLOW_POINTER_INJECTION = '1';
+    try {
+      expect(mapSessionActionToNative('drag', '-150,0')).toEqual({ action: 'drag', value: '-150,0' });
+      // value is required even when enabled
+      expect('error' in mapSessionActionToNative('drag')).toBe(true);
+    } finally {
+      delete process.env.IBR_ALLOW_POINTER_INJECTION;
+    }
+  });
 });
 
 /** Configurable fake backend. */
