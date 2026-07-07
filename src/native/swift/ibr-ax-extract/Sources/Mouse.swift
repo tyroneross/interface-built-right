@@ -23,8 +23,16 @@ import AppKit
 /// Node caller verifies the observable effect via an AX before/after diff.
 func performMouseDrag(pid: pid_t, from start: CGPoint, to end: CGPoint, steps: Int = 20) -> (Bool, String?) {
     guard let app = findAppByPid(pid) else { return (false, "no running app for pid \(pid)") }
+    // Drag events land on the frontmost app, so the target must be active before
+    // we post. A fixed sleep is unreliable right after launch (the window may not
+    // be key yet), so poll until it is actually frontmost, up to ~1.2s.
     app.activate(options: [.activateIgnoringOtherApps])
-    usleep(150_000)
+    var waited = 0
+    while !app.isActive && waited < 1_200_000 {
+        usleep(50_000)
+        waited += 50_000
+    }
+    usleep(100_000)
 
     let source = CGEventSource(stateID: .hidSystemState)
     func post(_ type: CGEventType, _ p: CGPoint) {
