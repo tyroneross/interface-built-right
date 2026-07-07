@@ -11,7 +11,7 @@ IBR is an end-to-end design tool for AI coding agents, with first-class Claude C
 - **Package:** `@tyroneross/interface-built-right` v1.4.0
 - **Runtime:** Node.js >= 22, TypeScript
 - **Dual distribution:** npm package + Claude Code plugin (`.claude-plugin/plugin.json`) + Codex plugin (`.codex-plugin/plugin.json`)
-- **License:** MIT
+- **License:** Apache-2.0
 
 ---
 
@@ -182,6 +182,10 @@ Element resolution by accessible name. Changes affect `interact`, `observe`, `in
 ### Native Scanning — `src/native/`
 
 iOS/watchOS/macOS specific code. Simulator scanning requires a booted device and `simctl` in PATH. IDB (`idb-companion` + `fb-idb`) is required for `type` and `swipe` actions but optional — tap falls back to `simctl`. macOS scanning uses the Accessibility API and requires accessibility permissions.
+
+**Native session controller (API/MCP/CLI split):** `native_session_start/read/action/close` are thin MCP adapters (`src/mcp/native-tools.ts`) over a typed `NativeSessionController` (`src/native/session-controller.ts`, exported from the package root). The same controller backs `ibr native:session:{start,read,action,close}` (`src/bin/native-session-cli.ts`), so API, MCP, and CLI behave identically — see `docs/native-session-cli-reference.md` for one example per surface. `native_session_action`'s action enum is additive: existing element verbs (`click`/`fill`/`type`/`focus`/`showMenu`/`increment`/`decrement`/`confirm`/`cancel`/`scroll`/`scrollToVisible`/`check`/`select`) are unchanged, and it gains `keystroke` (live — real chord synthesis, both backends), `app` (lifecycle launch/switch/quit), and `menuPath` (AXMenu traversal). `app`/`menuPath` are exposed on the schema and CLI flags but currently return a structured `not-implemented` outcome (`success: false`) until their backend capability lands — do not report them as working. Every `keystroke`/`app`/`menuPath` response carries `{ success, validator: { expected, observed, passed }, provenance, evidence? }`; `success` is `true` only when the validator passed, not merely because the call didn't throw.
+
+**Web success-semantics change (`interact`/`session_action`):** these two MCP tools (and CLI `ibr interact`) now return `success` reflecting the same real expected-outcome validator instead of an unconditional `true`. A no-op action (target resolved, nothing changed) returns `success: false` with `validator`/`evidence`. Any integration that assumed `success` was always `true` needs to check `validator.passed` explicitly. See `CHANGELOG.md` for the full before/after and the release gate this increment is under (`app`/`menuPath` dormant → no version bump/GitHub Release yet).
 
 ### Skills — `skills/*.md`
 

@@ -21,7 +21,7 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 | Tool | Use For |
 |------|---------|
 | `observe` | See all clickable/fillable elements before interacting |
-| `interact` | Click, type, fill elements by accessible name (e.g. `interact` → action: click, target: "Submit") |
+| `interact` | Click, type, fill elements by accessible name (e.g. `interact` → action: click, target: "Submit"). `success` reflects a real expected-outcome validator — check `validator.passed`, don't assume `success` is always `true` on a no-op |
 | `extract` | Read page headings, buttons, inputs, links after interactions |
 | `interact_and_verify` | Act + capture before/after element diff (elements added/removed) |
 | `scan` | Full page analysis — CSS, handlers, a11y, console errors |
@@ -29,6 +29,7 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 | `snapshot` | Capture visual baseline |
 | `compare` | Compare current vs baseline |
 | `screenshot` | Capture screenshot of any URL |
+| `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app`/`menuPath` (exposed, dormant until their backend capability lands). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` |
 
 ## Core Workflow
 

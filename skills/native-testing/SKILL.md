@@ -26,7 +26,7 @@ IBR scans native Apple UI via the accessibility tree — iOS/watchOS through sim
 | `scan_macos` | Scan a running macOS app via accessibility tree |
 | `native_session_start` | Start a cursor-free native session for a macOS app or simulator |
 | `native_session_read` | Observe/extract native AX elements from an active native session |
-| `native_session_action` | Press, fill, focus, show menus, and scroll via AX without moving the user's cursor |
+| `native_session_action` | Press, fill, focus, show menus, and scroll via AX without moving the user's cursor; also `keystroke` (live), `app`/`menuPath` (dormant — see below) |
 | `native_session_close` | Close the native session record without quitting the app |
 
 ## CLI Reference
@@ -53,18 +53,40 @@ npx ibr scan:macos --app "MyApp"                  # scan your own app
 
 ## Cursor-Free Native Sessions
 
-Use `native_session_*` MCP tools when the agent needs to navigate a running macOS app without taking over the user's mouse cursor.
+Use `native_session_*` MCP tools when the agent needs to navigate a running macOS app without taking over the user's mouse cursor. The same lifecycle is also available as a typed `NativeSessionController` API and as `ibr native:session:*` CLI commands — one controller drives all three surfaces. See `docs/native-session-cli-reference.md` for one example per surface and the full CLI flag/exit-code reference.
 
 1. `native_session_start` with `app: "MyApp"`, `pid: 12345`, or `simulator: "iPhone 16 Pro"`
 2. `native_session_read` with `what: "observe"` to list actionable AX elements, or `what: "screenshot"` when pixel evidence is needed
-3. `native_session_action` with accessible `target` and action (`click`, `fill`, `focus`, `showMenu`, `increment`, `decrement`, `confirm`, `cancel`, `scrollToVisible`)
+3. `native_session_action` with accessible `target` and action:
+   - Element verbs (`target` required): `click`, `fill`, `type`, `focus`, `showMenu`, `increment`, `decrement`, `confirm`, `cancel`, `scroll`, `scrollToVisible`, `check`, `select`
+   - `keystroke` (`target` optional — chord goes to the focused element if omitted): send a chord via `chord`, e.g. `"Meta+n"`, `"Tab"`, `"Escape"`. **Live** — both the default respawn backend and the opt-in daemon backend deliver the chord and validate the result against an AX state diff.
+   - `app` (`target` optional): app lifecycle op via `op: "launch"|"switch"|"quit"` and `app`. **Dormant** — every backend currently returns a structured not-implemented outcome until the app-lifecycle capability lands.
+   - `menuPath` (`target` optional): AXMenu traversal via `menuPath: ["File", "New Window"]`. **Dormant** — same as above, pending the menu-traversal capability.
    - For navigation or async UI, pass `waitFor: "<expected next label or identifier>"` and optionally `waitTimeoutMs` so the tool polls AX state until the next screen appears.
    - If `waitFor` is omitted, the tool still performs a short post-action settle poll and returns `postAction` evidence.
 4. `native_session_close` when done
 
-These actions use Accessibility APIs (`AXPress`, `AXSetValue`, focus/menu actions) rather than CGEvent pointer movement. They require macOS Accessibility permission for the terminal/IDE running IBR. Custom canvas controls or simulator guest controls that do not expose AX actions may still require the simulator HID/IDB path.
+These actions use Accessibility APIs (`AXPress`, `AXSetValue`, focus/menu actions, and — for `keystroke` — `CGEventPostToPid` chord synthesis) rather than pointer movement. They require macOS Accessibility permission for the terminal/IDE running IBR. Custom canvas controls or simulator guest controls that do not expose AX actions may still require the simulator HID/IDB path.
 
 Use direct `pid` targeting when a sandboxed agent can learn the process ID from a desktop host but cannot enumerate processes with `pgrep` or `NSWorkspace`.
+
+Responses for `keystroke`/`app`/`menuPath` carry the structured
+`{ success, validator: { expected, observed, passed }, provenance, evidence? }`
+outcome shape — check `validator.passed`, not just that the call didn't throw,
+before assuming the action worked. Element-verb responses (`click`/`fill`/…)
+keep their existing shape (`success`, `resolved`, `confidence`, `tier`,
+`alternatives`, `postAction`).
+
+### CLI parity
+
+```bash
+npx ibr native:session:start --app "TextEdit" --json
+npx ibr native:session:action <sessionId> --action keystroke --chord "Meta+n" --json
+npx ibr native:session:read <sessionId> --what observe --json
+npx ibr native:session:close <sessionId> --json
+```
+
+Exit codes: `0` ok, `1` action failed, `2` session not found, `3` `--wait-for` timed out, `4` invalid target. Session state persists to `.ibr/native-sessions/<sessionId>.json` between commands (each invocation is a separate process). Full reference: `docs/native-session-cli-reference.md`.
 
 ## Automated Native Checks
 

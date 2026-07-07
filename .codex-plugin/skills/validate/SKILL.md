@@ -14,7 +14,7 @@ Use IBR MCP tools as evidence, not decoration. Validate the rendered interface a
 - `compare`: verify whether current UI changes are expected or regressions.
 - `screenshot`: capture visual evidence when layout, canvas, media, or design-match judgment needs pixels.
 - `observe`: list actionable elements by accessible role and name.
-- `interact` or `interact_and_verify`: click, type, select, and verify state changes.
+- `interact` or `interact_and_verify`: click, type, select, and verify state changes. `success` on the response reflects a real expected-outcome validator, not just that the call didn't throw — a no-op click (target resolved, nothing changed) returns `success: false` with `validator`/`evidence` explaining what was expected vs. observed. Read `validator.passed`, don't assume `success` is always `true`.
 - `flow_search`, `flow_form`, `flow_login`: validate common task flows.
 - `match`: compare an approved visual target against a live page.
 
