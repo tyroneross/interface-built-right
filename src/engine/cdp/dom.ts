@@ -11,10 +11,16 @@ export class DomDomain {
     private sessionId?: string,
   ) {}
 
-  async getElementCenter(backendNodeId: number): Promise<{ x: number; y: number }> {
+  /**
+   * `sessionId` overrides the domain's default session — needed for E3-D
+   * frame support, where a backendNodeId sourced from an out-of-process
+   * iframe target must be resolved against THAT target's session, not the
+   * main page's.
+   */
+  async getElementCenter(backendNodeId: number, sessionId?: string): Promise<{ x: number; y: number }> {
     const result = await this.conn.send<{
       model: { content: number[] }
-    }>('DOM.getBoxModel', { backendNodeId }, this.sessionId)
+    }>('DOM.getBoxModel', { backendNodeId }, sessionId ?? this.sessionId)
 
     // content quad: [x1,y1, x2,y2, x3,y3, x4,y4] — four corners
     const q = result.model.content
@@ -23,7 +29,8 @@ export class DomDomain {
     return { x, y }
   }
 
-  async getBoxModel(backendNodeId: number): Promise<{
+  /** See getElementCenter() for the `sessionId` override rationale. */
+  async getBoxModel(backendNodeId: number, sessionId?: string): Promise<{
     content: number[]
     padding: number[]
     border: number[]
@@ -40,7 +47,7 @@ export class DomDomain {
         width: number
         height: number
       }
-    }>('DOM.getBoxModel', { backendNodeId }, this.sessionId)
+    }>('DOM.getBoxModel', { backendNodeId }, sessionId ?? this.sessionId)
     return result.model
   }
 

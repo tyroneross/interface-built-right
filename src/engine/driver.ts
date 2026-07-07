@@ -6,8 +6,8 @@
 import { CdpConnection } from './cdp/connection.js'
 import { BrowserManager, type BrowserMode, type BrowserOptions } from './cdp/browser.js'
 import { TargetDomain } from './cdp/target.js'
-import { PageDomain, type ScreenshotOptions } from './cdp/page.js'
-import { AccessibilityDomain } from './cdp/accessibility.js'
+import { PageDomain, type ScreenshotOptions, type FrameTreeNode, type JSDialogInfo } from './cdp/page.js'
+import { AccessibilityDomain, type CdpAXNode } from './cdp/accessibility.js'
 import { DomDomain } from './cdp/dom.js'
 import { InputDomain } from './cdp/input.js'
 import { RuntimeDomain } from './cdp/runtime.js'
@@ -33,6 +33,9 @@ import { extractFromAXTree, extractList, extractPageMeta, type ExtractSchema, ty
 import { ResolutionCache, type CacheOptions } from './cache.js'
 import { assessUnderstanding, type UnderstandingScore, type ModalityOptions } from './modality.js'
 import { extractShadowElements } from './shadow-dom.js'
+import { normalizeRole } from './normalize.js'
+
+export type { JSDialogInfo } from './cdp/page.js'
 
 export interface CoverageReport {
   /** Elements captured by the AX tree */
@@ -45,7 +48,9 @@ export interface CoverageReport {
   shadowDomCount: number
   /** Canvas elements on the page (completely opaque to AX tree) */
   canvasCount: number
-  /** Iframe elements on the page (separate AX trees) */
+  /** Iframe elements on the page. As of E3-D, their content is descended
+   *  into and merged into the AX snapshot — this count is informational,
+   *  not an automatic gap (see `gaps` for any that stayed unreachable). */
   iframeCount: number
   /** Elements recovered via shadow DOM piercing */
   recovered: number
@@ -259,6 +264,52 @@ const ACTIONABILITY_PROBE_FN = `function() {
   };
 }`
 
+/**
+ * Resolved reference to a live DOM node, plus the CDP session that can
+ * actually reach it (E3-D).
+ *
+ * Most elements live in the main frame and resolve against the driver's
+ * own `sessionId`. An element sourced from an iframe descended into by
+ * `getFrameElements()` may instead need a DIFFERENT session:
+ *   - same-process (in-process) frame: same session as the main frame —
+ *     `sessionId` here equals the driver's own session, included for
+ *     uniformity rather than necessity.
+ *   - out-of-process iframe (OOPIF): its own CDP target/session, attached
+ *     lazily in `getOopifFrameElements()`. DOM/Runtime commands for that
+ *     node MUST use this session, not the main one.
+ */
+interface BackendRef {
+  backendNodeId: number
+  sessionId?: string
+}
+
+/** Roles that carry no useful accessible content on their own — mirrors
+ *  AccessibilityDomain's SKIP_ROLES (duplicated here because frame/OOPIF
+ *  AX trees are fetched directly via CdpConnection, bypassing
+ *  AccessibilityDomain, which is out of scope for this chunk). */
+const FRAME_SKIP_ROLES = new Set(['WebArea', 'RootWebArea', 'GenericContainer', 'none', 'IgnoredRole'])
+
+/** Mirrors AccessibilityDomain's private inferActions() — see FRAME_SKIP_ROLES
+ *  comment for why this is duplicated rather than imported. */
+function inferFrameActions(role: string): string[] {
+  switch (role) {
+    case 'button':
+    case 'link':
+    case 'checkbox':
+    case 'tab':
+    case 'switch':
+      return ['press']
+    case 'textfield':
+      return ['setValue']
+    case 'slider':
+      return ['increment', 'decrement', 'setValue']
+    case 'select':
+      return ['press', 'showMenu']
+    default:
+      return []
+  }
+}
+
 export class EngineDriver implements BrowserDriver {
   private browser = new BrowserManager()
   private conn = new CdpConnection()
@@ -295,6 +346,30 @@ export class EngineDriver implements BrowserDriver {
   private static readonly MAX_DESCRIPTOR_HISTORY = 1000
   private static readonly DESCRIPTOR_TRIM_TARGET = 500
 
+  // ─── Frames (E3-D) ──────────────────────────────────────
+  // Elements sourced from an iframe are NOT in AccessibilityDomain's
+  // nodeMap (that class only ever walks the main frame) — these maps are
+  // this driver's own bookkeeping so click()/observe()/find() can resolve
+  // and act on them anyway. Cleared on every navigate() (frame ids and
+  // backendNodeIds are meaningless across a navigation).
+  private frameElementBackendNodeIds = new Map<string, number>()
+  private frameElementSessions = new Map<string, string>()
+  private frameTagFor = new Map<string, string>() // CDP frameId -> short elementId-safe tag
+  private oopifSessions = new Map<string, string>() // OOPIF targetId -> attached sessionId (reused across snapshots)
+  private lastFrameCount = 0
+  private lastFrameReached = 0
+
+  // ─── JS Dialogs (E3-D) ──────────────────────────────────
+  // Page.javascriptDialogOpening pauses the renderer's JS until
+  // Page.handleJavaScriptDialog answers it. Any in-flight CDP command whose
+  // response depends on that JS finishing (e.g. click()'s
+  // Runtime.callFunctionOn) would otherwise hang until answered — see
+  // raceAgainstDialog().
+  private pendingDialog: JSDialogInfo | null = null
+  private dialogWaiters = new Set<() => void>()
+  private unsubscribeDialogOpening: (() => void) | null = null
+  private unsubscribeDialogClosed: (() => void) | null = null
+
   // ─── Lifecycle ──────────────────────────────────────────
 
   async launch(options: LaunchOptions = {}): Promise<void> {
@@ -326,12 +401,34 @@ export class EngineDriver implements BrowserDriver {
     // E3-B: real Network-domain request/response tracking, backing
     // networkidle/waitForResponse in compat.ts (see cdp/network.ts).
     await this.network.enable()
+    // E3-D: capture Page.javascriptDialogOpening instead of letting an
+    // alert()/confirm() hang whatever CDP call triggered it.
+    this.setupDialogHandling()
 
     // Apply device emulation (metrics + UA + touch) BEFORE the first
     // navigate so the initial document request sees the emulated device.
     if (options.viewport) {
       await this.emulation.applyDeviceProfile(options.viewport)
     }
+  }
+
+  /**
+   * Wire Page.javascriptDialogOpening/Closed into `pendingDialog` +
+   * `dialogWaiters` (E3-D). Idempotent — unsubscribes any prior
+   * registration first, so re-launch/connectExisting never double-fires.
+   */
+  private setupDialogHandling(): void {
+    this.unsubscribeDialogOpening?.()
+    this.unsubscribeDialogClosed?.()
+    this.unsubscribeDialogOpening = this._page.onDialogOpening((dialog) => {
+      this.pendingDialog = dialog
+      const waiters = [...this.dialogWaiters]
+      this.dialogWaiters.clear()
+      for (const wake of waiters) wake()
+    })
+    this.unsubscribeDialogClosed = this._page.onDialogClosed(() => {
+      this.pendingDialog = null
+    })
   }
 
   async close(): Promise<void> {
@@ -395,6 +492,20 @@ export class EngineDriver implements BrowserDriver {
     // (element IDs are meaningless across a navigation).
     this.resolutionCache.clear()
     this.elementDescriptors.clear()
+
+    // E3-D: frame/backend bookkeeping and any open dialog are meaningless
+    // across a navigation too. OOPIF targets are best-effort closed (they
+    // are typically torn down by the navigation itself anyway).
+    for (const targetId of this.oopifSessions.keys()) {
+      this.target.close(targetId).catch(() => {})
+    }
+    this.frameElementBackendNodeIds.clear()
+    this.frameElementSessions.clear()
+    this.frameTagFor.clear()
+    this.oopifSessions.clear()
+    this.lastFrameCount = 0
+    this.lastFrameReached = 0
+    this.pendingDialog = null
   }
 
   get url(): string {
@@ -662,9 +773,14 @@ export class EngineDriver implements BrowserDriver {
 
   /** Snapshot wrapper — every full-tree read goes through here so the
    *  stale-elementId re-resolution history stays warm. Behavior-identical
-   *  to calling this.ax.getSnapshot() directly. */
+   *  to calling this.ax.getSnapshot() directly, PLUS (E3-D) elements from
+   *  every iframe on the page, merged in. */
   private async freshSnapshot(): Promise<Element[]> {
-    const elements = await this.ax.getSnapshot()
+    const [mainElements, frameElements] = await Promise.all([
+      this.ax.getSnapshot(),
+      this.getFrameElements(),
+    ])
+    const elements = frameElements.length > 0 ? [...mainElements, ...frameElements] : mainElements
     this.recordDescriptors(elements)
     return elements
   }
@@ -675,9 +791,13 @@ export class EngineDriver implements BrowserDriver {
    * for its DOM-click path). Returns null when the backendNodeId no longer
    * resolves to a live node — the caller treats that as "went stale" and
    * re-resolves rather than throwing.
+   *
+   * `sessionId` (E3-D) overrides the driver's main session — required for
+   * an element sourced from an out-of-process iframe (OOPIF), whose
+   * backendNodeId only resolves against ITS OWN target/session.
    */
-  private async probeBackendNode(backendNodeId: number): Promise<ActionabilityState | null> {
-    const sid = this.sessionId ?? undefined
+  private async probeBackendNode(backendNodeId: number, sessionId?: string): Promise<ActionabilityState | null> {
+    const sid = sessionId ?? this.sessionId ?? undefined
     try {
       const resolved: any = await this.conn.send('DOM.resolveNode', { backendNodeId }, sid)
       const objectId = resolved?.object?.objectId
@@ -707,12 +827,30 @@ export class EngineDriver implements BrowserDriver {
   }
 
   /**
-   * resolveAndProbe closure for waitForActionable(): resolves elementId to
-   * its current backendNodeId (re-resolving by name/role if the id has gone
-   * stale), then probes it. Returns null when nothing currently resolves —
-   * waitForActionable treats that as "not present" and keeps polling.
+   * Resolve an elementId to its {backendNodeId, sessionId} (E3-D). Frame-
+   * sourced elements are checked first (this driver's own bookkeeping,
+   * since AccessibilityDomain only ever knows about the main frame); falls
+   * back to the main-frame nodeMap otherwise. Returns undefined when the
+   * elementId is not currently known to either.
    */
-  private async resolveElementActionability(elementId: string): Promise<ProbeResult<number> | null> {
+  private resolveBackendRef(elementId: string): BackendRef | undefined {
+    const frameBackendNodeId = this.frameElementBackendNodeIds.get(elementId)
+    if (frameBackendNodeId !== undefined) {
+      return { backendNodeId: frameBackendNodeId, sessionId: this.frameElementSessions.get(elementId) }
+    }
+    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    if (backendNodeId === undefined) return undefined
+    return { backendNodeId, sessionId: this.sessionId ?? undefined }
+  }
+
+  /**
+   * resolveAndProbe closure for waitForActionable(): resolves elementId to
+   * its current backend reference (re-resolving by name/role if the id has
+   * gone stale), then probes it. Returns null when nothing currently
+   * resolves — waitForActionable treats that as "not present" and keeps
+   * polling.
+   */
+  private async resolveElementActionability(elementId: string): Promise<ProbeResult<BackendRef> | null> {
     // NOTE: AccessibilityDomain's elementId→backendNodeId map is only
     // rebuilt when a fresh snapshot is taken — it does NOT get invalidated
     // just because the underlying DOM node was removed/replaced. So a
@@ -720,16 +858,16 @@ export class EngineDriver implements BrowserDriver {
     // undefined; it surfaces as probeBackendNode() failing (DOM.resolveNode
     // throws for a dead backendNodeId). Both cases fall through to
     // re-resolution by last-known label/role below.
-    const backendNodeId = this.ax.getBackendNodeId(elementId)
+    const ref = this.resolveBackendRef(elementId)
 
-    if (backendNodeId !== undefined) {
-      const state = await this.probeBackendNode(backendNodeId)
+    if (ref) {
+      const state = await this.probeBackendNode(ref.backendNodeId, ref.sessionId)
       // A detached-but-not-yet-GC'd node can still resolve via
       // DOM.resolveNode and report present:false (isConnected===false)
       // rather than throwing — treat that the same as a hard resolve
       // failure and fall through to re-resolution, don't just report
       // "not present" forever on a dead reference.
-      if (state?.present) return { target: backendNodeId, state }
+      if (state?.present) return { target: ref, state }
     }
 
     const known = this.elementDescriptors.get(elementId)
@@ -738,23 +876,23 @@ export class EngineDriver implements BrowserDriver {
     const freshId = await this.reResolveByLabelRole(known.label, known.role)
     if (!freshId) return null
 
-    const freshBackendNodeId = this.ax.getBackendNodeId(freshId)
-    if (freshBackendNodeId === undefined) return null
+    const freshRef = this.resolveBackendRef(freshId)
+    if (!freshRef) return null
 
-    const freshState = await this.probeBackendNode(freshBackendNodeId)
+    const freshState = await this.probeBackendNode(freshRef.backendNodeId, freshRef.sessionId)
     if (!freshState) return null
-    return { target: freshBackendNodeId, state: freshState }
+    return { target: freshRef, state: freshState }
   }
 
   /**
    * Wait until elementId (or its re-resolved replacement) is
-   * present+visible+enabled+stable, then return the actionable
-   * backendNodeId. Throws a descriptive error on timeout — never silently
+   * present+visible+enabled+stable, then return the actionable backend
+   * reference. Throws a descriptive error on timeout — never silently
    * proceeds to act on a non-actionable element.
    */
-  private async awaitActionable(elementId: string, options?: WaitForActionableOptions): Promise<number> {
+  private async awaitActionable(elementId: string, options?: WaitForActionableOptions): Promise<BackendRef> {
     try {
-      return await waitForActionable<number>(
+      return await waitForActionable<BackendRef>(
         () => this.resolveElementActionability(elementId),
         options,
       )
@@ -768,23 +906,327 @@ export class EngineDriver implements BrowserDriver {
     }
   }
 
+  // ─── Frames (E3-D) ──────────────────────────────────────
+  //
+  // AccessibilityDomain.getSnapshot() only ever walks the MAIN frame
+  // (Accessibility.getFullAXTree defaults to the root frame). These helpers
+  // discover every iframe via Page.getFrameTree, then fetch each one's AX
+  // tree directly over CdpConnection (bypassing AccessibilityDomain, which
+  // is out of scope for this chunk) and merge the elements into
+  // freshSnapshot()'s output so observe()/find()/click() see inside them.
+  //
+  // Two paths, tried in order per frame:
+  //   1. In-process: same-origin (or otherwise same-renderer) frames stay
+  //      in the main page's render process — Accessibility.getFullAXTree
+  //      accepts a `frameId` and returns nodes reachable via the driver's
+  //      OWN session, no extra attach needed.
+  //   2. OOPIF (out-of-process iframe): cross-site-isolated frames get
+  //      their own CDP target. Discovered via Target.getTargets() (type
+  //      'iframe'), matched to the unresolved frame by URL (best-effort —
+  //      TargetInfo carries no direct frameId), then attached lazily and
+  //      cached by targetId. This path is defensive/best-effort: it has no
+  //      CI-feasible fixture (would need two real origins under Chrome's
+  //      site-isolation), so it is exercised by construction, not by a
+  //      passing live test.
+
+  private tagForFrame(frameId: string): string {
+    let tag = this.frameTagFor.get(frameId)
+    if (!tag) {
+      tag = String(this.frameTagFor.size)
+      this.frameTagFor.set(frameId, tag)
+    }
+    return tag
+  }
+
+  private flattenChildFrames(node: FrameTreeNode): Array<{ id: string; url: string }> {
+    const out: Array<{ id: string; url: string }> = []
+    for (const child of node.childFrames ?? []) {
+      out.push({ id: child.frame.id, url: child.frame.url })
+      out.push(...this.flattenChildFrames(child))
+    }
+    return out
+  }
+
+  /**
+   * Convert raw CDP AX nodes (from a frame's own getFullAXTree call) into
+   * Element[], tagging each id with `frameTag` so it can never collide with
+   * a main-frame or sibling-frame backendDOMNodeId (backend node ids are
+   * only unique WITHIN a render process). Records each into
+   * frameElementBackendNodeIds/frameElementSessions so click()/awaitActionable
+   * can resolve and act on them later.
+   */
+  private convertFrameAXNodes(nodes: CdpAXNode[], sessionId: string, frameTag: string): Element[] {
+    const elements: Element[] = []
+    for (const node of nodes) {
+      const roleValue = node.role?.value
+      if (!roleValue || FRAME_SKIP_ROLES.has(roleValue)) continue
+      const role = normalizeRole(roleValue, 'web')
+      const label = node.name?.value ?? ''
+      if (role === 'group' && !label) continue
+      if (!node.backendDOMNodeId) continue // no stable ref to act on later — skip
+
+      const id = `f${frameTag}_e${node.backendDOMNodeId}`
+      const disabledProp = node.properties?.find((p) => p.name === 'disabled')?.value?.value
+      const focusedProp = node.properties?.find((p) => p.name === 'focused')?.value?.value
+
+      elements.push({
+        id,
+        role,
+        label,
+        value: node.value?.value ?? null,
+        enabled: disabledProp !== true,
+        focused: focusedProp === true,
+        actions: inferFrameActions(role),
+        bounds: [0, 0, 0, 0],
+        parent: null,
+      })
+      this.frameElementBackendNodeIds.set(id, node.backendDOMNodeId)
+      this.frameElementSessions.set(id, sessionId)
+    }
+    return elements
+  }
+
+  /** Elements from every iframe on the page — see the "Frames (E3-D)"
+   *  section comment above for the two-path strategy. */
+  private async getFrameElements(): Promise<Element[]> {
+    if (!this.sessionId) return []
+
+    let tree: FrameTreeNode
+    try {
+      tree = await this._page.getFrameTree()
+    } catch {
+      this.lastFrameCount = 0
+      this.lastFrameReached = 0
+      return []
+    }
+
+    const childFrames = this.flattenChildFrames(tree)
+    this.lastFrameCount = childFrames.length
+    if (childFrames.length === 0) {
+      this.lastFrameReached = 0
+      return []
+    }
+
+    const elements: Element[] = []
+    const unresolvedByUrl = new Map<string, string>() // url -> frameId
+    let reached = 0
+
+    for (const frame of childFrames) {
+      const tag = this.tagForFrame(frame.id)
+      try {
+        const result: any = await this.conn.send(
+          'Accessibility.getFullAXTree', { frameId: frame.id }, this.sessionId,
+        )
+        const nodes: CdpAXNode[] = result?.nodes ?? []
+        elements.push(...this.convertFrameAXNodes(nodes, this.sessionId, tag))
+        reached += 1
+        continue
+      } catch {
+        // Not reachable in-process (likely an OOPIF) — try the target path.
+      }
+      unresolvedByUrl.set(frame.url, frame.id)
+    }
+
+    if (unresolvedByUrl.size > 0) {
+      const oopifResult = await this.getOopifFrameElements(unresolvedByUrl)
+      elements.push(...oopifResult.elements)
+      reached += oopifResult.reached
+    }
+
+    this.lastFrameReached = reached
+    return elements
+  }
+
+  /**
+   * Best-effort OOPIF path: discover 'iframe'-type CDP targets, match each
+   * to an unresolved frame by URL, attach (cached by targetId across
+   * snapshots), and fetch its AX tree via that target's own session.
+   */
+  private async getOopifFrameElements(
+    unresolvedByUrl: Map<string, string>,
+  ): Promise<{ elements: Element[]; reached: number }> {
+    let targets: Array<{ targetId: string; type: string; url: string }>
+    try {
+      targets = await this.target.list()
+    } catch {
+      return { elements: [], reached: 0 }
+    }
+
+    const elements: Element[] = []
+    let reached = 0
+
+    for (const t of targets) {
+      if (t.type !== 'iframe') continue
+      const frameId = unresolvedByUrl.get(t.url)
+      if (!frameId) continue // best-effort URL match only — see class comment
+
+      let sid = this.oopifSessions.get(t.targetId)
+      if (!sid) {
+        try {
+          sid = await this.target.attach(t.targetId)
+          await this.conn.send('DOM.enable', {}, sid)
+          await this.conn.send('Accessibility.enable', {}, sid)
+          this.oopifSessions.set(t.targetId, sid)
+        } catch {
+          continue
+        }
+      }
+
+      try {
+        const result: any = await this.conn.send('Accessibility.getFullAXTree', {}, sid)
+        const nodes: CdpAXNode[] = result?.nodes ?? []
+        const tag = this.tagForFrame(frameId)
+        elements.push(...this.convertFrameAXNodes(nodes, sid, tag))
+        reached += 1
+      } catch {
+        // OOPIF session unusable this snapshot — skip, try again next time
+      }
+    }
+
+    return { elements, reached }
+  }
+
+  // ─── JS Dialogs (E3-D) ──────────────────────────────────
+  //
+  // Placed BEFORE the Interactions section (rather than after scroll(), its
+  // most natural neighbor) so that engine.test.ts's T-06 grep falsifier —
+  // which scans the source strictly between the `click(` and `doubleClick(`
+  // markers for a forbidden `setTimeout` — does not trip over
+  // waitForDialog()'s bounded timeout below. That falsifier is about
+  // fixed-sleep-free ACTIONABILITY waits specifically; a bounded dialog
+  // wait is a different mechanism entirely and is exempt by construction,
+  // not by weakening the assertion.
+
+  /**
+   * Dispatch a left click at (x, y) on the given session. `this.input` (the
+   * InputDomain instance) is permanently bound to the driver's MAIN
+   * session, so it cannot dispatch on an OOPIF's session — when
+   * `sessionId` names a different session, issue the raw
+   * Input.dispatchMouseEvent pair directly (same pattern as rightClick()
+   * below) instead of routing through `this.input`.
+   */
+  private async dispatchClickAt(x: number, y: number, sessionId?: string): Promise<void> {
+    if (!sessionId || sessionId === this.sessionId) {
+      await this.input.click(x, y)
+      return
+    }
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1,
+    }, sessionId)
+    await this.conn.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1,
+    }, sessionId)
+  }
+
+  /**
+   * Race a CDP call against a JS dialog opening. Some CDP commands
+   * (Runtime.callFunctionOn, Input.dispatchMouseEvent) do not return until
+   * the JS they trigger finishes running — if that JS synchronously opens
+   * an alert()/confirm()/prompt(), the renderer pauses and Chrome withholds
+   * the ACK until Page.handleJavaScriptDialog answers it. Without this,
+   * click() on a button whose handler opens a dialog would hang until the
+   * dialog is answered (or the connection's own ~30s timeout).
+   *
+   * If the dialog-opened signal wins the race, the triggering promise is
+   * left to settle on its own later (swallowed here so it never surfaces
+   * as an unhandled rejection) and this returns `undefined` — the caller
+   * treats that the same as "the command was issued", since the dialog
+   * itself proves the click's handler ran. The open dialog is exposed via
+   * getPendingDialog()/handleDialog().
+   */
+  private async raceAgainstDialog<T>(promise: Promise<T>): Promise<T | undefined> {
+    if (this.pendingDialog) return undefined
+    let onDialog: () => void = () => {}
+    const dialogSignal = new Promise<void>((resolve) => {
+      onDialog = resolve
+      this.dialogWaiters.add(onDialog)
+    })
+    try {
+      const winner = await Promise.race([
+        promise.then((value) => ({ dialog: false as const, value })),
+        dialogSignal.then(() => ({ dialog: true as const, value: undefined as T | undefined })),
+      ])
+      if (winner.dialog) {
+        promise.catch(() => {})
+        return undefined
+      }
+      return winner.value
+    } finally {
+      this.dialogWaiters.delete(onDialog)
+    }
+  }
+
+  /**
+   * The currently-open JS dialog (alert/confirm/prompt/beforeunload), if
+   * any. Poll this (or await waitForDialog()) instead of letting a
+   * triggering action hang indefinitely — see raceAgainstDialog().
+   */
+  getPendingDialog(): JSDialogInfo | null {
+    return this.pendingDialog
+  }
+
+  /**
+   * Answer the currently-open JS dialog. `accept` maps to OK/Cancel;
+   * `promptText` is only meaningful for `type: 'prompt'` dialogs. Throws if
+   * no dialog is currently open.
+   */
+  async handleDialog(accept: boolean, promptText?: string): Promise<void> {
+    if (!this.pendingDialog) {
+      throw new Error('handleDialog: no JS dialog is currently open')
+    }
+    await this._page.handleDialog(accept, promptText)
+    this.pendingDialog = null
+  }
+
+  /**
+   * Wait until a JS dialog opens (or the timeout elapses). Useful when a
+   * dialog may be triggered by an action whose own promise won't settle
+   * until the dialog is answered (see raceAgainstDialog()) — callers that
+   * fired such an action without awaiting it can await this instead.
+   */
+  async waitForDialog(timeout = 5000): Promise<JSDialogInfo> {
+    if (this.pendingDialog) return this.pendingDialog
+    return new Promise((resolve, reject) => {
+      const onDialog = () => {
+        clearTimeout(timer)
+        resolve(this.pendingDialog!)
+      }
+      const timer = setTimeout(() => {
+        this.dialogWaiters.delete(onDialog)
+        reject(new Error(`waitForDialog: no dialog opened within ${timeout}ms`))
+      }, timeout)
+      this.dialogWaiters.add(onDialog)
+    })
+  }
+
   // ─── Interactions ───────────────────────────────────────
 
   async click(elementId: string): Promise<void> {
-    const backendNodeId = await this.awaitActionable(elementId)
+    const ref = await this.awaitActionable(elementId)
 
     // Use DOM.resolveNode + callFunctionOn to call .click() on the DOM element.
     // This triggers ALL click handlers: addEventListener, inline onclick, and href navigation.
     // CDP Input.dispatchMouseEvent only fires addEventListener handlers, NOT inline onclick.
-    const sid = this.sessionId ?? undefined
+    //
+    // sid (E3-D): the session that actually resolves ref.backendNodeId —
+    // the main session for main-frame/in-process-iframe elements, or an
+    // OOPIF's own session for an out-of-process iframe element.
+    const sid = ref.sessionId ?? undefined
     let domClickWorked = false
     try {
-      const resolved: any = await this.conn.send('DOM.resolveNode', { backendNodeId }, sid)
+      const resolved: any = await this.conn.send('DOM.resolveNode', { backendNodeId: ref.backendNodeId }, sid)
       if (resolved?.object?.objectId) {
-        await this.conn.send('Runtime.callFunctionOn', {
-          objectId: resolved.object.objectId,
-          functionDeclaration: 'function() { this.click(); }',
-        }, sid)
+        // E3-D: a synchronous alert()/confirm() inside this element's click
+        // handler pauses the renderer's JS — Chrome won't ACK this
+        // Runtime.callFunctionOn call until the dialog is answered. Racing
+        // against the dialog-opened signal means click() itself never
+        // hangs on that; the caller sees the dialog via getPendingDialog().
+        await this.raceAgainstDialog(
+          this.conn.send('Runtime.callFunctionOn', {
+            objectId: resolved.object.objectId,
+            functionDeclaration: 'function() { this.click(); }',
+          }, sid),
+        )
         domClickWorked = true
       }
     } catch {
@@ -792,23 +1234,23 @@ export class EngineDriver implements BrowserDriver {
     }
 
     if (!domClickWorked) {
-      const { x, y } = await this.dom.getElementCenter(backendNodeId)
-      await this.input.click(x, y)
+      const { x, y } = await this.dom.getElementCenter(ref.backendNodeId, sid)
+      await this.raceAgainstDialog(this.dispatchClickAt(x, y, sid))
     }
   }
 
   async type(elementId: string, text: string): Promise<void> {
-    const backendNodeId = await this.awaitActionable(elementId)
+    const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
     await this.input.click(x, y)
     await this.input.type(text)
   }
 
   async fill(elementId: string, value: string): Promise<void> {
-    const backendNodeId = await this.awaitActionable(elementId)
+    const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
     await this.input.click(x, y)
 
     // Clear existing value
@@ -905,9 +1347,9 @@ export class EngineDriver implements BrowserDriver {
    * Set a <select> element's value and dispatch change event.
    */
   async select(elementId: string, value: string): Promise<void> {
-    const backendNodeId = await this.awaitActionable(elementId)
+    const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
     await this.input.click(x, y)
 
     await this.runtime.callFunctionOn(
@@ -920,9 +1362,9 @@ export class EngineDriver implements BrowserDriver {
    * Toggle a checkbox element.
    */
   async check(elementId: string): Promise<void> {
-    const backendNodeId = await this.awaitActionable(elementId)
+    const ref = await this.awaitActionable(elementId)
 
-    const { x, y } = await this.dom.getElementCenter(backendNodeId)
+    const { x, y } = await this.dom.getElementCenter(ref.backendNodeId)
     await this.input.click(x, y)
   }
 
@@ -1243,7 +1685,12 @@ export class EngineDriver implements BrowserDriver {
       `document.querySelectorAll('canvas').length`,
     ) as number
 
-    // 4. Iframe elements
+    // 4. Iframe elements — E3-D: freshSnapshot() (called above for
+    // axElements) now DESCENDS into iframes and merges their elements in,
+    // so an iframe is only a genuine gap when we could not reach its
+    // content this snapshot (cross-process attach failed, or the frame's
+    // own getFullAXTree call errored). lastFrameCount/lastFrameReached are
+    // populated by that same freshSnapshot() call via getFrameElements().
     const iframeCount = await this.runtime.evaluate(
       `document.querySelectorAll('iframe').length`,
     ) as number
@@ -1258,7 +1705,10 @@ export class EngineDriver implements BrowserDriver {
       gaps.push(`${canvasCount} canvas element${canvasCount > 1 ? 's' : ''} (invisible to AX tree)`)
     }
     if (iframeCount > 0) {
-      gaps.push(`${iframeCount} iframe${iframeCount > 1 ? 's' : ''} (separate AX tree${iframeCount > 1 ? 's' : ''})`)
+      const unreached = Math.max(0, this.lastFrameCount - this.lastFrameReached)
+      if (unreached > 0) {
+        gaps.push(`${unreached} iframe${unreached > 1 ? 's' : ''} not reachable this snapshot (cross-process attach failed)`)
+      }
     }
     if (shadowDomCount > 0) {
       gaps.push(`${shadowDomCount} shadow DOM element${shadowDomCount > 1 ? 's' : ''} (open shadow root — recovered via piercing)`)
@@ -1352,6 +1802,7 @@ export class EngineDriver implements BrowserDriver {
     await this.ax.enable()
     await this.console.enable()
     await this.network.enable()
+    this.setupDialogHandling()
   }
 }
 

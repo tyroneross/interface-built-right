@@ -1,0 +1,23 @@
+<!doctype html>
+<!--
+  IBR JS-dialog fixture (E3-D / T-11).
+
+  The button's onclick handler calls a REAL, synchronous confirm() — not a
+  setTimeout-deferred one. Chrome pauses the renderer's JS and withholds
+  the CDP ack for whatever command triggered the click until
+  Page.handleJavaScriptDialog answers it. This proves EngineDriver.click()
+  does not hang waiting for that ack — it must race the click against
+  Page.javascriptDialogOpening and expose the open dialog via
+  getPendingDialog()/handleDialog() instead.
+
+  No personal content — synthetic labels only.
+-->
+<html>
+<head><title>IBR Dialog Fixture</title></head>
+<body>
+  <button id="confirm-btn" onclick="window.__ibrConfirmResult = confirm('Proceed?')">Confirm Button</button>
+  <script>
+    window.__ibrConfirmResult = null;
+  </script>
+</body>
+</html>

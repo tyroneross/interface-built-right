@@ -1,0 +1,12 @@
+<!doctype html>
+<!--
+  IBR iframe fixture, child document (E3-D / T-11). Same origin as
+  frame-parent.html. Its button posts a message to the parent window on
+  click instead of touching its own document.title, so the test can prove
+  the click landed inside THIS document.
+-->
+<html>
+<body>
+  <button id="inner-btn" onclick="parent.postMessage('inner-clicked', '*')">Inner Button</button>
+</body>
+</html>

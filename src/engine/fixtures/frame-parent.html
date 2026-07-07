@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  IBR iframe fixture, parent document (E3-D / T-11).
+
+  Served over a local HTTP server (see compat.test.ts) so this document and
+  frame-child.html share an origin — same-process in Chrome, proving
+  EngineDriver can observe and click an element inside an iframe using the
+  in-process path (Accessibility.getFullAXTree({frameId}) on the MAIN
+  session) with no OOPIF machinery.
+
+  The inner button posts a message to the parent instead of setting
+  document.title, so a successful click can only be observed via a real
+  cross-document round trip through the iframe's own document — never by
+  accidentally hitting something in the outer page.
+
+  No personal content — synthetic labels only.
+-->
+<html>
+<head><title>IBR Frame Fixture</title></head>
+<body>
+  <h1>Frame Fixture</h1>
+  <button id="outer-btn">Outer Button</button>
+  <iframe id="child-frame" src="/frame-child.html" width="300" height="150"></iframe>
+  <script>
+    window.__ibrInnerClicked = false;
+    window.addEventListener('message', function (e) {
+      if (e.data === 'inner-clicked') window.__ibrInnerClicked = true;
+    });
+  </script>
+</body>
+</html>

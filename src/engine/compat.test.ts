@@ -402,3 +402,159 @@ describe('CompatPage / NetworkDomain — real network events (live Chrome fixtur
     expect(elapsed).toBeGreaterThanOrEqual(FETCH_DELAY_MS - 50)
   }, 15000)
 })
+
+// ─── Frames (live Chrome, E3-D / T-11) ────────────────────────────────────
+//
+// Accessibility.getFullAXTree only walks the MAIN frame by default — an
+// element inside an iframe was previously invisible to observe()/find()
+// and reported as an unconditional coverage "gap" (driver.ts's
+// getCoverage()). This proves EngineDriver now descends into a same-origin
+// iframe (the in-process path — see driver.ts's "Frames (E3-D)" section):
+// the inner button is find()-able and click()-able, and the click is
+// verified via a real cross-document postMessage round trip, not by
+// checking the outer page for a side effect that could be satisfied by
+// clicking the wrong element.
+//
+// Served over a local HTTP server (not file://) so parent + child are
+// unambiguously same-origin, matching the network-idle fixture's rationale
+// above.
+
+describe('EngineDriver iframe observe + click (live Chrome fixture, E3-D / T-11)', () => {
+  const parentHtml = readFileSync(join(__dirname, 'fixtures', 'frame-parent.html'), 'utf-8')
+  const childHtml = readFileSync(join(__dirname, 'fixtures', 'frame-child.html'), 'utf-8')
+  let server: Server
+  let baseUrl: string
+
+  beforeAll(async () => {
+    const result = await new Promise<{ server: Server; url: string }>((resolve) => {
+      const srv = createServer((req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/html' })
+        if (req.url === '/frame-child.html') {
+          res.end(childHtml)
+          return
+        }
+        res.end(parentHtml)
+      })
+      srv.listen(0, '127.0.0.1', () => {
+        const address = srv.address()
+        const port = typeof address === 'object' && address ? address.port : 0
+        resolve({ server: srv, url: `http://127.0.0.1:${port}/` })
+      })
+    })
+    server = result.server
+    baseUrl = result.url
+  })
+
+  afterAll(async () => {
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  })
+
+  it('finds an element inside a same-origin iframe (observe crosses the frame boundary)', async () => {
+    await ensureLaunched()
+    await driver.navigate(baseUrl, { waitFor: 'none' })
+    // The button lives in a document served at a DIFFERENT path than the
+    // top page (/frame-child.html vs /) — findable only if EngineDriver
+    // actually queried the iframe's own AX tree, not the outer document's.
+    const el = await driver.waitForElement('Inner Button', { role: 'button', timeout: 5000 })
+    expect(el).not.toBeNull()
+  }, 15000)
+
+  it('clicks an element inside a same-origin iframe — verified via a real cross-document round trip', async () => {
+    await ensureLaunched()
+    await driver.navigate(baseUrl, { waitFor: 'none' })
+    const before = await driver.evaluate('window.__ibrInnerClicked')
+    expect(before).toBe(false)
+
+    const el = await driver.find('Inner Button', { role: 'button' })
+    expect(el).not.toBeNull()
+    await driver.click(el!.id)
+
+    // The inner button's handler does parent.postMessage('inner-clicked'),
+    // received by a listener on the TOP window — this can only flip true
+    // if the click actually fired on the button INSIDE the iframe's own
+    // document (the outer document has no button with this label at all).
+    let flagged = false
+    for (let i = 0; i < 20 && !flagged; i++) {
+      flagged = (await driver.evaluate('window.__ibrInnerClicked')) === true
+      if (!flagged) await new Promise((r) => setTimeout(r, 100))
+    }
+    expect(flagged).toBe(true)
+  }, 15000)
+
+  it('the outer page has an interactive element too, and clicking it does not disturb the iframe (sanity: two independent frames)', async () => {
+    await ensureLaunched()
+    await driver.navigate(baseUrl, { waitFor: 'none' })
+    const outer = await driver.find('Outer Button', { role: 'button' })
+    expect(outer).not.toBeNull()
+    const inner = await driver.find('Inner Button', { role: 'button' })
+    expect(inner).not.toBeNull()
+    expect(outer!.id).not.toBe(inner!.id)
+  }, 15000)
+})
+
+// ─── JS Dialogs (live Chrome, E3-D / T-11) ────────────────────────────────
+//
+// A synchronous confirm() inside a click handler pauses the renderer's JS —
+// Chrome withholds the CDP ack for click()'s Runtime.callFunctionOn call
+// until Page.handleJavaScriptDialog answers it. Without dialog-aware
+// racing, click() would hang until the dialog is answered (or the
+// connection's own ~30s timeout) — the tight per-test timeout below is
+// itself part of the falsifier: if the race/expose mechanism were absent
+// or broken, this test would time out instead of failing a plain
+// assertion.
+
+describe('EngineDriver JS dialog handling (live Chrome fixture, E3-D / T-11)', () => {
+  const dialogHtml = readFileSync(join(__dirname, 'fixtures', 'dialog.html'), 'utf-8')
+  const dialogUrl = `data:text/html,${encodeURIComponent(dialogHtml)}`
+
+  it('click() does not hang when its handler opens a confirm() dialog, and the dialog is captured', async () => {
+    await ensureLaunched()
+    await driver.navigate(dialogUrl, { waitFor: 'none' })
+    expect(driver.getPendingDialog()).toBeNull()
+
+    const el = await driver.find('Confirm Button', { role: 'button' })
+    expect(el).not.toBeNull()
+
+    const start = Date.now()
+    // click() must return well within the test's own timeout — a hang
+    // would fail this test via vitest's timeout, not this assertion.
+    await driver.click(el!.id)
+    const elapsed = Date.now() - start
+    expect(elapsed).toBeLessThan(3000)
+
+    const dialog = driver.getPendingDialog()
+    expect(dialog).not.toBeNull()
+    expect(dialog!.type).toBe('confirm')
+    expect(dialog!.message).toBe('Proceed?')
+  }, 8000)
+
+  it('handleDialog(true) answers the captured dialog, unblocking the paused click', async () => {
+    await ensureLaunched()
+    await driver.navigate(dialogUrl, { waitFor: 'none' })
+    const el = await driver.find('Confirm Button', { role: 'button' })
+    await driver.click(el!.id)
+    expect(driver.getPendingDialog()).not.toBeNull()
+
+    await driver.handleDialog(true)
+    expect(driver.getPendingDialog()).toBeNull()
+
+    // Give the now-unblocked renderer a moment to actually assign
+    // window.__ibrConfirmResult (the confirm() call itself only returns
+    // once handleDialog's accept resolves it).
+    let result: unknown = null
+    for (let i = 0; i < 20; i++) {
+      result = await driver.evaluate('window.__ibrConfirmResult')
+      if (result !== null) break
+      await new Promise((r) => setTimeout(r, 100))
+    }
+    expect(result).toBe(true)
+  }, 8000)
+
+  it('handleDialog() throws when no dialog is open', async () => {
+    await ensureLaunched()
+    await driver.navigate(dialogUrl, { waitFor: 'none' })
+    expect(driver.getPendingDialog()).toBeNull()
+    await expect(driver.handleDialog(true)).rejects.toThrow(/no js dialog/i)
+  }, 8000)
+})

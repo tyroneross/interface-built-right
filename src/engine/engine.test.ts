@@ -543,6 +543,43 @@ describe('actionability verbs — static falsifier', () => {
   })
 })
 
+// ─── Frames + dialogs static falsifiers (T-11, no browser needed) ─────────
+//
+// The live-Chrome fixture tests (iframe observe+click, dialog capture +
+// answer) live in compat.test.ts. These are source-shape regression guards
+// that would catch the mechanism being silently removed or bypassed even
+// if a fixture test were accidentally skipped.
+
+describe('frames + dialogs — static falsifier (E3-D / T-11)', () => {
+  const driverSrc = readFileSync(join(__dirname, 'driver.ts'), 'utf-8')
+
+  it('click() races its underlying CDP call against a JS dialog opening (FALSIFIER: without this, a synchronous confirm()/alert() in a click handler hangs the driver)', () => {
+    const startMarker = 'async click(elementId: string): Promise<void> {'
+    const endMarker = 'async type(elementId: string, text: string): Promise<void> {'
+    const startIdx = driverSrc.indexOf(startMarker)
+    const endIdx = driverSrc.indexOf(endMarker)
+    expect(startIdx).toBeGreaterThan(-1)
+    expect(endIdx).toBeGreaterThan(startIdx)
+    const clickRegion = driverSrc.slice(startIdx, endIdx)
+    expect(clickRegion).toMatch(/raceAgainstDialog/)
+  })
+
+  it('getCoverage() no longer unconditionally lists every iframe as a gap (FALSIFIER: T-11 requires descending into iframes, not just reporting them as unreachable)', () => {
+    // Regression guard for the exact defect this chunk fixes: the OLD gap
+    // message fired for every iframe regardless of whether its content was
+    // reachable ("N iframe(s) (separate AX tree(s))", unconditional on
+    // iframeCount alone). The new logic only flags a gap for frames that
+    // stayed unreached this snapshot (lastFrameCount vs lastFrameReached).
+    expect(driverSrc).not.toMatch(/separate AX tree/)
+    expect(driverSrc).toMatch(/lastFrameCount - this\.lastFrameReached/)
+  })
+
+  it('Page.javascriptDialogOpening is wired to pendingDialog (FALSIFIER: without this, getPendingDialog() can never see a real dialog)', () => {
+    expect(driverSrc).toMatch(/onDialogOpening/)
+    expect(driverSrc).toMatch(/this\.pendingDialog = dialog/)
+  })
+})
+
 // ─── NetworkDomain — real event tracking (E3-B / T-07 falsifier) ──────────
 //
 // The live-Chrome fixture test (real fetch, real timing) lives in
