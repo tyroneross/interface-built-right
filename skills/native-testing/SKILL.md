@@ -26,7 +26,7 @@ IBR scans native Apple UI via the accessibility tree — iOS/watchOS through sim
 | `scan_macos` | Scan a running macOS app via accessibility tree |
 | `native_session_start` | Start a cursor-free native session for a macOS app or simulator |
 | `native_session_read` | Observe/extract native AX elements from an active native session |
-| `native_session_action` | Press, fill, focus, show menus, and scroll via AX without moving the user's cursor; also `keystroke` (live), `app`/`menuPath` (dormant — see below) |
+| `native_session_action` | Press, fill, focus, show menus, and scroll via AX without moving the user's cursor; also `keystroke`, `app`, `menuPath` — all live (see below) |
 | `native_session_close` | Close the native session record without quitting the app |
 
 ## CLI Reference
@@ -60,8 +60,8 @@ Use `native_session_*` MCP tools when the agent needs to navigate a running macO
 3. `native_session_action` with accessible `target` and action:
    - Element verbs (`target` required): `click`, `fill`, `type`, `focus`, `showMenu`, `increment`, `decrement`, `confirm`, `cancel`, `scroll`, `scrollToVisible`, `check`, `select`
    - `keystroke` (`target` optional — chord goes to the focused element if omitted): send a chord via `chord`, e.g. `"Meta+n"`, `"Tab"`, `"Escape"`. **Live** — both the default respawn backend and the opt-in daemon backend deliver the chord and validate the result against an AX state diff.
-   - `app` (`target` optional): app lifecycle op via `op: "launch"|"switch"|"quit"` and `app`. **Dormant** — every backend currently returns a structured not-implemented outcome until the app-lifecycle capability lands.
-   - `menuPath` (`target` optional): AXMenu traversal via `menuPath: ["File", "New Window"]`. **Dormant** — same as above, pending the menu-traversal capability.
+   - `app` (`target` optional): app lifecycle op via `op: "launch"|"switch"|"quit"` and `app`. **Live** — driven by OS-level process control (`open`/`osascript`), validated against an absolute end-state (running+frontmost for launch/switch, exited for quit). **Known limitation:** `quit` can return `success: false` with an `osascript -128` evidence trail when the target machine has `NSCloseAlwaysConfirmsChanges=1` and the app has an unsaved document — there is intentionally no force-quit fallback, so it will not discard unsaved work.
+   - `menuPath` (`target` optional): AXMenu traversal via `menuPath: ["File", "New Window"]`. **Live** — walks the menu bar (or an already-open context menu) and AXPresses the final item, validated against a before/after AX-state diff.
    - For navigation or async UI, pass `waitFor: "<expected next label or identifier>"` and optionally `waitTimeoutMs` so the tool polls AX state until the next screen appears.
    - If `waitFor` is omitted, the tool still performs a short post-action settle poll and returns `postAction` evidence.
 4. `native_session_close` when done

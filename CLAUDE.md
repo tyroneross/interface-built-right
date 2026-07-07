@@ -29,7 +29,7 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 | `snapshot` | Capture visual baseline |
 | `compare` | Compare current vs baseline |
 | `screenshot` | Capture screenshot of any URL |
-| `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app`/`menuPath` (exposed, dormant until their backend capability lands). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` |
+| `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app` (live lifecycle launch/switch/quit; `quit` can fail with `osascript -128` on unsaved docs under `NSCloseAlwaysConfirmsChanges=1` — no force-quit fallback), `menuPath` (live AXMenu traversal). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` |
 
 ## Core Workflow
 

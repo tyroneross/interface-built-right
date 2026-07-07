@@ -31,14 +31,22 @@ this content yet — see **Release gate** below. Current shipped version remains
   `decrement`, `confirm`, `cancel`, `scroll`, `scrollToVisible`, `check`,
   `select` — all unchanged). `target` is optional for the three new kinds,
   required for element verbs (enforced in the handler, not just the schema).
-  - `keystroke` is **live**: both the default respawn backend and the opt-in
+  All three are now **live** — every backend returns a real, validated
+  `ActionOutcome`, not a structured `not-implemented` stub:
+  - `keystroke` (E2-B): both the default respawn backend and the opt-in
     daemon backend deliver a real keyboard chord (e.g. `Meta+n`, `Tab`,
     `Escape`) and validate the result against an AX state diff.
-  - `app` (lifecycle: launch/switch/quit) and `menuPath` (AXMenu traversal)
-    are **exposed on the schema and CLI flags but dormant** — every backend
-    currently returns a structured `not-implemented` outcome
-    (`success: false`, explanatory `validator.observed`) until the remaining
-    Epic-2 chunks land. See the release gate below.
+  - `app` (E2-C, lifecycle: `launch`/`switch`/`quit`): OS-level process
+    control (`open -a`/`osascript`), validated against an absolute end-state
+    (running+frontmost for launch/switch, exited for quit) rather than a
+    before/after diff. **Known limitation:** `quit` can return
+    `success: false` with an `osascript -128` evidence trail when the target
+    machine has `NSCloseAlwaysConfirmsChanges=1` and the app has an unsaved
+    document — there is intentionally no force-quit fallback, so this
+    capability will not discard a user's unsaved work.
+  - `menuPath` (E2-D): AXMenu traversal (menu-bar or an already-open context
+    menu) by an ordered list of item titles, AXPress on the final item,
+    validated against a before/after AX-state diff.
 - **`IBR_NATIVE_BACKEND=daemon`** (opt-in, default remains respawn) — a
   persistent Swift AX daemon that holds one long-lived process instead of
   spawning a fresh extractor per call, plus a resolved-path cache invalidated
@@ -109,12 +117,12 @@ now reflects the real outcome instead of always being `true`.**
 
 ### Release gate — do not cut a version or GitHub Release yet
 
-`keystroke` is live; `app` and `menuPath` are exposed on the wire and in the
-CLI flags but return a structured `not-implemented` outcome until the
-remaining Epic-2 chunks (lifecycle, menu) land. Publishing a version bump or
-GitHub Release now would advertise two dormant capabilities as if they were
-implemented — `.github/workflows/publish-npm.yml` fires on GitHub Release, so
-the gate is enforced at the release step, not the code:
+`keystroke`, `app` (lifecycle: launch/switch/quit), and `menuPath` (AXMenu
+traversal) are all now **live** — every backend implements them and returns a
+real, validated `ActionOutcome`, not a structured `not-implemented` stub. That
+no longer blocks a release on its own; the gate below still applies because
+`.github/workflows/publish-npm.yml` fires on GitHub Release and this
+increment hasn't completed its V1 verification pass yet:
 
 **No version bump and no GitHub Release for this content until the
 driving-foundation plan's V1 verification chunk passes** (live-drive demo
