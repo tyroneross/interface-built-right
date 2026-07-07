@@ -1403,15 +1403,34 @@ export async function handleToolCall(
       }
 
       case "flow_form": {
-        const { url, fields, submit = true } = args as {
+        const { url, fields, submit = true, sessionId } = args as {
           url: string;
           fields: Record<string, string>;
           submit?: boolean;
+          sessionId?: string;
         }
 
-        const driver = new EngineDriver()
+        let driver: EngineDriver | null = null
+        let launchedDriver: EngineDriver | null = null
         try {
-          await driver.launch()
+          if (sessionId) {
+            const entry = sessions.get(sessionId)
+            if (!entry) {
+              return errorResponse('Session not found. Use session_start first.')
+            }
+            if (entry.type !== 'chrome') {
+              return errorResponse(`flow_form currently requires a Chrome web session. Session ${sessionId} is ${entry.type}.`)
+            }
+            driver = entry.driver as EngineDriver
+          } else {
+            launchedDriver = new EngineDriver()
+            driver = launchedDriver
+            await driver.launch()
+          }
+          if (!driver) {
+            return errorResponse('flow_form could not initialize a browser driver.')
+          }
+
           await driver.navigate(url)
 
           const page = new CompatPage(driver)
@@ -1434,16 +1453,39 @@ export async function handleToolCall(
         } catch (err) {
           return errorResponse(`flow_form failed: ${err instanceof Error ? err.message : String(err)}`)
         } finally {
-          await driver.close().catch(() => {})
+          await launchedDriver?.close().catch(() => {})
         }
       }
 
       case "flow_login": {
-        const { url, username, password } = args as { url: string; username: string; password: string }
+        const { url, username, password, sessionId } = args as {
+          url: string;
+          username: string;
+          password: string;
+          sessionId?: string;
+        }
 
-        const driver = new EngineDriver()
+        let driver: EngineDriver | null = null
+        let launchedDriver: EngineDriver | null = null
         try {
-          await driver.launch()
+          if (sessionId) {
+            const entry = sessions.get(sessionId)
+            if (!entry) {
+              return errorResponse('Session not found. Use session_start first.')
+            }
+            if (entry.type !== 'chrome') {
+              return errorResponse(`flow_login currently requires a Chrome web session. Session ${sessionId} is ${entry.type}.`)
+            }
+            driver = entry.driver as EngineDriver
+          } else {
+            launchedDriver = new EngineDriver()
+            driver = launchedDriver
+            await driver.launch()
+          }
+          if (!driver) {
+            return errorResponse('flow_login could not initialize a browser driver.')
+          }
+
           await driver.navigate(url)
 
           const page = new CompatPage(driver)
@@ -1473,7 +1515,7 @@ export async function handleToolCall(
         } catch (err) {
           return errorResponse(`flow_login failed: ${err instanceof Error ? err.message : String(err)}`)
         } finally {
-          await driver.close().catch(() => {})
+          await launchedDriver?.close().catch(() => {})
         }
       }
 
