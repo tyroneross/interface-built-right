@@ -144,6 +144,27 @@ function parseScrollDelta(value?: string): number {
   return Number.isFinite(n) ? n : 300;
 }
 
+/** Read `{ x: window.scrollX, y: window.scrollY }` from the page. Returns
+ *  `null` if the driver has no `evaluate` (non-CDP backend) or the read
+ *  throws/returns an unexpected shape — callers treat a null read as "cannot
+ *  confirm scroll happened", never as an implicit pass. */
+async function readScrollPosition(driver: { evaluate?: (expr: string) => Promise<unknown> }): Promise<{ x: number; y: number } | null> {
+  if (typeof driver.evaluate !== 'function') return null;
+  try {
+    const raw = await driver.evaluate('({ x: window.scrollX, y: window.scrollY })');
+    if (
+      raw && typeof raw === 'object' &&
+      typeof (raw as Record<string, unknown>).x === 'number' &&
+      typeof (raw as Record<string, unknown>).y === 'number'
+    ) {
+      return { x: (raw as { x: number }).x, y: (raw as { y: number }).y };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * R2: normalize the `what` arg for session_read / native_session_read.
  *
@@ -189,7 +210,10 @@ function imageResponse(base64: string, metadata: string): McpResponse {
  *  tolerates residual render noise from timing/compositing jitter). */
 const NOOP_PIXEL_THRESHOLD = 4;
 
-interface CapturedAction {
+// f8: exported so the CLI (`src/bin/ibr.ts` interact command) can share this
+// exact validator instead of maintaining a parallel success heuristic that
+// can drift from the MCP wire's definition of "the action succeeded".
+export interface CapturedAction {
   before: { elements: EngineElement[]; screenshot: Buffer };
   after: { elements: EngineElement[]; screenshot: Buffer };
   diff: { addedElements: EngineElement[]; removedElements: EngineElement[]; pixelDiff: number };
@@ -250,7 +274,7 @@ function rankAlternatives(
  * `success` on the returned ActionOutcome is true ONLY when this returns
  * `passed: true` — never merely because the underlying CDP call did not throw.
  */
-function validateWebAction(params: {
+export function validateWebAction(params: {
   action: string;
   value?: string;
   targetElementId: string | null;
@@ -1954,12 +1978,30 @@ export async function handleToolCall(
         if (action === 'scroll' && isPageScrollTarget(target)) {
           try {
             const deltaY = parseScrollDelta(value)
+            const before = await readScrollPosition(driver)
             await driver.scroll(deltaY)
             await new Promise(r => setTimeout(r, 300))
+            const after = await readScrollPosition(driver)
             const afterEls = await driver.getSnapshot() as EngineElement[]
             entry.url = driver.url
+
+            // f7 / T-09 (page-scroll leg): this used to return success:true
+            // unconditionally — a no-op scroll (already at the top/bottom, or
+            // a page with no overflow) falsely reported success. Key the
+            // outcome on the observed scrollX/scrollY delta, same
+            // never-throw-implies-success discipline as validateWebAction.
+            const movedBy = before && after ? Math.round(Math.hypot(after.x - before.x, after.y - before.y)) : null
+            const validator: ActionValidator = {
+              expected: `page scroll position changes after a ${deltaY}px scroll`,
+              observed: before && after
+                ? `scroll position (${before.x}, ${before.y}) -> (${after.x}, ${after.y}), Δ${movedBy}px`
+                : 'scroll position unreadable (window.scrollX/scrollY evaluate failed)',
+              passed: movedBy != null && movedBy > 0,
+            }
+
             const scrollResult = {
-              success: true,
+              success: validator.passed,
+              validator,
               scrolled: { target: (target && target.trim()) || 'page', deltaY },
               pageState: {
                 url: driver.url,

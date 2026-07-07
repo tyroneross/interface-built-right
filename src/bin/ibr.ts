@@ -4771,13 +4771,17 @@ program
         process.exit(1)
       }
 
-      // F7 / T-09 (CLI leg): this used to print "✓ ... succeeded"
-      // unconditionally after a fixed 500ms sleep, even when the action was a
-      // no-op. Wrap the action in actAndCapture (E3-A's before/after AX +
-      // pixel diff, which also replaces the fixed sleep with a real
-      // tree-stability wait) and only report success when something observably
-      // changed — matching the ActionOutcome success semantics used on the
-      // MCP wire (src/mcp/tools.ts interact/session_action).
+      // f8 / T-09 (CLI leg): this used to print "✓ ... succeeded" unconditionally
+      // after a fixed 500ms sleep — and, once that was fixed, still ran its own
+      // inline success heuristic (addedElements/removedElements/pixelDiff>4/
+      // url-change) in parallel with the MCP wire's `validateWebAction`
+      // (src/mcp/tools.ts). Two definitions of "succeeded" can drift (e.g. a
+      // value-only fill: same elements, same pixels, no URL change, but the
+      // input's value changed — the old CLI heuristic missed that). Call the
+      // same validator the MCP wire uses so there's one success definition,
+      // two surfaces. actAndCapture (E3-A's before/after AX + pixel diff) also
+      // replaces the fixed sleep with a real tree-stability wait.
+      const { validateWebAction } = await import('../mcp/tools.js')
       const beforeUrl = driver.url
       const captured = await driver.actAndCapture(async () => {
         switch (action) {
@@ -4791,15 +4795,21 @@ program
           case 'check': await driver.check(element.id); break
         }
       })
-      const changed = captured.diff.addedElements.length > 0 ||
-        captured.diff.removedElements.length > 0 ||
-        captured.diff.pixelDiff > 4 ||
-        driver.url !== beforeUrl
+      const validator = validateWebAction({
+        action,
+        value: opts.value,
+        targetElementId: element.id,
+        beforeUrl,
+        afterUrl: driver.url,
+        captured,
+      })
 
-      if (changed) {
+      if (validator.passed) {
         console.log(`✓ ${action} on "${opts.target}" succeeded`)
       } else {
-        console.error(`✗ ${action} on "${opts.target}" completed but produced no observable change (no-op)`)
+        console.error(`✗ ${action} on "${opts.target}" did not produce the expected change (no-op)`)
+        console.error(`  expected: ${validator.expected}`)
+        console.error(`  observed: ${validator.observed}`)
         process.exitCode = 1
       }
 

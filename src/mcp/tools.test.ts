@@ -543,6 +543,125 @@ describe('E3-E: session_action verify-then-proceed (T-09)', () => {
   });
 });
 
+// ─── f7: session_action page-scroll validates the scroll actually moved ──
+//
+// The page/window scroll short-circuit (session_action, no element target)
+// used to return `success: true` unconditionally after a fixed 300ms sleep
+// and no validator — a no-op scroll (already at the scroll boundary, or a
+// page with no overflow) falsely reported success. The fix reads
+// `window.scrollX/scrollY` before and after the scroll and keys
+// success/validator on the observed delta, matching the ActionOutcome
+// discipline used by the element-targeted paths above.
+
+describe('f7: session_action page-scroll verify-then-proceed (T-09)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('falsifier: a no-op scroll (already at the boundary) returns success:false with a validator explaining no movement', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const setSession = await getSetSession();
+
+    const elements = [makeStubElement({ id: 'el-1' })];
+    const stub = {
+      url: 'https://example.com/page',
+      // Same scroll position on every read — the page is already scrolled
+      // to the bottom, so a further "scroll down" is a no-op.
+      evaluate: vi.fn(async () => ({ x: 0, y: 5000 })),
+      scroll: vi.fn(async () => {}),
+      getSnapshot: vi.fn(async () => elements),
+      screenshot: vi.fn(async () => Buffer.from('fake-png-bytes')),
+    };
+
+    const sessionId = 'f7-noop-scroll';
+    setSession(sessionId, { driver: stub, type: 'chrome', url: stub.url, createdAt: Date.now() });
+
+    let result;
+    try {
+      result = await handleToolCall('session_action', {
+        sessionId, action: 'scroll', target: 'page', value: '300', screenshot: false,
+      });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    const parsed = jsonOf(result);
+    expect(parsed.success).toBe(false);
+    const validator = parsed.validator as { passed: boolean; observed: string };
+    expect(validator.passed).toBe(false);
+    expect(validator.observed).toMatch(/scroll position/);
+    expect(stub.scroll).toHaveBeenCalledTimes(1);
+    expect(stub.evaluate).toHaveBeenCalledTimes(2);
+  });
+
+  it('a scroll that moves the viewport returns success:true', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const setSession = await getSetSession();
+
+    const elements = [makeStubElement({ id: 'el-1' })];
+    let call = 0;
+    const stub = {
+      url: 'https://example.com/page',
+      evaluate: vi.fn(async () => {
+        call += 1;
+        return call === 1 ? { x: 0, y: 0 } : { x: 0, y: 300 };
+      }),
+      scroll: vi.fn(async () => {}),
+      getSnapshot: vi.fn(async () => elements),
+      screenshot: vi.fn(async () => Buffer.from('fake-png-bytes')),
+    };
+
+    const sessionId = 'f7-real-scroll';
+    setSession(sessionId, { driver: stub, type: 'chrome', url: stub.url, createdAt: Date.now() });
+
+    let result;
+    try {
+      result = await handleToolCall('session_action', {
+        sessionId, action: 'scroll', target: 'page', value: '300', screenshot: false,
+      });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    const parsed = jsonOf(result);
+    expect(parsed.success).toBe(true);
+    const validator = parsed.validator as { passed: boolean };
+    expect(validator.passed).toBe(true);
+  });
+
+  it('scroll position unreadable (no evaluate on the driver) does not report false success', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const setSession = await getSetSession();
+
+    const elements = [makeStubElement({ id: 'el-1' })];
+    const stub = {
+      url: 'https://example.com/page',
+      // No `evaluate` method at all — e.g. a backend that hasn't implemented it.
+      scroll: vi.fn(async () => {}),
+      getSnapshot: vi.fn(async () => elements),
+      screenshot: vi.fn(async () => Buffer.from('fake-png-bytes')),
+    };
+
+    const sessionId = 'f7-unreadable-scroll';
+    setSession(sessionId, { driver: stub, type: 'chrome', url: stub.url, createdAt: Date.now() });
+
+    let result;
+    try {
+      result = await handleToolCall('session_action', {
+        sessionId, action: 'scroll', target: 'page', value: '300', screenshot: false,
+      });
+    } finally {
+      setSession(sessionId, null);
+    }
+
+    const parsed = jsonOf(result);
+    expect(parsed.success).toBe(false);
+    const validator = parsed.validator as { passed: boolean; observed: string };
+    expect(validator.passed).toBe(false);
+    expect(validator.observed).toMatch(/unreadable/);
+  });
+});
+
 // ─── E3-E: interact (ephemeral-driver) verify-then-proceed (T-09) ────────
 
 describe('E3-E: interact verify-then-proceed (T-09)', () => {
@@ -601,5 +720,40 @@ describe('E3-E: no fixed 500ms sleeps on the verified interact/session_action pa
     const fs = await import('fs');
     const src = fs.readFileSync('src/mcp/tools.ts', 'utf8');
     expect(src).not.toMatch(/setTimeout\(r,\s*500\)/);
+  });
+});
+
+// ─── f8: CLI `interact` shares the MCP wire's validator, not a parallel one ─
+//
+// `src/bin/ibr.ts`'s `interact` command used to compute its own inline
+// success heuristic (addedElements/removedElements/pixelDiff>4/url-change)
+// instead of calling `validateWebAction` (the same function session_action
+// and the `interact` MCP tool use). Two success definitions can drift — e.g.
+// a value-only fill changes neither elements, pixels, nor URL, so the old CLI
+// heuristic would call it a no-op even though the field's value did change.
+// This is a static parity gate: the CLI source must import and call the
+// shared validator, and must not reintroduce a standalone heuristic.
+
+describe('f8: CLI interact keys success on the shared validateWebAction, not a parallel heuristic', () => {
+  it('src/bin/ibr.ts imports validateWebAction from the MCP tools module', async () => {
+    const fs = await import('fs');
+    const src = fs.readFileSync('src/bin/ibr.ts', 'utf8');
+    expect(src).toMatch(/import\(['"]\.\.\/mcp\/tools\.js['"]\)|from ['"]\.\.\/mcp\/tools\.js['"]/);
+    expect(src).toMatch(/validateWebAction/);
+  });
+
+  it('src/bin/ibr.ts interact command no longer computes its own addedElements/pixelDiff/url-change heuristic', async () => {
+    const fs = await import('fs');
+    const src = fs.readFileSync('src/bin/ibr.ts', 'utf8');
+    // The old parallel heuristic combined all four signals in one expression
+    // (`captured.diff.addedElements.length > 0 || ... pixelDiff > 4 || ...
+    // driver.url !== beforeUrl`). Its removal is the fix; this guards against
+    // it silently coming back.
+    expect(src).not.toMatch(/captured\.diff\.pixelDiff\s*>\s*4/);
+  });
+
+  it('validateWebAction is exported from src/mcp/tools.ts for the CLI to import', async () => {
+    const mod = await import('./tools.js');
+    expect(typeof (mod as unknown as { validateWebAction?: unknown }).validateWebAction).toBe('function');
   });
 });
