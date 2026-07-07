@@ -21,9 +21,15 @@ const CustomPrincipleSchema = z.object({
 });
 
 // Calm Precision config
+const DEFAULT_CALM_PRECISION_CONFIG = {
+  core: ['gestalt', 'signal-noise', 'content-chrome', 'cognitive-load'],
+  stylistic: ['fitts', 'hick'],
+  severity: {},
+};
+
 const CalmPrecisionConfigSchema = z.object({
-  core: z.array(z.string()).default(['gestalt', 'signal-noise', 'content-chrome', 'cognitive-load']),
-  stylistic: z.array(z.string()).default(['fitts', 'hick']),
+  core: z.array(z.string()).default(DEFAULT_CALM_PRECISION_CONFIG.core),
+  stylistic: z.array(z.string()).default(DEFAULT_CALM_PRECISION_CONFIG.stylistic),
   severity: z.record(z.string(), z.enum(['error', 'warn', 'off'])).default({}),
 });
 
@@ -40,9 +46,12 @@ export const DesignSystemConfigSchema = z.object({
   version: z.literal(1),
   name: z.string(),
   principles: z.object({
-    calmPrecision: CalmPrecisionConfigSchema.default({}),
+    calmPrecision: CalmPrecisionConfigSchema.default(DEFAULT_CALM_PRECISION_CONFIG),
     custom: z.array(CustomPrincipleSchema).default([]),
-  }).default({}),
+  }).default({
+    calmPrecision: DEFAULT_CALM_PRECISION_CONFIG,
+    custom: [],
+  }),
   tokens: z.object({
     colors: z.record(z.string(), z.string()).optional(),
     typography: TypographyTokensSchema.optional(),

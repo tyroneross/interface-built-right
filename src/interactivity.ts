@@ -235,11 +235,11 @@ export async function testInteractivity(page: Page): Promise<InteractivityResult
       const submitBtn = el.querySelector('button[type="submit"], input[type="submit"]');
       let submitInfo: ButtonInfo | undefined;
       if (submitBtn) {
-        const btn = submitBtn as HTMLButtonElement;
+        const btn = submitBtn as HTMLButtonElement | HTMLInputElement;
         submitInfo = {
           selector: getSelector(btn),
           tagName: btn.tagName.toLowerCase(),
-          text: btn.textContent?.trim() || (btn as HTMLInputElement).value || undefined,
+          text: btn.textContent?.trim() || ('value' in btn ? btn.value : undefined),
           hasHandler: hasEventHandler(btn),
           isDisabled: btn.disabled,
           isVisible: isVisible(btn),
