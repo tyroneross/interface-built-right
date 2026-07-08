@@ -359,7 +359,7 @@ func isSelectableRole(_ element: AXUIElement) -> Bool {
     return selectableRoles.contains(role)
 }
 
-/// Find the nearest selectable ancestor (AXRow/AXCell) of the element at
+/// Find the nearest selectable ancestor (AXRow/AXOutlineRow) of the element at
 /// `elementPath` by walking the child-index path upward. Name-based targeting
 /// resolves to a leaf (e.g. the AXStaticText inside a row), but SwiftUI
 /// List/table selection lives on the row. We climb by re-navigating shorter
@@ -411,7 +411,7 @@ func performAction(pid: pid_t, deviceName: String?, elementPath: [Int], action: 
         // SwiftUI List / table rows select via the AXSelected attribute, not
         // an AXPress action. Name-based targeting resolves to a leaf (the
         // AXStaticText inside the row), so climb to the nearest selectable
-        // AXRow/AXCell ancestor before setting kAXSelectedAttribute — that is
+        // AXRow/AXOutlineRow ancestor before setting kAXSelectedAttribute — that is
         // the cursor-free equivalent of clicking the row to select it.
         let selectTarget = nearestSelectableByPath(root: actionRoot, element: element, elementPath: elementPath) ?? element
         let ok = AXUIElementSetAttributeValue(selectTarget, kAXSelectedAttribute as CFString, true as CFTypeRef) == .success
