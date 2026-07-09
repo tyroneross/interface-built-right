@@ -16166,6 +16166,11 @@ function resolveSwiftSourceDir() {
   return candidates.find((candidate) => (0, import_fs9.existsSync)((0, import_path18.join)(candidate, "Package.swift"))) ?? candidates[0];
 }
 async function ensureExtractor() {
+  if (process.platform !== "darwin") {
+    throw new Error(
+      `macOS AX extractor requires macOS (current platform: ${process.platform})`
+    );
+  }
   if ((0, import_fs9.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }

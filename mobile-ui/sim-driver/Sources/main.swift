@@ -146,7 +146,7 @@ func parseCommand(_ args: [String]) throws -> Command {
     guard let udid else { throw DriverError.usage("--udid is required") }
     return Command(
         name: name, udid: udid, values: values, duration: duration,
-        coords: coords, chromeOffset: chromeOffset,
+        coords: coords, chromeOffset: chromeOffset
     )
 }
 

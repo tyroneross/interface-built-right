@@ -35,6 +35,16 @@ const SWIFT_BUILD_PATH = join(SWIFT_SOURCE_DIR, '.build', 'release', 'ibr-ax-ext
  * Compiles on first use, then caches at .ibr/bin/ibr-ax-extract
  */
 export async function ensureExtractor(): Promise<string> {
+  // The AX extractor is macOS-only (AppKit/ApplicationServices). On any other
+  // platform, skip straight to a fast, clear failure — never attempt a doomed
+  // `swift build`, which on a Linux CI runner with a Swift toolchain would burn
+  // the caller's timeout budget before failing to link AppKit.
+  if (process.platform !== 'darwin') {
+    throw new Error(
+      `macOS AX extractor requires macOS (current platform: ${process.platform})`,
+    );
+  }
+
   if (existsSync(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
