@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { rules, isLayoutCollapsed, hasPopupTrigger, isFormSubmitButton } from './minimal.js'
 import type { EnhancedElement } from '../../schemas.js'
-import type { RuleContext } from '../engine.js'
+import type { RuleContext } from '../types.js'
 
 const baseElement = (overrides: Partial<EnhancedElement> = {}): EnhancedElement => ({
   selector: 'button.test',

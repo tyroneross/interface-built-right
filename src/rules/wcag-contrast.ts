@@ -1,4 +1,4 @@
-import type { Rule, RuleContext } from './engine.js';
+import type { Rule, RuleContext } from './types.js';
 import type { EnhancedElement, Violation } from '../schemas.js';
 
 /**

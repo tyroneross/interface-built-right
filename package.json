@@ -56,9 +56,11 @@
     "build:sim-driver": "node scripts/build-sim-driver.js",
     "build:cli": "tsup src/bin/ibr.ts --format cjs --outDir dist/bin",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src",
     "test": "vitest",
-    "prepublishOnly": "npm run build",
+    "test:package": "node scripts/test-package-exports.mjs",
+    "validate:release": "python3 scripts/test_release_metadata.py && python3 scripts/test_plugin_manifest.py && python3 scripts/test_mcp_registration.py && npm run test:package",
+    "prepublishOnly": "npm run lint && npm run build && npm test -- --run && npm run validate:release",
     "ibr": "node dist/bin/ibr.js",
     "ibr:dev": "tsx src/bin/ibr.ts",
     "ui": "cd web-ui && npm run dev",
@@ -96,12 +98,15 @@
     "esbuild": "0.28.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.4",
     "@types/node": "^26.0.0",
     "@types/pixelmatch": "^5.2.6",
     "@types/pngjs": "^6.0.5",
+    "eslint": "^9.39.4",
     "tsup": "^8.5.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.1",
     "vitest": "^4.1.9"
   },
   "engines": {

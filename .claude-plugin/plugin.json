@@ -1,6 +1,6 @@
 {
   "name": "ibr",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "End-to-end design tool for AI coding agents \u2014 guided UI builds, web/iOS/macOS guidance, visual checks, mockup matching, interaction testing, native scanning, native layout-fill / gap analysis",
   "author": {
     "name": "Tyrone Ross, Jr"

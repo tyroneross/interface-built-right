@@ -58,7 +58,7 @@ export async function openSearchPaletteAndFindInput(
   page: Page,
   timeoutMs = 4000
 ): Promise<ElementHandleLike | null> {
-  let triggerClicked = false;
+  let triggerClicked: boolean;
 
   // Step 1: try to click a search-trigger element entirely inside evaluate so
   // we don't need a stable selector to hand back to page.$().

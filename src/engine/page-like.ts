@@ -3,7 +3,7 @@
  * Use this as the parameter type in functions that need to work with either.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+
 
 export interface ElementHandleLike {
   screenshot(options?: { path?: string; type?: string }): Promise<Buffer>

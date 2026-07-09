@@ -25,6 +25,7 @@ import { chmod, copyFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { promisify } from 'util'
 import type { IdbActionResult } from './idb.js'
+import { moduleDir } from './runtime-path.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -37,17 +38,17 @@ let buildError: string | null = null
 
 function existingBinaryCandidates(): string[] {
   return [
-    join(__dirname, '..', 'bin', DRIVER_NAME),
-    join(__dirname, 'bin', DRIVER_NAME),
-    join(__dirname, '..', '..', 'dist', 'bin', DRIVER_NAME),
+    join(moduleDir, '..', 'bin', DRIVER_NAME),
+    join(moduleDir, 'bin', DRIVER_NAME),
+    join(moduleDir, '..', '..', 'dist', 'bin', DRIVER_NAME),
     CACHE_PATH,
   ]
 }
 
 function sourceDirCandidates(): string[] {
   return [
-    join(__dirname, '..', '..', 'mobile-ui', 'sim-driver'),
-    join(__dirname, '..', 'mobile-ui', 'sim-driver'),
+    join(moduleDir, '..', '..', 'mobile-ui', 'sim-driver'),
+    join(moduleDir, '..', 'mobile-ui', 'sim-driver'),
   ]
 }
 

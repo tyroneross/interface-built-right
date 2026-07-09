@@ -20,7 +20,7 @@ export type SessionType = 'chrome' | 'safari' | 'macos' | 'simulator';
  * sessions carry no driver and are addressed by pid / device instead.
  */
 export type SessionEntry = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
   driver: any; // EngineDriver | SafariDriver | null (null for native/simulator sessions)
   type: SessionType;
   url?: string;

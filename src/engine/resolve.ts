@@ -132,15 +132,13 @@ function resolveAlgorithmic(options: ResolveOptions): ResolveResult {
 
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i]
-    let score = 0
-
     const roleScore = scoreRole(cleanedIntent, el.role)
     const intentIsOnlyRole = cleanedIntent.trim() === el.role.toLowerCase()
         || cleanedIntent.trim().split(/\s+/).every((w) => scoreRole(w, el.role) > 0)
     const labelScore = intentIsOnlyRole ? 0 : scoreLabelSimilarity(cleanedIntent, el.label)
     const spatialScore = scoreSpatial(hints, el, i, elements)
 
-    score = roleScore * 0.3 + labelScore * 0.5 + spatialScore * 0.2
+    let score = roleScore * 0.3 + labelScore * 0.5 + spatialScore * 0.2
 
     if (labelScore >= 0.99) {
       score = Math.max(score, 0.75)

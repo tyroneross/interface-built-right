@@ -219,7 +219,7 @@ export async function waitForSkeletonSettled(
   let lastCount = 0
 
   while (Date.now() < deadline) {
-    let count = 0
+    let count: number
     try {
       const raw = await evaluate(expr)
       count = typeof raw === 'number' ? raw : 0

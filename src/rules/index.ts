@@ -1,5 +1,5 @@
 import type { EnhancedElement } from '../schemas.js';
-import type { Rule, RuleContext } from './engine.js';
+import type { Rule, RuleContext } from './types.js';
 import { wcagContrastRules } from './wcag-contrast.js';
 import { touchTargetRules } from './touch-targets.js';
 import { textHierarchyRules } from './text-hierarchy.js';

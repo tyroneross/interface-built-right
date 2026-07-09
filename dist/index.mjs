@@ -11,8 +11,8 @@ import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { nanoid } from 'nanoid';
 import { promisify } from 'util';
+import { fileURLToPath, URL as URL$1 } from 'url';
 import { randomBytes } from 'crypto';
-import { URL as URL$1 } from 'url';
 
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -2096,7 +2096,7 @@ async function waitForSkeletonSettled(evaluate, options) {
   const expr = `(function(){ try { return document.querySelectorAll(${JSON.stringify(SELECTORS)}).length; } catch(e){ return 0; } })()`;
   let lastCount = 0;
   while (Date.now() < deadline) {
-    let count = 0;
+    let count;
     try {
       const raw = await evaluate(expr);
       count = typeof raw === "number" ? raw : 0;
@@ -2164,7 +2164,7 @@ async function waitForActionable(resolveAndProbe, options = {}) {
   const deadline = start + timeout;
   let lastRect = null;
   let stableCount = 0;
-  let lastReason = "not present";
+  let lastReason;
   while (true) {
     const result = await resolveAndProbe();
     if (!result) {
@@ -2712,12 +2712,11 @@ function resolveAlgorithmic(options) {
   const scored = [];
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
-    let score = 0;
     const roleScore = scoreRole(cleanedIntent, el.role);
     const intentIsOnlyRole = cleanedIntent.trim() === el.role.toLowerCase() || cleanedIntent.trim().split(/\s+/).every((w) => scoreRole(w, el.role) > 0);
     const labelScore = intentIsOnlyRole ? 0 : scoreLabelSimilarity(cleanedIntent, el.label);
     const spatialScore = scoreSpatial(hints, el, i, elements);
-    score = roleScore * 0.3 + labelScore * 0.5 + spatialScore * 0.2;
+    let score = roleScore * 0.3 + labelScore * 0.5 + spatialScore * 0.2;
     if (labelScore >= 0.99) {
       score = Math.max(score, 0.75);
     }
@@ -7117,15 +7116,15 @@ function preferencesToRules(preferences) {
   }));
 }
 function createMemoryPreset(preferences) {
-  const rules2 = preferencesToRules(preferences);
+  const rules = preferencesToRules(preferences);
   const defaults = {};
-  for (const rule of rules2) {
+  for (const rule of rules) {
     defaults[rule.id] = rule.defaultSeverity;
   }
   return {
     name: "memory",
     description: "UI/UX preferences from IBR memory",
-    rules: rules2,
+    rules,
     defaults
   };
 }
@@ -8888,10 +8887,10 @@ function dedupKey(e) {
   return `${e.type}|${e.value_px ?? ""}|${e.min ?? ""}|${e.max ?? ""}|${e.container_name ?? ""}`;
 }
 function collectBreakpoints(ctx) {
-  const rules2 = ctx.cssRules ?? [];
-  if (rules2.length === 0) return [];
+  const rules = ctx.cssRules ?? [];
+  if (rules.length === 0) return [];
   const byKey = /* @__PURE__ */ new Map();
-  for (const rule of rules2) {
+  for (const rule of rules) {
     if (rule.kind === "media") {
       const classified = classifyMediaCondition(rule.conditionText);
       const ruleCount = rule.rules.reduce((acc, r) => acc + countStyleRules(r), 0);
@@ -9033,8 +9032,8 @@ function collectReducedMotionOverridesFromRule(rule) {
   if (overrides.length === 0) return null;
   return { selector: rule.selector, overrides };
 }
-function walkRules(rules2, visit, insideReducedMotion = false) {
-  for (const r of rules2) {
+function walkRules(rules, visit, insideReducedMotion = false) {
+  for (const r of rules) {
     if (r.kind === "style") {
       visit(r, insideReducedMotion);
     } else if (r.kind === "media") {
@@ -9045,9 +9044,9 @@ function walkRules(rules2, visit, insideReducedMotion = false) {
     }
   }
 }
-function buildKeyframesUsage(rules2) {
+function buildKeyframesUsage(rules) {
   const usage = /* @__PURE__ */ new Map();
-  walkRules(rules2, (style) => {
+  walkRules(rules, (style) => {
     const animationName = style.declarations["animation-name"] ?? style.declarations.animationName;
     const animationShorthand = style.declarations.animation ?? style.declarations["animation"];
     const candidates = [];
@@ -9074,13 +9073,13 @@ function buildKeyframesUsage(rules2) {
   return usage;
 }
 function collectMotion(ctx) {
-  const rules2 = ctx.cssRules ?? [];
-  if (rules2.length === 0) {
+  const rules = ctx.cssRules ?? [];
+  if (rules.length === 0) {
     return { transitions: [], keyframes: [], reduced_motion_overrides: [] };
   }
   const transitions = [];
   const reducedOverrides = [];
-  walkRules(rules2, (style, insideReducedMotion) => {
+  walkRules(rules, (style, insideReducedMotion) => {
     if (insideReducedMotion) {
       const override = collectReducedMotionOverridesFromRule(style);
       if (override) reducedOverrides.push(override);
@@ -9089,7 +9088,7 @@ function collectMotion(ctx) {
     }
   });
   const keyframes = [];
-  const usage = buildKeyframesUsage(rules2);
+  const usage = buildKeyframesUsage(rules);
   function visitKeyframes(rs) {
     for (const r of rs) {
       if (r.kind === "keyframes") {
@@ -9103,7 +9102,7 @@ function collectMotion(ctx) {
       }
     }
   }
-  visitKeyframes(rules2);
+  visitKeyframes(rules);
   return { transitions, keyframes, reduced_motion_overrides: reducedOverrides };
 }
 var init_motion = __esm({
@@ -9236,8 +9235,8 @@ function parseStateSelectors(selectorText) {
 function isHoverCapableMedia(conditionText) {
   return /\(\s*hover\s*:\s*hover\s*\)/i.test(conditionText);
 }
-function walkRules2(rules2, visit, ctx = { insideHoverMedia: false }) {
-  for (const r of rules2) {
+function walkRules2(rules, visit, ctx = { insideHoverMedia: false }) {
+  for (const r of rules) {
     if (r.kind === "style") {
       visit(r, ctx);
     } else if (r.kind === "media") {
@@ -9263,12 +9262,12 @@ function interactiveBaseSelectors(ctx) {
   return out;
 }
 function collectInteractionStates(ctx) {
-  const rules2 = ctx.cssRules ?? [];
-  if (rules2.length === 0) {
+  const rules = ctx.cssRules ?? [];
+  if (rules.length === 0) {
     return { states: [], findings: [] };
   }
   const states = [];
-  walkRules2(rules2, (style, walkCtx) => {
+  walkRules2(rules, (style, walkCtx) => {
     const parsed = parseStateSelectors(style.selector);
     for (const { base, state } of parsed) {
       const entry = {
@@ -9520,16 +9519,15 @@ async function extractCssRulesAndMeta(page) {
     const sheets = Array.from(document.styleSheets);
     const allRules2 = [];
     for (const sheet of sheets) {
-      let rules2 = null;
+      let rules;
       try {
-        rules2 = sheet.cssRules;
+        rules = sheet.cssRules;
       } catch {
         continue;
       }
-      if (!rules2) continue;
       const sourceUrl = sheet.href ?? void 0;
-      for (let i = 0; i < rules2.length; i++) {
-        const converted = convertRule(rules2[i], sourceUrl);
+      for (let i = 0; i < rules.length; i++) {
+        const converted = convertRule(rules[i], sourceUrl);
         if (converted) allRules2.push(converted);
       }
     }
@@ -9643,7 +9641,6 @@ async function extractCssRulesAndMeta(page) {
             ariaLabel: htmlEl.getAttribute("aria-label"),
             ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
             ...ariaLevel !== null ? { ariaLevel: parseInt(ariaLevel, 10) } : {}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
           }
         });
       });
@@ -10248,7 +10245,7 @@ function classifyElement(el) {
 }
 function buildComponentCensus(elements, url) {
   if (elements.length === 0) return [];
-  let route = "/";
+  let route;
   try {
     route = new URL(url).pathname;
   } catch {
@@ -10470,15 +10467,30 @@ var init_summarize = __esm({
   }
 });
 
-// src/rules/presets/minimal.ts
-var minimal_exports = {};
-__export(minimal_exports, {
-  hasPopupTrigger: () => hasPopupTrigger,
-  isFormSubmitButton: () => isFormSubmitButton,
-  isLayoutCollapsed: () => isLayoutCollapsed,
-  register: () => register,
-  rules: () => rules
+// src/rules/presets/calm-precision.ts
+var calmPrecisionPreset;
+var init_calm_precision2 = __esm({
+  "src/rules/presets/calm-precision.ts"() {
+    init_calm_precision();
+    calmPrecisionPreset = (() => {
+      const defaults = {};
+      for (const rule of allCalmPrecisionRules) {
+        const isCore = corePrincipleIds.some(
+          (pid) => principleToRules[pid]?.includes(rule.id)
+        );
+        defaults[rule.id] = isCore ? "error" : "warn";
+      }
+      return {
+        name: "calm-precision",
+        description: "Calm Precision design principles \u2014 Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load",
+        rules: allCalmPrecisionRules,
+        defaults
+      };
+    })();
+  }
 });
+
+// src/rules/presets/minimal.ts
 function isLayoutCollapsed(element) {
   return element.bounds.width === 0 && element.bounds.height === 0;
 }
@@ -10493,13 +10505,9 @@ function isFormSubmitButton(element) {
   const t = element.buttonType;
   return t == null || t === "submit" || t === "";
 }
-function register() {
-  registerPreset(minimalPreset);
-}
-var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
+var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset;
 var init_minimal = __esm({
   "src/rules/presets/minimal.ts"() {
-    init_engine();
     noHandlerRule = {
       id: "no-handler",
       name: "No Click Handler",
@@ -10643,49 +10651,99 @@ var init_minimal = __esm({
         "disabled-no-visual": "warn"
       }
     };
-    rules = {
-      noHandlerRule,
-      placeholderLinkRule,
-      touchTargetRule,
-      missingAriaLabelRule,
-      disabledNoVisualRule
+  }
+});
+
+// src/rules/presets/touch-targets.ts
+function isInteractive(el) {
+  const role = el.a11y.role ?? "";
+  const tag = (el.tagName ?? "").toLowerCase();
+  const interactiveRoles = /* @__PURE__ */ new Set([
+    "button",
+    "link",
+    "menuitem",
+    "tab",
+    "checkbox",
+    "radio",
+    "switch",
+    "textbox",
+    "combobox",
+    "slider"
+  ]);
+  if (interactiveRoles.has(role)) return true;
+  if (["a", "button", "input", "select", "textarea"].includes(tag)) return true;
+  if (el.interactive.hasOnClick || el.interactive.hasHref || el.interactive.hasReactHandler === true || el.interactive.hasVueHandler === true || el.interactive.hasAngularHandler === true) {
+    return true;
+  }
+  return false;
+}
+var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules, touchTargetsPreset;
+var init_touch_targets2 = __esm({
+  "src/rules/presets/touch-targets.ts"() {
+    mobileTouchTargetRule = {
+      id: "touch-target-mobile",
+      name: "Mobile Touch Target Size",
+      description: "Interactive elements must be at least 44x44px on mobile viewports (WCAG 2.5.5 AAA / Apple HIG)",
+      defaultSeverity: "error",
+      check(element, context) {
+        if (!context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 44;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-mobile",
+            ruleName: "Mobile Touch Target Size",
+            severity: "error",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
+          };
+        }
+        return null;
+      }
+    };
+    desktopPointerTargetRule = {
+      id: "touch-target-desktop",
+      name: "Desktop Pointer Target Size",
+      description: "Interactive elements should be at least 24x24px on desktop viewports (WCAG 2.5.8 AA)",
+      defaultSeverity: "warn",
+      check(element, context) {
+        if (context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 24;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-desktop",
+            ruleName: "Desktop Pointer Target Size",
+            severity: "warn",
+            message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetPresetRules = [mobileTouchTargetRule, desktopPointerTargetRule];
+    touchTargetsPreset = {
+      name: "touch-targets",
+      description: "Minimum touch and pointer target sizes \u2014 WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)",
+      rules: touchTargetPresetRules,
+      defaults: {
+        "touch-target-mobile": "error",
+        "touch-target-desktop": "warn"
+      }
     };
   }
 });
 
-// src/rules/presets/calm-precision.ts
-var calm_precision_exports = {};
-__export(calm_precision_exports, {
-  register: () => register2
-});
-function register2() {
-  const defaults = {};
-  for (const rule of allCalmPrecisionRules) {
-    const isCore = corePrincipleIds.some(
-      (pid) => principleToRules[pid]?.includes(rule.id)
-    );
-    defaults[rule.id] = isCore ? "error" : "warn";
-  }
-  registerPreset({
-    name: "calm-precision",
-    description: "Calm Precision design principles \u2014 Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load",
-    rules: allCalmPrecisionRules,
-    defaults
-  });
-}
-var init_calm_precision2 = __esm({
-  "src/rules/presets/calm-precision.ts"() {
-    init_engine();
-    init_calm_precision();
-  }
-});
-
 // src/rules/presets/wcag-contrast.ts
-var wcag_contrast_exports = {};
-__export(wcag_contrast_exports, {
-  register: () => register3,
-  wcagContrastPresetRules: () => wcagContrastPresetRules
-});
 function parseColor5(color) {
   if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
     return null;
@@ -10732,22 +10790,9 @@ function isLargeText3(styles) {
   const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
   return fontSize >= 18 || isBold && fontSize >= 14;
 }
-function register3() {
-  const defaults = {
-    "wcag-aa-contrast": "error",
-    "wcag-aaa-contrast": "warn"
-  };
-  registerPreset({
-    name: "wcag-contrast",
-    description: "WCAG 2.1 contrast ratio checks \u2014 AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)",
-    rules: wcagContrastPresetRules,
-    defaults
-  });
-}
-var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules;
+var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules, wcagContrastPreset;
 var init_wcag_contrast2 = __esm({
   "src/rules/presets/wcag-contrast.ts"() {
-    init_engine();
     wcagAAContrastRule = {
       id: "wcag-aa-contrast",
       name: "WCAG 2.1 AA Contrast",
@@ -10813,104 +10858,15 @@ var init_wcag_contrast2 = __esm({
       }
     };
     wcagContrastPresetRules = [wcagAAContrastRule, wcagAAAContrastRule];
-  }
-});
-
-// src/rules/presets/touch-targets.ts
-var touch_targets_exports = {};
-__export(touch_targets_exports, {
-  register: () => register4,
-  touchTargetPresetRules: () => touchTargetPresetRules
-});
-function isInteractive(el) {
-  const role = el.a11y.role ?? "";
-  const tag = (el.tagName ?? "").toLowerCase();
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "button",
-    "link",
-    "menuitem",
-    "tab",
-    "checkbox",
-    "radio",
-    "switch",
-    "textbox",
-    "combobox",
-    "slider"
-  ]);
-  if (interactiveRoles.has(role)) return true;
-  if (["a", "button", "input", "select", "textarea"].includes(tag)) return true;
-  if (el.interactive.hasOnClick || el.interactive.hasHref || el.interactive.hasReactHandler === true || el.interactive.hasVueHandler === true || el.interactive.hasAngularHandler === true) {
-    return true;
-  }
-  return false;
-}
-function register4() {
-  const defaults = {
-    "touch-target-mobile": "error",
-    "touch-target-desktop": "warn"
-  };
-  registerPreset({
-    name: "touch-targets",
-    description: "Minimum touch and pointer target sizes \u2014 WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)",
-    rules: touchTargetPresetRules,
-    defaults
-  });
-}
-var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules;
-var init_touch_targets2 = __esm({
-  "src/rules/presets/touch-targets.ts"() {
-    init_engine();
-    mobileTouchTargetRule = {
-      id: "touch-target-mobile",
-      name: "Mobile Touch Target Size",
-      description: "Interactive elements must be at least 44x44px on mobile viewports (WCAG 2.5.5 AAA / Apple HIG)",
-      defaultSeverity: "error",
-      check(element, context) {
-        if (!context.isMobile) return null;
-        if (!isInteractive(element)) return null;
-        const { width, height } = element.bounds;
-        if (width === 0 || height === 0) return null;
-        const MIN = 44;
-        if (width < MIN || height < MIN) {
-          return {
-            ruleId: "touch-target-mobile",
-            ruleName: "Mobile Touch Target Size",
-            severity: "error",
-            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
-          };
-        }
-        return null;
+    wcagContrastPreset = {
+      name: "wcag-contrast",
+      description: "WCAG 2.1 contrast ratio checks \u2014 AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)",
+      rules: wcagContrastPresetRules,
+      defaults: {
+        "wcag-aa-contrast": "error",
+        "wcag-aaa-contrast": "warn"
       }
     };
-    desktopPointerTargetRule = {
-      id: "touch-target-desktop",
-      name: "Desktop Pointer Target Size",
-      description: "Interactive elements should be at least 24x24px on desktop viewports (WCAG 2.5.8 AA)",
-      defaultSeverity: "warn",
-      check(element, context) {
-        if (context.isMobile) return null;
-        if (!isInteractive(element)) return null;
-        const { width, height } = element.bounds;
-        if (width === 0 || height === 0) return null;
-        const MIN = 24;
-        if (width < MIN || height < MIN) {
-          return {
-            ruleId: "touch-target-desktop",
-            ruleName: "Desktop Pointer Target Size",
-            severity: "warn",
-            message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
-          };
-        }
-        return null;
-      }
-    };
-    touchTargetPresetRules = [mobileTouchTargetRule, desktopPointerTargetRule];
   }
 });
 
@@ -10951,10 +10907,10 @@ function mergeRuleSettings(presetNames, userRules = {}) {
   return { rules: allRules2, settings };
 }
 function runRules(elements, context, config) {
-  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
+  const { rules, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
   const violations = [];
   for (const element of elements) {
-    for (const rule of rules2) {
+    for (const rule of rules) {
       const setting = settings.get(rule.id);
       if (!setting || setting.severity === "off") {
         continue;
@@ -10973,15 +10929,19 @@ function runRules(elements, context, config) {
 var presets;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
+    init_calm_precision2();
+    init_minimal();
+    init_touch_targets2();
+    init_wcag_contrast2();
     presets = /* @__PURE__ */ new Map();
-    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
-    });
-    Promise.resolve().then(() => (init_calm_precision2(), calm_precision_exports)).then((m) => m.register()).catch(() => {
-    });
-    Promise.resolve().then(() => (init_wcag_contrast2(), wcag_contrast_exports)).then((m) => m.register()).catch(() => {
-    });
-    Promise.resolve().then(() => (init_touch_targets2(), touch_targets_exports)).then((m) => m.register()).catch(() => {
-    });
+    for (const preset of [
+      minimalPreset,
+      calmPrecisionPreset,
+      wcagContrastPreset,
+      touchTargetsPreset
+    ]) {
+      registerPreset(preset);
+    }
   }
 });
 
@@ -11768,6 +11728,21 @@ var init_role_map = __esm({
     ]);
   }
 });
+var moduleDir;
+var init_runtime_path = __esm({
+  "src/native/runtime-path.mts"() {
+    moduleDir = typeof __dirname === "string" ? __dirname : dirname(fileURLToPath(import.meta.url));
+  }
+});
+function resolveSwiftSourceDir() {
+  const candidates = [
+    // TypeScript source execution: src/native/extract.ts
+    join(moduleDir, "swift", "ibr-ax-extract"),
+    // Bundled package execution: dist/index.{js,mjs}
+    join(moduleDir, "..", "src", "native", "swift", "ibr-ax-extract")
+  ];
+  return candidates.find((candidate) => existsSync(join(candidate, "Package.swift"))) ?? candidates[0];
+}
 async function ensureExtractor() {
   if (existsSync(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
@@ -11880,10 +11855,11 @@ var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     init_role_map();
+    init_runtime_path();
     execFileAsync3 = promisify(execFile);
     EXTRACTOR_DIR = join(process.cwd(), ".ibr", "bin");
     EXTRACTOR_PATH = join(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = join(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
     SWIFT_MAIN_PATH = join(SWIFT_SOURCE_DIR, "Sources", "main.swift");
     SWIFT_PACKAGE_PATH = join(SWIFT_SOURCE_DIR, "Package.swift");
     SWIFT_BUILD_PATH = join(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
@@ -13986,7 +13962,7 @@ async function loginFlow(page, options) {
 // src/flows/search.ts
 init_types();
 async function openSearchPaletteAndFindInput(page, timeoutMs = 4e3) {
-  let triggerClicked = false;
+  let triggerClicked;
   try {
     triggerClicked = await page.evaluate(`(function() {
       try {
@@ -16311,8 +16287,8 @@ async function* askStream(url, question, options = {}) {
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
       const { mkdir: mkdir17 } = await import('fs/promises');
-      const { dirname: dirname9 } = await import('path');
-      if (screenshotPath) await mkdir17(dirname9(screenshotPath), { recursive: true });
+      const { dirname: dirname10 } = await import('path');
+      if (screenshotPath) await mkdir17(dirname10(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -16584,22 +16560,23 @@ init_capture();
 init_extract3();
 init_rules2();
 init_scan2();
+init_runtime_path();
 promisify(execFile);
 var DRIVER_NAME = "ibr-sim-driver";
 var CACHE_DIR = join(process.cwd(), ".ibr", "bin");
 var CACHE_PATH = join(CACHE_DIR, DRIVER_NAME);
 function existingBinaryCandidates() {
   return [
-    join(__dirname, "..", "bin", DRIVER_NAME),
-    join(__dirname, "bin", DRIVER_NAME),
-    join(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    join(moduleDir, "..", "bin", DRIVER_NAME),
+    join(moduleDir, "bin", DRIVER_NAME),
+    join(moduleDir, "..", "..", "dist", "bin", DRIVER_NAME),
     CACHE_PATH
   ];
 }
 function sourceDirCandidates() {
   return [
-    join(__dirname, "..", "..", "mobile-ui", "sim-driver"),
-    join(__dirname, "..", "mobile-ui", "sim-driver")
+    join(moduleDir, "..", "..", "mobile-ui", "sim-driver"),
+    join(moduleDir, "..", "mobile-ui", "sim-driver")
   ];
 }
 function findExistingBinary() {
@@ -18857,7 +18834,7 @@ async function compare(options) {
   await mkdir(outputDir, { recursive: true });
   const timestamp = Date.now();
   const actualBaselinePath = baselinePath || join(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || join(outputDir, `current-${timestamp}.png`);
+  const actualCurrentPath = currentPath || join(outputDir, `current-${timestamp}.png`);
   const diffPath = join(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({

@@ -1,11 +1,8 @@
-import { registerPreset } from '../engine.js';
+import type { RulePreset } from '../types.js';
 import { allCalmPrecisionRules, corePrincipleIds, principleToRules } from '../../design-system/principles/calm-precision.js';
 import type { RuleSetting } from '../../schemas.js';
 
-/**
- * Register the calm-precision preset
- */
-export function register(): void {
+export const calmPrecisionPreset: RulePreset = (() => {
   const defaults: Record<string, RuleSetting> = {};
 
   for (const rule of allCalmPrecisionRules) {
@@ -16,10 +13,10 @@ export function register(): void {
     defaults[rule.id] = isCore ? 'error' : 'warn';
   }
 
-  registerPreset({
+  return {
     name: 'calm-precision',
     description: 'Calm Precision design principles — Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load',
     rules: allCalmPrecisionRules,
     defaults,
-  });
-}
+  };
+})();

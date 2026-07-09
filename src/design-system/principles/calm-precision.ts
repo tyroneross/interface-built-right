@@ -4,7 +4,7 @@ import { fittsRules } from './fitts.js';
 import { hickRules } from './hick.js';
 import { contentChromeRules } from './content-chrome.js';
 import { cognitiveLoadRules } from './cognitive-load.js';
-import type { Rule } from '../../rules/engine.js';
+import type { Rule } from '../../rules/types.js';
 
 /** All Calm Precision rules */
 export const allCalmPrecisionRules: Rule[] = [

@@ -135,7 +135,7 @@ async function getComputedProperty(
     // Try to find the element by accessible name first (AX tree lookup)
     // If the query looks like a CSS selector (starts with . # [ or tag), use querySelector
     // Detect CSS selectors: must start with . # [ or contain > + ~ combinators
-    const isSelector = /^[.#\[]/.test(elementQuery) || /[>+~]/.test(elementQuery);
+    const isSelector = /^[.#[]/.test(elementQuery) || /[>+~]/.test(elementQuery);
 
     let jsExpression: string;
     if (isSelector) {

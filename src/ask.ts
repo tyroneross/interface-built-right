@@ -13,7 +13,7 @@
 
 import { scan } from './scan.js'
 import type { SetCookieParams } from './engine/cdp/network.js'
-import type { RuleContext } from './rules/engine.js'
+import type { RuleContext } from './rules/types.js'
 import { touchTargetRules } from './rules/touch-targets.js'
 import { signalNoiseRules } from './design-system/principles/signal-noise.js'
 import { loadDesignSystemConfig } from './design-system/index.js'

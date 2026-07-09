@@ -151,7 +151,7 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
   // Determine paths
   const timestamp = Date.now();
   const actualBaselinePath = baselinePath || join(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || join(outputDir, `current-${timestamp}.png`);
+  const actualCurrentPath = currentPath || join(outputDir, `current-${timestamp}.png`);
   const diffPath = join(outputDir, `diff-${timestamp}.png`);
 
   // If URL provided but no baseline, capture baseline first

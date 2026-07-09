@@ -528,13 +528,9 @@ program
 
       // Import modules
       const { loadRulesConfig, runRules, createAuditResult, formatAuditResult, registerPreset } = await import('../rules/engine.js');
-      const { register } = await import('../rules/presets/minimal.js');
       const { extractInteractiveElements } = await import('../extract.js');
       const { discoverUserContext, formatContextSummary } = await import('../context-loader.js');
       const { createPresetFromFramework } = await import('../rules/dynamic-rules.js');
-
-      // Register built-in presets
-      register();
 
       // Discover user context (design framework from CLAUDE.md)
       const userContext = await discoverUserContext(process.cwd());
@@ -645,7 +641,7 @@ program
 
         // Find matching baseline (same URL path)
         const urlPath = new URL(resolvedUrl).pathname;
-        let baselineSession = options.baseline
+        const baselineSession = options.baseline
           ? sessions.find(s => s.id === options.baseline)
           : sessions
               .filter(s => new URL(s.url).pathname === urlPath && s.status !== 'compared')
@@ -719,7 +715,7 @@ program
           .filter(s => new URL(s.url).pathname === urlPath && s.landmarkElements && s.landmarkElements.length > 0)
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
 
-        let elementChecks: Array<{ element: string; found: boolean; source: 'baseline' | 'inferred' }> = [];
+        const elementChecks: Array<{ element: string; found: boolean; source: 'baseline' | 'inferred' }> = [];
 
         if (baselineSession && baselineSession.landmarkElements) {
           // APPROACH 1: Compare against baseline landmarks
@@ -975,7 +971,7 @@ function applyOutputMode(result: import('../scan.js').ScanResult, mode: string):
     };
   }
   if (mode === 'raw') {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     const { sensors: _sensors, ...rest } = result as unknown as Record<string, unknown>;
     return rest as Partial<import('../scan.js').ScanResult>;
   }

@@ -1,5 +1,5 @@
-import { registerPreset, type Rule, type RuleContext } from '../engine.js';
-import type { EnhancedElement, Violation, RuleSetting } from '../../schemas.js';
+import type { Rule, RuleContext, RulePreset } from '../types.js';
+import type { EnhancedElement, Violation } from '../../schemas.js';
 
 /**
  * Parse a color string (hex, rgb, rgba) into [r, g, b] in 0–255 range.
@@ -165,15 +165,12 @@ const wcagAAAContrastRule: Rule = {
 
 export const wcagContrastPresetRules: Rule[] = [wcagAAContrastRule, wcagAAAContrastRule];
 
-export function register(): void {
-  const defaults: Record<string, RuleSetting> = {
+export const wcagContrastPreset: RulePreset = {
+  name: 'wcag-contrast',
+  description: 'WCAG 2.1 contrast ratio checks — AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)',
+  rules: wcagContrastPresetRules,
+  defaults: {
     'wcag-aa-contrast': 'error',
     'wcag-aaa-contrast': 'warn',
-  };
-  registerPreset({
-    name: 'wcag-contrast',
-    description: 'WCAG 2.1 contrast ratio checks — AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)',
-    rules: wcagContrastPresetRules,
-    defaults,
-  });
-}
+  },
+};

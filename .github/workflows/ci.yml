@@ -33,6 +33,21 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Build package
+        run: npm run build
+
+      - name: Run test suite
+        run: npm test -- --run
+
+      - name: Validate release surfaces and package exports
+        run: npm run validate:release
+
+      - name: Inspect package contents
+        run: npm pack --dry-run --json --ignore-scripts
+
   typecheck-web-ui:
     name: typecheck web-ui (tsc --noEmit)
     runs-on: ubuntu-latest
@@ -53,3 +68,15 @@ jobs:
 
       - name: Typecheck
         run: npm run typecheck
+
+  native-swift-build:
+    name: native Swift packages build
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build AX extractor
+        run: swift build --package-path src/native/swift/ibr-ax-extract -c release
+
+      - name: Build Simulator driver
+        run: swift build --package-path mobile-ui/sim-driver -c release

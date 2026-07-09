@@ -1,4 +1,4 @@
-import type { Rule } from '../../rules/engine.js';
+import type { Rule } from '../../rules/types.js';
 import type { EnhancedElement, Violation } from '../../schemas.js';
 
 export const gestaltRules: Rule[] = [

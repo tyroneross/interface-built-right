@@ -427,14 +427,14 @@ export async function captureWithDiagnostics(
     });
 
     // Collect network errors
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     page.on?.('requestfailed', ((request: { failure(): { errorText?: string } | null; url(): string }) => {
       const failure = request.failure();
       networkErrors.push(`${request.url()}: ${failure?.errorText || 'failed'}`);
     }) as any);
 
     // Track HTTP status
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     page.on?.('response', ((response: { url(): string; status(): number }) => {
       if (response.url() === url || response.url() === url + '/') {
         httpStatus = response.status();

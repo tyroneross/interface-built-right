@@ -2,15 +2,16 @@
 
 ## Current
 
-- **Version:** 1.4.0
+- **Source version:** 1.5.0 (unreleased)
 - **Source of truth:** Local dev (`~/dev/git-folder/interface-built-right`)
+- **Published version:** 1.4.0
 - **Also available at:**
   - GitHub: https://github.com/tyroneross/interface-built-right
   - npmjs: `@tyroneross/interface-built-right`
   - GitHub Packages: `@tyroneross/interface-built-right`
-- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.4.0/`
-- **Publish workflow:** GitHub Release `v1.4.0` triggers both npmjs OIDC trusted
-  publishing and GitHub Packages publishing; dry-runs must pass before release.
+- **Claude Code cache mirror:** `~/.claude/plugins/cache/interface-built-right/ibr/1.4.0/` until v1.5.0 is released and installed.
+- **Publish workflow:** GitHub Release `v1.5.0` triggers both npmjs OIDC trusted
+  publishing and GitHub Packages publishing; validation and dry-runs must pass before release.
 
 ## Key changes in 1.4.0
 

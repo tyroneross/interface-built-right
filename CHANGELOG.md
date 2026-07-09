@@ -128,7 +128,7 @@ no longer blocks a release on its own; the gate below still applies because
 `.github/workflows/publish-npm.yml` fires on GitHub Release and this
 increment hasn't completed its V1 verification pass yet:
 
-**No version bump and no GitHub Release for this content until the
+**No GitHub Release for this content until the
 driving-foundation plan's V1 verification chunk passes** (live-drive demo
 transcript + timing table + full green `npm test` / `npm run typecheck` /
 `npm run build` / `git diff --check`). See

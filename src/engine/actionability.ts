@@ -107,7 +107,7 @@ export async function waitForActionable<T>(
 
   let lastRect: Rect | null = null
   let stableCount = 0
-  let lastReason = 'not present'
+  let lastReason: string
 
   while (true) {
     const result = await resolveAndProbe()

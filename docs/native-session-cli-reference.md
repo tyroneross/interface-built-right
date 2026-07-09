@@ -19,7 +19,7 @@ is identical across surfaces (PRD: `docs/superpowers/specs/2026-06-28-ibr-native
 > `osascript -128` when the machine has `NSCloseAlwaysConfirmsChanges=1` and the app
 > has an unsaved document — surfaced honestly as `success:false` with evidence (no
 > force-quit, to avoid discarding unsaved work). See `CHANGELOG.md` for the release
-> gate: no version bump / GitHub Release ships until the Increment-1 final
+> gate: no GitHub Release ships until the Increment-1 final
 > verification (V1) passes.
 
 ---

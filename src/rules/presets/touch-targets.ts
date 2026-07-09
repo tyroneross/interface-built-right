@@ -1,5 +1,5 @@
-import { registerPreset, type Rule, type RuleContext } from '../engine.js';
-import type { EnhancedElement, Violation, RuleSetting } from '../../schemas.js';
+import type { Rule, RuleContext, RulePreset } from '../types.js';
+import type { EnhancedElement, Violation } from '../../schemas.js';
 
 /**
  * Determine whether an element is likely interactive (tappable/clickable).
@@ -98,15 +98,12 @@ const desktopPointerTargetRule: Rule = {
 
 export const touchTargetPresetRules: Rule[] = [mobileTouchTargetRule, desktopPointerTargetRule];
 
-export function register(): void {
-  const defaults: Record<string, RuleSetting> = {
+export const touchTargetsPreset: RulePreset = {
+  name: 'touch-targets',
+  description: 'Minimum touch and pointer target sizes — WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)',
+  rules: touchTargetPresetRules,
+  defaults: {
     'touch-target-mobile': 'error',
     'touch-target-desktop': 'warn',
-  };
-  registerPreset({
-    name: 'touch-targets',
-    description: 'Minimum touch and pointer target sizes — WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)',
-    rules: touchTargetPresetRules,
-    defaults,
-  });
-}
+  },
+};

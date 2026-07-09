@@ -1,4 +1,4 @@
-import { registerPreset, type Rule, type RuleContext, type RulePreset } from '../engine.js';
+import type { Rule, RuleContext, RulePreset } from '../types.js';
 import type { EnhancedElement, Violation } from '../../schemas.js';
 
 /**
@@ -221,7 +221,7 @@ const disabledNoVisualRule: Rule = {
 /**
  * Minimal preset - basic interactivity checks
  */
-const minimalPreset: RulePreset = {
+export const minimalPreset: RulePreset = {
   name: 'minimal',
   description: 'Basic interactivity and accessibility checks',
   rules: [
@@ -239,13 +239,6 @@ const minimalPreset: RulePreset = {
     'disabled-no-visual': 'warn',
   },
 };
-
-/**
- * Register the minimal preset
- */
-export function register(): void {
-  registerPreset(minimalPreset);
-}
 
 // Export rules for testing
 export const rules = {

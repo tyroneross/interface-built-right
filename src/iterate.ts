@@ -267,9 +267,9 @@ async function runOneIteration(
   prevIssueCount: number,
 ): Promise<IterationState> {
   const start = Date.now()
-  let fingerprints: string[] = []
-  let issueCount = 0
-  let approachHint = ''
+  let fingerprints: string[]
+  let issueCount: number
+  let approachHint: string
   let issues: ScanIssue[] | undefined
 
   if (testFile) {

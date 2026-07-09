@@ -26,7 +26,7 @@ import type {
   EnhancedElement,
   Session,
 } from './schemas.js';
-import type { Rule, RuleContext, RulePreset } from './rules/engine.js';
+import type { Rule, RuleContext, RulePreset } from './rules/types.js';
 
 // ============================================================================
 // CONSTANTS

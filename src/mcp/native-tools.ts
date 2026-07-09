@@ -52,7 +52,7 @@ export const NATIVE_ACTION_KIND_VALUES = [
  */
 type AssertTypeEqual<A, B> =
   (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+
 const _nativeActionKindEnumMatchesFrozenType: AssertTypeEqual<
   (typeof NATIVE_ACTION_KIND_VALUES)[number],
   NativeActionKind

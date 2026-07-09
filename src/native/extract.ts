@@ -7,15 +7,25 @@ import type { NativeElement } from './types.js';
 import type { SimulatorDevice } from './types.js';
 import type { EnhancedElement } from '../schemas.js';
 import { mapRoleToTag, mapRoleToAriaRole, isInteractiveRole } from './role-map.js';
+import { moduleDir } from './runtime-path.mjs';
 
 const execFileAsync = promisify(execFile);
 
 const EXTRACTOR_DIR = join(process.cwd(), '.ibr', 'bin');
 const EXTRACTOR_PATH = join(EXTRACTOR_DIR, 'ibr-ax-extract');
 
-// Resolve Swift source dir: walk up from compiled output (dist/) or source (src/) to package root
-// __dirname works in CJS (which all 3 build targets produce)
-const SWIFT_SOURCE_DIR = join(__dirname, '..', '..', 'src', 'native', 'swift', 'ibr-ax-extract');
+function resolveSwiftSourceDir(): string {
+  const candidates = [
+    // TypeScript source execution: src/native/extract.ts
+    join(moduleDir, 'swift', 'ibr-ax-extract'),
+    // Bundled package execution: dist/index.{js,mjs}
+    join(moduleDir, '..', 'src', 'native', 'swift', 'ibr-ax-extract'),
+  ];
+
+  return candidates.find(candidate => existsSync(join(candidate, 'Package.swift'))) ?? candidates[0];
+}
+
+const SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
 const SWIFT_MAIN_PATH = join(SWIFT_SOURCE_DIR, 'Sources', 'main.swift');
 const SWIFT_PACKAGE_PATH = join(SWIFT_SOURCE_DIR, 'Package.swift');
 const SWIFT_BUILD_PATH = join(SWIFT_SOURCE_DIR, '.build', 'release', 'ibr-ax-extract');

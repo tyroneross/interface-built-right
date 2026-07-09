@@ -111,10 +111,10 @@ export async function extractCssRulesAndMeta(
         };
       }
       // CSSContainerRule (relatively new — check via constructor name for cross-browser safety)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const ContainerCtor = (window as any).CSSContainerRule;
       if (ContainerCtor && rule instanceof ContainerCtor) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const cr = rule as any;
         const nested: InlineExtractedRule[] = [];
         for (let i = 0; i < cr.cssRules.length; i++) {
@@ -130,10 +130,10 @@ export async function extractCssRulesAndMeta(
         };
       }
       // CSSSupportsRule
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       const SupportsCtor = (window as any).CSSSupportsRule;
       if (SupportsCtor && rule instanceof SupportsCtor) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
         const sr = rule as any;
         const nested: InlineExtractedRule[] = [];
         for (let i = 0; i < sr.cssRules.length; i++) {
@@ -154,14 +154,13 @@ export async function extractCssRulesAndMeta(
     const sheets = Array.from(document.styleSheets);
     const allRules: InlineExtractedRule[] = [];
     for (const sheet of sheets) {
-      let rules: CSSRuleList | null = null;
+      let rules: CSSRuleList;
       try {
         rules = sheet.cssRules;
       } catch {
         // cross-origin — skip
         continue;
       }
-      if (!rules) continue;
       const sourceUrl = sheet.href ?? undefined;
       for (let i = 0; i < rules.length; i++) {
         const converted = convertRule(rules[i]!, sourceUrl);
@@ -173,7 +172,7 @@ export async function extractCssRulesAndMeta(
     const rootFontSize = parseFloat(
       window.getComputedStyle(document.documentElement).fontSize || '16',
     );
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     const fontsApi = (document as any).fonts;
     let fontsStatus: 'loading' | 'loaded' | 'unsupported' = 'unsupported';
     if (fontsApi && typeof fontsApi.status === 'string') {
@@ -201,10 +200,10 @@ export async function extractCssRulesAndMeta(
       'p', 'span', 'li',  // typography: text-bearing content
     ];
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
     function buildStructuralSelector(el: Element): string {
       const path: string[] = [];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
       let cur: any = el;
       while (cur && cur !== document.body) {
         let s = cur.tagName.toLowerCase();
@@ -287,7 +286,7 @@ export async function extractCssRulesAndMeta(
             ariaLabel: htmlEl.getAttribute('aria-label'),
             ariaDescribedBy: htmlEl.getAttribute('aria-describedby'),
             ...(ariaLevel !== null ? { ariaLevel: parseInt(ariaLevel, 10) } : {}),
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+
           } as any,
         } as EnhancedElement);
       });

@@ -348,7 +348,7 @@ function buildComponentCensus(
 ): ComponentCensusEntry[] {
   if (elements.length === 0) return [];
 
-  let route = '/';
+  let route: string;
   try {
     route = new URL(url).pathname;
   } catch {

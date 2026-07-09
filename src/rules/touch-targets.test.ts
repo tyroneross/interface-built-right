@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { touchTargetRules } from './touch-targets.js';
 import type { EnhancedElement } from '../schemas.js';
-import type { RuleContext } from './engine.js';
+import type { RuleContext } from './types.js';
 
 const rule = touchTargetRules[0];
 

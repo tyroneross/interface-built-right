@@ -17,7 +17,7 @@ export async function recordImplementation(opts: RecordOptions): Promise<void> {
   const dir = join(opts.projectDir, '.mockup-gallery');
   await mkdir(dir, { recursive: true });
   const path = join(dir, 'implemented.json');
-  let current: Implemented = { entries: [] };
+  let current: Implemented;
   try {
     current = JSON.parse(await readFile(path, 'utf8'));
     if (!Array.isArray(current.entries)) current = { entries: [] };

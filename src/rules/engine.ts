@@ -1,6 +1,12 @@
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
+import { calmPrecisionPreset } from './presets/calm-precision.js';
+import { minimalPreset } from './presets/minimal.js';
+import { touchTargetsPreset } from './presets/touch-targets.js';
+import { wcagContrastPreset } from './presets/wcag-contrast.js';
+import type { Rule, RuleContext, RulePreset } from './types.js';
+export type { Rule, RuleContext, RulePreset } from './types.js';
 import type {
   EnhancedElement,
   RulesConfig,
@@ -8,38 +14,6 @@ import type {
   Violation,
   RuleAuditResult,
 } from '../schemas.js';
-
-/**
- * Rule context passed to each rule check
- */
-export interface RuleContext {
-  isMobile: boolean;
-  viewportWidth: number;
-  viewportHeight: number;
-  url: string;
-  allElements: EnhancedElement[];
-}
-
-/**
- * Rule definition
- */
-export interface Rule {
-  id: string;
-  name: string;
-  description: string;
-  defaultSeverity: 'warn' | 'error';
-  check: (element: EnhancedElement, context: RuleContext, options?: Record<string, unknown>) => Violation | null;
-}
-
-/**
- * Rule preset - collection of rules with default settings
- */
-export interface RulePreset {
-  name: string;
-  description: string;
-  rules: Rule[];
-  defaults: Record<string, RuleSetting>;
-}
 
 // Registered presets
 const presets: Map<string, RulePreset> = new Map();
@@ -49,6 +23,15 @@ const presets: Map<string, RulePreset> = new Map();
  */
 export function registerPreset(preset: RulePreset): void {
   presets.set(preset.name, preset);
+}
+
+for (const preset of [
+  minimalPreset,
+  calmPrecisionPreset,
+  wcagContrastPreset,
+  touchTargetsPreset,
+]) {
+  registerPreset(preset);
 }
 
 /**
@@ -250,9 +233,3 @@ export async function loadMemoryPreset(outputDir: string): Promise<void> {
     // Memory not available - not an error
   }
 }
-
-// Auto-register presets on import
-import('./presets/minimal.js').then(m => m.register()).catch(() => {});
-import('./presets/calm-precision.js').then(m => m.register()).catch(() => {});
-import('./presets/wcag-contrast.js').then(m => m.register()).catch(() => {});
-import('./presets/touch-targets.js').then(m => m.register()).catch(() => {});

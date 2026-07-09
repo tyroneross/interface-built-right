@@ -2,7 +2,7 @@ import { loadDesignSystemConfig, getDefaultSeverity } from './config.js';
 import { validateExtendedTokens, calculateComplianceScore } from './tokens/index.js';
 import { allCalmPrecisionRules, principleToRules } from './principles/calm-precision.js';
 import type { EnhancedElement, DesignSystemResult } from '../schemas.js';
-import type { RuleContext } from '../rules/engine.js';
+import type { RuleContext } from '../rules/types.js';
 
 export { loadDesignSystemConfig, type DesignSystemConfig } from './config.js';
 

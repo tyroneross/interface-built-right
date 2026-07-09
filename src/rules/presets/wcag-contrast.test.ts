@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { wcagContrastPresetRules } from './wcag-contrast.js';
-import type { RuleContext } from '../engine.js';
+import type { RuleContext } from '../types.js';
 import type { EnhancedElement } from '../../schemas.js';
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

@@ -17,7 +17,8 @@ import { runSensors, type SensorReport } from './sensors/index.js';
 import { extractCssRulesAndMeta } from './sensors/css-extract.js';
 import { runAllRules, type RuleEngineResult } from './rules/index.js';
 import { summarizeScan, type ScanSummary } from './summarize.js';
-import { runRules, type RuleContext as PresetRuleContext } from './rules/engine.js';
+import { runRules } from './rules/engine.js';
+import type { RuleContext as PresetRuleContext } from './rules/types.js';
 import type { RulesConfig } from './schemas.js';
 
 

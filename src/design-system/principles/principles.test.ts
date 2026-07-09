@@ -7,7 +7,7 @@ import { contentChromeRules } from './content-chrome.js';
 import { cognitiveLoadRules } from './cognitive-load.js';
 import { allCalmPrecisionRules, corePrincipleIds, stylisticPrincipleIds } from './calm-precision.js';
 import type { EnhancedElement } from '../../schemas.js';
-import type { RuleContext } from '../../rules/engine.js';
+import type { RuleContext } from '../../rules/types.js';
 
 // Helper to create mock element
 function mockElement(overrides: Partial<EnhancedElement> = {}): EnhancedElement {

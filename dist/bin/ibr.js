@@ -1724,7 +1724,7 @@ async function waitForSkeletonSettled(evaluate, options) {
   const expr = `(function(){ try { return document.querySelectorAll(${JSON.stringify(SELECTORS)}).length; } catch(e){ return 0; } })()`;
   let lastCount = 0;
   while (Date.now() < deadline) {
-    let count = 0;
+    let count;
     try {
       const raw = await evaluate(expr);
       count = typeof raw === "number" ? raw : 0;
@@ -1793,7 +1793,7 @@ async function waitForActionable(resolveAndProbe, options = {}) {
   const deadline = start + timeout;
   let lastRect = null;
   let stableCount = 0;
-  let lastReason = "not present";
+  let lastReason;
   while (true) {
     const result = await resolveAndProbe();
     if (!result) {
@@ -2348,12 +2348,11 @@ function resolveAlgorithmic(options) {
   const scored = [];
   for (let i = 0; i < elements.length; i++) {
     const el = elements[i];
-    let score = 0;
     const roleScore = scoreRole(cleanedIntent, el.role);
     const intentIsOnlyRole = cleanedIntent.trim() === el.role.toLowerCase() || cleanedIntent.trim().split(/\s+/).every((w) => scoreRole(w, el.role) > 0);
     const labelScore = intentIsOnlyRole ? 0 : scoreLabelSimilarity(cleanedIntent, el.label);
     const spatialScore = scoreSpatial(hints, el, i, elements);
-    score = roleScore * 0.3 + labelScore * 0.5 + spatialScore * 0.2;
+    let score = roleScore * 0.3 + labelScore * 0.5 + spatialScore * 0.2;
     if (labelScore >= 0.99) {
       score = Math.max(score, 0.75);
     }
@@ -7454,7 +7453,7 @@ __export(search_exports, {
   searchFlow: () => searchFlow
 });
 async function openSearchPaletteAndFindInput(page, timeoutMs = 4e3) {
-  let triggerClicked = false;
+  let triggerClicked;
   try {
     triggerClicked = await page.evaluate(`(function() {
       try {
@@ -10668,15 +10667,15 @@ function preferencesToRules(preferences) {
   }));
 }
 function createMemoryPreset(preferences) {
-  const rules2 = preferencesToRules(preferences);
+  const rules = preferencesToRules(preferences);
   const defaults = {};
-  for (const rule of rules2) {
+  for (const rule of rules) {
     defaults[rule.id] = rule.defaultSeverity;
   }
   return {
     name: "memory",
     description: "UI/UX preferences from IBR memory",
-    rules: rules2,
+    rules,
     defaults
   };
 }
@@ -11553,8 +11552,8 @@ async function extractCSSVariables(page) {
     const sheets = Array.from(document.styleSheets);
     sheets.forEach((sheet) => {
       try {
-        const rules2 = Array.from(sheet.cssRules || []);
-        rules2.forEach((rule) => {
+        const rules = Array.from(sheet.cssRules || []);
+        rules.forEach((rule) => {
           if (rule instanceof CSSStyleRule && rule.selectorText === ":root") {
             const style = rule.style;
             for (let i = 0; i < style.length; i++) {
@@ -13157,10 +13156,10 @@ function dedupKey(e) {
   return `${e.type}|${e.value_px ?? ""}|${e.min ?? ""}|${e.max ?? ""}|${e.container_name ?? ""}`;
 }
 function collectBreakpoints(ctx) {
-  const rules2 = ctx.cssRules ?? [];
-  if (rules2.length === 0) return [];
+  const rules = ctx.cssRules ?? [];
+  if (rules.length === 0) return [];
   const byKey = /* @__PURE__ */ new Map();
-  for (const rule of rules2) {
+  for (const rule of rules) {
     if (rule.kind === "media") {
       const classified = classifyMediaCondition(rule.conditionText);
       const ruleCount = rule.rules.reduce((acc, r) => acc + countStyleRules(r), 0);
@@ -13303,8 +13302,8 @@ function collectReducedMotionOverridesFromRule(rule) {
   if (overrides.length === 0) return null;
   return { selector: rule.selector, overrides };
 }
-function walkRules(rules2, visit, insideReducedMotion = false) {
-  for (const r of rules2) {
+function walkRules(rules, visit, insideReducedMotion = false) {
+  for (const r of rules) {
     if (r.kind === "style") {
       visit(r, insideReducedMotion);
     } else if (r.kind === "media") {
@@ -13315,9 +13314,9 @@ function walkRules(rules2, visit, insideReducedMotion = false) {
     }
   }
 }
-function buildKeyframesUsage(rules2) {
+function buildKeyframesUsage(rules) {
   const usage = /* @__PURE__ */ new Map();
-  walkRules(rules2, (style) => {
+  walkRules(rules, (style) => {
     const animationName = style.declarations["animation-name"] ?? style.declarations.animationName;
     const animationShorthand = style.declarations.animation ?? style.declarations["animation"];
     const candidates = [];
@@ -13344,13 +13343,13 @@ function buildKeyframesUsage(rules2) {
   return usage;
 }
 function collectMotion(ctx) {
-  const rules2 = ctx.cssRules ?? [];
-  if (rules2.length === 0) {
+  const rules = ctx.cssRules ?? [];
+  if (rules.length === 0) {
     return { transitions: [], keyframes: [], reduced_motion_overrides: [] };
   }
   const transitions = [];
   const reducedOverrides = [];
-  walkRules(rules2, (style, insideReducedMotion) => {
+  walkRules(rules, (style, insideReducedMotion) => {
     if (insideReducedMotion) {
       const override = collectReducedMotionOverridesFromRule(style);
       if (override) reducedOverrides.push(override);
@@ -13359,7 +13358,7 @@ function collectMotion(ctx) {
     }
   });
   const keyframes = [];
-  const usage = buildKeyframesUsage(rules2);
+  const usage = buildKeyframesUsage(rules);
   function visitKeyframes(rs) {
     for (const r of rs) {
       if (r.kind === "keyframes") {
@@ -13373,7 +13372,7 @@ function collectMotion(ctx) {
       }
     }
   }
-  visitKeyframes(rules2);
+  visitKeyframes(rules);
   return { transitions, keyframes, reduced_motion_overrides: reducedOverrides };
 }
 var init_motion = __esm({
@@ -13508,8 +13507,8 @@ function parseStateSelectors(selectorText) {
 function isHoverCapableMedia(conditionText) {
   return /\(\s*hover\s*:\s*hover\s*\)/i.test(conditionText);
 }
-function walkRules2(rules2, visit, ctx = { insideHoverMedia: false }) {
-  for (const r of rules2) {
+function walkRules2(rules, visit, ctx = { insideHoverMedia: false }) {
+  for (const r of rules) {
     if (r.kind === "style") {
       visit(r, ctx);
     } else if (r.kind === "media") {
@@ -13535,12 +13534,12 @@ function interactiveBaseSelectors(ctx) {
   return out;
 }
 function collectInteractionStates(ctx) {
-  const rules2 = ctx.cssRules ?? [];
-  if (rules2.length === 0) {
+  const rules = ctx.cssRules ?? [];
+  if (rules.length === 0) {
     return { states: [], findings: [] };
   }
   const states = [];
-  walkRules2(rules2, (style, walkCtx) => {
+  walkRules2(rules, (style, walkCtx) => {
     const parsed = parseStateSelectors(style.selector);
     for (const { base, state } of parsed) {
       const entry = {
@@ -13794,16 +13793,15 @@ async function extractCssRulesAndMeta(page) {
     const sheets = Array.from(document.styleSheets);
     const allRules2 = [];
     for (const sheet of sheets) {
-      let rules2 = null;
+      let rules;
       try {
-        rules2 = sheet.cssRules;
+        rules = sheet.cssRules;
       } catch {
         continue;
       }
-      if (!rules2) continue;
       const sourceUrl = sheet.href ?? void 0;
-      for (let i = 0; i < rules2.length; i++) {
-        const converted = convertRule(rules2[i], sourceUrl);
+      for (let i = 0; i < rules.length; i++) {
+        const converted = convertRule(rules[i], sourceUrl);
         if (converted) allRules2.push(converted);
       }
     }
@@ -13917,7 +13915,6 @@ async function extractCssRulesAndMeta(page) {
             ariaLabel: htmlEl.getAttribute("aria-label"),
             ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
             ...ariaLevel !== null ? { ariaLevel: parseInt(ariaLevel, 10) } : {}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
           }
         });
       });
@@ -14529,7 +14526,7 @@ function classifyElement(el) {
 }
 function buildComponentCensus(elements, url) {
   if (elements.length === 0) return [];
-  let route = "/";
+  let route;
   try {
     route = new URL(url).pathname;
   } catch {
@@ -14752,15 +14749,31 @@ var init_summarize = __esm({
   }
 });
 
-// src/rules/presets/minimal.ts
-var minimal_exports = {};
-__export(minimal_exports, {
-  hasPopupTrigger: () => hasPopupTrigger,
-  isFormSubmitButton: () => isFormSubmitButton,
-  isLayoutCollapsed: () => isLayoutCollapsed,
-  register: () => register,
-  rules: () => rules
+// src/rules/presets/calm-precision.ts
+var calmPrecisionPreset;
+var init_calm_precision2 = __esm({
+  "src/rules/presets/calm-precision.ts"() {
+    "use strict";
+    init_calm_precision();
+    calmPrecisionPreset = (() => {
+      const defaults = {};
+      for (const rule of allCalmPrecisionRules) {
+        const isCore = corePrincipleIds.some(
+          (pid) => principleToRules[pid]?.includes(rule.id)
+        );
+        defaults[rule.id] = isCore ? "error" : "warn";
+      }
+      return {
+        name: "calm-precision",
+        description: "Calm Precision design principles \u2014 Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load",
+        rules: allCalmPrecisionRules,
+        defaults
+      };
+    })();
+  }
 });
+
+// src/rules/presets/minimal.ts
 function isLayoutCollapsed(element) {
   return element.bounds.width === 0 && element.bounds.height === 0;
 }
@@ -14775,14 +14788,10 @@ function isFormSubmitButton(element) {
   const t = element.buttonType;
   return t == null || t === "submit" || t === "";
 }
-function register() {
-  registerPreset(minimalPreset);
-}
-var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset, rules;
+var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset;
 var init_minimal = __esm({
   "src/rules/presets/minimal.ts"() {
     "use strict";
-    init_engine();
     noHandlerRule = {
       id: "no-handler",
       name: "No Click Handler",
@@ -14926,50 +14935,100 @@ var init_minimal = __esm({
         "disabled-no-visual": "warn"
       }
     };
-    rules = {
-      noHandlerRule,
-      placeholderLinkRule,
-      touchTargetRule,
-      missingAriaLabelRule,
-      disabledNoVisualRule
+  }
+});
+
+// src/rules/presets/touch-targets.ts
+function isInteractive(el) {
+  const role = el.a11y.role ?? "";
+  const tag = (el.tagName ?? "").toLowerCase();
+  const interactiveRoles = /* @__PURE__ */ new Set([
+    "button",
+    "link",
+    "menuitem",
+    "tab",
+    "checkbox",
+    "radio",
+    "switch",
+    "textbox",
+    "combobox",
+    "slider"
+  ]);
+  if (interactiveRoles.has(role)) return true;
+  if (["a", "button", "input", "select", "textarea"].includes(tag)) return true;
+  if (el.interactive.hasOnClick || el.interactive.hasHref || el.interactive.hasReactHandler === true || el.interactive.hasVueHandler === true || el.interactive.hasAngularHandler === true) {
+    return true;
+  }
+  return false;
+}
+var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules, touchTargetsPreset;
+var init_touch_targets2 = __esm({
+  "src/rules/presets/touch-targets.ts"() {
+    "use strict";
+    mobileTouchTargetRule = {
+      id: "touch-target-mobile",
+      name: "Mobile Touch Target Size",
+      description: "Interactive elements must be at least 44x44px on mobile viewports (WCAG 2.5.5 AAA / Apple HIG)",
+      defaultSeverity: "error",
+      check(element, context) {
+        if (!context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 44;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-mobile",
+            ruleName: "Mobile Touch Target Size",
+            severity: "error",
+            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
+          };
+        }
+        return null;
+      }
+    };
+    desktopPointerTargetRule = {
+      id: "touch-target-desktop",
+      name: "Desktop Pointer Target Size",
+      description: "Interactive elements should be at least 24x24px on desktop viewports (WCAG 2.5.8 AA)",
+      defaultSeverity: "warn",
+      check(element, context) {
+        if (context.isMobile) return null;
+        if (!isInteractive(element)) return null;
+        const { width, height } = element.bounds;
+        if (width === 0 || height === 0) return null;
+        const MIN = 24;
+        if (width < MIN || height < MIN) {
+          return {
+            ruleId: "touch-target-desktop",
+            ruleName: "Desktop Pointer Target Size",
+            severity: "warn",
+            message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
+          };
+        }
+        return null;
+      }
+    };
+    touchTargetPresetRules = [mobileTouchTargetRule, desktopPointerTargetRule];
+    touchTargetsPreset = {
+      name: "touch-targets",
+      description: "Minimum touch and pointer target sizes \u2014 WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)",
+      rules: touchTargetPresetRules,
+      defaults: {
+        "touch-target-mobile": "error",
+        "touch-target-desktop": "warn"
+      }
     };
   }
 });
 
-// src/rules/presets/calm-precision.ts
-var calm_precision_exports = {};
-__export(calm_precision_exports, {
-  register: () => register2
-});
-function register2() {
-  const defaults = {};
-  for (const rule of allCalmPrecisionRules) {
-    const isCore = corePrincipleIds.some(
-      (pid) => principleToRules[pid]?.includes(rule.id)
-    );
-    defaults[rule.id] = isCore ? "error" : "warn";
-  }
-  registerPreset({
-    name: "calm-precision",
-    description: "Calm Precision design principles \u2014 Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load",
-    rules: allCalmPrecisionRules,
-    defaults
-  });
-}
-var init_calm_precision2 = __esm({
-  "src/rules/presets/calm-precision.ts"() {
-    "use strict";
-    init_engine();
-    init_calm_precision();
-  }
-});
-
 // src/rules/presets/wcag-contrast.ts
-var wcag_contrast_exports = {};
-__export(wcag_contrast_exports, {
-  register: () => register3,
-  wcagContrastPresetRules: () => wcagContrastPresetRules
-});
 function parseColor5(color) {
   if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
     return null;
@@ -15016,23 +15075,10 @@ function isLargeText3(styles) {
   const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
   return fontSize >= 18 || isBold && fontSize >= 14;
 }
-function register3() {
-  const defaults = {
-    "wcag-aa-contrast": "error",
-    "wcag-aaa-contrast": "warn"
-  };
-  registerPreset({
-    name: "wcag-contrast",
-    description: "WCAG 2.1 contrast ratio checks \u2014 AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)",
-    rules: wcagContrastPresetRules,
-    defaults
-  });
-}
-var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules;
+var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules, wcagContrastPreset;
 var init_wcag_contrast2 = __esm({
   "src/rules/presets/wcag-contrast.ts"() {
     "use strict";
-    init_engine();
     wcagAAContrastRule = {
       id: "wcag-aa-contrast",
       name: "WCAG 2.1 AA Contrast",
@@ -15098,105 +15144,15 @@ var init_wcag_contrast2 = __esm({
       }
     };
     wcagContrastPresetRules = [wcagAAContrastRule, wcagAAAContrastRule];
-  }
-});
-
-// src/rules/presets/touch-targets.ts
-var touch_targets_exports = {};
-__export(touch_targets_exports, {
-  register: () => register4,
-  touchTargetPresetRules: () => touchTargetPresetRules
-});
-function isInteractive(el) {
-  const role = el.a11y.role ?? "";
-  const tag = (el.tagName ?? "").toLowerCase();
-  const interactiveRoles = /* @__PURE__ */ new Set([
-    "button",
-    "link",
-    "menuitem",
-    "tab",
-    "checkbox",
-    "radio",
-    "switch",
-    "textbox",
-    "combobox",
-    "slider"
-  ]);
-  if (interactiveRoles.has(role)) return true;
-  if (["a", "button", "input", "select", "textarea"].includes(tag)) return true;
-  if (el.interactive.hasOnClick || el.interactive.hasHref || el.interactive.hasReactHandler === true || el.interactive.hasVueHandler === true || el.interactive.hasAngularHandler === true) {
-    return true;
-  }
-  return false;
-}
-function register4() {
-  const defaults = {
-    "touch-target-mobile": "error",
-    "touch-target-desktop": "warn"
-  };
-  registerPreset({
-    name: "touch-targets",
-    description: "Minimum touch and pointer target sizes \u2014 WCAG 2.5.5 (mobile 44px) and WCAG 2.5.8 (desktop 24px)",
-    rules: touchTargetPresetRules,
-    defaults
-  });
-}
-var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules;
-var init_touch_targets2 = __esm({
-  "src/rules/presets/touch-targets.ts"() {
-    "use strict";
-    init_engine();
-    mobileTouchTargetRule = {
-      id: "touch-target-mobile",
-      name: "Mobile Touch Target Size",
-      description: "Interactive elements must be at least 44x44px on mobile viewports (WCAG 2.5.5 AAA / Apple HIG)",
-      defaultSeverity: "error",
-      check(element, context) {
-        if (!context.isMobile) return null;
-        if (!isInteractive(element)) return null;
-        const { width, height } = element.bounds;
-        if (width === 0 || height === 0) return null;
-        const MIN = 44;
-        if (width < MIN || height < MIN) {
-          return {
-            ruleId: "touch-target-mobile",
-            ruleName: "Mobile Touch Target Size",
-            severity: "error",
-            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
-          };
-        }
-        return null;
+    wcagContrastPreset = {
+      name: "wcag-contrast",
+      description: "WCAG 2.1 contrast ratio checks \u2014 AA (4.5:1 / 3:1) and AAA (7:1 / 4.5:1)",
+      rules: wcagContrastPresetRules,
+      defaults: {
+        "wcag-aa-contrast": "error",
+        "wcag-aaa-contrast": "warn"
       }
     };
-    desktopPointerTargetRule = {
-      id: "touch-target-desktop",
-      name: "Desktop Pointer Target Size",
-      description: "Interactive elements should be at least 24x24px on desktop viewports (WCAG 2.5.8 AA)",
-      defaultSeverity: "warn",
-      check(element, context) {
-        if (context.isMobile) return null;
-        if (!isInteractive(element)) return null;
-        const { width, height } = element.bounds;
-        if (width === 0 || height === 0) return null;
-        const MIN = 24;
-        if (width < MIN || height < MIN) {
-          return {
-            ruleId: "touch-target-desktop",
-            ruleName: "Desktop Pointer Target Size",
-            severity: "warn",
-            message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
-          };
-        }
-        return null;
-      }
-    };
-    touchTargetPresetRules = [mobileTouchTargetRule, desktopPointerTargetRule];
   }
 });
 
@@ -15267,10 +15223,10 @@ function mergeRuleSettings(presetNames, userRules = {}) {
   return { rules: allRules2, settings };
 }
 function runRules(elements, context, config) {
-  const { rules: rules2, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
+  const { rules, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
   const violations = [];
   for (const element of elements) {
-    for (const rule of rules2) {
+    for (const rule of rules) {
       const setting = settings.get(rule.id);
       if (!setting || setting.severity === "off") {
         continue;
@@ -15344,15 +15300,19 @@ var init_engine = __esm({
     import_promises16 = require("fs/promises");
     import_fs8 = require("fs");
     import_path15 = require("path");
+    init_calm_precision2();
+    init_minimal();
+    init_touch_targets2();
+    init_wcag_contrast2();
     presets = /* @__PURE__ */ new Map();
-    Promise.resolve().then(() => (init_minimal(), minimal_exports)).then((m) => m.register()).catch(() => {
-    });
-    Promise.resolve().then(() => (init_calm_precision2(), calm_precision_exports)).then((m) => m.register()).catch(() => {
-    });
-    Promise.resolve().then(() => (init_wcag_contrast2(), wcag_contrast_exports)).then((m) => m.register()).catch(() => {
-    });
-    Promise.resolve().then(() => (init_touch_targets2(), touch_targets_exports)).then((m) => m.register()).catch(() => {
-    });
+    for (const preset of [
+      minimalPreset,
+      calmPrecisionPreset,
+      wcagContrastPreset,
+      touchTargetsPreset
+    ]) {
+      registerPreset(preset);
+    }
   }
 });
 
@@ -16176,6 +16136,18 @@ var init_role_map = __esm({
   }
 });
 
+// src/native/runtime-path.mts
+var import_path17, import_url2, import_meta, moduleDir;
+var init_runtime_path = __esm({
+  "src/native/runtime-path.mts"() {
+    "use strict";
+    import_path17 = require("path");
+    import_url2 = require("url");
+    import_meta = {};
+    moduleDir = typeof __dirname === "string" ? __dirname : (0, import_path17.dirname)((0, import_url2.fileURLToPath)(import_meta.url));
+  }
+});
+
 // src/native/extract.ts
 var extract_exports2 = {};
 __export(extract_exports2, {
@@ -16184,6 +16156,15 @@ __export(extract_exports2, {
   isExtractorAvailable: () => isExtractorAvailable,
   mapToEnhancedElements: () => mapToEnhancedElements
 });
+function resolveSwiftSourceDir() {
+  const candidates = [
+    // TypeScript source execution: src/native/extract.ts
+    (0, import_path18.join)(moduleDir, "swift", "ibr-ax-extract"),
+    // Bundled package execution: dist/index.{js,mjs}
+    (0, import_path18.join)(moduleDir, "..", "src", "native", "swift", "ibr-ax-extract")
+  ];
+  return candidates.find((candidate) => (0, import_fs9.existsSync)((0, import_path18.join)(candidate, "Package.swift"))) ?? candidates[0];
+}
 async function ensureExtractor() {
   if ((0, import_fs9.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
@@ -16232,7 +16213,7 @@ function isFileFresh(path2) {
 }
 function isExtractorAvailable() {
   if ((0, import_fs9.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs9.existsSync)((0, import_path17.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  return (0, import_fs9.existsSync)((0, import_path18.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -16292,7 +16273,7 @@ function mapToEnhancedElements(nativeElements) {
   flatten(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util3, import_fs9, import_promises18, import_path17, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var import_child_process4, import_util3, import_fs9, import_promises18, import_path18, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
@@ -16300,15 +16281,16 @@ var init_extract3 = __esm({
     import_util3 = require("util");
     import_fs9 = require("fs");
     import_promises18 = require("fs/promises");
-    import_path17 = require("path");
+    import_path18 = require("path");
     init_role_map();
+    init_runtime_path();
     execFileAsync3 = (0, import_util3.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path17.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path17.join)(EXTRACTOR_DIR, "ibr-ax-extract");
-    SWIFT_SOURCE_DIR = (0, import_path17.join)(__dirname, "..", "..", "src", "native", "swift", "ibr-ax-extract");
-    SWIFT_MAIN_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
-    SWIFT_PACKAGE_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, "Package.swift");
-    SWIFT_BUILD_PATH = (0, import_path17.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    EXTRACTOR_DIR = (0, import_path18.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path18.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
+    SWIFT_MAIN_PATH = (0, import_path18.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+    SWIFT_PACKAGE_PATH = (0, import_path18.join)(SWIFT_SOURCE_DIR, "Package.swift");
+    SWIFT_BUILD_PATH = (0, import_path18.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }
 });
 
@@ -16533,19 +16515,19 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises19.mkdir)((0, import_path18.dirname)(outputPath), { recursive: true });
+  await (0, import_promises19.mkdir)((0, import_path19.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
 }
-var import_child_process5, import_util4, import_promises19, import_path18, execFileAsync4, execAsync;
+var import_child_process5, import_util4, import_promises19, import_path19, execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
     "use strict";
     import_child_process5 = require("child_process");
     import_util4 = require("util");
     import_promises19 = require("fs/promises");
-    import_path18 = require("path");
+    import_path19 = require("path");
     init_extract3();
     init_role_map();
     execFileAsync4 = (0, import_util4.promisify)(import_child_process5.execFile);
@@ -16992,7 +16974,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp = Date.now();
-    const ssPath = (0, import_path19.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const ssPath = (0, import_path20.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -17257,11 +17239,11 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_path19;
+var import_path20;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
     "use strict";
-    import_path19 = require("path");
+    import_path20 = require("path");
     init_scan();
     init_extract2();
     init_simulator();
@@ -17308,17 +17290,17 @@ async function cropPng(srcPath, bounds, destPath, opts = {}) {
   if (cropW <= 0 || cropH <= 0) return null;
   const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
   src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
-  await (0, import_promises20.mkdir)((0, import_path20.dirname)(destPath), { recursive: true });
+  await (0, import_promises20.mkdir)((0, import_path21.dirname)(destPath), { recursive: true });
   await writePng(out, destPath);
   return destPath;
 }
-var import_fs10, import_promises20, import_path20, import_pngjs3;
+var import_fs10, import_promises20, import_path21, import_pngjs3;
 var init_crop = __esm({
   "src/utils/crop.ts"() {
     "use strict";
     import_fs10 = require("fs");
     import_promises20 = require("fs/promises");
-    import_path20 = require("path");
+    import_path21 = require("path");
     import_pngjs3 = require("pngjs");
   }
 });
@@ -17471,8 +17453,8 @@ async function* askStream(url, question, options = {}) {
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
       const { mkdir: mkdir28 } = await import("fs/promises");
-      const { dirname: dirname11 } = await import("path");
-      if (screenshotPath) await mkdir28(dirname11(screenshotPath), { recursive: true });
+      const { dirname: dirname12 } = await import("path");
+      if (screenshotPath) await mkdir28(dirname12(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -17799,23 +17781,23 @@ var init_principles = __esm({
 // src/native/sim-driver.ts
 function existingBinaryCandidates() {
   return [
-    (0, import_path21.join)(__dirname, "..", "bin", DRIVER_NAME),
-    (0, import_path21.join)(__dirname, "bin", DRIVER_NAME),
-    (0, import_path21.join)(__dirname, "..", "..", "dist", "bin", DRIVER_NAME),
+    (0, import_path22.join)(moduleDir, "..", "bin", DRIVER_NAME),
+    (0, import_path22.join)(moduleDir, "bin", DRIVER_NAME),
+    (0, import_path22.join)(moduleDir, "..", "..", "dist", "bin", DRIVER_NAME),
     CACHE_PATH
   ];
 }
 function sourceDirCandidates() {
   return [
-    (0, import_path21.join)(__dirname, "..", "..", "mobile-ui", "sim-driver"),
-    (0, import_path21.join)(__dirname, "..", "mobile-ui", "sim-driver")
+    (0, import_path22.join)(moduleDir, "..", "..", "mobile-ui", "sim-driver"),
+    (0, import_path22.join)(moduleDir, "..", "mobile-ui", "sim-driver")
   ];
 }
 function findExistingBinary() {
   return existingBinaryCandidates().find((p) => (0, import_fs11.existsSync)(p)) ?? null;
 }
 function findSourceDir() {
-  return sourceDirCandidates().find((p) => (0, import_fs11.existsSync)((0, import_path21.join)(p, "Package.swift"))) ?? null;
+  return sourceDirCandidates().find((p) => (0, import_fs11.existsSync)((0, import_path22.join)(p, "Package.swift"))) ?? null;
 }
 function errorMessage(err) {
   if (err && typeof err === "object") {
@@ -17854,7 +17836,7 @@ async function ensureSimDriver() {
     await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
-    const builtPath = (0, import_path21.join)(sourceDir, ".build", "release", DRIVER_NAME);
+    const builtPath = (0, import_path22.join)(sourceDir, ".build", "release", DRIVER_NAME);
     if (!(0, import_fs11.existsSync)(builtPath)) {
       throw new Error("Swift build succeeded but binary was not created");
     }
@@ -17906,19 +17888,20 @@ function simDriverSwipe(udid, x1, y1, x2, y2, duration, opts) {
   if (duration) args.push("--duration", String(duration));
   return runSimDriver(args, "swipe");
 }
-var import_child_process6, import_fs11, import_promises21, import_path21, import_util5, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
+var import_child_process6, import_fs11, import_promises21, import_path22, import_util5, execFileAsync5, DRIVER_NAME, CACHE_DIR, CACHE_PATH, cachedPath, buildError;
 var init_sim_driver = __esm({
   "src/native/sim-driver.ts"() {
     "use strict";
     import_child_process6 = require("child_process");
     import_fs11 = require("fs");
     import_promises21 = require("fs/promises");
-    import_path21 = require("path");
+    import_path22 = require("path");
     import_util5 = require("util");
+    init_runtime_path();
     execFileAsync5 = (0, import_util5.promisify)(import_child_process6.execFile);
     DRIVER_NAME = "ibr-sim-driver";
-    CACHE_DIR = (0, import_path21.join)(process.cwd(), ".ibr", "bin");
-    CACHE_PATH = (0, import_path21.join)(CACHE_DIR, DRIVER_NAME);
+    CACHE_DIR = (0, import_path22.join)(process.cwd(), ".ibr", "bin");
+    CACHE_PATH = (0, import_path22.join)(CACHE_DIR, DRIVER_NAME);
     buildError = null;
   }
 });
@@ -19842,9 +19825,9 @@ async function macOSNativePreflight(options) {
       message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
     };
   }
-  const extractorPath = options?.extractorBinaryPath ?? (0, import_path22.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
-  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path22.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
-  if (!(0, import_fs13.existsSync)(extractorPath) && !(0, import_fs13.existsSync)((0, import_path22.join)(swiftSourceDir, "Package.swift"))) {
+  const extractorPath = options?.extractorBinaryPath ?? (0, import_path23.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
+  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path23.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
+  if (!(0, import_fs13.existsSync)(extractorPath) && !(0, import_fs13.existsSync)((0, import_path23.join)(swiftSourceDir, "Package.swift"))) {
     return {
       ok: false,
       reason: "extractor-build-failed",
@@ -19892,14 +19875,14 @@ function classifyExtractorError(err) {
   }
   return null;
 }
-var import_child_process13, import_util11, import_fs13, import_path22, execFileAsync11, _deps, SIMULATOR_CHROME_LABELS;
+var import_child_process13, import_util11, import_fs13, import_path23, execFileAsync11, _deps, SIMULATOR_CHROME_LABELS;
 var init_preflight = __esm({
   "src/native/preflight.ts"() {
     "use strict";
     import_child_process13 = require("child_process");
     import_util11 = require("util");
     import_fs13 = require("fs");
-    import_path22 = require("path");
+    import_path23 = require("path");
     execFileAsync11 = (0, import_util11.promisify)(import_child_process13.execFile);
     _deps = {
       hasCommand: defaultHasCommand
@@ -20046,11 +20029,11 @@ function formatNativeCandidate(candidate) {
     frame: candidate.frame
   };
 }
-var import_path23, DEFAULT_OUTPUT_DIR, NativeSessionController, nativeSessionController;
+var import_path24, DEFAULT_OUTPUT_DIR, NativeSessionController, nativeSessionController;
 var init_session_controller = __esm({
   "src/native/session-controller.ts"() {
     "use strict";
-    import_path23 = require("path");
+    import_path24 = require("path");
     init_sessions();
     init_backend();
     init_actions();
@@ -20140,7 +20123,7 @@ var init_session_controller = __esm({
       async readMacOS(entry, what, limit) {
         try {
           if (what === "screenshot") {
-            const screenshotPath = (0, import_path23.join)(
+            const screenshotPath = (0, import_path24.join)(
               DEFAULT_OUTPUT_DIR,
               "native",
               "macos-sessions",
@@ -20200,7 +20183,7 @@ var init_session_controller = __esm({
       async readSimulator(entry, what, limit) {
         try {
           if (what === "screenshot") {
-            const screenshotPath = (0, import_path23.join)(
+            const screenshotPath = (0, import_path24.join)(
               DEFAULT_OUTPUT_DIR,
               "native",
               "simulator-sessions",
@@ -20796,7 +20779,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     threshold = 1,
-    outputDir = (0, import_path24.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path25.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -20813,9 +20796,9 @@ async function compare(options) {
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
   await (0, import_promises22.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path24.join)(outputDir, `baseline-${timestamp}.png`);
-  let actualCurrentPath = currentPath || (0, import_path24.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path24.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path25.join)(outputDir, `baseline-${timestamp}.png`);
+  const actualCurrentPath = currentPath || (0, import_path25.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path25.join)(outputDir, `diff-${timestamp}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -20901,7 +20884,7 @@ async function compareAll(options = {}) {
     const result = await compare({
       url: session.url,
       baselinePath: paths.baseline,
-      outputDir: (0, import_path24.dirname)(paths.diff),
+      outputDir: (0, import_path25.dirname)(paths.diff),
       viewport: session.viewport
     });
     results.push(result);
@@ -20919,7 +20902,7 @@ async function compareAll(options = {}) {
         const result = await compare({
           url: session.url,
           baselinePath: paths.baseline,
-          outputDir: (0, import_path24.dirname)(paths.diff),
+          outputDir: (0, import_path25.dirname)(paths.diff),
           viewport: session.viewport
         });
         results.push(result);
@@ -20931,7 +20914,7 @@ async function compareAll(options = {}) {
   await closeBrowser();
   return results;
 }
-var import_promises22, import_path24, import_os3, InterfaceBuiltRight, IBRSession;
+var import_promises22, import_path25, import_os3, InterfaceBuiltRight, IBRSession;
 var init_index = __esm({
   "src/index.ts"() {
     "use strict";
@@ -20946,7 +20929,7 @@ var init_index = __esm({
     init_driver();
     init_compat();
     import_promises22 = require("fs/promises");
-    import_path24 = require("path");
+    import_path25 = require("path");
     import_os3 = require("os");
     init_cleanup();
     init_schemas();
@@ -22132,24 +22115,24 @@ function parsePrincipleBody(number, name, body) {
   };
 }
 function extractImplementationRules(body) {
-  const rules2 = [];
+  const rules = [];
   const bulletMatches = body.matchAll(/^[-*]\s+(.+?)$/gm);
   for (const match of bulletMatches) {
     const rule = match[1].trim();
     if (rule && rule.length > 5) {
-      rules2.push(rule);
+      rules.push(rule);
     }
   }
-  if (rules2.length === 0) {
+  if (rules.length === 0) {
     const sentences = body.split(/[.!]\s+/);
     for (const sentence of sentences) {
       const trimmed = sentence.trim();
       if (trimmed.length > 10 && (trimmed.match(/^(use|don't|never|always|avoid|prefer|ensure)/i) || trimmed.match(/should|must|need to|better to/i))) {
-        rules2.push(trimmed);
+        rules.push(trimmed);
       }
     }
   }
-  return rules2;
+  return rules;
 }
 var FRAMEWORK_PATTERNS, PRINCIPLES_SECTION_PATTERNS;
 var init_framework_parser = __esm({
@@ -22180,19 +22163,19 @@ __export(context_loader_exports, {
 async function discoverUserContext(projectDir) {
   const sources = [];
   let framework;
-  const projectClaudePath = (0, import_path26.join)(projectDir, ".claude", "CLAUDE.md");
+  const projectClaudePath = (0, import_path27.join)(projectDir, ".claude", "CLAUDE.md");
   const projectClaudeResult = await tryLoadFramework(projectClaudePath, "project-claude");
   sources.push(projectClaudeResult.source);
   if (projectClaudeResult.framework && !framework) {
     framework = projectClaudeResult.framework;
   }
-  const rootClaudePath = (0, import_path26.join)(projectDir, "CLAUDE.md");
+  const rootClaudePath = (0, import_path27.join)(projectDir, "CLAUDE.md");
   const rootClaudeResult = await tryLoadFramework(rootClaudePath, "root-claude");
   sources.push(rootClaudeResult.source);
   if (rootClaudeResult.framework && !framework) {
     framework = rootClaudeResult.framework;
   }
-  const userClaudePath = (0, import_path26.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
+  const userClaudePath = (0, import_path27.join)((0, import_os4.homedir)(), ".claude", "CLAUDE.md");
   const userClaudeResult = await tryLoadFramework(userClaudePath, "user-claude");
   sources.push(userClaudeResult.source);
   if (userClaudeResult.framework && !framework) {
@@ -22201,7 +22184,7 @@ async function discoverUserContext(projectDir) {
   const config = await loadIBRConfig(projectDir);
   let memory;
   const outputDir = config.outputDir || "./.ibr";
-  const memoryPath = (0, import_path26.join)(outputDir, "memory", "summary.json");
+  const memoryPath = (0, import_path27.join)(outputDir, "memory", "summary.json");
   if ((0, import_fs15.existsSync)(memoryPath)) {
     try {
       const memContent = await (0, import_promises23.readFile)(memoryPath, "utf-8");
@@ -22240,7 +22223,7 @@ async function tryLoadFramework(filePath, type) {
   return { source };
 }
 async function loadIBRConfig(projectDir) {
-  const configPath = (0, import_path26.join)(projectDir, ".ibrrc.json");
+  const configPath = (0, import_path27.join)(projectDir, ".ibrrc.json");
   if (!(0, import_fs15.existsSync)(configPath)) {
     return {};
   }
@@ -22275,13 +22258,13 @@ function formatContextSummary(context) {
   }
   return lines.join("\n");
 }
-var import_fs15, import_promises23, import_path26, import_os4;
+var import_fs15, import_promises23, import_path27, import_os4;
 var init_context_loader = __esm({
   "src/context-loader.ts"() {
     "use strict";
     import_fs15 = require("fs");
     import_promises23 = require("fs/promises");
-    import_path26 = require("path");
+    import_path27 = require("path");
     import_os4 = require("os");
     init_framework_parser();
   }
@@ -22295,43 +22278,43 @@ __export(dynamic_rules_exports, {
   getRulesSummary: () => getRulesSummary
 });
 function generateRulesFromFramework(framework) {
-  const rules2 = [];
+  const rules = [];
   for (let i = 0; i < framework.principles.length; i++) {
     const principle = framework.principles[i];
     const principleRules = generateRulesForPrinciple(principle, framework.name, i);
-    rules2.push(...principleRules);
+    rules.push(...principleRules);
   }
-  return rules2;
+  return rules;
 }
 function createPresetFromFramework(framework) {
-  const rules2 = generateRulesFromFramework(framework);
+  const rules = generateRulesFromFramework(framework);
   const defaults = {};
-  for (const rule of rules2) {
+  for (const rule of rules) {
     defaults[rule.id] = rule.defaultSeverity;
   }
   return {
     name: framework.name.toLowerCase().replace(/\s+/g, "-"),
     description: `Rules generated from ${framework.name}`,
-    rules: rules2,
+    rules,
     defaults
   };
 }
 function generateRulesForPrinciple(principle, frameworkName, index) {
-  const rules2 = [];
+  const rules = [];
   const keywords = extractKeywords(principle);
   if (keywords.has("group") || keywords.has("border") || keywords.has("isolate")) {
-    rules2.push(createBorderGroupingRule(principle, frameworkName, index));
+    rules.push(createBorderGroupingRule(principle, frameworkName, index));
   }
   if (keywords.has("size") || keywords.has("importance") || keywords.has("button") || keywords.has("fitts")) {
-    rules2.push(createButtonSizingRule(principle, frameworkName, index));
+    rules.push(createButtonSizingRule(principle, frameworkName, index));
   }
   if (keywords.has("touch") || keywords.has("target") || keywords.has("44px") || keywords.has("mobile")) {
-    rules2.push(createTouchTargetRule(principle, frameworkName, index));
+    rules.push(createTouchTargetRule(principle, frameworkName, index));
   }
   if (keywords.has("status") || keywords.has("color") || keywords.has("background")) {
-    rules2.push(createStatusColorRule(principle, frameworkName, index));
+    rules.push(createStatusColorRule(principle, frameworkName, index));
   }
-  return rules2;
+  return rules;
 }
 function extractKeywords(principle) {
   const text = [
@@ -22461,15 +22444,15 @@ function createStatusColorRule(principle, frameworkName, index) {
     }
   };
 }
-function getRulesSummary(rules2) {
+function getRulesSummary(rules) {
   const byPrinciple = /* @__PURE__ */ new Map();
-  for (const rule of rules2) {
+  for (const rule of rules) {
     const existing = byPrinciple.get(rule.principleId) || [];
     existing.push(rule);
     byPrinciple.set(rule.principleId, existing);
   }
   const lines = [];
-  lines.push(`Generated ${rules2.length} rules from ${byPrinciple.size} principles:`);
+  lines.push(`Generated ${rules.length} rules from ${byPrinciple.size} principles:`);
   lines.push("");
   for (const [principleId, principleRules] of byPrinciple) {
     lines.push(`  ${principleId}: ${principleRules.length} rules`);
@@ -22581,9 +22564,9 @@ __export(browser_server_exports, {
 });
 function getPaths(outputDir) {
   return {
-    stateFile: (0, import_path27.join)(outputDir, SERVER_STATE_FILE),
-    profileDir: (0, import_path27.join)(outputDir, ISOLATED_PROFILE_DIR),
-    sessionsDir: (0, import_path27.join)(outputDir, "sessions")
+    stateFile: (0, import_path28.join)(outputDir, SERVER_STATE_FILE),
+    profileDir: (0, import_path28.join)(outputDir, ISOLATED_PROFILE_DIR),
+    sessionsDir: (0, import_path28.join)(outputDir, "sessions")
   };
 }
 async function isServerRunning(outputDir) {
@@ -22776,7 +22759,7 @@ async function listActiveSessions(outputDir) {
   const liveSessions = [];
   for (const entry of entries) {
     if (entry.isDirectory() && entry.name.startsWith("live_")) {
-      const statePath = (0, import_path27.join)(sessionsDir, entry.name, "live-session.json");
+      const statePath = (0, import_path28.join)(sessionsDir, entry.name, "live-session.json");
       if ((0, import_fs16.existsSync)(statePath)) {
         liveSessions.push(entry.name);
       }
@@ -22784,7 +22767,7 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_promises24, import_fs16, import_path27, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_promises24, import_fs16, import_path28, import_nanoid6, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
@@ -22792,7 +22775,7 @@ var init_browser_server = __esm({
     init_compat();
     import_promises24 = require("fs/promises");
     import_fs16 = require("fs");
-    import_path27 = require("path");
+    import_path28 = require("path");
     import_nanoid6 = require("nanoid");
     init_schemas();
     init_devices();
@@ -22827,8 +22810,8 @@ var init_browser_server = __esm({
           );
         }
         const sessionId = `live_${(0, import_nanoid6.nanoid)(10)}`;
-        const sessionsDir = (0, import_path27.join)(outputDir, "sessions");
-        const sessionDir = (0, import_path27.join)(sessionsDir, sessionId);
+        const sessionsDir = (0, import_path28.join)(outputDir, "sessions");
+        const sessionDir = (0, import_path28.join)(sessionsDir, sessionId);
         await (0, import_promises24.mkdir)(sessionDir, { recursive: true });
         await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(viewport));
         await driver3.emulationDomain.setReducedMotion(true);
@@ -22858,11 +22841,11 @@ var init_browser_server = __esm({
           }]
         };
         await (0, import_promises24.writeFile)(
-          (0, import_path27.join)(sessionDir, "live-session.json"),
+          (0, import_path28.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path27.join)(sessionDir, "baseline.png"),
+          path: (0, import_path28.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         return new _PersistentSession(driver3, page, state, sessionDir, outputDir);
@@ -22871,8 +22854,8 @@ var init_browser_server = __esm({
        * Get session from browser server by ID
        */
       static async get(outputDir, sessionId) {
-        const sessionDir = (0, import_path27.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path27.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path28.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path28.join)(sessionDir, "live-session.json");
         if (!(0, import_fs16.existsSync)(statePath)) {
           return null;
         }
@@ -22902,7 +22885,7 @@ var init_browser_server = __esm({
       }
       async saveState() {
         await (0, import_promises24.writeFile)(
-          (0, import_path27.join)(this.sessionDir, "live-session.json"),
+          (0, import_path28.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -23044,7 +23027,7 @@ var init_browser_server = __esm({
       async screenshot(options) {
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path27.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path28.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await this.page.addStyleTag({
             content: `
@@ -23315,7 +23298,7 @@ var init_browser_server = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path27.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path28.join)(this.sessionDir, screenshotFile);
         try {
           await this.page.addStyleTag({
             content: `*, *::before, *::after {
@@ -23416,12 +23399,12 @@ var init_browser_server = __esm({
         if (this.state.captures && this.state.captures.length > 0) {
           const ephemeral = this.state.captures.filter((c) => !c.keep);
           if (ephemeral.length > 0) {
-            const archiveDir = (0, import_path27.join)(this.sessionDir, "archive");
+            const archiveDir = (0, import_path28.join)(this.sessionDir, "archive");
             await (0, import_promises24.mkdir)(archiveDir, { recursive: true });
             const { rename: rename2 } = await import("fs/promises");
             for (const cap of ephemeral) {
-              const src = (0, import_path27.join)(this.sessionDir, cap.screenshot);
-              const dest = (0, import_path27.join)(archiveDir, cap.screenshot);
+              const src = (0, import_path28.join)(this.sessionDir, cap.screenshot);
+              const dest = (0, import_path28.join)(archiveDir, cap.screenshot);
               try {
                 if ((0, import_fs16.existsSync)(src)) {
                   await rename2(src, dest);
@@ -23434,7 +23417,7 @@ var init_browser_server = __esm({
           }
         }
         await this.driver.close();
-        const liveSessionPath = (0, import_path27.join)(this.sessionDir, "live-session.json");
+        const liveSessionPath = (0, import_path28.join)(this.sessionDir, "live-session.json");
         try {
           if ((0, import_fs16.existsSync)(liveSessionPath)) {
             await (0, import_promises24.unlink)(liveSessionPath);
@@ -23474,7 +23457,7 @@ __export(live_session_exports, {
   LiveSession: () => LiveSession,
   liveSessionManager: () => liveSessionManager
 });
-var import_promises25, import_fs17, import_path28, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
+var import_promises25, import_fs17, import_path29, import_nanoid7, LiveSession, LiveSessionManager, liveSessionManager;
 var init_live_session = __esm({
   "src/live-session.ts"() {
     "use strict";
@@ -23482,7 +23465,7 @@ var init_live_session = __esm({
     init_compat();
     import_promises25 = require("fs/promises");
     import_fs17 = require("fs");
-    import_path28 = require("path");
+    import_path29 = require("path");
     import_nanoid7 = require("nanoid");
     init_schemas();
     init_scan();
@@ -23501,7 +23484,7 @@ var init_live_session = __esm({
       constructor(state, outputDir, driver3, page) {
         this.state = state;
         this.outputDir = outputDir;
-        this.sessionDir = (0, import_path28.join)(outputDir, "sessions", state.id);
+        this.sessionDir = (0, import_path29.join)(outputDir, "sessions", state.id);
         this.driver = driver3;
         this.page = page;
         page.on("console", (msg) => {
@@ -23532,7 +23515,7 @@ var init_live_session = __esm({
         } = options;
         const showBrowser = headed || sandbox || debug;
         const sessionId = `live_${(0, import_nanoid7.nanoid)(10)}`;
-        const sessionDir = (0, import_path28.join)(outputDir, "sessions", sessionId);
+        const sessionDir = (0, import_path29.join)(outputDir, "sessions", sessionId);
         await (0, import_promises25.mkdir)(sessionDir, { recursive: true });
         const driver3 = new EngineDriver();
         await driver3.launch({
@@ -23571,11 +23554,11 @@ var init_live_session = __esm({
           captures: []
         };
         await (0, import_promises25.writeFile)(
-          (0, import_path28.join)(sessionDir, "live-session.json"),
+          (0, import_path29.join)(sessionDir, "live-session.json"),
           JSON.stringify(state, null, 2)
         );
         await page.screenshot({
-          path: (0, import_path28.join)(sessionDir, "baseline.png"),
+          path: (0, import_path29.join)(sessionDir, "baseline.png"),
           fullPage: false
         });
         const session = new _LiveSession(state, outputDir, driver3, page);
@@ -23589,8 +23572,8 @@ var init_live_session = __esm({
        * Note: This only works within the same process - browser state is not persisted
        */
       static async resume(outputDir, sessionId) {
-        const sessionDir = (0, import_path28.join)(outputDir, "sessions", sessionId);
-        const statePath = (0, import_path28.join)(sessionDir, "live-session.json");
+        const sessionDir = (0, import_path29.join)(outputDir, "sessions", sessionId);
+        const statePath = (0, import_path29.join)(sessionDir, "live-session.json");
         if (!(0, import_fs17.existsSync)(statePath)) {
           return null;
         }
@@ -23721,7 +23704,7 @@ var init_live_session = __esm({
         const stepNum = this.stepCounter;
         const stepLabel = label || `step-${String(stepNum).padStart(3, "0")}`;
         const screenshotFile = `${stepLabel}.png`;
-        const screenshotPath = (0, import_path28.join)(this.sessionDir, screenshotFile);
+        const screenshotPath = (0, import_path29.join)(this.sessionDir, screenshotFile);
         try {
           await page.addStyleTag({
             content: `
@@ -24232,7 +24215,7 @@ var init_live_session = __esm({
         const page = this.ensurePage();
         const start = Date.now();
         const screenshotName = options?.name || `screenshot-${Date.now()}`;
-        const outputPath = (0, import_path28.join)(this.sessionDir, `${screenshotName}.png`);
+        const outputPath = (0, import_path29.join)(this.sessionDir, `${screenshotName}.png`);
         try {
           await page.addStyleTag({
             content: `
@@ -24346,11 +24329,11 @@ var init_live_session = __esm({
       async archiveEphemeralScreenshots() {
         const ephemeral = this.state.captures.filter((c) => !c.keep);
         if (ephemeral.length === 0) return;
-        const archiveDir = (0, import_path28.join)(this.sessionDir, "archive");
+        const archiveDir = (0, import_path29.join)(this.sessionDir, "archive");
         await (0, import_promises25.mkdir)(archiveDir, { recursive: true });
         for (const cap of ephemeral) {
-          const src = (0, import_path28.join)(this.sessionDir, cap.screenshot);
-          const dest = (0, import_path28.join)(archiveDir, cap.screenshot);
+          const src = (0, import_path29.join)(this.sessionDir, cap.screenshot);
+          const dest = (0, import_path29.join)(archiveDir, cap.screenshot);
           try {
             if ((0, import_fs17.existsSync)(src)) {
               await (0, import_promises25.rename)(src, dest);
@@ -24369,7 +24352,7 @@ var init_live_session = __esm({
       }
       async saveState() {
         await (0, import_promises25.writeFile)(
-          (0, import_path28.join)(this.sessionDir, "live-session.json"),
+          (0, import_path29.join)(this.sessionDir, "live-session.json"),
           JSON.stringify(this.state, null, 2)
         );
       }
@@ -24437,13 +24420,13 @@ function formatAge(ms) {
   if (minutes > 0) return `${minutes}m ago`;
   return `${seconds}s ago`;
 }
-var import_promises26, import_fs18, import_path29, DEFAULT_CONFIG, ScreenshotManager;
+var import_promises26, import_fs18, import_path30, DEFAULT_CONFIG, ScreenshotManager;
 var init_screenshot_manager = __esm({
   "src/screenshot-manager.ts"() {
     "use strict";
     import_promises26 = require("fs/promises");
     import_fs18 = require("fs");
-    import_path29 = require("path");
+    import_path30 = require("path");
     DEFAULT_CONFIG = {
       maxAgeDays: 7,
       maxSizeBytes: 500 * 1024 * 1024,
@@ -24464,12 +24447,12 @@ var init_screenshot_manager = __esm({
         const { sessionId, fullPage = false, selector } = options;
         let outputPath;
         if (sessionId) {
-          const sessionDir = (0, import_path29.join)(this.outputDir, "sessions", sessionId);
+          const sessionDir = (0, import_path30.join)(this.outputDir, "sessions", sessionId);
           await (0, import_promises26.mkdir)(sessionDir, { recursive: true });
-          outputPath = (0, import_path29.join)(sessionDir, `${name}.png`);
+          outputPath = (0, import_path30.join)(sessionDir, `${name}.png`);
         } else {
           await (0, import_promises26.mkdir)(this.outputDir, { recursive: true });
-          outputPath = (0, import_path29.join)(this.outputDir, `${name}.png`);
+          outputPath = (0, import_path30.join)(this.outputDir, `${name}.png`);
         }
         await page.addStyleTag({
           content: `
@@ -24500,7 +24483,7 @@ var init_screenshot_manager = __esm({
        * List all screenshots for a session
        */
       async list(sessionId) {
-        const sessionDir = (0, import_path29.join)(this.outputDir, "sessions", sessionId);
+        const sessionDir = (0, import_path30.join)(this.outputDir, "sessions", sessionId);
         if (!(0, import_fs18.existsSync)(sessionDir)) {
           return [];
         }
@@ -24513,14 +24496,14 @@ var init_screenshot_manager = __esm({
        * List all screenshots across all sessions
        */
       async listAll() {
-        const sessionsDir = (0, import_path29.join)(this.outputDir, "sessions");
+        const sessionsDir = (0, import_path30.join)(this.outputDir, "sessions");
         if (!(0, import_fs18.existsSync)(sessionsDir)) {
           return [];
         }
         const screenshots = [];
         const sessions2 = await (0, import_promises26.readdir)(sessionsDir);
         for (const sessionId of sessions2) {
-          const sessionDir = (0, import_path29.join)(sessionsDir, sessionId);
+          const sessionDir = (0, import_path30.join)(sessionsDir, sessionId);
           const stats = await (0, import_promises26.stat)(sessionDir);
           if (stats.isDirectory()) {
             await this.scanDirectory(sessionDir, sessionId, screenshots);
@@ -24535,7 +24518,7 @@ var init_screenshot_manager = __esm({
       async scanDirectory(dir, sessionId, results) {
         const entries = await (0, import_promises26.readdir)(dir, { withFileTypes: true });
         for (const entry of entries) {
-          const fullPath = (0, import_path29.join)(dir, entry.name);
+          const fullPath = (0, import_path30.join)(dir, entry.name);
           if (entry.isDirectory()) {
             await this.scanDirectory(fullPath, sessionId, results);
           } else if (entry.name.endsWith(".png")) {
@@ -24563,15 +24546,15 @@ var init_screenshot_manager = __esm({
           return null;
         }
         const stats = await (0, import_promises26.stat)(path2);
-        const name = (0, import_path29.basename)(path2);
-        const dir = (0, import_path29.dirname)(path2);
+        const name = (0, import_path30.basename)(path2);
+        const dir = (0, import_path30.dirname)(path2);
         const stepMatch = name.match(/^\d+-(.+)\.png$/);
         const step = stepMatch ? stepMatch[1] : void 0;
         const sessionMatch = dir.match(/sessions[/\\]([^/\\]+)/);
         const sessionId = sessionMatch ? sessionMatch[1] : void 0;
         let query;
         let userIntent;
-        const resultsPath = (0, import_path29.join)(dir, "results.json");
+        const resultsPath = (0, import_path30.join)(dir, "results.json");
         if ((0, import_fs18.existsSync)(resultsPath)) {
           try {
             const resultsContent = await (0, import_promises26.readFile)(resultsPath, "utf-8");
@@ -24671,14 +24654,14 @@ var init_screenshot_manager = __esm({
        * Save configuration to file
        */
       async saveConfig() {
-        const configPath = (0, import_path29.join)(this.outputDir, "screenshot-config.json");
+        const configPath = (0, import_path30.join)(this.outputDir, "screenshot-config.json");
         await (0, import_promises26.writeFile)(configPath, JSON.stringify(this.config, null, 2));
       }
       /**
        * Load configuration from file
        */
       async loadConfig() {
-        const configPath = (0, import_path29.join)(this.outputDir, "screenshot-config.json");
+        const configPath = (0, import_path30.join)(this.outputDir, "screenshot-config.json");
         if ((0, import_fs18.existsSync)(configPath)) {
           try {
             const content = await (0, import_promises26.readFile)(configPath, "utf-8");
@@ -24719,7 +24702,7 @@ function findSwiftFiles(dir, rootDir) {
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path30.join)(currentDir, entry);
+      const fullPath = (0, import_path31.join)(currentDir, entry);
       let stat5;
       try {
         stat5 = (0, import_fs19.statSync)(fullPath);
@@ -24729,7 +24712,7 @@ function findSwiftFiles(dir, rootDir) {
       if (stat5.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path30.relative)(rootDir, fullPath));
+        results.push((0, import_path31.relative)(rootDir, fullPath));
       }
     }
   }
@@ -24745,7 +24728,7 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path30.join)(projectRoot, filePath);
+    const fullPath = (0, import_path31.join)(projectRoot, filePath);
     let content;
     try {
       content = (0, import_fs19.readFileSync)(fullPath, "utf-8");
@@ -24832,7 +24815,7 @@ function scanSwiftSources(projectRoot, swiftFiles) {
 }
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path30.join)(projectRoot, navPath, "file_map.json");
+    const fileMapPath = (0, import_path31.join)(projectRoot, navPath, "file_map.json");
     if (!(0, import_fs19.existsSync)(fileMapPath)) continue;
     try {
       const content = (0, import_fs19.readFileSync)(fileMapPath, "utf-8");
@@ -24991,15 +24974,15 @@ function formatBridgeResult(result) {
   }
   return lines.join("\n");
 }
-var import_fs19, import_path30, NAVGATOR_PATHS, CONFIDENCE;
+var import_fs19, import_path31, NAVGATOR_PATHS, CONFIDENCE;
 var init_bridge = __esm({
   "src/native/bridge.ts"() {
     "use strict";
     import_fs19 = require("fs");
-    import_path30 = require("path");
+    import_path31 = require("path");
     NAVGATOR_PATHS = [
-      (0, import_path30.join)(".navgator", "architecture"),
-      (0, import_path30.join)(".claude", "architecture")
+      (0, import_path31.join)(".navgator", "architecture"),
+      (0, import_path31.join)(".claude", "architecture")
       // legacy — NavGator < 0.3
     ];
     CONFIDENCE = {
@@ -25063,7 +25046,7 @@ async function executeStep(driver3, step, url, outputDir) {
     const el = await driver3.find(action.target);
     return el?.id ?? null;
   }
-  let captureResult = null;
+  let captureResult;
   try {
     captureResult = await driver3.actAndCapture(async () => {
       const elementId = await resolveTarget();
@@ -25188,7 +25171,7 @@ async function executeStep(driver3, step, url, outputDir) {
     if (expectation.screenshot !== void 0) {
       try {
         await (0, import_promises27.mkdir)(outputDir, { recursive: true });
-        const screenshotPath = (0, import_path31.join)(outputDir, `${expectation.screenshot}.png`);
+        const screenshotPath = (0, import_path32.join)(outputDir, `${expectation.screenshot}.png`);
         await (0, import_promises27.writeFile)(screenshotPath, captureResult.after.screenshot);
         assertions.push({
           check: `screenshot: "${expectation.screenshot}"`,
@@ -25335,12 +25318,12 @@ function formatInteractionResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises27, import_path31;
+var import_promises27, import_path32;
 var init_interaction_test = __esm({
   "src/interaction-test.ts"() {
     "use strict";
     import_promises27 = require("fs/promises");
-    import_path31 = require("path");
+    import_path32 = require("path");
     init_driver();
   }
 });
@@ -25568,10 +25551,10 @@ async function matchMockup(options) {
         mockup = { data: mockupData, width: mockup.width, height: mockup.height };
       }
     }
-    let compareData1 = mockup.data;
+    const compareData1 = mockup.data;
     let compareData2 = live.data;
-    let compareWidth = mockup.width;
-    let compareHeight = mockup.height;
+    const compareWidth = mockup.width;
+    const compareHeight = mockup.height;
     if (live.width !== mockup.width || live.height !== mockup.height) {
       compareData2 = resizeNearest(live.data, live.width, live.height, mockup.width, mockup.height);
     }
@@ -25750,7 +25733,7 @@ function applyOperator(actual, operator, expected) {
 }
 async function getComputedProperty(driver3, elementQuery, property) {
   try {
-    const isSelector = /^[.#\[]/.test(elementQuery) || /[>+~]/.test(elementQuery);
+    const isSelector = /^[.#[]/.test(elementQuery) || /[>+~]/.test(elementQuery);
     let jsExpression;
     if (isSelector) {
       jsExpression = `
@@ -25929,7 +25912,7 @@ function formatReconciliationMatrix(matrix) {
   return lines.join("\n");
 }
 async function loadChanges(outputDir) {
-  const filePath = (0, import_path32.join)(outputDir, CHANGES_FILE);
+  const filePath = (0, import_path33.join)(outputDir, CHANGES_FILE);
   if (!(0, import_fs20.existsSync)(filePath)) return [];
   try {
     const raw = await (0, import_promises29.readFile)(filePath, "utf-8");
@@ -25944,16 +25927,16 @@ async function saveChange(outputDir, change) {
   await (0, import_promises29.mkdir)(outputDir, { recursive: true });
   const existing = await loadChanges(outputDir);
   existing.push(change);
-  const filePath = (0, import_path32.join)(outputDir, CHANGES_FILE);
+  const filePath = (0, import_path33.join)(outputDir, CHANGES_FILE);
   await (0, import_promises29.writeFile)(filePath, JSON.stringify(existing, null, 2), "utf-8");
 }
-var import_promises29, import_fs20, import_path32, CHANGES_FILE;
+var import_promises29, import_fs20, import_path33, CHANGES_FILE;
 var init_design_verifier = __esm({
   "src/design-verifier.ts"() {
     "use strict";
     import_promises29 = require("fs/promises");
     import_fs20 = require("fs");
-    import_path32 = require("path");
+    import_path33 = require("path");
     CHANGES_FILE = "design-changes.json";
   }
 });
@@ -25989,7 +25972,7 @@ function scenarioRelevance(el, keywords) {
 async function generateTest(options) {
   const { url, scenario, outputPath = ".ibr-test.json" } = options;
   const driver3 = new EngineDriver();
-  let elements = [];
+  let elements;
   let pageTitle = "page";
   try {
     await driver3.launch({ headless: true });
@@ -26020,7 +26003,7 @@ async function generateTest(options) {
   const suite = {
     [pageName]: { url, tests }
   };
-  const dir = (0, import_path33.dirname)(outputPath);
+  const dir = (0, import_path34.dirname)(outputPath);
   if (dir && dir !== ".") {
     await (0, import_promises30.mkdir)(dir, { recursive: true });
   }
@@ -26079,12 +26062,12 @@ function buildScenarioTest(scenario, elements) {
     steps
   };
 }
-var import_promises30, import_path33, INPUT_SAMPLE_VALUES;
+var import_promises30, import_path34, INPUT_SAMPLE_VALUES;
 var init_test_generator = __esm({
   "src/test-generator.ts"() {
     "use strict";
     import_promises30 = require("fs/promises");
-    import_path33 = require("path");
+    import_path34 = require("path");
     init_driver();
     INPUT_SAMPLE_VALUES = {
       email: "test@example.com",
@@ -26119,7 +26102,7 @@ async function runTests(options = {}) {
     wsEndpoint,
     chromePath
   } = options;
-  const raw = await (0, import_promises31.readFile)((0, import_path34.resolve)(filePath), "utf-8");
+  const raw = await (0, import_promises31.readFile)((0, import_path35.resolve)(filePath), "utf-8");
   const suite = JSON.parse(raw);
   await (0, import_promises31.mkdir)(outputDir, { recursive: true });
   const allResults = [];
@@ -26168,7 +26151,7 @@ async function runTests(options = {}) {
         duration: Date.now() - runStart
       };
       allResults.push(runResult);
-      const resultPath = (0, import_path34.join)(outputDir, `${pageName}-results.json`);
+      const resultPath = (0, import_path35.join)(outputDir, `${pageName}-results.json`);
       await (0, import_promises31.writeFile)(resultPath, JSON.stringify(runResult, null, 2), "utf-8");
       console.log(`[test-runner]   results: ${resultPath}`);
     } finally {
@@ -26198,7 +26181,7 @@ async function executeStep2(driver3, step, outputDir) {
       await runAssert(driver3, step.assert);
     } else if ("screenshot" in step) {
       await (0, import_promises31.mkdir)(outputDir, { recursive: true });
-      const screenshotPath = (0, import_path34.join)(outputDir, `${step.screenshot}.png`);
+      const screenshotPath = (0, import_path35.join)(outputDir, `${step.screenshot}.png`);
       const buf = await driver3.screenshot();
       await (0, import_promises31.writeFile)(screenshotPath, buf);
       return {
@@ -26297,12 +26280,12 @@ function formatRunResult(result) {
   }
   return lines.join("\n");
 }
-var import_promises31, import_path34;
+var import_promises31, import_path35;
 var init_test_runner = __esm({
   "src/test-runner.ts"() {
     "use strict";
     import_promises31 = require("fs/promises");
-    import_path34 = require("path");
+    import_path35 = require("path");
     init_driver();
   }
 });
@@ -26349,10 +26332,10 @@ async function runScript(options) {
     env = {}
   } = options;
   const tmpId = (0, import_crypto4.randomBytes)(8).toString("hex");
-  const tmpDir = (0, import_path35.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
+  const tmpDir = (0, import_path36.join)((0, import_os5.tmpdir)(), `ibr-script-${tmpId}`);
   await (0, import_promises32.mkdir)(tmpDir, { recursive: true });
-  const copiedScript = (0, import_path35.join)(tmpDir, "user_script.py");
-  const wrapperPath = (0, import_path35.join)(tmpDir, "wrapper.py");
+  const copiedScript = (0, import_path36.join)(tmpDir, "user_script.py");
+  const wrapperPath = (0, import_path36.join)(tmpDir, "wrapper.py");
   try {
     await (0, import_promises32.copyFile)(scriptPath, copiedScript);
     await (0, import_promises32.writeFile)(wrapperPath, buildWrapper(copiedScript, cpuSeconds, memoryMB), "utf-8");
@@ -26432,13 +26415,13 @@ function formatScriptResult(result) {
   }
   return lines.join("\n");
 }
-var import_child_process16, import_promises32, import_path35, import_os5, import_crypto4;
+var import_child_process16, import_promises32, import_path36, import_os5, import_crypto4;
 var init_script_runner = __esm({
   "src/script-runner.ts"() {
     "use strict";
     import_child_process16 = require("child_process");
     import_promises32 = require("fs/promises");
-    import_path35 = require("path");
+    import_path36 = require("path");
     import_os5 = require("os");
     import_crypto4 = require("crypto");
   }
@@ -26461,7 +26444,7 @@ async function loadState(statePath) {
   }
 }
 async function saveState(statePath, state) {
-  await (0, import_promises33.mkdir)((0, import_path36.resolve)(statePath, ".."), { recursive: true });
+  await (0, import_promises33.mkdir)((0, import_path37.resolve)(statePath, ".."), { recursive: true });
   await (0, import_promises33.writeFile)(statePath, JSON.stringify(state, null, 2), "utf-8");
 }
 function hashIssues(issues) {
@@ -26564,15 +26547,15 @@ function analyzeIssues(iterations) {
 }
 async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIssueCount) {
   const start = Date.now();
-  let fingerprints = [];
-  let issueCount = 0;
-  let approachHint = "";
+  let fingerprints;
+  let issueCount;
+  let approachHint;
   let issues;
   if (testFile) {
     try {
       const results = await runTests({
         filePath: testFile,
-        outputDir: (0, import_path36.join)(outputDir, `iter-${iterationNumber}`)
+        outputDir: (0, import_path37.join)(outputDir, `iter-${iterationNumber}`)
       });
       fingerprints = testRunFingerprints(results);
       issueCount = fingerprints.length;
@@ -26586,7 +26569,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
     }
   } else {
     try {
-      const result = await scan(url, { outputDir: (0, import_path36.join)(outputDir, `iter-${iterationNumber}`) });
+      const result = await scan(url, { outputDir: (0, import_path37.join)(outputDir, `iter-${iterationNumber}`) });
       fingerprints = extractIssueFingerprints(result);
       issueCount = result.issues.length;
       issues = result.issues;
@@ -26613,7 +26596,7 @@ async function runOneIteration(url, testFile, outputDir, iterationNumber, prevIs
 async function verifyResolved(url, outputDir, iterationNumber) {
   try {
     const verifyResult = await scan(url, {
-      outputDir: (0, import_path36.join)(outputDir, `iter-${iterationNumber}-verify`)
+      outputDir: (0, import_path37.join)(outputDir, `iter-${iterationNumber}-verify`)
     });
     return { confirmed: verifyResult.issues.length === 0, verifyIssueCount: verifyResult.issues.length };
   } catch {
@@ -26628,7 +26611,7 @@ async function iterate(options) {
     outputDir = ".ibr/iterate",
     autoApprove = false
   } = options;
-  const statePath = (0, import_path36.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path37.join)(outputDir, "iterate-state.json");
   await (0, import_promises33.mkdir)(outputDir, { recursive: true });
   let persisted = await loadState(statePath);
   if (!persisted || persisted.url !== url) {
@@ -26684,11 +26667,11 @@ async function iterate(options) {
   const targetState = finalState ?? "in_progress";
   if (analysisStates.includes(targetState) && !testFile) {
     analysis = analyzeIssues(allIterations);
-    const analysisDir = (0, import_path36.join)(outputDir);
+    const analysisDir = (0, import_path37.join)(outputDir);
     await (0, import_promises33.mkdir)(analysisDir, { recursive: true }).catch(() => {
     });
     await (0, import_promises33.writeFile)(
-      (0, import_path36.join)(analysisDir, "analysis.json"),
+      (0, import_path37.join)(analysisDir, "analysis.json"),
       JSON.stringify(analysis, null, 2)
     ).catch(() => {
     });
@@ -26730,17 +26713,17 @@ function buildResult(iterations, finalState, verificationPassed, analysis) {
   return { iterations, finalState, summary, verificationPassed, analysis };
 }
 async function resetIterateState(outputDir = ".ibr/iterate") {
-  const statePath = (0, import_path36.join)(outputDir, "iterate-state.json");
+  const statePath = (0, import_path37.join)(outputDir, "iterate-state.json");
   await (0, import_promises33.writeFile)(statePath, JSON.stringify({ iterations: [] }, null, 2), "utf-8").catch(() => {
   });
 }
-var import_crypto5, import_promises33, import_path36, CHECKPOINT_ITERATIONS, APPROACH_MAP;
+var import_crypto5, import_promises33, import_path37, CHECKPOINT_ITERATIONS, APPROACH_MAP;
 var init_iterate = __esm({
   "src/iterate.ts"() {
     "use strict";
     import_crypto5 = require("crypto");
     import_promises33 = require("fs/promises");
-    import_path36 = require("path");
+    import_path37 = require("path");
     init_test_runner();
     init_scan();
     CHECKPOINT_ITERATIONS = /* @__PURE__ */ new Set([3, 7, 15, 20]);
@@ -27136,7 +27119,7 @@ function parseStaticHTML(html) {
   return elements;
 }
 function parseCSS(css) {
-  const rules2 = [];
+  const rules = [];
   const cleanCss = css.replace(/\/\*[\s\S]*?\*\//g, "");
   const withoutAtRules = cleanCss.replace(/@(?:media|keyframes)[^{]*\{(?:[^{}]*\{[^}]*\})*[^}]*\}/g, "");
   const rulePattern = /([^{]+)\{([^}]+)\}/g;
@@ -27147,15 +27130,15 @@ function parseCSS(css) {
     const selectors = selectorsStr.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
     const properties = parseProperties(propertiesStr);
     for (const selector of selectors) {
-      rules2.push({ selector, properties });
+      rules.push({ selector, properties });
     }
   }
-  return rules2;
+  return rules;
 }
-function applyStyles(elements, rules2) {
+function applyStyles(elements, rules) {
   return elements.map((element) => {
     const matchedStyles = { ...element.computedStyles };
-    for (const rule of rules2) {
+    for (const rule of rules) {
       if (selectorMatches(rule.selector, element)) {
         Object.assign(matchedStyles, rule.properties);
       }
@@ -27303,8 +27286,8 @@ function scanStatic(options) {
   let elements = parseStaticHTML(html);
   if (cssPath) {
     const css = (0, import_fs21.readFileSync)(cssPath, "utf-8");
-    const rules2 = parseCSS(css);
-    elements = applyStyles(elements, rules2);
+    const rules = parseCSS(css);
+    elements = applyStyles(elements, rules);
   }
   const issues = runAudits(elements);
   const totalElements = elements.length;
@@ -27900,7 +27883,7 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
           }
           const page = new CompatPage(driver3);
           if (aiValidation) {
-            const artifactDir = (0, import_path37.join)(DEFAULT_OUTPUT_DIR2, "mcp-search", `${Date.now()}`);
+            const artifactDir = (0, import_path38.join)(DEFAULT_OUTPUT_DIR2, "mcp-search", `${Date.now()}`);
             (0, import_fs22.mkdirSync)(artifactDir, { recursive: true });
             const result2 = await aiSearchFlow(page, {
               query,
@@ -28771,9 +28754,9 @@ async function handleScreenshot(args) {
   const isExternal = !url.includes("localhost") && !url.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp = Date.now();
-  const screenshotsDir = (0, import_path37.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
+  const screenshotsDir = (0, import_path38.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
   (0, import_fs22.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path37.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const tempPath = (0, import_path38.join)(screenshotsDir, `capture-${timestamp}.png`);
   await captureScreenshot({
     url,
     outputPath: tempPath,
@@ -28791,7 +28774,7 @@ async function handleScreenshot(args) {
   let savedPath = "not saved";
   if (saveAs) {
     (0, import_fs22.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path37.join)(REFERENCES_DIR, `${saveAs}.png`);
+    const refPath = (0, import_path38.join)(REFERENCES_DIR, `${saveAs}.png`);
     (0, import_fs22.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
@@ -28847,7 +28830,7 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path37.join)(REFERENCES_DIR, ref.path);
+      const refPath = (0, import_path38.join)(REFERENCES_DIR, ref.path);
       if (!(0, import_fs22.existsSync)(refPath)) {
         return errorResponse2(`Reference file missing: ${refPath}`);
       }
@@ -28873,7 +28856,7 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path37.join)(REFERENCES_DIR, ref.path);
+      const refPath = (0, import_path38.join)(REFERENCES_DIR, ref.path);
       if ((0, import_fs22.existsSync)(refPath)) {
         (0, import_fs22.unlinkSync)(refPath);
       }
@@ -29440,15 +29423,15 @@ async function handleSimAction(args) {
 async function handleDesignSystem(args) {
   const action = args.action;
   const projectDir = args.projectDir || process.cwd();
-  const ibrDir = (0, import_path37.join)(projectDir, ".ibr");
-  const configPath = (0, import_path37.join)(ibrDir, "design-system.json");
+  const ibrDir = (0, import_path38.join)(projectDir, ".ibr");
+  const configPath = (0, import_path38.join)(ibrDir, "design-system.json");
   switch (action) {
     case "init": {
       const templateCandidates = [
-        (0, import_path37.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
-        (0, import_path37.join)(projectDir, "templates", "design-system.json"),
+        (0, import_path38.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path38.join)(projectDir, "templates", "design-system.json"),
         // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
-        (0, import_path37.join)(__dirname, "..", "..", "templates", "design-system.json")
+        (0, import_path38.join)(__dirname, "..", "..", "templates", "design-system.json")
       ];
       const templatePath = templateCandidates.find((p) => (0, import_fs22.existsSync)(p));
       if (!templatePath) {
@@ -29535,12 +29518,12 @@ Expected: ${configPath}`
       return errorResponse2(`Unknown action: ${action}. Use: init, status, validate`);
   }
 }
-var import_fs22, import_path37, NOOP_PIXEL_THRESHOLD, TOOLS, DEFAULT_OUTPUT_DIR2, mcpBrowserPoolPromise, REFERENCES_DIR, REFERENCES_INDEX;
+var import_fs22, import_path38, NOOP_PIXEL_THRESHOLD, TOOLS, DEFAULT_OUTPUT_DIR2, mcpBrowserPoolPromise, REFERENCES_DIR, REFERENCES_INDEX;
 var init_tools = __esm({
   "src/mcp/tools.ts"() {
     "use strict";
     import_fs22 = require("fs");
-    import_path37 = require("path");
+    import_path38 = require("path");
     init_design_system();
     init_scan();
     init_index();
@@ -30382,15 +30365,15 @@ var init_tools = __esm({
       }
     ];
     DEFAULT_OUTPUT_DIR2 = ".ibr";
-    REFERENCES_DIR = (0, import_path37.join)(DEFAULT_OUTPUT_DIR2, "references");
-    REFERENCES_INDEX = (0, import_path37.join)(REFERENCES_DIR, "index.json");
+    REFERENCES_DIR = (0, import_path38.join)(DEFAULT_OUTPUT_DIR2, "references");
+    REFERENCES_INDEX = (0, import_path38.join)(REFERENCES_DIR, "index.json");
   }
 });
 
 // src/bin/ibr.ts
 var import_commander = require("commander");
 var import_promises34 = require("fs/promises");
-var import_path38 = require("path");
+var import_path39 = require("path");
 var import_fs23 = require("fs");
 init_driver();
 init_compat();
@@ -30404,9 +30387,9 @@ init_session_controller();
 
 // src/native/session-store.ts
 var import_fs14 = require("fs");
-var import_path25 = require("path");
+var import_path26 = require("path");
 var import_crypto2 = require("crypto");
-var DEFAULT_SESSION_STORE_DIR = (0, import_path25.join)(".ibr", "native-sessions");
+var DEFAULT_SESSION_STORE_DIR = (0, import_path26.join)(".ibr", "native-sessions");
 function safeSessionFilePart(sessionId) {
   if (!sessionId || !/^[a-zA-Z0-9._-]+$/.test(sessionId) || sessionId === "." || sessionId === "..") {
     throw new Error(`Invalid sessionId for file store: ${JSON.stringify(sessionId)}`);
@@ -30414,12 +30397,12 @@ function safeSessionFilePart(sessionId) {
   return sessionId;
 }
 function sessionFilePath(sessionId, baseDir) {
-  return (0, import_path25.join)(baseDir, `${safeSessionFilePart(sessionId)}.json`);
+  return (0, import_path26.join)(baseDir, `${safeSessionFilePart(sessionId)}.json`);
 }
 function writeSession(sessionId, entry, baseDir = DEFAULT_SESSION_STORE_DIR) {
   (0, import_fs14.mkdirSync)(baseDir, { recursive: true });
   const target = sessionFilePath(sessionId, baseDir);
-  const tmp = (0, import_path25.join)(
+  const tmp = (0, import_path26.join)(
     baseDir,
     `.${safeSessionFilePart(sessionId)}.${process.pid}-${(0, import_crypto2.randomBytes)(4).toString("hex")}.tmp`
   );
@@ -30705,7 +30688,7 @@ function registerNativeSessionCommands(program2) {
 // src/bin/ibr.ts
 function readPackageVersion() {
   try {
-    const pkg = JSON.parse((0, import_fs23.readFileSync)((0, import_path38.join)(__dirname, "..", "..", "package.json"), "utf8"));
+    const pkg = JSON.parse((0, import_fs23.readFileSync)((0, import_path39.join)(__dirname, "..", "..", "package.json"), "utf8"));
     if (typeof pkg.version === "string") return pkg.version;
   } catch {
   }
@@ -30813,7 +30796,7 @@ program.hook("preAction", () => {
   if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
 });
 async function loadConfig() {
-  const configPath = (0, import_path38.join)(process.cwd(), ".ibrrc.json");
+  const configPath = (0, import_path39.join)(process.cwd(), ".ibrrc.json");
   if ((0, import_fs23.existsSync)(configPath)) {
     try {
       const content = await (0, import_promises34.readFile)(configPath, "utf-8");
@@ -31019,11 +31002,9 @@ program.command("audit [url]").description("Full audit: functional checks + visu
     const resolvedUrl = await resolveBaseUrl(url);
     const globalOpts = program.opts();
     const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
-    const { register: register5 } = await Promise.resolve().then(() => (init_minimal(), minimal_exports));
     const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract2(), extract_exports));
     const { discoverUserContext: discoverUserContext2, formatContextSummary: formatContextSummary2 } = await Promise.resolve().then(() => (init_context_loader(), context_loader_exports));
     const { createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
-    register5();
     const userContext = await discoverUserContext2(process.cwd());
     if (options.showFramework) {
       console.log(formatContextSummary2(userContext));
@@ -31090,7 +31071,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const outputDir = globalOpts.outputDir || ".ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
-      let baselineSession = options.baseline ? sessions2.find((s) => s.id === options.baseline) : sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.status !== "compared").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
+      const baselineSession = options.baseline ? sessions2.find((s) => s.id === options.baseline) : sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.status !== "compared").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
       if (baselineSession) {
         const paths = getSessionPaths2(outputDir, baselineSession.id);
         const currentPath = paths.current;
@@ -31131,7 +31112,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
       const baselineSession = sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.landmarkElements && s.landmarkElements.length > 0).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
-      let elementChecks = [];
+      const elementChecks = [];
       if (baselineSession && baselineSession.landmarkElements) {
         const currentLandmarks = await detectLandmarks2(page);
         void compareLandmarks2(baselineSession.landmarkElements, currentLandmarks);
@@ -31568,10 +31549,10 @@ program.command("serve").description("Start the comparison viewer web UI").optio
   const { resolve: resolve5 } = await import("path");
   const distBinRoot = resolve5(__dirname, "..", "..");
   const candidates = [
-    (0, import_path38.join)(distBinRoot, "web-ui"),
-    (0, import_path38.join)(process.cwd(), "web-ui"),
-    (0, import_path38.join)(process.cwd(), "node_modules", "@tyroneross", "interface-built-right", "web-ui"),
-    (0, import_path38.join)(process.cwd(), "node_modules", "interface-built-right", "web-ui")
+    (0, import_path39.join)(distBinRoot, "web-ui"),
+    (0, import_path39.join)(process.cwd(), "web-ui"),
+    (0, import_path39.join)(process.cwd(), "node_modules", "@tyroneross", "interface-built-right", "web-ui"),
+    (0, import_path39.join)(process.cwd(), "node_modules", "interface-built-right", "web-ui")
   ];
   let webUiDir = null;
   for (const c of candidates) {
@@ -32542,7 +32523,7 @@ program.command("search-test <url>").description("Run AI search test with screen
     await driver3.launch(withBrowserOptions({ headless: true, viewport: viewportToConfig(viewport) }));
     const page = new CompatPage(driver3);
     await page.goto(url, { waitUntil: "networkidle", timeout: 3e4 });
-    const sessionDir = (0, import_path38.join)(outputDir, "sessions", `search-${Date.now()}`);
+    const sessionDir = (0, import_path39.join)(outputDir, "sessions", `search-${Date.now()}`);
     await mkdir28(sessionDir, { recursive: true });
     const result = await aiSearchFlow2(page, {
       query: options.query,
@@ -32930,8 +32911,8 @@ async function resolveBaseUrl(providedUrl) {
 }
 program.command("init").description("Initialize IBR config and optionally register Claude Code plugin").option("-p, --port <port>", "Port for baseUrl (auto-detects available port if not specified)").option("-u, --url <url>", "Full base URL (overrides port)").option("--skip-plugin", "Skip Claude Code plugin registration prompt").action(async (options) => {
   const { writeFile: writeFile20, readFile: readFile23, mkdir: mkdir28 } = await import("fs/promises");
-  const configPath = (0, import_path38.join)(process.cwd(), ".ibrrc.json");
-  const claudeSettingsPath = (0, import_path38.join)(process.cwd(), ".claude", "settings.json");
+  const configPath = (0, import_path39.join)(process.cwd(), ".ibrrc.json");
+  const claudeSettingsPath = (0, import_path39.join)(process.cwd(), ".claude", "settings.json");
   let configCreated = false;
   if (!(0, import_fs23.existsSync)(configPath)) {
     let baseUrl;
@@ -32987,7 +32968,7 @@ program.command("init").description("Initialize IBR config and optionally regist
     }
     return;
   }
-  const claudeDirExists = (0, import_fs23.existsSync)((0, import_path38.join)(process.cwd(), ".claude"));
+  const claudeDirExists = (0, import_fs23.existsSync)((0, import_path39.join)(process.cwd(), ".claude"));
   const hasClaudeSettings = (0, import_fs23.existsSync)(claudeSettingsPath);
   const possiblePluginPaths = [
     "node_modules/@tyroneross/interface-built-right/plugin",
@@ -32997,7 +32978,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   ];
   let pluginPath = null;
   for (const p of possiblePluginPaths) {
-    if ((0, import_fs23.existsSync)((0, import_path38.join)(process.cwd(), p))) {
+    if ((0, import_fs23.existsSync)((0, import_path39.join)(process.cwd(), p))) {
       pluginPath = p;
       break;
     }
@@ -33076,7 +33057,7 @@ program.command("init").description("Initialize IBR config and optionally regist
   }
   try {
     if (!claudeDirExists) {
-      await mkdir28((0, import_path38.join)(process.cwd(), ".claude"), { recursive: true });
+      await mkdir28((0, import_path39.join)(process.cwd(), ".claude"), { recursive: true });
     }
     settings.plugins = settings.plugins || [];
     settings.plugins.push(pluginPath);
@@ -33243,8 +33224,8 @@ program.command("native:scan [device]").description("Scan a running simulator fo
         if (annotated) fixGuide.screenshot = annotated;
       }
       const { mkdirSync: mkdirSync3, writeFileSync: writeFileSync4 } = await import("fs");
-      const guidePath = (0, import_path38.join)(outputDir, "native", "fix-guide.json");
-      mkdirSync3((0, import_path38.join)(outputDir, "native"), { recursive: true });
+      const guidePath = (0, import_path39.join)(outputDir, "native", "fix-guide.json");
+      mkdirSync3((0, import_path39.join)(outputDir, "native"), { recursive: true });
       writeFileSync4(guidePath, JSON.stringify(fixGuide, null, 2));
       if (options.json) {
         console.log(JSON.stringify(fixGuide, null, 2));
@@ -33579,7 +33560,7 @@ program.command("test-interact <url>").description("Run interaction assertions: 
       url: resolvedUrl,
       steps,
       viewport,
-      outputDir: (0, import_path38.join)(outputDir, "interactions"),
+      outputDir: (0, import_path39.join)(outputDir, "interactions"),
       headless: !(options.headed || options.sandbox),
       ...getBrowserConnectionOptions()
     });
@@ -33947,8 +33928,8 @@ program.command("compare-browsers <url>").description("Scan in Chrome and Safari
       diffPercent = Math.round(pixelDiff / (w * h) * 1e4) / 100;
       if (options.saveDiff) {
         const { writeFile: writeFile20, mkdir: mkdirFs } = await import("fs/promises");
-        const { dirname: dirname11 } = await import("path");
-        await mkdirFs(dirname11(options.saveDiff), { recursive: true });
+        const { dirname: dirname12 } = await import("path");
+        await mkdirFs(dirname12(options.saveDiff), { recursive: true });
         await writeFile20(options.saveDiff, PNG6.sync.write(diff));
         diffSaved = true;
       }

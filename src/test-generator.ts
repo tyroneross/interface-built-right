@@ -100,7 +100,7 @@ export async function generateTest(options: GenerateTestOptions): Promise<TestSu
   const { url, scenario, outputPath = '.ibr-test.json' } = options
 
   const driver = new EngineDriver()
-  let elements: Element[] = []
+  let elements: Element[]
   let pageTitle = 'page'
 
   try {

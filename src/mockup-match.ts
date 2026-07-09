@@ -240,10 +240,10 @@ export async function matchMockup(options: MockupMatchOptions): Promise<MockupMa
 
     // Step 6: Align dimensions for comparison
     // If sizes differ, resize live to mockup dimensions (mockup is the reference)
-    let compareData1 = mockup.data
+    const compareData1 = mockup.data
     let compareData2 = live.data
-    let compareWidth = mockup.width
-    let compareHeight = mockup.height
+    const compareWidth = mockup.width
+    const compareHeight = mockup.height
 
     if (live.width !== mockup.width || live.height !== mockup.height) {
       compareData2 = resizeNearest(live.data, live.width, live.height, mockup.width, mockup.height)

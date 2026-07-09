@@ -9,7 +9,7 @@
  */
 
 import type { EnhancedElement, Violation } from '../schemas.js';
-import type { Rule, RuleContext, RulePreset } from './engine.js';
+import type { Rule, RuleContext, RulePreset } from './types.js';
 import type { DesignFramework, DesignPrinciple } from '../framework-parser.js';
 
 /**

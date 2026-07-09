@@ -1,5 +1,15 @@
 import { defineConfig } from 'tsup';
 
+function suppressExpectedImportMetaWarning(options: { logOverride?: Record<string, 'silent'> }): void {
+  // runtime-path.mts guards import.meta behind a CJS __dirname branch. esbuild
+  // emits a warning while still producing the correct CJS fallback; the package
+  // export smoke test verifies both generated formats after every build.
+  options.logOverride = {
+    ...options.logOverride,
+    'empty-import-meta': 'silent',
+  };
+}
+
 export default defineConfig([
   // Library build
   {
@@ -11,6 +21,7 @@ export default defineConfig([
     splitting: false,
     treeshake: true,
     external: ['playwright'],
+    esbuildOptions: suppressExpectedImportMetaWarning,
   },
   // CLI build (CJS for shebang compatibility)
   {
@@ -23,6 +34,7 @@ export default defineConfig([
       js: '#!/usr/bin/env node',
     },
     external: ['playwright'],
+    esbuildOptions: suppressExpectedImportMetaWarning,
   },
   // MCP server build (CJS for node invocation via MCP client)
   {
@@ -32,5 +44,6 @@ export default defineConfig([
     clean: false,
     sourcemap: true,
     external: ['playwright'],
+    esbuildOptions: suppressExpectedImportMetaWarning,
   },
 ]);

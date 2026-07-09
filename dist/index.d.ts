@@ -4208,9 +4208,7 @@ declare function testResponsive(url: string, options?: ResponsiveTestOptions): P
  */
 declare function formatResponsiveResult(result: ResponsiveResult): string;
 
-/**
- * Rule context passed to each rule check
- */
+/** Rule context passed to each rule check. */
 interface RuleContext {
     isMobile: boolean;
     viewportWidth: number;
@@ -4218,9 +4216,7 @@ interface RuleContext {
     url: string;
     allElements: EnhancedElement[];
 }
-/**
- * Rule definition
- */
+/** A rule that can evaluate one scanned element. */
 interface Rule {
     id: string;
     name: string;
@@ -4228,9 +4224,7 @@ interface Rule {
     defaultSeverity: 'warn' | 'error';
     check: (element: EnhancedElement, context: RuleContext, options?: Record<string, unknown>) => Violation | null;
 }
-/**
- * Rule preset - collection of rules with default settings
- */
+/** A named collection of rules with default settings. */
 interface RulePreset {
     name: string;
     description: string;

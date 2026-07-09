@@ -106,7 +106,7 @@ async function executeStep(
     return el?.id ?? null
   }
 
-  let captureResult: Awaited<ReturnType<typeof driver['actAndCapture']>> | null = null
+  let captureResult: Awaited<ReturnType<typeof driver['actAndCapture']>>
 
   try {
     captureResult = await driver.actAndCapture(async () => {
