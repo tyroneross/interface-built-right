@@ -205,7 +205,9 @@ describe('session_start — missing target param validation', () => {
     expect(result.content.length).toBeGreaterThan(0)
   })
 
-  it('returns error when app is not running', async () => {
+  // macOS-native: resolves a real app via lsappinfo/AX/pgrep. On Linux these
+  // return non-deterministic results, so run only on darwin (like sim-driver.test.ts).
+  it.runIf(process.platform === 'darwin')('returns error when app is not running', async () => {
     // Use a definitely-not-running app name
     const result = await callTool('session_start', { app: 'NonExistentApp12345XYZ' })
     expect(result.isError).toBe(true)
@@ -213,7 +215,8 @@ describe('session_start — missing target param validation', () => {
     expect(text).toContain('session_start (macos) failed')
   })
 
-  it('returns error when simulator name not found', async () => {
+  // macOS-native: needs `xcrun simctl`. Run only on darwin.
+  it.runIf(process.platform === 'darwin')('returns error when simulator name not found', async () => {
     const result = await callTool('session_start', { simulator: 'NonExistentDevice99999XYZ' })
     expect(result.isError).toBe(true)
     const text = (result.content[0] as { text: string }).text

@@ -16,9 +16,14 @@ permissions:
   contents: read
 
 jobs:
-  typecheck:
-    name: typecheck (tsc --noEmit)
+  unit:
+    name: unit (ubuntu — typecheck, lint, tests)
     runs-on: ubuntu-latest
+    # Browser-integration tests (real Chrome via CDP) and macOS-native tests do
+    # not run here: IBR_UNIT_ONLY excludes the browser files (see vitest.config.ts)
+    # and the native tests self-gate to darwin. Both run in the macos-14 job.
+    env:
+      IBR_UNIT_ONLY: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +44,7 @@ jobs:
       - name: Build package
         run: npm run build
 
-      - name: Run test suite
+      - name: Run unit test suite
         run: npm test -- --run
 
       - name: Validate release surfaces and package exports
@@ -69,14 +74,30 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-  native-swift-build:
-    name: native Swift packages build
+  integration-macos:
+    name: integration + native (macos-14)
     runs-on: macos-14
+    # Authoritative gate: runs the FULL vitest suite (real-Chrome CDP tests +
+    # darwin-gated native tests all execute here) plus the Swift package builds.
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
 
       - name: Build AX extractor
         run: swift build --package-path src/native/swift/ibr-ax-extract -c release
 
       - name: Build Simulator driver
         run: swift build --package-path mobile-ui/sim-driver -c release
+
+      - name: Run full test suite (browser + native integration)
+        run: npm test -- --run
