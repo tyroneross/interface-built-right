@@ -16,6 +16,10 @@ Imagegen may create upstream bitmap concepts for IBR, but it does not replace Mo
 - `src/mockup-gallery/reader.ts` -> `readGallery({ projectDir })`
 - `src/mockup-gallery/writer.ts` -> `recordImplementation({ projectDir, topic, mockup, commit, passed })`
 
+## Availability Preflight
+
+Before activating, check whether `.mockup-gallery/` is present in the project. If absent, this bridge skips gallery binding and no-ops with `{present: false, ratings: [], selected: [], warnings: []}`. Do not hard-fail when Mockup Gallery is not installed; graceful degrade to local IBR references and ask only if the user explicitly requested a gallery-bound target.
+
 ## When To Activate
 
 - `/ibr:build` detects `.mockup-gallery/`

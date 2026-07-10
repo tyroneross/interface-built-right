@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -32,6 +33,7 @@ PLUGIN_JSON = REPO_ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 SKILLS_DIR = REPO_ROOT / "skills"
 COMMANDS_DIR = REPO_ROOT / "commands"
+CLI_DIST = REPO_ROOT / "dist" / "bin" / "ibr.js"
 
 REQUIRED_PLUGIN_FIELDS = ("name", "version", "description", "author")
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$")
@@ -121,6 +123,20 @@ class VersionShapeTests(unittest.TestCase):
                     f"marketplace.json plugins[name={entry['name']!r}].version "
                     f"{entry.get('version')!r} != plugin.json version {plugin_v!r}",
                 )
+
+    def test_built_cli_version_matches_package(self) -> None:
+        if not CLI_DIST.is_file():
+            self.skipTest(f"{CLI_DIST} not built")
+        pkg_v = load_json(REPO_ROOT / "package.json")["version"]
+        result = subprocess.run(
+            ["node", str(CLI_DIST), "--version"],
+            cwd=REPO_ROOT,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertEqual(result.stdout.strip(), pkg_v)
 
 
 class McpServersReferenceTests(unittest.TestCase):

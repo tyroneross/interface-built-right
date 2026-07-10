@@ -714,4 +714,4 @@ await driver.navigate('https://example.com')
 
 ## License
 
-MIT
+Apache-2.0
