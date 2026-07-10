@@ -1,5 +1,5 @@
 ---
-description: Enforce IBR-only for capture and validation tasks. Blocks Playwright screenshot/snapshot tools. Playwright interaction tools remain available.
+description: Enforce IBR-only for capture and validation tasks. Blocks Playwright screenshot/snapshot tools while keeping Playwright available for unsupported automation.
 ---
 
 # /only-use-ibr
@@ -9,7 +9,7 @@ Enforce IBR-only mode for capture tasks.
 ## What This Does
 
 Blocks Playwright **capture** tools and requires IBR instead.
-Playwright **interaction** tools remain fully available.
+IBR remains preferred for semantic click/type/fill flows. Playwright **interaction** tools remain available for unsupported automation and explicit requests.
 
 ### If argument is "on", "enable", or no argument:
 
@@ -29,7 +29,7 @@ Playwright capture tools are BLOCKED:
 - browser_snapshot → Use IBR web UI extraction
 
 Playwright interaction tools REMAIN AVAILABLE:
-- browser_navigate (for interaction flows)
+- browser_navigate (for unsupported flows)
 - browser_click
 - browser_type
 - browser_fill_form
@@ -51,8 +51,8 @@ BLOCKED (use IBR instead):
   ✗ browser_take_screenshot → npx ibr start <url>
   ✗ browser_snapshot → IBR web UI extraction
 
-STILL AVAILABLE (IBR can't do these):
-  ✓ browser_navigate (for flows)
+STILL AVAILABLE (use when IBR cannot cover the automation):
+  ✓ browser_navigate (for unsupported flows)
   ✓ browser_click
   ✓ browser_type
   ✓ browser_fill_form
@@ -97,4 +97,4 @@ Enforces consistent use of IBR for capture and validation, ensuring:
 - Comparison and design validation workflows are available
 - Reference images are properly managed
 
-While still allowing Playwright for tasks IBR cannot perform (clicking, typing, forms, etc.).
+While still allowing Playwright for unsupported automation, arbitrary JavaScript execution, dialog handling, and explicit Playwright requests.

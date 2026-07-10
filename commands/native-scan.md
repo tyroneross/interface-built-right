@@ -1,3 +1,8 @@
+---
+name: ibr:native-scan
+description: Scan a running iOS or watchOS simulator for design and accessibility issues
+---
+
 Scan a running iOS or watchOS simulator for design and accessibility issues.
 
 Use the IBR `native_scan` MCP tool to scan the currently running simulator. This extracts the accessibility element tree, validates touch targets (44pt minimum), checks accessibility labels, and enforces watchOS-specific constraints.
