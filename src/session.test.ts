@@ -76,6 +76,10 @@ describe('session CRUD', () => {
 
   it('updates a session', async () => {
     const session = await createSession(tmpDir, 'http://localhost:3000/', 'Test', VIEWPORTS.desktop);
+    // updatedAt is millisecond-resolution (new Date().toISOString()); on a fast
+    // runner create + update can land in the same ms. Ensure the clock advances
+    // so the refreshed-timestamp assertion is deterministic.
+    await new Promise((r) => setTimeout(r, 5));
     const updated = await updateSession(tmpDir, session.id, { status: 'compared' });
     expect(updated.status).toBe('compared');
     expect(updated.updatedAt).not.toBe(session.updatedAt);

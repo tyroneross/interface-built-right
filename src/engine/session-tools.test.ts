@@ -215,14 +215,15 @@ describe('session_start — missing target param validation', () => {
     expect(text).toContain('session_start (macos) failed')
   })
 
-  // macOS-native: needs `xcrun simctl`. Run only on darwin.
+  // macOS-native: needs `xcrun simctl`, which is cold and slow on CI macOS
+  // runners (well over the 5s default), so allow 20s. Run only on darwin.
   it.runIf(process.platform === 'darwin')('returns error when simulator name not found', async () => {
     const result = await callTool('session_start', { simulator: 'NonExistentDevice99999XYZ' })
     expect(result.isError).toBe(true)
     const text = (result.content[0] as { text: string }).text
     // May fail with xcrun error or "Simulator not found"
     expect(text).toMatch(/session_start \(simulator\) failed|Simulator not found/)
-  })
+  }, 20000)
 })
 
 describe('session_action — native/simulator sessions return guidance', () => {
