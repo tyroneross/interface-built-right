@@ -290,7 +290,65 @@ describe('native verdict policy', () => {
 // The former thresholds (0.1 / 10 / 20 / 30 / 50) must flow only from the policy
 // object, never appear as comparison literals in the function bodies.
 // ---------------------------------------------------------------------------
+/**
+ * Scan a (comment-stripped) function body for magic-number verdict thresholds.
+ * Three detection passes, so a literal cannot hide by moving:
+ *   A. literal on the right of a comparison  (`pct > 15`)
+ *   B. literal on the left of a comparison   (`15 < pct`)
+ *   C. literal laundered through a local binding that is later compared
+ *      (`const band = 15; ... pct > band`)
+ * Allowlist 0 / 1 / 100, which are structural (emptiness guards, percent
+ * math), never verdict thresholds. Real thresholds must flow from the policy
+ * object — identifiers resolved at the call boundary, not literals.
+ */
+function findInlineThresholds(body: string): string[] {
+  const allowed = new Set([0, 1, 100]);
+  const offenders: string[] = [];
+  let m: RegExpExecArray | null;
+
+  const rhs = /[<>]=?\s*(\d+(?:\.\d+)?)/g;
+  while ((m = rhs.exec(body)) !== null) {
+    if (!allowed.has(parseFloat(m[1]))) offenders.push(m[0].trim());
+  }
+
+  const lhs = /(\d+(?:\.\d+)?)\s*[<>]=?(?!\d)/g;
+  while ((m = lhs.exec(body)) !== null) {
+    if (!allowed.has(parseFloat(m[1]))) offenders.push(m[0].trim());
+  }
+
+  // Pass C: local bindings whose initializer is a bare non-allowlisted literal.
+  const decl = /\b(?:const|let|var)\s+(\w+)\s*=\s*(\d+(?:\.\d+)?)\s*[;,\n]/g;
+  while ((m = decl.exec(body)) !== null) {
+    const [, name, lit] = m;
+    if (allowed.has(parseFloat(lit))) continue;
+    const compared = new RegExp(`(?:[<>]=?\\s*${name}\\b|\\b${name}\\s*[<>]=?)`);
+    if (compared.test(body)) offenders.push(`${name} = ${lit}`);
+  }
+
+  return offenders;
+}
+
 describe('no inline magic-number comparisons', () => {
+  // The scanner is itself guard-rail code — pin its behavior so a future
+  // "simplification" cannot quietly reopen the hole it exists to close.
+  it('scanner catches literals on either side of a comparison', () => {
+    expect(findInlineThresholds('if (pct > 15) {}')).toEqual(['> 15']);
+    expect(findInlineThresholds('if (15 < pct) {}')).toEqual(['15 <']);
+  });
+
+  it('scanner catches a literal laundered through a local binding that is compared', () => {
+    expect(findInlineThresholds('const band = 15;\nif (pct > band) {}')).toEqual(['band = 15']);
+    expect(findInlineThresholds('const retries = 3;\nfor (let i = 0; i < retries; i++) {}')).toEqual([
+      'retries = 3',
+    ]);
+  });
+
+  it('scanner ignores structural 0/1/100 and uncompared bindings', () => {
+    expect(findInlineThresholds('if (arr.length > 0) {}')).toEqual([]);
+    expect(findInlineThresholds('const ratio = (a / b) * 100; if (x > 1) {}')).toEqual([]);
+    expect(findInlineThresholds('const label = 42;\nconsole.log(label);')).toEqual([]);
+  });
+
   it('detectChangedRegions and analyzeComparison bodies contain no threshold literals', async () => {
     const src = await readFile(join(__dirname, 'compare.ts'), 'utf8');
 
@@ -309,18 +367,7 @@ describe('no inline magic-number comparisons', () => {
     const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     const body = strip(detect) + '\n' + strip(analyze);
 
-    // Ban ANY numeric literal used as a comparison operand — not just the five
-    // former thresholds — so a NEW magic number (e.g. `> 15`, `> 0.10`) also
-    // fails. Allowlist 0 / 1 / 100, which are structural (emptiness guards and
-    // percent math), never verdict thresholds. Real thresholds must flow from
-    // the policy object (compared against identifiers, not literals).
-    const allowed = new Set([0, 1, 100]);
-    const cmp = /[<>]=?\s*(\d+(?:\.\d+)?)/g;
-    const offenders: string[] = [];
-    let m: RegExpExecArray | null;
-    while ((m = cmp.exec(body)) !== null) {
-      if (!allowed.has(parseFloat(m[1]))) offenders.push(m[0].trim());
-    }
+    const offenders = findInlineThresholds(body);
     expect(offenders, `inline threshold comparison(s) found: ${offenders.join(', ')}`).toEqual([]);
   });
 });

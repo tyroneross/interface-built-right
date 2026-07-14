@@ -31,6 +31,7 @@ import {
 } from '../devices.js';
 import type { Viewport } from '../schemas.js';
 import { registerNativeSessionCommands } from './native-session-cli.js';
+import { mergeCliConfig } from './cli-config.js';
 
 function readPackageVersion(): string {
   try {
@@ -251,21 +252,8 @@ async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<n
 async function createIBR(options: Record<string, unknown> = {}): Promise<InterfaceBuiltRight> {
   const config = await loadConfig();
 
-  // Merge CLI options with config
-  const merged: Partial<Config> = {
-    ...config,
-    ...(options.baseUrl ? { baseUrl: String(options.baseUrl) } : {}),
-    ...(options.output ? { outputDir: String(options.output) } : {}),
-    ...(options.viewport ? { viewport: VIEWPORTS[options.viewport as keyof typeof VIEWPORTS] } : {}),
-    ...(options.threshold ? { threshold: Number(options.threshold) } : {}),
-    ...(options.fullPage !== undefined ? { fullPage: Boolean(options.fullPage) } : {}),
-    ...(options.browserMode ? { browserMode: String(options.browserMode) as Config['browserMode'] } : {}),
-    ...(options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {}),
-    ...(options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {}),
-    ...(options.chromePath ? { chromePath: String(options.chromePath) } : {}),
-  };
-
-  return new InterfaceBuiltRight(merged);
+  // Merge CLI options with config (flag wins only when actually provided)
+  return new InterfaceBuiltRight(mergeCliConfig(config, options));
 }
 
 /**
@@ -315,7 +303,7 @@ program
   .option('-b, --base-url <url>', 'Base URL for the application')
   .option('-o, --output <dir>', 'Output directory', './.ibr')
   .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet', 'desktop')
-  .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0')
+  .option('-t, --threshold <percent>', 'Verdict tolerance percentage (default 1.0; deprecated alias for allowedDiffPercent)')
   .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome')
   .option('--browser-mode <mode>', 'Browser transport: local or connect')
   .option('--cdp-url <url>', 'Connect to an existing browser via CDP HTTP endpoint')
@@ -667,9 +655,13 @@ program
               pixelColorThreshold: 0.1, // Pixelmatch-normal sensitivity; decoupled from verdict tolerance
             });
 
-            // Verdict tolerance from the global -t flag (defaults to 1.0) — the
-            // deprecated flag now maps to tolerance only, never Pixelmatch sensitivity.
-            const analysis = analyzeComparison(comparison, Number(globalOpts.threshold));
+            // Verdict tolerance from the global -t flag when provided; otherwise
+            // undefined so the policy default (1.0) applies. The deprecated flag
+            // maps to tolerance only, never Pixelmatch sensitivity.
+            const analysis = analyzeComparison(
+              comparison,
+              globalOpts.threshold !== undefined ? Number(globalOpts.threshold) : undefined
+            );
 
             visualResult = {
               hasBaseline: true,

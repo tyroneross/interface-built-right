@@ -30924,6 +30924,23 @@ function registerNativeSessionCommands(program2) {
   });
 }
 
+// src/bin/cli-config.ts
+init_schemas();
+function mergeCliConfig(config, options) {
+  return {
+    ...config,
+    ...options.baseUrl ? { baseUrl: String(options.baseUrl) } : {},
+    ...options.output ? { outputDir: String(options.output) } : {},
+    ...options.viewport ? { viewport: VIEWPORTS[options.viewport] } : {},
+    ...options.threshold !== void 0 ? { threshold: Number(options.threshold) } : {},
+    ...options.fullPage !== void 0 ? { fullPage: Boolean(options.fullPage) } : {},
+    ...options.browserMode ? { browserMode: String(options.browserMode) } : {},
+    ...options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {},
+    ...options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {},
+    ...options.chromePath ? { chromePath: String(options.chromePath) } : {}
+  };
+}
+
 // src/bin/ibr.ts
 function readPackageVersion() {
   try {
@@ -31070,19 +31087,7 @@ async function findAvailablePort(startPort, maxAttempts = 10) {
 }
 async function createIBR(options = {}) {
   const config = await loadConfig();
-  const merged = {
-    ...config,
-    ...options.baseUrl ? { baseUrl: String(options.baseUrl) } : {},
-    ...options.output ? { outputDir: String(options.output) } : {},
-    ...options.viewport ? { viewport: VIEWPORTS[options.viewport] } : {},
-    ...options.threshold ? { threshold: Number(options.threshold) } : {},
-    ...options.fullPage !== void 0 ? { fullPage: Boolean(options.fullPage) } : {},
-    ...options.browserMode ? { browserMode: String(options.browserMode) } : {},
-    ...options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {},
-    ...options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {},
-    ...options.chromePath ? { chromePath: String(options.chromePath) } : {}
-  };
-  return new InterfaceBuiltRight(merged);
+  return new InterfaceBuiltRight(mergeCliConfig(config, options));
 }
 async function createDriver(browser) {
   if (browser === "safari") {
@@ -31107,7 +31112,7 @@ function withBrowserOptions(opts) {
   };
 }
 program.name("ibr").description("End-to-end design tool for AI coding agents").version(readPackageVersion());
-program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
+program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Verdict tolerance percentage (default 1.0; deprecated alias for allowedDiffPercent)").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
@@ -31325,7 +31330,10 @@ program.command("audit [url]").description("Full audit: functional checks + visu
             pixelColorThreshold: 0.1
             // Pixelmatch-normal sensitivity; decoupled from verdict tolerance
           });
-          const analysis = analyzeComparison2(comparison, Number(globalOpts.threshold));
+          const analysis = analyzeComparison2(
+            comparison,
+            globalOpts.threshold !== void 0 ? Number(globalOpts.threshold) : void 0
+          );
           visualResult = {
             hasBaseline: true,
             verdict: analysis.verdict,
