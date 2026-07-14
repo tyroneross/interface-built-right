@@ -112,6 +112,12 @@ export interface CompareOptions {
   baselinePath: string;
   currentPath: string;
   diffPath: string;
+  /**
+   * Pixelmatch per-pixel color sensitivity (0-1, lower = stricter).
+   * Default 0.1 (Pixelmatch-normal). This is NOT the verdict tolerance.
+   */
+  pixelColorThreshold?: number;
+  /** @deprecated Backward-compatible alias for `pixelColorThreshold`. */
   threshold?: number;
 }
 

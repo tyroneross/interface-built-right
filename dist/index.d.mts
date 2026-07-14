@@ -750,6 +750,8 @@ declare const ConfigSchema: z.ZodObject<{
         userAgent: z.ZodOptional<z.ZodString>;
         hasTouch: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>>>;
+    allowedDiffPercent: z.ZodOptional<z.ZodNumber>;
+    pixelColorThreshold: z.ZodDefault<z.ZodNumber>;
     threshold: z.ZodDefault<z.ZodNumber>;
     fullPage: z.ZodDefault<z.ZodBoolean>;
     waitForNetworkIdle: z.ZodDefault<z.ZodBoolean>;
@@ -788,6 +790,7 @@ declare const ComparisonResultSchema: z.ZodObject<{
     diffPixels: z.ZodNumber;
     totalPixels: z.ZodNumber;
     threshold: z.ZodNumber;
+    pixelColorThreshold: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 /**
  * Changed region detected in comparison
@@ -945,6 +948,7 @@ declare const SessionSchema: z.ZodObject<{
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
+        pixelColorThreshold: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>;
     analysis: z.ZodOptional<z.ZodObject<{
         verdict: z.ZodEnum<{
@@ -1036,6 +1040,7 @@ declare const ComparisonReportSchema: z.ZodObject<{
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
+        pixelColorThreshold: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>;
     analysis: z.ZodObject<{
         verdict: z.ZodEnum<{
@@ -1682,6 +1687,12 @@ interface CompareOptions {
     baselinePath: string;
     currentPath: string;
     diffPath: string;
+    /**
+     * Pixelmatch per-pixel color sensitivity (0-1, lower = stricter).
+     * Default 0.1 (Pixelmatch-normal). This is NOT the verdict tolerance.
+     */
+    pixelColorThreshold?: number;
+    /** @deprecated Backward-compatible alias for `pixelColorThreshold`. */
     threshold?: number;
 }
 /**
@@ -1743,6 +1754,94 @@ interface LoginOptions {
     wsEndpoint?: string;
     chromePath?: string;
 }
+
+/**
+ * Region detection configuration
+ * Divides page into semantic regions based on common layout patterns
+ */
+interface RegionConfig {
+    name: string;
+    location: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
+    xStart: number;
+    xEnd: number;
+    yStart: number;
+    yEnd: number;
+}
+/**
+ * Default regions based on common web layouts
+ * Header (top 10%), Footer (bottom 10%), Left sidebar (left 20%), Content (center)
+ */
+declare const DEFAULT_REGIONS: RegionConfig[];
+/**
+ * Neutral native regions — top / middle / bottom bands.
+ *
+ * Native (iOS / macOS) screenshots have no web left-navigation sidebar, so the
+ * web DEFAULT_REGIONS (which name a `navigation` sidebar and can trigger
+ * "inspect menu links" guidance) are wrong for them. These bands describe
+ * position only, without pretending any band is semantic navigation. They
+ * fully partition the frame vertically at full width, so per-region counts
+ * still reconcile with the total mismatch count.
+ */
+declare const NATIVE_REGIONS: RegionConfig[];
+/**
+ * Whether a diff-image pixel is a pixelmatch-counted mismatch marker.
+ *
+ * Pixelmatch paints mismatches with `diffColor` (red) OR `diffColorAlt` (green,
+ * the opposite brightness direction of change) — BOTH are counted differences.
+ * Anti-aliased pixels use a distinct `aaColor` (yellow) and are excluded here.
+ * Counting only red silently drops every green (darker-vs-lighter) change, so
+ * this predicate is color-independent across both diff colors.
+ */
+declare function isDiffMarker(data: Uint8Array, idx: number): boolean;
+/**
+ * Raw mismatch counts per region, color-independent.
+ *
+ * A `mask` (1 per counted diff pixel) is preferred when available — it is the
+ * single source of truth and cannot drift from the diff-image palette. When no
+ * mask is given, counts are derived from the diff image via {@link isDiffMarker}
+ * (red OR green). Regions that fully partition the frame sum to the total
+ * mismatch count.
+ */
+declare function regionalDiffCounts(diffData: Uint8Array, width: number, height: number, regions?: RegionConfig[], mask?: Uint8Array): Array<{
+    region: RegionConfig;
+    diffPixels: number;
+    regionPixels: number;
+}>;
+/**
+ * Analyze diff image to detect which regions have changes.
+ *
+ * Counting is color-independent (red OR green) so darker-vs-lighter changes are
+ * never dropped. Pass an explicit `mask` (from {@link compareImages}) to count
+ * from the mismatch mask instead of re-reading the diff palette.
+ */
+declare function detectChangedRegions(diffData: Uint8Array, width: number, height: number, regions?: RegionConfig[], mask?: Uint8Array): ChangedRegion[];
+/**
+ * Extended comparison result with diff image data for regional analysis
+ */
+interface ExtendedComparisonResult extends ComparisonResult {
+    diffData?: Uint8Array;
+    /** Mismatch mask — 1 per pixelmatch-counted diff pixel (red OR green), 0 otherwise. */
+    diffMask?: Uint8Array;
+    width?: number;
+    height?: number;
+}
+/**
+ * Compare two images using pixelmatch.
+ *
+ * `pixelColorThreshold` (0-1) is Pixelmatch's per-pixel color sensitivity
+ * (lower = stricter). It is NOT the verdict tolerance — that is a separate
+ * percentage handled by {@link analyzeComparison}. The deprecated `threshold`
+ * option is accepted as a backward-compatible alias for `pixelColorThreshold`.
+ */
+declare function compareImages(options: CompareOptions): Promise<ExtendedComparisonResult>;
+/**
+ * Analyze comparison result and generate verdict with regional analysis
+ */
+declare function analyzeComparison(result: ExtendedComparisonResult, thresholdPercent?: number, regions?: RegionConfig[]): Analysis;
+/**
+ * Get a human-readable verdict description
+ */
+declare function getVerdictDescription(verdict: Verdict$1): string;
 
 /**
  * Page Intent Classification
@@ -3746,43 +3845,6 @@ declare function checkConsistency(options: ConsistencyOptions): Promise<Consiste
  * Format consistency result for display
  */
 declare function formatConsistencyReport(result: ConsistencyResult): string;
-
-/**
- * Region detection configuration
- * Divides page into semantic regions based on common layout patterns
- */
-interface RegionConfig {
-    name: string;
-    location: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
-    xStart: number;
-    xEnd: number;
-    yStart: number;
-    yEnd: number;
-}
-/**
- * Analyze diff image to detect which regions have changes
- */
-declare function detectChangedRegions(diffData: Uint8Array, width: number, height: number, regions?: RegionConfig[]): ChangedRegion[];
-/**
- * Extended comparison result with diff image data for regional analysis
- */
-interface ExtendedComparisonResult extends ComparisonResult {
-    diffData?: Uint8Array;
-    width?: number;
-    height?: number;
-}
-/**
- * Compare two images using pixelmatch
- */
-declare function compareImages(options: CompareOptions): Promise<ExtendedComparisonResult>;
-/**
- * Analyze comparison result and generate verdict with regional analysis
- */
-declare function analyzeComparison(result: ExtendedComparisonResult, thresholdPercent?: number): Analysis;
-/**
- * Get a human-readable verdict description
- */
-declare function getVerdictDescription(verdict: Verdict$1): string;
 
 interface CrawlOptions {
     /** Starting URL */
@@ -6891,8 +6953,17 @@ interface CompareInput extends BrowserLaunchOptions {
     baselinePath?: string;
     /** Path to current image (auto-captured if url provided) */
     currentPath?: string;
-    /** Pixel difference threshold (0-100, default 1.0) */
+    /** Verdict tolerance: overall diff percent (0-100) treated as acceptable. Default 1.0. */
+    allowedDiffPercent?: number;
+    /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
+    pixelColorThreshold?: number;
+    /**
+     * @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance).
+     * No longer affects Pixelmatch per-pixel sensitivity — set `pixelColorThreshold` for that.
+     */
     threshold?: number;
+    /** Region semantics for regional analysis. Defaults to web regions; pass NATIVE_REGIONS for native screenshots. */
+    regions?: RegionConfig[];
     /** Output directory for diff and temp files */
     outputDir?: string;
     /** Viewport configuration */
@@ -7203,4 +7274,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

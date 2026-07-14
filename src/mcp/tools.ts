@@ -12,6 +12,7 @@ import { scan, isIntentNoise } from "../scan.js";
 import {
   compare,
   InterfaceBuiltRight,
+  NATIVE_REGIONS,
 } from "../index.js";
 import {
   listSessions,
@@ -3076,9 +3077,13 @@ async function handleNativeCompare(
     return errorResponse(`Screenshot capture failed: ${captureResult.error}`);
   }
 
+  // Native screenshots have no web left-navigation sidebar. Use neutral
+  // top/middle/bottom region semantics so the report never emits false
+  // "inspect menu links" guidance for iPhone/watch/mac screenshots (Defect 3).
   const result = await compare({
     baselinePath: paths.baseline,
     currentPath: paths.current,
+    regions: NATIVE_REGIONS,
   });
 
   const lines = [

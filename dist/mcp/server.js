@@ -5064,6 +5064,11 @@ var init_schemas = __esm({
       viewport: ViewportSchema.default(VIEWPORTS.desktop),
       viewports: import_zod3.z.array(ViewportSchema).optional(),
       // Multi-viewport support
+      /** Verdict tolerance: overall diff percent (0-100) treated as an acceptable change. */
+      allowedDiffPercent: import_zod3.z.number().min(0).max(100).optional(),
+      /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
+      pixelColorThreshold: import_zod3.z.number().min(0).max(1).default(0.1),
+      /** @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance). */
       threshold: import_zod3.z.number().min(0).max(100).default(1),
       fullPage: import_zod3.z.boolean().default(true),
       waitForNetworkIdle: import_zod3.z.boolean().default(true),
@@ -5088,7 +5093,10 @@ var init_schemas = __esm({
       diffPercent: import_zod3.z.number(),
       diffPixels: import_zod3.z.number(),
       totalPixels: import_zod3.z.number(),
-      threshold: import_zod3.z.number()
+      /** @deprecated Mirrors `pixelColorThreshold` for backward compatibility. */
+      threshold: import_zod3.z.number(),
+      /** Pixelmatch per-pixel color sensitivity (0-1) used for this comparison. */
+      pixelColorThreshold: import_zod3.z.number().optional()
     });
     ChangedRegionSchema = import_zod3.z.object({
       location: import_zod3.z.enum(["top", "bottom", "left", "right", "center", "full"]),
@@ -14286,26 +14294,46 @@ var DEFAULT_REGIONS = [
   { name: "content", location: "center", xStart: 0.2, xEnd: 1, yStart: 0.1, yEnd: 0.9 },
   { name: "footer", location: "bottom", xStart: 0, xEnd: 1, yStart: 0.9, yEnd: 1 }
 ];
-function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS) {
-  const changedRegions = [];
-  for (const region of regions) {
+var NATIVE_REGIONS = [
+  { name: "top", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.2 },
+  { name: "middle", location: "center", xStart: 0, xEnd: 1, yStart: 0.2, yEnd: 0.8 },
+  { name: "bottom", location: "bottom", xStart: 0, xEnd: 1, yStart: 0.8, yEnd: 1 }
+];
+function isDiffMarker(data, idx) {
+  const r = data[idx];
+  const g = data[idx + 1];
+  const b = data[idx + 2];
+  return r === 255 && g === 0 && b === 0 || r === 0 && g === 255 && b === 0;
+}
+function regionalDiffCounts(diffData, width, height, regions = DEFAULT_REGIONS, mask) {
+  return regions.map((region) => {
     const xStart = Math.floor(region.xStart * width);
     const xEnd = Math.floor(region.xEnd * width);
     const yStart = Math.floor(region.yStart * height);
     const yEnd = Math.floor(region.yEnd * height);
-    const regionWidth = xEnd - xStart;
-    const regionHeight = yEnd - yStart;
-    const regionPixels = regionWidth * regionHeight;
-    if (regionPixels === 0) continue;
+    const regionPixels = (xEnd - xStart) * (yEnd - yStart);
     let diffPixels = 0;
     for (let y = yStart; y < yEnd; y++) {
       for (let x = xStart; x < xEnd; x++) {
-        const idx = (y * width + x) * 4;
-        if (diffData[idx] === 255 && diffData[idx + 1] === 0 && diffData[idx + 2] === 0) {
+        const pos = y * width + x;
+        if (mask) {
+          if (mask[pos]) diffPixels++;
+        } else if (isDiffMarker(diffData, pos * 4)) {
           diffPixels++;
         }
       }
     }
+    return { region, diffPixels, regionPixels };
+  });
+}
+function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS, mask) {
+  const changedRegions = [];
+  for (const { region, diffPixels, regionPixels } of regionalDiffCounts(diffData, width, height, regions, mask)) {
+    if (regionPixels === 0) continue;
+    const xStart = Math.floor(region.xStart * width);
+    const yStart = Math.floor(region.yStart * height);
+    const regionWidth = Math.floor(region.xEnd * width) - xStart;
+    const regionHeight = Math.floor(region.yEnd * height) - yStart;
     const diffPercent = diffPixels / regionPixels * 100;
     if (diffPercent > 0.1) {
       const severity = diffPercent > 30 ? "critical" : diffPercent > 10 ? "unexpected" : "expected";
@@ -14336,10 +14364,9 @@ async function compareImages(options) {
   const {
     baselinePath,
     currentPath,
-    diffPath,
-    threshold = 0.1
-    // pixelmatch threshold (0-1), lower = stricter
+    diffPath
   } = options;
+  const pixelColorThreshold = options.pixelColorThreshold ?? options.threshold ?? 0.1;
   const [baselineBuffer, currentBuffer] = await Promise.all([
     (0, import_promises6.readFile)(baselinePath),
     (0, import_promises6.readFile)(currentPath)
@@ -14361,16 +14388,22 @@ async function compareImages(options) {
     width,
     height,
     {
-      threshold,
+      threshold: pixelColorThreshold,
       includeAA: false,
-      // Ignore anti-aliasing differences
+      // Anti-aliased pixels painted with aaColor, not counted
       alpha: 0.1,
       diffColor: [255, 0, 0],
-      // Red for differences
-      diffColorAlt: [0, 255, 0]
-      // Green for anti-aliased differences
+      // Mismatch (one brightness direction)
+      diffColorAlt: [0, 255, 0],
+      // Mismatch (opposite brightness direction) — NOT anti-aliasing
+      aaColor: [255, 255, 0]
+      // Anti-aliased pixels (excluded from mismatch counting)
     }
   );
+  const diffMask = new Uint8Array(totalPixels);
+  for (let i = 0; i < totalPixels; i++) {
+    if (isDiffMarker(diff.data, i * 4)) diffMask[i] = 1;
+  }
   await (0, import_promises6.mkdir)((0, import_path5.dirname)(diffPath), { recursive: true });
   await (0, import_promises6.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
@@ -14380,18 +14413,21 @@ async function compareImages(options) {
     // Round to 2 decimal places
     diffPixels,
     totalPixels,
-    threshold,
-    // Include diff data for regional analysis
+    threshold: pixelColorThreshold,
+    // back-compat: threshold mirrors the pixel sensitivity used
+    pixelColorThreshold,
+    // Include diff data + mask for regional analysis
     diffData: diff.data,
+    diffMask,
     width,
     height
   };
 }
-function analyzeComparison(result, thresholdPercent = 1) {
-  const { match, diffPercent, diffData, width, height } = result;
+function analyzeComparison(result, thresholdPercent = 1, regions = DEFAULT_REGIONS) {
+  const { match, diffPercent, diffData, diffMask, width, height } = result;
   let detectedRegions = [];
   if (diffData && width && height && !match) {
-    detectedRegions = detectChangedRegions(diffData, width, height);
+    detectedRegions = detectChangedRegions(diffData, width, height, regions, diffMask);
   }
   const criticalRegions = detectedRegions.filter((r) => r.severity === "critical");
   const unexpectedRegions = detectedRegions.filter((r) => r.severity === "unexpected");
@@ -17689,7 +17725,7 @@ async function compare(options) {
     url,
     baselinePath,
     currentPath,
-    threshold = 1,
+    regions,
     outputDir = (0, import_path20.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
@@ -17701,6 +17737,8 @@ async function compare(options) {
     wsEndpoint,
     chromePath
   } = options;
+  const allowedDiffPercent = options.allowedDiffPercent ?? options.threshold ?? 1;
+  const pixelColorThreshold = options.pixelColorThreshold ?? 0.1;
   if (!baselinePath && !url) {
     throw new Error("Either baselinePath or url must be provided");
   }
@@ -17754,10 +17792,9 @@ async function compare(options) {
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath,
     diffPath,
-    threshold: threshold / 100
-    // Convert percentage to 0-1 for pixelmatch
+    pixelColorThreshold
   });
-  const analysis = analyzeComparison(comparison, threshold);
+  const analysis = analyzeComparison(comparison, allowedDiffPercent, regions);
   await closeBrowser();
   return {
     match: comparison.match,
@@ -17850,14 +17887,15 @@ var InterfaceBuiltRight = class {
       wsEndpoint: this.config.wsEndpoint,
       chromePath: this.config.chromePath
     });
+    const allowedDiffPercent = this.config.allowedDiffPercent ?? this.config.threshold ?? 1;
+    const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
     const comparison = await compareImages({
       baselinePath: paths.baseline,
       currentPath: paths.current,
       diffPath: paths.diff,
-      threshold: this.config.threshold / 100
-      // Convert percentage to 0-1 range for pixelmatch
+      pixelColorThreshold
     });
-    const analysis = analyzeComparison(comparison, this.config.threshold);
+    const analysis = analyzeComparison(comparison, allowedDiffPercent);
     await markSessionCompared(this.config.outputDir, session.id, comparison, analysis);
     return generateReport(session, comparison, analysis, this.config.outputDir);
   }
@@ -21246,7 +21284,8 @@ async function handleNativeCompare(args) {
   }
   const result = await compare({
     baselinePath: paths.baseline,
-    currentPath: paths.current
+    currentPath: paths.current,
+    regions: NATIVE_REGIONS
   });
   const lines = [
     `Native Comparison: ${session.name} (${session.id})`,

@@ -9,7 +9,7 @@ import type { ComparisonResult, Analysis, ChangedRegion, Verdict } from './schem
  * Region detection configuration
  * Divides page into semantic regions based on common layout patterns
  */
-interface RegionConfig {
+export interface RegionConfig {
   name: string;
   location: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
   // Percentages of page dimensions
@@ -23,7 +23,7 @@ interface RegionConfig {
  * Default regions based on common web layouts
  * Header (top 10%), Footer (bottom 10%), Left sidebar (left 20%), Content (center)
  */
-const DEFAULT_REGIONS: RegionConfig[] = [
+export const DEFAULT_REGIONS: RegionConfig[] = [
   { name: 'header', location: 'top', xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
   { name: 'navigation', location: 'left', xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
   { name: 'content', location: 'center', xStart: 0.2, xEnd: 1, yStart: 0.1, yEnd: 0.9 },
@@ -31,42 +31,101 @@ const DEFAULT_REGIONS: RegionConfig[] = [
 ];
 
 /**
- * Analyze diff image to detect which regions have changes
+ * Neutral native regions — top / middle / bottom bands.
+ *
+ * Native (iOS / macOS) screenshots have no web left-navigation sidebar, so the
+ * web DEFAULT_REGIONS (which name a `navigation` sidebar and can trigger
+ * "inspect menu links" guidance) are wrong for them. These bands describe
+ * position only, without pretending any band is semantic navigation. They
+ * fully partition the frame vertically at full width, so per-region counts
+ * still reconcile with the total mismatch count.
  */
-export function detectChangedRegions(
+export const NATIVE_REGIONS: RegionConfig[] = [
+  { name: 'top', location: 'top', xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.2 },
+  { name: 'middle', location: 'center', xStart: 0, xEnd: 1, yStart: 0.2, yEnd: 0.8 },
+  { name: 'bottom', location: 'bottom', xStart: 0, xEnd: 1, yStart: 0.8, yEnd: 1 },
+];
+
+/**
+ * Whether a diff-image pixel is a pixelmatch-counted mismatch marker.
+ *
+ * Pixelmatch paints mismatches with `diffColor` (red) OR `diffColorAlt` (green,
+ * the opposite brightness direction of change) — BOTH are counted differences.
+ * Anti-aliased pixels use a distinct `aaColor` (yellow) and are excluded here.
+ * Counting only red silently drops every green (darker-vs-lighter) change, so
+ * this predicate is color-independent across both diff colors.
+ */
+export function isDiffMarker(data: Uint8Array, idx: number): boolean {
+  const r = data[idx];
+  const g = data[idx + 1];
+  const b = data[idx + 2];
+  // diffColor [255,0,0] (red) or diffColorAlt [0,255,0] (green)
+  return (r === 255 && g === 0 && b === 0) || (r === 0 && g === 255 && b === 0);
+}
+
+/**
+ * Raw mismatch counts per region, color-independent.
+ *
+ * A `mask` (1 per counted diff pixel) is preferred when available — it is the
+ * single source of truth and cannot drift from the diff-image palette. When no
+ * mask is given, counts are derived from the diff image via {@link isDiffMarker}
+ * (red OR green). Regions that fully partition the frame sum to the total
+ * mismatch count.
+ */
+export function regionalDiffCounts(
   diffData: Uint8Array,
   width: number,
   height: number,
-  regions: RegionConfig[] = DEFAULT_REGIONS
-): ChangedRegion[] {
-  const changedRegions: ChangedRegion[] = [];
-
-  for (const region of regions) {
-    // Calculate pixel bounds
+  regions: RegionConfig[] = DEFAULT_REGIONS,
+  mask?: Uint8Array
+): Array<{ region: RegionConfig; diffPixels: number; regionPixels: number }> {
+  return regions.map((region) => {
     const xStart = Math.floor(region.xStart * width);
     const xEnd = Math.floor(region.xEnd * width);
     const yStart = Math.floor(region.yStart * height);
     const yEnd = Math.floor(region.yEnd * height);
 
-    const regionWidth = xEnd - xStart;
-    const regionHeight = yEnd - yStart;
-    const regionPixels = regionWidth * regionHeight;
-
-    if (regionPixels === 0) continue;
-
-    // Count red pixels (diff color) in this region
+    const regionPixels = (xEnd - xStart) * (yEnd - yStart);
     let diffPixels = 0;
 
     for (let y = yStart; y < yEnd; y++) {
       for (let x = xStart; x < xEnd; x++) {
-        const idx = (y * width + x) * 4;
-        // Check if pixel is red (diff marker from pixelmatch)
-        // pixelmatch uses [255, 0, 0] for differences
-        if (diffData[idx] === 255 && diffData[idx + 1] === 0 && diffData[idx + 2] === 0) {
+        const pos = y * width + x;
+        if (mask) {
+          if (mask[pos]) diffPixels++;
+        } else if (isDiffMarker(diffData, pos * 4)) {
           diffPixels++;
         }
       }
     }
+
+    return { region, diffPixels, regionPixels };
+  });
+}
+
+/**
+ * Analyze diff image to detect which regions have changes.
+ *
+ * Counting is color-independent (red OR green) so darker-vs-lighter changes are
+ * never dropped. Pass an explicit `mask` (from {@link compareImages}) to count
+ * from the mismatch mask instead of re-reading the diff palette.
+ */
+export function detectChangedRegions(
+  diffData: Uint8Array,
+  width: number,
+  height: number,
+  regions: RegionConfig[] = DEFAULT_REGIONS,
+  mask?: Uint8Array
+): ChangedRegion[] {
+  const changedRegions: ChangedRegion[] = [];
+
+  for (const { region, diffPixels, regionPixels } of regionalDiffCounts(diffData, width, height, regions, mask)) {
+    if (regionPixels === 0) continue;
+
+    const xStart = Math.floor(region.xStart * width);
+    const yStart = Math.floor(region.yStart * height);
+    const regionWidth = Math.floor(region.xEnd * width) - xStart;
+    const regionHeight = Math.floor(region.yEnd * height) - yStart;
 
     const diffPercent = (diffPixels / regionPixels) * 100;
 
@@ -108,20 +167,32 @@ export function detectChangedRegions(
  */
 export interface ExtendedComparisonResult extends ComparisonResult {
   diffData?: Uint8Array;
+  /** Mismatch mask — 1 per pixelmatch-counted diff pixel (red OR green), 0 otherwise. */
+  diffMask?: Uint8Array;
   width?: number;
   height?: number;
 }
 
 /**
- * Compare two images using pixelmatch
+ * Compare two images using pixelmatch.
+ *
+ * `pixelColorThreshold` (0-1) is Pixelmatch's per-pixel color sensitivity
+ * (lower = stricter). It is NOT the verdict tolerance — that is a separate
+ * percentage handled by {@link analyzeComparison}. The deprecated `threshold`
+ * option is accepted as a backward-compatible alias for `pixelColorThreshold`.
  */
 export async function compareImages(options: CompareOptions): Promise<ExtendedComparisonResult> {
   const {
     baselinePath,
     currentPath,
     diffPath,
-    threshold = 0.1, // pixelmatch threshold (0-1), lower = stricter
   } = options;
+
+  // Pixelmatch per-pixel color sensitivity (0-1). Prefer the explicit new
+  // option; fall back to the deprecated `threshold` alias; default to
+  // Pixelmatch-normal 0.1. This is decoupled from verdict tolerance so the
+  // measured diff percent no longer moves when a caller changes tolerance.
+  const pixelColorThreshold = options.pixelColorThreshold ?? options.threshold ?? 0.1;
 
   // Read images
   const [baselineBuffer, currentBuffer] = await Promise.all([
@@ -151,13 +222,22 @@ export async function compareImages(options: CompareOptions): Promise<ExtendedCo
     width,
     height,
     {
-      threshold,
-      includeAA: false, // Ignore anti-aliasing differences
+      threshold: pixelColorThreshold,
+      includeAA: false, // Anti-aliased pixels painted with aaColor, not counted
       alpha: 0.1,
-      diffColor: [255, 0, 0], // Red for differences
-      diffColorAlt: [0, 255, 0], // Green for anti-aliased differences
+      diffColor: [255, 0, 0],    // Mismatch (one brightness direction)
+      diffColorAlt: [0, 255, 0], // Mismatch (opposite brightness direction) — NOT anti-aliasing
+      aaColor: [255, 255, 0],    // Anti-aliased pixels (excluded from mismatch counting)
     }
   );
+
+  // Build a color-independent mismatch mask so regional analysis counts every
+  // pixelmatch-counted change (red AND green), not just red. The mask is the
+  // single source of truth and reconciles with diffPixels by construction.
+  const diffMask = new Uint8Array(totalPixels);
+  for (let i = 0; i < totalPixels; i++) {
+    if (isDiffMarker(diff.data, i * 4)) diffMask[i] = 1;
+  }
 
   // Ensure output directory exists
   await mkdir(dirname(diffPath), { recursive: true });
@@ -172,9 +252,11 @@ export async function compareImages(options: CompareOptions): Promise<ExtendedCo
     diffPercent: Math.round(diffPercent * 100) / 100, // Round to 2 decimal places
     diffPixels,
     totalPixels,
-    threshold,
-    // Include diff data for regional analysis
+    threshold: pixelColorThreshold, // back-compat: threshold mirrors the pixel sensitivity used
+    pixelColorThreshold,
+    // Include diff data + mask for regional analysis
     diffData: diff.data,
+    diffMask,
     width,
     height,
   };
@@ -185,14 +267,17 @@ export async function compareImages(options: CompareOptions): Promise<ExtendedCo
  */
 export function analyzeComparison(
   result: ExtendedComparisonResult,
-  thresholdPercent: number = 1.0
+  thresholdPercent: number = 1.0,
+  regions: RegionConfig[] = DEFAULT_REGIONS
 ): Analysis {
-  const { match, diffPercent, diffData, width, height } = result;
+  const { match, diffPercent, diffData, diffMask, width, height } = result;
 
-  // Detect changed regions if diff data is available
+  // Detect changed regions if diff data is available. Prefer the mismatch mask
+  // (counts red AND green) and honor caller-supplied region semantics (e.g.
+  // NATIVE_REGIONS for native screenshots — no web navigation sidebar).
   let detectedRegions: ChangedRegion[] = [];
   if (diffData && width && height && !match) {
-    detectedRegions = detectChangedRegions(diffData, width, height);
+    detectedRegions = detectChangedRegions(diffData, width, height, regions, diffMask);
   }
 
   // Analyze regions for verdict determination

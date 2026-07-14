@@ -664,10 +664,10 @@ program
               baselinePath: paths.baseline,
               currentPath: currentPath,
               diffPath: paths.diff,
-              threshold: 0.01,
+              pixelColorThreshold: 0.1, // Pixelmatch-normal sensitivity; decoupled from verdict tolerance
             });
 
-            const analysis = analyzeComparison(comparison, 1.0);
+            const analysis = analyzeComparison(comparison, 1.0); // 1% verdict tolerance
 
             visualResult = {
               hasBaseline: true,

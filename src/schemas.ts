@@ -58,6 +58,11 @@ export const ConfigSchema = z.object({
   outputDir: z.string().default('./.ibr'),
   viewport: ViewportSchema.default(VIEWPORTS.desktop),
   viewports: z.array(ViewportSchema).optional(), // Multi-viewport support
+  /** Verdict tolerance: overall diff percent (0-100) treated as an acceptable change. */
+  allowedDiffPercent: z.number().min(0).max(100).optional(),
+  /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
+  pixelColorThreshold: z.number().min(0).max(1).default(0.1),
+  /** @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance). */
   threshold: z.number().min(0).max(100).default(1.0),
   fullPage: z.boolean().default(true),
   waitForNetworkIdle: z.boolean().default(true),
@@ -90,7 +95,10 @@ export const ComparisonResultSchema = z.object({
   diffPercent: z.number(),
   diffPixels: z.number(),
   totalPixels: z.number(),
+  /** @deprecated Mirrors `pixelColorThreshold` for backward compatibility. */
   threshold: z.number(),
+  /** Pixelmatch per-pixel color sensitivity (0-1) used for this comparison. */
+  pixelColorThreshold: z.number().optional(),
 });
 
 /**

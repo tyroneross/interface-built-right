@@ -2,6 +2,7 @@ import { ConfigSchema, VIEWPORTS, type Config, type Session, type SessionQuery, 
 import { viewportToConfig } from './devices.js';
 import { captureScreenshot, captureWithLandmarks, closeBrowser } from './capture.js';
 import { compareImages, analyzeComparison } from './compare.js';
+import type { RegionConfig } from './compare.js';
 import {
   createSession,
   getSession,
@@ -44,8 +45,17 @@ export interface CompareInput extends BrowserLaunchOptions {
   baselinePath?: string;
   /** Path to current image (auto-captured if url provided) */
   currentPath?: string;
-  /** Pixel difference threshold (0-100, default 1.0) */
+  /** Verdict tolerance: overall diff percent (0-100) treated as acceptable. Default 1.0. */
+  allowedDiffPercent?: number;
+  /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
+  pixelColorThreshold?: number;
+  /**
+   * @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance).
+   * No longer affects Pixelmatch per-pixel sensitivity — set `pixelColorThreshold` for that.
+   */
   threshold?: number;
+  /** Region semantics for regional analysis. Defaults to web regions; pass NATIVE_REGIONS for native screenshots. */
+  regions?: RegionConfig[];
   /** Output directory for diff and temp files */
   outputDir?: string;
   /** Viewport configuration */
@@ -122,7 +132,7 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     url,
     baselinePath,
     currentPath,
-    threshold = 1.0,
+    regions,
     outputDir = join(tmpdir(), 'ibr-compare'),
     viewport = 'desktop',
     fullPage = true,
@@ -134,6 +144,13 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     wsEndpoint,
     chromePath,
   } = options;
+
+  // Split the two contracts (Defect 1): verdict tolerance vs per-pixel sensitivity.
+  // Back-compat: the deprecated `threshold` maps to allowedDiffPercent (verdict
+  // tolerance) only — it no longer drives Pixelmatch sensitivity, so measured
+  // diff percent is now independent of tolerance.
+  const allowedDiffPercent = options.allowedDiffPercent ?? options.threshold ?? 1.0;
+  const pixelColorThreshold = options.pixelColorThreshold ?? 0.1;
 
   // Validate inputs
   if (!baselinePath && !url) {
@@ -205,11 +222,11 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath,
     diffPath,
-    threshold: threshold / 100, // Convert percentage to 0-1 for pixelmatch
+    pixelColorThreshold,
   });
 
-  // Analyze results
-  const analysis = analyzeComparison(comparison, threshold);
+  // Analyze results (verdict tolerance is separate from per-pixel sensitivity)
+  const analysis = analyzeComparison(comparison, allowedDiffPercent, regions);
 
   // Close browser if we opened one
   await closeBrowser();
@@ -437,15 +454,20 @@ export class InterfaceBuiltRight {
     });
 
     // Compare images
+    // Split contracts (Defect 1): verdict tolerance vs per-pixel sensitivity.
+    // `threshold` (deprecated) maps to verdict tolerance for back-compat.
+    const allowedDiffPercent = this.config.allowedDiffPercent ?? this.config.threshold ?? 1.0;
+    const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
+
     const comparison = await compareImages({
       baselinePath: paths.baseline,
       currentPath: paths.current,
       diffPath: paths.diff,
-      threshold: this.config.threshold / 100, // Convert percentage to 0-1 range for pixelmatch
+      pixelColorThreshold,
     });
 
-    // Analyze results
-    const analysis = analyzeComparison(comparison, this.config.threshold);
+    // Analyze results (verdict tolerance is independent of per-pixel sensitivity)
+    const analysis = analyzeComparison(comparison, allowedDiffPercent);
 
     // Update session
     await markSessionCompared(this.config.outputDir, session.id, comparison, analysis);
@@ -837,8 +859,17 @@ export { captureScreenshot, closeBrowser, getViewport, captureWithDiagnostics } 
 export type { CaptureResult } from './capture.js';
 export { checkConsistency, formatConsistencyReport } from './consistency.js';
 export type { ConsistencyOptions, ConsistencyResult, PageMetrics, Inconsistency } from './consistency.js';
-export { compareImages, analyzeComparison, getVerdictDescription, detectChangedRegions } from './compare.js';
-export type { ExtendedComparisonResult } from './compare.js';
+export {
+  compareImages,
+  analyzeComparison,
+  getVerdictDescription,
+  detectChangedRegions,
+  regionalDiffCounts,
+  isDiffMarker,
+  DEFAULT_REGIONS,
+  NATIVE_REGIONS,
+} from './compare.js';
+export type { ExtendedComparisonResult, RegionConfig } from './compare.js';
 export { discoverPages, getNavigationLinks } from './crawl.js';
 export type { CrawlOptions, CrawlResult, DiscoveredPage } from './crawl.js';
 export {
