@@ -51,6 +51,69 @@ export const VIEWPORTS = {
 } as const;
 
 /**
+ * Provenance basis for a numeric verdict threshold.
+ * - `research`: value derived from a published standard / study / vendor doc (cite `source`).
+ * - `internal-testing`: value calibrated against our own labelled samples.
+ * - `hypothesis`: an undocumented heuristic with no measurement behind it (yet).
+ */
+export const ThresholdBasisSchema = z.enum(['research', 'internal-testing', 'hypothesis']);
+
+/**
+ * A numeric verdict boundary carrying its own provenance, so no threshold can
+ * ship as a bare magic number. `reviewedAt` (ISO date) sets a regular-review
+ * expectation; `source` cites the evidence when `basis` is `research`.
+ */
+export const ProvenancedThresholdSchema = z.object({
+  value: z.number(),
+  basis: ThresholdBasisSchema,
+  rationale: z.string().min(1),
+  source: z.string().optional(),
+  reviewedAt: z.string(),
+});
+
+/**
+ * The complete set of numeric boundaries used by the comparison/verdict path.
+ * Every field is a provenanced threshold — analyzeComparison/detectChangedRegions
+ * read boundaries only from here, never from inline literals.
+ */
+export const VerdictPolicySchema = z.object({
+  /** Regions with changed-pixel share at or below this are not reported (noise floor). */
+  regionReportFloorPercent: ProvenancedThresholdSchema,
+  /** Region change above this → 'critical' severity (drives LAYOUT_BROKEN). */
+  regionCriticalPercent: ProvenancedThresholdSchema,
+  /** Region change above this (and ≤ critical) → 'unexpected' severity. */
+  regionUnexpectedPercent: ProvenancedThresholdSchema,
+  /** Overall diff above this → UNEXPECTED_CHANGE even with no unexpected region. */
+  unexpectedOverallPercent: ProvenancedThresholdSchema,
+  /** Overall diff above this → fallback region location 'full' (else 'center'); presentation only. */
+  fullFrameFallbackPercent: ProvenancedThresholdSchema,
+  /** Verdict tolerance: overall diff at/below this stays EXPECTED and is never escalated to unexpected. */
+  allowedDiffPercent: ProvenancedThresholdSchema,
+});
+
+/**
+ * A partial override for a single threshold: a bare number overrides only the
+ * value (provenance inherited from the preset), or a partial provenance object.
+ */
+export const ThresholdOverrideSchema = z.union([
+  z.number(),
+  ProvenancedThresholdSchema.partial(),
+]);
+
+/**
+ * A partial verdict-policy override deep-merged onto a preset. Any subset of
+ * threshold keys; each value a {@link ThresholdOverrideSchema}.
+ */
+export const VerdictPolicyOverrideSchema = z.object({
+  regionReportFloorPercent: ThresholdOverrideSchema.optional(),
+  regionCriticalPercent: ThresholdOverrideSchema.optional(),
+  regionUnexpectedPercent: ThresholdOverrideSchema.optional(),
+  unexpectedOverallPercent: ThresholdOverrideSchema.optional(),
+  fullFrameFallbackPercent: ThresholdOverrideSchema.optional(),
+  allowedDiffPercent: ThresholdOverrideSchema.optional(),
+});
+
+/**
  * Main configuration for InterfaceBuiltRight
  */
 export const ConfigSchema = z.object({
@@ -60,6 +123,12 @@ export const ConfigSchema = z.object({
   viewports: z.array(ViewportSchema).optional(), // Multi-viewport support
   /** Verdict tolerance: overall diff percent (0-100) treated as an acceptable change. */
   allowedDiffPercent: z.number().min(0).max(100).optional(),
+  /**
+   * Per-project verdict-policy override (deep-merged onto the app-type preset,
+   * beneath any per-call override). Lets an `.ibr` config tune verdict
+   * boundaries for the whole project.
+   */
+  verdictPolicy: VerdictPolicyOverrideSchema.optional(),
   /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
   pixelColorThreshold: z.number().min(0).max(1).default(0.1),
   /** @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance). */
@@ -114,6 +183,13 @@ export const ChangedRegionSchema = z.object({
   }),
   description: z.string(),
   severity: z.enum(['expected', 'unexpected', 'critical']),
+  /**
+   * Raw measured change for this region, as a numeric percentage (0-100).
+   * Additive structured field so a downstream agent can re-judge severity under
+   * a different policy without parsing it out of `description`. Optional for
+   * back-compat with previously-serialized regions.
+   */
+  diffPercent: z.number().optional(),
 });
 
 /**
@@ -135,6 +211,14 @@ export const AnalysisSchema = z.object({
   changedRegions: z.array(ChangedRegionSchema),
   unexpectedChanges: z.array(ChangedRegionSchema),
   recommendation: z.string().nullable(),
+  /**
+   * The verdict policy actually applied (values + basis + rationale). Echoing it
+   * lets a downstream agent see which boundaries drove this verdict and their
+   * provenance — e.g. that a cutoff is `basis: 'hypothesis'`, not ground truth —
+   * and re-judge under different thresholds without re-running the comparison.
+   * Optional for back-compat with previously-serialized analyses.
+   */
+  policy: VerdictPolicySchema.optional(),
 });
 
 /**
@@ -303,6 +387,11 @@ export type ComparisonResult = z.infer<typeof ComparisonResultSchema>;
 export type ChangedRegion = z.infer<typeof ChangedRegionSchema>;
 export type Verdict = z.infer<typeof VerdictSchema>;
 export type Analysis = z.infer<typeof AnalysisSchema>;
+export type ThresholdBasis = z.infer<typeof ThresholdBasisSchema>;
+export type ProvenancedThreshold = z.infer<typeof ProvenancedThresholdSchema>;
+export type VerdictPolicy = z.infer<typeof VerdictPolicySchema>;
+export type ThresholdOverride = z.infer<typeof ThresholdOverrideSchema>;
+export type VerdictPolicyOverride = z.infer<typeof VerdictPolicyOverrideSchema>;
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 export type LandmarkElement = z.infer<typeof LandmarkElementSchema>;
 export type Session = z.infer<typeof SessionSchema>;

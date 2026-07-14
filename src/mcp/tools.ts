@@ -13,6 +13,7 @@ import {
   compare,
   InterfaceBuiltRight,
   NATIVE_REGIONS,
+  NATIVE_VERDICT_POLICY,
 } from "../index.js";
 import {
   listSessions,
@@ -3078,12 +3079,14 @@ async function handleNativeCompare(
   }
 
   // Native screenshots have no web left-navigation sidebar. Use neutral
-  // top/middle/bottom region semantics so the report never emits false
-  // "inspect menu links" guidance for iPhone/watch/mac screenshots (Defect 3).
+  // top/middle/bottom region semantics (Defect 3) plus the native verdict-policy
+  // preset so the numeric boundaries and their echoed provenance are app-type
+  // appropriate for iPhone/watch/mac screenshots.
   const result = await compare({
     baselinePath: paths.baseline,
     currentPath: paths.current,
     regions: NATIVE_REGIONS,
+    verdictPolicy: NATIVE_VERDICT_POLICY,
   });
 
   const lines = [

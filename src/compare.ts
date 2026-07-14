@@ -3,7 +3,8 @@ import { PNG } from 'pngjs';
 import { readFile, writeFile, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import type { CompareOptions } from './types.js';
-import type { ComparisonResult, Analysis, ChangedRegion, Verdict } from './schemas.js';
+import type { ComparisonResult, Analysis, ChangedRegion, Verdict, VerdictPolicy } from './schemas.js';
+import { WEB_VERDICT_POLICY, resolveVerdictPolicy } from './verdict-policy.js';
 
 /**
  * Region detection configuration
@@ -109,15 +110,23 @@ export function regionalDiffCounts(
  * Counting is color-independent (red OR green) so darker-vs-lighter changes are
  * never dropped. Pass an explicit `mask` (from {@link compareImages}) to count
  * from the mismatch mask instead of re-reading the diff palette.
+ *
+ * All numeric boundaries — the report floor and the severity bands — are read
+ * from the {@link VerdictPolicy} argument, never from inline literals, so they
+ * carry provenance and are tunable per call/project/app-type.
  */
 export function detectChangedRegions(
   diffData: Uint8Array,
   width: number,
   height: number,
   regions: RegionConfig[] = DEFAULT_REGIONS,
-  mask?: Uint8Array
+  mask?: Uint8Array,
+  policy: VerdictPolicy = WEB_VERDICT_POLICY
 ): ChangedRegion[] {
   const changedRegions: ChangedRegion[] = [];
+  const reportFloor = policy.regionReportFloorPercent.value;
+  const criticalBand = policy.regionCriticalPercent.value;
+  const unexpectedBand = policy.regionUnexpectedPercent.value;
 
   for (const { region, diffPixels, regionPixels } of regionalDiffCounts(diffData, width, height, regions, mask)) {
     if (regionPixels === 0) continue;
@@ -129,10 +138,10 @@ export function detectChangedRegions(
 
     const diffPercent = (diffPixels / regionPixels) * 100;
 
-    // Only report regions with >0.1% changes
-    if (diffPercent > 0.1) {
-      const severity = diffPercent > 30 ? 'critical' :
-                       diffPercent > 10 ? 'unexpected' : 'expected';
+    // Report regions whose change exceeds the policy noise floor.
+    if (diffPercent > reportFloor) {
+      const severity = diffPercent > criticalBand ? 'critical' :
+                       diffPercent > unexpectedBand ? 'unexpected' : 'expected';
 
       changedRegions.push({
         location: region.location,
@@ -143,6 +152,9 @@ export function detectChangedRegions(
           height: regionHeight,
         },
         description: `${region.name}: ${diffPercent.toFixed(1)}% changed`,
+        // Structured raw measurement — same number as in `description`, exposed
+        // numerically so an agent can re-judge severity under a different policy.
+        diffPercent,
         severity,
       });
     }
@@ -263,21 +275,47 @@ export async function compareImages(options: CompareOptions): Promise<ExtendedCo
 }
 
 /**
- * Analyze comparison result and generate verdict with regional analysis
+ * Analyze comparison result and generate verdict with regional analysis.
+ *
+ * Every numeric boundary flows from the resolved {@link VerdictPolicy}; this
+ * function contains no inline threshold literals. The `allowedDiffPercent`
+ * shorthand (kept for back-compat with existing callers) is folded onto the
+ * policy as a per-call verdict-tolerance override.
+ *
+ * Verdict tolerance now genuinely GATES the EXPECTED↔UNEXPECTED decision
+ * (previously it only shaped the summary wording): an overall change at or below
+ * tolerance stays EXPECTED and is never escalated to UNEXPECTED, so raising
+ * tolerance can only relax the verdict, never tighten it. Critical regions still
+ * drive LAYOUT_BROKEN independently of tolerance — a broken layout is never
+ * silenced by a high tolerance.
+ *
+ * @param allowedDiffPercent Optional per-call verdict-tolerance override. When
+ *   omitted, `policy.allowedDiffPercent.value` is used.
+ * @param policy Resolved verdict policy (defaults to the web preset).
  */
 export function analyzeComparison(
   result: ExtendedComparisonResult,
-  thresholdPercent: number = 1.0,
-  regions: RegionConfig[] = DEFAULT_REGIONS
+  allowedDiffPercent?: number,
+  regions: RegionConfig[] = DEFAULT_REGIONS,
+  policy: VerdictPolicy = WEB_VERDICT_POLICY
 ): Analysis {
   const { match, diffPercent, diffData, diffMask, width, height } = result;
+
+  // Fold the allowedDiffPercent shorthand onto the policy so there is a single
+  // resolved source of truth for every boundary, and echo it back to the caller.
+  const effective: VerdictPolicy = allowedDiffPercent === undefined
+    ? policy
+    : resolveVerdictPolicy(policy, { allowedDiffPercent });
+
+  const tolerance = effective.allowedDiffPercent.value;
+  const unexpectedOverall = effective.unexpectedOverallPercent.value;
 
   // Detect changed regions if diff data is available. Prefer the mismatch mask
   // (counts red AND green) and honor caller-supplied region semantics (e.g.
   // NATIVE_REGIONS for native screenshots — no web navigation sidebar).
   let detectedRegions: ChangedRegion[] = [];
   if (diffData && width && height && !match) {
-    detectedRegions = detectChangedRegions(diffData, width, height, regions, diffMask);
+    detectedRegions = detectChangedRegions(diffData, width, height, regions, diffMask, effective);
   }
 
   // Analyze regions for verdict determination
@@ -287,6 +325,10 @@ export function analyzeComparison(
     r.description.toLowerCase().includes('navigation') ||
     r.description.toLowerCase().includes('header')
   );
+
+  // Verdict tolerance gate: a change within tolerance can never be escalated to
+  // UNEXPECTED. This makes raising tolerance monotonically relaxing.
+  const withinTolerance = diffPercent <= tolerance;
 
   // Determine verdict based on regions and overall diff
   let verdict: Verdict;
@@ -303,7 +345,7 @@ export function analyzeComparison(
     ).join(', ');
     summary = `Critical changes in: ${regionNames}. Layout may be broken.`;
     recommendation = `Major changes detected in ${regionNames}. Check for missing elements, broken layout, or loading errors.`;
-  } else if (unexpectedRegions.length > 0 || diffPercent > 20) {
+  } else if (!withinTolerance && (unexpectedRegions.length > 0 || diffPercent > unexpectedOverall)) {
     verdict = 'UNEXPECTED_CHANGE';
     const regionNames = unexpectedRegions.length > 0
       ? unexpectedRegions.map(r => r.description.split(':')[0]).join(', ')
@@ -312,7 +354,7 @@ export function analyzeComparison(
     recommendation = hasNavigationChanges
       ? 'Navigation area changed - verify menu items and links are correct.'
       : 'Review changes carefully - some may be unintentional.';
-  } else if (diffPercent <= thresholdPercent) {
+  } else if (withinTolerance) {
     verdict = 'EXPECTED_CHANGE';
     summary = `Minor changes detected (${diffPercent}%). Within acceptable threshold.`;
   } else {
@@ -332,9 +374,10 @@ export function analyzeComparison(
   // If no regions detected but there are changes, create a fallback region
   if (detectedRegions.length === 0 && !match) {
     const fallbackRegion: ChangedRegion = {
-      location: diffPercent > 50 ? 'full' : 'center',
+      location: diffPercent > effective.fullFrameFallbackPercent.value ? 'full' : 'center',
       bounds: { x: 0, y: 0, width: width || 0, height: height || 0 },
       description: `overall: ${diffPercent}% changed`,
+      diffPercent,
       severity: verdict === 'LAYOUT_BROKEN' ? 'critical' :
                 verdict === 'UNEXPECTED_CHANGE' ? 'unexpected' : 'expected',
     };
@@ -352,6 +395,10 @@ export function analyzeComparison(
     changedRegions,
     unexpectedChanges,
     recommendation,
+    // Echo the applied policy (values + basis + rationale) so downstream agents
+    // can see which boundaries drove the verdict and re-judge under different
+    // thresholds without re-running the comparison.
+    policy: effective,
   };
 }
 

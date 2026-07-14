@@ -28,7 +28,7 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema, DesignSystemViolationSchema, DesignSystemResultSchema;
+var ViewportSchema, VIEWPORTS, ThresholdBasisSchema, ProvenancedThresholdSchema, VerdictPolicySchema, ThresholdOverrideSchema, VerdictPolicyOverrideSchema, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema, DesignSystemViolationSchema, DesignSystemResultSchema;
 var init_schemas = __esm({
   "src/schemas.ts"() {
     ViewportSchema = z.object({
@@ -60,6 +60,40 @@ var init_schemas = __esm({
       "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
       "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
     };
+    ThresholdBasisSchema = z.enum(["research", "internal-testing", "hypothesis"]);
+    ProvenancedThresholdSchema = z.object({
+      value: z.number(),
+      basis: ThresholdBasisSchema,
+      rationale: z.string().min(1),
+      source: z.string().optional(),
+      reviewedAt: z.string()
+    });
+    VerdictPolicySchema = z.object({
+      /** Regions with changed-pixel share at or below this are not reported (noise floor). */
+      regionReportFloorPercent: ProvenancedThresholdSchema,
+      /** Region change above this → 'critical' severity (drives LAYOUT_BROKEN). */
+      regionCriticalPercent: ProvenancedThresholdSchema,
+      /** Region change above this (and ≤ critical) → 'unexpected' severity. */
+      regionUnexpectedPercent: ProvenancedThresholdSchema,
+      /** Overall diff above this → UNEXPECTED_CHANGE even with no unexpected region. */
+      unexpectedOverallPercent: ProvenancedThresholdSchema,
+      /** Overall diff above this → fallback region location 'full' (else 'center'); presentation only. */
+      fullFrameFallbackPercent: ProvenancedThresholdSchema,
+      /** Verdict tolerance: overall diff at/below this stays EXPECTED and is never escalated to unexpected. */
+      allowedDiffPercent: ProvenancedThresholdSchema
+    });
+    ThresholdOverrideSchema = z.union([
+      z.number(),
+      ProvenancedThresholdSchema.partial()
+    ]);
+    VerdictPolicyOverrideSchema = z.object({
+      regionReportFloorPercent: ThresholdOverrideSchema.optional(),
+      regionCriticalPercent: ThresholdOverrideSchema.optional(),
+      regionUnexpectedPercent: ThresholdOverrideSchema.optional(),
+      unexpectedOverallPercent: ThresholdOverrideSchema.optional(),
+      fullFrameFallbackPercent: ThresholdOverrideSchema.optional(),
+      allowedDiffPercent: ThresholdOverrideSchema.optional()
+    });
     ConfigSchema = z.object({
       baseUrl: z.string().url("Must be a valid URL"),
       outputDir: z.string().default("./.ibr"),
@@ -68,6 +102,12 @@ var init_schemas = __esm({
       // Multi-viewport support
       /** Verdict tolerance: overall diff percent (0-100) treated as an acceptable change. */
       allowedDiffPercent: z.number().min(0).max(100).optional(),
+      /**
+       * Per-project verdict-policy override (deep-merged onto the app-type preset,
+       * beneath any per-call override). Lets an `.ibr` config tune verdict
+       * boundaries for the whole project.
+       */
+      verdictPolicy: VerdictPolicyOverrideSchema.optional(),
       /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
       pixelColorThreshold: z.number().min(0).max(1).default(0.1),
       /** @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance). */
@@ -109,7 +149,14 @@ var init_schemas = __esm({
         height: z.number()
       }),
       description: z.string(),
-      severity: z.enum(["expected", "unexpected", "critical"])
+      severity: z.enum(["expected", "unexpected", "critical"]),
+      /**
+       * Raw measured change for this region, as a numeric percentage (0-100).
+       * Additive structured field so a downstream agent can re-judge severity under
+       * a different policy without parsing it out of `description`. Optional for
+       * back-compat with previously-serialized regions.
+       */
+      diffPercent: z.number().optional()
     });
     VerdictSchema = z.enum([
       "MATCH",
@@ -122,7 +169,15 @@ var init_schemas = __esm({
       summary: z.string(),
       changedRegions: z.array(ChangedRegionSchema),
       unexpectedChanges: z.array(ChangedRegionSchema),
-      recommendation: z.string().nullable()
+      recommendation: z.string().nullable(),
+      /**
+       * The verdict policy actually applied (values + basis + rationale). Echoing it
+       * lets a downstream agent see which boundaries drove this verdict and their
+       * provenance — e.g. that a cutoff is `basis: 'hypothesis'`, not ground truth —
+       * and re-judge under different thresholds without re-running the comparison.
+       * Optional for back-compat with previously-serialized analyses.
+       */
+      policy: VerdictPolicySchema.optional()
     });
     SessionStatusSchema = z.enum(["baseline", "compared", "pending"]);
     BoundsSchema = z.object({
@@ -13333,6 +13388,91 @@ async function captureWithDiagnostics(options) {
     };
   }
 }
+
+// src/verdict-policy.ts
+var REVIEWED_AT = "2026-07-13";
+function hyp(value, rationale) {
+  return { value, basis: "hypothesis", rationale, reviewedAt: REVIEWED_AT };
+}
+var WEB_VERDICT_POLICY = {
+  regionReportFloorPercent: hyp(
+    0.1,
+    "Regions whose changed-pixel share is at or below this are treated as noise and not reported. 0.1% is an undocumented heuristic carried from the original implementation; no measurement backs it. Review against real per-region diff distributions."
+  ),
+  regionCriticalPercent: hyp(
+    30,
+    "A region changing more than this share is treated as structurally broken (drives LAYOUT_BROKEN). 30% is an unverified heuristic; calibrate against labelled layout-break vs intentional-redesign samples."
+  ),
+  regionUnexpectedPercent: hyp(
+    10,
+    "A region changing more than this (but at or below the critical band) is flagged unexpected. 10% is an unverified heuristic pending calibration."
+  ),
+  unexpectedOverallPercent: hyp(
+    20,
+    "Overall frame change above this is flagged unexpected even when no single region crosses its band. 20% is an unverified heuristic pending calibration."
+  ),
+  fullFrameFallbackPercent: hyp(
+    50,
+    "Presentation only: when no region is isolated, an overall change above this is described as a full-frame change rather than centre-weighted. 50% does not change the verdict."
+  ),
+  allowedDiffPercent: hyp(
+    1,
+    "Verdict tolerance \u2014 overall change at or below this is treated as an acceptable/expected change and never escalated to unexpected. 1% is a conservative default; tune per run / report / project via override."
+  )
+};
+var NATIVE_VERDICT_POLICY = {
+  regionReportFloorPercent: hyp(
+    0.1,
+    "Native band report floor. Mirrors the web default; no native measurement backs it yet. Review against real simulator diff distributions."
+  ),
+  regionCriticalPercent: hyp(
+    30,
+    "Native band critical threshold (drives LAYOUT_BROKEN). Mirrors the web default pending native-specific calibration."
+  ),
+  regionUnexpectedPercent: hyp(
+    10,
+    "Native band unexpected threshold. Mirrors the web default pending native-specific calibration."
+  ),
+  unexpectedOverallPercent: hyp(
+    20,
+    "Native overall unexpected threshold. Mirrors the web default pending native-specific calibration."
+  ),
+  fullFrameFallbackPercent: hyp(
+    50,
+    "Native full-frame fallback (presentation only). Mirrors the web default; does not change the verdict."
+  ),
+  allowedDiffPercent: hyp(
+    1,
+    "Native verdict tolerance. Mirrors the web default; tune per run / report / project via override."
+  )
+};
+var VERDICT_POLICY_KEYS = [
+  "regionReportFloorPercent",
+  "regionCriticalPercent",
+  "regionUnexpectedPercent",
+  "unexpectedOverallPercent",
+  "fullFrameFallbackPercent",
+  "allowedDiffPercent"
+];
+function mergeThreshold(base, override) {
+  if (override === void 0) return base;
+  if (typeof override === "number") return { ...base, value: override };
+  return { ...base, ...override };
+}
+function resolveVerdictPolicy(base, ...overrides) {
+  let resolved = { ...base };
+  for (const override of overrides) {
+    if (!override) continue;
+    const next = { ...resolved };
+    for (const key of VERDICT_POLICY_KEYS) {
+      next[key] = mergeThreshold(resolved[key], override[key]);
+    }
+    resolved = next;
+  }
+  return resolved;
+}
+
+// src/compare.ts
 var DEFAULT_REGIONS = [
   { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
   { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
@@ -13371,8 +13511,11 @@ function regionalDiffCounts(diffData, width, height, regions = DEFAULT_REGIONS, 
     return { region, diffPixels, regionPixels };
   });
 }
-function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS, mask) {
+function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS, mask, policy = WEB_VERDICT_POLICY) {
   const changedRegions = [];
+  const reportFloor = policy.regionReportFloorPercent.value;
+  const criticalBand = policy.regionCriticalPercent.value;
+  const unexpectedBand = policy.regionUnexpectedPercent.value;
   for (const { region, diffPixels, regionPixels } of regionalDiffCounts(diffData, width, height, regions, mask)) {
     if (regionPixels === 0) continue;
     const xStart = Math.floor(region.xStart * width);
@@ -13380,8 +13523,8 @@ function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS
     const regionWidth = Math.floor(region.xEnd * width) - xStart;
     const regionHeight = Math.floor(region.yEnd * height) - yStart;
     const diffPercent = diffPixels / regionPixels * 100;
-    if (diffPercent > 0.1) {
-      const severity = diffPercent > 30 ? "critical" : diffPercent > 10 ? "unexpected" : "expected";
+    if (diffPercent > reportFloor) {
+      const severity = diffPercent > criticalBand ? "critical" : diffPercent > unexpectedBand ? "unexpected" : "expected";
       changedRegions.push({
         location: region.location,
         bounds: {
@@ -13391,6 +13534,9 @@ function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS
           height: regionHeight
         },
         description: `${region.name}: ${diffPercent.toFixed(1)}% changed`,
+        // Structured raw measurement — same number as in `description`, exposed
+        // numerically so an agent can re-judge severity under a different policy.
+        diffPercent,
         severity
       });
     }
@@ -13468,17 +13614,21 @@ async function compareImages(options) {
     height
   };
 }
-function analyzeComparison(result, thresholdPercent = 1, regions = DEFAULT_REGIONS) {
+function analyzeComparison(result, allowedDiffPercent, regions = DEFAULT_REGIONS, policy = WEB_VERDICT_POLICY) {
   const { match, diffPercent, diffData, diffMask, width, height } = result;
+  const effective = allowedDiffPercent === void 0 ? policy : resolveVerdictPolicy(policy, { allowedDiffPercent });
+  const tolerance = effective.allowedDiffPercent.value;
+  const unexpectedOverall = effective.unexpectedOverallPercent.value;
   let detectedRegions = [];
   if (diffData && width && height && !match) {
-    detectedRegions = detectChangedRegions(diffData, width, height, regions, diffMask);
+    detectedRegions = detectChangedRegions(diffData, width, height, regions, diffMask, effective);
   }
   const criticalRegions = detectedRegions.filter((r) => r.severity === "critical");
   const unexpectedRegions = detectedRegions.filter((r) => r.severity === "unexpected");
   const hasNavigationChanges = detectedRegions.some(
     (r) => r.description.toLowerCase().includes("navigation") || r.description.toLowerCase().includes("header")
   );
+  const withinTolerance = diffPercent <= tolerance;
   let verdict;
   let summary;
   let recommendation = null;
@@ -13492,12 +13642,12 @@ function analyzeComparison(result, thresholdPercent = 1, regions = DEFAULT_REGIO
     ).join(", ");
     summary = `Critical changes in: ${regionNames}. Layout may be broken.`;
     recommendation = `Major changes detected in ${regionNames}. Check for missing elements, broken layout, or loading errors.`;
-  } else if (unexpectedRegions.length > 0 || diffPercent > 20) {
+  } else if (!withinTolerance && (unexpectedRegions.length > 0 || diffPercent > unexpectedOverall)) {
     verdict = "UNEXPECTED_CHANGE";
     const regionNames = unexpectedRegions.length > 0 ? unexpectedRegions.map((r) => r.description.split(":")[0]).join(", ") : "multiple areas";
     summary = `Significant changes in: ${regionNames} (${diffPercent}% overall).`;
     recommendation = hasNavigationChanges ? "Navigation area changed - verify menu items and links are correct." : "Review changes carefully - some may be unintentional.";
-  } else if (diffPercent <= thresholdPercent) {
+  } else if (withinTolerance) {
     verdict = "EXPECTED_CHANGE";
     summary = `Minor changes detected (${diffPercent}%). Within acceptable threshold.`;
   } else {
@@ -13511,9 +13661,10 @@ function analyzeComparison(result, thresholdPercent = 1, regions = DEFAULT_REGIO
   );
   if (detectedRegions.length === 0 && !match) {
     const fallbackRegion = {
-      location: diffPercent > 50 ? "full" : "center",
+      location: diffPercent > effective.fullFrameFallbackPercent.value ? "full" : "center",
       bounds: { x: 0, y: 0, width: width || 0, height: height || 0 },
       description: `overall: ${diffPercent}% changed`,
+      diffPercent,
       severity: verdict === "LAYOUT_BROKEN" ? "critical" : verdict === "UNEXPECTED_CHANGE" ? "unexpected" : "expected"
     };
     if (verdict === "UNEXPECTED_CHANGE" || verdict === "LAYOUT_BROKEN") {
@@ -13527,7 +13678,11 @@ function analyzeComparison(result, thresholdPercent = 1, regions = DEFAULT_REGIO
     summary,
     changedRegions,
     unexpectedChanges,
-    recommendation
+    recommendation,
+    // Echo the applied policy (values + basis + rationale) so downstream agents
+    // can see which boundaries drove the verdict and re-judge under different
+    // thresholds without re-running the comparison.
+    policy: effective
   };
 }
 function getVerdictDescription(verdict) {
@@ -18868,8 +19023,13 @@ async function compare(options) {
     wsEndpoint,
     chromePath
   } = options;
-  const allowedDiffPercent = options.allowedDiffPercent ?? options.threshold ?? 1;
   const pixelColorThreshold = options.pixelColorThreshold ?? 0.1;
+  const toleranceShorthand = options.allowedDiffPercent ?? options.threshold;
+  const verdictPolicy = resolveVerdictPolicy(
+    WEB_VERDICT_POLICY,
+    toleranceShorthand !== void 0 ? { allowedDiffPercent: toleranceShorthand } : void 0,
+    options.verdictPolicy
+  );
   if (!baselinePath && !url) {
     throw new Error("Either baselinePath or url must be provided");
   }
@@ -18925,7 +19085,7 @@ async function compare(options) {
     diffPath,
     pixelColorThreshold
   });
-  const analysis = analyzeComparison(comparison, allowedDiffPercent, regions);
+  const analysis = analyzeComparison(comparison, void 0, regions, verdictPolicy);
   await closeBrowser();
   return {
     match: comparison.match,
@@ -18937,9 +19097,11 @@ async function compare(options) {
     changedRegions: analysis.changedRegions.map((r) => ({
       location: r.location,
       description: r.description,
-      severity: r.severity
+      severity: r.severity,
+      diffPercent: r.diffPercent
     })),
     recommendation: analysis.recommendation,
+    policy: analysis.policy ?? verdictPolicy,
     diffPath: comparison.match ? void 0 : diffPath,
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath
@@ -19066,15 +19228,20 @@ var InterfaceBuiltRight = class {
       wsEndpoint: this.config.wsEndpoint,
       chromePath: this.config.chromePath
     });
-    const allowedDiffPercent = this.config.allowedDiffPercent ?? this.config.threshold ?? 1;
     const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
+    const toleranceShorthand = this.config.allowedDiffPercent ?? this.config.threshold;
+    const verdictPolicy = resolveVerdictPolicy(
+      WEB_VERDICT_POLICY,
+      toleranceShorthand !== void 0 ? { allowedDiffPercent: toleranceShorthand } : void 0,
+      this.config.verdictPolicy
+    );
     const comparison = await compareImages({
       baselinePath: paths.baseline,
       currentPath: paths.current,
       diffPath: paths.diff,
       pixelColorThreshold
     });
-    const analysis = analyzeComparison(comparison, allowedDiffPercent);
+    const analysis = analyzeComparison(comparison, void 0, void 0, verdictPolicy);
     await markSessionCompared(this.config.outputDir, session.id, comparison, analysis);
     return generateReport(session, comparison, analysis, this.config.outputDir);
   }
@@ -19364,6 +19531,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VIEWPORTS, NativeSessionController, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, VIEWPORTS, VerdictSchema, ViewportSchema, ViolationSchema, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

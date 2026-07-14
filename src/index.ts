@@ -3,6 +3,8 @@ import { viewportToConfig } from './devices.js';
 import { captureScreenshot, captureWithLandmarks, closeBrowser } from './capture.js';
 import { compareImages, analyzeComparison } from './compare.js';
 import type { RegionConfig } from './compare.js';
+import { WEB_VERDICT_POLICY, resolveVerdictPolicy } from './verdict-policy.js';
+import type { VerdictPolicy, VerdictPolicyOverride } from './schemas.js';
 import {
   createSession,
   getSession,
@@ -61,6 +63,14 @@ export interface CompareInput extends BrowserLaunchOptions {
   threshold?: number;
   /** Region semantics for regional analysis. Defaults to web regions; pass NATIVE_REGIONS for native screenshots. */
   regions?: RegionConfig[];
+  /**
+   * Per-call verdict-policy override (most-specific level). Deep-merged onto the
+   * web preset — pass a partial (e.g. `{ unexpectedOverallPercent: 35 }`) to tune
+   * a boundary, or a full preset (e.g. `NATIVE_VERDICT_POLICY`) to replace all
+   * boundaries. When `allowedDiffPercent`/`threshold` is also set, it wins for the
+   * tolerance boundary specifically.
+   */
+  verdictPolicy?: VerdictPolicyOverride;
   /** Output directory for diff and temp files */
   outputDir?: string;
   /** Viewport configuration */
@@ -96,9 +106,17 @@ export interface CompareResult {
     location: string;
     description: string;
     severity: 'expected' | 'unexpected' | 'critical';
+    /** Raw measured change for this region, as a numeric percentage (0-100). */
+    diffPercent?: number;
   }>;
   /** Recommendation for fixing issues */
   recommendation: string | null;
+  /**
+   * The verdict policy actually applied (values + basis + rationale). Lets a
+   * downstream agent see which boundaries drove this verdict and their
+   * provenance, and re-judge under different thresholds without re-running.
+   */
+  policy: VerdictPolicy;
   /** Path to diff image (if generated) */
   diffPath?: string;
   /** Path to baseline used */
@@ -154,8 +172,18 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
   // Back-compat: the deprecated `threshold` maps to allowedDiffPercent (verdict
   // tolerance) only — it no longer drives Pixelmatch sensitivity, so measured
   // diff percent is now independent of tolerance.
-  const allowedDiffPercent = options.allowedDiffPercent ?? options.threshold ?? 1.0;
   const pixelColorThreshold = options.pixelColorThreshold ?? 0.1;
+
+  // Resolve the verdict policy (all numeric boundaries): web preset → legacy
+  // tolerance shorthand (`allowedDiffPercent`/`threshold`) → structured
+  // `verdictPolicy` override. The structured override is applied last so an
+  // explicit `verdictPolicy.allowedDiffPercent` wins over the legacy shorthand.
+  const toleranceShorthand = options.allowedDiffPercent ?? options.threshold;
+  const verdictPolicy = resolveVerdictPolicy(
+    WEB_VERDICT_POLICY,
+    toleranceShorthand !== undefined ? { allowedDiffPercent: toleranceShorthand } : undefined,
+    options.verdictPolicy
+  );
 
   // Validate inputs
   if (!baselinePath && !url) {
@@ -230,8 +258,9 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     pixelColorThreshold,
   });
 
-  // Analyze results (verdict tolerance is separate from per-pixel sensitivity)
-  const analysis = analyzeComparison(comparison, allowedDiffPercent, regions);
+  // Analyze results. All boundaries flow from the resolved policy (tolerance
+  // already folded in), so pass the policy explicitly and let it own tolerance.
+  const analysis = analyzeComparison(comparison, undefined, regions, verdictPolicy);
 
   // Close browser if we opened one
   await closeBrowser();
@@ -247,8 +276,10 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
       location: r.location,
       description: r.description,
       severity: r.severity,
+      diffPercent: r.diffPercent,
     })),
     recommendation: analysis.recommendation,
+    policy: analysis.policy ?? verdictPolicy,
     diffPath: comparison.match ? undefined : diffPath,
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath,
@@ -461,8 +492,16 @@ export class InterfaceBuiltRight {
     // Compare images
     // Split contracts (Defect 1): verdict tolerance vs per-pixel sensitivity.
     // `threshold` (deprecated) maps to verdict tolerance for back-compat.
-    const allowedDiffPercent = this.config.allowedDiffPercent ?? this.config.threshold ?? 1.0;
     const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
+
+    // Per-project verdict policy: web preset → legacy tolerance shorthand →
+    // structured this.config.verdictPolicy override (structured wins).
+    const toleranceShorthand = this.config.allowedDiffPercent ?? this.config.threshold;
+    const verdictPolicy = resolveVerdictPolicy(
+      WEB_VERDICT_POLICY,
+      toleranceShorthand !== undefined ? { allowedDiffPercent: toleranceShorthand } : undefined,
+      this.config.verdictPolicy
+    );
 
     const comparison = await compareImages({
       baselinePath: paths.baseline,
@@ -471,8 +510,8 @@ export class InterfaceBuiltRight {
       pixelColorThreshold,
     });
 
-    // Analyze results (verdict tolerance is independent of per-pixel sensitivity)
-    const analysis = analyzeComparison(comparison, allowedDiffPercent);
+    // Analyze results (all boundaries flow from the resolved project policy)
+    const analysis = analyzeComparison(comparison, undefined, undefined, verdictPolicy);
 
     // Update session
     await markSessionCompared(this.config.outputDir, session.id, comparison, analysis);
@@ -875,6 +914,12 @@ export {
   NATIVE_REGIONS,
 } from './compare.js';
 export type { ExtendedComparisonResult, RegionConfig } from './compare.js';
+export {
+  WEB_VERDICT_POLICY,
+  NATIVE_VERDICT_POLICY,
+  VERDICT_POLICY_KEYS,
+  resolveVerdictPolicy,
+} from './verdict-policy.js';
 export { discoverPages, getNavigationLinks } from './crawl.js';
 export type { CrawlOptions, CrawlResult, DiscoveredPage } from './crawl.js';
 export {

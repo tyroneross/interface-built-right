@@ -3735,7 +3735,7 @@ program
     try {
       const { findDevice, getBootedDevices, captureNativeScreenshot } = await import('../native/index.js');
       const { listSessions, getSession: getSessionById, getSessionPaths } = await import('../session.js');
-      const { compare: compareFn, NATIVE_REGIONS } = await import('../index.js');
+      const { compare: compareFn, NATIVE_REGIONS, NATIVE_VERDICT_POLICY } = await import('../index.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
 
@@ -3784,11 +3784,14 @@ program
       }
 
       // Compare — native screenshots use neutral top/middle/bottom region
-      // semantics, never web navigation guidance (Defect 3, native:check path).
+      // semantics (Defect 3) and the native verdict policy preset, so both the
+      // region names and the numeric boundaries are app-type appropriate and
+      // their provenance is echoed as native.
       const result = await compareFn({
         baselinePath: paths.baseline,
         currentPath: paths.current,
         regions: NATIVE_REGIONS,
+        verdictPolicy: NATIVE_VERDICT_POLICY,
       });
 
       const verdictIcon = result.verdict === 'MATCH' ? '✓' :
