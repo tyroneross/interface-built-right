@@ -33349,7 +33349,7 @@ program.command("native:check [sessionId]").description("Compare current simulat
   try {
     const { findDevice: findDevice2, getBootedDevices: getBootedDevices2, captureNativeScreenshot: captureNativeScreenshot2 } = await Promise.resolve().then(() => (init_native(), native_exports));
     const { listSessions: listSessions2, getSession: getSessionById, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-    const { compare: compareFn } = await Promise.resolve().then(() => (init_index(), index_exports));
+    const { compare: compareFn, NATIVE_REGIONS: NATIVE_REGIONS2 } = await Promise.resolve().then(() => (init_index(), index_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     let session;
@@ -33389,7 +33389,8 @@ program.command("native:check [sessionId]").description("Compare current simulat
     }
     const result = await compareFn({
       baselinePath: paths.baseline,
-      currentPath: paths.current
+      currentPath: paths.current,
+      regions: NATIVE_REGIONS2
     });
     const verdictIcon2 = result.verdict === "MATCH" ? "\u2713" : result.verdict === "EXPECTED_CHANGE" ? "~" : "\u2717";
     console.log(`${verdictIcon2} ${result.verdict}`);

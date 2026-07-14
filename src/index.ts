@@ -45,7 +45,12 @@ export interface CompareInput extends BrowserLaunchOptions {
   baselinePath?: string;
   /** Path to current image (auto-captured if url provided) */
   currentPath?: string;
-  /** Verdict tolerance: overall diff percent (0-100) treated as acceptable. Default 1.0. */
+  /**
+   * Verdict tolerance (0-100, default 1.0): diff percent at/below this is framed
+   * as an acceptable/minor change in the EXPECTED_CHANGE summary. Note the
+   * UNEXPECTED_CHANGE (>20%) and LAYOUT_BROKEN (region severity) boundaries are
+   * independent of this value.
+   */
   allowedDiffPercent?: number;
   /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
   pixelColorThreshold?: number;
