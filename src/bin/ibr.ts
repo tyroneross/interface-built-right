@@ -624,7 +624,9 @@ program
         const { join } = await import('path');
 
         // Find baseline for this URL
-        const outputDir = globalOpts.outputDir || '.ibr';
+        // The global -o flag lands on program.opts().output (not .outputDir);
+        // fall back to the standard output dir when the flag is absent.
+        const outputDir = globalOpts.output || './.ibr';
         const sessions = await listSessions(outputDir);
 
         // Find matching baseline (same URL path)
@@ -700,7 +702,9 @@ program
         const semantic = await getSemanticOutput(page);
 
         // --- HYBRID APPROACH: Baseline landmarks OR inferred from intent ---
-        const outputDir = globalOpts.outputDir || '.ibr';
+        // The global -o flag lands on program.opts().output (not .outputDir);
+        // fall back to the standard output dir when the flag is absent.
+        const outputDir = globalOpts.output || './.ibr';
         const sessions = await listSessions(outputDir);
         const urlPath = new URL(resolvedUrl).pathname;
 

@@ -31312,7 +31312,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { mkdir: mkdir28, access: access4 } = await import("fs/promises");
       const { join: join34 } = await import("path");
-      const outputDir = globalOpts.outputDir || ".ibr";
+      const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
       const baselineSession = options.baseline ? sessions2.find((s) => s.id === options.baseline) : sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.status !== "compared").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
@@ -31356,7 +31356,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { readFile: readFile23 } = await import("fs/promises");
       const { join: join34 } = await import("path");
       const semantic = await getSemanticOutput2(page);
-      const outputDir = globalOpts.outputDir || ".ibr";
+      const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
       const baselineSession = sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.landmarkElements && s.landmarkElements.length > 0).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];

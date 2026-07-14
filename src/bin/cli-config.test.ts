@@ -100,4 +100,28 @@ describe('ibr.ts CLI wiring guards', () => {
     // The buggy truthy form must not reappear anywhere in the CLI.
     expect(src).not.toMatch(/options\.threshold\s*\?\s*\{/);
   });
+
+  it('no handler reads the global -o flag as .outputDir (it lands on program.opts().output)', () => {
+    // Regression: two audit-path sites read globalOpts.outputDir, which is
+    // never set — commander maps '-o, --output' to opts().output — so they
+    // silently ignored an explicit -o and always fell back to '.ibr'.
+    // Subcommand-local `options.outputDir` stays legal: it is the camelCase of
+    // a locally declared '--output-dir <dir>' (test/iterate commands).
+    expect(src).not.toMatch(/globalOpts\.outputDir\b/);
+    expect(src).not.toMatch(/program\.opts\(\)\.outputDir\b/);
+  });
+
+  it('the audit visual/semantic baseline lookups honor -o via globalOpts.output', () => {
+    // Scope to the audit command body so the count cannot be satisfied by the
+    // many other handlers using the same idiom.
+    const start = src.indexOf(".command('audit [url]')");
+    expect(start, 'audit command must exist').toBeGreaterThanOrEqual(0);
+    const end = src.indexOf('.command(', start + 1);
+    expect(end, 'a command must follow audit').toBeGreaterThan(start);
+    const auditBody = src.slice(start, end);
+    // Both audit-path outputDir resolutions (visual + semantic) must read the
+    // real global flag with the standard fallback — the wiring -o flows through.
+    const hits = auditBody.match(/const outputDir = globalOpts\.output \|\| '\.\/\.ibr';/g) ?? [];
+    expect(hits.length).toBe(2);
+  });
 });
