@@ -31325,7 +31325,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
             pixelColorThreshold: 0.1
             // Pixelmatch-normal sensitivity; decoupled from verdict tolerance
           });
-          const analysis = analyzeComparison2(comparison, 1);
+          const analysis = analyzeComparison2(comparison, Number(globalOpts.threshold));
           visualResult = {
             hasBaseline: true,
             verdict: analysis.verdict,

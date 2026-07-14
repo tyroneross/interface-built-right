@@ -667,7 +667,9 @@ program
               pixelColorThreshold: 0.1, // Pixelmatch-normal sensitivity; decoupled from verdict tolerance
             });
 
-            const analysis = analyzeComparison(comparison, 1.0); // 1% verdict tolerance
+            // Verdict tolerance from the global -t flag (defaults to 1.0) — the
+            // deprecated flag now maps to tolerance only, never Pixelmatch sensitivity.
+            const analysis = analyzeComparison(comparison, Number(globalOpts.threshold));
 
             visualResult = {
               hasBaseline: true,
