@@ -35,7 +35,7 @@ SKILLS_DIR = REPO_ROOT / "skills"
 COMMANDS_DIR = REPO_ROOT / "commands"
 CLI_DIST = REPO_ROOT / "dist" / "bin" / "ibr.js"
 
-REQUIRED_PLUGIN_FIELDS = ("name", "version", "description", "author")
+REQUIRED_PLUGIN_FIELDS = ("name", "description", "author")  # version optional under auto-SHA (resolves to git commit SHA)
 SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(-[A-Za-z0-9.-]+)?$")
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 NAME_RE = re.compile(r"^name:\s*(.+?)\s*$", re.MULTILINE)
@@ -101,17 +101,22 @@ class RequiredFieldsTests(unittest.TestCase):
 
 
 class VersionShapeTests(unittest.TestCase):
-    def test_plugin_version_is_semver(self) -> None:
+    def test_plugin_version_is_semver_when_present(self) -> None:
         data = load_json(PLUGIN_JSON)
+        if "version" not in data:
+            self.skipTest("plugin.json omits version — auto-SHA (version resolves to the git commit SHA)")
         self.assertRegex(data["version"], SEMVER_RE, f"plugin.json version {data['version']!r} not semver")
 
     def test_marketplace_versions_match_plugin(self) -> None:
         if not MARKETPLACE_JSON.is_file():
             self.skipTest(f"{MARKETPLACE_JSON} not present (no self-hosted marketplace)")
-        plugin_v = load_json(PLUGIN_JSON)["version"]
+        plugin_v = load_json(PLUGIN_JSON).get("version")  # None under auto-SHA; asserts marketplace also omits it (no masking)
         market = load_json(MARKETPLACE_JSON)
         meta_v = market.get("metadata", {}).get("version")
-        if meta_v is not None:
+        # Under auto-SHA plugin.json omits version; marketplace metadata.version tracks
+        # package.json (asserted in test_release_metadata.py), so only cross-check it
+        # against plugin.json when the plugin actually declares a version.
+        if meta_v is not None and plugin_v is not None:
             self.assertEqual(
                 meta_v, plugin_v,
                 f"marketplace.json metadata.version {meta_v!r} != plugin.json version {plugin_v!r}",
