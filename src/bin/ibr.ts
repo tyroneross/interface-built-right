@@ -301,8 +301,8 @@ program
 // Global options
 program
   .option('-b, --base-url <url>', 'Base URL for the application')
-  .option('-o, --output <dir>', 'Output directory', './.ibr')
-  .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet', 'desktop')
+  .option('-o, --output <dir>', 'Output directory (default ./.ibr)')
+  .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet (default desktop)')
   .option('-t, --threshold <percent>', 'Verdict tolerance percentage (default 1.0; deprecated alias for allowedDiffPercent)')
   .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome')
   .option('--browser-mode <mode>', 'Browser transport: local or connect')

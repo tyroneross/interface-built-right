@@ -7472,10 +7472,13 @@ interface CompareInput extends BrowserLaunchOptions {
     /** Path to current image (auto-captured if url provided) */
     currentPath?: string;
     /**
-     * Verdict tolerance (0-100, default 1.0): diff percent at/below this is framed
-     * as an acceptable/minor change in the EXPECTED_CHANGE summary. Note the
-     * UNEXPECTED_CHANGE (>20%) and LAYOUT_BROKEN (region severity) boundaries are
-     * independent of this value.
+     * Verdict tolerance (0-100, default 1.0). Raising it is monotonically
+     * relaxing: a measured diff at/below tolerance is never escalated to
+     * UNEXPECTED_CHANGE (it reports MATCH or EXPECTED_CHANGE). Above tolerance,
+     * the policy's `unexpectedOverallPercent` (default 20%) and per-region bands
+     * decide between EXPECTED_CHANGE and UNEXPECTED_CHANGE. Only LAYOUT_BROKEN
+     * (region-critical severity) is independent of tolerance. Tolerance never
+     * affects the measured diff percent itself — that is `pixelColorThreshold`.
      */
     allowedDiffPercent?: number;
     /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
