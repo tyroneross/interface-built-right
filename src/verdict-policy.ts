@@ -127,7 +127,13 @@ function mergeThreshold(
 ): ProvenancedThreshold {
   if (override === undefined) return base;
   if (typeof override === 'number') return { ...base, value: override };
-  return { ...base, ...override };
+  // Drop explicitly-undefined keys before spreading so a partial override can
+  // never clobber a base field with `undefined` (which would leave a threshold
+  // without a value/basis). The base is always complete, so the result is too.
+  const defined = Object.fromEntries(
+    Object.entries(override).filter(([, v]) => v !== undefined)
+  );
+  return { ...base, ...defined };
 }
 
 /**

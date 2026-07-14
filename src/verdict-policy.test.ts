@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFile } from 'fs/promises';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import {
   WEB_VERDICT_POLICY,
   NATIVE_VERDICT_POLICY,
@@ -48,6 +48,13 @@ describe('provenance completeness', () => {
       expect(WEB_VERDICT_POLICY[key].basis).toBe('hypothesis');
       expect(NATIVE_VERDICT_POLICY[key].basis).toBe('hypothesis');
     }
+  });
+
+  it('VERDICT_POLICY_KEYS cannot drift from the schema shape', () => {
+    // If a future threshold is added to the schema/presets but not to the keys
+    // list, resolveVerdictPolicy and the completeness loop would silently skip
+    // it. Pin the two together.
+    expect(new Set(VERDICT_POLICY_KEYS)).toEqual(new Set(Object.keys(VerdictPolicySchema.shape)));
   });
 });
 
@@ -98,6 +105,25 @@ describe('resolveVerdictPolicy override precedence', () => {
     const snapshot = JSON.stringify(WEB_VERDICT_POLICY);
     resolveVerdictPolicy(WEB_VERDICT_POLICY, { allowedDiffPercent: 99 });
     expect(JSON.stringify(WEB_VERDICT_POLICY)).toBe(snapshot);
+  });
+
+  it('an explicitly-undefined override field inherits the base value (never clobbers to undefined)', () => {
+    // A programmatic caller may pass { value: undefined }; the merge must keep
+    // the base value so no threshold ends up without a value/basis.
+    const resolved = resolveVerdictPolicy(WEB_VERDICT_POLICY, {
+      unexpectedOverallPercent: { value: undefined as unknown as number },
+    });
+    expect(resolved.unexpectedOverallPercent.value).toBe(WEB_VERDICT_POLICY.unexpectedOverallPercent.value);
+    expect(resolved.unexpectedOverallPercent.basis).toBe('hypothesis');
+  });
+
+  it('a later tolerance shorthand overrides a full preset applied earlier (native + explicit tolerance)', () => {
+    // Mirrors compare()/native: a full preset is applied, then an explicit
+    // tolerance shorthand — the shorthand must win for tolerance while every
+    // other boundary stays at the preset.
+    const resolved = resolveVerdictPolicy(WEB_VERDICT_POLICY, NATIVE_VERDICT_POLICY, { allowedDiffPercent: 8 });
+    expect(resolved.allowedDiffPercent.value).toBe(8);
+    expect(resolved.unexpectedOverallPercent).toEqual(NATIVE_VERDICT_POLICY.unexpectedOverallPercent);
   });
 });
 
@@ -266,7 +292,7 @@ describe('native verdict policy', () => {
 // ---------------------------------------------------------------------------
 describe('no inline magic-number comparisons', () => {
   it('detectChangedRegions and analyzeComparison bodies contain no threshold literals', async () => {
-    const src = await readFile(fileURLToPath(new URL('./compare.ts', import.meta.url)), 'utf8');
+    const src = await readFile(join(__dirname, 'compare.ts'), 'utf8');
 
     const sliceBody = (startMarker: string, endMarker: string): string => {
       const start = src.indexOf(startMarker);
@@ -283,9 +309,18 @@ describe('no inline magic-number comparisons', () => {
     const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     const body = strip(detect) + '\n' + strip(analyze);
 
-    // Ban the former magic thresholds appearing as comparison operands.
-    const banned = /[<>]=?\s*(0\.1|10|20|30|50)\b/g;
-    const hits = body.match(banned) ?? [];
-    expect(hits, `inline threshold comparison(s) found: ${hits.join(', ')}`).toEqual([]);
+    // Ban ANY numeric literal used as a comparison operand — not just the five
+    // former thresholds — so a NEW magic number (e.g. `> 15`, `> 0.10`) also
+    // fails. Allowlist 0 / 1 / 100, which are structural (emptiness guards and
+    // percent math), never verdict thresholds. Real thresholds must flow from
+    // the policy object (compared against identifiers, not literals).
+    const allowed = new Set([0, 1, 100]);
+    const cmp = /[<>]=?\s*(\d+(?:\.\d+)?)/g;
+    const offenders: string[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = cmp.exec(body)) !== null) {
+      if (!allowed.has(parseFloat(m[1]))) offenders.push(m[0].trim());
+    }
+    expect(offenders, `inline threshold comparison(s) found: ${offenders.join(', ')}`).toEqual([]);
   });
 });

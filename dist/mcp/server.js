@@ -14412,7 +14412,10 @@ var VERDICT_POLICY_KEYS = [
 function mergeThreshold(base, override) {
   if (override === void 0) return base;
   if (typeof override === "number") return { ...base, value: override };
-  return { ...base, ...override };
+  const defined = Object.fromEntries(
+    Object.entries(override).filter(([, v]) => v !== void 0)
+  );
+  return { ...base, ...defined };
 }
 function resolveVerdictPolicy(base, ...overrides) {
   let resolved = { ...base };
@@ -17896,8 +17899,8 @@ async function compare(options) {
   const toleranceShorthand = options.allowedDiffPercent ?? options.threshold;
   const verdictPolicy = resolveVerdictPolicy(
     WEB_VERDICT_POLICY,
-    toleranceShorthand !== void 0 ? { allowedDiffPercent: toleranceShorthand } : void 0,
-    options.verdictPolicy
+    options.verdictPolicy,
+    toleranceShorthand !== void 0 ? { allowedDiffPercent: toleranceShorthand } : void 0
   );
   if (!baselinePath && !url) {
     throw new Error("Either baselinePath or url must be provided");
@@ -18050,11 +18053,11 @@ var InterfaceBuiltRight = class {
       chromePath: this.config.chromePath
     });
     const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
-    const toleranceShorthand = this.config.allowedDiffPercent ?? this.config.threshold;
     const verdictPolicy = resolveVerdictPolicy(
       WEB_VERDICT_POLICY,
-      toleranceShorthand !== void 0 ? { allowedDiffPercent: toleranceShorthand } : void 0,
-      this.config.verdictPolicy
+      this.config.threshold !== void 0 ? { allowedDiffPercent: this.config.threshold } : void 0,
+      this.config.verdictPolicy,
+      this.config.allowedDiffPercent !== void 0 ? { allowedDiffPercent: this.config.allowedDiffPercent } : void 0
     );
     const comparison = await compareImages({
       baselinePath: paths.baseline,

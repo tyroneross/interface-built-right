@@ -174,15 +174,18 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
   // diff percent is now independent of tolerance.
   const pixelColorThreshold = options.pixelColorThreshold ?? 0.1;
 
-  // Resolve the verdict policy (all numeric boundaries): web preset → legacy
-  // tolerance shorthand (`allowedDiffPercent`/`threshold`) → structured
-  // `verdictPolicy` override. The structured override is applied last so an
-  // explicit `verdictPolicy.allowedDiffPercent` wins over the legacy shorthand.
+  // Resolve the verdict policy (all numeric boundaries): web preset → structured
+  // `verdictPolicy` override → legacy tolerance shorthand (`allowedDiffPercent`/
+  // `threshold`). The shorthand is applied LAST so an explicit tolerance arg
+  // wins for the tolerance boundary specifically (matching the CompareInput doc).
+  // This also protects the native callers, which pass a full preset as
+  // `verdictPolicy`: a later caller-supplied tolerance is not clobbered by the
+  // preset's default tolerance.
   const toleranceShorthand = options.allowedDiffPercent ?? options.threshold;
   const verdictPolicy = resolveVerdictPolicy(
     WEB_VERDICT_POLICY,
-    toleranceShorthand !== undefined ? { allowedDiffPercent: toleranceShorthand } : undefined,
-    options.verdictPolicy
+    options.verdictPolicy,
+    toleranceShorthand !== undefined ? { allowedDiffPercent: toleranceShorthand } : undefined
   );
 
   // Validate inputs
@@ -494,13 +497,15 @@ export class InterfaceBuiltRight {
     // `threshold` (deprecated) maps to verdict tolerance for back-compat.
     const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
 
-    // Per-project verdict policy: web preset → legacy tolerance shorthand →
-    // structured this.config.verdictPolicy override (structured wins).
-    const toleranceShorthand = this.config.allowedDiffPercent ?? this.config.threshold;
+    // Per-project verdict policy, in ascending precedence so the most intentional
+    // tolerance signal wins without the schema-defaulted legacy `threshold`
+    // (always present, default 1.0) clobbering a structured override:
+    //   web preset → legacy `threshold` → structured `verdictPolicy` → explicit `allowedDiffPercent`.
     const verdictPolicy = resolveVerdictPolicy(
       WEB_VERDICT_POLICY,
-      toleranceShorthand !== undefined ? { allowedDiffPercent: toleranceShorthand } : undefined,
-      this.config.verdictPolicy
+      this.config.threshold !== undefined ? { allowedDiffPercent: this.config.threshold } : undefined,
+      this.config.verdictPolicy,
+      this.config.allowedDiffPercent !== undefined ? { allowedDiffPercent: this.config.allowedDiffPercent } : undefined
     );
 
     const comparison = await compareImages({
