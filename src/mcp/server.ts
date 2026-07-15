@@ -8,6 +8,12 @@
 
 import { createInterface } from "readline";
 import { TOOLS, handleToolCall, closeMcpBrowserPool } from "./tools.js";
+import { ensureToolchainPath } from "../native/toolchain-env.js";
+
+// Repair PATH before any native tool spawns swift/xcrun/osascript. A GUI/MCP
+// parent (Claude Code) hands us a minimal launchd PATH lacking /usr/bin +
+// the Xcode toolchain, which is what made scan_macos fail with "swift ENOENT".
+ensureToolchainPath();
 
 // Best-effort cleanup of the warm browser pool on graceful exit. The pool is
 // lazy-init in tools.ts; this just closes it if it was ever opened. Hard

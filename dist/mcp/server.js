@@ -21722,7 +21722,31 @@ Expected: ${configPath}`
   }
 }
 
+// src/native/toolchain-env.ts
+var import_fs10 = require("fs");
+var TOOLCHAIN_DIRS = [
+  "/usr/bin",
+  "/bin",
+  "/usr/sbin",
+  "/sbin",
+  "/usr/local/bin",
+  "/opt/homebrew/bin"
+];
+function hardenPath(currentPath) {
+  const existing = (currentPath ?? "").split(":").filter(Boolean);
+  const have = new Set(existing);
+  const additions = TOOLCHAIN_DIRS.filter(
+    (dir) => !have.has(dir) && (0, import_fs10.existsSync)(dir)
+  );
+  return [...existing, ...additions].join(":");
+}
+function ensureToolchainPath(env = process.env) {
+  if (process.platform !== "darwin") return;
+  env.PATH = hardenPath(env.PATH);
+}
+
 // src/mcp/server.ts
+ensureToolchainPath();
 var cleanedUp = false;
 async function shutdownPool() {
   if (cleanedUp) return;

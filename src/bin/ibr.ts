@@ -2,7 +2,13 @@ import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { existsSync, readFileSync } from 'fs';
+import { ensureToolchainPath } from '../native/toolchain-env.js';
 import { EngineDriver } from '../engine/driver.js';
+
+// Repair PATH before any native subprocess spawn (swift/xcrun/osascript/idb).
+// A GUI/MCP parent can hand the CLI a minimal launchd PATH lacking /usr/bin.
+ensureToolchainPath();
+
 import type { BrowserConnectionOptions } from '../engine/cdp/browser.js';
 import type { BrowserDriver } from '../engine/types.js';
 import { CompatPage } from '../engine/compat.js';
