@@ -4270,7 +4270,7 @@ var init_compat = __esm({
 });
 
 // src/schemas.ts
-var import_zod, ViewportSchema, VIEWPORTS, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema, DesignSystemViolationSchema, DesignSystemResultSchema;
+var import_zod, ViewportSchema, VIEWPORTS, ThresholdBasisSchema, ProvenancedThresholdSchema, VerdictPolicySchema, ThresholdOverrideSchema, VerdictPolicyOverrideSchema, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema, DesignSystemViolationSchema, DesignSystemResultSchema;
 var init_schemas = __esm({
   "src/schemas.ts"() {
     "use strict";
@@ -4304,12 +4304,57 @@ var init_schemas = __esm({
       "watch-series-10-46mm": { name: "watch-series-10-46mm", width: 198, height: 242 },
       "watch-ultra-2-49mm": { name: "watch-ultra-2-49mm", width: 205, height: 251 }
     };
+    ThresholdBasisSchema = import_zod.z.enum(["research", "internal-testing", "hypothesis"]);
+    ProvenancedThresholdSchema = import_zod.z.object({
+      value: import_zod.z.number(),
+      basis: ThresholdBasisSchema,
+      rationale: import_zod.z.string().min(1),
+      source: import_zod.z.string().optional(),
+      reviewedAt: import_zod.z.string()
+    });
+    VerdictPolicySchema = import_zod.z.object({
+      /** Regions with changed-pixel share at or below this are not reported (noise floor). */
+      regionReportFloorPercent: ProvenancedThresholdSchema,
+      /** Region change above this → 'critical' severity (drives LAYOUT_BROKEN). */
+      regionCriticalPercent: ProvenancedThresholdSchema,
+      /** Region change above this (and ≤ critical) → 'unexpected' severity. */
+      regionUnexpectedPercent: ProvenancedThresholdSchema,
+      /** Overall diff above this → UNEXPECTED_CHANGE even with no unexpected region. */
+      unexpectedOverallPercent: ProvenancedThresholdSchema,
+      /** Overall diff above this → fallback region location 'full' (else 'center'); presentation only. */
+      fullFrameFallbackPercent: ProvenancedThresholdSchema,
+      /** Verdict tolerance: overall diff at/below this stays EXPECTED and is never escalated to unexpected. */
+      allowedDiffPercent: ProvenancedThresholdSchema
+    });
+    ThresholdOverrideSchema = import_zod.z.union([
+      import_zod.z.number(),
+      ProvenancedThresholdSchema.partial()
+    ]);
+    VerdictPolicyOverrideSchema = import_zod.z.object({
+      regionReportFloorPercent: ThresholdOverrideSchema.optional(),
+      regionCriticalPercent: ThresholdOverrideSchema.optional(),
+      regionUnexpectedPercent: ThresholdOverrideSchema.optional(),
+      unexpectedOverallPercent: ThresholdOverrideSchema.optional(),
+      fullFrameFallbackPercent: ThresholdOverrideSchema.optional(),
+      allowedDiffPercent: ThresholdOverrideSchema.optional()
+    });
     ConfigSchema = import_zod.z.object({
       baseUrl: import_zod.z.string().url("Must be a valid URL"),
       outputDir: import_zod.z.string().default("./.ibr"),
       viewport: ViewportSchema.default(VIEWPORTS.desktop),
       viewports: import_zod.z.array(ViewportSchema).optional(),
       // Multi-viewport support
+      /** Verdict tolerance: overall diff percent (0-100) treated as an acceptable change. */
+      allowedDiffPercent: import_zod.z.number().min(0).max(100).optional(),
+      /**
+       * Per-project verdict-policy override (deep-merged onto the app-type preset,
+       * beneath any per-call override). Lets an `.ibr` config tune verdict
+       * boundaries for the whole project.
+       */
+      verdictPolicy: VerdictPolicyOverrideSchema.optional(),
+      /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
+      pixelColorThreshold: import_zod.z.number().min(0).max(1).default(0.1),
+      /** @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance). */
       threshold: import_zod.z.number().min(0).max(100).default(1),
       fullPage: import_zod.z.boolean().default(true),
       waitForNetworkIdle: import_zod.z.boolean().default(true),
@@ -4334,7 +4379,10 @@ var init_schemas = __esm({
       diffPercent: import_zod.z.number(),
       diffPixels: import_zod.z.number(),
       totalPixels: import_zod.z.number(),
-      threshold: import_zod.z.number()
+      /** @deprecated Mirrors `pixelColorThreshold` for backward compatibility. */
+      threshold: import_zod.z.number(),
+      /** Pixelmatch per-pixel color sensitivity (0-1) used for this comparison. */
+      pixelColorThreshold: import_zod.z.number().optional()
     });
     ChangedRegionSchema = import_zod.z.object({
       location: import_zod.z.enum(["top", "bottom", "left", "right", "center", "full"]),
@@ -4345,7 +4393,14 @@ var init_schemas = __esm({
         height: import_zod.z.number()
       }),
       description: import_zod.z.string(),
-      severity: import_zod.z.enum(["expected", "unexpected", "critical"])
+      severity: import_zod.z.enum(["expected", "unexpected", "critical"]),
+      /**
+       * Raw measured change for this region, as a numeric percentage (0-100).
+       * Additive structured field so a downstream agent can re-judge severity under
+       * a different policy without parsing it out of `description`. Optional for
+       * back-compat with previously-serialized regions.
+       */
+      diffPercent: import_zod.z.number().optional()
     });
     VerdictSchema = import_zod.z.enum([
       "MATCH",
@@ -4358,7 +4413,15 @@ var init_schemas = __esm({
       summary: import_zod.z.string(),
       changedRegions: import_zod.z.array(ChangedRegionSchema),
       unexpectedChanges: import_zod.z.array(ChangedRegionSchema),
-      recommendation: import_zod.z.string().nullable()
+      recommendation: import_zod.z.string().nullable(),
+      /**
+       * The verdict policy actually applied (values + basis + rationale). Echoing it
+       * lets a downstream agent see which boundaries drove this verdict and their
+       * provenance — e.g. that a cutoff is `basis: 'hypothesis'`, not ground truth —
+       * and re-judge under different thresholds without re-running the comparison.
+       * Optional for back-compat with previously-serialized analyses.
+       */
+      policy: VerdictPolicySchema.optional()
     });
     SessionStatusSchema = import_zod.z.enum(["baseline", "compared", "pending"]);
     BoundsSchema = import_zod.z.object({
@@ -5763,37 +5826,151 @@ var init_capture = __esm({
   }
 });
 
+// src/verdict-policy.ts
+function hyp(value, rationale) {
+  return { value, basis: "hypothesis", rationale, reviewedAt: REVIEWED_AT };
+}
+function mergeThreshold(base, override) {
+  if (override === void 0) return base;
+  if (typeof override === "number") return { ...base, value: override };
+  const defined = Object.fromEntries(
+    Object.entries(override).filter(([, v]) => v !== void 0)
+  );
+  return { ...base, ...defined };
+}
+function resolveVerdictPolicy(base, ...overrides) {
+  let resolved = { ...base };
+  for (const override of overrides) {
+    if (!override) continue;
+    const next = { ...resolved };
+    for (const key of VERDICT_POLICY_KEYS) {
+      next[key] = mergeThreshold(resolved[key], override[key]);
+    }
+    resolved = next;
+  }
+  return resolved;
+}
+var REVIEWED_AT, WEB_VERDICT_POLICY, NATIVE_VERDICT_POLICY, VERDICT_POLICY_KEYS;
+var init_verdict_policy = __esm({
+  "src/verdict-policy.ts"() {
+    "use strict";
+    REVIEWED_AT = "2026-07-13";
+    WEB_VERDICT_POLICY = {
+      regionReportFloorPercent: hyp(
+        0.1,
+        "Regions whose changed-pixel share is at or below this are treated as noise and not reported. 0.1% is an undocumented heuristic carried from the original implementation; no measurement backs it. Review against real per-region diff distributions."
+      ),
+      regionCriticalPercent: hyp(
+        30,
+        "A region changing more than this share is treated as structurally broken (drives LAYOUT_BROKEN). 30% is an unverified heuristic; calibrate against labelled layout-break vs intentional-redesign samples."
+      ),
+      regionUnexpectedPercent: hyp(
+        10,
+        "A region changing more than this (but at or below the critical band) is flagged unexpected. 10% is an unverified heuristic pending calibration."
+      ),
+      unexpectedOverallPercent: hyp(
+        20,
+        "Overall frame change above this is flagged unexpected even when no single region crosses its band. 20% is an unverified heuristic pending calibration."
+      ),
+      fullFrameFallbackPercent: hyp(
+        50,
+        "Presentation only: when no region is isolated, an overall change above this is described as a full-frame change rather than centre-weighted. 50% does not change the verdict."
+      ),
+      allowedDiffPercent: hyp(
+        1,
+        "Verdict tolerance \u2014 overall change at or below this is treated as an acceptable/expected change and never escalated to unexpected. 1% is a conservative default; tune per run / report / project via override."
+      )
+    };
+    NATIVE_VERDICT_POLICY = {
+      regionReportFloorPercent: hyp(
+        0.1,
+        "Native band report floor. Mirrors the web default; no native measurement backs it yet. Review against real simulator diff distributions."
+      ),
+      regionCriticalPercent: hyp(
+        30,
+        "Native band critical threshold (drives LAYOUT_BROKEN). Mirrors the web default pending native-specific calibration."
+      ),
+      regionUnexpectedPercent: hyp(
+        10,
+        "Native band unexpected threshold. Mirrors the web default pending native-specific calibration."
+      ),
+      unexpectedOverallPercent: hyp(
+        20,
+        "Native overall unexpected threshold. Mirrors the web default pending native-specific calibration."
+      ),
+      fullFrameFallbackPercent: hyp(
+        50,
+        "Native full-frame fallback (presentation only). Mirrors the web default; does not change the verdict."
+      ),
+      allowedDiffPercent: hyp(
+        1,
+        "Native verdict tolerance. Mirrors the web default; tune per run / report / project via override."
+      )
+    };
+    VERDICT_POLICY_KEYS = [
+      "regionReportFloorPercent",
+      "regionCriticalPercent",
+      "regionUnexpectedPercent",
+      "unexpectedOverallPercent",
+      "fullFrameFallbackPercent",
+      "allowedDiffPercent"
+    ];
+  }
+});
+
 // src/compare.ts
 var compare_exports = {};
 __export(compare_exports, {
+  DEFAULT_REGIONS: () => DEFAULT_REGIONS,
+  NATIVE_REGIONS: () => NATIVE_REGIONS,
   analyzeComparison: () => analyzeComparison,
   compareImages: () => compareImages,
   detectChangedRegions: () => detectChangedRegions,
-  getVerdictDescription: () => getVerdictDescription
+  getVerdictDescription: () => getVerdictDescription,
+  isDiffMarker: () => isDiffMarker,
+  regionalDiffCounts: () => regionalDiffCounts
 });
-function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS) {
-  const changedRegions = [];
-  for (const region of regions) {
+function isDiffMarker(data, idx) {
+  const r = data[idx];
+  const g = data[idx + 1];
+  const b = data[idx + 2];
+  return r === 255 && g === 0 && b === 0 || r === 0 && g === 255 && b === 0;
+}
+function regionalDiffCounts(diffData, width, height, regions = DEFAULT_REGIONS, mask) {
+  return regions.map((region) => {
     const xStart = Math.floor(region.xStart * width);
     const xEnd = Math.floor(region.xEnd * width);
     const yStart = Math.floor(region.yStart * height);
     const yEnd = Math.floor(region.yEnd * height);
-    const regionWidth = xEnd - xStart;
-    const regionHeight = yEnd - yStart;
-    const regionPixels = regionWidth * regionHeight;
-    if (regionPixels === 0) continue;
+    const regionPixels = (xEnd - xStart) * (yEnd - yStart);
     let diffPixels = 0;
     for (let y = yStart; y < yEnd; y++) {
       for (let x = xStart; x < xEnd; x++) {
-        const idx = (y * width + x) * 4;
-        if (diffData[idx] === 255 && diffData[idx + 1] === 0 && diffData[idx + 2] === 0) {
+        const pos = y * width + x;
+        if (mask) {
+          if (mask[pos]) diffPixels++;
+        } else if (isDiffMarker(diffData, pos * 4)) {
           diffPixels++;
         }
       }
     }
+    return { region, diffPixels, regionPixels };
+  });
+}
+function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS, mask, policy = WEB_VERDICT_POLICY) {
+  const changedRegions = [];
+  const reportFloor = policy.regionReportFloorPercent.value;
+  const criticalBand = policy.regionCriticalPercent.value;
+  const unexpectedBand = policy.regionUnexpectedPercent.value;
+  for (const { region, diffPixels, regionPixels } of regionalDiffCounts(diffData, width, height, regions, mask)) {
+    if (regionPixels === 0) continue;
+    const xStart = Math.floor(region.xStart * width);
+    const yStart = Math.floor(region.yStart * height);
+    const regionWidth = Math.floor(region.xEnd * width) - xStart;
+    const regionHeight = Math.floor(region.yEnd * height) - yStart;
     const diffPercent = diffPixels / regionPixels * 100;
-    if (diffPercent > 0.1) {
-      const severity = diffPercent > 30 ? "critical" : diffPercent > 10 ? "unexpected" : "expected";
+    if (diffPercent > reportFloor) {
+      const severity = diffPercent > criticalBand ? "critical" : diffPercent > unexpectedBand ? "unexpected" : "expected";
       changedRegions.push({
         location: region.location,
         bounds: {
@@ -5803,6 +5980,9 @@ function detectChangedRegions(diffData, width, height, regions = DEFAULT_REGIONS
           height: regionHeight
         },
         description: `${region.name}: ${diffPercent.toFixed(1)}% changed`,
+        // Structured raw measurement — same number as in `description`, exposed
+        // numerically so an agent can re-judge severity under a different policy.
+        diffPercent,
         severity
       });
     }
@@ -5821,10 +6001,9 @@ async function compareImages(options) {
   const {
     baselinePath,
     currentPath,
-    diffPath,
-    threshold = 0.1
-    // pixelmatch threshold (0-1), lower = stricter
+    diffPath
   } = options;
+  const pixelColorThreshold = options.pixelColorThreshold ?? options.threshold ?? 0.1;
   const [baselineBuffer, currentBuffer] = await Promise.all([
     (0, import_promises5.readFile)(baselinePath),
     (0, import_promises5.readFile)(currentPath)
@@ -5846,16 +6025,22 @@ async function compareImages(options) {
     width,
     height,
     {
-      threshold,
+      threshold: pixelColorThreshold,
       includeAA: false,
-      // Ignore anti-aliasing differences
+      // Anti-aliased pixels painted with aaColor, not counted
       alpha: 0.1,
       diffColor: [255, 0, 0],
-      // Red for differences
-      diffColorAlt: [0, 255, 0]
-      // Green for anti-aliased differences
+      // Mismatch (one brightness direction)
+      diffColorAlt: [0, 255, 0],
+      // Mismatch (opposite brightness direction) — NOT anti-aliasing
+      aaColor: [255, 255, 0]
+      // Anti-aliased pixels (excluded from mismatch counting)
     }
   );
+  const diffMask = new Uint8Array(totalPixels);
+  for (let i = 0; i < totalPixels; i++) {
+    if (isDiffMarker(diff.data, i * 4)) diffMask[i] = 1;
+  }
   await (0, import_promises5.mkdir)((0, import_path4.dirname)(diffPath), { recursive: true });
   await (0, import_promises5.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
@@ -5865,24 +6050,31 @@ async function compareImages(options) {
     // Round to 2 decimal places
     diffPixels,
     totalPixels,
-    threshold,
-    // Include diff data for regional analysis
+    threshold: pixelColorThreshold,
+    // back-compat: threshold mirrors the pixel sensitivity used
+    pixelColorThreshold,
+    // Include diff data + mask for regional analysis
     diffData: diff.data,
+    diffMask,
     width,
     height
   };
 }
-function analyzeComparison(result, thresholdPercent = 1) {
-  const { match, diffPercent, diffData, width, height } = result;
+function analyzeComparison(result, allowedDiffPercent, regions = DEFAULT_REGIONS, policy = WEB_VERDICT_POLICY) {
+  const { match, diffPercent, diffData, diffMask, width, height } = result;
+  const effective = allowedDiffPercent === void 0 ? policy : resolveVerdictPolicy(policy, { allowedDiffPercent });
+  const tolerance = effective.allowedDiffPercent.value;
+  const unexpectedOverall = effective.unexpectedOverallPercent.value;
   let detectedRegions = [];
   if (diffData && width && height && !match) {
-    detectedRegions = detectChangedRegions(diffData, width, height);
+    detectedRegions = detectChangedRegions(diffData, width, height, regions, diffMask, effective);
   }
   const criticalRegions = detectedRegions.filter((r) => r.severity === "critical");
   const unexpectedRegions = detectedRegions.filter((r) => r.severity === "unexpected");
   const hasNavigationChanges = detectedRegions.some(
     (r) => r.description.toLowerCase().includes("navigation") || r.description.toLowerCase().includes("header")
   );
+  const withinTolerance = diffPercent <= tolerance;
   let verdict;
   let summary;
   let recommendation = null;
@@ -5896,12 +6088,12 @@ function analyzeComparison(result, thresholdPercent = 1) {
     ).join(", ");
     summary = `Critical changes in: ${regionNames}. Layout may be broken.`;
     recommendation = `Major changes detected in ${regionNames}. Check for missing elements, broken layout, or loading errors.`;
-  } else if (unexpectedRegions.length > 0 || diffPercent > 20) {
+  } else if (!withinTolerance && (unexpectedRegions.length > 0 || diffPercent > unexpectedOverall)) {
     verdict = "UNEXPECTED_CHANGE";
     const regionNames = unexpectedRegions.length > 0 ? unexpectedRegions.map((r) => r.description.split(":")[0]).join(", ") : "multiple areas";
     summary = `Significant changes in: ${regionNames} (${diffPercent}% overall).`;
     recommendation = hasNavigationChanges ? "Navigation area changed - verify menu items and links are correct." : "Review changes carefully - some may be unintentional.";
-  } else if (diffPercent <= thresholdPercent) {
+  } else if (withinTolerance) {
     verdict = "EXPECTED_CHANGE";
     summary = `Minor changes detected (${diffPercent}%). Within acceptable threshold.`;
   } else {
@@ -5915,9 +6107,10 @@ function analyzeComparison(result, thresholdPercent = 1) {
   );
   if (detectedRegions.length === 0 && !match) {
     const fallbackRegion = {
-      location: diffPercent > 50 ? "full" : "center",
+      location: diffPercent > effective.fullFrameFallbackPercent.value ? "full" : "center",
       bounds: { x: 0, y: 0, width: width || 0, height: height || 0 },
       description: `overall: ${diffPercent}% changed`,
+      diffPercent,
       severity: verdict === "LAYOUT_BROKEN" ? "critical" : verdict === "UNEXPECTED_CHANGE" ? "unexpected" : "expected"
     };
     if (verdict === "UNEXPECTED_CHANGE" || verdict === "LAYOUT_BROKEN") {
@@ -5931,7 +6124,11 @@ function analyzeComparison(result, thresholdPercent = 1) {
     summary,
     changedRegions,
     unexpectedChanges,
-    recommendation
+    recommendation,
+    // Echo the applied policy (values + basis + rationale) so downstream agents
+    // can see which boundaries drove the verdict and re-judge under different
+    // thresholds without re-running the comparison.
+    policy: effective
   };
 }
 function getVerdictDescription(verdict) {
@@ -5948,7 +6145,7 @@ function getVerdictDescription(verdict) {
       return "Unknown verdict";
   }
 }
-var import_pixelmatch2, import_pngjs2, import_promises5, import_path4, DEFAULT_REGIONS;
+var import_pixelmatch2, import_pngjs2, import_promises5, import_path4, DEFAULT_REGIONS, NATIVE_REGIONS;
 var init_compare = __esm({
   "src/compare.ts"() {
     "use strict";
@@ -5956,11 +6153,17 @@ var init_compare = __esm({
     import_pngjs2 = require("pngjs");
     import_promises5 = require("fs/promises");
     import_path4 = require("path");
+    init_verdict_policy();
     DEFAULT_REGIONS = [
       { name: "header", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.1 },
       { name: "navigation", location: "left", xStart: 0, xEnd: 0.2, yStart: 0.1, yEnd: 0.9 },
       { name: "content", location: "center", xStart: 0.2, xEnd: 1, yStart: 0.1, yEnd: 0.9 },
       { name: "footer", location: "bottom", xStart: 0, xEnd: 1, yStart: 0.9, yEnd: 1 }
+    ];
+    NATIVE_REGIONS = [
+      { name: "top", location: "top", xStart: 0, xEnd: 1, yStart: 0, yEnd: 0.2 },
+      { name: "middle", location: "center", xStart: 0, xEnd: 1, yStart: 0.2, yEnd: 0.8 },
+      { name: "bottom", location: "bottom", xStart: 0, xEnd: 1, yStart: 0.8, yEnd: 1 }
     ];
   }
 });
@@ -20543,6 +20746,7 @@ __export(index_exports, {
   ConfigSchema: () => ConfigSchema,
   CurrentUIStateSchema: () => CurrentUIStateSchema,
   DEFAULT_DYNAMIC_SELECTORS: () => DEFAULT_DYNAMIC_SELECTORS,
+  DEFAULT_REGIONS: () => DEFAULT_REGIONS,
   DEFAULT_RETENTION: () => DEFAULT_RETENTION,
   DEVICES: () => DEVICES,
   DEVICE_NAMES: () => DEVICE_NAMES,
@@ -20571,12 +20775,15 @@ __export(index_exports, {
   MOBILE_SAFARI_UA: () => MOBILE_SAFARI_UA,
   MemorySourceSchema: () => MemorySourceSchema,
   MemorySummarySchema: () => MemorySummarySchema,
+  NATIVE_REGIONS: () => NATIVE_REGIONS,
+  NATIVE_VERDICT_POLICY: () => NATIVE_VERDICT_POLICY,
   NATIVE_VIEWPORTS: () => NATIVE_VIEWPORTS,
   NativeSessionController: () => NativeSessionController,
   ObservationSchema: () => ObservationSchema,
   PERFORMANCE_THRESHOLDS: () => PERFORMANCE_THRESHOLDS,
   PreferenceCategorySchema: () => PreferenceCategorySchema,
   PreferenceSchema: () => PreferenceSchema,
+  ProvenancedThresholdSchema: () => ProvenancedThresholdSchema,
   ResolvedPathCache: () => ResolvedPathCache,
   RespawnBackend: () => RespawnBackend,
   RuleAuditResultSchema: () => RuleAuditResultSchema,
@@ -20588,10 +20795,16 @@ __export(index_exports, {
   SessionSchema: () => SessionSchema,
   SessionStatusSchema: () => SessionStatusSchema,
   TABLET_SAFARI_UA: () => TABLET_SAFARI_UA,
+  ThresholdBasisSchema: () => ThresholdBasisSchema,
+  ThresholdOverrideSchema: () => ThresholdOverrideSchema,
+  VERDICT_POLICY_KEYS: () => VERDICT_POLICY_KEYS,
   VIEWPORTS: () => VIEWPORTS,
+  VerdictPolicyOverrideSchema: () => VerdictPolicyOverrideSchema,
+  VerdictPolicySchema: () => VerdictPolicySchema,
   VerdictSchema: () => VerdictSchema,
   ViewportSchema: () => ViewportSchema,
   ViolationSchema: () => ViolationSchema,
+  WEB_VERDICT_POLICY: () => WEB_VERDICT_POLICY,
   __setNativeBackend: () => __setNativeBackend,
   addKnownIssue: () => addKnownIssue,
   addPreference: () => addPreference,
@@ -20714,6 +20927,7 @@ __export(index_exports, {
   groupByFile: () => groupByFile,
   initMemory: () => initMemory,
   isCompactContextOversize: () => isCompactContextOversize,
+  isDiffMarker: () => isDiffMarker,
   isExtractorAvailable: () => isExtractorAvailable,
   learnFromSession: () => learnFromSession,
   listDevices: () => listDevices,
@@ -20746,11 +20960,13 @@ __export(index_exports, {
   queryMemory: () => queryMemory,
   rebuildSummary: () => rebuildSummary,
   recordDecision: () => recordDecision,
+  regionalDiffCounts: () => regionalDiffCounts,
   registerOperation: () => registerOperation,
   removeGlobalPreference: () => removeGlobalPreference,
   removePreference: () => removePreference,
   reportElementSizes: () => reportElementSizes,
   resolveDevice: () => resolveDevice,
+  resolveVerdictPolicy: () => resolveVerdictPolicy,
   resolvedPathCache: () => resolvedPathCache,
   runAllRules: () => runAllRules,
   runDesignSystemCheck: () => runDesignSystemCheck,
@@ -20783,7 +20999,7 @@ async function compare(options) {
     url,
     baselinePath,
     currentPath,
-    threshold = 1,
+    regions,
     outputDir = (0, import_path25.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
@@ -20795,6 +21011,13 @@ async function compare(options) {
     wsEndpoint,
     chromePath
   } = options;
+  const pixelColorThreshold = options.pixelColorThreshold ?? 0.1;
+  const toleranceShorthand = options.allowedDiffPercent ?? options.threshold;
+  const verdictPolicy = resolveVerdictPolicy(
+    WEB_VERDICT_POLICY,
+    options.verdictPolicy,
+    toleranceShorthand !== void 0 ? { allowedDiffPercent: toleranceShorthand } : void 0
+  );
   if (!baselinePath && !url) {
     throw new Error("Either baselinePath or url must be provided");
   }
@@ -20848,10 +21071,9 @@ async function compare(options) {
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath,
     diffPath,
-    threshold: threshold / 100
-    // Convert percentage to 0-1 for pixelmatch
+    pixelColorThreshold
   });
-  const analysis = analyzeComparison(comparison, threshold);
+  const analysis = analyzeComparison(comparison, void 0, regions, verdictPolicy);
   await closeBrowser();
   return {
     match: comparison.match,
@@ -20863,9 +21085,11 @@ async function compare(options) {
     changedRegions: analysis.changedRegions.map((r) => ({
       location: r.location,
       description: r.description,
-      severity: r.severity
+      severity: r.severity,
+      diffPercent: r.diffPercent
     })),
     recommendation: analysis.recommendation,
+    policy: analysis.policy ?? verdictPolicy,
     diffPath: comparison.match ? void 0 : diffPath,
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath
@@ -20927,6 +21151,7 @@ var init_index = __esm({
     init_devices();
     init_capture();
     init_compare();
+    init_verdict_policy();
     init_session();
     init_report();
     init_semantic();
@@ -20943,6 +21168,7 @@ var init_index = __esm({
     init_capture();
     init_consistency();
     init_compare();
+    init_verdict_policy();
     init_crawl();
     init_session();
     init_report();
@@ -21049,14 +21275,20 @@ var init_index = __esm({
           wsEndpoint: this.config.wsEndpoint,
           chromePath: this.config.chromePath
         });
+        const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
+        const verdictPolicy = resolveVerdictPolicy(
+          WEB_VERDICT_POLICY,
+          this.config.threshold !== void 0 ? { allowedDiffPercent: this.config.threshold } : void 0,
+          this.config.verdictPolicy,
+          this.config.allowedDiffPercent !== void 0 ? { allowedDiffPercent: this.config.allowedDiffPercent } : void 0
+        );
         const comparison = await compareImages({
           baselinePath: paths.baseline,
           currentPath: paths.current,
           diffPath: paths.diff,
-          threshold: this.config.threshold / 100
-          // Convert percentage to 0-1 range for pixelmatch
+          pixelColorThreshold
         });
-        const analysis = analyzeComparison(comparison, this.config.threshold);
+        const analysis = analyzeComparison(comparison, void 0, void 0, verdictPolicy);
         await markSessionCompared(this.config.outputDir, session.id, comparison, analysis);
         return generateReport(session, comparison, analysis, this.config.outputDir);
       }
@@ -29048,7 +29280,9 @@ async function handleNativeCompare(args) {
   }
   const result = await compare({
     baselinePath: paths.baseline,
-    currentPath: paths.current
+    currentPath: paths.current,
+    regions: NATIVE_REGIONS,
+    verdictPolicy: NATIVE_VERDICT_POLICY
   });
   const lines = [
     `Native Comparison: ${session.name} (${session.id})`,
@@ -30715,6 +30949,23 @@ function registerNativeSessionCommands(program2) {
   });
 }
 
+// src/bin/cli-config.ts
+init_schemas();
+function mergeCliConfig(config, options) {
+  return {
+    ...config,
+    ...options.baseUrl ? { baseUrl: String(options.baseUrl) } : {},
+    ...options.output ? { outputDir: String(options.output) } : {},
+    ...options.viewport ? { viewport: VIEWPORTS[options.viewport] } : {},
+    ...options.threshold !== void 0 ? { threshold: Number(options.threshold) } : {},
+    ...options.fullPage !== void 0 ? { fullPage: Boolean(options.fullPage) } : {},
+    ...options.browserMode ? { browserMode: String(options.browserMode) } : {},
+    ...options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {},
+    ...options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {},
+    ...options.chromePath ? { chromePath: String(options.chromePath) } : {}
+  };
+}
+
 // src/bin/ibr.ts
 ensureToolchainPath();
 function readPackageVersion() {
@@ -30862,19 +31113,7 @@ async function findAvailablePort(startPort, maxAttempts = 10) {
 }
 async function createIBR(options = {}) {
   const config = await loadConfig();
-  const merged = {
-    ...config,
-    ...options.baseUrl ? { baseUrl: String(options.baseUrl) } : {},
-    ...options.output ? { outputDir: String(options.output) } : {},
-    ...options.viewport ? { viewport: VIEWPORTS[options.viewport] } : {},
-    ...options.threshold ? { threshold: Number(options.threshold) } : {},
-    ...options.fullPage !== void 0 ? { fullPage: Boolean(options.fullPage) } : {},
-    ...options.browserMode ? { browserMode: String(options.browserMode) } : {},
-    ...options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {},
-    ...options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {},
-    ...options.chromePath ? { chromePath: String(options.chromePath) } : {}
-  };
-  return new InterfaceBuiltRight(merged);
+  return new InterfaceBuiltRight(mergeCliConfig(config, options));
 }
 async function createDriver(browser) {
   if (browser === "safari") {
@@ -30899,7 +31138,7 @@ function withBrowserOptions(opts) {
   };
 }
 program.name("ibr").description("End-to-end design tool for AI coding agents").version(readPackageVersion());
-program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory", "./.ibr").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet", "desktop").option("-t, --threshold <percent>", "Diff threshold percentage", "1.0").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
+program.option("-b, --base-url <url>", "Base URL for the application").option("-o, --output <dir>", "Output directory (default ./.ibr)").option("-v, --viewport <name>", "Viewport: desktop, mobile, tablet (default desktop)").option("-t, --threshold <percent>", "Verdict tolerance percentage (default 1.0; deprecated alias for allowedDiffPercent)").option("--browser <browser>", "Browser to use: chrome or safari", "chrome").option("--browser-mode <mode>", "Browser transport: local or connect").option("--cdp-url <url>", "Connect to an existing browser via CDP HTTP endpoint").option("--ws-endpoint <url>", "Connect to an existing browser via CDP WebSocket endpoint").option("--chrome-path <path>", "Path to Chrome/Chromium executable");
 program.command("start [url]").description("Capture a baseline screenshot (auto-detects dev server if no URL)").option("-n, --name <name>", "Session name").option("-s, --selector <css>", "CSS selector to capture specific element").option("-w, --wait-for <selector>", "Wait for selector before screenshot").option("--no-full-page", "Capture only the viewport, not full page").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").action(async (url, options) => {
   try {
     const resolvedUrl = await resolveBaseUrl(url);
@@ -31099,7 +31338,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { listSessions: listSessions2, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
       const { mkdir: mkdir28, access: access4 } = await import("fs/promises");
       const { join: join34 } = await import("path");
-      const outputDir = globalOpts.outputDir || ".ibr";
+      const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
       const baselineSession = options.baseline ? sessions2.find((s) => s.id === options.baseline) : sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.status !== "compared").sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
@@ -31114,9 +31353,13 @@ program.command("audit [url]").description("Full audit: functional checks + visu
             baselinePath: paths.baseline,
             currentPath,
             diffPath: paths.diff,
-            threshold: 0.01
+            pixelColorThreshold: 0.1
+            // Pixelmatch-normal sensitivity; decoupled from verdict tolerance
           });
-          const analysis = analyzeComparison2(comparison, 1);
+          const analysis = analyzeComparison2(
+            comparison,
+            globalOpts.threshold !== void 0 ? Number(globalOpts.threshold) : void 0
+          );
           visualResult = {
             hasBaseline: true,
             verdict: analysis.verdict,
@@ -31139,7 +31382,7 @@ program.command("audit [url]").description("Full audit: functional checks + visu
       const { readFile: readFile23 } = await import("fs/promises");
       const { join: join34 } = await import("path");
       const semantic = await getSemanticOutput2(page);
-      const outputDir = globalOpts.outputDir || ".ibr";
+      const outputDir = globalOpts.output || "./.ibr";
       const sessions2 = await listSessions2(outputDir);
       const urlPath = new URL(resolvedUrl).pathname;
       const baselineSession = sessions2.filter((s) => new URL(s.url).pathname === urlPath && s.landmarkElements && s.landmarkElements.length > 0).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
@@ -33327,7 +33570,7 @@ program.command("native:check [sessionId]").description("Compare current simulat
   try {
     const { findDevice: findDevice2, getBootedDevices: getBootedDevices2, captureNativeScreenshot: captureNativeScreenshot2 } = await Promise.resolve().then(() => (init_native(), native_exports));
     const { listSessions: listSessions2, getSession: getSessionById, getSessionPaths: getSessionPaths2 } = await Promise.resolve().then(() => (init_session(), session_exports));
-    const { compare: compareFn } = await Promise.resolve().then(() => (init_index(), index_exports));
+    const { compare: compareFn, NATIVE_REGIONS: NATIVE_REGIONS2, NATIVE_VERDICT_POLICY: NATIVE_VERDICT_POLICY2 } = await Promise.resolve().then(() => (init_index(), index_exports));
     const globalOpts = program.opts();
     const outputDir = globalOpts.output || "./.ibr";
     let session;
@@ -33367,7 +33610,9 @@ program.command("native:check [sessionId]").description("Compare current simulat
     }
     const result = await compareFn({
       baselinePath: paths.baseline,
-      currentPath: paths.current
+      currentPath: paths.current,
+      regions: NATIVE_REGIONS2,
+      verdictPolicy: NATIVE_VERDICT_POLICY2
     });
     const verdictIcon2 = result.verdict === "MATCH" ? "\u2713" : result.verdict === "EXPECTED_CHANGE" ? "~" : "\u2717";
     console.log(`${verdictIcon2} ${result.verdict}`);

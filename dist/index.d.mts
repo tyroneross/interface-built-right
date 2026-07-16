@@ -727,6 +727,193 @@ declare const VIEWPORTS: {
     };
 };
 /**
+ * Provenance basis for a numeric verdict threshold.
+ * - `research`: value derived from a published standard / study / vendor doc (cite `source`).
+ * - `internal-testing`: value calibrated against our own labelled samples.
+ * - `hypothesis`: an undocumented heuristic with no measurement behind it (yet).
+ */
+declare const ThresholdBasisSchema: z.ZodEnum<{
+    research: "research";
+    "internal-testing": "internal-testing";
+    hypothesis: "hypothesis";
+}>;
+/**
+ * A numeric verdict boundary carrying its own provenance, so no threshold can
+ * ship as a bare magic number. `reviewedAt` (ISO date) sets a regular-review
+ * expectation; `source` cites the evidence when `basis` is `research`.
+ */
+declare const ProvenancedThresholdSchema: z.ZodObject<{
+    value: z.ZodNumber;
+    basis: z.ZodEnum<{
+        research: "research";
+        "internal-testing": "internal-testing";
+        hypothesis: "hypothesis";
+    }>;
+    rationale: z.ZodString;
+    source: z.ZodOptional<z.ZodString>;
+    reviewedAt: z.ZodString;
+}, z.core.$strip>;
+/**
+ * The complete set of numeric boundaries used by the comparison/verdict path.
+ * Every field is a provenanced threshold — analyzeComparison/detectChangedRegions
+ * read boundaries only from here, never from inline literals.
+ */
+declare const VerdictPolicySchema: z.ZodObject<{
+    regionReportFloorPercent: z.ZodObject<{
+        value: z.ZodNumber;
+        basis: z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>;
+        rationale: z.ZodString;
+        source: z.ZodOptional<z.ZodString>;
+        reviewedAt: z.ZodString;
+    }, z.core.$strip>;
+    regionCriticalPercent: z.ZodObject<{
+        value: z.ZodNumber;
+        basis: z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>;
+        rationale: z.ZodString;
+        source: z.ZodOptional<z.ZodString>;
+        reviewedAt: z.ZodString;
+    }, z.core.$strip>;
+    regionUnexpectedPercent: z.ZodObject<{
+        value: z.ZodNumber;
+        basis: z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>;
+        rationale: z.ZodString;
+        source: z.ZodOptional<z.ZodString>;
+        reviewedAt: z.ZodString;
+    }, z.core.$strip>;
+    unexpectedOverallPercent: z.ZodObject<{
+        value: z.ZodNumber;
+        basis: z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>;
+        rationale: z.ZodString;
+        source: z.ZodOptional<z.ZodString>;
+        reviewedAt: z.ZodString;
+    }, z.core.$strip>;
+    fullFrameFallbackPercent: z.ZodObject<{
+        value: z.ZodNumber;
+        basis: z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>;
+        rationale: z.ZodString;
+        source: z.ZodOptional<z.ZodString>;
+        reviewedAt: z.ZodString;
+    }, z.core.$strip>;
+    allowedDiffPercent: z.ZodObject<{
+        value: z.ZodNumber;
+        basis: z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>;
+        rationale: z.ZodString;
+        source: z.ZodOptional<z.ZodString>;
+        reviewedAt: z.ZodString;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+/**
+ * A partial override for a single threshold: a bare number overrides only the
+ * value (provenance inherited from the preset), or a partial provenance object.
+ */
+declare const ThresholdOverrideSchema: z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+    value: z.ZodOptional<z.ZodNumber>;
+    basis: z.ZodOptional<z.ZodEnum<{
+        research: "research";
+        "internal-testing": "internal-testing";
+        hypothesis: "hypothesis";
+    }>>;
+    rationale: z.ZodOptional<z.ZodString>;
+    source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+    reviewedAt: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>]>;
+/**
+ * A partial verdict-policy override deep-merged onto a preset. Any subset of
+ * threshold keys; each value a {@link ThresholdOverrideSchema}.
+ */
+declare const VerdictPolicyOverrideSchema: z.ZodObject<{
+    regionReportFloorPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+        value: z.ZodOptional<z.ZodNumber>;
+        basis: z.ZodOptional<z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>>;
+        rationale: z.ZodOptional<z.ZodString>;
+        source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>]>>;
+    regionCriticalPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+        value: z.ZodOptional<z.ZodNumber>;
+        basis: z.ZodOptional<z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>>;
+        rationale: z.ZodOptional<z.ZodString>;
+        source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>]>>;
+    regionUnexpectedPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+        value: z.ZodOptional<z.ZodNumber>;
+        basis: z.ZodOptional<z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>>;
+        rationale: z.ZodOptional<z.ZodString>;
+        source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>]>>;
+    unexpectedOverallPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+        value: z.ZodOptional<z.ZodNumber>;
+        basis: z.ZodOptional<z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>>;
+        rationale: z.ZodOptional<z.ZodString>;
+        source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>]>>;
+    fullFrameFallbackPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+        value: z.ZodOptional<z.ZodNumber>;
+        basis: z.ZodOptional<z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>>;
+        rationale: z.ZodOptional<z.ZodString>;
+        source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>]>>;
+    allowedDiffPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+        value: z.ZodOptional<z.ZodNumber>;
+        basis: z.ZodOptional<z.ZodEnum<{
+            research: "research";
+            "internal-testing": "internal-testing";
+            hypothesis: "hypothesis";
+        }>>;
+        rationale: z.ZodOptional<z.ZodString>;
+        source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+        reviewedAt: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>]>>;
+}, z.core.$strip>;
+/**
  * Main configuration for InterfaceBuiltRight
  */
 declare const ConfigSchema: z.ZodObject<{
@@ -750,6 +937,76 @@ declare const ConfigSchema: z.ZodObject<{
         userAgent: z.ZodOptional<z.ZodString>;
         hasTouch: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>>>;
+    allowedDiffPercent: z.ZodOptional<z.ZodNumber>;
+    verdictPolicy: z.ZodOptional<z.ZodObject<{
+        regionReportFloorPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+            value: z.ZodOptional<z.ZodNumber>;
+            basis: z.ZodOptional<z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>>;
+            rationale: z.ZodOptional<z.ZodString>;
+            source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+            reviewedAt: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>]>>;
+        regionCriticalPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+            value: z.ZodOptional<z.ZodNumber>;
+            basis: z.ZodOptional<z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>>;
+            rationale: z.ZodOptional<z.ZodString>;
+            source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+            reviewedAt: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>]>>;
+        regionUnexpectedPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+            value: z.ZodOptional<z.ZodNumber>;
+            basis: z.ZodOptional<z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>>;
+            rationale: z.ZodOptional<z.ZodString>;
+            source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+            reviewedAt: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>]>>;
+        unexpectedOverallPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+            value: z.ZodOptional<z.ZodNumber>;
+            basis: z.ZodOptional<z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>>;
+            rationale: z.ZodOptional<z.ZodString>;
+            source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+            reviewedAt: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>]>>;
+        fullFrameFallbackPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+            value: z.ZodOptional<z.ZodNumber>;
+            basis: z.ZodOptional<z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>>;
+            rationale: z.ZodOptional<z.ZodString>;
+            source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+            reviewedAt: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>]>>;
+        allowedDiffPercent: z.ZodOptional<z.ZodUnion<readonly [z.ZodNumber, z.ZodObject<{
+            value: z.ZodOptional<z.ZodNumber>;
+            basis: z.ZodOptional<z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>>;
+            rationale: z.ZodOptional<z.ZodString>;
+            source: z.ZodOptional<z.ZodOptional<z.ZodString>>;
+            reviewedAt: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>]>>;
+    }, z.core.$strip>>;
+    pixelColorThreshold: z.ZodDefault<z.ZodNumber>;
     threshold: z.ZodDefault<z.ZodNumber>;
     fullPage: z.ZodDefault<z.ZodBoolean>;
     waitForNetworkIdle: z.ZodDefault<z.ZodBoolean>;
@@ -788,6 +1045,7 @@ declare const ComparisonResultSchema: z.ZodObject<{
     diffPixels: z.ZodNumber;
     totalPixels: z.ZodNumber;
     threshold: z.ZodNumber;
+    pixelColorThreshold: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 /**
  * Changed region detected in comparison
@@ -813,6 +1071,7 @@ declare const ChangedRegionSchema: z.ZodObject<{
         unexpected: "unexpected";
         critical: "critical";
     }>;
+    diffPercent: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 /**
  * Analysis verdict types
@@ -855,6 +1114,7 @@ declare const AnalysisSchema: z.ZodObject<{
             unexpected: "unexpected";
             critical: "critical";
         }>;
+        diffPercent: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>;
     unexpectedChanges: z.ZodArray<z.ZodObject<{
         location: z.ZodEnum<{
@@ -877,8 +1137,77 @@ declare const AnalysisSchema: z.ZodObject<{
             unexpected: "unexpected";
             critical: "critical";
         }>;
+        diffPercent: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>;
     recommendation: z.ZodNullable<z.ZodString>;
+    policy: z.ZodOptional<z.ZodObject<{
+        regionReportFloorPercent: z.ZodObject<{
+            value: z.ZodNumber;
+            basis: z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>;
+            rationale: z.ZodString;
+            source: z.ZodOptional<z.ZodString>;
+            reviewedAt: z.ZodString;
+        }, z.core.$strip>;
+        regionCriticalPercent: z.ZodObject<{
+            value: z.ZodNumber;
+            basis: z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>;
+            rationale: z.ZodString;
+            source: z.ZodOptional<z.ZodString>;
+            reviewedAt: z.ZodString;
+        }, z.core.$strip>;
+        regionUnexpectedPercent: z.ZodObject<{
+            value: z.ZodNumber;
+            basis: z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>;
+            rationale: z.ZodString;
+            source: z.ZodOptional<z.ZodString>;
+            reviewedAt: z.ZodString;
+        }, z.core.$strip>;
+        unexpectedOverallPercent: z.ZodObject<{
+            value: z.ZodNumber;
+            basis: z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>;
+            rationale: z.ZodString;
+            source: z.ZodOptional<z.ZodString>;
+            reviewedAt: z.ZodString;
+        }, z.core.$strip>;
+        fullFrameFallbackPercent: z.ZodObject<{
+            value: z.ZodNumber;
+            basis: z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>;
+            rationale: z.ZodString;
+            source: z.ZodOptional<z.ZodString>;
+            reviewedAt: z.ZodString;
+        }, z.core.$strip>;
+        allowedDiffPercent: z.ZodObject<{
+            value: z.ZodNumber;
+            basis: z.ZodEnum<{
+                research: "research";
+                "internal-testing": "internal-testing";
+                hypothesis: "hypothesis";
+            }>;
+            rationale: z.ZodString;
+            source: z.ZodOptional<z.ZodString>;
+            reviewedAt: z.ZodString;
+        }, z.core.$strip>;
+    }, z.core.$strip>>;
 }, z.core.$strip>;
 /**
  * Session status
@@ -945,6 +1274,7 @@ declare const SessionSchema: z.ZodObject<{
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
+        pixelColorThreshold: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>>;
     analysis: z.ZodOptional<z.ZodObject<{
         verdict: z.ZodEnum<{
@@ -975,6 +1305,7 @@ declare const SessionSchema: z.ZodObject<{
                 unexpected: "unexpected";
                 critical: "critical";
             }>;
+            diffPercent: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
             location: z.ZodEnum<{
@@ -997,8 +1328,77 @@ declare const SessionSchema: z.ZodObject<{
                 unexpected: "unexpected";
                 critical: "critical";
             }>;
+            diffPercent: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
         recommendation: z.ZodNullable<z.ZodString>;
+        policy: z.ZodOptional<z.ZodObject<{
+            regionReportFloorPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            regionCriticalPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            regionUnexpectedPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            unexpectedOverallPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            fullFrameFallbackPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            allowedDiffPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+        }, z.core.$strip>>;
     }, z.core.$strip>>;
     landmarkElements: z.ZodOptional<z.ZodArray<z.ZodObject<{
         name: z.ZodString;
@@ -1036,6 +1436,7 @@ declare const ComparisonReportSchema: z.ZodObject<{
         diffPixels: z.ZodNumber;
         totalPixels: z.ZodNumber;
         threshold: z.ZodNumber;
+        pixelColorThreshold: z.ZodOptional<z.ZodNumber>;
     }, z.core.$strip>;
     analysis: z.ZodObject<{
         verdict: z.ZodEnum<{
@@ -1066,6 +1467,7 @@ declare const ComparisonReportSchema: z.ZodObject<{
                 unexpected: "unexpected";
                 critical: "critical";
             }>;
+            diffPercent: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
         unexpectedChanges: z.ZodArray<z.ZodObject<{
             location: z.ZodEnum<{
@@ -1088,8 +1490,77 @@ declare const ComparisonReportSchema: z.ZodObject<{
                 unexpected: "unexpected";
                 critical: "critical";
             }>;
+            diffPercent: z.ZodOptional<z.ZodNumber>;
         }, z.core.$strip>>;
         recommendation: z.ZodNullable<z.ZodString>;
+        policy: z.ZodOptional<z.ZodObject<{
+            regionReportFloorPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            regionCriticalPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            regionUnexpectedPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            unexpectedOverallPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            fullFrameFallbackPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+            allowedDiffPercent: z.ZodObject<{
+                value: z.ZodNumber;
+                basis: z.ZodEnum<{
+                    research: "research";
+                    "internal-testing": "internal-testing";
+                    hypothesis: "hypothesis";
+                }>;
+                rationale: z.ZodString;
+                source: z.ZodOptional<z.ZodString>;
+                reviewedAt: z.ZodString;
+            }, z.core.$strip>;
+        }, z.core.$strip>>;
     }, z.core.$strip>;
     files: z.ZodObject<{
         baseline: z.ZodString;
@@ -1209,6 +1680,11 @@ type ComparisonResult = z.infer<typeof ComparisonResultSchema>;
 type ChangedRegion = z.infer<typeof ChangedRegionSchema>;
 type Verdict$1 = z.infer<typeof VerdictSchema>;
 type Analysis = z.infer<typeof AnalysisSchema>;
+type ThresholdBasis = z.infer<typeof ThresholdBasisSchema>;
+type ProvenancedThreshold = z.infer<typeof ProvenancedThresholdSchema>;
+type VerdictPolicy = z.infer<typeof VerdictPolicySchema>;
+type ThresholdOverride = z.infer<typeof ThresholdOverrideSchema>;
+type VerdictPolicyOverride = z.infer<typeof VerdictPolicyOverrideSchema>;
 type SessionStatus = z.infer<typeof SessionStatusSchema>;
 type LandmarkElement = z.infer<typeof LandmarkElementSchema>;
 type Session = z.infer<typeof SessionSchema>;
@@ -1682,6 +2158,12 @@ interface CompareOptions {
     baselinePath: string;
     currentPath: string;
     diffPath: string;
+    /**
+     * Pixelmatch per-pixel color sensitivity (0-1, lower = stricter).
+     * Default 0.1 (Pixelmatch-normal). This is NOT the verdict tolerance.
+     */
+    pixelColorThreshold?: number;
+    /** @deprecated Backward-compatible alias for `pixelColorThreshold`. */
     threshold?: number;
 }
 /**
@@ -1743,6 +2225,114 @@ interface LoginOptions {
     wsEndpoint?: string;
     chromePath?: string;
 }
+
+/**
+ * Region detection configuration
+ * Divides page into semantic regions based on common layout patterns
+ */
+interface RegionConfig {
+    name: string;
+    location: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
+    xStart: number;
+    xEnd: number;
+    yStart: number;
+    yEnd: number;
+}
+/**
+ * Default regions based on common web layouts
+ * Header (top 10%), Footer (bottom 10%), Left sidebar (left 20%), Content (center)
+ */
+declare const DEFAULT_REGIONS: RegionConfig[];
+/**
+ * Neutral native regions — top / middle / bottom bands.
+ *
+ * Native (iOS / macOS) screenshots have no web left-navigation sidebar, so the
+ * web DEFAULT_REGIONS (which name a `navigation` sidebar and can trigger
+ * "inspect menu links" guidance) are wrong for them. These bands describe
+ * position only, without pretending any band is semantic navigation. They
+ * fully partition the frame vertically at full width, so per-region counts
+ * still reconcile with the total mismatch count.
+ */
+declare const NATIVE_REGIONS: RegionConfig[];
+/**
+ * Whether a diff-image pixel is a pixelmatch-counted mismatch marker.
+ *
+ * Pixelmatch paints mismatches with `diffColor` (red) OR `diffColorAlt` (green,
+ * the opposite brightness direction of change) — BOTH are counted differences.
+ * Anti-aliased pixels use a distinct `aaColor` (yellow) and are excluded here.
+ * Counting only red silently drops every green (darker-vs-lighter) change, so
+ * this predicate is color-independent across both diff colors.
+ */
+declare function isDiffMarker(data: Uint8Array, idx: number): boolean;
+/**
+ * Raw mismatch counts per region, color-independent.
+ *
+ * A `mask` (1 per counted diff pixel) is preferred when available — it is the
+ * single source of truth and cannot drift from the diff-image palette. When no
+ * mask is given, counts are derived from the diff image via {@link isDiffMarker}
+ * (red OR green). Regions that fully partition the frame sum to the total
+ * mismatch count.
+ */
+declare function regionalDiffCounts(diffData: Uint8Array, width: number, height: number, regions?: RegionConfig[], mask?: Uint8Array): Array<{
+    region: RegionConfig;
+    diffPixels: number;
+    regionPixels: number;
+}>;
+/**
+ * Analyze diff image to detect which regions have changes.
+ *
+ * Counting is color-independent (red OR green) so darker-vs-lighter changes are
+ * never dropped. Pass an explicit `mask` (from {@link compareImages}) to count
+ * from the mismatch mask instead of re-reading the diff palette.
+ *
+ * All numeric boundaries — the report floor and the severity bands — are read
+ * from the {@link VerdictPolicy} argument, never from inline literals, so they
+ * carry provenance and are tunable per call/project/app-type.
+ */
+declare function detectChangedRegions(diffData: Uint8Array, width: number, height: number, regions?: RegionConfig[], mask?: Uint8Array, policy?: VerdictPolicy): ChangedRegion[];
+/**
+ * Extended comparison result with diff image data for regional analysis
+ */
+interface ExtendedComparisonResult extends ComparisonResult {
+    diffData?: Uint8Array;
+    /** Mismatch mask — 1 per pixelmatch-counted diff pixel (red OR green), 0 otherwise. */
+    diffMask?: Uint8Array;
+    width?: number;
+    height?: number;
+}
+/**
+ * Compare two images using pixelmatch.
+ *
+ * `pixelColorThreshold` (0-1) is Pixelmatch's per-pixel color sensitivity
+ * (lower = stricter). It is NOT the verdict tolerance — that is a separate
+ * percentage handled by {@link analyzeComparison}. The deprecated `threshold`
+ * option is accepted as a backward-compatible alias for `pixelColorThreshold`.
+ */
+declare function compareImages(options: CompareOptions): Promise<ExtendedComparisonResult>;
+/**
+ * Analyze comparison result and generate verdict with regional analysis.
+ *
+ * Every numeric boundary flows from the resolved {@link VerdictPolicy}; this
+ * function contains no inline threshold literals. The `allowedDiffPercent`
+ * shorthand (kept for back-compat with existing callers) is folded onto the
+ * policy as a per-call verdict-tolerance override.
+ *
+ * Verdict tolerance now genuinely GATES the EXPECTED↔UNEXPECTED decision
+ * (previously it only shaped the summary wording): an overall change at or below
+ * tolerance stays EXPECTED and is never escalated to UNEXPECTED, so raising
+ * tolerance can only relax the verdict, never tighten it. Critical regions still
+ * drive LAYOUT_BROKEN independently of tolerance — a broken layout is never
+ * silenced by a high tolerance.
+ *
+ * @param allowedDiffPercent Optional per-call verdict-tolerance override. When
+ *   omitted, `policy.allowedDiffPercent.value` is used.
+ * @param policy Resolved verdict policy (defaults to the web preset).
+ */
+declare function analyzeComparison(result: ExtendedComparisonResult, allowedDiffPercent?: number, regions?: RegionConfig[], policy?: VerdictPolicy): Analysis;
+/**
+ * Get a human-readable verdict description
+ */
+declare function getVerdictDescription(verdict: Verdict$1): string;
 
 /**
  * Page Intent Classification
@@ -3748,41 +4338,31 @@ declare function checkConsistency(options: ConsistencyOptions): Promise<Consiste
 declare function formatConsistencyReport(result: ConsistencyResult): string;
 
 /**
- * Region detection configuration
- * Divides page into semantic regions based on common layout patterns
+ * Web default policy. Values are the pre-refactor hard-coded numbers, now
+ * labelled as unverified hypotheses pending calibration against real diff
+ * distributions.
  */
-interface RegionConfig {
-    name: string;
-    location: 'top' | 'bottom' | 'left' | 'right' | 'center' | 'full';
-    xStart: number;
-    xEnd: number;
-    yStart: number;
-    yEnd: number;
-}
+declare const WEB_VERDICT_POLICY: VerdictPolicy;
 /**
- * Analyze diff image to detect which regions have changes
+ * Native (iOS / macOS) preset. Pairs with `NATIVE_REGIONS` (neutral
+ * top/middle/bottom bands, no web navigation semantics). Numeric values
+ * currently mirror the web defaults — native-specific calibration is pending,
+ * so the values are honestly labelled hypotheses rather than tuned constants.
+ * Distinct rationale text keeps the echoed policy truthful for native reports.
  */
-declare function detectChangedRegions(diffData: Uint8Array, width: number, height: number, regions?: RegionConfig[]): ChangedRegion[];
+declare const NATIVE_VERDICT_POLICY: VerdictPolicy;
+/** Every threshold key on a VerdictPolicy — the completeness test iterates these. */
+declare const VERDICT_POLICY_KEYS: Array<keyof VerdictPolicy>;
 /**
- * Extended comparison result with diff image data for regional analysis
+ * Deep-merge partial verdict-policy overrides onto a base preset, most-specific
+ * last. Supports the three override levels (app-type preset → per-project config
+ * → per-call): fold the project override then the call override over the preset.
+ *
+ * Overrides may be bare numbers (`{ allowedDiffPercent: 5 }`) or partial
+ * provenance objects (`{ allowedDiffPercent: { value: 5, basis: 'internal-testing', ... } }`).
+ * Unspecified keys keep the base preset's provenanced threshold.
  */
-interface ExtendedComparisonResult extends ComparisonResult {
-    diffData?: Uint8Array;
-    width?: number;
-    height?: number;
-}
-/**
- * Compare two images using pixelmatch
- */
-declare function compareImages(options: CompareOptions): Promise<ExtendedComparisonResult>;
-/**
- * Analyze comparison result and generate verdict with regional analysis
- */
-declare function analyzeComparison(result: ExtendedComparisonResult, thresholdPercent?: number): Analysis;
-/**
- * Get a human-readable verdict description
- */
-declare function getVerdictDescription(verdict: Verdict$1): string;
+declare function resolveVerdictPolicy(base: VerdictPolicy, ...overrides: Array<VerdictPolicyOverride | undefined>): VerdictPolicy;
 
 interface CrawlOptions {
     /** Starting URL */
@@ -6891,8 +7471,33 @@ interface CompareInput extends BrowserLaunchOptions {
     baselinePath?: string;
     /** Path to current image (auto-captured if url provided) */
     currentPath?: string;
-    /** Pixel difference threshold (0-100, default 1.0) */
+    /**
+     * Verdict tolerance (0-100, default 1.0). Raising it is monotonically
+     * relaxing: a measured diff at/below tolerance is never escalated to
+     * UNEXPECTED_CHANGE (it reports MATCH or EXPECTED_CHANGE). Above tolerance,
+     * the policy's `unexpectedOverallPercent` (default 20%) and per-region bands
+     * decide between EXPECTED_CHANGE and UNEXPECTED_CHANGE. Only LAYOUT_BROKEN
+     * (region-critical severity) is independent of tolerance. Tolerance never
+     * affects the measured diff percent itself — that is `pixelColorThreshold`.
+     */
+    allowedDiffPercent?: number;
+    /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
+    pixelColorThreshold?: number;
+    /**
+     * @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance).
+     * No longer affects Pixelmatch per-pixel sensitivity — set `pixelColorThreshold` for that.
+     */
     threshold?: number;
+    /** Region semantics for regional analysis. Defaults to web regions; pass NATIVE_REGIONS for native screenshots. */
+    regions?: RegionConfig[];
+    /**
+     * Per-call verdict-policy override (most-specific level). Deep-merged onto the
+     * web preset — pass a partial (e.g. `{ unexpectedOverallPercent: 35 }`) to tune
+     * a boundary, or a full preset (e.g. `NATIVE_VERDICT_POLICY`) to replace all
+     * boundaries. When `allowedDiffPercent`/`threshold` is also set, it wins for the
+     * tolerance boundary specifically.
+     */
+    verdictPolicy?: VerdictPolicyOverride;
     /** Output directory for diff and temp files */
     outputDir?: string;
     /** Viewport configuration */
@@ -6927,9 +7532,17 @@ interface CompareResult {
         location: string;
         description: string;
         severity: 'expected' | 'unexpected' | 'critical';
+        /** Raw measured change for this region, as a numeric percentage (0-100). */
+        diffPercent?: number;
     }>;
     /** Recommendation for fixing issues */
     recommendation: string | null;
+    /**
+     * The verdict policy actually applied (values + basis + rationale). Lets a
+     * downstream agent see which boundaries drove this verdict and their
+     * provenance, and re-judge under different thresholds without re-running.
+     */
+    policy: VerdictPolicy;
     /** Path to diff image (if generated) */
     diffPath?: string;
     /** Path to baseline used */
@@ -7203,4 +7816,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TextIssue, type TokenViolation, type TouchTargetIssue, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, type WebVitals, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type ProvenancedThreshold, ProvenancedThresholdSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TextIssue, type ThresholdBasis, ThresholdBasisSchema, type ThresholdOverride, ThresholdOverrideSchema, type TokenViolation, type TouchTargetIssue, VERDICT_POLICY_KEYS, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, type VerdictPolicy, type VerdictPolicyOverride, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, WEB_VERDICT_POLICY, type WebVitals, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };

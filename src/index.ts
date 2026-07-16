@@ -2,6 +2,9 @@ import { ConfigSchema, VIEWPORTS, type Config, type Session, type SessionQuery, 
 import { viewportToConfig } from './devices.js';
 import { captureScreenshot, captureWithLandmarks, closeBrowser } from './capture.js';
 import { compareImages, analyzeComparison } from './compare.js';
+import type { RegionConfig } from './compare.js';
+import { WEB_VERDICT_POLICY, resolveVerdictPolicy } from './verdict-policy.js';
+import type { VerdictPolicy, VerdictPolicyOverride } from './schemas.js';
 import {
   createSession,
   getSession,
@@ -44,8 +47,33 @@ export interface CompareInput extends BrowserLaunchOptions {
   baselinePath?: string;
   /** Path to current image (auto-captured if url provided) */
   currentPath?: string;
-  /** Pixel difference threshold (0-100, default 1.0) */
+  /**
+   * Verdict tolerance (0-100, default 1.0). Raising it is monotonically
+   * relaxing: a measured diff at/below tolerance is never escalated to
+   * UNEXPECTED_CHANGE (it reports MATCH or EXPECTED_CHANGE). Above tolerance,
+   * the policy's `unexpectedOverallPercent` (default 20%) and per-region bands
+   * decide between EXPECTED_CHANGE and UNEXPECTED_CHANGE. Only LAYOUT_BROKEN
+   * (region-critical severity) is independent of tolerance. Tolerance never
+   * affects the measured diff percent itself — that is `pixelColorThreshold`.
+   */
+  allowedDiffPercent?: number;
+  /** Pixelmatch per-pixel color sensitivity (0-1, lower = stricter). Default 0.1. */
+  pixelColorThreshold?: number;
+  /**
+   * @deprecated Backward-compatible alias for `allowedDiffPercent` (verdict tolerance).
+   * No longer affects Pixelmatch per-pixel sensitivity — set `pixelColorThreshold` for that.
+   */
   threshold?: number;
+  /** Region semantics for regional analysis. Defaults to web regions; pass NATIVE_REGIONS for native screenshots. */
+  regions?: RegionConfig[];
+  /**
+   * Per-call verdict-policy override (most-specific level). Deep-merged onto the
+   * web preset — pass a partial (e.g. `{ unexpectedOverallPercent: 35 }`) to tune
+   * a boundary, or a full preset (e.g. `NATIVE_VERDICT_POLICY`) to replace all
+   * boundaries. When `allowedDiffPercent`/`threshold` is also set, it wins for the
+   * tolerance boundary specifically.
+   */
+  verdictPolicy?: VerdictPolicyOverride;
   /** Output directory for diff and temp files */
   outputDir?: string;
   /** Viewport configuration */
@@ -81,9 +109,17 @@ export interface CompareResult {
     location: string;
     description: string;
     severity: 'expected' | 'unexpected' | 'critical';
+    /** Raw measured change for this region, as a numeric percentage (0-100). */
+    diffPercent?: number;
   }>;
   /** Recommendation for fixing issues */
   recommendation: string | null;
+  /**
+   * The verdict policy actually applied (values + basis + rationale). Lets a
+   * downstream agent see which boundaries drove this verdict and their
+   * provenance, and re-judge under different thresholds without re-running.
+   */
+  policy: VerdictPolicy;
   /** Path to diff image (if generated) */
   diffPath?: string;
   /** Path to baseline used */
@@ -122,7 +158,7 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     url,
     baselinePath,
     currentPath,
-    threshold = 1.0,
+    regions,
     outputDir = join(tmpdir(), 'ibr-compare'),
     viewport = 'desktop',
     fullPage = true,
@@ -134,6 +170,26 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     wsEndpoint,
     chromePath,
   } = options;
+
+  // Split the two contracts (Defect 1): verdict tolerance vs per-pixel sensitivity.
+  // Back-compat: the deprecated `threshold` maps to allowedDiffPercent (verdict
+  // tolerance) only — it no longer drives Pixelmatch sensitivity, so measured
+  // diff percent is now independent of tolerance.
+  const pixelColorThreshold = options.pixelColorThreshold ?? 0.1;
+
+  // Resolve the verdict policy (all numeric boundaries): web preset → structured
+  // `verdictPolicy` override → legacy tolerance shorthand (`allowedDiffPercent`/
+  // `threshold`). The shorthand is applied LAST so an explicit tolerance arg
+  // wins for the tolerance boundary specifically (matching the CompareInput doc).
+  // This also protects the native callers, which pass a full preset as
+  // `verdictPolicy`: a later caller-supplied tolerance is not clobbered by the
+  // preset's default tolerance.
+  const toleranceShorthand = options.allowedDiffPercent ?? options.threshold;
+  const verdictPolicy = resolveVerdictPolicy(
+    WEB_VERDICT_POLICY,
+    options.verdictPolicy,
+    toleranceShorthand !== undefined ? { allowedDiffPercent: toleranceShorthand } : undefined
+  );
 
   // Validate inputs
   if (!baselinePath && !url) {
@@ -205,11 +261,12 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath,
     diffPath,
-    threshold: threshold / 100, // Convert percentage to 0-1 for pixelmatch
+    pixelColorThreshold,
   });
 
-  // Analyze results
-  const analysis = analyzeComparison(comparison, threshold);
+  // Analyze results. All boundaries flow from the resolved policy (tolerance
+  // already folded in), so pass the policy explicitly and let it own tolerance.
+  const analysis = analyzeComparison(comparison, undefined, regions, verdictPolicy);
 
   // Close browser if we opened one
   await closeBrowser();
@@ -225,8 +282,10 @@ export async function compare(options: CompareInput): Promise<CompareResult> {
       location: r.location,
       description: r.description,
       severity: r.severity,
+      diffPercent: r.diffPercent,
     })),
     recommendation: analysis.recommendation,
+    policy: analysis.policy ?? verdictPolicy,
     diffPath: comparison.match ? undefined : diffPath,
     baselinePath: actualBaselinePath,
     currentPath: actualCurrentPath,
@@ -437,15 +496,30 @@ export class InterfaceBuiltRight {
     });
 
     // Compare images
+    // Split contracts (Defect 1): verdict tolerance vs per-pixel sensitivity.
+    // `threshold` (deprecated) maps to verdict tolerance for back-compat.
+    const pixelColorThreshold = this.config.pixelColorThreshold ?? 0.1;
+
+    // Per-project verdict policy, in ascending precedence so the most intentional
+    // tolerance signal wins without the schema-defaulted legacy `threshold`
+    // (always present, default 1.0) clobbering a structured override:
+    //   web preset → legacy `threshold` → structured `verdictPolicy` → explicit `allowedDiffPercent`.
+    const verdictPolicy = resolveVerdictPolicy(
+      WEB_VERDICT_POLICY,
+      this.config.threshold !== undefined ? { allowedDiffPercent: this.config.threshold } : undefined,
+      this.config.verdictPolicy,
+      this.config.allowedDiffPercent !== undefined ? { allowedDiffPercent: this.config.allowedDiffPercent } : undefined
+    );
+
     const comparison = await compareImages({
       baselinePath: paths.baseline,
       currentPath: paths.current,
       diffPath: paths.diff,
-      threshold: this.config.threshold / 100, // Convert percentage to 0-1 range for pixelmatch
+      pixelColorThreshold,
     });
 
-    // Analyze results
-    const analysis = analyzeComparison(comparison, this.config.threshold);
+    // Analyze results (all boundaries flow from the resolved project policy)
+    const analysis = analyzeComparison(comparison, undefined, undefined, verdictPolicy);
 
     // Update session
     await markSessionCompared(this.config.outputDir, session.id, comparison, analysis);
@@ -837,8 +911,23 @@ export { captureScreenshot, closeBrowser, getViewport, captureWithDiagnostics } 
 export type { CaptureResult } from './capture.js';
 export { checkConsistency, formatConsistencyReport } from './consistency.js';
 export type { ConsistencyOptions, ConsistencyResult, PageMetrics, Inconsistency } from './consistency.js';
-export { compareImages, analyzeComparison, getVerdictDescription, detectChangedRegions } from './compare.js';
-export type { ExtendedComparisonResult } from './compare.js';
+export {
+  compareImages,
+  analyzeComparison,
+  getVerdictDescription,
+  detectChangedRegions,
+  regionalDiffCounts,
+  isDiffMarker,
+  DEFAULT_REGIONS,
+  NATIVE_REGIONS,
+} from './compare.js';
+export type { ExtendedComparisonResult, RegionConfig } from './compare.js';
+export {
+  WEB_VERDICT_POLICY,
+  NATIVE_VERDICT_POLICY,
+  VERDICT_POLICY_KEYS,
+  resolveVerdictPolicy,
+} from './verdict-policy.js';
 export { discoverPages, getNavigationLinks } from './crawl.js';
 export type { CrawlOptions, CrawlResult, DiscoveredPage } from './crawl.js';
 export {

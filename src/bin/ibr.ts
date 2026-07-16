@@ -37,6 +37,7 @@ import {
 } from '../devices.js';
 import type { Viewport } from '../schemas.js';
 import { registerNativeSessionCommands } from './native-session-cli.js';
+import { mergeCliConfig } from './cli-config.js';
 
 function readPackageVersion(): string {
   try {
@@ -257,21 +258,8 @@ async function findAvailablePort(startPort: number, maxAttempts = 10): Promise<n
 async function createIBR(options: Record<string, unknown> = {}): Promise<InterfaceBuiltRight> {
   const config = await loadConfig();
 
-  // Merge CLI options with config
-  const merged: Partial<Config> = {
-    ...config,
-    ...(options.baseUrl ? { baseUrl: String(options.baseUrl) } : {}),
-    ...(options.output ? { outputDir: String(options.output) } : {}),
-    ...(options.viewport ? { viewport: VIEWPORTS[options.viewport as keyof typeof VIEWPORTS] } : {}),
-    ...(options.threshold ? { threshold: Number(options.threshold) } : {}),
-    ...(options.fullPage !== undefined ? { fullPage: Boolean(options.fullPage) } : {}),
-    ...(options.browserMode ? { browserMode: String(options.browserMode) as Config['browserMode'] } : {}),
-    ...(options.cdpUrl ? { cdpUrl: String(options.cdpUrl) } : {}),
-    ...(options.wsEndpoint ? { wsEndpoint: String(options.wsEndpoint) } : {}),
-    ...(options.chromePath ? { chromePath: String(options.chromePath) } : {}),
-  };
-
-  return new InterfaceBuiltRight(merged);
+  // Merge CLI options with config (flag wins only when actually provided)
+  return new InterfaceBuiltRight(mergeCliConfig(config, options));
 }
 
 /**
@@ -319,9 +307,9 @@ program
 // Global options
 program
   .option('-b, --base-url <url>', 'Base URL for the application')
-  .option('-o, --output <dir>', 'Output directory', './.ibr')
-  .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet', 'desktop')
-  .option('-t, --threshold <percent>', 'Diff threshold percentage', '1.0')
+  .option('-o, --output <dir>', 'Output directory (default ./.ibr)')
+  .option('-v, --viewport <name>', 'Viewport: desktop, mobile, tablet (default desktop)')
+  .option('-t, --threshold <percent>', 'Verdict tolerance percentage (default 1.0; deprecated alias for allowedDiffPercent)')
   .option('--browser <browser>', 'Browser to use: chrome or safari', 'chrome')
   .option('--browser-mode <mode>', 'Browser transport: local or connect')
   .option('--cdp-url <url>', 'Connect to an existing browser via CDP HTTP endpoint')
@@ -642,7 +630,9 @@ program
         const { join } = await import('path');
 
         // Find baseline for this URL
-        const outputDir = globalOpts.outputDir || '.ibr';
+        // The global -o flag lands on program.opts().output (not .outputDir);
+        // fall back to the standard output dir when the flag is absent.
+        const outputDir = globalOpts.output || './.ibr';
         const sessions = await listSessions(outputDir);
 
         // Find matching baseline (same URL path)
@@ -670,10 +660,16 @@ program
               baselinePath: paths.baseline,
               currentPath: currentPath,
               diffPath: paths.diff,
-              threshold: 0.01,
+              pixelColorThreshold: 0.1, // Pixelmatch-normal sensitivity; decoupled from verdict tolerance
             });
 
-            const analysis = analyzeComparison(comparison, 1.0);
+            // Verdict tolerance from the global -t flag when provided; otherwise
+            // undefined so the policy default (1.0) applies. The deprecated flag
+            // maps to tolerance only, never Pixelmatch sensitivity.
+            const analysis = analyzeComparison(
+              comparison,
+              globalOpts.threshold !== undefined ? Number(globalOpts.threshold) : undefined
+            );
 
             visualResult = {
               hasBaseline: true,
@@ -712,7 +708,9 @@ program
         const semantic = await getSemanticOutput(page);
 
         // --- HYBRID APPROACH: Baseline landmarks OR inferred from intent ---
-        const outputDir = globalOpts.outputDir || '.ibr';
+        // The global -o flag lands on program.opts().output (not .outputDir);
+        // fall back to the standard output dir when the flag is absent.
+        const outputDir = globalOpts.output || './.ibr';
         const sessions = await listSessions(outputDir);
         const urlPath = new URL(resolvedUrl).pathname;
 
@@ -3741,7 +3739,7 @@ program
     try {
       const { findDevice, getBootedDevices, captureNativeScreenshot } = await import('../native/index.js');
       const { listSessions, getSession: getSessionById, getSessionPaths } = await import('../session.js');
-      const { compare: compareFn } = await import('../index.js');
+      const { compare: compareFn, NATIVE_REGIONS, NATIVE_VERDICT_POLICY } = await import('../index.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
 
@@ -3789,10 +3787,15 @@ program
         process.exit(1);
       }
 
-      // Compare
+      // Compare — native screenshots use neutral top/middle/bottom region
+      // semantics (Defect 3) and the native verdict policy preset, so both the
+      // region names and the numeric boundaries are app-type appropriate and
+      // their provenance is echoed as native.
       const result = await compareFn({
         baselinePath: paths.baseline,
         currentPath: paths.current,
+        regions: NATIVE_REGIONS,
+        verdictPolicy: NATIVE_VERDICT_POLICY,
       });
 
       const verdictIcon = result.verdict === 'MATCH' ? '✓' :
