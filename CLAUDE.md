@@ -29,6 +29,7 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 | `snapshot` | Capture visual baseline |
 | `compare` | Compare current vs baseline |
 | `screenshot` | Capture screenshot of any URL |
+| `scan_obsidian` | Mount an Obsidian plugin view in a REAL browser and scan it — computed styles, layout, touch targets, a11y. Use this, never `scan_static`, for Obsidian views: `scan_static` is a regex parser and resolves no `var()`, layout, or `::before`. Needs `plugin_path` + `view_class`; `view_state` is the fixture, `post_mount` opens transient sheets |
 | `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app` (live lifecycle launch/switch/quit; `quit` can fail with `osascript -128` on unsaved docs under `NSCloseAlwaysConfirmsChanges=1` — no force-quit fallback), `menuPath` (live AXMenu traversal). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` |
 
 ## Native App Driving (macOS/iOS) — use the CLI, not MCP

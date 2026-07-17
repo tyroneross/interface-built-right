@@ -1,0 +1,126 @@
+/* Fixture stylesheet for the IBR obsidian harness tests.
+ *
+ * Every rule here is chosen because a REGEX PARSER CANNOT RESOLVE IT, which is
+ * the whole reason this harness exists rather than an extension of scan_static:
+ *   - var() tokens that must resolve to concrete rgb(),
+ *   - a gradient built from those tokens,
+ *   - CSS grid, where the box only exists after layout,
+ *   - a ::before-drawn control, which has no element to parse, and
+ *   - a descendant selector that only applies via the cascade.
+ */
+
+.fx-view {
+  --fx-accent: #5a6cb0;
+  --fx-accent-deep: #42528c;
+  --fx-surface: #1e1e1e;
+  --fx-surface-2: rgba(255, 255, 255, 0.06);
+  --fx-fg: #dcddde;
+  --fx-grad-accent: linear-gradient(135deg, var(--fx-accent) 0%, var(--fx-accent-deep) 100%);
+
+  background: var(--fx-surface);
+  color: var(--fx-fg);
+  padding: 16px;
+}
+
+.fx-header h1 {
+  font-size: 20px;
+  margin: 0 0 12px;
+}
+
+.fx-badge {
+  color: var(--fx-accent);
+  font-size: 12px;
+}
+
+/* The ONLY element that may carry the accent gradient. */
+.fx-cta {
+  background-image: var(--fx-grad-accent);
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  min-height: 44px;
+  padding: 0 16px;
+  width: 100%;
+}
+
+.fx-list {
+  margin-top: 16px;
+}
+
+/* Grid: the checkbox spans all rows and centres itself against a title that may
+ * wrap to several lines. Regression under test in the first consumer: pinning
+ * the control to `grid-row: 1` sticks it to the top of a multi-line row. */
+.fx-row {
+  align-items: start;
+  border-bottom: 1px solid var(--fx-surface-2);
+  column-gap: 10px;
+  display: grid;
+  grid-template-columns: 44px 1fr auto;
+  padding: 12px 0;
+}
+
+.fx-check {
+  align-self: center;
+  cursor: pointer;
+  display: inline-flex;
+  grid-row: 1 / -1;
+  height: 44px;
+  position: relative;
+  width: 44px;
+}
+
+/* Pseudo-element control: invisible to any parser that only reads the DOM. */
+.fx-check::before {
+  background: var(--fx-surface-2);
+  border: 1px solid var(--fx-accent);
+  border-radius: 5px;
+  content: "";
+  height: 20px;
+  left: 12px;
+  position: absolute;
+  top: 12px;
+  width: 20px;
+}
+
+.fx-row-title {
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Descendant selector — resolvable only through the cascade. */
+.fx-view .fx-row .fx-tiny {
+  background: transparent;
+  border: 1px solid var(--fx-surface-2);
+  color: var(--fx-fg);
+  height: 20px;
+  width: 20px;
+}
+
+.fx-overlay {
+  background: rgba(0, 0, 0, 0.5);
+  bottom: 0;
+  left: 0;
+  position: fixed;
+  right: 0;
+  top: 0;
+}
+
+.fx-modal {
+  background: var(--fx-surface);
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+  left: 0;
+  padding: 16px;
+  position: absolute;
+  right: 0;
+}
+
+.fx-chip {
+  background: var(--fx-surface-2);
+  border: 0;
+  border-radius: 8px;
+  color: var(--fx-fg);
+  flex: 1;
+  min-height: 44px;
+}

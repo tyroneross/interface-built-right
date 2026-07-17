@@ -1052,6 +1052,64 @@ program
     }
   });
 
+// Obsidian view scan — mounts a plugin view in a real browser, then runs the
+// same scan as `ibr scan`. Deliberately NOT `scan-static`: an Obsidian view
+// styled with CSS variables, grid, and ::before resolves to nothing under a
+// regex parser.
+program
+  .command('scan-obsidian <plugin-path>')
+  .description('Mount an Obsidian plugin view in a real browser and scan it (computed styles, layout, touch targets, a11y)')
+  .requiredOption('--view-class <name>', 'View class exported from the bundle (e.g. DailyPlannerView)')
+  .option('--viewport <preset>', 'Viewport preset (iphone-14, mobile, tablet, desktop)', 'iphone-14')
+  .option('--mobile', 'Force Platform.isMobile = true')
+  .option('--desktop', 'Force Platform.isMobile = false')
+  .option('--theme <name>', 'Obsidian theme: dark or light', 'dark')
+  .option('--view-state <path>', 'JSON file of properties assigned onto the view before render (the fixture)')
+  .option('--post-mount <js>', 'JavaScript evaluated after mount, with `view` and `root` in scope')
+  .option('--harness-out <path>', 'Write the generated harness HTML here for inspection')
+  .option('--screenshot <path>', 'Save a screenshot of the mounted view')
+  .option('--rules <presets>', 'Comma-separated rule presets (default: touch-targets,wcag-contrast)')
+  .option('--json', 'Output as JSON')
+  .action(async (pluginPath: string, options: {
+    viewClass: string; viewport: string; mobile?: boolean; desktop?: boolean; theme: string;
+    viewState?: string; postMount?: string; harnessOut?: string; screenshot?: string;
+    rules?: string; json?: boolean;
+  }) => {
+    try {
+      const { scanObsidian, formatObsidianScanResult } = await import('../obsidian/index.js');
+
+      // --mobile and --desktop are both absent by default, which means "infer
+      // from viewport width" — not "false".
+      const mobile = options.mobile ? true : options.desktop ? false : undefined;
+
+      const result = await scanObsidian({
+        pluginPath,
+        viewClass: options.viewClass,
+        viewport: options.viewport,
+        mobile,
+        theme: options.theme === 'light' ? 'light' : 'dark',
+        viewStatePath: options.viewState,
+        postMount: options.postMount,
+        harnessOut: options.harnessOut,
+        screenshot: options.screenshot,
+        rules: options.rules ? options.rules.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      });
+
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatObsidianScanResult(result));
+      }
+
+      if (result.verdict === 'FAIL') {
+        process.exit(1);
+      }
+    } catch (error) {
+      console.error('Obsidian scan error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
 // Ask command — verdict-engine surface (v3 thesis Milestone 1).
 //
 // Note: viewport is intentionally read from the global `-v/--viewport` flag

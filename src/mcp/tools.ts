@@ -812,6 +812,81 @@ export const TOOLS = [
     },
   },
   {
+    name: "scan_obsidian",
+    description:
+      "Mount an Obsidian plugin view in a REAL browser and run the full IBR scan against it — computed styles (var()/calc() resolved to real values), real layout and cascade, box geometry, pseudo-elements, touch targets, contrast, and accessibility. Use this instead of scan_static for any Obsidian view: scan_static is a regex parser and resolves none of those. Generates a self-contained harness page that patches Obsidian's DOM extensions onto real DOM and stubs the `obsidian` module, mounts the named view class, then scans it.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        plugin_path: {
+          type: "string",
+          description:
+            "Absolute path to the plugin directory (containing main.js and styles.css), or directly to the built main.js bundle.",
+        },
+        view_class: {
+          type: "string",
+          description:
+            "Name of the view class exported from the bundle, e.g. 'DailyPlannerView'. Must be reachable on module.exports.",
+        },
+        viewport: {
+          type: "string",
+          description:
+            "Viewport preset (e.g. 'iphone-14' = 390px, 'mobile', 'tablet', 'desktop'). Default: iphone-14.",
+        },
+        mobile: {
+          type: "boolean",
+          description:
+            "Value for Platform.isMobile, which drives the plugin's mobile code branch. Default: inferred from viewport width (<=480 → true).",
+        },
+        theme: {
+          type: "string",
+          enum: ["dark", "light"],
+          description: "Obsidian theme class applied to <body>. Default: dark.",
+        },
+        view_state: {
+          type: "object",
+          description:
+            "Properties assigned onto the view instance before render — the fixture. E.g. { tasks: [...], date: '2026-07-16', mode: 'plan' }.",
+        },
+        view_state_path: {
+          type: "string",
+          description: "Path to a JSON file supplying view_state. Merged under inline view_state.",
+        },
+        plugin_state: {
+          type: "object",
+          description: "Properties assigned onto the fake plugin object passed to the view constructor (e.g. settings).",
+        },
+        post_mount: {
+          type: "string",
+          description:
+            "JavaScript evaluated in the page after mount, with `view` and `root` in scope. Use to open a transient surface before scanning, e.g. \"view.openEstimatePicker(30, () => {}, document.body)\".",
+        },
+        harness_out: {
+          type: "string",
+          description:
+            "Write the generated harness HTML here for inspection. Default: a temp directory (never the plugin directory).",
+        },
+        screenshot: {
+          type: "string",
+          description: "Save a screenshot of the mounted view to this path.",
+        },
+        rules: {
+          type: "array",
+          items: { type: "string" },
+          description: "Rule presets to enable. Default: ['touch-targets', 'wcag-contrast'].",
+        },
+      },
+      required: ["plugin_path", "view_class"],
+    },
+    annotations: {
+      title: "Scan Obsidian Plugin View",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
     name: "bridge_to_source",
     description:
       "Correlate runtime UI elements from a native simulator scan to their Swift source code locations. Matches AX identifiers, labels, and button text to .accessibilityIdentifier(), .accessibilityLabel(), Button(), and View struct declarations. Uses NavGator architecture data if available, falls back to direct file scanning.",
@@ -1321,6 +1396,8 @@ export async function handleToolCall(
         return await handleValidateTokens(args);
       case "scan_static":
         return await handleScanStatic(args);
+      case "scan_obsidian":
+        return await handleScanObsidian(args);
       case "bridge_to_source":
         return await handleBridgeToSource(args);
       case "native_session_start":
@@ -3314,6 +3391,45 @@ async function handleScanStatic(args: Record<string, unknown>): Promise<McpRespo
   }
 
   return textResponse(lines.join('\n'));
+}
+
+// --- Obsidian view scan handler ---
+
+async function handleScanObsidian(args: Record<string, unknown>): Promise<McpResponse> {
+  const pluginPath = args.plugin_path as string | undefined;
+  if (!pluginPath) {
+    return errorResponse("The 'plugin_path' parameter is required.");
+  }
+  const viewClass = args.view_class as string | undefined;
+  if (!viewClass) {
+    return errorResponse("The 'view_class' parameter is required (e.g. 'DailyPlannerView').");
+  }
+
+  // Dynamic import mirrors handleScanStatic: keeps the obsidian harness out of
+  // the MCP server's startup path for every other tool.
+  const { scanObsidian, formatObsidianScanResult } = await import('../obsidian/index.js');
+
+  try {
+    const result = await scanObsidian({
+      pluginPath,
+      viewClass,
+      viewport: args.viewport as string | undefined,
+      mobile: args.mobile as boolean | undefined,
+      theme: args.theme as 'dark' | 'light' | undefined,
+      viewState: args.view_state as Record<string, unknown> | undefined,
+      viewStatePath: args.view_state_path as string | undefined,
+      pluginState: args.plugin_state as Record<string, unknown> | undefined,
+      postMount: args.post_mount as string | undefined,
+      harnessOut: args.harness_out as string | undefined,
+      screenshot: args.screenshot as string | undefined,
+      rules: args.rules as string[] | undefined,
+    });
+    return textResponse(formatObsidianScanResult(result));
+  } catch (error) {
+    return errorResponse(
+      `Obsidian view scan failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 // --- Bridge to source handler ---

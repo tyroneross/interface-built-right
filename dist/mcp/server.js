@@ -823,7 +823,7 @@ var init_connection = __esm({
         this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       }
       async connect(wsUrl) {
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const ws = new WebSocket(wsUrl);
           let settled = false;
           const onOpen = () => {
@@ -833,7 +833,7 @@ var init_connection = __esm({
             ws.addEventListener("message", (event) => this.handleMessage(event));
             ws.addEventListener("close", () => this.handleClose());
             ws.addEventListener("error", () => this.handleClose());
-            resolve3();
+            resolve4();
           };
           const onError = () => {
             if (settled) return;
@@ -849,7 +849,7 @@ var init_connection = __esm({
           throw new Error("Not connected");
         }
         const id = ++this.nextId;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const timer = setTimeout(() => {
             if (this.pending.has(id)) {
               this.pending.delete(id);
@@ -860,7 +860,7 @@ var init_connection = __esm({
             }
           }, this.timeoutMs);
           this.pending.set(id, {
-            resolve: resolve3,
+            resolve: resolve4,
             reject,
             timer
           });
@@ -888,14 +888,14 @@ var init_connection = __esm({
         }
         if ("id" in data && this.pending.has(data.id)) {
           const id = data.id;
-          const { resolve: resolve3, reject, timer } = this.pending.get(id);
+          const { resolve: resolve4, reject, timer } = this.pending.get(id);
           clearTimeout(timer);
           this.pending.delete(id);
           if (data.error) {
             const err = data.error;
             reject(new Error(`CDP error ${err.code}: ${err.message}`));
           } else {
-            resolve3(data.result);
+            resolve4(data.result);
           }
         } else if ("method" in data) {
           const handlers = this.eventHandlers.get(data.method);
@@ -945,20 +945,20 @@ async function findFreePort(maxAttempts = 10) {
     const isFree = await checkPortFree(port);
     if (isFree) return port;
   }
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const srv = (0, import_node_net.createServer)();
     srv.listen(0, () => {
       const port = srv.address().port;
-      srv.close(() => resolve3(port));
+      srv.close(() => resolve4(port));
     });
     srv.on("error", reject);
   });
 }
 function checkPortFree(port) {
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     const srv = (0, import_node_net.createServer)();
-    srv.once("error", () => resolve3(false));
-    srv.listen(port, () => srv.close(() => resolve3(true)));
+    srv.once("error", () => resolve4(false));
+    srv.listen(port, () => srv.close(() => resolve4(true)));
   });
 }
 async function resolveWsEndpoint(cdpUrl) {
@@ -1094,17 +1094,17 @@ If you are running inside a sandbox, retry with connect mode:
         if (this._mode !== "local" || !this.process) return;
         const proc = this.process;
         this.process = null;
-        await new Promise((resolve3) => {
+        await new Promise((resolve4) => {
           const killTimer = setTimeout(() => {
             try {
               proc.kill("SIGKILL");
             } catch {
             }
-            resolve3();
+            resolve4();
           }, 3e3);
           proc.once("close", () => {
             clearTimeout(killTimer);
-            resolve3();
+            resolve4();
           });
           proc.kill("SIGTERM");
         });
@@ -2271,12 +2271,12 @@ var init_network = __esm({
        */
       async waitForResponse(predicate, options = {}) {
         const timeout = options.timeout ?? 3e4;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const waiter = {
             predicate,
             resolve: (value) => {
               clearTimeout(timer);
-              resolve3(value);
+              resolve4(value);
             }
           };
           const timer = setTimeout(() => {
@@ -3667,8 +3667,8 @@ var init_driver = __esm({
             totalInteractive: interactive.length
           };
         }
-        const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
-        const result = resolve3({
+        const { resolve: resolve4 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
+        const result = resolve4({
           intent: options.role ? `${name} ${options.role}` : name,
           elements: allElements,
           mode: "algorithmic"
@@ -4096,8 +4096,8 @@ var init_driver = __esm({
         if (this.pendingDialog) return void 0;
         let onDialog = () => {
         };
-        const dialogSignal = new Promise((resolve3) => {
-          onDialog = resolve3;
+        const dialogSignal = new Promise((resolve4) => {
+          onDialog = resolve4;
           this.dialogWaiters.add(onDialog);
         });
         try {
@@ -4143,10 +4143,10 @@ var init_driver = __esm({
        */
       async waitForDialog(timeout = 5e3) {
         if (this.pendingDialog) return this.pendingDialog;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const onDialog = () => {
             clearTimeout(timer);
-            resolve3(this.pendingDialog);
+            resolve4(this.pendingDialog);
           };
           const timer = setTimeout(() => {
             this.dialogWaiters.delete(onDialog);
@@ -10724,7 +10724,7 @@ function rateMetric(value, thresholds) {
 }
 async function measureWebVitals(page) {
   const metrics = await page.evaluate(() => {
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       const result = {
         LCP: null,
         FID: null,
@@ -10774,7 +10774,7 @@ async function measureWebVitals(page) {
         if (navEntry) {
           result.TTI = navEntry.domInteractive;
         }
-        resolve3(result);
+        resolve4(result);
       }, 3e3);
     });
   });
@@ -10979,11 +10979,11 @@ async function measureApiTiming(page, options = {}) {
   page.on("request", requestHandler);
   page.on("response", responseHandler);
   page.on("requestfailed", requestFailedHandler);
-  await new Promise((resolve3) => {
+  await new Promise((resolve4) => {
     const startWait = Date.now();
     const check = () => {
       if (requests.size === 0 || Date.now() - startWait > timeout) {
-        resolve3();
+        resolve4();
         return;
       }
       setTimeout(check, 100);
@@ -11256,7 +11256,7 @@ async function bootDevice(udid) {
     return;
   }
   await execFileAsync("xcrun", ["simctl", "boot", udid]);
-  await new Promise((resolve3) => setTimeout(resolve3, 2e3));
+  await new Promise((resolve4) => setTimeout(resolve4, 2e3));
 }
 function formatDevice(device) {
   const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
@@ -11781,7 +11781,7 @@ async function activateMacOSProcess(pid) {
   }
 }
 function sleep(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const enhanced = [];
@@ -12561,14 +12561,14 @@ __export(crop_exports, {
   cropPng: () => cropPng
 });
 function loadPng(path) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const png = new import_pngjs3.PNG();
-    (0, import_fs4.createReadStream)(path).pipe(png).on("parsed", () => resolve3(png)).on("error", reject);
+    (0, import_fs4.createReadStream)(path).pipe(png).on("parsed", () => resolve4(png)).on("error", reject);
   });
 }
 function writePng(png, path) {
-  return new Promise((resolve3, reject) => {
-    png.pack().pipe((0, import_fs4.createWriteStream)(path)).on("finish", resolve3).on("error", reject);
+  return new Promise((resolve4, reject) => {
+    png.pack().pipe((0, import_fs4.createWriteStream)(path)).on("finish", resolve4).on("error", reject);
   });
 }
 function clamp(v, lo, hi) {
@@ -12997,7 +12997,7 @@ var init_browser_pool = __esm({
       async acquire() {
         if (this.closed) throw new Error("BrowserPool is closed");
         if (this.inUse) {
-          await new Promise((resolve3) => this.waiters.push(resolve3));
+          await new Promise((resolve4) => this.waiters.push(resolve4));
           if (this.closed) throw new Error("BrowserPool is closed");
         } else {
           this.inUse = true;
@@ -13252,14 +13252,14 @@ var init_session2 = __esm({
       async stop() {
         if (!this.process) return;
         this.process.kill("SIGTERM");
-        await new Promise((resolve3) => {
+        await new Promise((resolve4) => {
           const timeout = setTimeout(() => {
             this.process?.kill("SIGKILL");
-            resolve3();
+            resolve4();
           }, 2e3);
           this.process.once("exit", () => {
             clearTimeout(timeout);
-            resolve3();
+            resolve4();
           });
         });
         this.process = null;
@@ -13297,14 +13297,14 @@ var init_session2 = __esm({
         );
       }
       async findFreePort() {
-        const { createServer: createServer2 } = await import("net");
+        const { createServer: createServer3 } = await import("net");
         for (let p = PORT_RANGE_START; p <= PORT_RANGE_END; p++) {
-          const available = await new Promise((resolve3) => {
-            const server = createServer2();
-            server.once("error", () => resolve3(false));
+          const available = await new Promise((resolve4) => {
+            const server = createServer3();
+            server.once("error", () => resolve4(false));
             server.once("listening", () => {
               server.close();
-              resolve3(true);
+              resolve4(true);
             });
             server.listen(p, "127.0.0.1");
           });
@@ -14015,6 +14015,726 @@ var init_scan3 = __esm({
     "use strict";
     import_fs8 = require("fs");
     init_parser();
+  }
+});
+
+// src/obsidian/stub.ts
+function buildObsidianStub(options) {
+  const isMobile = options.mobile ? "true" : "false";
+  return `
+/* ---- IBR Obsidian stub: DOM extensions over real DOM ---- */
+(function () {
+  var P = HTMLElement.prototype;
+
+  function applyInfo(el, o) {
+    if (o == null) return el;
+    if (typeof o === 'string') { el.className = o; return el; }
+    if (o.cls != null) el.className = Array.isArray(o.cls) ? o.cls.join(' ') : String(o.cls);
+    if (o.text != null) {
+      if (typeof o.text === 'string' || typeof o.text === 'number') el.textContent = String(o.text);
+      else el.appendChild(o.text); // DocumentFragment
+    }
+    if (o.attr) {
+      for (var k in o.attr) {
+        if (!Object.prototype.hasOwnProperty.call(o.attr, k)) continue;
+        var v = o.attr[k];
+        if (v != null && v !== false) el.setAttribute(k, String(v));
+      }
+    }
+    if (o.title != null) el.setAttribute('title', String(o.title));
+    if (o.type != null) el.setAttribute('type', String(o.type));
+    if (o.value != null) el.value = String(o.value);
+    if (o.placeholder != null) el.setAttribute('placeholder', String(o.placeholder));
+    if (o.href != null) el.setAttribute('href', String(o.href));
+    return el;
+  }
+
+  function createEl(tag, o, cb) {
+    var el = document.createElement(tag);
+    applyInfo(el, o);
+    var parent = (o && o.parent) || this;
+    if (parent && parent.appendChild) {
+      if (o && o.prepend) parent.insertBefore(el, parent.firstChild);
+      else parent.appendChild(el);
+    }
+    if (typeof cb === 'function') cb(el);
+    return el;
+  }
+
+  P.createEl = createEl;
+  P.createDiv = function (o, cb) { return createEl.call(this, 'div', o, cb); };
+  P.createSpan = function (o, cb) { return createEl.call(this, 'span', o, cb); };
+  P.setText = function (t) {
+    if (t != null && typeof t === 'object' && t.nodeType) { this.textContent = ''; this.appendChild(t); return; }
+    this.textContent = t == null ? '' : String(t);
+  };
+  P.empty = function () { while (this.firstChild) this.removeChild(this.firstChild); };
+  P.addClass = function () { for (var i = 0; i < arguments.length; i++) if (arguments[i]) this.classList.add(arguments[i]); };
+  P.removeClass = function () { for (var i = 0; i < arguments.length; i++) if (arguments[i]) this.classList.remove(arguments[i]); };
+  P.toggleClass = function (c, v) {
+    var list = Array.isArray(c) ? c : [c];
+    for (var i = 0; i < list.length; i++) this.classList.toggle(list[i], v);
+  };
+  P.hasClass = function (c) { return this.classList.contains(c); };
+  P.setAttr = function (n, v) { if (v == null || v === false) this.removeAttribute(n); else this.setAttribute(n, String(v)); };
+  P.setAttrs = function (o) { for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) this.setAttr(k, o[k]); };
+  P.getAttr = function (n) { return this.getAttribute(n); };
+  P.detach = function () { if (this.parentNode) this.parentNode.removeChild(this); };
+  P.appendText = function (t) { this.appendChild(document.createTextNode(String(t))); };
+  P.setCssStyles = function (styles) { for (var k in styles) if (Object.prototype.hasOwnProperty.call(styles, k)) this.style[k] = styles[k]; };
+  P.setCssProps = function (props) { for (var k in props) if (Object.prototype.hasOwnProperty.call(props, k)) this.style.setProperty(k, props[k]); };
+  P.onClickEvent = function (fn, opts) { this.addEventListener('click', fn, opts); };
+  P.show = function () { this.style.display = ''; };
+  P.hide = function () { this.style.display = 'none'; };
+  P.toggleVisibility = function (v) { v ? this.show() : this.hide(); };
+
+  Document.prototype.createEl = function (tag, o, cb) { return createEl.call(this.body, tag, o, cb); };
+  Document.prototype.createDiv = function (o, cb) { return createEl.call(this.body, 'div', o, cb); };
+  Document.prototype.createSpan = function (o, cb) { return createEl.call(this.body, 'span', o, cb); };
+  if (typeof DocumentFragment !== 'undefined') {
+    DocumentFragment.prototype.createEl = createEl;
+    DocumentFragment.prototype.createDiv = function (o, cb) { return createEl.call(this, 'div', o, cb); };
+    DocumentFragment.prototype.createSpan = function (o, cb) { return createEl.call(this, 'span', o, cb); };
+  }
+  window.createEl = function (tag, o, cb) { return createEl.call(document.body, tag, o, cb); };
+  window.createDiv = function (o, cb) { return createEl.call(document.body, 'div', o, cb); };
+  window.createSpan = function (o, cb) { return createEl.call(document.body, 'span', o, cb); };
+  window.createFragment = function (cb) { var f = document.createDocumentFragment(); if (cb) cb(f); return f; };
+})();
+
+/* ---- IBR Obsidian stub: module shim ---- */
+window.__IBR_STUB_ERRORS = [];
+(function () {
+  function record(msg) {
+    window.__IBR_STUB_ERRORS.push(msg);
+    // Surfaced to scan() via its console capture \u2014 see scanObsidian's
+    // deriveHarnessIssues(). console.error is the transport, not decoration.
+    console.error(msg);
+  }
+
+  function fail(api) {
+    var msg = 'IBR obsidian-stub: unstubbed API used: ' + api;
+    record(msg);
+    throw new Error(msg);
+  }
+
+  // Reads that JS itself performs on any value (typeof checks, class extends,
+  // promise resolution). Throwing on these would break the mount for APIs the
+  // plugin merely destructures, so they resolve quietly; USE still throws.
+  var PASSIVE = { then: 1, constructor: 1, prototype: 1, name: 1, length: 1, valueOf: 1, toString: 1, inspect: 1, nodeType: 1 };
+
+  function loudStub(name) {
+    var target = function () {};
+    Object.defineProperty(target, 'name', { value: name });
+    return new Proxy(target, {
+      get: function (t, prop) {
+        if (typeof prop === 'symbol') return t[prop];
+        if (Object.prototype.hasOwnProperty.call(PASSIVE, prop)) return t[prop];
+        fail(name + '.' + String(prop));
+      },
+      apply: function () { fail(name + '()'); },
+      construct: function () { fail('new ' + name + '()'); },
+    });
+  }
+
+  var noop = function () {};
+
+  function Component() {}
+  Component.prototype.load = noop;
+  Component.prototype.unload = noop;
+  Component.prototype.onload = noop;
+  Component.prototype.onunload = noop;
+  Component.prototype.addChild = function (c) { return c; };
+  Component.prototype.removeChild = function (c) { return c; };
+  Component.prototype.register = noop;
+  Component.prototype.registerEvent = noop;
+  Component.prototype.registerInterval = function (id) { return id; };
+  Component.prototype.registerDomEvent = function (el, type, fn, opts) {
+    if (el && el.addEventListener) el.addEventListener(type, fn, opts);
+  };
+
+  function ItemView(leaf, plugin) {
+    Component.call(this);
+    this.leaf = leaf;
+    this.plugin = plugin;
+    this.app = (leaf && leaf.app) || {};
+    this.containerEl = (leaf && leaf.containerEl) || null;
+  }
+  ItemView.prototype = Object.create(Component.prototype);
+  ItemView.prototype.constructor = ItemView;
+  ItemView.prototype.getViewType = function () { return 'ibr-stub-view'; };
+  ItemView.prototype.getDisplayText = function () { return 'IBR Stub View'; };
+  ItemView.prototype.getIcon = function () { return 'document'; };
+  ItemView.prototype.onOpen = function () { return Promise.resolve(); };
+  ItemView.prototype.onClose = function () { return Promise.resolve(); };
+
+  function Modal(app) {
+    Component.call(this);
+    this.app = app;
+    this.containerEl = document.createElement('div');
+    this.modalEl = document.createElement('div');
+    this.contentEl = document.createElement('div');
+    this.titleEl = document.createElement('div');
+    this.modalEl.appendChild(this.titleEl);
+    this.modalEl.appendChild(this.contentEl);
+    this.containerEl.appendChild(this.modalEl);
+  }
+  Modal.prototype = Object.create(Component.prototype);
+  Modal.prototype.constructor = Modal;
+  Modal.prototype.open = function () {
+    document.body.appendChild(this.containerEl);
+    if (typeof this.onOpen === 'function') this.onOpen();
+  };
+  Modal.prototype.close = function () {
+    if (typeof this.onClose === 'function') this.onClose();
+    if (this.containerEl.parentNode) this.containerEl.parentNode.removeChild(this.containerEl);
+  };
+
+  function Plugin(app, manifest) { Component.call(this); this.app = app; this.manifest = manifest; }
+  Plugin.prototype = Object.create(Component.prototype);
+  Plugin.prototype.constructor = Plugin;
+  Plugin.prototype.addRibbonIcon = function () { return document.createElement('div'); };
+  Plugin.prototype.addStatusBarItem = function () { return document.createElement('div'); };
+  Plugin.prototype.addCommand = function (c) { return c; };
+  Plugin.prototype.addSettingTab = noop;
+  Plugin.prototype.registerView = noop;
+  Plugin.prototype.loadData = function () { return Promise.resolve(null); };
+  Plugin.prototype.saveData = function () { return Promise.resolve(); };
+
+  function PluginSettingTab(app, plugin) {
+    Component.call(this);
+    this.app = app;
+    this.plugin = plugin;
+    this.containerEl = document.createElement('div');
+  }
+  PluginSettingTab.prototype = Object.create(Component.prototype);
+  PluginSettingTab.prototype.constructor = PluginSettingTab;
+  PluginSettingTab.prototype.display = noop;
+  PluginSettingTab.prototype.hide = noop;
+
+  // Chainable no-op; every add*() yields a control whose own setters chain too,
+  // so a settings tab renders its container without a real Obsidian app.
+  function chainableControl() {
+    var c = {};
+    ['setValue', 'setPlaceholder', 'setDisabled', 'onChange', 'onClick', 'setButtonText',
+      'setCta', 'setWarning', 'setIcon', 'setTooltip', 'setDynamicTooltip', 'addOption',
+      'addOptions', 'setLimits', 'setInstant', 'then'].forEach(function (m) {
+      c[m] = function () { return c; };
+    });
+    c.inputEl = document.createElement('input');
+    c.buttonEl = document.createElement('button');
+    c.selectEl = document.createElement('select');
+    c.toggleEl = document.createElement('div');
+    c.sliderEl = document.createElement('input');
+    return c;
+  }
+  function Setting(containerEl) {
+    this.containerEl = containerEl;
+    this.settingEl = document.createElement('div');
+    this.infoEl = document.createElement('div');
+    this.nameEl = document.createElement('div');
+    this.descEl = document.createElement('div');
+    this.controlEl = document.createElement('div');
+    if (containerEl && containerEl.appendChild) containerEl.appendChild(this.settingEl);
+  }
+  ['setName', 'setDesc', 'setClass', 'setHeading', 'setDisabled', 'setTooltip', 'then', 'clear'].forEach(function (m) {
+    Setting.prototype[m] = function () { return this; };
+  });
+  ['addText', 'addTextArea', 'addToggle', 'addDropdown', 'addButton', 'addExtraButton',
+    'addSlider', 'addSearch', 'addMomentFormat', 'addColorPicker', 'addProgressBar'].forEach(function (m) {
+    Setting.prototype[m] = function (cb) { if (typeof cb === 'function') cb(chainableControl()); return this; };
+  });
+
+  function Menu() { this.items = []; }
+  Menu.prototype.addItem = function (cb) {
+    var item = {};
+    ['setTitle', 'setIcon', 'setChecked', 'setDisabled', 'setSection', 'onClick'].forEach(function (m) {
+      item[m] = function () { return item; };
+    });
+    if (typeof cb === 'function') cb(item);
+    this.items.push(item);
+    return this;
+  };
+  Menu.prototype.addSeparator = function () { return this; };
+  Menu.prototype.showAtMouseEvent = noop;
+  Menu.prototype.showAtPosition = noop;
+  Menu.prototype.hide = noop;
+
+  function Notice(message) {
+    this.message = message;
+    window.__IBR_NOTICES = window.__IBR_NOTICES || [];
+    window.__IBR_NOTICES.push(String(message));
+    this.noticeEl = document.createElement('div');
+  }
+  Notice.prototype.setMessage = function (m) { this.message = m; return this; };
+  Notice.prototype.hide = noop;
+
+  function TFile() { this.path = ''; this.name = ''; this.basename = ''; this.extension = ''; }
+  function TFolder() { this.path = ''; this.name = ''; this.children = []; }
+
+  var known = {
+    Component: Component,
+    ItemView: ItemView,
+    View: ItemView,
+    Modal: Modal,
+    Plugin: Plugin,
+    PluginSettingTab: PluginSettingTab,
+    Setting: Setting,
+    Menu: Menu,
+    Notice: Notice,
+    TFile: TFile,
+    TFolder: TFolder,
+    TAbstractFile: TFile,
+    Platform: {
+      isMobile: ${isMobile},
+      isDesktop: !${isMobile},
+      isPhone: ${isMobile},
+      isTablet: false,
+      isMobileApp: ${isMobile},
+      isDesktopApp: !${isMobile},
+      isIosApp: false,
+      isAndroidApp: false,
+      isMacOS: true,
+      isWin: false,
+      isLinux: false,
+      isSafari: false,
+    },
+    setIcon: function (el, name) {
+      if (!el || !el.setAttribute) return;
+      el.setAttribute('data-icon', String(name));
+      el.classList.add('ibr-stub-icon');
+    },
+    getIcon: function () { return null; },
+    setTooltip: function (el, text) { if (el && el.setAttribute) el.setAttribute('aria-label', String(text)); },
+    requestUrl: function () {
+      return Promise.resolve({ status: 200, headers: {}, arrayBuffer: new ArrayBuffer(0), json: {}, text: '' });
+    },
+    request: function () { return Promise.resolve(''); },
+    normalizePath: function (p) { return String(p).replace(/\\\\/g, '/').replace(/^\\/+|\\/+$/g, ''); },
+    debounce: function (fn, timeout) {
+      var t = null;
+      var wrapped = function () {
+        var args = arguments, self = this;
+        if (t) clearTimeout(t);
+        t = setTimeout(function () { fn.apply(self, args); }, timeout || 0);
+      };
+      wrapped.cancel = function () { if (t) clearTimeout(t); return wrapped; };
+      wrapped.run = function () { return wrapped; };
+      return wrapped;
+    },
+    addIcon: noop,
+    parseYaml: function () { return {}; },
+    stringifyYaml: function () { return ''; },
+    sanitizeHTMLToDom: function (html) {
+      var t = document.createElement('template');
+      t.innerHTML = String(html);
+      return t.content;
+    },
+    MarkdownRenderer: { render: function () { return Promise.resolve(); }, renderMarkdown: function () { return Promise.resolve(); } },
+  };
+
+  // Any obsidian export not modeled above resolves to a loud stub. This is the
+  // difference between "the harness told you setIcon2 is missing" and "undefined
+  // is not a function, somewhere, 200 lines into a bundle".
+  var obsidian = new Proxy(known, {
+    get: function (t, prop) {
+      if (typeof prop === 'symbol') return t[prop];
+      if (Object.prototype.hasOwnProperty.call(t, prop)) return t[prop];
+      if (Object.prototype.hasOwnProperty.call(PASSIVE, prop)) return undefined;
+      return loudStub('obsidian.' + String(prop));
+    },
+    has: function () { return true; },
+  });
+
+  window.__IBR_OBSIDIAN = obsidian;
+  window.module = { exports: {} };
+  window.exports = window.module.exports;
+  window.require = function (name) {
+    if (name === 'obsidian') return obsidian;
+    fail('require("' + name + '")');
+  };
+})();
+`;
+}
+var init_stub = __esm({
+  "src/obsidian/stub.ts"() {
+    "use strict";
+  }
+});
+
+// src/obsidian/harness.ts
+function escapeForInlineScript(js) {
+  return js.replace(/<\/script/gi, "<\\/script");
+}
+function escapeForInlineStyle(css) {
+  return css.replace(/<\/style/gi, "<\\/style");
+}
+function readRequired(path, label) {
+  if (!(0, import_node_fs2.existsSync)(path)) {
+    throw new Error(`${label} not found: ${path}`);
+  }
+  return (0, import_node_fs2.readFileSync)(path, "utf8");
+}
+function resolvePluginPaths(pluginPath) {
+  const abs = (0, import_node_path2.isAbsolute)(pluginPath) ? pluginPath : (0, import_node_path2.resolve)(process.cwd(), pluginPath);
+  if (abs.endsWith(".js")) {
+    return { bundlePath: abs };
+  }
+  const bundlePath = (0, import_node_path2.join)(abs, "main.js");
+  const stylesPath = (0, import_node_path2.join)(abs, "styles.css");
+  return { bundlePath, stylesPath: (0, import_node_fs2.existsSync)(stylesPath) ? stylesPath : void 0 };
+}
+function buildMountScript(input) {
+  const viewStateJson = JSON.stringify(input.viewState ?? {});
+  const pluginStateJson = JSON.stringify(input.pluginState ?? {});
+  const viewClass = JSON.stringify(input.viewClass);
+  const postMount = input.postMount ?? "";
+  return `
+(function () {
+  function markError(stage, err) {
+    var message = String((err && err.stack) || err);
+    window.__IBR_MOUNT_OK = false;
+    window.__IBR_MOUNT_ERROR = message;
+    document.body.setAttribute('data-ibr-mount', 'error');
+    document.body.setAttribute('data-ibr-mount-stage', stage);
+    console.error('IBR obsidian-harness: mount failed at ' + stage + ': ' + message);
+    var banner = document.createElement('pre');
+    banner.id = 'ibr-mount-error';
+    banner.setAttribute('role', 'alert');
+    banner.style.cssText = 'margin:0;padding:16px;background:#7f1d1d;color:#fff;font:12px/1.5 ui-monospace,monospace;white-space:pre-wrap;';
+    banner.textContent = 'IBR harness mount failed at ' + stage + '\\n\\n' + message;
+    document.body.insertBefore(banner, document.body.firstChild);
+  }
+
+  var view;
+  try {
+    var exported = window.module.exports || {};
+    var View = exported[${viewClass}] || (exported.default && exported.default[${viewClass}]);
+    if (typeof View !== 'function') {
+      var available = Object.keys(exported).join(', ') || '(none)';
+      throw new Error('view class ' + ${viewClass} + ' is not exported from the bundle. Available exports: ' + available);
+    }
+
+    // Obsidian's ItemView contract: containerEl.children[1] is the content area
+    // (children[0] is the view header). Reproduce that shape exactly.
+    var containerEl = document.getElementById('ibr-container');
+    var headerEl = document.createElement('div');
+    headerEl.className = 'view-header';
+    var contentEl = document.createElement('div');
+    contentEl.className = 'view-content';
+    containerEl.appendChild(headerEl);
+    containerEl.appendChild(contentEl);
+
+    var plugin = Object.assign({
+      app: {},
+      settings: {},
+      views: new Set(),
+      manifest: { id: 'ibr-harness', version: '0.0.0' },
+      saveData: function () { return Promise.resolve(); },
+      loadData: function () { return Promise.resolve(null); },
+    }, ${pluginStateJson});
+
+    var leaf = { app: plugin.app, containerEl: containerEl, view: null };
+    view = new View(leaf, plugin);
+    view.containerEl = containerEl;
+    view.app = plugin.app;
+    leaf.view = view;
+
+    var state = ${viewStateJson};
+    for (var k in state) if (Object.prototype.hasOwnProperty.call(state, k)) view[k] = state[k];
+  } catch (e) {
+    markError('construct', e);
+    return;
+  }
+
+  try {
+    // render() is this plugin family's idiom; onOpen() is Obsidian's lifecycle
+    // hook. Prefer render() when present, fall back to onOpen().
+    if (typeof view.render === 'function') view.render();
+    else if (typeof view.onOpen === 'function') view.onOpen();
+    else throw new Error('view exposes neither render() nor onOpen()');
+  } catch (e) {
+    markError('render', e);
+    return;
+  }
+
+  window.__IBR_VIEW = view;
+  var root = view.rootEl || document.querySelector('#ibr-container .view-content');
+  window.__IBR_ROOT = root;
+
+  try {
+    ${postMount}
+  } catch (e) {
+    markError('post-mount', e);
+    return;
+  }
+
+  window.__IBR_MOUNT_OK = true;
+  document.body.setAttribute('data-ibr-mount', 'ok');
+})();
+`;
+}
+function generateHarness(input) {
+  const bundle = readRequired(input.bundlePath, "Plugin bundle");
+  const css = input.stylesPath ? readRequired(input.stylesPath, "Plugin stylesheet") : "";
+  const stub = buildObsidianStub({ mobile: input.mobile });
+  const mount = buildMountScript(input);
+  const themeClass = input.theme === "light" ? "theme-light" : "theme-dark";
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IBR Obsidian harness \u2014 ${input.viewClass}</title>
+<style>
+/* Obsidian-ish baseline. The plugin stylesheet below owns everything visual;
+   this only removes the UA margin and supplies the font stack a real Obsidian
+   window would, so measured layout is not skewed by browser defaults. */
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  background: var(--background-primary, #1e1e1e);
+  color: var(--text-normal, #dcddde);
+}
+#ibr-container, #ibr-container .view-content { height: 100%; }
+</style>
+<style>
+${escapeForInlineStyle(css)}
+</style>
+${input.extraCss ? `<style>
+${escapeForInlineStyle(input.extraCss)}
+</style>` : ""}
+</head>
+<body class="${themeClass} ${OBSIDIAN_BODY_CLASSES}">
+<div id="ibr-container" class="workspace-leaf-content"></div>
+<script>${escapeForInlineScript(stub)}</script>
+<script>${escapeForInlineScript(bundle)}</script>
+<script>${escapeForInlineScript(mount)}</script>
+</body>
+</html>
+`;
+}
+var import_node_fs2, import_node_path2, OBSIDIAN_BODY_CLASSES;
+var init_harness = __esm({
+  "src/obsidian/harness.ts"() {
+    "use strict";
+    import_node_fs2 = require("fs");
+    import_node_path2 = require("path");
+    init_stub();
+    OBSIDIAN_BODY_CLASSES = "mod-macos is-focused";
+  }
+});
+
+// src/obsidian/server.ts
+async function serveHarness(html) {
+  const server = (0, import_node_http.createServer)((req, res) => {
+    if (req.url && req.url !== "/" && !req.url.startsWith("/?")) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("not found");
+      return;
+    }
+    res.writeHead(200, {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store"
+    });
+    res.end(html);
+  });
+  await new Promise((resolvePromise, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => resolvePromise());
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("harness server failed to bind a loopback port");
+  }
+  return {
+    url: `http://127.0.0.1:${address.port}/`,
+    port: address.port,
+    close: () => new Promise((resolvePromise) => {
+      server.closeAllConnections?.();
+      server.close(() => resolvePromise());
+    })
+  };
+}
+var import_node_http;
+var init_server = __esm({
+  "src/obsidian/server.ts"() {
+    "use strict";
+    import_node_http = require("http");
+  }
+});
+
+// src/obsidian/scan.ts
+function resolveObsidianViewport(viewport) {
+  if (!viewport) return VIEWPORTS["iphone-14"] ?? VIEWPORTS.mobile;
+  if (typeof viewport !== "string") return viewport;
+  const preset = VIEWPORTS[viewport];
+  if (!preset) {
+    const names = Object.keys(VIEWPORTS).join(", ");
+    throw new Error(`Unknown viewport "${viewport}". Known: ${names}`);
+  }
+  return preset;
+}
+function deriveHarnessIssues(consoleErrors) {
+  return consoleErrors.filter((line) => HARNESS_ERROR_PREFIXES.some((prefix) => line.includes(prefix))).map((line) => ({
+    category: "structure",
+    severity: "error",
+    description: line,
+    fix: line.includes("unstubbed API") ? "Add the named export to src/obsidian/stub.ts, or supply it via pluginState." : "The view failed to mount \u2014 every other finding in this scan is unreliable until it does."
+  }));
+}
+function isMountMarkerMissing(result) {
+  return result.verdict === "PARTIAL" && /selector not found/i.test(result.partialReason ?? "");
+}
+function dropDuplicatedConsoleIssues(issues) {
+  return issues.filter(
+    (issue) => !(issue.category === "console" && HARNESS_ERROR_PREFIXES.some((prefix) => issue.description.includes(prefix)))
+  );
+}
+function inferMobile(explicit, viewport) {
+  if (explicit !== void 0) return explicit;
+  return viewport.width <= MOBILE_WIDTH_CEILING;
+}
+function loadViewState(options) {
+  const fromFile = {};
+  if (options.viewStatePath) {
+    if (!(0, import_node_fs3.existsSync)(options.viewStatePath)) {
+      throw new Error(`view state file not found: ${options.viewStatePath}`);
+    }
+    Object.assign(fromFile, JSON.parse((0, import_node_fs3.readFileSync)(options.viewStatePath, "utf8")));
+  }
+  return { ...fromFile, ...options.viewState ?? {} };
+}
+async function scanObsidian(options) {
+  const resolved = resolvePluginPaths(options.pluginPath);
+  const bundlePath = options.bundlePath ?? resolved.bundlePath;
+  const stylesPath = options.stylesPath ?? resolved.stylesPath;
+  const viewport = resolveObsidianViewport(options.viewport);
+  const mobile = inferMobile(options.mobile, viewport);
+  const theme = options.theme ?? "dark";
+  const harnessInput = {
+    bundlePath,
+    stylesPath,
+    viewClass: options.viewClass,
+    mobile,
+    theme,
+    viewState: loadViewState(options),
+    pluginState: options.pluginState,
+    postMount: options.postMount,
+    extraCss: options.extraCss
+  };
+  const html = generateHarness(harnessInput);
+  const harnessPath = options.harnessOut ?? (0, import_node_path3.join)((0, import_node_fs3.mkdtempSync)((0, import_node_path3.join)((0, import_node_os2.tmpdir)(), "ibr-obsidian-")), "harness.html");
+  (0, import_node_fs3.writeFileSync)(harnessPath, html, "utf8");
+  const server = await serveHarness(html);
+  try {
+    const mountTimeout = options.mountTimeout ?? DEFAULT_MOUNT_TIMEOUT_MS;
+    const scanOptions = {
+      viewport,
+      rules: options.rules ?? ["touch-targets", "wcag-contrast"],
+      // The harness is a plain script — no framework to hydrate. The wait would
+      // only add latency.
+      hydrationStrategy: "none",
+      waitFor: MOUNT_SELECTOR,
+      // Not "be patient" — this is what makes the waitFor above a real gate
+      // rather than an ignored return value. See DEFAULT_MOUNT_TIMEOUT_MS.
+      patience: mountTimeout,
+      timeout: options.timeout ?? 3e4,
+      screenshot: options.screenshot ? { path: options.screenshot } : void 0
+    };
+    const result = await scan(server.url, scanOptions);
+    const harnessIssues = deriveHarnessIssues(result.console.errors);
+    if (isMountMarkerMissing(result)) {
+      result.issues = [
+        {
+          category: "structure",
+          severity: "error",
+          description: `Harness mount marker ${MOUNT_SELECTOR} never appeared after ${mountTimeout}ms \u2014 the mount script did not run to completion. Every other finding in this scan is unreliable.`,
+          fix: "Open the harness HTML (see harness.path) in a browser and read the console. A syntax error in post_mount is the usual cause."
+        },
+        ...result.issues
+      ];
+      result.verdict = "FAIL";
+    } else if (harnessIssues.length > 0) {
+      result.issues = [...harnessIssues, ...dropDuplicatedConsoleIssues(result.issues)];
+      result.verdict = "FAIL";
+    }
+    result.harness = {
+      path: harnessPath,
+      url: server.url,
+      bundlePath,
+      stylesPath,
+      viewClass: options.viewClass,
+      mobile,
+      theme
+    };
+    return result;
+  } finally {
+    await server.close();
+  }
+}
+function formatObsidianScanResult(result) {
+  const lines = [
+    `Obsidian View Scan: ${result.harness.viewClass}`,
+    `Bundle: ${result.harness.bundlePath}`,
+    `Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height}) \xB7 Platform.isMobile=${result.harness.mobile}`,
+    `Harness: ${result.harness.path}`,
+    `Verdict: ${result.verdict}`,
+    result.summary
+  ];
+  const errors = result.issues.filter((i) => i.severity === "error");
+  const warnings = result.issues.filter((i) => i.severity === "warning");
+  if (errors.length || warnings.length) {
+    lines.push("", `Issues: ${errors.length} error, ${warnings.length} warning`);
+    for (const issue of [...errors, ...warnings].slice(0, 15)) {
+      lines.push(`- [${issue.severity}] ${issue.description}`);
+    }
+    if (errors.length + warnings.length > 15) {
+      lines.push(`  ... and ${errors.length + warnings.length - 15} more`);
+    }
+  }
+  return lines.join("\n");
+}
+var import_node_fs3, import_node_path3, import_node_os2, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS;
+var init_scan4 = __esm({
+  "src/obsidian/scan.ts"() {
+    "use strict";
+    import_node_fs3 = require("fs");
+    import_node_path3 = require("path");
+    import_node_os2 = require("os");
+    init_scan();
+    init_schemas();
+    init_harness();
+    init_server();
+    MOBILE_WIDTH_CEILING = 480;
+    HARNESS_ERROR_PREFIXES = ["IBR obsidian-harness:", "IBR obsidian-stub:"];
+    MOUNT_SELECTOR = "[data-ibr-mount]";
+    DEFAULT_MOUNT_TIMEOUT_MS = 1e4;
+  }
+});
+
+// src/obsidian/index.ts
+var obsidian_exports = {};
+__export(obsidian_exports, {
+  buildObsidianStub: () => buildObsidianStub,
+  deriveHarnessIssues: () => deriveHarnessIssues,
+  formatObsidianScanResult: () => formatObsidianScanResult,
+  generateHarness: () => generateHarness,
+  inferMobile: () => inferMobile,
+  resolveObsidianViewport: () => resolveObsidianViewport,
+  resolvePluginPaths: () => resolvePluginPaths,
+  scanObsidian: () => scanObsidian,
+  serveHarness: () => serveHarness
+});
+var init_obsidian = __esm({
+  "src/obsidian/index.ts"() {
+    "use strict";
+    init_stub();
+    init_harness();
+    init_server();
+    init_scan4();
   }
 });
 
@@ -16258,12 +16978,12 @@ var AXDaemon = class {
     }
   }
   waitForReady() {
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const timer = setTimeout(() => {
         this.kill("daemon startup timed out");
         reject(new DaemonError("daemon startup timed out"));
       }, this.startTimeoutMs);
-      this.readyResolver = { resolve: resolve3, reject, timer };
+      this.readyResolver = { resolve: resolve4, reject, timer };
     });
   }
   readyResolver = null;
@@ -16325,13 +17045,13 @@ var AXDaemon = class {
     const child = this.child;
     if (!child) return Promise.reject(new DaemonError("daemon not started"));
     const id = this.nextId++;
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         this.kill(`daemon request ${id} timed out`);
         reject(new DaemonError(`daemon request timed out (op=${req.op})`));
       }, this.requestTimeoutMs);
-      this.pending.set(id, { resolve: resolve3, reject, timer });
+      this.pending.set(id, { resolve: resolve4, reject, timer });
       try {
         child.stdin.write(JSON.stringify({ id, ...req }) + "\n");
       } catch (err) {
@@ -16419,7 +17139,7 @@ function axSignature(extraction) {
   return `count=${countElements(extraction.elements)}`;
 }
 function sleep2(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function keystrokeSuccess(chord, method, before, after) {
   return {
@@ -16512,7 +17232,7 @@ var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
 var BUNDLE_ID_RE = /^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/;
 function sleep3(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 async function pollUntil(check, timeoutMs) {
   const started = Date.now();
@@ -16782,7 +17502,7 @@ function axSignature2(extraction) {
   return `count=${countElements2(extraction.elements)}`;
 }
 function sleep4(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function menuLabel(menuPath) {
   return menuPath.join(" > ");
@@ -17811,7 +18531,7 @@ function safeFilePart(value) {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
 }
 function sleep5(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function formatNativeCandidate(candidate) {
   return {
@@ -19551,6 +20271,73 @@ var TOOLS = [
     }
   },
   {
+    name: "scan_obsidian",
+    description: "Mount an Obsidian plugin view in a REAL browser and run the full IBR scan against it \u2014 computed styles (var()/calc() resolved to real values), real layout and cascade, box geometry, pseudo-elements, touch targets, contrast, and accessibility. Use this instead of scan_static for any Obsidian view: scan_static is a regex parser and resolves none of those. Generates a self-contained harness page that patches Obsidian's DOM extensions onto real DOM and stubs the `obsidian` module, mounts the named view class, then scans it.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        plugin_path: {
+          type: "string",
+          description: "Absolute path to the plugin directory (containing main.js and styles.css), or directly to the built main.js bundle."
+        },
+        view_class: {
+          type: "string",
+          description: "Name of the view class exported from the bundle, e.g. 'DailyPlannerView'. Must be reachable on module.exports."
+        },
+        viewport: {
+          type: "string",
+          description: "Viewport preset (e.g. 'iphone-14' = 390px, 'mobile', 'tablet', 'desktop'). Default: iphone-14."
+        },
+        mobile: {
+          type: "boolean",
+          description: "Value for Platform.isMobile, which drives the plugin's mobile code branch. Default: inferred from viewport width (<=480 \u2192 true)."
+        },
+        theme: {
+          type: "string",
+          enum: ["dark", "light"],
+          description: "Obsidian theme class applied to <body>. Default: dark."
+        },
+        view_state: {
+          type: "object",
+          description: "Properties assigned onto the view instance before render \u2014 the fixture. E.g. { tasks: [...], date: '2026-07-16', mode: 'plan' }."
+        },
+        view_state_path: {
+          type: "string",
+          description: "Path to a JSON file supplying view_state. Merged under inline view_state."
+        },
+        plugin_state: {
+          type: "object",
+          description: "Properties assigned onto the fake plugin object passed to the view constructor (e.g. settings)."
+        },
+        post_mount: {
+          type: "string",
+          description: 'JavaScript evaluated in the page after mount, with `view` and `root` in scope. Use to open a transient surface before scanning, e.g. "view.openEstimatePicker(30, () => {}, document.body)".'
+        },
+        harness_out: {
+          type: "string",
+          description: "Write the generated harness HTML here for inspection. Default: a temp directory (never the plugin directory)."
+        },
+        screenshot: {
+          type: "string",
+          description: "Save a screenshot of the mounted view to this path."
+        },
+        rules: {
+          type: "array",
+          items: { type: "string" },
+          description: "Rule presets to enable. Default: ['touch-targets', 'wcag-contrast']."
+        }
+      },
+      required: ["plugin_path", "view_class"]
+    },
+    annotations: {
+      title: "Scan Obsidian Plugin View",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  {
     name: "bridge_to_source",
     description: "Correlate runtime UI elements from a native simulator scan to their Swift source code locations. Matches AX identifiers, labels, and button text to .accessibilityIdentifier(), .accessibilityLabel(), Button(), and View struct declarations. Uses NavGator architecture data if available, falls back to direct file scanning.",
     inputSchema: {
@@ -20023,6 +20810,8 @@ async function handleToolCall(name, args) {
         return await handleValidateTokens(args);
       case "scan_static":
         return await handleScanStatic(args);
+      case "scan_obsidian":
+        return await handleScanObsidian(args);
       case "bridge_to_source":
         return await handleBridgeToSource(args);
       case "native_session_start":
@@ -21633,6 +22422,38 @@ async function handleScanStatic(args) {
     }
   }
   return textResponse(lines.join("\n"));
+}
+async function handleScanObsidian(args) {
+  const pluginPath = args.plugin_path;
+  if (!pluginPath) {
+    return errorResponse2("The 'plugin_path' parameter is required.");
+  }
+  const viewClass = args.view_class;
+  if (!viewClass) {
+    return errorResponse2("The 'view_class' parameter is required (e.g. 'DailyPlannerView').");
+  }
+  const { scanObsidian: scanObsidian2, formatObsidianScanResult: formatObsidianScanResult2 } = await Promise.resolve().then(() => (init_obsidian(), obsidian_exports));
+  try {
+    const result = await scanObsidian2({
+      pluginPath,
+      viewClass,
+      viewport: args.viewport,
+      mobile: args.mobile,
+      theme: args.theme,
+      viewState: args.view_state,
+      viewStatePath: args.view_state_path,
+      pluginState: args.plugin_state,
+      postMount: args.post_mount,
+      harnessOut: args.harness_out,
+      screenshot: args.screenshot,
+      rules: args.rules
+    });
+    return textResponse(formatObsidianScanResult2(result));
+  } catch (error) {
+    return errorResponse2(
+      `Obsidian view scan failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 async function handleBridgeToSource(args) {
   const projectRoot = args.project_root;

@@ -9,6 +9,7 @@ import { defineConfig, configDefaults } from 'vitest/config';
 const BROWSER_INTEGRATION = [
   'src/engine/compat.test.ts',
   'src/engine/engine.integration.test.ts',
+  'src/obsidian/obsidian.integration.test.ts',
 ];
 
 export default defineConfig({

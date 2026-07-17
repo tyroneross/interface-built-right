@@ -125,6 +125,39 @@ Access in `scanResult.sensors`. Get summaries-only (cuts ~60% tokens):
 ibr scan http://localhost:3000 --output summary
 ```
 
+## Obsidian Plugin Views
+
+Obsidian plugin views only exist inside Obsidian, so they normally cannot be audited: there is no URL to scan. `scan_obsidian` mounts a view in a **real browser** and runs the standard scan against it — computed styles, real cascade and layout, box geometry, pseudo-elements, touch targets, contrast, and accessibility.
+
+```bash
+ibr scan-obsidian ~/Vault/.obsidian/plugins/my-plugin \
+  --view-class MyPluginView \
+  --viewport iphone-14 \
+  --view-state fixture.json \
+  --post-mount "view.openEstimatePicker(30, function(){}, document.body)"
+```
+
+**Use this, not `scan_static`, for any Obsidian view.** `scan_static` is a regex parser: it cannot resolve `var()` or `calc()`, cannot compute layout or box geometry, and cannot see `::before`/`::after` or descendant selectors. A view styled with CSS variables, grid, and a pseudo-element checkbox reports as essentially empty under it.
+
+How it works:
+
+1. **Obsidian stub** — patches Obsidian's DOM extensions (`createEl`, `createDiv`, `createSpan`, `setText`, `empty`, `addClass`, `setAttr`, `detach`, …) onto real `HTMLElement.prototype`, and supplies the `obsidian` module (`ItemView`, `Platform`, `Notice`, `setIcon`, `Setting`, `Menu`, …). Everything is IIFE-scoped: a shim declaring a top-level `class ItemView` collides with the bundle's own `const { ItemView } = require("obsidian")` and kills it silently.
+2. **Harness generator** — emits a self-contained HTML page (bundle + CSS inlined), mounts the named view class into Obsidian's `containerEl.children[1]` content-area shape, applies `view_state` as the fixture, then runs `post_mount`.
+3. **Scan** — served on an ephemeral loopback port and handed to the normal `scan()`.
+
+| Option | Purpose |
+|--------|---------|
+| `--view-class` | Name of the view exported from the bundle (required) |
+| `--viewport` | Preset; default `iphone-14` (390px) |
+| `--mobile` / `--desktop` | Force `Platform.isMobile`; default inferred from viewport width |
+| `--view-state <path>` | JSON assigned onto the view before render — the fixture |
+| `--post-mount <js>` | JS run after mount (`view`, `root` in scope) to open sheets/modals |
+| `--harness-out <path>` | Write the harness HTML for inspection; default a temp dir |
+
+**Fail-loud contract.** A failed mount leaves a blank page, and a blank page has no collisions, no contrast failures, and no undersized targets — it would grade as a serene PASS. So mount failure is fatal by category, not by error count. Any unmodeled `obsidian` export throws when used (naming itself), and a mount script that never runs at all is caught by an absent mount marker. Known limit: `instanceof` against an unmodeled class returns false rather than throwing.
+
+**Current caveat.** Verdicts on Obsidian views are dominated by a pre-existing IBR defect: handler detection reads only inline `onclick`, so every `addEventListener`-driven button is reported "has no click handler". Read the geometry, style, and touch-target findings; treat the verdict with suspicion until that is fixed.
+
 ## Hydration Waiting
 
 SPAs (Next.js, React, Vue) often render after `networkidle` fires. IBR's `waitForHydration()` runs after network idle:

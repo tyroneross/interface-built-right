@@ -13,6 +13,59 @@
 - **Publish workflow:** GitHub Release `v1.5.0` triggers both npmjs OIDC trusted
   publishing and GitHub Packages publishing; validation and dry-runs must pass before release.
 
+## Key changes in 1.5.0 (unreleased)
+
+### Obsidian plugin view harness — `scan_obsidian` (2026-07-17)
+
+Makes a class of UI auditable that previously had no URL to point a scanner at.
+An Obsidian plugin view only renders inside Obsidian, so the only prior option
+was `scan_static` — a regex parser that resolves no `var()`, no layout, and no
+pseudo-elements, i.e. nothing that a token-and-grid-styled view is made of.
+
+- **`src/obsidian/`** — new module, bundled transitively like `src/static/` (no
+  tsup entry).
+  - `stub.ts` — Obsidian's DOM extensions patched onto real `HTMLElement.prototype`,
+    plus the `obsidian` module exports. Entirely IIFE-scoped: a shim that declares
+    a top-level `class ItemView` collides with the bundle's own
+    `const { ItemView } = require("obsidian")` and kills the bundle **silently**
+    (`module.exports` just stays `{}`). Unmodeled exports resolve to a Proxy that
+    throws on use, naming the API.
+  - `harness.ts` — self-contained HTML (bundle + CSS inlined), mounting a named
+    view class into Obsidian's `containerEl.children[1]` content-area contract.
+  - `server.ts` — ephemeral 127.0.0.1 server. Not `file://`: opaque origin, and
+    no `--allow-file-access-from-files` precedent in this repo.
+  - `scan.ts` — `scanObsidian()`, reusing `scan()` unchanged.
+- **MCP tool `scan_obsidian`** + **CLI `ibr scan-obsidian`**.
+- **Mount failure is fatal by category, not by error count.** A blank page has no
+  collisions, no contrast failures and no undersized targets, so it grades PASS —
+  the worst possible output. Two guards: harness/stub errors are promoted to
+  errors, and an absent mount marker (caught via `waitFor` + `patience`, since
+  `scan()` ignores a `waitFor` timeout unless `patience` is set) catches a mount
+  script that never ran — a failure mode invisible to console capture, because
+  Chrome reports parse errors via `Runtime.exceptionThrown` while IBR's console
+  domain subscribes only to `Runtime.consoleAPICalled`.
+- **Does not pass a warm `BrowserPool`** — `ScanOptions.pool` documents that the
+  pool's launch viewport is sticky, and an exact viewport is the premise of a
+  mobile audit.
+
+Tests: 26 unit + 9 live-Chrome integration against a synthetic fixture plugin
+(`src/obsidian/fixtures/`), added to `BROWSER_INTEGRATION` in `vitest.config.ts`
+so the ubuntu unit job skips them. The centring test asserts its own falsifier
+precondition (the title must wrap) and was mutation-verified: reintroducing
+`grid-row: 1` moves the control 17.7px off-centre and fails the test. Full suite:
+1074 pass. Typecheck + lint clean.
+
+⚠️ Known adjacent defect, NOT fixed here (pre-existing, IBR-wide): handler
+detection in `src/extract.ts:319` reads only `el.onclick` / the `onclick`
+attribute, evaluated in-page where `addEventListener` listeners are invisible.
+Every `addEventListener`-driven button is therefore reported "has no click
+handler" at `severity: error`, which dominates the verdict — while
+`interactivity.summary` (CDP `getEventListeners`) simultaneously reports the same
+buttons as handled. Reproduced on a 4-button control page with no Obsidian
+involvement. Fixing it means instrumenting `EventTarget.prototype.addEventListener`
+at document start, which changes verdicts for every existing consumer — out of
+scope for this change.
+
 ## Key changes in 1.4.0
 
 ### Native macOS layout-fill / gap analysis (2026-06-06)
