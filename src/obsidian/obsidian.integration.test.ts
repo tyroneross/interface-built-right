@@ -114,6 +114,25 @@ describe('scanObsidian — the harness cannot silently pass', () => {
     expect(harnessIssues(result.issues)[0].description).toMatch(/unstubbed API used: obsidian\.NotARealApi/);
   });
 
+  it('fails when an async onOpen() rejects', { timeout: 60000 }, async () => {
+    // Obsidian's real lifecycle hook is `async onOpen()`. A synchronous
+    // try/catch around it catches nothing: the rejection surfaces via
+    // Runtime.exceptionThrown, which IBR's console capture does not subscribe
+    // to, leaving a blank page marked "ok" — and a blank page grades PASS.
+    // Guarded by awaiting the lifecycle before writing the marker.
+    const result = await scanObsidian({ ...base, viewClass: 'AsyncFailView', viewState: {} });
+    expect(result.verdict).toBe('FAIL');
+    expect(harnessIssues(result.issues)[0].description).toMatch(/mount failed at render.*async onOpen rejected/);
+  });
+
+  it('mounts a view whose async onOpen() succeeds', { timeout: 60000 }, async () => {
+    // The other half of the await change: proves it did not simply break async
+    // views, and that the marker waits for the lifecycle to settle.
+    const result = await scanObsidian({ ...base, viewClass: 'AsyncOkView', viewState: {} });
+    expect(harnessIssues(result.issues)).toEqual([]);
+    expect(result.elements.all.some((e) => e.text === 'Async ready')).toBe(true);
+  });
+
   it('fails when the mount script never runs at all', { timeout: 60000 }, async () => {
     // The subtle one. A SyntaxError in post_mount means the mount script never
     // executes, so it emits NO console error — and Chrome reports parse errors

@@ -131,11 +131,21 @@ export function deriveHarnessIssues(consoleErrors: string[]): ScanIssue[] {
 }
 
 /**
- * True when `scan()` reported PARTIAL because the mount marker never appeared.
- * `scan()` phrases this failure as "selector not found" (src/scan.ts:571).
+ * True when `scan()` reported PARTIAL in a way that implicates the mount marker.
+ *
+ * `scan()` phrases a lone selector timeout as "selector not found" — but its
+ * reason string is a ternary (`src/scan.ts:571`) that reports only "network
+ * still active" when BOTH the network-idle and selector waits time out, which
+ * would hide the mount signal behind the network one.
+ *
+ * That second phrasing counts here too, because this harness has no
+ * subresources at all (see server.ts) — a network wait cannot legitimately time
+ * out on a page that never requests anything, so either phrasing means the page
+ * failed to reach a mounted state and nothing measured from it can be trusted.
  */
 export function isMountMarkerMissing(result: Pick<ScanResult, 'verdict' | 'partialReason'>): boolean {
-  return result.verdict === 'PARTIAL' && /selector not found/i.test(result.partialReason ?? '');
+  if (result.verdict !== 'PARTIAL') return false;
+  return /selector not found|network still active/i.test(result.partialReason ?? '');
 }
 
 /**

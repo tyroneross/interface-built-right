@@ -73,7 +73,41 @@ class FixtureView extends ItemView {
   }
 }
 
+/**
+ * A view using Obsidian's REAL lifecycle hook — `async onOpen()` — that fails.
+ *
+ * This is the async false-PASS case: a synchronous try/catch around onOpen()
+ * catches nothing, the rejection surfaces via Runtime.exceptionThrown (which
+ * IBR's console capture does not subscribe to), and the page is left blank. A
+ * blank page has no findings, so it would grade PASS. The harness must await the
+ * lifecycle before marking the mount ok.
+ */
+class AsyncFailView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf, plugin);
+  }
+
+  async onOpen() {
+    await Promise.resolve();
+    throw new Error("async onOpen rejected");
+  }
+}
+
+/** Same lifecycle, but succeeding — proves the await path is not simply broken. */
+class AsyncOkView extends ItemView {
+  async onOpen() {
+    await Promise.resolve();
+    const content = this.containerEl.children[1];
+    content.empty();
+    const root = content.createDiv({ cls: "fx-view" });
+    this.rootEl = root;
+    root.createEl("button", { cls: "fx-cta", text: "Async ready", attr: { type: "button" } });
+  }
+}
+
 class FixturePlugin {}
 
 module.exports = FixturePlugin;
 module.exports.FixtureView = FixtureView;
+module.exports.AsyncFailView = AsyncFailView;
+module.exports.AsyncOkView = AsyncOkView;

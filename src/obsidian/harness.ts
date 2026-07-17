@@ -106,6 +106,14 @@ function buildMountScript(input: HarnessInput): string {
     document.body.insertBefore(banner, document.body.firstChild);
   }
 
+  // ASYNC-AWARE BY NECESSITY. Obsidian's own lifecycle hook is an async
+  // onOpen(), so a synchronous try/catch around it would catch nothing: a
+  // rejecting onOpen() becomes an unhandled rejection, which Chrome reports via
+  // Runtime.exceptionThrown — the one channel IBR's console capture does not
+  // subscribe to. The marker would read "ok" over a blank page, and a blank page
+  // grades PASS. So the lifecycle is AWAITED, and the marker is only written
+  // once it has actually settled.
+  (async function () {
   var view;
   try {
     var exported = window.module.exports || {};
@@ -149,9 +157,10 @@ function buildMountScript(input: HarnessInput): string {
 
   try {
     // render() is this plugin family's idiom; onOpen() is Obsidian's lifecycle
-    // hook. Prefer render() when present, fall back to onOpen().
-    if (typeof view.render === 'function') view.render();
-    else if (typeof view.onOpen === 'function') view.onOpen();
+    // hook. Prefer render() when present, fall back to onOpen(). Awaiting is a
+    // no-op on a synchronous return and the whole point on an async one.
+    if (typeof view.render === 'function') await view.render();
+    else if (typeof view.onOpen === 'function') await view.onOpen();
     else throw new Error('view exposes neither render() nor onOpen()');
   } catch (e) {
     markError('render', e);
@@ -163,7 +172,11 @@ function buildMountScript(input: HarnessInput): string {
   window.__IBR_ROOT = root;
 
   try {
-    ${postMount}
+    // Awaited too: post_mount routinely opens a surface via an async call, and
+    // an unawaited rejection here would land in the same blind channel.
+    await (async function () {
+      ${postMount}
+    })();
   } catch (e) {
     markError('post-mount', e);
     return;
@@ -171,6 +184,7 @@ function buildMountScript(input: HarnessInput): string {
 
   window.__IBR_MOUNT_OK = true;
   document.body.setAttribute('data-ibr-mount', 'ok');
+  })();
 })();
 `;
 }
