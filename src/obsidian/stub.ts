@@ -358,9 +358,22 @@ window.__IBR_STUB_ERRORS = [];
     parseYaml: function () { return {}; },
     stringifyYaml: function () { return ''; },
     sanitizeHTMLToDom: function (html) {
-      var t = document.createElement('template');
-      t.innerHTML = String(html);
-      return t.content;
+      // Honor the real API's contract: Obsidian sanitizes before returning a
+      // fragment. Parse with DOMParser (scripts never execute during parse) and
+      // strip active content — no innerHTML sink, and the "sanitize" name is true.
+      var doc = new DOMParser().parseFromString(String(html), 'text/html');
+      doc.querySelectorAll('script,iframe,object,embed,link,meta').forEach(function (n) { n.remove(); });
+      doc.querySelectorAll('*').forEach(function (el) {
+        for (var i = el.attributes.length - 1; i >= 0; i--) {
+          var name = el.attributes[i].name;
+          if (/^on/i.test(name) || (name === 'href' && /^\s*javascript:/i.test(el.getAttribute('href') || ''))) {
+            el.removeAttribute(name);
+          }
+        }
+      });
+      var frag = document.createDocumentFragment();
+      while (doc.body.firstChild) frag.appendChild(doc.body.firstChild);
+      return frag;
     },
     MarkdownRenderer: { render: function () { return Promise.resolve(); }, renderMarkdown: function () { return Promise.resolve(); } },
   };
