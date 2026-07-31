@@ -4984,6 +4984,76 @@ program
     }
   })
 
+// live:targets / live:measure — attach to an ALREADY-RUNNING app (Obsidian,
+// VS Code, any Chromium target with a debugging port) and read its real
+// computed styles. Distinct from `scan-obsidian`, which builds a synthetic
+// page with a stubbed API and therefore cannot see the host app's cascade.
+program
+  .command('live:targets')
+  .description('List page targets exposed by an already-running browser or Electron app')
+  .option('--json', 'Output as JSON')
+  .action(async (options: { json?: boolean }) => {
+    const globalOpts = program.opts();
+    try {
+      const { listLiveTargets, formatLiveTargets } = await import('../live/index.js');
+      const result = await listLiveTargets({
+        cdpUrl: globalOpts.cdpUrl as string | undefined,
+        wsEndpoint: globalOpts.wsEndpoint as string | undefined,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatLiveTargets(result.targets));
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('live:measure')
+  .description('Measure a CSS selector in an already-running app — real box model, typography, contrast, baselines. Read-only: never navigates or reloads.')
+  .requiredOption('-s, --selector <css>', 'CSS selector scoping what gets measured')
+  .option('--target-title <substring>', 'Pick the target whose title contains this')
+  .option('--target-url <substring>', 'Pick the target whose URL contains this')
+  .option('--target-id <id>', 'Pick the target by exact CDP target id')
+  .option('--limit <count>', 'Maximum elements to measure (default 200)')
+  .option('--probe-timeout <ms>', 'CDP endpoint probe timeout in ms (default 4000)')
+  .option('--json', 'Output as JSON')
+  .action(async (options: {
+    selector: string;
+    targetTitle?: string;
+    targetUrl?: string;
+    targetId?: string;
+    limit?: string;
+    probeTimeout?: string;
+    json?: boolean;
+  }) => {
+    const globalOpts = program.opts();
+    try {
+      const { measureLive, formatLiveMeasureResult } = await import('../live/index.js');
+      const result = await measureLive({
+        cdpUrl: globalOpts.cdpUrl as string | undefined,
+        wsEndpoint: globalOpts.wsEndpoint as string | undefined,
+        targetTitle: options.targetTitle,
+        targetUrl: options.targetUrl,
+        targetId: options.targetId,
+        selector: options.selector,
+        limit: options.limit ? Number(options.limit) : undefined,
+        probeTimeoutMs: options.probeTimeout ? Number(options.probeTimeout) : undefined,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(formatLiveMeasureResult(result));
+      }
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  });
+
 // native:session:{start,read,action,close} — CLI parity for the native MCP
 // session tools (chunk E4-C). Registered here as the single wiring hunk;
 // command bodies + the cross-process session store live in

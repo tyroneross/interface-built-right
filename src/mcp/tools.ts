@@ -887,6 +887,86 @@ export const TOOLS = [
     },
   },
   {
+    name: "live_targets",
+    description:
+      "List the page targets exposed by an ALREADY-RUNNING browser or Electron app (Obsidian, VS Code, Chrome) on a CDP debugging port. Use this first to find the title/URL substring that identifies the window you want, then pass it to live_measure. Read-only: opens no target and navigates nothing.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        cdp_url: {
+          type: "string",
+          description: "CDP HTTP endpoint of the running app, e.g. 'http://127.0.0.1:9222'.",
+        },
+        ws_endpoint: {
+          type: "string",
+          description: "Browser-level CDP WebSocket endpoint. Use instead of cdp_url when you already have it.",
+        },
+        probe_timeout_ms: {
+          type: "number",
+          description: "Timeout for the CDP endpoint probe, ms. Default 4000.",
+        },
+      },
+      required: [],
+    },
+    annotations: {
+      title: "List Live CDP Targets",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
+    name: "live_measure",
+    description:
+      "Measure elements in a LIVE, already-running app by attaching to its existing CDP target — the real page, with the host application's own stylesheet cascade and theme variables applied. Returns full JSON: per element, getBoundingClientRect bounds, box model (height/min-height/padding/margin/border/box-sizing), typography (font-size/family/weight/line-height/letter-spacing/white-space), layout (display/align-items/align-self/flex/gap), resolved color plus effectiveBackgroundColor composited through transparent ancestors, WCAG contrastRatio with the correct large-text threshold, and firstLineBaselineY. Use this instead of scan_obsidian when the question is what the app actually renders right now — for example whether a plugin CSS rule is losing the cascade to the host app's own rule. scan_obsidian mounts the plugin in a synthetic page with a stubbed API and structurally cannot see the host cascade. Strictly read-only: it creates no target and never navigates, reloads, or mutates the page.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        selector: {
+          type: "string",
+          description: "CSS selector scoping what gets measured. Works for non-interactive containers (div, span), not just controls. Elements are returned in document order.",
+        },
+        cdp_url: {
+          type: "string",
+          description: "CDP HTTP endpoint of the running app, e.g. 'http://127.0.0.1:9222'.",
+        },
+        ws_endpoint: {
+          type: "string",
+          description: "Browser-level CDP WebSocket endpoint. Use instead of cdp_url when you already have it.",
+        },
+        target_title: {
+          type: "string",
+          description: "Case-insensitive substring of the target window's title, e.g. 'personal-llm-wiki'. Required when more than one page target is open.",
+        },
+        target_url: {
+          type: "string",
+          description: "Case-insensitive substring of the target's URL.",
+        },
+        target_id: {
+          type: "string",
+          description: "Exact CDP target id. Wins over target_title/target_url.",
+        },
+        limit: {
+          type: "number",
+          description: "Maximum elements to measure. Default 200.",
+        },
+        probe_timeout_ms: {
+          type: "number",
+          description: "Timeout for the CDP endpoint probe, ms. Default 4000.",
+        },
+      },
+      required: ["selector"],
+    },
+    annotations: {
+      title: "Measure Live App Pane",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  {
     name: "bridge_to_source",
     description:
       "Correlate runtime UI elements from a native simulator scan to their Swift source code locations. Matches AX identifiers, labels, and button text to .accessibilityIdentifier(), .accessibilityLabel(), Button(), and View struct declarations. Uses NavGator architecture data if available, falls back to direct file scanning.",
@@ -1398,6 +1478,10 @@ export async function handleToolCall(
         return await handleScanStatic(args);
       case "scan_obsidian":
         return await handleScanObsidian(args);
+      case "live_targets":
+        return await handleLiveTargets(args);
+      case "live_measure":
+        return await handleLiveMeasure(args);
       case "bridge_to_source":
         return await handleBridgeToSource(args);
       case "native_session_start":
@@ -3428,6 +3512,55 @@ async function handleScanObsidian(args: Record<string, unknown>): Promise<McpRes
   } catch (error) {
     return errorResponse(
       `Obsidian view scan failed: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+// --- Live app pane handlers ---
+//
+// These return the FULL JSON result, not a prose summary. `scan_obsidian`
+// above returns formatted text, which drops the per-element numbers an audit
+// actually needs; the live path must not repeat that.
+
+async function handleLiveTargets(args: Record<string, unknown>): Promise<McpResponse> {
+  const { listLiveTargets } = await import('../live/index.js');
+  try {
+    const result = await listLiveTargets({
+      cdpUrl: args.cdp_url as string | undefined,
+      wsEndpoint: args.ws_endpoint as string | undefined,
+      probeTimeoutMs: args.probe_timeout_ms as number | undefined,
+    });
+    return textResponse(JSON.stringify(result, null, 2));
+  } catch (error) {
+    return errorResponse(error instanceof Error ? error.message : String(error));
+  }
+}
+
+async function handleLiveMeasure(args: Record<string, unknown>): Promise<McpResponse> {
+  const selector = args.selector as string | undefined;
+  if (!selector) {
+    return errorResponse("The 'selector' parameter is required.");
+  }
+
+  // Dynamic import mirrors handleScanObsidian: keeps the CDP attach path out
+  // of the MCP server's startup for every other tool.
+  const { measureLive } = await import('../live/index.js');
+
+  try {
+    const result = await measureLive({
+      selector,
+      cdpUrl: args.cdp_url as string | undefined,
+      wsEndpoint: args.ws_endpoint as string | undefined,
+      targetTitle: args.target_title as string | undefined,
+      targetUrl: args.target_url as string | undefined,
+      targetId: args.target_id as string | undefined,
+      limit: args.limit as number | undefined,
+      probeTimeoutMs: args.probe_timeout_ms as number | undefined,
+    });
+    return textResponse(JSON.stringify(result, null, 2));
+  } catch (error) {
+    return errorResponse(
+      `Live measure failed: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 }
