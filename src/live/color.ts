@@ -22,6 +22,22 @@ export interface Rgba {
 
 const HEX_RE = /^#([0-9a-f]{3,8})$/i;
 const FUNC_RE = /^(rgba?)\(([^)]*)\)$/i;
+/**
+ * `color(srgb r g b)` / `color(srgb r g b / a)`.
+ *
+ * This is what Chrome computes `color-mix(in srgb, ...)` down to, and
+ * `color-mix()` is how a theme-derived stylesheet stays theme-derived instead
+ * of hardcoding a palette. Before this, the one element whose contrast most
+ * needed grading — a status colour mixed toward the theme's text colour — came
+ * back with `contrastRatio: null`, which reads like "no text here" rather than
+ * "this parser gave up". Canvas `fillStyle` does not normalize it away: Chrome
+ * round-trips CSS Color 4 forms unchanged.
+ *
+ * sRGB only, on purpose. `color(display-p3 ...)` needs a gamut conversion whose
+ * error belongs in a colour-space module, not in a contrast grader; it keeps
+ * returning null.
+ */
+const COLOR_SRGB_RE = /^color\(\s*srgb\s+([^)]*)\)$/i;
 
 function clamp(n: number, min: number, max: number): number {
   return n < min ? min : n > max ? max : n;
@@ -55,10 +71,9 @@ function parseAlpha(token: string | undefined): number {
 /**
  * Parse the color forms Chrome hands back from `getComputedStyle` and from
  * canvas `fillStyle` normalization: `transparent`, `#rgb`/`#rgba`/`#rrggbb`/
- * `#rrggbbaa`, `rgb(...)`, `rgba(...)` in both comma and space/slash syntax.
- * Anything else (oklch, color(display-p3 ...), named colors) returns null —
- * the browser-side collector normalizes through canvas first, so those forms
- * should not reach here.
+ * `#rrggbbaa`, `rgb(...)`, `rgba(...)` in both comma and space/slash syntax,
+ * plus `color(srgb ...)` — the computed form of `color-mix(in srgb, ...)`.
+ * Anything else (oklch, color(display-p3 ...), named colors) returns null.
  */
 export function parseCssColor(input: string | null | undefined): Rgba | null {
   if (!input) return null;
@@ -100,7 +115,27 @@ export function parseCssColor(input: string | null | undefined): Rgba | null {
     return { r, g, b, a };
   }
 
+  const srgb = COLOR_SRGB_RE.exec(s);
+  if (srgb) {
+    const [channelPart, slashAlpha] = srgb[1].split('/');
+    const parts = channelPart.trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const chans = parts.slice(0, 3).map(parseUnitChannel);
+    if (chans.some((c) => c === null)) return null;
+    const [r, g, b] = chans as number[];
+    return { r, g, b, a: parseAlpha(slashAlpha) };
+  }
+
   return null;
+}
+
+/** A `color()` channel: 0..1 float, or a percentage. Scaled to 0..255. */
+function parseUnitChannel(token: string): number | null {
+  const t = token.trim();
+  if (t === '' || t === 'none') return t === 'none' ? 0 : null;
+  const n = t.endsWith('%') ? Number(t.slice(0, -1)) / 100 : Number(t);
+  if (!Number.isFinite(n)) return null;
+  return clamp(Math.round(n * 255), 0, 255);
 }
 
 export function formatRgba(c: Rgba): string {

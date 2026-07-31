@@ -5019,6 +5019,8 @@ program
   .option('--target-url <substring>', 'Pick the target whose URL contains this')
   .option('--target-id <id>', 'Pick the target by exact CDP target id')
   .option('--limit <count>', 'Maximum elements to measure (default 200)')
+  .option('--emulate-width <px>', 'Force this CSS width for this measurement only, then restore (checks a responsive rule at a width the window cannot physically reach)')
+  .option('--emulate-height <px>', 'Height to pair with --emulate-width (defaults to the window\'s own height)')
   .option('--probe-timeout <ms>', 'CDP endpoint probe timeout in ms (default 4000)')
   .option('--json', 'Output as JSON')
   .action(async (options: {
@@ -5027,6 +5029,8 @@ program
     targetUrl?: string;
     targetId?: string;
     limit?: string;
+    emulateWidth?: string;
+    emulateHeight?: string;
     probeTimeout?: string;
     json?: boolean;
   }) => {
@@ -5041,6 +5045,8 @@ program
         targetId: options.targetId,
         selector: options.selector,
         limit: options.limit ? Number(options.limit) : undefined,
+        emulateWidth: options.emulateWidth ? Number(options.emulateWidth) : undefined,
+        emulateHeight: options.emulateHeight ? Number(options.emulateHeight) : undefined,
         probeTimeoutMs: options.probeTimeout ? Number(options.probeTimeout) : undefined,
       });
       if (options.json) {

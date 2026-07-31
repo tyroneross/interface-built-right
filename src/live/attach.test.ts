@@ -127,14 +127,15 @@ describe('resolveLiveWsEndpoint', () => {
 });
 
 describe('read-only contract', () => {
+  const stripComments = (s: string) =>
+    s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const sources = () => ['attach.ts', 'measure.ts']
+    .map((f) => stripComments(readFileSync(join(__dirname, f), 'utf8')));
+
   it('never reaches for a CDP verb that would mutate the live app', () => {
     // The whole point of this module is that it attaches to someone's running
     // editor. Creating, navigating, reloading or closing the target is out of
     // bounds; this test fails the moment such a call is introduced.
-    const stripComments = (s: string) =>
-      s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
-    const sources = ['attach.ts', 'measure.ts']
-      .map((f) => stripComments(readFileSync(join(__dirname, f), 'utf8')));
     const banned = [
       'Target.createTarget',
       'Target.closeTarget',
@@ -142,11 +143,26 @@ describe('read-only contract', () => {
       'Page.reload',
       'Page.close',
       'Browser.close',
-      'Emulation.setDeviceMetricsOverride',
     ];
-    for (const source of sources) {
+    for (const source of sources()) {
       for (const verb of banned) {
         expect(source).not.toContain(verb);
+      }
+    }
+  });
+
+  it('only forces a viewport size in a form that also puts it back', () => {
+    // `Emulation.setDeviceMetricsOverride` was banned outright until the width
+    // sweep needed it: a responsive rule can only be checked at the width it
+    // fires at, and a desktop window cannot be resized past the display. It is
+    // now allowed under one condition — the same file must clear it. Leaving
+    // someone's editor pinned at an emulated width is the failure this guards.
+    // The revert itself is proved behaviourally in measure.test.ts ("clears the
+    // override even when the measurement throws"); this only stops a future
+    // edit from introducing a set without a clear.
+    for (const source of sources()) {
+      if (source.includes('Emulation.setDeviceMetricsOverride')) {
+        expect(source).toContain('Emulation.clearDeviceMetricsOverride');
       }
     }
   });

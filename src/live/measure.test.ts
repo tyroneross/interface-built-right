@@ -1,7 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  buildDeviceMetricsOverride,
   buildMeasureExpression,
   finalizeMeasurements,
+  withWidthOverride,
+  type MetricsOverrideHost,
   type RawLiveElement,
 } from './measure.js';
 import { formatLiveMeasureResult, formatLiveTargets } from './format.js';
@@ -224,5 +227,77 @@ describe('formatting', () => {
     expect(text).toContain('page');
     expect(text).toContain('personal-llm-wiki');
     expect(text).toContain('T1');
+  });
+});
+
+describe('width override', () => {
+  function stubHost(over: { failClear?: boolean } = {}): {
+    host: MetricsOverrideHost;
+    calls: Array<{ method: string; params: Record<string, unknown> | undefined }>;
+  } {
+    const calls: Array<{ method: string; params: Record<string, unknown> | undefined }> = [];
+    const host: MetricsOverrideHost = {
+      sessionId: 'S1',
+      async evaluate<T>(): Promise<T> {
+        return 1 as unknown as T;
+      },
+      async send(method, params) {
+        calls.push({ method, params });
+        if (over.failClear && method === 'Emulation.clearDeviceMetricsOverride') {
+          throw new Error('socket closed');
+        }
+        return {};
+      },
+    };
+    return { host, calls };
+  }
+
+  it('keeps the device pixel ratio and desktop viewport semantics', () => {
+    // deviceScaleFactor 0 = "use the device's own", so a Retina measurement is
+    // not silently rescaled; mobile false keeps (pointer: coarse) from matching.
+    expect(buildDeviceMetricsOverride(1900, 900)).toEqual({
+      width: 1900, height: 900, deviceScaleFactor: 0, mobile: false,
+    });
+  });
+
+  it('refuses a width that cannot be a viewport', () => {
+    expect(() => buildDeviceMetricsOverride(0, 900)).toThrow(/positive number/);
+    expect(() => buildDeviceMetricsOverride(1900, Number.NaN)).toThrow(/positive number/);
+  });
+
+  it('sets the override, runs the body, then clears it', async () => {
+    const { host, calls } = stubHost();
+    const seen: string[] = [];
+    const out = await withWidthOverride(host, 1900, 900, async () => {
+      seen.push(calls.map((c) => c.method).join(','));
+      return 'measured';
+    });
+    expect(out).toEqual({ value: 'measured', cleared: true });
+    expect(seen).toEqual(['Emulation.setDeviceMetricsOverride']);
+    expect(calls.map((c) => c.method)).toEqual([
+      'Emulation.setDeviceMetricsOverride',
+      'Emulation.clearDeviceMetricsOverride',
+    ]);
+  });
+
+  it('clears the override even when the measurement throws', async () => {
+    const { host, calls } = stubHost();
+    await expect(
+      withWidthOverride(host, 1900, 900, async () => { throw new Error('selector blew up'); }),
+    ).rejects.toThrow('selector blew up');
+    expect(calls.map((c) => c.method)).toContain('Emulation.clearDeviceMetricsOverride');
+  });
+
+  it('says the window is still forced when the revert itself fails', async () => {
+    const { host } = stubHost({ failClear: true });
+    await expect(
+      withWidthOverride(host, 1900, 900, async () => { throw new Error('selector blew up'); }),
+    ).rejects.toThrow(/still forced/);
+  });
+
+  it('reports cleared: false rather than pretending the window was restored', async () => {
+    const { host } = stubHost({ failClear: true });
+    const out = await withWidthOverride(host, 1900, 900, async () => 'measured');
+    expect(out).toEqual({ value: 'measured', cleared: false });
   });
 });

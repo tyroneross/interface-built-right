@@ -10,7 +10,9 @@
  * the host cascade at all.
  *
  * Everything here is read-only against the target page: no target creation, no
- * navigation, no reload, no style injection.
+ * navigation, no reload, no style injection. The single opt-in exception is
+ * `measureLive({ emulateWidth })`, which forces a viewport width for one
+ * measurement and restores it in a `finally` — see `measure.ts`'s header.
  */
 
 export {
@@ -29,7 +31,10 @@ export {
 export {
   measureLive,
   buildMeasureExpression,
+  buildDeviceMetricsOverride,
   finalizeMeasurements,
+  withWidthOverride,
+  type MetricsOverrideHost,
   type LiveBounds,
   type LiveBoxModel,
   type LiveColor,

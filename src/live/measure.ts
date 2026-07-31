@@ -11,6 +11,17 @@
  * Read-only by contract: it evaluates one expression that queries the DOM and
  * builds a detached (never appended) canvas for font metrics. It never
  * navigates, reloads, injects styles, or mutates the document.
+ *
+ * ONE opt-in exception, and it is opt-in precisely because it is an exception:
+ * `emulateWidth` applies `Emulation.setDeviceMetricsOverride` for the duration
+ * of a single measurement and clears it in a `finally`. It exists because a
+ * responsive rule can only be checked at the width it fires at, and a desktop
+ * app's window cannot be resized past the physical display — an Obsidian pane
+ * at 1900px is unreachable on a 1521px screen. The override changes layout, not
+ * content: nothing is navigated, written, or persisted, and the window returns
+ * to its own size before the process exits. `emulated.cleared` reports whether
+ * the revert actually landed, so a failure to restore is visible rather than
+ * silent.
  */
 
 import {
@@ -150,6 +161,16 @@ export interface LiveMeasureResult {
     devicePixelRatio: number;
   };
   measuredAt: string;
+  /**
+   * Present only when `emulateWidth` was requested. `cleared: false` means the
+   * override outlived the measurement and the window is still forced — the one
+   * failure mode of the read-only exception, reported rather than swallowed.
+   */
+  emulated?: {
+    width: number;
+    height: number;
+    cleared: boolean;
+  };
   elements: LiveElementMeasurement[];
 }
 
@@ -185,9 +206,98 @@ export interface LiveMeasureOptions extends LiveAttachOptions {
   selector: string;
   /** Cap on measured elements. Default 200. */
   limit?: number;
+  /**
+   * Force the page to this CSS width for this measurement only, then restore.
+   * Opt-in; see the module header for why the read-only contract has this hole.
+   */
+  emulateWidth?: number;
+  /** Height to pair with `emulateWidth`. Defaults to the window's own height. */
+  emulateHeight?: number;
 }
 
 const DEFAULT_LIMIT = 200;
+
+/**
+ * The `Emulation.setDeviceMetricsOverride` params for a width sweep.
+ *
+ * `deviceScaleFactor: 0` means "keep the device's own DPR" — pinning it to 1
+ * would silently change every measured value on a Retina display. `mobile:
+ * false` keeps the desktop viewport semantics, so a `(pointer: coarse)` media
+ * query does not start matching just because a width was forced.
+ */
+export function buildDeviceMetricsOverride(width: number, height: number): {
+  width: number;
+  height: number;
+  deviceScaleFactor: number;
+  mobile: boolean;
+} {
+  if (!Number.isFinite(width) || width <= 0) {
+    throw new Error(`emulateWidth must be a positive number of CSS pixels (got ${width}).`);
+  }
+  if (!Number.isFinite(height) || height <= 0) {
+    throw new Error(`emulateHeight must be a positive number of CSS pixels (got ${height}).`);
+  }
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+    deviceScaleFactor: 0,
+    mobile: false,
+  };
+}
+
+/** The subset of a live attachment the override sequence needs. */
+export interface MetricsOverrideHost {
+  send(method: string, params: Record<string, unknown> | undefined, sessionId: string): Promise<unknown>;
+  sessionId: string;
+  evaluate<T = unknown>(expression: string): Promise<T>;
+}
+
+/**
+ * Apply a width override, run `body`, and restore — restoring even when `body`
+ * throws, because leaving someone's editor pinned at 1900px would be worse than
+ * the measurement failing.
+ *
+ * Layout after an override is not synchronous from the caller's side, so this
+ * awaits two animation frames before handing control to `body`. One frame is
+ * enough for the resize to be applied; the second is what guarantees style and
+ * layout have been recomputed against it.
+ */
+export async function withWidthOverride<T>(
+  host: MetricsOverrideHost,
+  width: number,
+  height: number,
+  body: () => Promise<T>,
+): Promise<{ value: T; cleared: boolean }> {
+  const params = buildDeviceMetricsOverride(width, height);
+  await host.send('Emulation.setDeviceMetricsOverride', params, host.sessionId);
+  let cleared = false;
+  try {
+    await host.evaluate(
+      'new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(function () { r(1); }); }); })',
+    );
+    const value = await body();
+    return { value, cleared: await clearOverride(host) };
+  } catch (error) {
+    cleared = await clearOverride(host);
+    if (!cleared) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)} `
+        + '(and the device-metrics override could NOT be cleared — the window is still forced; '
+        + 'restart the app or re-run to reset it)',
+      );
+    }
+    throw error;
+  }
+}
+
+async function clearOverride(host: MetricsOverrideHost): Promise<boolean> {
+  try {
+    await host.send('Emulation.clearDeviceMetricsOverride', {}, host.sessionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Build the single expression evaluated in the live page. Kept as a pure
@@ -441,9 +551,30 @@ export async function measureLive(options: LiveMeasureOptions): Promise<LiveMeas
 
   const attachment = await attachToLiveTarget(options);
   try {
-    const payload = await attachment.evaluate<RawLivePayload | null>(
-      buildMeasureExpression(options.selector, options.limit ?? DEFAULT_LIMIT),
-    );
+    const expression = buildMeasureExpression(options.selector, options.limit ?? DEFAULT_LIMIT);
+    const collect = () => attachment.evaluate<RawLivePayload | null>(expression);
+
+    let payload: RawLivePayload | null;
+    let emulated: LiveMeasureResult['emulated'];
+
+    if (options.emulateWidth) {
+      const height = options.emulateHeight
+        ?? await attachment.evaluate<number>('window.innerHeight');
+      const host: MetricsOverrideHost = {
+        sessionId: attachment.sessionId,
+        evaluate: attachment.evaluate,
+        send: (method, params, sessionId) => attachment.connection.send(method, params, sessionId),
+      };
+      const run = await withWidthOverride(host, options.emulateWidth, height, collect);
+      payload = run.value;
+      emulated = {
+        width: Math.round(options.emulateWidth),
+        height: Math.round(height),
+        cleared: run.cleared,
+      };
+    } else {
+      payload = await collect();
+    }
 
     if (!payload) {
       throw new Error('The live page returned nothing for the measurement expression.');
@@ -463,6 +594,7 @@ export async function measureLive(options: LiveMeasureOptions): Promise<LiveMeas
       matched: payload.elements.length,
       page: payload.page,
       measuredAt: new Date().toISOString(),
+      ...(emulated ? { emulated } : {}),
       elements: finalizeMeasurements(payload.elements),
     };
   } finally {

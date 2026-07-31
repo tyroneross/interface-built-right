@@ -193,3 +193,37 @@ describe('small helpers', () => {
     expect(isOpaque({ r: 0, g: 0, b: 0, a: 0.99 })).toBe(false);
   });
 });
+
+describe('color(srgb ...) — the computed form of color-mix(in srgb, ...)', () => {
+  it('parses the exact value Chrome computed for the plugin health gauge', () => {
+    // Measured live in Obsidian 1.13.4: `.ws-health-value.is-under` computed to
+    // this, and every earlier build graded it `contrastRatio: null`.
+    expect(parseCssColor('color(srgb 0.56902 0.312353 0.06)')).toEqual({
+      r: 145, g: 80, b: 15, a: 1,
+    });
+  });
+
+  it('reads the slash alpha', () => {
+    expect(parseCssColor('color(srgb 1 0 0 / 0.5)')).toEqual({ r: 255, g: 0, b: 0, a: 0.5 });
+  });
+
+  it('accepts percentage channels', () => {
+    expect(parseCssColor('color(srgb 100% 0% 50%)')).toEqual({ r: 255, g: 0, b: 128, a: 1 });
+  });
+
+  it('clamps out-of-gamut channels rather than emitting an impossible rgb', () => {
+    expect(parseCssColor('color(srgb 1.4 -0.2 0.5)')).toEqual({ r: 255, g: 0, b: 128, a: 1 });
+  });
+
+  it('still refuses a colour space it cannot convert exactly', () => {
+    expect(parseCssColor('color(display-p3 0.5 0.2 0.1)')).toBeNull();
+    expect(parseCssColor('oklch(0.8 0.1 250)')).toBeNull();
+  });
+
+  it('grades the gauge against the pane instead of returning null', () => {
+    const fg = parseCssColor('color(srgb 0.56902 0.312353 0.06)');
+    const bg = parseCssColor('rgb(246, 246, 246)');
+    expect(fg).not.toBeNull();
+    expect(contrastRatio(fg!, bg!)).toBeGreaterThan(4.5);
+  });
+});
