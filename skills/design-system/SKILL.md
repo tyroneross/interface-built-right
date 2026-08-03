@@ -84,7 +84,7 @@ The JSON structure has three top-level sections:
 | ID | Principle | What it enforces |
 |----|-----------|-----------------|
 | `gestalt` | Grouping | Single border for groups; no individual borders on list items |
-| `signal-noise` | Status display | Text color only for status; no background badges |
+| `signal-noise` | Status display | Text color or ≤12% tint for status; saturated fill reserved for provenance (scanner allows alpha < 0.15) |
 | `content-chrome` | Content ratio | Content area >= 70% of viewport |
 | `cognitive-load` | Complexity | Max 7 interactive elements per visual group |
 

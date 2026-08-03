@@ -1,6 +1,6 @@
 ---
 name: design-guidance
-description: Use when building UI components, pages, flows, or layouts. Provides pre-build design direction, guidance selection, Calm Precision 6.4.1 rules, component pattern selection, active design tokens, and validation handoff.
+description: Use when building UI components, pages, flows, or layouts. Provides pre-build design direction, guidance selection, Calm Precision 6.5.0 rules, component pattern selection, active design tokens, and validation handoff.
 ---
 
 # Design Guidance
@@ -28,7 +28,7 @@ Resolve guidance in this order:
 3. `design-intent.json` from Design Director, when present
 4. Mockup Gallery target roles, when present
 5. Platform router: `web-design-router`, `ios-design-router`, `macos-ui`, `mobile-web-ui`
-6. Calm Precision 6.4.1 structural defaults
+6. Calm Precision 6.5.0 structural defaults
 7. Component pattern files in `templates/patterns/`
 8. Data visualization guidance, only when metrics/charts are in scope
 
@@ -60,7 +60,7 @@ Map user intent to the relevant pattern:
 
 Read the relevant pattern file before implementing.
 
-## Calm Precision 6.4.1 Quick Reference
+## Calm Precision 6.5.0 Quick Reference
 
 Apply these during design, not after:
 
@@ -77,6 +77,7 @@ Apply these during design, not after:
 11. **Mobile-First Structure** — base styles target mobile; breakpoints add complexity.
 12. **Purposeful Motion** — motion communicates state/interactivity and respects reduced motion.
 13. **Voice Calibration** — buttons use Verb + Object, tooltips are short, loading says what is happening.
+14. **Provenance & Authority** — views project canonical state without becoming a second source of truth; provenance labels sit beside assertions; saturated chip fill means verification state only; interactive tasks keep checkboxes (ordinals belong to read-only projections).
 
 ## Token Application
 
