@@ -100,6 +100,62 @@ describe('generateHarness', () => {
   });
 });
 
+describe('generateHarness — Obsidian base CSS', () => {
+  const APP_CSS = 'body { --input-height: 30px; }\nbutton { height: var(--input-height); }';
+
+  it('injects app.css BEFORE the plugin stylesheet so plugin rules still win', () => {
+    // Cascade order is the whole contract. In the real app the plugin's
+    // styles.css is appended after app.css, so base rules lose to plugin rules
+    // of equal specificity. Reversing these two blocks would make the harness
+    // render a page the app never renders — in the opposite direction from the
+    // old bug, but just as wrong.
+    const html = generateHarness({
+      bundlePath: BUNDLE, stylesPath: STYLES, viewClass: 'FixtureView', mobile: true, appCss: APP_CSS,
+    });
+    const appCssAt = html.indexOf('--input-height: 30px');
+    const pluginCssAt = html.indexOf('--fx-grad-accent');
+    expect(appCssAt).toBeGreaterThan(-1);
+    expect(pluginCssAt).toBeGreaterThan(-1);
+    expect(appCssAt).toBeLessThan(pluginCssAt);
+  });
+
+  it('drops the approximate baseline when the real stylesheet is present', () => {
+    // The baseline's `#ibr-container .view-content { height: 100% }` is an
+    // ID-specificity guess that would beat app.css's own rule for the same
+    // element, reintroducing the gap the injection exists to close.
+    const html = generateHarness({
+      bundlePath: BUNDLE, stylesPath: STYLES, viewClass: 'FixtureView', mobile: true, appCss: APP_CSS,
+    });
+    expect(html).not.toContain('#ibr-container, #ibr-container .view-content');
+    expect(html).not.toContain('Obsidian-ish baseline');
+    expect(html).toContain('html, body { margin: 0; padding: 0; }');
+  });
+
+  it('keeps the approximate baseline, and labels it, when app.css is absent', () => {
+    const html = generateHarness({ bundlePath: BUNDLE, stylesPath: STYLES, viewClass: 'FixtureView', mobile: true });
+    expect(html).toContain('#ibr-container, #ibr-container .view-content');
+    // Anyone opening the harness by hand must be able to see it is degraded.
+    expect(html).toContain('APPROXIMATION');
+    expect(html).toContain('undetectable');
+  });
+
+  it('keeps extraCss last so a caller can still override everything', () => {
+    const html = generateHarness({
+      bundlePath: BUNDLE, stylesPath: STYLES, viewClass: 'FixtureView', mobile: true,
+      appCss: APP_CSS, extraCss: '.fx-cta { outline: 1px solid red; }',
+    });
+    expect(html.indexOf('outline: 1px solid red')).toBeGreaterThan(html.indexOf('--fx-grad-accent'));
+  });
+
+  it('escapes a literal </style> inside app.css', () => {
+    const html = generateHarness({
+      bundlePath: BUNDLE, stylesPath: STYLES, viewClass: 'FixtureView', mobile: true,
+      appCss: 'body::after { content: "</style>"; }',
+    });
+    expect(html).toContain('<\\/style>');
+  });
+});
+
 describe('generateHarness — inline escaping', () => {
   it('neutralises a literal </script> so the document cannot be truncated', () => {
     // `</script` inside inlined JS ends the block at the HTML level and silently

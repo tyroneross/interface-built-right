@@ -81,6 +81,14 @@ export interface ScanResult {
   /** Deterministic rule engine results — no LLM needed */
   ruleEngine?: RuleEngineResult[];
 
+  /**
+   * Results of caller-supplied DOM probes, keyed by the name given in
+   * `ScanOptions.probes`. A probe that threw is absent from this map rather
+   * than present-and-null, so a caller can tell "did not run" from "returned
+   * nothing".
+   */
+  probes?: Record<string, unknown>;
+
   /** Condensed summaries for model-assisted review */
   summaries?: ScanSummary;
 
@@ -240,6 +248,18 @@ export interface ScanOptions extends BrowserLaunchOptions {
    * omit `pool` so scan() launches with the full device profile.
    */
   pool?: import('./engine/browser-pool.js').BrowserPool;
+  /**
+   * Extra DOM measurements to collect from the settled page, as
+   * `{ name: jsExpression }`. Each expression is evaluated with
+   * `returnByValue`, so it must return JSON-serialisable data, and results land
+   * on `ScanResult.probes[name]`.
+   *
+   * Runs AFTER every wait and after element extraction, so a probe sees the
+   * same laid-out page the rest of the scan measured. A probe that throws is
+   * skipped — a supplementary measurement must never fail the scan that
+   * carries it.
+   */
+  probes?: Record<string, string>;
 }
 
 /**
@@ -520,6 +540,22 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // Generate condensed summaries
     const summaries = summarizeScan(elements.all, url);
 
+    // Run caller-supplied DOM probes against the settled page. Best-effort by
+    // contract: a probe is a supplementary measurement, and a broken one must
+    // not take down the scan that carries it. Sequential rather than parallel —
+    // probes measure LAYOUT, and concurrent evaluation on one page buys nothing.
+    let probeResults: Record<string, unknown> | undefined;
+    if (options.probes) {
+      for (const [name, expression] of Object.entries(options.probes)) {
+        try {
+          const value = await driver.evaluate(expression);
+          probeResults = { ...(probeResults ?? {}), [name]: value };
+        } catch {
+          // Absent from the map = "did not run". See ScanResult.probes.
+        }
+      }
+    }
+
     const baseResult = {
       url,
       route,
@@ -531,6 +567,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       sensors,
       ruleEngine,
       summaries,
+      probes: probeResults,
       console: {
         errors: consoleErrors,
         warnings: consoleWarnings,

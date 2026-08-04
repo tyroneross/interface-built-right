@@ -1069,11 +1069,15 @@ program
   .option('--harness-out <path>', 'Write the generated harness HTML here for inspection')
   .option('--screenshot <path>', 'Save a screenshot of the mounted view')
   .option('--rules <presets>', 'Comma-separated rule presets (default: touch-targets,wcag-contrast)')
+  .option('--no-obsidian-css', "Skip Obsidian's real app.css — renders an APPROXIMATION where var() fallbacks apply and button-height overflow is undetectable")
+  .option('--obsidian-css-path <path>', 'Explicit path to an extracted app.css or an obsidian.asar (non-standard install)')
+  .option('--no-layout-overflow', 'Skip layout-overflow detection')
   .option('--json', 'Output as JSON')
   .action(async (pluginPath: string, options: {
     viewClass: string; viewport: string; mobile?: boolean; desktop?: boolean; theme: string;
     viewState?: string; postMount?: string; harnessOut?: string; screenshot?: string;
-    rules?: string; json?: boolean;
+    rules?: string; obsidianCss?: boolean; obsidianCssPath?: string; layoutOverflow?: boolean;
+    json?: boolean;
   }) => {
     try {
       const { scanObsidian, formatObsidianScanResult } = await import('../obsidian/index.js');
@@ -1093,6 +1097,10 @@ program
         harnessOut: options.harnessOut,
         screenshot: options.screenshot,
         rules: options.rules ? options.rules.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+        // An explicit path wins over the on/off toggle. Commander sets
+        // obsidianCss=true by default and false only for --no-obsidian-css.
+        obsidianCss: options.obsidianCssPath ?? options.obsidianCss,
+        layoutOverflow: options.layoutOverflow === false ? false : undefined,
       });
 
       if (options.json) {
@@ -1101,7 +1109,9 @@ program
         console.log(formatObsidianScanResult(result));
       }
 
-      if (result.verdict === 'FAIL') {
+      // PARTIAL is not a pass. A scan that rendered an approximation of the app
+      // must not report success to a shell script or a CI step.
+      if (result.verdict === 'FAIL' || result.verdict === 'PARTIAL') {
         process.exit(1);
       }
     } catch (error) {

@@ -29,7 +29,7 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 | `snapshot` | Capture visual baseline |
 | `compare` | Compare current vs baseline |
 | `screenshot` | Capture screenshot of any URL |
-| `scan_obsidian` | Mount an Obsidian plugin view in a REAL browser and scan it — computed styles, layout, touch targets, a11y. Use this, never `scan_static`, for Obsidian views: `scan_static` is a regex parser and resolves no `var()`, layout, or `::before`. Needs `plugin_path` + `view_class`; `view_state` is the fixture, `post_mount` opens transient sheets |
+| `scan_obsidian` | Mount an Obsidian plugin view in a REAL browser and scan it — computed styles, layout, touch targets, a11y. Loads Obsidian's **real `app.css`** from the local install by default, so Obsidian's own custom properties and element rules are in the cascade, and reports **layout overflow** (content rendering outside its box, naming the declaration responsible). Use this, never `scan_static`, for Obsidian views: `scan_static` is a regex parser and resolves no `var()`, layout, or `::before`. Needs `plugin_path` + `view_class`; `view_state` is the fixture, `post_mount` opens transient sheets. See `skills/obsidian-plugin-ui` |
 | `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app` (live lifecycle launch/switch/quit; `quit` can fail with `osascript -128` on unsaved docs under `NSCloseAlwaysConfirmsChanges=1` — no force-quit fallback), `menuPath` (live AXMenu traversal). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` |
 
 ## Native App Driving (macOS/iOS) — use the CLI, not MCP
@@ -91,6 +91,8 @@ Library entry: `import { resolveDevice, deviceToViewport } from '@tyroneross/int
 
 **Sensors (`scan.sensors.*`, v1.2.0):** `visualPatterns`, `componentCensus`, `interactionMap`, `contrast`, `navigation`, `typography` (family+size+weight+lineHeight rows aggregated by fingerprint), `breakpoints` (declared `@media` + `@container` queries), `motion` (transitions, keyframes, reduced-motion overrides), `hierarchy` (h1..h6 + landmarks + a11y findings), `interactionStates` (:hover/:focus/:focus-visible/:active/:disabled rules + missing-focus findings).
 
+**Obsidian base CSS + layout overflow:** `scan_obsidian` extracts Obsidian's real `app.css` (~540KB) from the local `obsidian.asar` at runtime, caches it under the user cache dir, and injects it **before** the plugin stylesheet so the cascade matches the app. Obsidian's stylesheet is proprietary and is never vendored into this repo. Search path covers macOS/Windows/Linux (deb, flatpak, AppImage); override with `IBR_OBSIDIAN_APP_CSS` or `obsidian_css_path`. **When it cannot be loaded the scan grades `PARTIAL`, never `PASS`,** and carries a warning naming the defect class it can no longer see — without base CSS every `var(--x, fallback)` resolves to its fallback and Obsidian's `button { height: var(--input-height) }` (30px) rule is absent. `result.harness.appCss = {loaded, source, bytes, reason}`. `result.layoutOverflow` returns `LayoutOverflowFinding[]` — `self-overflow` (scrollHeight > clientHeight on an `overflow: visible` box), `container-escape` (rect past the parent's border box), `sibling-overlap` (text on text, severity `error`) — each naming the computed declaration responsible via `culprit.origin` (`obsidian-base` / `author` / `unknown`). Thresholds configurable via `ObsidianScanOptions.layoutOverflow`, disable with `layout_overflow: false`.
+
 **Native macOS layout-fill (v1.4.0):** `scanMacOS` returns `layoutFill: LayoutFillFinding[]` and pushes each as a `layout-fill:` WARNING into `issues[]` (category `structure`). Each finding names the container, the axis (`horizontal` / `vertical`), the largest empty band as both pixels and % of the container extent, and the band's position (`leading` / `between` / `trailing`). Threshold defaults to 0.12 of container extent; configure via `MacOSScanOptions.layoutFill = { threshold, minContainerPx }` or disable with `layoutFill: false`. Catches the centered-narrow-content bug class that passes screenshot + a11y + touch-target checks. Same algorithm available via Swift extractor's `--analyze-layout` flag and via the `assets/native/swift-templates/LayoutProbe.swift` drop-in (in-process, AX-independent).
 
 ## IBR vs Screenshot
@@ -141,6 +143,7 @@ Use skill for details.
 | `ios-design-router` | Archetype classifier — routes to defaults for 6 iOS app archetypes |
 | `apple-platform` | How to build: architecture patterns, SwiftData, concurrency, CI/CD, TestFlight |
 | `macos-ui` | macOS-specific UI patterns — AppKit/SwiftUI, menu bar, window chrome |
+| `obsidian-plugin-ui` | Obsidian plugin views — `scan_obsidian` workflow, base-CSS fidelity, the `<button>` 30px trap, multi-width verification |
 
 ## iOS Design References
 

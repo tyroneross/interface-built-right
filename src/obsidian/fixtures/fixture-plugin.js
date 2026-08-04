@@ -105,9 +105,55 @@ class AsyncOkView extends ItemView {
   }
 }
 
+/**
+ * The `<button>`-as-layout-container regression, reproduced.
+ *
+ * Each row is a single BUTTON wrapping two stacked lines — a very common
+ * Obsidian plugin idiom, because making the whole row the click target is the
+ * right affordance. The plugin's own CSS declares no height at all: the row is
+ * expected to size to its content.
+ *
+ * Obsidian's app.css then pins it: `button { height: var(--input-height) }`
+ * with `--input-height: 30px`. The 78px of content renders in a 30px box and
+ * spills into the row below. Nothing here is contrived — the defect appears
+ * only because the REAL base stylesheet is in the cascade, which is exactly why
+ * a harness without it graded three consecutive shipping iterations green.
+ */
+class OverflowRowView extends ItemView {
+  constructor(leaf, plugin) {
+    super(leaf, plugin);
+    this.rows = [];
+  }
+
+  getViewType() {
+    return "ibr-fixture-overflow-view";
+  }
+
+  render() {
+    const content = this.containerEl.children[1];
+    content.empty();
+    const root = content.createDiv({ cls: "fx-view" });
+    this.rootEl = root;
+
+    const list = root.createEl("ul", { cls: "fx-task-list" });
+    this.rows.forEach((row) => {
+      const li = list.createEl("li", { cls: "fx-task-row" });
+      // No height declared anywhere in fixture-plugin.css — the row is meant to
+      // grow with its content.
+      const button = li.createEl("button", { cls: "fx-task-button", attr: { type: "button" } });
+      const body = button.createDiv({ cls: "fx-task-body" });
+      body.createSpan({ cls: "fx-task-title", text: row.title });
+      body.createSpan({ cls: "fx-task-meta", text: row.meta });
+      body.createSpan({ cls: "fx-task-tags", text: row.tags });
+      button.addEventListener("click", () => {});
+    });
+  }
+}
+
 class FixturePlugin {}
 
 module.exports = FixturePlugin;
 module.exports.FixtureView = FixtureView;
 module.exports.AsyncFailView = AsyncFailView;
 module.exports.AsyncOkView = AsyncOkView;
+module.exports.OverflowRowView = OverflowRowView;

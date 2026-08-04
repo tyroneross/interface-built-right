@@ -31,6 +31,16 @@ export interface HarnessInput {
   postMount?: string;
   /** Extra CSS appended after the plugin stylesheet (e.g. theme variables). */
   extraCss?: string;
+  /**
+   * Obsidian's real `app.css`, resolved from the user's own install by
+   * `resolveObsidianAppCss()`. Injected BEFORE the plugin stylesheet so the
+   * cascade matches the real app: base rules lose to plugin rules of equal
+   * specificity, exactly as they do in Obsidian.
+   *
+   * Its absence is the difference between a harness that can see the
+   * `button { height: var(--input-height) }` defect class and one that cannot.
+   */
+  appCss?: string;
 }
 
 /** Obsidian defines these on `body`; some plugin CSS keys off them. */
@@ -189,6 +199,43 @@ function buildMountScript(input: HarnessInput): string {
 `;
 }
 
+/**
+ * The fallback baseline, used ONLY when Obsidian's real `app.css` could not be
+ * resolved. It is an approximation and is documented as one: every
+ * `var(--x, fallback)` in plugin CSS resolves to its FALLBACK here, because
+ * nothing defines Obsidian's custom properties.
+ *
+ * When app.css IS present, this block is replaced by the two-line reset below
+ * rather than layered on top of it. Layering would be actively harmful: this
+ * block's `body { font-family: ... }` and `#ibr-container .view-content
+ * { height: 100% }` are higher-specificity guesses that would beat app.css's
+ * own `.view-content { height: calc(100% - var(--header-height)) }` and its
+ * real font stack — reintroducing the fidelity gap the injection exists to
+ * close.
+ */
+const APPROXIMATE_BASELINE_CSS = `/* Obsidian-ish baseline — APPROXIMATION.
+   Obsidian's real app.css was not available, so every var(--x, fallback) in
+   the plugin stylesheet below resolves to its FALLBACK, and Obsidian's own
+   element rules (notably button { height: var(--input-height) }) are ABSENT.
+   Layout defects that depend on those rules are undetectable in this render. */
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  background: var(--background-primary, #1e1e1e);
+  color: var(--text-normal, #dcddde);
+}
+#ibr-container, #ibr-container .view-content { height: 100%; }`;
+
+/**
+ * With app.css present, app.css owns layout. This is only a UA-default guard:
+ * app.css declares the same reset itself, so in practice it is a no-op that
+ * keeps the harness correct if a future app.css drops it.
+ */
+const MINIMAL_RESET_CSS = `/* Obsidian's real app.css is injected above and owns all layout.
+   This is only a guard against UA defaults. */
+html, body { margin: 0; padding: 0; }`;
+
 /** Generate the self-contained harness HTML. */
 export function generateHarness(input: HarnessInput): string {
   const bundle = readRequired(input.bundlePath, 'Plugin bundle');
@@ -197,24 +244,22 @@ export function generateHarness(input: HarnessInput): string {
   const mount = buildMountScript(input);
   const themeClass = input.theme === 'light' ? 'theme-light' : 'theme-dark';
 
+  // CASCADE ORDER IS LOAD-BEARING. app.css must come BEFORE the plugin
+  // stylesheet so plugin rules of equal specificity win — exactly as in the
+  // real app, where the plugin's styles.css is appended after app.css.
+  const appCssBlock = input.appCss
+    ? `<style>\n${escapeForInlineStyle(input.appCss)}\n</style>\n`
+    : '';
+  const baselineCss = input.appCss ? MINIMAL_RESET_CSS : APPROXIMATE_BASELINE_CSS;
+
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IBR Obsidian harness — ${input.viewClass}</title>
-<style>
-/* Obsidian-ish baseline. The plugin stylesheet below owns everything visual;
-   this only removes the UA margin and supplies the font stack a real Obsidian
-   window would, so measured layout is not skewed by browser defaults. */
-html, body { margin: 0; padding: 0; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 16px;
-  background: var(--background-primary, #1e1e1e);
-  color: var(--text-normal, #dcddde);
-}
-#ibr-container, #ibr-container .view-content { height: 100%; }
+${appCssBlock}<style>
+${baselineCss}
 </style>
 <style>
 ${escapeForInlineStyle(css)}

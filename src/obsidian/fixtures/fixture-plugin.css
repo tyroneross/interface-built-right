@@ -124,3 +124,60 @@
   flex: 1;
   min-height: 44px;
 }
+
+/* ---------------------------------------------------------------------------
+ * The <button>-as-layout-container regression.
+ *
+ * READ THIS BEFORE "FIXING" IT: the absence of a height declaration is the
+ * point. This CSS is correct on its own — the row is meant to size to its
+ * content. The defect only exists once Obsidian's real app.css is in the
+ * cascade, because app.css pins every button to height: var(--input-height).
+ * Adding `height: auto` here would delete the regression fixture.
+ * ------------------------------------------------------------------------- */
+
+.fx-task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.fx-task-row {
+  border-bottom: 1px solid var(--fx-surface-2);
+  padding: 10px 0 19px;
+}
+
+.fx-task-button {
+  background: transparent;
+  border: 0;
+  display: grid;
+  padding: 0;
+  text-align: left;
+  width: 100%;
+}
+
+/* Three stacked lines with explicit line-heights: 25 + 8 + 20 + 8 + 17 = 78px
+   of content, independent of font metrics, viewport width, and whether
+   app.css's `button { white-space: nowrap }` suppresses wrapping. A fixture
+   whose height depended on text wrapping would be a flaky one. */
+.fx-task-body {
+  display: grid;
+  gap: 8px;
+}
+
+.fx-task-title {
+  color: var(--fx-fg);
+  font-size: 15px;
+  line-height: 25px;
+}
+
+.fx-task-meta {
+  color: var(--fx-accent);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.fx-task-tags {
+  color: var(--fx-fg);
+  font-size: 12px;
+  line-height: 17px;
+}

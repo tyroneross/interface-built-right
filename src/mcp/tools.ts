@@ -814,7 +814,7 @@ export const TOOLS = [
   {
     name: "scan_obsidian",
     description:
-      "Mount an Obsidian plugin view in a REAL browser and run the full IBR scan against it — computed styles (var()/calc() resolved to real values), real layout and cascade, box geometry, pseudo-elements, touch targets, contrast, and accessibility. Use this instead of scan_static for any Obsidian view: scan_static is a regex parser and resolves none of those. Generates a self-contained harness page that patches Obsidian's DOM extensions onto real DOM and stubs the `obsidian` module, mounts the named view class, then scans it.",
+      "Mount an Obsidian plugin view in a REAL browser and run the full IBR scan against it — computed styles (var()/calc() resolved to real values), real layout and cascade, box geometry, pseudo-elements, touch targets, contrast, and accessibility. Use this instead of scan_static for any Obsidian view: scan_static is a regex parser and resolves none of those. Generates a self-contained harness page that patches Obsidian's DOM extensions onto real DOM and stubs the `obsidian` module, mounts the named view class, then scans it. BY DEFAULT it loads Obsidian's REAL app.css from the local install, so Obsidian's own custom properties and element rules are in the cascade, and it reports LAYOUT OVERFLOW — content that renders outside its box, naming the declaration responsible. When Obsidian is not installed the scan says so and grades PARTIAL rather than PASS.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -874,6 +874,21 @@ export const TOOLS = [
           type: "array",
           items: { type: "string" },
           description: "Rule presets to enable. Default: ['touch-targets', 'wcag-contrast'].",
+        },
+        obsidian_css: {
+          type: "boolean",
+          description:
+            "Load Obsidian's real app.css from the local install. DEFAULT TRUE. Without it every var(--x, fallback) in the plugin stylesheet resolves to its FALLBACK and Obsidian's own element rules are absent — notably `button { height: var(--input-height) }` (30px), which pins a multi-line <button>'s content and spills it into the row below. Set false only to accept a knowingly degraded scan.",
+        },
+        obsidian_css_path: {
+          type: "string",
+          description:
+            "Explicit path to an extracted app.css or to an obsidian.asar, for a non-standard install. Overrides the search path and the IBR_OBSIDIAN_APP_CSS environment variable.",
+        },
+        layout_overflow: {
+          type: "boolean",
+          description:
+            "Detect content rendering outside its box: self-overflow (scrollHeight > clientHeight on an overflow:visible box), container escape, and text-over-text collisions. Each finding names the computed declaration responsible. DEFAULT TRUE.",
         },
       },
       required: ["plugin_path", "view_class"],
@@ -3507,6 +3522,12 @@ async function handleScanObsidian(args: Record<string, unknown>): Promise<McpRes
       harnessOut: args.harness_out as string | undefined,
       screenshot: args.screenshot as string | undefined,
       rules: args.rules as string[] | undefined,
+      // An explicit path wins; otherwise the boolean toggles the default-on
+      // resolution. Two parameters rather than one union, because a JSON Schema
+      // `boolean | string` reads badly to a model choosing arguments.
+      obsidianCss:
+        (args.obsidian_css_path as string | undefined) ?? (args.obsidian_css as boolean | undefined),
+      layoutOverflow: args.layout_overflow === false ? false : undefined,
     });
     return textResponse(formatObsidianScanResult(result));
   } catch (error) {
