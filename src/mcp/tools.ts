@@ -65,6 +65,13 @@ import {
   findElementByLabel,
 } from '../native/actions.js'
 import { compressSnapshot, formatCompressed } from '../engine/compress.js';
+import {
+  formatUserActionRequired,
+  inspectSessionHardWall,
+  sessionAttemptKey,
+  sessionWallDisplayUrl,
+  type SessionHardWall,
+} from '../session-hard-wall.js';
 // Shared session registry (extracted at Wave 0 / C0). Import direction is
 // one-way: tools.ts (web) → sessions.ts / native-tools.ts, never the reverse.
 import { sessions } from './sessions.js';
@@ -108,6 +115,60 @@ function textResponse(text: string): McpResponse {
 
 function errorResponse(text: string): McpResponse {
   return { content: [{ type: "text" as const, text }], isError: true as const };
+}
+
+type McpHardWallAttempt = {
+  sessionId: string;
+  wall: SessionHardWall;
+};
+
+const hardWallAttempts = new Map<string, McpHardWallAttempt>();
+const hardWallsBySession = new Map<string, McpHardWallAttempt>();
+
+/** @internal Test-only reset for module-level hard-wall state. */
+export function __test_resetHardWallState(): void {
+  hardWallAttempts.clear();
+  hardWallsBySession.clear();
+}
+
+function hardWallResponse(attempt: McpHardWallAttempt, repeatBlocked = false): McpResponse {
+  return textResponse(JSON.stringify({
+    status: 'user_action_required',
+    sessionId: attempt.sessionId,
+    repeatBlocked,
+    wall: {
+      kind: attempt.wall.kind,
+      currentUrl: sessionWallDisplayUrl(attempt.wall.currentUrl),
+      strategyKey: attempt.wall.strategyKey,
+      detectedAt: attempt.wall.detectedAt,
+      prompt: attempt.wall.prompt,
+    },
+    message: formatUserActionRequired(attempt.wall, repeatBlocked),
+  }, null, 2));
+}
+
+async function guardBrowserSessionHardWall(
+  sessionId: string,
+  driver: { evaluate(expression: string): Promise<unknown> },
+): Promise<McpResponse | null> {
+  const pending = hardWallsBySession.get(sessionId);
+  if (!pending) return null;
+
+  const current = await inspectSessionHardWall(
+    driver,
+    pending.wall.requestedUrl,
+    pending.wall.strategyKey,
+  );
+  if (current) {
+    const refreshed = { sessionId, wall: current };
+    hardWallsBySession.set(sessionId, refreshed);
+    hardWallAttempts.set(current.attemptKey, refreshed);
+    return hardWallResponse(refreshed, true);
+  }
+
+  hardWallsBySession.delete(sessionId);
+  hardWallAttempts.delete(pending.wall.attemptKey);
+  return null;
 }
 
 /**
@@ -1234,7 +1295,7 @@ export const TOOLS = [
   // --- Persistent session tools ---
   {
     name: "session_start",
-    description: "Start a persistent session for web (Chrome/Safari), macOS native app, or iOS/watchOS simulator. Chrome is default for web. Use 'app' for native macOS apps, 'simulator' for iOS/watchOS. Session stays alive across tool calls — use session_action to interact, session_read to observe/extract, session_close when done.",
+    description: "Start a persistent session for web (Chrome/Safari), macOS native app, or iOS/watchOS simulator. Chrome is default for web. Web sessions stop at authentication, identity-verification, CAPTCHA, access, or consent walls and return USER_ACTION_REQUIRED; IBR never types or submits credentials automatically, and the same URL + browser strategy is not retried. Use 'app' for native macOS apps, 'simulator' for iOS/watchOS.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -2070,6 +2131,14 @@ export async function handleToolCall(
           return errorResponse(`session_start requires 'url' for web sessions, 'app' for macOS native, or 'simulator' for iOS/watchOS`)
         }
 
+        const strategyKey = browser === 'safari'
+          ? 'safari:mcp:interactive'
+          : `chrome:mcp:${headless ? 'headless' : 'headed'}`
+        const priorAttempt = hardWallAttempts.get(sessionAttemptKey(url, strategyKey))
+        if (priorAttempt) {
+          return hardWallResponse(priorAttempt, true)
+        }
+
         // Safari session (on request)
         if (browser === 'safari') {
           try {
@@ -2079,6 +2148,14 @@ export async function handleToolCall(
             await safariDriver.navigate(url)
 
             sessions.set(sessionId, { driver: safariDriver, type: 'safari', url, createdAt: Date.now() })
+
+            const wall = await inspectSessionHardWall(safariDriver, url, strategyKey)
+            if (wall) {
+              const attempt = { sessionId, wall }
+              hardWallAttempts.set(wall.attemptKey, attempt)
+              hardWallsBySession.set(sessionId, attempt)
+              return hardWallResponse(attempt)
+            }
 
             return textResponse(JSON.stringify({
               sessionId,
@@ -2099,6 +2176,15 @@ export async function handleToolCall(
             viewport: viewport ? { width: viewport.width, height: viewport.height } : undefined,
           })
           await driver.navigate(url)
+
+          const wall = await inspectSessionHardWall(driver, url, strategyKey)
+          if (wall) {
+            sessions.set(sessionId, { driver, type: 'chrome', url: driver.url || url, createdAt: Date.now() })
+            const attempt = { sessionId, wall }
+            hardWallAttempts.set(wall.attemptKey, attempt)
+            hardWallsBySession.set(sessionId, attempt)
+            return hardWallResponse(attempt)
+          }
 
           const elements = await driver.getSnapshot()
           const elementCount = elements.filter(e => e.actions.length > 0).length
@@ -2148,6 +2234,8 @@ export async function handleToolCall(
 
         // ── Browser session (Chrome or Safari) ───────────────────────────
         const driver = entry.driver
+        const wallResult = await guardBrowserSessionHardWall(sessionId, driver)
+        if (wallResult) return wallResult
 
         // Page/window scroll needs no element target. Short-circuit BEFORE the
         // element-resolution step so a page-level target ("body"/"window"/
@@ -2343,6 +2431,8 @@ export async function handleToolCall(
 
         // ── Browser session (Chrome or Safari) ───────────────────────────
         const driver = entry.driver
+        const wallResult = await guardBrowserSessionHardWall(sessionId, driver)
+        if (wallResult) return wallResult
 
         try {
           switch (what) {
@@ -2424,9 +2514,19 @@ export async function handleToolCall(
             await entry.driver.close()
           }
           sessions.delete(sessionId)
+          const pendingWall = hardWallsBySession.get(sessionId)
+          if (pendingWall) {
+            hardWallAttempts.delete(pendingWall.wall.attemptKey)
+            hardWallsBySession.delete(sessionId)
+          }
           return textResponse(`Session ${sessionId} closed.`)
         } catch (err) {
           sessions.delete(sessionId)
+          const pendingWall = hardWallsBySession.get(sessionId)
+          if (pendingWall) {
+            hardWallAttempts.delete(pendingWall.wall.attemptKey)
+            hardWallsBySession.delete(sessionId)
+          }
           return errorResponse(`session_close error: ${err instanceof Error ? err.message : String(err)}`)
         }
       }

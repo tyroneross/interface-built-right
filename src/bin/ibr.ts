@@ -38,6 +38,7 @@ import {
 import type { Viewport } from '../schemas.js';
 import { registerNativeSessionCommands } from './native-session-cli.js';
 import { mergeCliConfig } from './cli-config.js';
+import { formatUserActionRequired } from '../session-hard-wall.js';
 
 function readPackageVersion(): string {
   try {
@@ -1745,6 +1746,13 @@ program
       const outputDir = globalOpts.output || './.ibr';
       const resolvedUrl = await resolveBaseUrl(url);
       const headed = Boolean(options.headed || options.sandbox || options.debug);
+      const headless = !headed;
+      if (globalOpts.browser === 'safari') {
+        throw new Error(
+          'session:start CLI browser-server mode supports Chrome only. It will not silently substitute Chrome for Safari. Use the MCP session_start tool with browser="safari" for a Safari strategy.',
+        );
+      }
+      const strategyKey = `chrome:${globalOpts.browserMode ?? 'local'}:${globalOpts.cdpUrl ?? globalOpts.wsEndpoint ?? 'isolated'}:${headless ? 'headless' : 'headed'}`;
 
       // Resolve session viewport once. --device wins over global --viewport.
       // session:start has no subcommand-level --viewport (only global), so
@@ -1756,8 +1764,6 @@ program
         VIEWPORTS,
         VIEWPORTS.desktop,
       );
-      const headless = !headed;
-
       // Check if browser server is already running
       const serverRunning = await isServerRunning(outputDir);
 
@@ -1780,12 +1786,17 @@ program
           name: options.name,
           waitFor: options.waitFor,
           viewport: sessionViewport,
+          strategyKey,
         });
 
         console.log('');
         console.log(`Session started: ${session.id}`);
         console.log(`URL: ${session.url}`);
         console.log('');
+        if (session.hardWall) {
+          console.log(formatUserActionRequired(session.hardWall));
+          console.log('');
+        }
         console.log('Available commands (run in another terminal):');
         console.log(`  npx ibr session:click ${session.id} "<selector>"`);
         console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
@@ -1849,12 +1860,17 @@ program
           name: options.name,
           waitFor: options.waitFor,
           viewport: sessionViewport,
+          strategyKey,
         });
 
         console.log('');
         console.log(`Session started: ${session.id}`);
         console.log(`URL: ${session.url}`);
         console.log('');
+        if (session.hardWall) {
+          console.log(formatUserActionRequired(session.hardWall));
+          console.log('');
+        }
         console.log('Use session commands to interact:');
         console.log(`  npx ibr session:type ${session.id} "<selector>" "<text>"`);
         console.log(`  npx ibr session:click ${session.id} "<selector>"`);
@@ -1890,6 +1906,12 @@ async function getSession(outputDir: string, sessionId: string) {
     console.log('');
     console.log('List sessions with: npx ibr session:list');
     process.exit(1);
+  }
+
+  if (session.hardWall) {
+    console.log(formatUserActionRequired(session.hardWall, true));
+    await session.disconnect();
+    process.exit(2);
   }
 
   return session;

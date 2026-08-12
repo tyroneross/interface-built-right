@@ -1,6 +1,6 @@
 import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
-import { writeFile, readFile, unlink, mkdir } from 'fs/promises';
+import { writeFile, readFile, unlink, mkdir, readdir } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
@@ -18,6 +18,12 @@ import {
 } from './scan.js';
 import { testInteractivity } from './interactivity.js';
 import { getSemanticOutput } from './semantic/index.js';
+import {
+  formatUserActionRequired,
+  inspectSessionHardWall,
+  sessionAttemptKey,
+  type SessionHardWall,
+} from './session-hard-wall.js';
 
 /**
  * Browser server state persisted to disk
@@ -41,6 +47,10 @@ interface BrowserServerState {
 interface SessionState {
   id: string;
   url: string;
+  currentUrl: string;
+  targetId: string;
+  strategyKey: string;
+  hardWall?: SessionHardWall;
   name: string;
   viewport: Viewport;
   createdAt: string;
@@ -88,6 +98,14 @@ export interface SessionOptions {
   viewport?: Viewport;
   waitFor?: string;  // CSS selector to wait for before considering page ready
   timeout?: number;
+  strategyKey?: string;
+}
+
+export class UserActionRequiredError extends Error {
+  constructor(public readonly wall: SessionHardWall, repeatBlocked = false) {
+    super(formatUserActionRequired(wall, repeatBlocked));
+    this.name = 'UserActionRequiredError';
+  }
 }
 
 /**
@@ -112,6 +130,30 @@ function getPaths(outputDir: string) {
     profileDir: join(outputDir, ISOLATED_PROFILE_DIR),
     sessionsDir: join(outputDir, 'sessions'),
   };
+}
+
+async function findPendingHardWall(
+  outputDir: string,
+  requestedUrl: string,
+  strategyKey: string,
+): Promise<SessionHardWall | null> {
+  const { sessionsDir } = getPaths(outputDir);
+  if (!existsSync(sessionsDir)) return null;
+
+  const attemptKey = sessionAttemptKey(requestedUrl, strategyKey);
+  const entries = await readdir(sessionsDir, { withFileTypes: true });
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith('live_')) continue;
+    const statePath = join(sessionsDir, entry.name, 'live-session.json');
+    if (!existsSync(statePath)) continue;
+    try {
+      const state = JSON.parse(await readFile(statePath, 'utf-8')) as Partial<SessionState>;
+      if (state.hardWall?.attemptKey === attemptKey) return state.hardWall;
+    } catch {
+      // A malformed unrelated session record must not block a new session.
+    }
+  }
+  return null;
 }
 
 /**
@@ -277,7 +319,7 @@ export async function startBrowserServer(
  * Connect to existing browser server
  * Creates a new EngineDriver and attaches it to the running Chrome process
  */
-export async function connectToBrowserServer(outputDir: string): Promise<EngineDriver | null> {
+export async function connectToBrowserServer(outputDir: string, targetId?: string): Promise<EngineDriver | null> {
   const { stateFile } = getPaths(outputDir);
 
   if (!existsSync(stateFile)) {
@@ -298,7 +340,7 @@ export async function connectToBrowserServer(outputDir: string): Promise<EngineD
 
     // Create a new driver and connect to the existing Chrome process
     const driver = new EngineDriver();
-    await driver.connectExisting(wsUrl);
+    await driver.connectExisting(wsUrl, targetId);
     return driver;
   } catch (error) {
     // Server not running - clean up
@@ -387,7 +429,19 @@ export class PersistentSession {
     outputDir: string,
     options: SessionOptions
   ): Promise<PersistentSession> {
-    const { url, name, viewport = VIEWPORTS.desktop, waitFor, timeout = 30000 } = options;
+    const {
+      url,
+      name,
+      viewport = VIEWPORTS.desktop,
+      waitFor,
+      timeout = 30000,
+      strategyKey = 'chrome:local',
+    } = options;
+
+    const priorWall = await findPendingHardWall(outputDir, url, strategyKey);
+    if (priorWall) {
+      throw new UserActionRequiredError(priorWall, true);
+    }
 
     // Connect to browser server
     const driver = await connectToBrowserServer(outputDir);
@@ -428,11 +482,21 @@ export class PersistentSession {
     }
 
     const navDuration = Date.now() - navStart;
+    const targetId = driver.pageTargetId;
+    if (!targetId) {
+      throw new Error('Browser session started without a page target.');
+    }
+    const currentUrl = page.url();
+    const hardWall = await inspectSessionHardWall(page, url, strategyKey);
 
     // Initialize state
     const state: SessionState = {
       id: sessionId,
       url,
+      currentUrl,
+      targetId,
+      strategyKey,
+      ...(hardWall ? { hardWall } : {}),
       name: name || new URL(url).pathname,
       viewport,
       createdAt: new Date().toISOString(),
@@ -472,25 +536,36 @@ export class PersistentSession {
       return null;
     }
 
-    // Connect to browser server
-    const driver = await connectToBrowserServer(outputDir);
+    // Load session state
+    const content = await readFile(statePath, 'utf-8');
+    const state = JSON.parse(content) as SessionState;
+    if (!state.targetId) {
+      throw new Error(
+        'This session predates safe target reattachment. Start a new session once; IBR will not navigate the old URL automatically.',
+      );
+    }
+
+    // Reattach to the original page target. This is intentionally not a
+    // navigation: reads, captures, and scans must not request the URL again.
+    const driver = await connectToBrowserServer(outputDir, state.targetId);
     if (!driver) {
       return null;
     }
 
-    // Load session state
-    const content = await readFile(statePath, 'utf-8');
-    const state: SessionState = JSON.parse(content);
-
-    // Reconnect to the session URL — EngineDriver doesn't expose contexts,
-    // so we navigate the new driver connection to the session's last known URL.
     const page = new CompatPage(driver);
 
     // Re-apply the device profile so a session reattach preserves the
     // original --device / --viewport mobile behavior.
     await driver.emulationDomain.applyDeviceProfile(viewportToConfig(state.viewport));
 
-    await page.goto(state.url, { waitUntil: 'networkidle' });
+    state.currentUrl = page.url();
+    const wall = await inspectSessionHardWall(page, state.url, state.strategyKey);
+    if (wall) {
+      state.hardWall = wall;
+    } else {
+      delete state.hardWall;
+    }
+    await writeFile(statePath, JSON.stringify(state, null, 2));
 
     return new PersistentSession(driver, page, state, sessionDir, outputDir);
   }
@@ -505,6 +580,10 @@ export class PersistentSession {
 
   get actions(): ActionRecord[] {
     return [...this.state.actions];
+  }
+
+  get hardWall(): SessionHardWall | undefined {
+    return this.state.hardWall;
   }
 
   private async recordAction(action: ActionRecord): Promise<void> {
@@ -1150,14 +1229,14 @@ export class PersistentSession {
   }
 
   /**
-   * Release the driver's WebSocket and spawned tab without terminating the
-   * shared browser-server Chrome process.
+   * Release the driver's WebSocket without terminating the shared browser or
+   * the persisted session tab.
    *
    * Every one-shot CLI command (session:click, session:wait, session:scan,
    * session:screenshot, etc.) creates a new PersistentSession via get(), which
-   * in turn spawns a fresh tab via connectExisting() and opens a new CDP
-   * WebSocket. If we don't release those at the end of the command, the node
-   * process hangs on the open socket and the shared Chrome accumulates tabs.
+   * in turn reattaches to the persisted target and opens a new CDP WebSocket.
+   * If we don't release it at the end of the command, the node process hangs
+   * on the open socket.
    *
    * Safe to call multiple times; no-op if driver is already disconnected.
    */

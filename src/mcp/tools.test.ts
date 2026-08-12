@@ -349,6 +349,66 @@ function jsonOf(result: { content: Array<{ type: string; text?: string }> }): Re
   return JSON.parse(textPart.text);
 }
 
+describe('session_start hard-wall retry guard', () => {
+  let startedSessionId: string | undefined;
+
+  afterEach(async () => {
+    const mod = await import('./tools.js');
+    (mod as unknown as { __test_resetHardWallState: () => void }).__test_resetHardWallState();
+    if (startedSessionId) {
+      (mod as unknown as { __test_setSession: (id: string, entry: unknown) => void })
+        .__test_setSession(startedSessionId, null);
+      startedSessionId = undefined;
+    }
+    vi.restoreAllMocks();
+  });
+
+  it('navigates once, prompts for manual sign-in, and blocks the identical retry before launch', async () => {
+    const handleToolCall = await getHandleToolCall();
+    const { EngineDriver } = await import('../engine/driver.js');
+    const launch = vi.spyOn(EngineDriver.prototype, 'launch').mockResolvedValue(undefined);
+    const navigate = vi.spyOn(EngineDriver.prototype, 'navigate').mockResolvedValue(undefined);
+    const evaluate = vi.spyOn(EngineDriver.prototype, 'evaluate').mockResolvedValue({
+      requestedUrl: '',
+      currentUrl: 'https://example.com/sign-in',
+      title: 'Sign in',
+      bodyText: 'Sign in with email',
+      hasPasswordInput: true,
+      hasEmailInput: true,
+      hasOneTimeCodeInput: false,
+      hasCaptcha: false,
+    });
+    const snapshot = vi.spyOn(EngineDriver.prototype, 'getSnapshot');
+
+    const first = await handleToolCall('session_start', {
+      url: 'https://example.com/private?accessLink=secret',
+      browser: 'chrome',
+    });
+    const second = await handleToolCall('session_start', {
+      url: 'https://example.com/private?accessLink=secret',
+      browser: 'chrome',
+    });
+    startedSessionId = jsonOf(first).sessionId as string;
+
+    expect(jsonOf(first)).toMatchObject({
+      status: 'user_action_required',
+      repeatBlocked: false,
+      wall: { kind: 'authentication' },
+    });
+    expect(jsonOf(second)).toMatchObject({
+      status: 'user_action_required',
+      repeatBlocked: true,
+      wall: { kind: 'authentication' },
+    });
+    expect(JSON.stringify(jsonOf(first))).not.toContain('secret');
+    expect(JSON.stringify(jsonOf(first))).not.toContain('attemptKey');
+    expect(launch).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(evaluate).toHaveBeenCalledTimes(1);
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+});
+
 describe('E3-E: session_action verify-then-proceed (T-09)', () => {
   afterEach(() => {
     vi.restoreAllMocks();

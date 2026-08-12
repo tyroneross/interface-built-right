@@ -328,6 +328,7 @@ export class EngineDriver implements BrowserDriver {
 
   private targetId: string | null = null
   private sessionId: string | null = null
+  private ownsTarget = true
   private _currentUrl = ''
   private launched = false
   private resolutionCache = new ResolutionCache()
@@ -380,6 +381,7 @@ export class EngineDriver implements BrowserDriver {
 
     // Create initial page
     this.targetId = await this.target.createPage('about:blank')
+    this.ownsTarget = true
     this.sessionId = await this.target.attach(this.targetId)
 
     // Initialize domains with session
@@ -444,18 +446,22 @@ export class EngineDriver implements BrowserDriver {
   /**
    * Release the CDP WebSocket for this driver without terminating the browser.
    * Used by one-shot CLI commands that attach to a shared browser-server via
-   * connectExisting() — they must drop their WebSocket at the end of the
-   * command so the node process can exit, but the browser-server's Chrome
-   * process must keep running for subsequent commands.
+   * connectExisting() — they must detach from a supplied persisted target and
+   * drop their WebSocket at the end of the command so the node process can
+   * exit, while the browser-server and session tab remain alive.
    *
-   * Closes the per-command tab that was spawned in connectExisting(), then
-   * closes the WebSocket. Does NOT call this.browser.close() (which would
-   * terminate the whole browser-server process).
+   * A target created without a supplied target ID is still owned by this
+   * driver and is closed on disconnect. Does NOT call this.browser.close().
    */
   async disconnect(): Promise<void> {
-    if (this.targetId) {
-      await this.target.close(this.targetId).catch(() => {})
+    if (this.targetId && this.sessionId) {
+      if (this.ownsTarget) {
+        await this.target.close(this.targetId).catch(() => {})
+      } else {
+        await this.target.detach(this.sessionId).catch(() => {})
+      }
       this.targetId = null
+      this.sessionId = null
     }
     await this.conn.close().catch(() => {})
     this.launched = false
@@ -1773,17 +1779,22 @@ export class EngineDriver implements BrowserDriver {
   /** The resolved browser WebSocket endpoint, when available. */
   get wsEndpoint(): string | null { return this.browser.wsEndpoint }
 
+  /** Current CDP page target. Persist this to reattach without navigating. */
+  get pageTargetId(): string | null { return this.targetId }
+
   /**
    * Connect to an already-running Chrome instance instead of launching a new one.
    * Used by browser-server reconnection to attach to a persistent Chrome process.
    */
-  async connectExisting(wsUrl: string): Promise<void> {
+  async connectExisting(wsUrl: string, targetId?: string): Promise<void> {
     await this.conn.connect(wsUrl)
     this.target = new TargetDomain(this.conn)
     this.launched = true
 
-    // Create a new page in the existing browser
-    this.targetId = await this.target.createPage('about:blank')
+    // Reattach to a known page when resuming a session. Creating a blank page
+    // is reserved for callers that are intentionally starting a new session.
+    this.targetId = targetId ?? await this.target.createPage('about:blank')
+    this.ownsTarget = targetId === undefined
     this.sessionId = await this.target.attach(this.targetId)
 
     // Initialize domains with session
@@ -1803,6 +1814,8 @@ export class EngineDriver implements BrowserDriver {
     await this.console.enable()
     await this.network.enable()
     this.setupDialogHandling()
+
+    this._currentUrl = await this.runtime.evaluate('location.href') as string ?? ''
   }
 }
 
