@@ -34,9 +34,54 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   shutdownPool().finally(() => process.exit(0));
 });
+process.on("SIGHUP", () => {
+  shutdownPool().finally(() => process.exit(0));
+});
 process.on("beforeExit", () => {
   shutdownPool();
 });
+
+// --- Lifecycle L3: parent-death watchdog ---
+// Poll ppid every 5s (per mcp-lifecycle SPEC.md L3). If this process gets
+// reparented to init/launchd (ppid becomes 1), the host that spawned us died
+// without delivering a signal or closing stdin (hard kill). Flush and exit 0.
+const PPID_POLL_MS = 5000;
+const ppidWatchdog = setInterval(() => {
+  if (process.ppid === 1) {
+    shutdownPool().finally(() => process.exit(0));
+  }
+}, PPID_POLL_MS);
+// Never let this timer hold the event loop open on its own.
+ppidWatchdog.unref();
+
+// --- Lifecycle L4: idle timeout (implemented always, disabled by default) ---
+// Tracks the timestamp of the last inbound JSON-RPC frame. If MCP_IDLE_TIMEOUT_MS
+// is set and no frame arrives within that window, flush and exit 0.
+//
+// Default when unset: 0 (disabled). This host does not respawn a stdio MCP
+// server once it exits — its tools are deregistered for the rest of the
+// session (verified empirically 2026-08-12, see SPEC.md). A non-zero default
+// would silently strip this server's tools from any session that goes quiet.
+// The variable is read once, unconditionally — no host detection anywhere in
+// this file. Enable per deployment via MCP_IDLE_TIMEOUT_MS in the host's MCP
+// config, never by branching on who spawned us.
+function parseIdleTimeoutMs(raw: string | undefined): number {
+  if (!raw) return 0;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+const IDLE_TIMEOUT_MS = parseIdleTimeoutMs(process.env.MCP_IDLE_TIMEOUT_MS);
+let lastFrameAt = Date.now();
+
+if (IDLE_TIMEOUT_MS > 0) {
+  const IDLE_POLL_MS = 1000;
+  const idleWatchdog = setInterval(() => {
+    if (Date.now() - lastFrameAt >= IDLE_TIMEOUT_MS) {
+      shutdownPool().finally(() => process.exit(0));
+    }
+  }, IDLE_POLL_MS);
+  idleWatchdog.unref();
+}
 
 // --- JSON-RPC transport over stdio ---
 
@@ -48,6 +93,7 @@ rl.on("line", (line) => {
   try {
     const msg = JSON.parse(buffer);
     buffer = "";
+    lastFrameAt = Date.now();
     handleMessage(msg);
   } catch {
     // Incomplete JSON, keep buffering

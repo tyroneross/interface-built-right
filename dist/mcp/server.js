@@ -1162,6 +1162,23 @@ var init_target = __esm({
         const result = await this.conn.send("Target.getTargets");
         return result.targetInfos;
       }
+      /**
+       * Full `Target.getTargets` payload including `title` and `attached`.
+       * `list()` narrows those away; attaching to an already-running app (see
+       * `src/live/`) needs the title to pick the right window. Additive — existing
+       * callers of `list()` are untouched.
+       */
+      async listDetailed() {
+        const result = await this.conn.send("Target.getTargets");
+        return result.targetInfos;
+      }
+      /**
+       * Release a session created by `attach()` without closing the target.
+       * Required when auditing a live app: the page must survive detach.
+       */
+      async detach(sessionId) {
+        await this.conn.send("Target.detachFromTarget", { sessionId });
+      }
     };
   }
 });
@@ -1503,13 +1520,13 @@ var init_accessibility = __esm({
         for (const node of nodes) {
           if (SKIP_ROLES.has(node.role.value)) continue;
           const role = normalizeRole(node.role.value, "web");
-          const label = node.name?.value ?? "";
-          if (role === "group" && !label) continue;
+          const label2 = node.name?.value ?? "";
+          if (role === "group" && !label2) continue;
           const id = node.backendDOMNodeId ? `e${node.backendDOMNodeId}` : `ex${Math.random().toString(36).slice(2, 8)}`;
           const el = {
             id,
             role,
-            label,
+            label: label2,
             value: node.value?.value ?? null,
             enabled: this.getProperty(node, "disabled") !== true,
             focused: this.getProperty(node, "focused") === true,
@@ -3160,9 +3177,9 @@ function scoreRole(intent, role) {
   }
   return 0;
 }
-function scoreLabelSimilarity(intent, label) {
-  if (!label) return 0;
-  const labelLower = label.toLowerCase();
+function scoreLabelSimilarity(intent, label2) {
+  if (!label2) return 0;
+  const labelLower = label2.toLowerCase();
   const intentTrimmed = intent.trim();
   if (intentTrimmed === labelLower) return 1;
   if (labelLower.length >= 3) {
@@ -3812,9 +3829,9 @@ var init_driver = __esm({
        * backendNodeId, same accessible name/role) stay actionable instead of
        * failing the moment its original elementId goes stale.
        */
-      async reResolveByLabelRole(label, role) {
+      async reResolveByLabelRole(label2, role) {
         const elements = await this.freshSnapshot();
-        const match = findExactLabel(label, elements, role);
+        const match = findExactLabel(label2, elements, role);
         return match ? match.id : null;
       }
       /**
@@ -3929,8 +3946,8 @@ var init_driver = __esm({
           const roleValue = node.role?.value;
           if (!roleValue || FRAME_SKIP_ROLES.has(roleValue)) continue;
           const role = normalizeRole(roleValue, "web");
-          const label = node.name?.value ?? "";
-          if (role === "group" && !label) continue;
+          const label2 = node.name?.value ?? "";
+          if (role === "group" && !label2) continue;
           if (!node.backendDOMNodeId) continue;
           const id = `f${frameTag}_e${node.backendDOMNodeId}`;
           const disabledProp = node.properties?.find((p) => p.name === "disabled")?.value?.value;
@@ -3938,7 +3955,7 @@ var init_driver = __esm({
           elements.push({
             id,
             role,
-            label,
+            label: label2,
             value: node.value?.value ?? null,
             enabled: disabledProp !== true,
             focused: focusedProp === true,
@@ -7320,18 +7337,18 @@ function collectContrastReport(ctx) {
     if (!fg || !bg) continue;
     const large = isLargeText(styles);
     const ratio = contrastRatio(fg, bg);
-    const aaThreshold = large ? 3 : 4.5;
+    const aaThreshold2 = large ? 3 : 4.5;
     const aaaThreshold = large ? 4.5 : 7;
     const fontSize = parseFloat(styles.fontSize ?? "16") || 16;
     const entry = {
       selector: el.selector,
       text: text.slice(0, 60),
       ratio: Number(ratio.toFixed(2)),
-      pass: ratio >= aaaThreshold ? "AAA" : ratio >= aaThreshold ? "AA" : "FAIL",
+      pass: ratio >= aaaThreshold ? "AAA" : ratio >= aaThreshold2 ? "AA" : "FAIL",
       fontSize,
       largeText: large
     };
-    if (ratio >= aaThreshold) {
+    if (ratio >= aaThreshold2) {
       pass++;
     } else {
       fail++;
@@ -7377,12 +7394,12 @@ function buildTree(links, navSelector) {
   const roots = [];
   const stack = [];
   for (const el of sorted) {
-    const label = linkLabel(el);
-    if (!label) continue;
+    const label2 = linkLabel(el);
+    if (!label2) continue;
     const absDepth = selectorDepth(el.selector);
     const relDepth = absDepth - navDepth;
     const node = {
-      label,
+      label: label2,
       selector: el.selector,
       depth: relDepth,
       children: []
@@ -7455,10 +7472,10 @@ function collectNavigationMap(ctx) {
   }
   const flatRoots = [];
   for (const link of links.slice(0, 60)) {
-    const label = linkLabel(link);
-    if (!label) continue;
+    const label2 = linkLabel(link);
+    if (!label2) continue;
     flatRoots.push({
-      label,
+      label: label2,
       selector: link.selector,
       depth: 0,
       children: []
@@ -8549,12 +8566,12 @@ var init_touch_targets = __esm({
           const { width, height } = element.bounds;
           if (isNonVisibleOrZeroArea(element)) return null;
           if (width < minSize || height < minSize) {
-            const label = element.text || element.a11y?.ariaLabel || element.selector;
+            const label2 = element.text || element.a11y?.ariaLabel || element.selector;
             return {
               ruleId: "touch-targets/minimum-size",
               ruleName: "Touch Target: Minimum Size",
               severity: "warn",
-              message: `"${label.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
+              message: `"${label2.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
               element: element.selector,
               bounds: element.bounds,
               fix: `Increase element size to at least ${minSize}x${minSize}px`
@@ -8676,12 +8693,12 @@ var init_handler_integrity = __esm({
           if (!looksInteractive(element)) return null;
           if (element.interactive.isDisabled) return null;
           if (hasAnyHandler(element)) return null;
-          const label = element.text || element.a11y?.ariaLabel || element.selector;
+          const label2 = element.text || element.a11y?.ariaLabel || element.selector;
           return {
             ruleId: "handler-integrity/fake-interactive",
             ruleName: "Handler Integrity: Fake Interactive Element",
             severity: "error",
-            message: `"${label.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
+            message: `"${label2.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
             element: element.selector,
             bounds: element.bounds,
             fix: "Add an onClick handler, href, or remove interactive appearance"
@@ -8696,12 +8713,12 @@ var init_handler_integrity = __esm({
         check: (element, _context) => {
           if (!element.interactive.isDisabled) return null;
           if (hasDisabledVisual(element)) return null;
-          const label = element.text || element.a11y?.ariaLabel || element.selector;
+          const label2 = element.text || element.a11y?.ariaLabel || element.selector;
           return {
             ruleId: "handler-integrity/disabled-no-visual",
             ruleName: "Handler Integrity: Disabled Without Visual State",
             severity: "warn",
-            message: `"${label.slice(0, 40)}" is disabled but shows no visual disabled state`,
+            message: `"${label2.slice(0, 40)}" is disabled but shows no visual disabled state`,
             element: element.selector,
             bounds: element.bounds,
             fix: "Apply opacity <= 0.7, cursor: not-allowed, or muted color to disabled elements"
@@ -8726,16 +8743,16 @@ function parsePxValue(value) {
   const n = parseFloat(trimmed);
   return isNaN(n) ? null : n;
 }
-function isOnGrid(px) {
-  if (px === 0) return true;
-  return Math.round(px) % 4 === 0;
+function isOnGrid(px2) {
+  if (px2 === 0) return true;
+  return Math.round(px2) % 4 === 0;
 }
 function parseSpacingShorthand(value) {
   const parts = value.trim().split(/\s+/);
   const results = [];
   for (const part of parts) {
-    const px = parsePxValue(part);
-    if (px !== null) results.push(px);
+    const px2 = parsePxValue(part);
+    if (px2 !== null) results.push(px2);
   }
   return results;
 }
@@ -8782,20 +8799,20 @@ var init_spacing_grid = __esm({
                 }
               }
             } else {
-              const px = parsePxValue(raw);
-              if (px !== null && !isOnGrid(px)) {
+              const px2 = parsePxValue(raw);
+              if (px2 !== null && !isOnGrid(px2)) {
                 offGridValues.push({ property: prop, value: raw });
               }
             }
           }
           if (offGridValues.length === 0) return null;
           const detail = offGridValues.map((v) => `${v.property}: ${v.value}`).join(", ");
-          const label = element.text?.slice(0, 30) || element.selector;
+          const label2 = element.text?.slice(0, 30) || element.selector;
           return {
             ruleId: "spacing-grid/off-grid",
             ruleName: "Spacing Grid: Off 8pt Grid",
             severity: "warn",
-            message: `"${label}" has off-grid spacing: ${detail}`,
+            message: `"${label2}" has off-grid spacing: ${detail}`,
             element: element.selector,
             bounds: element.bounds,
             fix: "Use spacing values that are multiples of 4px (e.g., 4, 8, 12, 16, 20, 24, 32px)"
@@ -9050,14 +9067,14 @@ function buildNavigationMap(elements) {
     const isHeading = tag in HEADING_DEPTH;
     const isNavRole = NAV_ROLES.has(role);
     if (!isHeading && !isNavRole) continue;
-    const label = elementLabel(el);
-    if (!label) continue;
+    const label2 = elementLabel(el);
+    if (!label2) continue;
     const depth = isHeading ? HEADING_DEPTH[tag] ?? 1 : 1;
     const styles = el.computedStyles ?? {};
     const hasFontWeightBold = styles["fontWeight"] === "bold" || parseInt(styles["fontWeight"] ?? "0", 10) >= 700;
     const isActive = el.a11y?.role === "tab" ? hasFontWeightBold : void 0;
     nodes.push({
-      label,
+      label: label2,
       role,
       depth,
       isActive
@@ -9881,6 +9898,16 @@ async function scan(url, options = {}) {
       }
     }
     const summaries = summarizeScan(elements.all, url);
+    let probeResults;
+    if (options.probes) {
+      for (const [name, expression] of Object.entries(options.probes)) {
+        try {
+          const value = await driver2.evaluate(expression);
+          probeResults = { ...probeResults ?? {}, [name]: value };
+        } catch {
+        }
+      }
+    }
     const baseResult = {
       url,
       route,
@@ -9892,6 +9919,7 @@ async function scan(url, options = {}) {
       sensors,
       ruleEngine,
       summaries,
+      probes: probeResults,
       console: {
         errors: consoleErrors,
         warnings: consoleWarnings
@@ -10561,12 +10589,12 @@ __export(types_exports, {
   waitForNavigation: () => waitForNavigation
 });
 async function findFieldByLabel(page, labels) {
-  for (const label of labels) {
+  for (const label2 of labels) {
     const attrSelectors = [
-      `input[name*="${label}" i]`,
-      `input[id*="${label}" i]`,
-      `input[placeholder*="${label}" i]`,
-      `input[aria-label*="${label}" i]`
+      `input[name*="${label2}" i]`,
+      `input[id*="${label2}" i]`,
+      `input[placeholder*="${label2}" i]`,
+      `input[aria-label*="${label2}" i]`
     ];
     for (const selector of attrSelectors) {
       const element = await page.$(selector);
@@ -10575,7 +10603,7 @@ async function findFieldByLabel(page, labels) {
     const selectorPath = await page.evaluate(
       `(function() {
         ${PATH_BUILDER_SOURCE}
-        const needle = ${JSON.stringify(label.toLowerCase())};
+        const needle = ${JSON.stringify(label2.toLowerCase())};
         const labels = document.querySelectorAll('label');
         for (const l of labels) {
           const t = (l.textContent || '').trim().toLowerCase();
@@ -12750,8 +12778,8 @@ async function* askStream(url, question, options = {}) {
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
       const { mkdir: mkdir14 } = await import("fs/promises");
-      const { dirname: dirname9 } = await import("path");
-      if (screenshotPath) await mkdir14(dirname9(screenshotPath), { recursive: true });
+      const { dirname: dirname10 } = await import("path");
+      if (screenshotPath) await mkdir14(dirname10(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -13551,14 +13579,14 @@ var init_driver2 = __esm({
         for (const raw of rawElements) {
           const id = `safari-ax-${parentId ? parentId + "-" : ""}${idx++}`;
           const role = this._mapAXRole(raw.role ?? "AXUnknown");
-          const label = raw.title ?? raw.description ?? raw.value ?? "";
+          const label2 = raw.title ?? raw.description ?? raw.value ?? "";
           const actions = (raw.actions ?? []).map(
             (a) => a.replace(/^AX/, "").toLowerCase()
           );
           elements.push({
             id,
             role,
-            label,
+            label: label2,
             value: raw.value ?? null,
             enabled: raw.enabled ?? true,
             focused: raw.focused ?? false,
@@ -14382,9 +14410,9 @@ function escapeForInlineScript(js) {
 function escapeForInlineStyle(css) {
   return css.replace(/<\/style/gi, "<\\/style");
 }
-function readRequired(path, label) {
+function readRequired(path, label2) {
   if (!(0, import_node_fs2.existsSync)(path)) {
-    throw new Error(`${label} not found: ${path}`);
+    throw new Error(`${label2} not found: ${path}`);
   }
   return (0, import_node_fs2.readFileSync)(path, "utf8");
 }
@@ -14458,6 +14486,15 @@ function buildMountScript(input) {
     var leaf = { app: plugin.app, containerEl: containerEl, view: null };
     view = new View(leaf, plugin);
     view.containerEl = containerEl;
+    // ItemView exposes contentEl as containerEl.children[1], and rendering into
+    // it is the standard idiom - this.contentEl.empty() opens most render()
+    // methods in the wild. Building the element above without assigning it here
+    // meant every such view died at its first line with "Cannot read properties
+    // of undefined (reading empty)", and the scan reported that as the PLUGIN's
+    // failure: "Verdict: FAIL, empty page, 0 elements". A harness defect wearing
+    // the plugin's name sends the reader to the wrong file.
+    // (No backticks in this comment: it lives inside a template literal.)
+    view.contentEl = contentEl;
     view.app = plugin.app;
     leaf.view = view;
 
@@ -14507,24 +14544,19 @@ function generateHarness(input) {
   const stub = buildObsidianStub({ mobile: input.mobile });
   const mount = buildMountScript(input);
   const themeClass = input.theme === "light" ? "theme-light" : "theme-dark";
+  const appCssBlock = input.appCss ? `<style>
+${escapeForInlineStyle(input.appCss)}
+</style>
+` : "";
+  const baselineCss = input.appCss ? MINIMAL_RESET_CSS : APPROXIMATE_BASELINE_CSS;
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IBR Obsidian harness \u2014 ${input.viewClass}</title>
-<style>
-/* Obsidian-ish baseline. The plugin stylesheet below owns everything visual;
-   this only removes the UA margin and supplies the font stack a real Obsidian
-   window would, so measured layout is not skewed by browser defaults. */
-html, body { margin: 0; padding: 0; }
-body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 16px;
-  background: var(--background-primary, #1e1e1e);
-  color: var(--text-normal, #dcddde);
-}
-#ibr-container, #ibr-container .view-content { height: 100%; }
+${appCssBlock}<style>
+${baselineCss}
 </style>
 <style>
 ${escapeForInlineStyle(css)}
@@ -14542,7 +14574,7 @@ ${escapeForInlineStyle(input.extraCss)}
 </html>
 `;
 }
-var import_node_fs2, import_node_path2, OBSIDIAN_BODY_CLASSES;
+var import_node_fs2, import_node_path2, OBSIDIAN_BODY_CLASSES, APPROXIMATE_BASELINE_CSS, MINIMAL_RESET_CSS;
 var init_harness = __esm({
   "src/obsidian/harness.ts"() {
     "use strict";
@@ -14550,6 +14582,22 @@ var init_harness = __esm({
     import_node_path2 = require("path");
     init_stub();
     OBSIDIAN_BODY_CLASSES = "mod-macos is-focused";
+    APPROXIMATE_BASELINE_CSS = `/* Obsidian-ish baseline \u2014 APPROXIMATION.
+   Obsidian's real app.css was not available, so every var(--x, fallback) in
+   the plugin stylesheet below resolves to its FALLBACK, and Obsidian's own
+   element rules (notably button { height: var(--input-height) }) are ABSENT.
+   Layout defects that depend on those rules are undetectable in this render. */
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 16px;
+  background: var(--background-primary, #1e1e1e);
+  color: var(--text-normal, #dcddde);
+}
+#ibr-container, #ibr-container .view-content { height: 100%; }`;
+    MINIMAL_RESET_CSS = `/* Obsidian's real app.css is injected above and owns all layout.
+   This is only a guard against UA defaults. */
+html, body { margin: 0; padding: 0; }`;
   }
 });
 
@@ -14593,6 +14641,523 @@ var init_server = __esm({
   }
 });
 
+// src/obsidian/app-css.ts
+function isDirectory(node) {
+  return typeof node.files === "object";
+}
+function readAsarHeader(asarPath) {
+  const fd = (0, import_node_fs3.openSync)(asarPath, "r");
+  try {
+    const preamble = Buffer.alloc(ASAR_PREAMBLE_BYTES);
+    const preambleRead = (0, import_node_fs3.readSync)(fd, preamble, 0, ASAR_PREAMBLE_BYTES, 0);
+    if (preambleRead < ASAR_PREAMBLE_BYTES) {
+      throw new Error(`archive is shorter than an asar preamble (${preambleRead} bytes)`);
+    }
+    const headerSize = preamble.readUInt32LE(4);
+    const jsonLen = preamble.readUInt32LE(12);
+    const archiveBytes = (0, import_node_fs3.statSync)(asarPath).size;
+    if (jsonLen === 0 || jsonLen > headerSize || ASAR_PREAMBLE_BYTES + jsonLen > archiveBytes) {
+      throw new Error(`implausible asar header (headerSize=${headerSize}, jsonLen=${jsonLen})`);
+    }
+    const json = Buffer.alloc(jsonLen);
+    (0, import_node_fs3.readSync)(fd, json, 0, jsonLen, ASAR_PREAMBLE_BYTES);
+    const header = JSON.parse(json.toString("utf8"));
+    return { header, dataOffset: 8 + headerSize, headerSize };
+  } finally {
+    (0, import_node_fs3.closeSync)(fd);
+  }
+}
+function readAsarEntry(asarPath, entryPath) {
+  const { header, dataOffset } = readAsarHeader(asarPath);
+  let node = header;
+  for (const segment of entryPath.split("/").filter(Boolean)) {
+    if (!isDirectory(node)) return null;
+    const next = node.files[segment];
+    if (!next) return null;
+    node = next;
+  }
+  if (isDirectory(node)) return null;
+  if (node.unpacked) return null;
+  const size = Number(node.size);
+  const offset = Number(node.offset);
+  if (!Number.isFinite(size) || !Number.isFinite(offset) || size < 0) return null;
+  const fd = (0, import_node_fs3.openSync)(asarPath, "r");
+  try {
+    const buf = Buffer.alloc(size);
+    const read = (0, import_node_fs3.readSync)(fd, buf, 0, size, dataOffset + offset);
+    if (read !== size) {
+      throw new Error(`short read on ${entryPath}: wanted ${size} bytes, got ${read}`);
+    }
+    return buf;
+  } finally {
+    (0, import_node_fs3.closeSync)(fd);
+  }
+}
+function obsidianAsarCandidates(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
+  if (platform === "darwin") {
+    return [
+      "/Applications/Obsidian.app/Contents/Resources/obsidian.asar",
+      (0, import_node_path3.join)(home, "Applications/Obsidian.app/Contents/Resources/obsidian.asar")
+    ];
+  }
+  if (platform === "win32") {
+    const localAppData = env.LOCALAPPDATA ?? (0, import_node_path3.join)(home, "AppData/Local");
+    const programFiles = env.ProgramFiles ?? "C:\\Program Files";
+    return [
+      (0, import_node_path3.join)(localAppData, "Obsidian/resources/obsidian.asar"),
+      (0, import_node_path3.join)(programFiles, "Obsidian/resources/obsidian.asar")
+    ];
+  }
+  return [
+    "/opt/Obsidian/resources/obsidian.asar",
+    "/usr/lib/obsidian/resources/obsidian.asar",
+    "/usr/share/obsidian/resources/obsidian.asar",
+    "/var/lib/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar",
+    (0, import_node_path3.join)(home, ".local/share/flatpak/app/md.obsidian.Obsidian/current/active/files/obsidian/resources/obsidian.asar"),
+    (0, import_node_path3.join)(home, "Applications/squashfs-root/resources/obsidian.asar"),
+    (0, import_node_path3.join)(home, ".local/share/obsidian/resources/obsidian.asar"),
+    (0, import_node_path3.join)(home, "squashfs-root/resources/obsidian.asar")
+  ];
+}
+function findObsidianAsar(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
+  for (const candidate of obsidianAsarCandidates(platform, env, home)) {
+    if ((0, import_node_fs3.existsSync)(candidate)) return candidate;
+  }
+  return null;
+}
+function appCssCacheDir(platform = process.platform, env = process.env, home = (0, import_node_os2.homedir)()) {
+  if (platform === "darwin") return (0, import_node_path3.join)(home, "Library/Caches/ibr/obsidian");
+  if (platform === "win32") {
+    return (0, import_node_path3.join)(env.LOCALAPPDATA ?? (0, import_node_path3.join)(home, "AppData/Local"), "ibr/Cache/obsidian");
+  }
+  return (0, import_node_path3.join)(env.XDG_CACHE_HOME ?? (0, import_node_path3.join)(home, ".cache"), "ibr/obsidian");
+}
+function appCssCacheKey(asarPath) {
+  const st = (0, import_node_fs3.statSync)(asarPath);
+  return `app-css-${st.size}-${Math.round(st.mtimeMs)}.css`;
+}
+function resolveObsidianAppCss(options = {}) {
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
+  try {
+    const explicit = options.path ?? env[APP_CSS_ENV_VAR];
+    if (explicit) {
+      if (!(0, import_node_fs3.existsSync)(explicit)) return null;
+      if (explicit.endsWith(".asar")) return fromAsar(explicit, options, platform, env);
+      const css = (0, import_node_fs3.readFileSync)(explicit, "utf8");
+      return { css, source: explicit, bytes: Buffer.byteLength(css), cached: false };
+    }
+    const asarPath = findObsidianAsar(platform, env);
+    if (!asarPath) return null;
+    return fromAsar(asarPath, options, platform, env);
+  } catch {
+    return null;
+  }
+}
+function fromAsar(asarPath, options, platform, env) {
+  const cacheDir = options.cacheDir ?? appCssCacheDir(platform, env);
+  const useCache = options.noCache !== true;
+  let cachePath;
+  if (useCache) {
+    try {
+      cachePath = (0, import_node_path3.join)(cacheDir, appCssCacheKey(asarPath));
+      if ((0, import_node_fs3.existsSync)(cachePath)) {
+        const css2 = (0, import_node_fs3.readFileSync)(cachePath, "utf8");
+        if (css2.length > 0) {
+          return { css: css2, source: asarPath, bytes: Buffer.byteLength(css2), cached: true };
+        }
+      }
+    } catch {
+      cachePath = void 0;
+    }
+  }
+  const buf = readAsarEntry(asarPath, APP_CSS_ENTRY);
+  if (!buf || buf.length === 0) return null;
+  const css = buf.toString("utf8");
+  if (cachePath) {
+    try {
+      (0, import_node_fs3.mkdirSync)((0, import_node_path3.dirname)(cachePath), { recursive: true });
+      (0, import_node_fs3.writeFileSync)(cachePath, css, "utf8");
+    } catch {
+    }
+  }
+  return { css, source: asarPath, bytes: buf.length, cached: false };
+}
+var import_node_fs3, import_node_os2, import_node_path3, APP_CSS_ENTRY, APP_CSS_ENV_VAR, ASAR_PREAMBLE_BYTES;
+var init_app_css = __esm({
+  "src/obsidian/app-css.ts"() {
+    "use strict";
+    import_node_fs3 = require("fs");
+    import_node_os2 = require("os");
+    import_node_path3 = require("path");
+    APP_CSS_ENTRY = "app.css";
+    APP_CSS_ENV_VAR = "IBR_OBSIDIAN_APP_CSS";
+    ASAR_PREAMBLE_BYTES = 16;
+  }
+});
+
+// src/obsidian/layout-overflow.ts
+function buildLayoutOverflowProbe(options = {}) {
+  const rootSelector = JSON.stringify(options.rootSelector ?? "#ibr-container");
+  const maxNodes = Math.max(1, Math.floor(options.maxNodes ?? 4e3));
+  return `(function () {
+  var MAX = ${maxNodes};
+  var root = document.querySelector(${rootSelector}) || document.body;
+  if (!root) return [];
+  var out = [];
+
+  function nth(el) {
+    var p = el.parentElement;
+    if (!p) return 1;
+    var n = 0;
+    for (var i = 0; i < p.children.length; i++) {
+      if (p.children[i].tagName === el.tagName) {
+        n++;
+        if (p.children[i] === el) return n;
+      }
+    }
+    return n;
+  }
+
+  function shortSel(el) {
+    var s = el.tagName.toLowerCase();
+    if (el.id) return s + '#' + el.id;
+    var cls = (typeof el.className === 'string' ? el.className : '').trim();
+    if (cls) {
+      var parts = cls.split(/\\s+/).slice(0, 2);
+      s += '.' + parts.join('.');
+    }
+    var i = nth(el);
+    if (i > 1) s += ':nth-of-type(' + i + ')';
+    return s;
+  }
+
+  function pathSel(el, rootEl) {
+    var chain = [];
+    var cur = el;
+    var guard = 0;
+    while (cur && guard++ < 12) {
+      chain.unshift(shortSel(cur));
+      if (cur === rootEl) break;
+      cur = cur.parentElement;
+    }
+    return chain.join(' > ');
+  }
+
+  function directText(el) {
+    var t = '';
+    for (var i = 0; i < el.childNodes.length; i++) {
+      var n = el.childNodes[i];
+      if (n.nodeType === 3) t += n.nodeValue;
+    }
+    t = t.replace(/\\s+/g, ' ').trim();
+    return t.length > 80 ? t.slice(0, 80) : t;
+  }
+
+  function walk(el, parentIndex, depth) {
+    if (out.length >= MAX) return;
+    var cs;
+    try { cs = getComputedStyle(el); } catch (e) { return; }
+    // display:none has no layout at all; its subtree is not rendered either.
+    if (cs.display === 'none') return;
+
+    var r = el.getBoundingClientRect();
+    var index = out.length;
+    out.push({
+      index: index,
+      parent: parentIndex,
+      depth: depth,
+      selector: pathSel(el, root),
+      tagName: el.tagName,
+      ownText: directText(el),
+      rect: { x: r.left, y: r.top, width: r.width, height: r.height },
+      clientWidth: el.clientWidth,
+      clientHeight: el.clientHeight,
+      scrollWidth: el.scrollWidth,
+      scrollHeight: el.scrollHeight,
+      overflowX: cs.overflowX,
+      overflowY: cs.overflowY,
+      display: cs.display,
+      position: cs.position,
+      height: cs.height,
+      minHeight: cs.minHeight,
+      maxHeight: cs.maxHeight,
+      width: cs.width,
+      minWidth: cs.minWidth,
+      maxWidth: cs.maxWidth,
+      boxSizing: cs.boxSizing,
+      hasTransform: cs.transform !== 'none' && cs.transform !== '',
+      inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim()
+    });
+
+    for (var i = 0; i < el.children.length; i++) {
+      walk(el.children[i], index, depth + 1);
+      if (out.length >= MAX) return;
+    }
+  }
+
+  walk(root, null, 0);
+  return out;
+})()`;
+}
+function px(value) {
+  const m = /^(-?\d+(?:\.\d+)?)px$/.exec(value.trim());
+  return m ? Number(m[1]) : null;
+}
+function isVisibleOverflow(value) {
+  return value === "visible";
+}
+function hasBoxMetrics(node) {
+  return node.display !== "inline" && node.display !== "contents" && node.clientHeight > 0;
+}
+function isInFlow(node) {
+  return (node.position === "static" || node.position === "relative") && !node.hasTransform;
+}
+function short(text, max = 40) {
+  return text.length > max ? `${text.slice(0, max)}\u2026` : text;
+}
+function attributeCulprit(node, axis) {
+  const isVertical = axis === "vertical";
+  const sizeProp = isVertical ? "height" : "width";
+  const maxProp = isVertical ? "max-height" : "max-width";
+  const size = px(isVertical ? node.height : node.width);
+  const maxSize = px(isVertical ? node.maxHeight : node.maxWidth);
+  const content = isVertical ? node.scrollHeight : node.scrollWidth;
+  const FORM_CONTROLS = /* @__PURE__ */ new Set(["BUTTON", "INPUT", "SELECT", "TEXTAREA"]);
+  const inputHeight = px(node.inputHeightVar);
+  if (isVertical && FORM_CONTROLS.has(node.tagName) && size !== null && inputHeight !== null && Math.abs(size - inputHeight) < 0.5) {
+    return {
+      selector: node.selector,
+      property: "height",
+      value: node.height,
+      origin: "obsidian-base",
+      note: `Obsidian's app.css pins every <${node.tagName.toLowerCase()}> to height: var(--input-height) (${node.inputHeightVar}). This element's content is ${Math.round(content)}px tall, so it renders outside the box. A <${node.tagName.toLowerCase()}> used as a multi-line layout container must reset that rule.`
+    };
+  }
+  if (size !== null && content > size + 0.5) {
+    return {
+      selector: node.selector,
+      property: sizeProp,
+      value: isVertical ? node.height : node.width,
+      origin: "author",
+      note: `${sizeProp}: ${isVertical ? node.height : node.width} holds this box to a fixed size while its content measures ${Math.round(content)}px.`
+    };
+  }
+  if (maxSize !== null && content > maxSize + 0.5) {
+    return {
+      selector: node.selector,
+      property: maxProp,
+      value: isVertical ? node.maxHeight : node.maxWidth,
+      origin: "author",
+      note: `${maxProp}: ${isVertical ? node.maxHeight : node.maxWidth} caps this box below its ${Math.round(content)}px content.`
+    };
+  }
+  return {
+    selector: node.selector,
+    property: sizeProp,
+    value: isVertical ? node.height : node.width,
+    origin: "unknown",
+    note: `No fixed ${sizeProp} on this element \u2014 the constraint is on an ancestor, or the content genuinely exceeds the space available.`
+  };
+}
+function fixFor(culprit, axis) {
+  if (culprit?.origin === "obsidian-base") {
+    return `Reset the base rule on this element: \`height: auto; min-height: 0;\` (and \`display: block\`/\`grid\` if it must wrap). Or use a non-<button> element with a click handler and \`role="button"\`.`;
+  }
+  if (culprit?.origin === "author") {
+    return `Replace \`${culprit.property}: ${culprit.value}\` with \`min-${culprit.property}\`, or allow the box to grow (\`${culprit.property}: auto\`).`;
+  }
+  return axis === "vertical" ? "Let the box grow (`height: auto`), or give it `overflow: hidden` if clipping is intended." : "Let the box grow (`width: auto`), allow wrapping, or clip deliberately.";
+}
+function analyzeLayoutOverflow(nodes, options = {}) {
+  const selfOverflowPx = options.selfOverflowPx ?? LAYOUT_OVERFLOW_DEFAULTS.selfOverflowPx;
+  const containerEscapePx = options.containerEscapePx ?? LAYOUT_OVERFLOW_DEFAULTS.containerEscapePx;
+  const overlapPx = options.overlapPx ?? LAYOUT_OVERFLOW_DEFAULTS.overlapPx;
+  const maxFindings = options.maxFindings ?? LAYOUT_OVERFLOW_DEFAULTS.maxFindings;
+  if (nodes.length === 0) return [];
+  const byIndex = /* @__PURE__ */ new Map();
+  for (const n of nodes) byIndex.set(n.index, n);
+  const findings = [];
+  const overflowingBoxes = /* @__PURE__ */ new Set();
+  const EPSILON_PX = 0.5;
+  for (const node of nodes) {
+    if (!hasBoxMetrics(node)) continue;
+    if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
+      overflowingBoxes.add(`${node.index}:vertical`);
+    }
+    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0 && node.scrollWidth - node.clientWidth > EPSILON_PX) {
+      overflowingBoxes.add(`${node.index}:horizontal`);
+    }
+  }
+  for (const node of nodes) {
+    if (!hasBoxMetrics(node)) continue;
+    if (isVisibleOverflow(node.overflowY)) {
+      const spill = node.scrollHeight - node.clientHeight;
+      if (spill >= selfOverflowPx) {
+        const culprit = attributeCulprit(node, "vertical");
+        findings.push({
+          kind: "self-overflow",
+          severity: "warning",
+          axis: "vertical",
+          selector: node.selector,
+          tagName: node.tagName,
+          text: node.ownText || void 0,
+          spillPx: round(spill),
+          culprit,
+          detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollHeight)}px of content in a ${Math.round(node.clientHeight)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
+          fix: fixFor(culprit, "vertical")
+        });
+      }
+    }
+    if (isVisibleOverflow(node.overflowX) && node.clientWidth > 0) {
+      const spill = node.scrollWidth - node.clientWidth;
+      if (spill >= selfOverflowPx) {
+        const culprit = attributeCulprit(node, "horizontal");
+        findings.push({
+          kind: "self-overflow",
+          severity: "warning",
+          axis: "horizontal",
+          selector: node.selector,
+          tagName: node.tagName,
+          text: node.ownText || void 0,
+          spillPx: round(spill),
+          culprit,
+          detail: `layout-overflow: <${node.tagName.toLowerCase()}> ${node.selector} renders ${Math.round(node.scrollWidth)}px of content in a ${Math.round(node.clientWidth)}px box ` + `(overflow: visible) \u2014 ${Math.round(spill)}px paints outside the element. ${culprit?.note ?? ""}`.trim(),
+          fix: fixFor(culprit, "horizontal")
+        });
+      }
+    }
+  }
+  for (const node of nodes) {
+    if (node.parent === null) continue;
+    if (!isInFlow(node)) continue;
+    const parent = byIndex.get(node.parent);
+    if (!parent) continue;
+    if (parent.rect.width <= 0 || parent.rect.height <= 0) continue;
+    if (node.rect.width <= 0 || node.rect.height <= 0) continue;
+    const axes = [
+      [
+        "vertical",
+        node.rect.y,
+        node.rect.y + node.rect.height,
+        parent.rect.y,
+        parent.rect.y + parent.rect.height,
+        parent.overflowY
+      ],
+      [
+        "horizontal",
+        node.rect.x,
+        node.rect.x + node.rect.width,
+        parent.rect.x,
+        parent.rect.x + parent.rect.width,
+        parent.overflowX
+      ]
+    ];
+    for (const [axis, start, end, pStart, pEnd, parentOverflow] of axes) {
+      if (!isVisibleOverflow(parentOverflow)) continue;
+      if (overflowingBoxes.has(`${parent.index}:${axis}`)) continue;
+      const past = Math.max(end - pEnd, 0);
+      const before = Math.max(pStart - start, 0);
+      const spill = Math.max(past, before);
+      if (spill < containerEscapePx) continue;
+      const culprit = attributeCulprit(parent, axis);
+      const direction = axis === "vertical" ? past >= before ? "below" : "above" : past >= before ? "past the end of" : "before the start of";
+      findings.push({
+        kind: "container-escape",
+        severity: "warning",
+        axis,
+        selector: node.selector,
+        tagName: node.tagName,
+        text: node.ownText || void 0,
+        spillPx: round(spill),
+        otherSelector: parent.selector,
+        otherText: parent.ownText || void 0,
+        culprit,
+        detail: `layout-overflow: ${node.selector} extends ${Math.round(spill)}px ${direction} its parent ${parent.selector} (parent overflow: visible, so the excess paints over ` + `whatever follows). ${culprit?.note ?? ""}`.trim(),
+        fix: fixFor(culprit, axis)
+      });
+    }
+  }
+  const textNodes = nodes.filter(
+    (n) => n.ownText.length > 0 && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n)
+  ).sort((a, b) => a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x);
+  const ancestorsOf = buildAncestorSets(nodes, byIndex);
+  for (let i = 0; i < textNodes.length; i++) {
+    const a = textNodes[i];
+    const aBottom = a.rect.y + a.rect.height;
+    for (let j = i + 1; j < textNodes.length; j++) {
+      const b = textNodes[j];
+      if (b.rect.y >= aBottom - overlapPx) break;
+      if (ancestorsOf.get(a.index)?.has(b.index) || ancestorsOf.get(b.index)?.has(a.index)) continue;
+      const overlapH = Math.min(aBottom, b.rect.y + b.rect.height) - Math.max(a.rect.y, b.rect.y);
+      const overlapW = Math.min(a.rect.x + a.rect.width, b.rect.x + b.rect.width) - Math.max(a.rect.x, b.rect.x);
+      if (overlapH < overlapPx || overlapW < overlapPx) continue;
+      const culprit = nearestOverflowingAncestor(a, byIndex, overflowingBoxes) ?? nearestOverflowingAncestor(b, byIndex, overflowingBoxes);
+      findings.push({
+        kind: "sibling-overlap",
+        severity: "error",
+        axis: "vertical",
+        selector: a.selector,
+        tagName: a.tagName,
+        text: short(a.ownText),
+        spillPx: round(overlapH),
+        otherSelector: b.selector,
+        otherText: short(b.ownText),
+        culprit,
+        detail: `layout-overflow: "${short(a.ownText)}" (${a.selector}) overlaps "${short(b.ownText)}" (${b.selector}) by ${Math.round(overlapH)}x${Math.round(overlapW)}px \u2014 ` + `text is rendering on top of text. ${culprit?.note ?? ""}`.trim(),
+        fix: culprit ? fixFor(culprit, "vertical") : "Two in-flow text elements occupy the same pixels. Check for a fixed height, a negative margin, or an absolute position on a shared ancestor."
+      });
+    }
+  }
+  findings.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "error" ? -1 : 1;
+    return b.spillPx - a.spillPx;
+  });
+  return findings.slice(0, maxFindings);
+}
+function round(n) {
+  return Math.round(n * 10) / 10;
+}
+function buildAncestorSets(nodes, byIndex) {
+  const out = /* @__PURE__ */ new Map();
+  for (const node of nodes) {
+    const set = /* @__PURE__ */ new Set();
+    let cur = node.parent;
+    let guard = 0;
+    while (cur !== null && guard++ < 64) {
+      set.add(cur);
+      cur = byIndex.get(cur)?.parent ?? null;
+    }
+    out.set(node.index, set);
+  }
+  return out;
+}
+function nearestOverflowingAncestor(node, byIndex, overflowingBoxes) {
+  let cur = node.parent;
+  let guard = 0;
+  while (cur !== null && guard++ < 64) {
+    const ancestor = byIndex.get(cur);
+    if (!ancestor) return void 0;
+    if (overflowingBoxes.has(`${ancestor.index}:vertical`)) {
+      return attributeCulprit(ancestor, "vertical");
+    }
+    cur = ancestor.parent;
+  }
+  return void 0;
+}
+var LAYOUT_OVERFLOW_DEFAULTS;
+var init_layout_overflow = __esm({
+  "src/obsidian/layout-overflow.ts"() {
+    "use strict";
+    LAYOUT_OVERFLOW_DEFAULTS = {
+      selfOverflowPx: 8,
+      containerEscapePx: 8,
+      overlapPx: 8,
+      maxFindings: 40
+    };
+  }
+});
+
 // src/obsidian/scan.ts
 function resolveObsidianViewport(viewport) {
   if (!viewport) return VIEWPORTS["iphone-14"] ?? VIEWPORTS.mobile;
@@ -14621,6 +15186,31 @@ function dropDuplicatedConsoleIssues(issues) {
     (issue) => !(issue.category === "console" && HARNESS_ERROR_PREFIXES.some((prefix) => issue.description.includes(prefix)))
   );
 }
+function resolveHarnessAppCss(obsidianCss, resolver = resolveObsidianAppCss) {
+  if (obsidianCss === false) {
+    return { meta: { loaded: false, reason: "disabled" } };
+  }
+  const resolved = resolver(typeof obsidianCss === "string" ? { path: obsidianCss } : {});
+  if (!resolved) {
+    return { meta: { loaded: false, reason: "not-found" } };
+  }
+  return {
+    css: resolved.css,
+    meta: { loaded: true, source: resolved.source, bytes: resolved.bytes }
+  };
+}
+function deriveAppCssIssues(meta) {
+  if (meta.loaded) return [];
+  const why = meta.reason === "disabled" ? "Base-CSS fidelity is OFF because the caller passed obsidian_css=false." : "Base-CSS fidelity is OFF: no local Obsidian install was found, so Obsidian's app.css could not be loaded.";
+  return [
+    {
+      category: "structure",
+      severity: "warning",
+      description: `${why} This render used an APPROXIMATION \u2014 every var(--x, fallback) in the plugin stylesheet resolved to its FALLBACK, and Obsidian's own element rules are absent. Layout defects that depend on those rules (notably button { height: var(--input-height) }, which pins a multi-line <button>'s content to 30px and spills it into the row below) are UNDETECTABLE in this scan.`,
+      fix: meta.reason === "disabled" ? "Drop obsidian_css=false to restore full fidelity." : `Install Obsidian, or point IBR at a copy: set ${"IBR_OBSIDIAN_APP_CSS"} to an extracted app.css or an obsidian.asar, or pass obsidian_css="<path>".`
+    }
+  ];
+}
 function inferMobile(explicit, viewport) {
   if (explicit !== void 0) return explicit;
   return viewport.width <= MOBILE_WIDTH_CEILING;
@@ -14628,10 +15218,10 @@ function inferMobile(explicit, viewport) {
 function loadViewState(options) {
   const fromFile = {};
   if (options.viewStatePath) {
-    if (!(0, import_node_fs3.existsSync)(options.viewStatePath)) {
+    if (!(0, import_node_fs4.existsSync)(options.viewStatePath)) {
       throw new Error(`view state file not found: ${options.viewStatePath}`);
     }
-    Object.assign(fromFile, JSON.parse((0, import_node_fs3.readFileSync)(options.viewStatePath, "utf8")));
+    Object.assign(fromFile, JSON.parse((0, import_node_fs4.readFileSync)(options.viewStatePath, "utf8")));
   }
   return { ...fromFile, ...options.viewState ?? {} };
 }
@@ -14642,6 +15232,7 @@ async function scanObsidian(options) {
   const viewport = resolveObsidianViewport(options.viewport);
   const mobile = inferMobile(options.mobile, viewport);
   const theme = options.theme ?? "dark";
+  const appCss = resolveHarnessAppCss(options.obsidianCss);
   const harnessInput = {
     bundlePath,
     stylesPath,
@@ -14651,11 +15242,12 @@ async function scanObsidian(options) {
     viewState: loadViewState(options),
     pluginState: options.pluginState,
     postMount: options.postMount,
-    extraCss: options.extraCss
+    extraCss: options.extraCss,
+    appCss: appCss.css
   };
   const html = generateHarness(harnessInput);
-  const harnessPath = options.harnessOut ?? (0, import_node_path3.join)((0, import_node_fs3.mkdtempSync)((0, import_node_path3.join)((0, import_node_os2.tmpdir)(), "ibr-obsidian-")), "harness.html");
-  (0, import_node_fs3.writeFileSync)(harnessPath, html, "utf8");
+  const harnessPath = options.harnessOut ?? (0, import_node_path4.join)((0, import_node_fs4.mkdtempSync)((0, import_node_path4.join)((0, import_node_os3.tmpdir)(), "ibr-obsidian-")), "harness.html");
+  (0, import_node_fs4.writeFileSync)(harnessPath, html, "utf8");
   const server = await serveHarness(html);
   try {
     const mountTimeout = options.mountTimeout ?? DEFAULT_MOUNT_TIMEOUT_MS;
@@ -14670,7 +15262,8 @@ async function scanObsidian(options) {
       // rather than an ignored return value. See DEFAULT_MOUNT_TIMEOUT_MS.
       patience: mountTimeout,
       timeout: options.timeout ?? 3e4,
-      screenshot: options.screenshot ? { path: options.screenshot } : void 0
+      screenshot: options.screenshot ? { path: options.screenshot } : void 0,
+      probes: options.layoutOverflow === false ? void 0 : { [LAYOUT_OVERFLOW_PROBE]: buildLayoutOverflowProbe({ rootSelector: "#ibr-container" }) }
     };
     const result = await scan(server.url, scanOptions);
     const harnessIssues = deriveHarnessIssues(result.console.errors);
@@ -14689,6 +15282,33 @@ async function scanObsidian(options) {
       result.issues = [...harnessIssues, ...dropDuplicatedConsoleIssues(result.issues)];
       result.verdict = "FAIL";
     }
+    if (options.layoutOverflow !== false) {
+      const measured = result.probes?.[LAYOUT_OVERFLOW_PROBE];
+      if (result.probes) {
+        delete result.probes[LAYOUT_OVERFLOW_PROBE];
+        if (Object.keys(result.probes).length === 0) delete result.probes;
+      }
+      if (Array.isArray(measured)) {
+        const overflowOptions = typeof options.layoutOverflow === "object" ? options.layoutOverflow : {};
+        result.layoutOverflow = analyzeLayoutOverflow(measured, overflowOptions);
+        for (const finding of result.layoutOverflow) {
+          result.issues.push({
+            category: "structure",
+            severity: finding.severity,
+            element: finding.selector,
+            description: finding.detail,
+            fix: finding.fix
+          });
+        }
+      }
+    }
+    result.issues = [...deriveAppCssIssues(appCss.meta), ...result.issues];
+    if (!appCss.meta.loaded && appCss.meta.reason === "not-found" && result.verdict !== "FAIL") {
+      result.verdict = "PARTIAL";
+      result.partialReason = `Obsidian's base CSS could not be loaded, so this render is an approximation and a documented class of layout defect is undetectable. Install Obsidian, set IBR_OBSIDIAN_APP_CSS, or pass obsidian_css=false to accept the degraded scan.`;
+    } else if (result.verdict !== "PARTIAL" && result.verdict !== "FAIL") {
+      result.verdict = determineVerdict2(result.issues);
+    }
     result.harness = {
       path: harnessPath,
       url: server.url,
@@ -14696,7 +15316,8 @@ async function scanObsidian(options) {
       stylesPath,
       viewClass: options.viewClass,
       mobile,
-      theme
+      theme,
+      appCss: appCss.meta
     };
     return result;
   } finally {
@@ -14704,14 +15325,28 @@ async function scanObsidian(options) {
   }
 }
 function formatObsidianScanResult(result) {
+  const appCss = result.harness.appCss;
+  const baseCssLine = appCss?.loaded ? `Base CSS: Obsidian app.css loaded (${appCss.bytes ?? 0} bytes) from ${appCss.source}` : `Base CSS: NOT LOADED (${appCss?.reason ?? "unknown"}) \u2014 this render is an approximation; var() fallbacks are what you see, and button-height overflow defects are undetectable`;
   const lines = [
     `Obsidian View Scan: ${result.harness.viewClass}`,
     `Bundle: ${result.harness.bundlePath}`,
     `Viewport: ${result.viewport.name} (${result.viewport.width}x${result.viewport.height}) \xB7 Platform.isMobile=${result.harness.mobile}`,
     `Harness: ${result.harness.path}`,
+    baseCssLine,
     `Verdict: ${result.verdict}`,
+    ...result.partialReason ? [`Partial: ${result.partialReason}`] : [],
     result.summary
   ];
+  if (result.layoutOverflow && result.layoutOverflow.length > 0) {
+    lines.push("", `Layout overflow: ${result.layoutOverflow.length} finding(s)`);
+    for (const f of result.layoutOverflow.slice(0, 10)) {
+      lines.push(`- [${f.severity}] ${f.kind} \xB7 ${f.spillPx}px \xB7 ${f.detail}`);
+      if (f.fix) lines.push(`    fix: ${f.fix}`);
+    }
+    if (result.layoutOverflow.length > 10) {
+      lines.push(`  ... and ${result.layoutOverflow.length - 10} more`);
+    }
+  }
   const errors = result.issues.filter((i) => i.severity === "error");
   const warnings = result.issues.filter((i) => i.severity === "warning");
   if (errors.length || warnings.length) {
@@ -14725,32 +15360,50 @@ function formatObsidianScanResult(result) {
   }
   return lines.join("\n");
 }
-var import_node_fs3, import_node_path3, import_node_os2, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS;
+var import_node_fs4, import_node_path4, import_node_os3, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE;
 var init_scan4 = __esm({
   "src/obsidian/scan.ts"() {
     "use strict";
-    import_node_fs3 = require("fs");
-    import_node_path3 = require("path");
-    import_node_os2 = require("os");
+    import_node_fs4 = require("fs");
+    import_node_path4 = require("path");
+    import_node_os3 = require("os");
     init_scan();
     init_schemas();
     init_harness();
     init_server();
+    init_app_css();
+    init_layout_overflow();
     MOBILE_WIDTH_CEILING = 480;
     HARNESS_ERROR_PREFIXES = ["IBR obsidian-harness:", "IBR obsidian-stub:"];
     MOUNT_SELECTOR = "[data-ibr-mount]";
     DEFAULT_MOUNT_TIMEOUT_MS = 1e4;
+    LAYOUT_OVERFLOW_PROBE = "obsidianLayoutOverflow";
   }
 });
 
 // src/obsidian/index.ts
 var obsidian_exports = {};
 __export(obsidian_exports, {
+  APP_CSS_ENTRY: () => APP_CSS_ENTRY,
+  APP_CSS_ENV_VAR: () => APP_CSS_ENV_VAR,
+  LAYOUT_OVERFLOW_DEFAULTS: () => LAYOUT_OVERFLOW_DEFAULTS,
+  analyzeLayoutOverflow: () => analyzeLayoutOverflow,
+  appCssCacheDir: () => appCssCacheDir,
+  appCssCacheKey: () => appCssCacheKey,
+  attributeCulprit: () => attributeCulprit,
+  buildLayoutOverflowProbe: () => buildLayoutOverflowProbe,
   buildObsidianStub: () => buildObsidianStub,
+  deriveAppCssIssues: () => deriveAppCssIssues,
   deriveHarnessIssues: () => deriveHarnessIssues,
+  findObsidianAsar: () => findObsidianAsar,
   formatObsidianScanResult: () => formatObsidianScanResult,
   generateHarness: () => generateHarness,
   inferMobile: () => inferMobile,
+  obsidianAsarCandidates: () => obsidianAsarCandidates,
+  readAsarEntry: () => readAsarEntry,
+  readAsarHeader: () => readAsarHeader,
+  resolveHarnessAppCss: () => resolveHarnessAppCss,
+  resolveObsidianAppCss: () => resolveObsidianAppCss,
   resolveObsidianViewport: () => resolveObsidianViewport,
   resolvePluginPaths: () => resolvePluginPaths,
   scanObsidian: () => scanObsidian,
@@ -14763,6 +15416,806 @@ var init_obsidian = __esm({
     init_harness();
     init_server();
     init_scan4();
+    init_app_css();
+    init_layout_overflow();
+  }
+});
+
+// src/live/attach.ts
+function deadEndpointMessage(cdpUrl, timeoutMs, cause) {
+  return [
+    `No CDP endpoint answered at ${cdpUrl}.`,
+    `Nothing is listening there (${cause}; gave up after ${timeoutMs}ms).`,
+    "",
+    "To fix:",
+    "  1. Start the app with remote debugging enabled, e.g.",
+    "       Obsidian: launch with --remote-debugging-port=9222",
+    "       Chrome:   /path/to/chrome --remote-debugging-port=9222",
+    `  2. Confirm it is up:  curl ${cdpUrl}/json/version`,
+    `  3. Re-run with --cdp-url ${cdpUrl}`
+  ].join("\n");
+}
+async function resolveLiveWsEndpoint(options, env = process.env) {
+  if (options.wsEndpoint) {
+    return { wsEndpoint: options.wsEndpoint, cdpUrl: options.cdpUrl };
+  }
+  if (!options.cdpUrl && env.IBR_WS_ENDPOINT) {
+    return { wsEndpoint: env.IBR_WS_ENDPOINT, cdpUrl: env.IBR_CDP_URL };
+  }
+  const cdpUrl = options.cdpUrl || env.IBR_CDP_URL;
+  if (!cdpUrl) {
+    throw new LiveAttachError(
+      "No CDP endpoint given. Pass --cdp-url http://127.0.0.1:9222 (or --ws-endpoint ws://..., or set IBR_CDP_URL)."
+    );
+  }
+  const timeoutMs = options.probeTimeoutMs ?? DEFAULT_CDP_PROBE_TIMEOUT_MS;
+  const base = cdpUrl.replace(/\/+$/, "");
+  let res;
+  try {
+    res = await fetch(`${base}/json/version`, { signal: AbortSignal.timeout(timeoutMs) });
+  } catch (error) {
+    const reason = error instanceof Error ? error.name === "TimeoutError" ? "connection timed out" : error.message : String(error);
+    throw new LiveAttachError(deadEndpointMessage(base, timeoutMs, reason));
+  }
+  if (!res.ok) {
+    throw new LiveAttachError(
+      deadEndpointMessage(base, timeoutMs, `HTTP ${res.status} from /json/version`)
+    );
+  }
+  const data = await res.json();
+  if (!data.webSocketDebuggerUrl) {
+    throw new LiveAttachError(
+      `${base}/json/version answered but returned no webSocketDebuggerUrl. That endpoint is not a Chrome DevTools Protocol server.`
+    );
+  }
+  return { wsEndpoint: data.webSocketDebuggerUrl, cdpUrl: base };
+}
+function describe(t) {
+  return `  ${t.type.padEnd(7)} ${JSON.stringify(t.title)}  ${t.url}`;
+}
+function selectTarget(targets, options) {
+  const pages = targets.filter((t) => t.type === "page");
+  if (options.targetId) {
+    const exact = targets.find((t) => t.targetId === options.targetId);
+    if (!exact) {
+      throw new LiveAttachError(
+        `No target with id ${options.targetId}.
+Available targets:
+` + targets.map(describe).join("\n")
+      );
+    }
+    return exact;
+  }
+  if (pages.length === 0) {
+    throw new LiveAttachError(
+      "The browser is running but exposes no page targets.\nTargets seen:\n" + (targets.length ? targets.map(describe).join("\n") : "  (none)")
+    );
+  }
+  const needleTitle = options.targetTitle?.toLowerCase();
+  const needleUrl = options.targetUrl?.toLowerCase();
+  let matches = pages;
+  if (needleTitle) {
+    matches = matches.filter((t) => t.title.toLowerCase().includes(needleTitle));
+  }
+  if (needleUrl) {
+    matches = matches.filter((t) => t.url.toLowerCase().includes(needleUrl));
+  }
+  if (matches.length === 0) {
+    const filter = [
+      needleTitle ? `title contains ${JSON.stringify(options.targetTitle)}` : null,
+      needleUrl ? `url contains ${JSON.stringify(options.targetUrl)}` : null
+    ].filter(Boolean).join(" and ");
+    throw new LiveAttachError(
+      `No page target matched ${filter}.
+Page targets available:
+` + pages.map(describe).join("\n")
+    );
+  }
+  if (matches.length > 1) {
+    throw new LiveAttachError(
+      `${matches.length} page targets matched \u2014 refusing to guess which live window to measure.
+Narrow it with --target-title, --target-url, or --target-id:
+` + matches.map((t) => `${describe(t)}  [id ${t.targetId}]`).join("\n")
+    );
+  }
+  return matches[0];
+}
+function toLiveTarget(info) {
+  return {
+    targetId: info.targetId,
+    type: info.type,
+    title: info.title ?? "",
+    url: info.url ?? "",
+    attached: Boolean(info.attached)
+  };
+}
+async function listLiveTargets(options) {
+  const { wsEndpoint, cdpUrl } = await resolveLiveWsEndpoint(options);
+  const connection = new CdpConnection();
+  try {
+    await connection.connect(wsEndpoint);
+    const targets = (await new TargetDomain(connection).listDetailed()).map(toLiveTarget);
+    return { targets, wsEndpoint, cdpUrl };
+  } finally {
+    await connection.close();
+  }
+}
+async function attachToLiveTarget(options) {
+  const { wsEndpoint, cdpUrl } = await resolveLiveWsEndpoint(options);
+  const connection = new CdpConnection();
+  await connection.connect(wsEndpoint);
+  let sessionId;
+  let target;
+  const domain = new TargetDomain(connection);
+  try {
+    const targets = (await domain.listDetailed()).map(toLiveTarget);
+    target = selectTarget(targets, options);
+    sessionId = await domain.attach(target.targetId);
+  } catch (error) {
+    await connection.close();
+    throw error;
+  }
+  return {
+    connection,
+    sessionId,
+    target,
+    wsEndpoint,
+    cdpUrl,
+    async evaluate(expression) {
+      const result = await connection.send(
+        "Runtime.evaluate",
+        { expression, returnByValue: true, awaitPromise: true },
+        sessionId
+      );
+      if (result.exceptionDetails) {
+        const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+        throw new LiveAttachError(`Evaluation failed in the live page: ${msg}`);
+      }
+      return result.result.value;
+    },
+    async release() {
+      try {
+        await domain.detach(sessionId);
+      } catch {
+      }
+      await connection.close();
+    }
+  };
+}
+var DEFAULT_CDP_PROBE_TIMEOUT_MS, LiveAttachError;
+var init_attach = __esm({
+  "src/live/attach.ts"() {
+    "use strict";
+    init_connection();
+    init_target();
+    DEFAULT_CDP_PROBE_TIMEOUT_MS = 4e3;
+    LiveAttachError = class extends Error {
+      constructor(message) {
+        super(message);
+        this.name = "LiveAttachError";
+      }
+    };
+  }
+});
+
+// src/live/color.ts
+function clamp2(n, min, max) {
+  return n < min ? min : n > max ? max : n;
+}
+function parseChannel(token) {
+  const t = token.trim();
+  if (t === "") return null;
+  if (t.endsWith("%")) {
+    const pct = Number(t.slice(0, -1));
+    if (!Number.isFinite(pct)) return null;
+    return clamp2(Math.round(pct / 100 * 255), 0, 255);
+  }
+  const n = Number(t);
+  if (!Number.isFinite(n)) return null;
+  return clamp2(Math.round(n), 0, 255);
+}
+function parseAlpha(token) {
+  if (token === void 0) return 1;
+  const t = token.trim();
+  if (t === "") return 1;
+  if (t.endsWith("%")) {
+    const pct = Number(t.slice(0, -1));
+    return Number.isFinite(pct) ? clamp2(pct / 100, 0, 1) : 1;
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? clamp2(n, 0, 1) : 1;
+}
+function parseCssColor(input) {
+  if (!input) return null;
+  const s = String(input).trim().toLowerCase();
+  if (s === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
+  const hex = HEX_RE.exec(s);
+  if (hex) {
+    const h = hex[1];
+    if (h.length === 3 || h.length === 4) {
+      const r = parseInt(h[0] + h[0], 16);
+      const g = parseInt(h[1] + h[1], 16);
+      const b = parseInt(h[2] + h[2], 16);
+      const a = h.length === 4 ? parseInt(h[3] + h[3], 16) / 255 : 1;
+      return { r, g, b, a };
+    }
+    if (h.length === 6 || h.length === 8) {
+      const r = parseInt(h.slice(0, 2), 16);
+      const g = parseInt(h.slice(2, 4), 16);
+      const b = parseInt(h.slice(4, 6), 16);
+      const a = h.length === 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1;
+      return { r, g, b, a };
+    }
+    return null;
+  }
+  const func = FUNC_RE.exec(s);
+  if (func) {
+    const body = func[2];
+    const [rgbPart, slashAlpha] = body.split("/");
+    const parts = rgbPart.trim().split(/[\s,]+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const r = parseChannel(parts[0]);
+    const g = parseChannel(parts[1]);
+    const b = parseChannel(parts[2]);
+    if (r === null || g === null || b === null) return null;
+    const a = parseAlpha(slashAlpha ?? parts[3]);
+    return { r, g, b, a };
+  }
+  const srgb = COLOR_SRGB_RE.exec(s);
+  if (srgb) {
+    const [channelPart, slashAlpha] = srgb[1].split("/");
+    const parts = channelPart.trim().split(/\s+/).filter(Boolean);
+    if (parts.length < 3) return null;
+    const chans = parts.slice(0, 3).map(parseUnitChannel);
+    if (chans.some((c) => c === null)) return null;
+    const [r, g, b] = chans;
+    return { r, g, b, a: parseAlpha(slashAlpha) };
+  }
+  return null;
+}
+function parseUnitChannel(token) {
+  const t = token.trim();
+  if (t === "" || t === "none") return t === "none" ? 0 : null;
+  const n = t.endsWith("%") ? Number(t.slice(0, -1)) / 100 : Number(t);
+  if (!Number.isFinite(n)) return null;
+  return clamp2(Math.round(n * 255), 0, 255);
+}
+function formatRgba(c) {
+  const a = Math.round(c.a * 1e3) / 1e3;
+  return a >= 1 ? `rgb(${c.r}, ${c.g}, ${c.b})` : `rgba(${c.r}, ${c.g}, ${c.b}, ${a})`;
+}
+function isOpaque(c) {
+  return c.a >= 1;
+}
+function compositeOver(src, dst) {
+  if (src.a >= 1) return { ...src };
+  if (src.a <= 0) return { ...dst };
+  const outA = src.a + dst.a * (1 - src.a);
+  if (outA <= 0) return { r: 0, g: 0, b: 0, a: 0 };
+  const mix = (s, d) => Math.round((s * src.a + d * dst.a * (1 - src.a)) / outA);
+  return {
+    r: mix(src.r, dst.r),
+    g: mix(src.g, dst.g),
+    b: mix(src.b, dst.b),
+    a: outA
+  };
+}
+function resolveEffectiveBackground(chain) {
+  const parsed = [];
+  for (const raw of chain) {
+    const c = parseCssColor(raw);
+    if (!c) continue;
+    parsed.push(c);
+    if (isOpaque(c)) break;
+  }
+  const last = parsed[parsed.length - 1];
+  const resolved = last !== void 0 && isOpaque(last);
+  let acc = resolved ? parsed[parsed.length - 1] : DEFAULT_CANVAS_BASE;
+  const top = resolved ? parsed.length - 2 : parsed.length - 1;
+  for (let i = top; i >= 0; i--) {
+    acc = compositeOver(parsed[i], acc);
+  }
+  return { color: acc, resolved };
+}
+function channelLuminance(v) {
+  const s = v / 255;
+  return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance5(c) {
+  return 0.2126 * channelLuminance(c.r) + 0.7152 * channelLuminance(c.g) + 0.0722 * channelLuminance(c.b);
+}
+function contrastRatio5(fg, bg) {
+  const l1 = relativeLuminance5(fg);
+  const l2 = relativeLuminance5(bg);
+  const lighter = Math.max(l1, l2);
+  const darker = Math.min(l1, l2);
+  const ratio = (lighter + 0.05) / (darker + 0.05);
+  return Math.round(ratio * 100) / 100;
+}
+function isLargeText4(fontSizePx, fontWeight) {
+  if (!Number.isFinite(fontSizePx)) return false;
+  if (fontWeight >= 700 && fontSizePx >= 18.66) return true;
+  return fontSizePx >= 24;
+}
+function aaThreshold(large) {
+  return large ? 3 : 4.5;
+}
+function parsePx2(value) {
+  if (!value) return null;
+  const n = Number.parseFloat(value);
+  return Number.isFinite(n) ? n : null;
+}
+function parseFontWeight(value) {
+  if (!value) return 400;
+  const t = String(value).trim().toLowerCase();
+  if (t === "bold") return 700;
+  if (t === "bolder") return 700;
+  if (t === "normal" || t === "lighter") return 400;
+  const n = Number.parseFloat(t);
+  return Number.isFinite(n) ? n : 400;
+}
+var HEX_RE, FUNC_RE, COLOR_SRGB_RE, DEFAULT_CANVAS_BASE;
+var init_color = __esm({
+  "src/live/color.ts"() {
+    "use strict";
+    HEX_RE = /^#([0-9a-f]{3,8})$/i;
+    FUNC_RE = /^(rgba?)\(([^)]*)\)$/i;
+    COLOR_SRGB_RE = /^color\(\s*srgb\s+([^)]*)\)$/i;
+    DEFAULT_CANVAS_BASE = { r: 255, g: 255, b: 255, a: 1 };
+  }
+});
+
+// src/live/measure.ts
+function buildDeviceMetricsOverride(width, height) {
+  if (!Number.isFinite(width) || width <= 0) {
+    throw new Error(`emulateWidth must be a positive number of CSS pixels (got ${width}).`);
+  }
+  if (!Number.isFinite(height) || height <= 0) {
+    throw new Error(`emulateHeight must be a positive number of CSS pixels (got ${height}).`);
+  }
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+    deviceScaleFactor: 0,
+    mobile: false
+  };
+}
+async function withWidthOverride(host, width, height, body) {
+  const params = buildDeviceMetricsOverride(width, height);
+  await host.send("Emulation.setDeviceMetricsOverride", params, host.sessionId);
+  let cleared = false;
+  try {
+    await host.evaluate(
+      "new Promise(function (r) { requestAnimationFrame(function () { requestAnimationFrame(function () { r(1); }); }); })"
+    );
+    const value = await body();
+    return { value, cleared: await clearOverride(host) };
+  } catch (error) {
+    cleared = await clearOverride(host);
+    if (!cleared) {
+      throw new Error(
+        `${error instanceof Error ? error.message : String(error)} (and the device-metrics override could NOT be cleared \u2014 the window is still forced; restart the app or re-run to reset it)`
+      );
+    }
+    throw error;
+  }
+}
+async function clearOverride(host) {
+  try {
+    await host.send("Emulation.clearDeviceMetricsOverride", {}, host.sessionId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function buildMeasureExpression(selector, limit = DEFAULT_LIMIT) {
+  return `(function () {
+  try {
+    var SELECTOR = ${JSON.stringify(selector)};
+    var LIMIT = ${JSON.stringify(limit)};
+    var MAX_TEXT = 80;
+
+    // Detached canvas. Created, never appended \u2014 the document is not mutated.
+    var canvas = document.createElement('canvas');
+    var ctx = canvas.getContext ? canvas.getContext('2d') : null;
+
+    function norm(color) {
+      if (!color) return '';
+      if (!ctx) return color;
+      try {
+        ctx.fillStyle = '#000000';
+        ctx.fillStyle = color;
+        return String(ctx.fillStyle);
+      } catch (e) {
+        return color;
+      }
+    }
+
+    function alphaOf(c) {
+      if (!c) return 1;
+      var m = /rgba\\(([^)]*)\\)/i.exec(c);
+      if (m) {
+        var parts = m[1].split(',');
+        if (parts.length >= 4) {
+          var a = parseFloat(parts[3]);
+          return isNaN(a) ? 1 : a;
+        }
+      }
+      if (/^#[0-9a-f]{8}$/i.test(c)) return parseInt(c.slice(7, 9), 16) / 255;
+      return 1;
+    }
+
+    function backgroundChain(el) {
+      var chain = [];
+      var resolved = false;
+      var node = el;
+      var guard = 0;
+      while (node && guard < 200) {
+        guard++;
+        var bg = norm(getComputedStyle(node).backgroundColor);
+        chain.push(bg);
+        if (alphaOf(bg) >= 1) { resolved = true; break; }
+        node = node.parentElement;
+      }
+      return { chain: chain, resolved: resolved };
+    }
+
+    function baselineY(el) {
+      if (!ctx) return null;
+      var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var textNode = null;
+      var n;
+      while ((n = walker.nextNode())) {
+        if (n.nodeValue && n.nodeValue.trim().length > 0) { textNode = n; break; }
+      }
+      if (!textNode) return null;
+
+      var range = document.createRange();
+      range.selectNodeContents(textNode);
+      var rects = range.getClientRects();
+      if (!rects || rects.length === 0) return null;
+      var rect = null;
+      for (var i = 0; i < rects.length; i++) {
+        if (rects[i].height > 0) { rect = rects[i]; break; }
+      }
+      if (!rect) return null;
+
+      var host = textNode.parentElement || el;
+      var cs = getComputedStyle(host);
+      var shorthand = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize
+        + '/' + cs.lineHeight + ' ' + cs.fontFamily;
+      var applied = false;
+      try {
+        ctx.font = '10px sans-serif';
+        ctx.font = shorthand;
+        applied = ctx.font !== '10px sans-serif';
+      } catch (e) { applied = false; }
+      if (!applied) {
+        try {
+          ctx.font = cs.fontSize + ' ' + cs.fontFamily;
+          applied = true;
+        } catch (e2) { applied = false; }
+      }
+      if (!applied) return null;
+
+      var metrics = ctx.measureText(textNode.nodeValue.trim() || 'Hg');
+      var asc = metrics.fontBoundingBoxAscent;
+      var desc = metrics.fontBoundingBoxDescent;
+      if (typeof asc !== 'number' || typeof desc !== 'number') return null;
+      if (!isFinite(asc) || !isFinite(desc)) return null;
+
+      // CSS half-leading: the font content box is centered in the line box, so
+      // this is correct whether the range rect is the font box or the line box.
+      var y = rect.top + (rect.height - (asc + desc)) / 2 + asc;
+      if (!isFinite(y)) return null;
+      return Math.round(y * 100) / 100;
+    }
+
+    function px(v) { return Math.round(v * 100) / 100; }
+
+    var nodes = document.querySelectorAll(SELECTOR);
+    var out = [];
+    var count = Math.min(nodes.length, LIMIT);
+    for (var k = 0; k < count; k++) {
+      var el = nodes[k];
+      var cs = getComputedStyle(el);
+      var r = el.getBoundingClientRect();
+      var text = (el.textContent || '').replace(/\\s+/g, ' ').trim();
+      if (text.length > MAX_TEXT) text = text.slice(0, MAX_TEXT - 1) + '\\u2026';
+      var chain = backgroundChain(el);
+
+      out.push({
+        index: k,
+        tagName: el.tagName.toLowerCase(),
+        className: typeof el.className === 'string' ? el.className : String(el.getAttribute('class') || ''),
+        id: el.id || '',
+        textContent: text,
+        disabled: ('disabled' in el) ? Boolean(el.disabled) : null,
+        ariaDisabled: el.getAttribute('aria-disabled'),
+        bounds: {
+          x: px(r.x), y: px(r.y), width: px(r.width), height: px(r.height),
+          top: px(r.top), right: px(r.right), bottom: px(r.bottom), left: px(r.left)
+        },
+        box: {
+          height: cs.height, minHeight: cs.minHeight, maxHeight: cs.maxHeight,
+          width: cs.width, minWidth: cs.minWidth,
+          paddingTop: cs.paddingTop, paddingRight: cs.paddingRight,
+          paddingBottom: cs.paddingBottom, paddingLeft: cs.paddingLeft,
+          marginTop: cs.marginTop, marginRight: cs.marginRight,
+          marginBottom: cs.marginBottom, marginLeft: cs.marginLeft,
+          borderTopWidth: cs.borderTopWidth, borderRightWidth: cs.borderRightWidth,
+          borderBottomWidth: cs.borderBottomWidth, borderLeftWidth: cs.borderLeftWidth,
+          borderRadius: cs.borderRadius,
+          boxSizing: cs.boxSizing
+        },
+        typography: {
+          fontSize: cs.fontSize, fontFamily: cs.fontFamily, fontWeight: cs.fontWeight,
+          lineHeight: cs.lineHeight, letterSpacing: cs.letterSpacing, whiteSpace: cs.whiteSpace
+        },
+        layout: {
+          display: cs.display, position: cs.position,
+          alignItems: cs.alignItems, alignSelf: cs.alignSelf,
+          justifyContent: cs.justifyContent,
+          flexGrow: cs.flexGrow, flexShrink: cs.flexShrink, flexBasis: cs.flexBasis,
+          gap: cs.gap, overflow: cs.overflow,
+          visibility: cs.visibility, opacity: cs.opacity
+        },
+        colorRaw: cs.color,
+        backgroundColorRaw: cs.backgroundColor,
+        colorNorm: norm(cs.color),
+        backgroundChain: chain.chain,
+        backgroundChainResolved: chain.resolved,
+        firstLineBaselineY: baselineY(el)
+      });
+    }
+
+    return {
+      ok: true,
+      page: {
+        title: document.title,
+        url: location.href,
+        scrollX: window.scrollX,
+        scrollY: window.scrollY,
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        devicePixelRatio: window.devicePixelRatio
+      },
+      elements: out
+    };
+  } catch (err) {
+    return { ok: false, error: (err && err.message) ? err.message : String(err), page: null, elements: [] };
+  }
+})()`;
+}
+function finalizeMeasurements(raw) {
+  return raw.map((el) => {
+    const effective = resolveEffectiveBackground(el.backgroundChain);
+    const fg = parseCssColor(el.colorNorm) ?? parseCssColor(el.colorRaw);
+    const fontSizePx = parsePx2(el.typography.fontSize) ?? Number.NaN;
+    const weight = parseFontWeight(el.typography.fontWeight);
+    const large = isLargeText4(fontSizePx, weight);
+    const threshold = aaThreshold(large);
+    let resolvedTextColor = null;
+    let ratio = null;
+    let passesAA = null;
+    if (fg) {
+      const composited = compositeOver(fg, effective.color);
+      resolvedTextColor = formatRgba(composited);
+      ratio = contrastRatio5(composited, effective.color);
+      passesAA = ratio >= threshold;
+    }
+    return {
+      index: el.index,
+      tagName: el.tagName,
+      className: el.className,
+      id: el.id,
+      textContent: el.textContent,
+      disabled: el.disabled,
+      ariaDisabled: el.ariaDisabled,
+      bounds: el.bounds,
+      box: el.box,
+      typography: el.typography,
+      layout: el.layout,
+      color: {
+        color: el.colorRaw,
+        backgroundColor: el.backgroundColorRaw,
+        effectiveBackgroundColor: formatRgba(effective.color),
+        effectiveBackgroundResolved: effective.resolved,
+        backgroundChain: el.backgroundChain,
+        resolvedTextColor,
+        contrastRatio: ratio,
+        passesAA,
+        largeText: large,
+        aaThreshold: threshold
+      },
+      firstLineBaselineY: el.firstLineBaselineY
+    };
+  });
+}
+async function measureLive(options) {
+  if (!options.selector || !options.selector.trim()) {
+    throw new Error("A CSS selector is required (--selector).");
+  }
+  const attachment = await attachToLiveTarget(options);
+  try {
+    const expression = buildMeasureExpression(options.selector, options.limit ?? DEFAULT_LIMIT);
+    const collect = () => attachment.evaluate(expression);
+    let payload;
+    let emulated;
+    if (options.emulateWidth) {
+      const height = options.emulateHeight ?? await attachment.evaluate("window.innerHeight");
+      const host = {
+        sessionId: attachment.sessionId,
+        evaluate: attachment.evaluate,
+        send: (method, params, sessionId) => attachment.connection.send(method, params, sessionId)
+      };
+      const run = await withWidthOverride(host, options.emulateWidth, height, collect);
+      payload = run.value;
+      emulated = {
+        width: Math.round(options.emulateWidth),
+        height: Math.round(height),
+        cleared: run.cleared
+      };
+    } else {
+      payload = await collect();
+    }
+    if (!payload) {
+      throw new Error("The live page returned nothing for the measurement expression.");
+    }
+    if (!payload.ok) {
+      throw new Error(
+        `Selector "${options.selector}" could not be evaluated in the live page: ${payload.error}`
+      );
+    }
+    return {
+      ok: true,
+      cdpUrl: attachment.cdpUrl,
+      wsEndpoint: attachment.wsEndpoint,
+      target: attachment.target,
+      selector: options.selector,
+      matched: payload.elements.length,
+      page: payload.page,
+      measuredAt: (/* @__PURE__ */ new Date()).toISOString(),
+      ...emulated ? { emulated } : {},
+      elements: finalizeMeasurements(payload.elements)
+    };
+  } finally {
+    await attachment.release();
+  }
+}
+var DEFAULT_LIMIT;
+var init_measure = __esm({
+  "src/live/measure.ts"() {
+    "use strict";
+    init_attach();
+    init_color();
+    DEFAULT_LIMIT = 200;
+  }
+});
+
+// src/live/format.ts
+function label(el) {
+  const cls = el.className ? `.${el.className.trim().split(/\s+/).join(".")}` : "";
+  const id = el.id ? `#${el.id}` : "";
+  return `${el.tagName}${id}${cls}`;
+}
+function pad(s, n) {
+  return s.length >= n ? s : s + " ".repeat(n - s.length);
+}
+function formatLiveTargets(targets) {
+  if (targets.length === 0) return "No targets exposed by this browser.";
+  const lines = [`${targets.length} target(s):`, ""];
+  for (const t of targets) {
+    lines.push(`  [${pad(t.type, 7)}] ${t.title || "(no title)"}`);
+    lines.push(`            url: ${t.url || "(none)"}`);
+    lines.push(`            id:  ${t.targetId}${t.attached ? "  (already attached)" : ""}`);
+  }
+  return lines.join("\n");
+}
+function formatLiveMeasureResult(result) {
+  const lines = [];
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push(`  LIVE MEASURE \u2014 ${result.matched} element(s) for "${result.selector}"`);
+  lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
+  lines.push(`Target:   ${result.target.title || "(no title)"}`);
+  lines.push(`URL:      ${result.page.url}`);
+  lines.push(`Viewport: ${result.page.innerWidth}x${result.page.innerHeight} @${result.page.devicePixelRatio}x`);
+  lines.push(`Scroll:   x=${result.page.scrollX} y=${result.page.scrollY}`);
+  lines.push("");
+  if (result.matched === 0) {
+    lines.push("No element matched the selector in the live page.");
+    return lines.join("\n");
+  }
+  for (const el of result.elements) {
+    const b = el.bounds;
+    lines.push(`[${el.index}] ${label(el)}`);
+    if (el.textContent) lines.push(`     text:      "${el.textContent}"`);
+    if (el.disabled !== null) lines.push(`     disabled:  ${el.disabled}`);
+    lines.push(
+      `     bounds:    ${b.width}x${b.height} at (${b.x}, ${b.y})  [t${b.top} r${b.right} b${b.bottom} l${b.left}]`
+    );
+    lines.push(
+      `     box:       height=${el.box.height} min-height=${el.box.minHeight} box-sizing=${el.box.boxSizing}`
+    );
+    lines.push(
+      `     padding:   ${el.box.paddingTop} ${el.box.paddingRight} ${el.box.paddingBottom} ${el.box.paddingLeft}`
+    );
+    lines.push(
+      `     margin:    ${el.box.marginTop} ${el.box.marginRight} ${el.box.marginBottom} ${el.box.marginLeft}`
+    );
+    lines.push(
+      `     border:    ${el.box.borderTopWidth} ${el.box.borderRightWidth} ${el.box.borderBottomWidth} ${el.box.borderLeftWidth}`
+    );
+    lines.push(
+      `     type:      ${el.typography.fontSize}/${el.typography.lineHeight} weight=${el.typography.fontWeight} spacing=${el.typography.letterSpacing} white-space=${el.typography.whiteSpace}`
+    );
+    lines.push(`     font:      ${el.typography.fontFamily}`);
+    lines.push(
+      `     layout:    display=${el.layout.display} align-items=${el.layout.alignItems} align-self=${el.layout.alignSelf} flex=${el.layout.flexGrow} ${el.layout.flexShrink} ${el.layout.flexBasis} gap=${el.layout.gap}`
+    );
+    lines.push(`     color:     ${el.color.color} on ${el.color.effectiveBackgroundColor}${el.color.effectiveBackgroundResolved ? "" : " (assumed white \u2014 no opaque ancestor)"}`);
+    const ratio = el.color.contrastRatio;
+    lines.push(
+      `     contrast:  ${ratio === null ? "unavailable" : `${ratio}:1`} (AA needs ${el.color.aaThreshold}:1${el.color.largeText ? ", large text" : ""}) ${el.color.passesAA === null ? "" : el.color.passesAA ? "PASS" : "FAIL"}`
+    );
+    lines.push(
+      `     baseline:  ${el.firstLineBaselineY === null ? "not determinable" : `y=${el.firstLineBaselineY}`}`
+    );
+    lines.push("");
+  }
+  const baselines = result.elements.map((e) => e.firstLineBaselineY).filter((y) => y !== null);
+  if (baselines.length > 1) {
+    const min = Math.min(...baselines);
+    const max = Math.max(...baselines);
+    const spread = Math.round((max - min) * 100) / 100;
+    lines.push(
+      spread === 0 ? `Baselines: all ${baselines.length} share y=${min}.` : `Baselines: spread ${spread}px across ${baselines.length} elements (${min} \u2026 ${max}).`
+    );
+  }
+  return lines.join("\n");
+}
+var init_format = __esm({
+  "src/live/format.ts"() {
+    "use strict";
+  }
+});
+
+// src/live/index.ts
+var live_exports = {};
+__export(live_exports, {
+  DEFAULT_CDP_PROBE_TIMEOUT_MS: () => DEFAULT_CDP_PROBE_TIMEOUT_MS,
+  LiveAttachError: () => LiveAttachError,
+  aaThreshold: () => aaThreshold,
+  attachToLiveTarget: () => attachToLiveTarget,
+  buildDeviceMetricsOverride: () => buildDeviceMetricsOverride,
+  buildMeasureExpression: () => buildMeasureExpression,
+  compositeOver: () => compositeOver,
+  contrastRatio: () => contrastRatio5,
+  finalizeMeasurements: () => finalizeMeasurements,
+  formatLiveMeasureResult: () => formatLiveMeasureResult,
+  formatLiveTargets: () => formatLiveTargets,
+  formatRgba: () => formatRgba,
+  isLargeText: () => isLargeText4,
+  isOpaque: () => isOpaque,
+  listLiveTargets: () => listLiveTargets,
+  measureLive: () => measureLive,
+  parseCssColor: () => parseCssColor,
+  parseFontWeight: () => parseFontWeight,
+  parsePx: () => parsePx2,
+  relativeLuminance: () => relativeLuminance5,
+  resolveEffectiveBackground: () => resolveEffectiveBackground,
+  resolveLiveWsEndpoint: () => resolveLiveWsEndpoint,
+  selectTarget: () => selectTarget,
+  toLiveTarget: () => toLiveTarget,
+  withWidthOverride: () => withWidthOverride
+});
+var init_live = __esm({
+  "src/live/index.ts"() {
+    "use strict";
+    init_attach();
+    init_measure();
+    init_format();
+    init_color();
   }
 });
 
@@ -16832,11 +18285,11 @@ function flattenMacOSElements(elements) {
   const candidates = [];
   function visit(nodes) {
     for (const el of nodes) {
-      const label = el.title || el.description || el.value || el.identifier || "";
+      const label2 = el.title || el.description || el.value || el.identifier || "";
       candidates.push({
         path: el.path,
         role: el.role,
-        label,
+        label: label2,
         identifier: el.identifier,
         value: el.value,
         enabled: el.enabled,
@@ -16900,13 +18353,13 @@ function resolveNativeCandidate(candidates, target, options) {
 function scoreCandidate(candidate, needle, role) {
   if (role && normalizeRole2(candidate.role) !== normalizeRole2(role)) return 0;
   const identifier = normalize(candidate.identifier);
-  const label = normalize(candidate.label);
+  const label2 = normalize(candidate.label);
   const value = normalize(candidate.value);
   if (identifier && identifier === needle) return 1;
-  if (label && label === needle) return 0.96;
+  if (label2 && label2 === needle) return 0.96;
   if (value && value === needle) return 0.9;
   if (identifier && identifier.includes(needle)) return 0.82;
-  if (label && label.includes(needle)) return 0.76;
+  if (label2 && label2.includes(needle)) return 0.76;
   if (value && value.includes(needle)) return 0.7;
   return 0;
 }
@@ -16929,8 +18382,8 @@ function elementCenter(element) {
     y: Math.round(element.frame.y + element.frame.height / 2)
   };
 }
-function findElementByLabel(elements, label) {
-  const needle = label.toLowerCase();
+function findElementByLabel(elements, label2) {
+  const needle = label2.toLowerCase();
   return elements.find(
     (el) => el.label && el.label.toLowerCase().includes(needle) || el.identifier && el.identifier.toLowerCase().includes(needle)
   ) ?? null;
@@ -17337,8 +18790,8 @@ async function runLaunch(spec, ops) {
   return lifecycleSuccess(expected, after, "launch-confirmed");
 }
 async function runSwitch(target, spec, ops) {
-  const label = spec.app ?? describeTarget(target);
-  const expected = `${label} frontmost`;
+  const label2 = spec.app ?? describeTarget(target);
+  const expected = `${label2} frontmost`;
   let pid;
   try {
     pid = await resolveTargetPid(target, spec, ops);
@@ -17362,8 +18815,8 @@ async function runSwitch(target, spec, ops) {
   return lifecycleSuccess(expected, after, "switch-confirmed");
 }
 async function runQuit(target, spec, ops) {
-  const label = spec.app ?? describeTarget(target);
-  const expected = `${label} no longer running`;
+  const label2 = spec.app ?? describeTarget(target);
+  const expected = `${label2} no longer running`;
   let pid;
   try {
     pid = await resolveTargetPid(target, spec, ops);
@@ -20300,7 +21753,7 @@ var TOOLS = [
   },
   {
     name: "scan_obsidian",
-    description: "Mount an Obsidian plugin view in a REAL browser and run the full IBR scan against it \u2014 computed styles (var()/calc() resolved to real values), real layout and cascade, box geometry, pseudo-elements, touch targets, contrast, and accessibility. Use this instead of scan_static for any Obsidian view: scan_static is a regex parser and resolves none of those. Generates a self-contained harness page that patches Obsidian's DOM extensions onto real DOM and stubs the `obsidian` module, mounts the named view class, then scans it.",
+    description: "Mount an Obsidian plugin view in a REAL browser and run the full IBR scan against it \u2014 computed styles (var()/calc() resolved to real values), real layout and cascade, box geometry, pseudo-elements, touch targets, contrast, and accessibility. Use this instead of scan_static for any Obsidian view: scan_static is a regex parser and resolves none of those. Generates a self-contained harness page that patches Obsidian's DOM extensions onto real DOM and stubs the `obsidian` module, mounts the named view class, then scans it. BY DEFAULT it loads Obsidian's REAL app.css from the local install, so Obsidian's own custom properties and element rules are in the cascade, and it reports LAYOUT OVERFLOW \u2014 content that renders outside its box, naming the declaration responsible. When Obsidian is not installed the scan says so and grades PARTIAL rather than PASS.",
     inputSchema: {
       type: "object",
       properties: {
@@ -20353,12 +21806,102 @@ var TOOLS = [
           type: "array",
           items: { type: "string" },
           description: "Rule presets to enable. Default: ['touch-targets', 'wcag-contrast']."
+        },
+        obsidian_css: {
+          type: "boolean",
+          description: "Load Obsidian's real app.css from the local install. DEFAULT TRUE. Without it every var(--x, fallback) in the plugin stylesheet resolves to its FALLBACK and Obsidian's own element rules are absent \u2014 notably `button { height: var(--input-height) }` (30px), which pins a multi-line <button>'s content and spills it into the row below. Set false only to accept a knowingly degraded scan."
+        },
+        obsidian_css_path: {
+          type: "string",
+          description: "Explicit path to an extracted app.css or to an obsidian.asar, for a non-standard install. Overrides the search path and the IBR_OBSIDIAN_APP_CSS environment variable."
+        },
+        layout_overflow: {
+          type: "boolean",
+          description: "Detect content rendering outside its box: self-overflow (scrollHeight > clientHeight on an overflow:visible box), container escape, and text-over-text collisions. Each finding names the computed declaration responsible. DEFAULT TRUE."
         }
       },
       required: ["plugin_path", "view_class"]
     },
     annotations: {
       title: "Scan Obsidian Plugin View",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  {
+    name: "live_targets",
+    description: "List the page targets exposed by an ALREADY-RUNNING browser or Electron app (Obsidian, VS Code, Chrome) on a CDP debugging port. Use this first to find the title/URL substring that identifies the window you want, then pass it to live_measure. Read-only: opens no target and navigates nothing.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        cdp_url: {
+          type: "string",
+          description: "CDP HTTP endpoint of the running app, e.g. 'http://127.0.0.1:9222'."
+        },
+        ws_endpoint: {
+          type: "string",
+          description: "Browser-level CDP WebSocket endpoint. Use instead of cdp_url when you already have it."
+        },
+        probe_timeout_ms: {
+          type: "number",
+          description: "Timeout for the CDP endpoint probe, ms. Default 4000."
+        }
+      },
+      required: []
+    },
+    annotations: {
+      title: "List Live CDP Targets",
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false
+    }
+  },
+  {
+    name: "live_measure",
+    description: "Measure elements in a LIVE, already-running app by attaching to its existing CDP target \u2014 the real page, with the host application's own stylesheet cascade and theme variables applied. Returns full JSON: per element, getBoundingClientRect bounds, box model (height/min-height/padding/margin/border/box-sizing), typography (font-size/family/weight/line-height/letter-spacing/white-space), layout (display/align-items/align-self/flex/gap), resolved color plus effectiveBackgroundColor composited through transparent ancestors, WCAG contrastRatio with the correct large-text threshold, and firstLineBaselineY. Use this instead of scan_obsidian when the question is what the app actually renders right now \u2014 for example whether a plugin CSS rule is losing the cascade to the host app's own rule. scan_obsidian mounts the plugin in a synthetic page with a stubbed API and structurally cannot see the host cascade. Strictly read-only: it creates no target and never navigates, reloads, or mutates the page.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        selector: {
+          type: "string",
+          description: "CSS selector scoping what gets measured. Works for non-interactive containers (div, span), not just controls. Elements are returned in document order."
+        },
+        cdp_url: {
+          type: "string",
+          description: "CDP HTTP endpoint of the running app, e.g. 'http://127.0.0.1:9222'."
+        },
+        ws_endpoint: {
+          type: "string",
+          description: "Browser-level CDP WebSocket endpoint. Use instead of cdp_url when you already have it."
+        },
+        target_title: {
+          type: "string",
+          description: "Case-insensitive substring of the target window's title, e.g. 'personal-llm-wiki'. Required when more than one page target is open."
+        },
+        target_url: {
+          type: "string",
+          description: "Case-insensitive substring of the target's URL."
+        },
+        target_id: {
+          type: "string",
+          description: "Exact CDP target id. Wins over target_title/target_url."
+        },
+        limit: {
+          type: "number",
+          description: "Maximum elements to measure. Default 200."
+        },
+        probe_timeout_ms: {
+          type: "number",
+          description: "Timeout for the CDP endpoint probe, ms. Default 4000."
+        }
+      },
+      required: ["selector"]
+    },
+    annotations: {
+      title: "Measure Live App Pane",
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
@@ -20840,6 +22383,10 @@ async function handleToolCall(name, args) {
         return await handleScanStatic(args);
       case "scan_obsidian":
         return await handleScanObsidian(args);
+      case "live_targets":
+        return await handleLiveTargets(args);
+      case "live_measure":
+        return await handleLiveMeasure(args);
       case "bridge_to_source":
         return await handleBridgeToSource(args);
       case "native_session_start":
@@ -22474,12 +24021,54 @@ async function handleScanObsidian(args) {
       postMount: args.post_mount,
       harnessOut: args.harness_out,
       screenshot: args.screenshot,
-      rules: args.rules
+      rules: args.rules,
+      // An explicit path wins; otherwise the boolean toggles the default-on
+      // resolution. Two parameters rather than one union, because a JSON Schema
+      // `boolean | string` reads badly to a model choosing arguments.
+      obsidianCss: args.obsidian_css_path ?? args.obsidian_css,
+      layoutOverflow: args.layout_overflow === false ? false : void 0
     });
     return textResponse(formatObsidianScanResult2(result));
   } catch (error) {
     return errorResponse2(
       `Obsidian view scan failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+async function handleLiveTargets(args) {
+  const { listLiveTargets: listLiveTargets2 } = await Promise.resolve().then(() => (init_live(), live_exports));
+  try {
+    const result = await listLiveTargets2({
+      cdpUrl: args.cdp_url,
+      wsEndpoint: args.ws_endpoint,
+      probeTimeoutMs: args.probe_timeout_ms
+    });
+    return textResponse(JSON.stringify(result, null, 2));
+  } catch (error) {
+    return errorResponse2(error instanceof Error ? error.message : String(error));
+  }
+}
+async function handleLiveMeasure(args) {
+  const selector = args.selector;
+  if (!selector) {
+    return errorResponse2("The 'selector' parameter is required.");
+  }
+  const { measureLive: measureLive2 } = await Promise.resolve().then(() => (init_live(), live_exports));
+  try {
+    const result = await measureLive2({
+      selector,
+      cdpUrl: args.cdp_url,
+      wsEndpoint: args.ws_endpoint,
+      targetTitle: args.target_title,
+      targetUrl: args.target_url,
+      targetId: args.target_id,
+      limit: args.limit,
+      probeTimeoutMs: args.probe_timeout_ms
+    });
+    return textResponse(JSON.stringify(result, null, 2));
+  } catch (error) {
+    return errorResponse2(
+      `Live measure failed: ${error instanceof Error ? error.message : String(error)}`
     );
   }
 }
@@ -22821,9 +24410,35 @@ process.on("SIGINT", () => {
 process.on("SIGTERM", () => {
   shutdownPool().finally(() => process.exit(0));
 });
+process.on("SIGHUP", () => {
+  shutdownPool().finally(() => process.exit(0));
+});
 process.on("beforeExit", () => {
   shutdownPool();
 });
+var PPID_POLL_MS = 5e3;
+var ppidWatchdog = setInterval(() => {
+  if (process.ppid === 1) {
+    shutdownPool().finally(() => process.exit(0));
+  }
+}, PPID_POLL_MS);
+ppidWatchdog.unref();
+function parseIdleTimeoutMs(raw) {
+  if (!raw) return 0;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+var IDLE_TIMEOUT_MS = parseIdleTimeoutMs(process.env.MCP_IDLE_TIMEOUT_MS);
+var lastFrameAt = Date.now();
+if (IDLE_TIMEOUT_MS > 0) {
+  const IDLE_POLL_MS = 1e3;
+  const idleWatchdog = setInterval(() => {
+    if (Date.now() - lastFrameAt >= IDLE_TIMEOUT_MS) {
+      shutdownPool().finally(() => process.exit(0));
+    }
+  }, IDLE_POLL_MS);
+  idleWatchdog.unref();
+}
 var rl = (0, import_readline.createInterface)({ input: process.stdin, terminal: false });
 var buffer = "";
 rl.on("line", (line) => {
@@ -22831,6 +24446,7 @@ rl.on("line", (line) => {
   try {
     const msg = JSON.parse(buffer);
     buffer = "";
+    lastFrameAt = Date.now();
     handleMessage(msg);
   } catch {
   }
