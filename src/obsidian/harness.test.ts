@@ -87,6 +87,23 @@ describe('generateHarness', () => {
     expect(html).toContain("contentEl.className = 'view-content'");
   });
 
+  it('assigns contentEl onto the view, not just into the document', () => {
+    // THE ASSERTION THE TEST ABOVE WAS MISSING, and the gap is the whole bug.
+    // Building the element and appending it in the right position satisfied
+    // every check that existed, while `view.contentEl` stayed undefined — so
+    // `this.contentEl.empty()`, the first line of most render() methods in the
+    // wild, threw immediately. The scan then reported it as the PLUGIN's
+    // failure ("Verdict: FAIL, empty page, 0 elements"), sending the reader to
+    // debug a file that was fine.
+    //
+    // Asserting only the construction is asserting the half that already
+    // worked. A harness that builds the right DOM and hands the view none of it
+    // is exactly as broken as one that builds nothing.
+    const html = generateHarness({ bundlePath: BUNDLE, viewClass: 'FixtureView', mobile: false });
+    expect(html).toContain('view.contentEl = contentEl;');
+    expect(html).toContain('view.containerEl = containerEl;');
+  });
+
   it('names the available exports when the view class is missing', () => {
     // A bad view_class is the most likely user error; the message has to say
     // what IS exported rather than just "undefined".

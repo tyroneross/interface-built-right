@@ -155,6 +155,15 @@ function buildMountScript(input: HarnessInput): string {
     var leaf = { app: plugin.app, containerEl: containerEl, view: null };
     view = new View(leaf, plugin);
     view.containerEl = containerEl;
+    // ItemView exposes contentEl as containerEl.children[1], and rendering into
+    // it is the standard idiom - this.contentEl.empty() opens most render()
+    // methods in the wild. Building the element above without assigning it here
+    // meant every such view died at its first line with "Cannot read properties
+    // of undefined (reading empty)", and the scan reported that as the PLUGIN's
+    // failure: "Verdict: FAIL, empty page, 0 elements". A harness defect wearing
+    // the plugin's name sends the reader to the wrong file.
+    // (No backticks in this comment: it lives inside a template literal.)
+    view.contentEl = contentEl;
     view.app = plugin.app;
     leaf.view = view;
 
