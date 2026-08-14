@@ -86,9 +86,11 @@ Sensors (`scan.sensors.*`, v1.2.0):
 | `.codex-plugin/plugin.json` | Codex plugin manifest metadata, compact Codex skills path, and Codex MCP path |
 | `.mcp.json` | Claude-shaped MCP server configuration |
 | `.codex-plugin/mcp.json` | Codex-shaped MCP server configuration |
-| `skills/` | 22 detailed skill definitions (markdown guidance loaded by Claude Code and source workflows) |
-| `.codex-plugin/skills/` | Compact Codex routing skills for lower token activation cost |
-| `commands/` | 27 slash command definitions |
+| `skills/` | 25 detailed skill definitions (markdown guidance loaded by Claude Code and source workflows) |
+| `.codex-plugin/skills/` | 5 compact Codex routing skills for lower token activation cost |
+| `commands/` | 32 slash command definitions |
+| `scripts/artifact_lint.py` | Stdlib-only artifact rule contract (39 rules). Host-neutral: any agent, hook, or CI runs it |
+| `scripts/artifact_build.py` | Stdlib-only artifact profile converter — `new` / `wrap` / `unwrap` / `info` |
 | `hooks/hooks.json` | Hook configuration |
 | `hooks/ibr-pre-change.sh` | PreToolUse handler |
 | `hooks/ibr-post-change.sh` | PostToolUse handler |
@@ -96,11 +98,13 @@ Sensors (`scan.sensors.*`, v1.2.0):
 | `agents/visual-iterator.md` | Design validator agent definition |
 | `references/` | iOS/macOS/web design reference files (domain option catalogs) |
 
-### Skills (22)
+### Skills (25)
 
 | Directory | Purpose |
 |---|---|
 | `skills/design-director/` | Primary design-agent planner — design intent, specialist passes, target roles, validation criteria |
+| `skills/artifact-design/` | Single-file self-contained HTML pages — treatment calibration, three-state theme contract, page naming, profile choice |
+| `skills/artifact-diagramming/` | Inline-SVG diagrams inside artifacts — what earns a picture, and the mechanics that stay legible in both themes |
 | `skills/web-design-router/` | Web archetype classifier — dashboards, research tools, workbenches, AI chat, checkout, content, admin |
 | `skills/data-visualization/` | Chart-worthiness, chart routing, metrics, data storytelling, source attribution |
 | `skills/design-guidance/` | Pre-build design direction, Calm Precision rules, token and pattern selection |
@@ -122,6 +126,7 @@ Sensors (`scan.sensors.*`, v1.2.0):
 | `skills/ios-design-router/` | Archetype classifier — routes to defaults for 6 iOS app archetypes |
 | `skills/apple-platform/` | How to build: architecture patterns, SwiftData, concurrency, CI/CD, TestFlight |
 | `skills/macos-ui/` | macOS-specific UI patterns — AppKit/SwiftUI, menu bar, window chrome |
+| `skills/obsidian-plugin-ui/` | Obsidian plugin UI patterns — view containers, theme variables, settings tabs |
 
 ### Hooks (3)
 
@@ -143,13 +148,33 @@ Codex uses compact `.codex-plugin/skills/` routing guidance plus MCP/session too
 
 `scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `native_session_start` | `native_session_read` | `native_session_action` | `native_session_close` | `validate_tokens` | `scan_static` | `scan_obsidian` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `design_system` | `sim_action`
 
-### Slash Commands (30)
+### Slash Commands (32)
 
-`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:scan` `/ibr:screenshot` `/ibr:native-scan` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:replicate` `/ibr:run-script` `/ibr:setup-hooks` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:update` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
+`/ibr:ibr` `/ibr:artifact` `/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:scan` `/ibr:screenshot` `/ibr:native-scan` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:replicate` `/ibr:run-script` `/ibr:setup-hooks` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:update` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
 
 ### Storage
 
 All runtime data is written to `.ibr/` in the consuming project. Add `.ibr/` to `.gitignore`.
+
+### Artifact Lane (host-neutral)
+
+Single-file self-contained HTML pages — openable from `file://`, publishable through Claude's Artifact tool, checkable by any agent. Unlike the rest of IBR this lane needs no browser, no MCP server, and no Node: two stdlib-only Python 3 scripts, no network, no install.
+
+```bash
+python3 scripts/artifact_lint.py  rules --json                  # the contract (39 rules)
+python3 scripts/artifact_lint.py  check page.html --json        # verdict
+python3 scripts/artifact_build.py new --title T -o page.html    # correct scaffold
+python3 scripts/artifact_build.py wrap frag.html -o page.html   # fragment → document
+python3 scripts/artifact_build.py unwrap page.html -o frag.html # document → fragment
+```
+
+Exit codes: `0` clean · `1` findings at or above `--fail-on` (default `error`) · `2` usage error.
+
+`artifact_lint.py rules --json` is the **single source of truth** for rule IDs, severities, and profile scope. Skills cite IDs; they never restate rules. If you change a rule, change it in `RULES` — the prose does not need editing and must not be allowed to drift into a second copy.
+
+Only mechanically unambiguous rules carry `error`. Every heuristic rule is flagged `heuristic: true` and ships `warn`/`info` so it can never hard-block. Rule precision is **unmeasured** — do not promote a heuristic to `error` without measuring it on a real corpus first. `scripts/test_artifact_lint.py` enforces both invariants (`test_heuristic_rules_never_error`, `test_every_rule_is_reachable`).
+
+Surfaces: `skills/artifact-design/`, `skills/artifact-diagramming/`, `commands/artifact.md` (Claude); `.codex-plugin/skills/artifact/` (Codex); the CLIs directly (everything else).
 
 ---
 

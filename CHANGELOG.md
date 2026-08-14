@@ -5,6 +5,48 @@ per-version release notes for shipped versions live under `docs/releases/`
 (e.g. `docs/releases/v1.4.0.md`); this file tracks the current in-progress
 increment before it is cut into a release.
 
+## Unreleased
+
+### Added
+
+- **Artifact lane — author, check, and port single-file self-contained HTML pages.**
+  A page that carries its own styles, scripts, fonts, and images: openable from
+  `file://`, publishable through Claude's Artifact tool, and checkable by any agent.
+  Unlike the rest of IBR this lane needs no browser, no MCP server, and no Node.
+
+  - `scripts/artifact_lint.py` — 39-rule contract across six families: `AX*`
+    portability and self-containment, `AD1xx` the three-state theme contract,
+    `AD2xx` page identity, `AD3xx` layout and robustness, `AD4xx` AI-cliché
+    detection, `AS5xx` inline-SVG diagrams. Stdlib-only Python 3, no network.
+    `rules --json` is the machine-readable contract — the single source of truth
+    for IDs, severities, and profile scope.
+  - `scripts/artifact_build.py` — `new` scaffolds a page that already satisfies the
+    theme contract and lints clean; `wrap`/`unwrap` convert losslessly between the
+    Claude publish fragment and an openable document; `info` reports profile, title,
+    injected nodes, and external URLs. Everything injected carries
+    `data-artifact-build` and is removed on the way out, so round-trip is lossless.
+  - `skills/artifact-design/` + `skills/artifact-diagramming/` — the judgment layer
+    a linter cannot grade: treatment calibration, palette and type direction, page
+    naming, copy, and what earns a diagram. They cite rule IDs rather than restating
+    rules, so prose cannot drift from code.
+  - `commands/artifact.md` (`/ibr:artifact`) and `.codex-plugin/skills/artifact/` —
+    equal access from Claude, Codex, and any host that can run `python3`.
+
+  **Severity policy:** only mechanically unambiguous rules carry `error`. Every
+  heuristic is flagged `heuristic: true` and ships `warn`/`info` so it can never
+  hard-block. Rule precision is unmeasured; `test_heuristic_rules_never_error` and
+  `test_every_rule_is_reachable` enforce both invariants.
+
+  96 tests across `scripts/test_artifact_lint.py` and `scripts/test_artifact_build.py`;
+  every rule is asserted in both directions — it fires on a defect fixture and stays
+  silent on the clean one.
+
+### Fixed
+
+- `AGENTS.md` counts and inventories had drifted from the tree: skills listed 22
+  against 23 on disk (`obsidian-plugin-ui` undocumented), commands listed 27/30
+  against 31 (`/ibr:ibr` undocumented). Both corrected alongside the new entries.
+
 ## [1.5.0] — 2026-07-06 — Increment 1: native session API/MCP/CLI parity + driving foundation
 
 **Version bumped to `1.5.0` in `package.json`; awaiting release cut.** The git tag

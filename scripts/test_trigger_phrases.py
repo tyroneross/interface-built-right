@@ -54,6 +54,15 @@ EXPECTED_TRIGGERS: list[tuple[str, str]] = [
 
     # iterative-refinement — refinement loops
     ("iterative-refinement", "iterate"),
+
+    # artifact-design — single-file self-contained pages
+    ("artifact-design", "artifact"),
+    ("artifact-design", "self-contained html"),
+    ("artifact-design", "standalone"),
+
+    # artifact-diagramming — inline SVG diagrams inside a page
+    ("artifact-diagramming", "diagram"),
+    ("artifact-diagramming", "data flow"),
 ]
 
 # Skills whose description must end with a sentence describing TRIGGER
