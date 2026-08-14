@@ -50,6 +50,18 @@ python3 "${CLAUDE_PLUGIN_ROOT}/scripts/artifact_build.py" wrap   <path> -o page.
 python3 "${CLAUDE_PLUGIN_ROOT}/scripts/artifact_build.py" unwrap <path> -o frag.html --check
 ```
 
+### embed-font <path>
+
+Turn a `.woff2`/`.woff`/`.otf`/`.ttf` into a self-contained `@font-face` block —
+the fix for `AX003`, since the CSP blocks every font CDN.
+
+```bash
+python3 "${CLAUDE_PLUGIN_ROOT}/scripts/artifact_build.py" embed-font <path> --family "<name>"
+```
+
+Format is sniffed from magic bytes, not the extension. Warns past ~400KB, where a
+face is worth subsetting to the glyphs the page actually uses.
+
 ### info <path>
 
 Profile, title, style/script counts, injected nodes, and every external URL.

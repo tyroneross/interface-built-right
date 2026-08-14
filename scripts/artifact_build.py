@@ -29,6 +29,7 @@ content is never rewritten.
 from __future__ import annotations
 
 import argparse
+import base64
 import json
 import re
 import sys
@@ -371,6 +372,67 @@ def scaffold(title: str, profile: str, favicon: str | None, lang: str,
 
 
 # ---------------------------------------------------------------------------
+# Font embedding
+# ---------------------------------------------------------------------------
+
+# Magic bytes -> (mime, css format()). Checking these stops a mislabelled or
+# wrong file from being embedded as megabytes of base64 that silently never loads.
+FONT_SIGNATURES: tuple[tuple[bytes, str, str], ...] = (
+    (b"wOF2", "font/woff2", "woff2"),
+    (b"wOFF", "font/woff", "woff"),
+    (b"OTTO", "font/otf", "opentype"),
+    (b"true", "font/ttf", "truetype"),
+    (b"ttcf", "font/collection", "collection"),
+    (b"\x00\x01\x00\x00", "font/ttf", "truetype"),
+)
+
+# Base64 costs a third on top of the raw bytes, and the whole page shares a 16MB
+# ceiling. A single face past this is worth a word before it lands.
+FONT_WARN_BYTES = 400 * 1024
+
+
+def sniff_font(data: bytes) -> tuple[str, str] | None:
+    for magic, mime, fmt in FONT_SIGNATURES:
+        if data.startswith(magic):
+            return mime, fmt
+    return None
+
+
+def font_face_css(path: Path, family: str | None = None, weight: str = "400",
+                  style: str = "normal", display: str = "swap") -> tuple[str, dict]:
+    data = path.read_bytes()
+    sniffed = sniff_font(data)
+    if sniffed is None:
+        raise ValueError(
+            f"{path.name} is not a recognised font file "
+            f"(expected woff2/woff/otf/ttf; got {data[:4]!r})")
+    mime, fmt = sniffed
+    if fmt == "woff2":
+        advice = ""
+    else:
+        advice = (f"  /* {fmt} embeds ~{len(data) // 1024}KB; converting to woff2 "
+                  f"typically cuts that by half or more */\n")
+    name = family or re.split(r"[-_.]", path.stem)[0]
+    b64 = base64.b64encode(data).decode("ascii")
+    css = (
+        "@font-face {\n"
+        f"{advice}"
+        f'  font-family: "{name}";\n'
+        f"  font-style: {style};\n"
+        f"  font-weight: {weight};\n"
+        f"  font-display: {display};\n"
+        f'  src: url(data:{mime};base64,{b64}) format("{fmt}");\n'
+        "}\n"
+    )
+    meta = {
+        "family": name, "format": fmt, "mime": mime,
+        "source_bytes": len(data), "encoded_bytes": len(css.encode("utf-8")),
+        "oversize": len(data) > FONT_WARN_BYTES,
+    }
+    return css, meta
+
+
+# ---------------------------------------------------------------------------
 # info
 # ---------------------------------------------------------------------------
 
@@ -462,6 +524,26 @@ def cmd_new(args) -> int:
     return _post_check(args.output, args.profile) if args.check else 0
 
 
+def cmd_embed_font(args) -> int:
+    path = Path(args.input)
+    if not path.is_file():
+        print(f"artifact_build: no such file: {path}", file=sys.stderr)
+        return 2
+    try:
+        css, meta = font_face_css(path, args.family, args.weight, args.style, args.display)
+    except ValueError as exc:
+        print(f"artifact_build: {exc}", file=sys.stderr)
+        return 2
+    _emit(css, args.output, args.quiet)
+    if not args.quiet:
+        print(f"{meta['family']} ({meta['format']}): {meta['source_bytes'] / 1024:.0f}KB "
+              f"source -> {meta['encoded_bytes'] / 1024:.0f}KB embedded", file=sys.stderr)
+        if meta["oversize"]:
+            print(f"warning: {meta['source_bytes'] / 1024:.0f}KB is large for a single "
+                  "face; subset it to the glyphs the page actually uses", file=sys.stderr)
+    return 0
+
+
 def cmd_info(args) -> int:
     path = Path(args.input)
     if not path.is_file():
@@ -521,6 +603,17 @@ def build_parser() -> argparse.ArgumentParser:
     n.add_argument("--lang", default="en")
     n.add_argument("--theme-toggle", action="store_true")
     n.set_defaults(func=cmd_new)
+
+    e = sub.add_parser("embed-font",
+                       help="font file -> a self-contained @font-face block (fixes AX003)")
+    e.add_argument("input", help="a .woff2 / .woff / .otf / .ttf file")
+    e.add_argument("-o", "--output")
+    e.add_argument("--quiet", action="store_true")
+    e.add_argument("--family", help="CSS font-family name (default: the filename stem)")
+    e.add_argument("--weight", default="400")
+    e.add_argument("--style", default="normal")
+    e.add_argument("--display", default="swap")
+    e.set_defaults(func=cmd_embed_font)
 
     i = sub.add_parser("info", help="describe a file's profile, title, and external refs")
     i.add_argument("input")

@@ -33,6 +33,7 @@ Start there; do not start from a blank file and rediscover the contract.
 | `artifact_build.py new --title T [--profile standalone\|claude-artifact]` | scaffold a correct page |
 | `artifact_build.py wrap <frag> -o <doc> [--favicon 🌊] [--theme-toggle]` | fragment → openable document |
 | `artifact_build.py unwrap <doc> -o <frag>` | document → publish fragment |
+| `artifact_build.py embed-font <file> [--family N]` | font file → self-contained `@font-face` (fixes `AX003`) |
 | `artifact_build.py info <path> --json` | profile, title, injected nodes, external URLs |
 
 Exit codes: `0` clean · `1` findings at or above `--fail-on` (default `error`) ·

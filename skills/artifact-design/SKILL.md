@@ -96,8 +96,15 @@ Write it down first, in three lines, then derive every decision from it:
   unconsidered, a grey biased slightly toward the accent reads as chosen.
 - **Type** — two or more roles: a characterful display face used with restraint, a
   complementary body face, a utility face for captions or data if needed. The CSP
-  blocks font CDNs (`AX003`), so inline a face as an `@font-face` data URI or
-  commit to a system stack. Never link one and hope.
+  blocks font CDNs (`AX003`), so inline the face or commit to a system stack —
+  never link one and hope:
+
+  ```bash
+  python3 "$R/scripts/artifact_build.py" embed-font Harbour.woff2 --family Harbour
+  ```
+
+  It sniffs the real format from the file's magic bytes rather than trusting the
+  extension, and warns when a face is large enough to be worth subsetting.
 - **Layout** — the concept in one or two sentences.
 
 Ground all three in the subject's own world — its materials, instruments,

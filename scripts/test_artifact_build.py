@@ -149,6 +149,73 @@ class ScaffoldTests(unittest.TestCase):
             self.assertNotIn("AD402", fired)
 
 
+class EmbedFontTests(unittest.TestCase):
+    """AX003 (font CDN) fired on 9% of the calibration corpus. This is the fix path."""
+
+    def _font(self, td: str, magic: bytes, name: str = "Harbour-Regular.woff2") -> Path:
+        p = Path(td) / name
+        p.write_bytes(magic + b"\x00" * 512)
+        return p
+
+    def test_emits_a_self_contained_font_face(self):
+        with tempfile.TemporaryDirectory() as td:
+            css, meta = AB.font_face_css(self._font(td, b"wOF2"))
+            self.assertIn("@font-face", css)
+            self.assertIn('font-family: "Harbour"', css)
+            self.assertIn("src: url(data:font/woff2;base64,", css)
+            self.assertIn('format("woff2")', css)
+            self.assertNotIn("http", css)
+            self.assertEqual("woff2", meta["format"])
+
+    def test_family_defaults_to_the_filename_stem_before_a_separator(self):
+        with tempfile.TemporaryDirectory() as td:
+            css, _ = AB.font_face_css(self._font(td, b"wOF2", "Iowan_Old_Style.ttf"))
+            self.assertIn('font-family: "Iowan"', css)
+
+    def test_explicit_family_and_axes_win(self):
+        with tempfile.TemporaryDirectory() as td:
+            css, _ = AB.font_face_css(self._font(td, b"wOF2"), family="Harbour Display",
+                                      weight="700", style="italic", display="block")
+            self.assertIn('font-family: "Harbour Display"', css)
+            self.assertIn("font-weight: 700", css)
+            self.assertIn("font-style: italic", css)
+            self.assertIn("font-display: block", css)
+
+    def test_format_is_sniffed_from_magic_bytes_not_the_extension(self):
+        """A .woff2 name on a ttf payload would embed a face that never loads."""
+        with tempfile.TemporaryDirectory() as td:
+            _, meta = AB.font_face_css(self._font(td, b"\x00\x01\x00\x00", "X.woff2"))
+            self.assertEqual("truetype", meta["format"])
+            self.assertEqual("font/ttf", meta["mime"])
+
+    def test_non_font_is_rejected(self):
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError):
+                AB.font_face_css(self._font(td, b"<htm", "notafont.woff2"))
+
+    def test_non_woff2_gets_a_conversion_note(self):
+        with tempfile.TemporaryDirectory() as td:
+            css, _ = AB.font_face_css(self._font(td, b"OTTO", "X.otf"))
+            self.assertIn("woff2", css.split("src:")[0])
+
+    def test_oversize_is_flagged(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / "Big.woff2"
+            p.write_bytes(b"wOF2" + b"\x00" * (AB.FONT_WARN_BYTES + 10))
+            self.assertTrue(AB.font_face_css(p)[1]["oversize"])
+
+    def test_embedded_font_passes_the_linter(self):
+        """The whole point: AX003 must not fire on the output."""
+        with tempfile.TemporaryDirectory() as td:
+            css, _ = AB.font_face_css(self._font(td, b"wOF2"))
+            page = CLEAN.replace("<style>", "<style>\n" + css, 1)
+            p = Path(td) / "page.html"
+            p.write_text(page, encoding="utf-8")
+            fired = {f.rule for f in AL.lint(p, "claude-artifact")}
+            self.assertNotIn("AX003", fired)
+            self.assertNotIn("AX001", fired)
+
+
 class InfoTests(unittest.TestCase):
     def test_info_reports_profile_and_generated_nodes(self):
         with tempfile.TemporaryDirectory() as td:
@@ -206,6 +273,26 @@ class CliTests(unittest.TestCase):
             frag.write_text(CLEAN, encoding="utf-8")
             self.assertEqual(2, self._run("unwrap", str(frag),
                                           "-o", str(Path(td) / "x.html")).returncode)
+
+    def test_embed_font_cli(self):
+        with tempfile.TemporaryDirectory() as td:
+            font = Path(td) / "Harbour.woff2"
+            font.write_bytes(b"wOF2" + b"\x00" * 256)
+            out = Path(td) / "face.css"
+            r = self._run("embed-font", str(font), "-o", str(out), "--family", "Harbour")
+            self.assertEqual(0, r.returncode, r.stderr)
+            self.assertIn("@font-face", out.read_text())
+
+    def test_embed_font_rejects_non_font_with_usage_exit(self):
+        with tempfile.TemporaryDirectory() as td:
+            notfont = Path(td) / "a.woff2"
+            notfont.write_text("<html>", encoding="utf-8")
+            r = self._run("embed-font", str(notfont))
+            self.assertEqual(2, r.returncode)
+            self.assertIn("not a recognised font", r.stderr)
+
+    def test_embed_font_missing_file_exits_two(self):
+        self.assertEqual(2, self._run("embed-font", "/nonexistent/x.woff2").returncode)
 
     def test_info_json(self):
         with tempfile.TemporaryDirectory() as td:
