@@ -804,11 +804,16 @@ def check_theme(doc: Document) -> list[Finding]:
             out.append(_f(doc, "AD101", root_blocks[0].line if root_blocks else 1,
                           "no custom properties defined on a bare :root"))
 
-    for token, line in sorted(cond_tokens.items()):
-        if token not in base_tokens:
-            out.append(_f(doc, "AD102", line,
-                          f"{token} is defined only inside a theme block, so it is "
-                          f"undefined in the un-stamped 'system' state", token))
+    # One row per file, not per token: a page that misses the pattern usually misses
+    # it for every token at once, and 18 identical findings bury the other results.
+    orphans = sorted((t, l) for t, l in cond_tokens.items() if t not in base_tokens)
+    if orphans:
+        names = ", ".join(t for t, _ in orphans[:6])
+        more = f" (+{len(orphans) - 6} more)" if len(orphans) > 6 else ""
+        out.append(_f(doc, "AD102", orphans[0][1],
+                      f"{len(orphans)} token(s) defined only inside a theme block, so "
+                      f"they are undefined in the un-stamped 'system' state",
+                      names + more))
 
     dark_media = [b for b in blocks
                   if any("prefers-color-scheme" in c and "dark" in c for c in b.context)]
@@ -859,6 +864,9 @@ def check_theme(doc: Document) -> list[Finding]:
                     break
             break
 
+    # Relative, not absolute: a page with a token system will reference it far more
+    # than it hard-codes. A flat "3 or more literals" threshold fired on 49.4% of a
+    # 476-page corpus and told the author nothing they could act on.
     literal_hits = 0
     first_literal = 1
     for b in blocks:
@@ -870,11 +878,56 @@ def check_theme(doc: Document) -> list[Finding]:
                 literal_hits += 1
                 if literal_hits == 1:
                     first_literal = b.line
-    if literal_hits >= 3:
-        out.append(_f(doc, "AD106", first_literal,
-                      f"{literal_hits} literal colors in component rules escape the "
-                      "token system"))
+    token_refs = doc.css_text.count("var(--")
+    if literal_hits >= 3 and literal_hits > token_refs:
+        detail = (f"{literal_hits} literal colors and no token system at all"
+                  if token_refs == 0 else
+                  f"{literal_hits} literal colors against {token_refs} token "
+                  "reference(s) — the palette is not reaching the components")
+        out.append(_f(doc, "AD106", first_literal, detail))
     return out
+
+
+# A caption links clauses; a name does not. Prepositions, wh-words, and participles
+# are the tell. Articles and possessives are NOT — "Draft A", "Your Documents", and
+# "The Ledger" are all names, and including them fired on every one of them.
+EXPLAINER_CONNECTORS = {
+    "from", "to", "into", "onto", "on", "of", "at", "by", "for", "with",
+    "without", "across", "through", "via", "per", "about", "than", "so",
+    "using", "based", "powered", "built", "designed", "made", "turns",
+    "that", "how", "why", "what", "when", "where",
+}
+
+# A tail this long is a sentence even with no connector in it.
+EXPLAINER_WORD_CEILING = 7
+
+TITLE_SEPARATOR_RE = re.compile(r"\s[-–—]\s|\s·\s|:\s")
+
+
+def _title_explainer(text: str) -> str | None:
+    """Return the appended explainer, or None when the tail is a qualified name.
+
+    `Agent Astronomer — Aurora Deep` is a product plus a variant: two names, not a
+    name plus a caption. `ProductPilot — From idea to implementation docs in minutes`
+    is a name plus a caption.
+
+    Measured on 476 hand-authored pages: matching the separator alone fired on
+    80.7%; adding a four-word ceiling and an article/possessive list still fired on
+    44.3% ("Draft A", "Your Documents", "Full App (Concept D)"). Requiring a
+    clause-linking word is what actually separates the two.
+    """
+    m = TITLE_SEPARATOR_RE.search(text)
+    if not m:
+        return None
+    tail = text[m.end():].strip()
+    if not tail:
+        return None
+    words = [w.strip(",.;:()[[]").lower() for w in tail.split()]
+    if any(w in EXPLAINER_CONNECTORS for w in words):
+        return tail
+    if len(words) >= EXPLAINER_WORD_CEILING:
+        return tail
+    return None
 
 
 def check_identity(doc: Document) -> list[Finding]:
@@ -894,11 +947,11 @@ def check_identity(doc: Document) -> list[Finding]:
     if doc.source.encode("utf-8").find(b"<title") > 8192:
         out.append(_f(doc, "AD201", line,
                       "<title> sits past the first 8KB, where the scanner stops looking"))
-    m = re.search(r"\s[-–—]\s|:\s", text)
-    if m:
+    tail = _title_explainer(text)
+    if tail:
         out.append(_f(doc, "AD202", line,
-                      "title pairs a name with an appended explainer; keep the name",
-                      text))
+                      f"title appends an explainer ('{tail}'); keep the name and move "
+                      "the explanation to the publish description", text))
     words = text.split()
     if len(words) > 8:
         out.append(_f(doc, "AD203", line, f"title is {len(words)} words; a name is 2–4", text))
@@ -1027,8 +1080,11 @@ def check_cliches(doc: Document) -> list[Finding]:
                 if CUSTOM_PROP_RE.match(prop) and re.search(r"bg|surface|ground|paper", prop):
                     backgrounds.append(rgb)
 
+    # Warm cream is yellow-biased: red above green above blue. Requiring only
+    # r > b also matched pink tints such as Tailwind red-50 (#FEF2F2), which is
+    # not the cliché this rule exists to name.
     cream = [c for c in backgrounds if c[0] >= 240 and c[1] >= 236 and c[2] >= 225
-             and c[0] - c[2] >= 8]
+             and c[0] - c[2] >= 8 and c[1] - c[2] >= 4]
     if cream:
         out.append(_f(doc, "AD401", 1,
                       "warm cream ground (#%02X%02X%02X) is the current AI-design default"
@@ -1111,7 +1167,12 @@ def check_svg(doc: Document) -> list[Finding]:
         kids = list(descendants(doc.elements, si))
         texts = [k for k in kids if doc.elements[k].tag == "text"]
         shapes = [k for k in kids if doc.elements[k].tag in SVG_SHAPES]
+        # Text separates a drawing from an icon; an arrow separates an explanatory
+        # diagram from a data graphic. The figure/caption and colour-budget rules
+        # are about diagrams — a chart's categorical palette is correct by design
+        # (see the data-visualization skill), so grading it here would contradict it.
         diagram = bool(texts)
+        explanatory = diagram and any("marker-end" in doc.elements[k].attrs for k in kids)
 
         for k in kids:
             tag = doc.elements[k].tag
@@ -1143,15 +1204,16 @@ def check_svg(doc: Document) -> list[Finding]:
             out.append(_f(doc, "AS505", svg.line,
                           'diagram has no role="img" + aria-label carrying its claim'))
 
-        in_figure = False
-        for a in ancestors(doc.elements, si):
-            if doc.elements[a].tag == "figure":
-                in_figure = any(doc.elements[c].tag == "figcaption"
-                                for c in descendants(doc.elements, a))
-                break
-        if not in_figure:
-            out.append(_f(doc, "AS506", svg.line,
-                          "diagram is not wrapped in <figure> with a <figcaption>"))
+        if explanatory:
+            in_figure = False
+            for a in ancestors(doc.elements, si):
+                if doc.elements[a].tag == "figure":
+                    in_figure = any(doc.elements[c].tag == "figcaption"
+                                    for c in descendants(doc.elements, a))
+                    break
+            if not in_figure:
+                out.append(_f(doc, "AS506", svg.line,
+                              "diagram is not wrapped in <figure> with a <figcaption>"))
 
         vb_w = 0.0
         if vb:
@@ -1173,18 +1235,19 @@ def check_svg(doc: Document) -> list[Finding]:
                                   f"diagram text at {num.group(1)}px is below the ~11px floor"))
                     break
 
-        literals: set[str] = set()
-        for k in kids + [si]:
-            for attr in ("fill", "stroke", "color", "stop-color"):
-                val = doc.elements[k].attrs.get(attr, "").strip().lower()
-                if val and val not in ("none", "transparent", "currentcolor", "inherit") \
-                        and not val.startswith("url("):
-                    literals.add(val)
-        if len(literals) > 1:
-            out.append(_f(doc, "AS508", svg.line,
-                          f"{len(literals)} literal colors; currentColor plus one "
-                          "meaningful accent is the budget",
-                          ", ".join(sorted(literals)[:5])))
+        if explanatory:
+            literals: set[str] = set()
+            for k in kids + [si]:
+                for attr in ("fill", "stroke", "color", "stop-color"):
+                    val = doc.elements[k].attrs.get(attr, "").strip().lower()
+                    if val and val not in ("none", "transparent", "currentcolor",
+                                           "inherit") and not val.startswith("url("):
+                        literals.add(val)
+            if len(literals) > 1:
+                out.append(_f(doc, "AS508", svg.line,
+                              f"{len(literals)} literal colors; currentColor plus one "
+                              "meaningful accent is the budget",
+                              ", ".join(sorted(literals)[:5])))
 
         unlabeled = _unlabeled_edges(doc, kids, texts)
         if unlabeled:

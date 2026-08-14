@@ -214,14 +214,23 @@ class ThemeTests(unittest.TestCase):
         bad = swap("body { background: var(--paper);", "body { background: transparent;")
         self.assertIn("AD105", rules_fired(bad))
 
-    def test_ad106_literal_colors_in_component_rules(self):
-        bad = swap(".prose { max-width: 62ch;",
-                   ".a{color:#111}.b{background:#222}.c{border-color:#333}\n  "
-                   ".prose { max-width: 62ch;")
+    def test_ad106_literal_colors_outnumber_token_refs(self):
+        literals = "".join(f".x{i}{{color:#1{i}2233}}" for i in range(10))
+        bad = swap(".prose { max-width: 62ch;", literals + "\n  .prose { max-width: 62ch;")
         self.assertIn("AD106", rules_fired(bad))
 
     def test_ad106_silent_when_colors_live_in_tokens(self):
         self.assertNotIn("AD106", rules_fired(CLEAN))
+
+    def test_ad106_silent_when_token_refs_dominate(self):
+        """A few literals beside a used token system is normal, not a finding.
+
+        A flat 'three or more literals' threshold fired on 49.4% of a 476-page
+        corpus and gave the author nothing to act on.
+        """
+        few = ".a{color:#111}.b{background:#222}.c{border-color:#333}"
+        ok = swap(".prose { max-width: 62ch;", few + "\n  .prose { max-width: 62ch;")
+        self.assertNotIn("AD106", rules_fired(ok))
 
     def test_ad107_component_styled_in_theme_block(self):
         bad = swap(':root[data-theme="dark"] {\n    --paper: #14120f;',
@@ -243,8 +252,38 @@ class IdentityTests(unittest.TestCase):
 
     def test_ad202_title_explainer(self):
         bad = swap("<title>Tide Ledger</title>",
-                   "<title>Tide Ledger - harbour readings</title>")
+                   "<title>Tide Ledger — readings from the harbour gauge</title>")
         self.assertIn("AD202", rules_fired(bad))
+
+    def test_ad202_fires_on_short_tail_with_function_words(self):
+        bad = swap("<title>Tide Ledger</title>", "<title>Tide Ledger: for the harbour</title>")
+        self.assertIn("AD202", rules_fired(bad))
+
+    def test_ad202_allows_a_qualified_name(self):
+        """`Product — Variant` is two names, not a name plus a caption.
+
+        Matching on the separator alone fired on 80.7% of a 476-page corpus of
+        hand-authored mockups, nearly all of them this shape.
+        """
+        for title in ("Agent Astronomer — Aurora Deep",
+                      "Tide Ledger · Harbour",
+                      "Atomize: Timeline",
+                      # every one of these was a false positive on the real corpus
+                      "Tests - Draft A",
+                      "ProductPilot — Your Documents",
+                      "IBR — Native Testing View (Wireframe)",
+                      "Atomize AI — Full App (Concept D)",
+                      "SpeakSavvy Icon — Option 7: SS Gradient Blend",
+                      "FloDoro - Timeline Journal (Liquid Gradient)"):
+            ok = swap("<title>Tide Ledger</title>", f"<title>{title}</title>")
+            self.assertNotIn("AD202", rules_fired(ok), title)
+
+    def test_ad202_still_catches_real_captions(self):
+        for title in ("ProductPilot — From idea to implementation docs in minutes",
+                      "Tide Ledger — readings from the harbour gauge",
+                      "Atomize: how the pipeline routes a story"):
+            bad = swap("<title>Tide Ledger</title>", f"<title>{title}</title>")
+            self.assertIn("AD202", rules_fired(bad), title)
 
     def test_ad203_title_too_long(self):
         bad = swap("<title>Tide Ledger</title>",
@@ -376,6 +415,35 @@ class SvgTests(unittest.TestCase):
     def test_as510_raster_in_svg(self):
         bad = swap("<rect x=\"4\" y=\"26\"", '<image href="data:image/png;base64,AA"/><rect x="4" y="26"')
         self.assertIn("AS510", rules_fired(bad))
+
+    def test_charts_are_not_judged_as_diagrams(self):
+        """A categorical palette is correct dataviz, not a colour-budget violation.
+
+        AS506 (figure/caption) and AS508 (one accent) are about explanatory
+        diagrams. Gating them on `has text` alone fired on every bar chart in a
+        476-page corpus and contradicted the data-visualization skill.
+        """
+        chart = swap("<h1>Tide Ledger</h1>", """<h1>Tide Ledger</h1>
+        <svg viewBox="0 0 200 100" role="img" aria-label="Tide height by hour.">
+          <rect x="10" y="40" width="20" height="50" fill="#2563eb"/>
+          <rect x="40" y="20" width="20" height="70" fill="#059669"/>
+          <rect x="70" y="55" width="20" height="35" fill="#d97706"/>
+          <rect x="100" y="30" width="20" height="60" fill="#7c3aed"/>
+          <text x="20" y="98" font-size="11">06</text>
+          <text x="50" y="98" font-size="11">12</text>
+        </svg>""")
+        fired = rules_fired(chart)
+        self.assertNotIn("AS508", fired, "colour budget applied to a chart")
+        self.assertNotIn("AS506", fired, "figure/caption required of a chart")
+
+    def test_charts_still_get_the_universal_svg_rules(self):
+        """Exempting charts from diagram rules must not exempt them from a11y."""
+        chart = swap("<h1>Tide Ledger</h1>", """<h1>Tide Ledger</h1>
+        <svg viewBox="0 0 200 100">
+          <rect x="10" y="40" width="20" height="50" fill="#2563eb"/>
+          <text x="20" y="98" font-size="11">06</text>
+        </svg>""")
+        self.assertIn("AS505", rules_fired(chart))
 
     def test_icon_svgs_are_not_judged_as_diagrams(self):
         """An SVG with no text is an icon; diagram rules must stay quiet."""

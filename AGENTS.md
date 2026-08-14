@@ -91,6 +91,7 @@ Sensors (`scan.sensors.*`, v1.2.0):
 | `commands/` | 32 slash command definitions |
 | `scripts/artifact_lint.py` | Stdlib-only artifact rule contract (39 rules). Host-neutral: any agent, hook, or CI runs it |
 | `scripts/artifact_build.py` | Stdlib-only artifact profile converter — `new` / `wrap` / `unwrap` / `info` |
+| `scripts/artifact_lint_corpus.py` | Measures rule firing rates across a corpus; the gate on promoting any heuristic to `error` |
 | `hooks/hooks.json` | Hook configuration |
 | `hooks/ibr-pre-change.sh` | PreToolUse handler |
 | `hooks/ibr-post-change.sh` | PostToolUse handler |
@@ -172,7 +173,15 @@ Exit codes: `0` clean · `1` findings at or above `--fail-on` (default `error`) 
 
 `artifact_lint.py rules --json` is the **single source of truth** for rule IDs, severities, and profile scope. Skills cite IDs; they never restate rules. If you change a rule, change it in `RULES` — the prose does not need editing and must not be allowed to drift into a second copy.
 
-Only mechanically unambiguous rules carry `error`. Every heuristic rule is flagged `heuristic: true` and ships `warn`/`info` so it can never hard-block. Rule precision is **unmeasured** — do not promote a heuristic to `error` without measuring it on a real corpus first. `scripts/test_artifact_lint.py` enforces both invariants (`test_heuristic_rules_never_error`, `test_every_rule_is_reachable`).
+Only mechanically unambiguous rules carry `error`. Every heuristic rule is flagged `heuristic: true` and ships `warn`/`info` so it can never hard-block. `scripts/test_artifact_lint.py` enforces both invariants (`test_heuristic_rules_never_error`, `test_every_rule_is_reachable`).
+
+**No heuristic is promoted to `error` without a corpus measurement.** The tool is `scripts/artifact_lint_corpus.py`; the standing record is `docs/research/2026-08-13-artifact-lint-calibration.md` (476 hand-authored pages). Re-run it after any rule change:
+
+```bash
+python3 scripts/artifact_lint_corpus.py ~/dev/git-folder --glob '*/mockups/*.html' --samples AD202,AD106
+```
+
+Firing rate is a proxy for *where to look*, never a substitute for reading instances. The first calibration cut 2311 findings to 1659 — all of it false positives — by catching four defects rates alone would not have explained: `AD202` matching `Product — Variant` names as captions, `AS506`/`AS508` grading bar charts as diagrams (contradicting `data-visualization`), `AD102` emitting ~18 duplicate rows per file, and the `AD401` cream test matching pink.
 
 Surfaces: `skills/artifact-design/`, `skills/artifact-diagramming/`, `commands/artifact.md` (Claude); `.codex-plugin/skills/artifact/` (Codex); the CLIs directly (everything else).
 
