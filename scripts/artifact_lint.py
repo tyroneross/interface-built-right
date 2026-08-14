@@ -205,6 +205,13 @@ RULES: tuple[Rule, ...] = (
        "Styling a component directly inside a theme block means that component "
        "has no definition in the un-stamped state.",
        "Redefine tokens in theme blocks; style components through the tokens."),
+    _r("AD108", "theme-contrast-fail", "warn", HTML_ONLY,
+       "A palette can satisfy the whole three-state contract and still be "
+       "unreadable: an accent tuned against the light ground routinely falls "
+       "under 4.5:1 on the dark one. AD101-AD105 check that a token is DEFINED "
+       "in every state; this checks the pair is LEGIBLE in every state.",
+       "Give the failing theme its own value for that token until it clears "
+       "4.5:1 (WCAG AA for body text)."),
 
     # --- AD2xx: page identity ---------------------------------------------
     _r("AD201", "missing-title", "error", HTML_ONLY,
@@ -582,6 +589,139 @@ def rgb_to_hue(rgb: tuple[int, int, int]) -> float:
     else:
         h = (r - g) / d + 4
     return h * 60
+
+
+NAMED_COLORS = {
+    "white": (255, 255, 255), "black": (0, 0, 0), "red": (255, 0, 0),
+    "green": (0, 128, 0), "blue": (0, 0, 255), "gray": (128, 128, 128),
+    "grey": (128, 128, 128), "silver": (192, 192, 192), "navy": (0, 0, 128),
+    "teal": (0, 128, 128), "olive": (128, 128, 0), "purple": (128, 0, 128),
+    "maroon": (128, 0, 0), "lime": (0, 255, 0), "aqua": (0, 255, 255),
+    "cyan": (0, 255, 255), "fuchsia": (255, 0, 255), "magenta": (255, 0, 255),
+    "yellow": (255, 255, 0), "orange": (255, 165, 0),
+}
+
+VAR_RE = re.compile(r"var\(\s*(--[\w-]+)\s*(?:,\s*(.+?))?\s*\)", re.DOTALL)
+RGB_FN_RE = re.compile(r"rgba?\(([^)]*)\)", re.IGNORECASE)
+HSL_FN_RE = re.compile(r"hsla?\(([^)]*)\)", re.IGNORECASE)
+
+# WCAG 2.x AA for body text. Large text and non-text UI have lower bars (3:1),
+# which is why this rule is a warning and not an error.
+WCAG_AA_NORMAL = 4.5
+
+
+def parse_color(value: str) -> tuple[float, float, float, float] | None:
+    """Parse a CSS colour to (r, g, b, alpha). Returns None when unresolvable.
+
+    Silence beats a guess here: a wrong contrast number is worse than no number,
+    so anything this cannot resolve exactly is skipped rather than approximated.
+    """
+    if not value:
+        return None
+    # rstrip("!important") would strip CHARACTERS, not the suffix — it turns
+    # "transparent" into "transpar" and silently returns None.
+    v = re.sub(r"\s*!\s*important\s*$", "", value.strip().lower()).strip()
+    if v in ("transparent",):
+        return (0.0, 0.0, 0.0, 0.0)
+    if v in NAMED_COLORS:
+        r, g, b = NAMED_COLORS[v]
+        return (float(r), float(g), float(b), 1.0)
+
+    m = HEX_RE.match(v)
+    if m and m.end() == len(v):
+        h = v.lstrip("#")
+        if len(h) in (3, 4):
+            h = "".join(c * 2 for c in h)
+        try:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            a = int(h[6:8], 16) / 255 if len(h) == 8 else 1.0
+            return (float(r), float(g), float(b), a)
+        except ValueError:
+            return None
+
+    m = RGB_FN_RE.match(v)
+    if m:
+        parts = [p.strip() for p in re.split(r"[,\s/]+", m.group(1).strip()) if p.strip()]
+        if len(parts) < 3:
+            return None
+        try:
+            comps = []
+            for p in parts[:3]:
+                comps.append(float(p[:-1]) * 2.55 if p.endswith("%") else float(p))
+            alpha = 1.0
+            if len(parts) >= 4:
+                a = parts[3]
+                alpha = float(a[:-1]) / 100 if a.endswith("%") else float(a)
+            return (comps[0], comps[1], comps[2], alpha)
+        except ValueError:
+            return None
+
+    m = HSL_FN_RE.match(v)
+    if m:
+        parts = [p.strip() for p in re.split(r"[,\s/]+", m.group(1).strip()) if p.strip()]
+        if len(parts) < 3:
+            return None
+        try:
+            h = float(re.sub(r"deg$", "", parts[0])) % 360 / 360
+            s = float(parts[1].rstrip("%")) / 100
+            light = float(parts[2].rstrip("%")) / 100
+            alpha = 1.0
+            if len(parts) >= 4:
+                a = parts[3]
+                alpha = float(a[:-1]) / 100 if a.endswith("%") else float(a)
+        except ValueError:
+            return None
+
+        def hue(p: float, q: float, t: float) -> float:
+            t %= 1
+            if t < 1 / 6:
+                return p + (q - p) * 6 * t
+            if t < 1 / 2:
+                return q
+            if t < 2 / 3:
+                return p + (q - p) * (2 / 3 - t) * 6
+            return p
+
+        if s == 0:
+            r = g = b = light
+        else:
+            q = light * (1 + s) if light < 0.5 else light + s - light * s
+            p = 2 * light - q
+            r, g, b = hue(p, q, h + 1 / 3), hue(p, q, h), hue(p, q, h - 1 / 3)
+        return (r * 255, g * 255, b * 255, alpha)
+    return None
+
+
+def resolve_value(value: str, tokens: dict[str, str], depth: int = 0) -> str:
+    """Expand var() references against a token map, honouring var() fallbacks."""
+    if depth > 8 or "var(" not in value:
+        return value
+    def sub(m: re.Match) -> str:
+        name, fallback = m.group(1), m.group(2)
+        if name in tokens:
+            return resolve_value(tokens[name], tokens, depth + 1)
+        return resolve_value(fallback, tokens, depth + 1) if fallback else ""
+    return VAR_RE.sub(sub, value)
+
+
+def composite(fg: tuple[float, float, float, float],
+              bg: tuple[float, float, float]) -> tuple[float, float, float]:
+    a = max(0.0, min(1.0, fg[3]))
+    return tuple(fg[i] * a + bg[i] * (1 - a) for i in range(3))  # type: ignore[return-value]
+
+
+def relative_luminance(rgb: tuple[float, float, float]) -> float:
+    def chan(c: float) -> float:
+        c = max(0.0, min(1.0, c / 255))
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (chan(c) for c in rgb)
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def contrast_ratio(a: tuple[float, float, float], b: tuple[float, float, float]) -> float:
+    la, lb = relative_luminance(a), relative_luminance(b)
+    hi, lo = max(la, lb), min(la, lb)
+    return (hi + 0.05) / (lo + 0.05)
 
 
 def is_external(url: str) -> bool:
@@ -1035,6 +1175,138 @@ def check_layout(doc: Document) -> list[Finding]:
     return out
 
 
+# WCAG 1.4.3 exempts inactive controls, pure decoration, and placeholder text from
+# the contrast minimum. Flagging them trains authors to ignore the rule.
+EXEMPT_SELECTOR_RE = re.compile(
+    r"(?i)(:disabled|\[disabled\]|\[aria-disabled|::placeholder|:placeholder|"
+    r"[.\-_]disabled\b|[.\-_]placeholder\b|[.\-_]skeleton\b|[.\-_]shimmer\b|"
+    r"\[hidden\]|[.\-_]sr-only\b|[.\-_]visually-hidden\b)"
+)
+
+
+def _theme_token_maps(blocks: Sequence[CssBlock]) -> dict[str, dict[str, str]]:
+    """Token values as they resolve in each theme state.
+
+    'light' is the bare :root cascade — the state an un-stamped document reads.
+    'dark' is that same map with every dark-conditional override applied on top.
+    """
+    light: dict[str, str] = {}
+    dark_over: dict[str, str] = {}
+    for b in blocks:
+        for prop, val in b.declarations:
+            if not CUSTOM_PROP_RE.match(prop):
+                continue
+            if b.dark_conditional:
+                dark_over[prop] = val
+            elif not b.conditional:
+                light[prop] = val
+    dark = dict(light)
+    dark.update(dark_over)
+    return {"light": light, "dark": dark}
+
+
+def _resolved_rgb(raw: str, tokens: dict[str, str]) -> tuple[float, float, float, float] | None:
+    if not raw:
+        return None
+    expanded = resolve_value(raw, tokens).strip().rstrip(";").strip()
+    if not expanded:
+        return None
+    # A gradient or image has no single colour to judge.
+    if re.search(r"(?i)\b(gradient|image|url)\s*\(", expanded):
+        return None
+    direct = parse_color(expanded)
+    if direct is not None:
+        return direct
+    # `background: #fff no-repeat` — take the first token that parses as a colour.
+    for part in expanded.split():
+        c = parse_color(part)
+        if c is not None:
+            return c
+    return None
+
+
+def check_contrast(doc: Document) -> list[Finding]:
+    """AD108 — is each foreground/background pair legible in BOTH theme states?"""
+    if doc.profile == "markdown" or not doc.css_blocks:
+        return []
+    blocks = doc.css_blocks
+    maps = _theme_token_maps(blocks)
+    if not maps["light"]:
+        return []
+
+    grounds: dict[str, tuple[float, float, float]] = {}
+    for state, tokens in maps.items():
+        for b in blocks:
+            if b.conditional and state == "light":
+                continue
+            if not any(re.fullmatch(r"(html|body|html\s*,\s*body|body\s*,\s*html)", s)
+                       for s in b.selectors):
+                continue
+            for prop, val in b.declarations:
+                if prop in ("background", "background-color"):
+                    c = _resolved_rgb(val, tokens)
+                    if c and c[3] > 0:
+                        grounds[state] = (c[0], c[1], c[2])
+    if len(grounds) < 1:
+        return []
+
+    out: list[Finding] = []
+    for b in blocks:
+        decls = {p: v for p, v in b.declarations}
+        fg_raw = decls.get("color")
+        if not fg_raw:
+            continue
+        # WCAG 1.4.3 exempts inactive controls and incidental text outright, so a
+        # dimmed disabled state is correct design, not a defect.
+        if any(EXEMPT_SELECTOR_RE.search(s) for s in b.selectors):
+            continue
+        ratios: dict[str, float] = {}
+        bg_raw = decls.get("background-color") or decls.get("background")
+        for state, tokens in maps.items():
+            ground = grounds.get(state) or grounds.get("light")
+            if ground is None:
+                continue
+            fg = _resolved_rgb(fg_raw, tokens)
+            if fg is None or fg[3] == 0:
+                continue
+            bg_rgb = ground
+            if bg_raw:
+                bg = _resolved_rgb(bg_raw, tokens)
+                if bg is None:
+                    continue          # unresolvable ground: judge nothing
+                if bg[3] == 0:
+                    bg_rgb = ground   # transparent means the page ground shows through
+                else:
+                    bg_rgb = composite(bg, ground)
+            elif b.conditional or not any(
+                    re.fullmatch(r"(html|body|a|p|h[1-6]|li|small|strong|em|figcaption|"
+                                 r"th|td|label|button|code|blockquote)", s)
+                    for s in b.selectors):
+                # Only judge an unstated ground for page-level elements; a card or
+                # badge may sit on a surface this linter cannot see.
+                continue
+            ratios[state] = contrast_ratio(composite(fg, bg_rgb), bg_rgb)
+
+        failing = {s: r for s, r in ratios.items() if r < WCAG_AA_NORMAL}
+        if not failing:
+            continue
+        evidence = f"{fg_raw.strip()} on {(bg_raw or 'the page ground').strip()}"
+        sel = b.selectors[0]
+        # One row per selector. When both themes resolve to the same ratio the page
+        # is effectively single-theme there, and naming each state twice is the
+        # duplicate-spam shape AD102 already had to be cured of.
+        if len(failing) == 2 and abs(failing["light"] - failing["dark"]) < 0.05:
+            out.append(_f(doc, "AD108", b.line,
+                          f"'{sel}' resolves to {failing['light']:.1f}:1 in both themes, "
+                          f"under the {WCAG_AA_NORMAL}:1 AA floor", evidence))
+        else:
+            for state, ratio in sorted(failing.items()):
+                out.append(_f(doc, "AD108", b.line,
+                              f"'{sel}' resolves to {ratio:.1f}:1 in the {state} theme, "
+                              f"under the {WCAG_AA_NORMAL}:1 AA floor", evidence))
+    return out
+
+
 MEDIA_SELECTOR_RE = re.compile(r"(?i)\b(svg|img|picture|video|canvas|iframe|figure)\b")
 
 
@@ -1298,8 +1570,8 @@ def _unlabeled_edges(doc: Document, kids: list[int], texts: list[int]) -> list[i
     return unlabeled
 
 
-CHECKS = (check_portability, check_theme, check_identity, check_layout,
-          check_cliches, check_svg)
+CHECKS = (check_portability, check_theme, check_contrast, check_identity,
+          check_layout, check_cliches, check_svg)
 
 
 def lint(path: Path, profile: str = "auto", disabled: Sequence[str] = ()) -> list[Finding]:

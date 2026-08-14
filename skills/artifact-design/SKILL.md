@@ -93,7 +93,12 @@ anything with numbers in it, `ibr:data-visualization`.
 Write it down first, in three lines, then derive every decision from it:
 
 - **Color** — 4–6 named hex values. Pick the neutral; a pure mid-grey reads as
-  unconsidered, a grey biased slightly toward the accent reads as chosen.
+  unconsidered, a grey biased slightly toward the accent reads as chosen. Then
+  check the accent against *both* grounds: `AD101`–`AD105` verify a token is
+  *defined* in all three viewer states, `AD108` verifies the pair is *legible* in
+  each. An accent tuned on the light ground routinely lands at 2.6:1 on the dark
+  one with every other theme rule still passing — give the failing theme its own
+  value rather than compromising both.
 - **Type** — two or more roles: a characterful display face used with restraint, a
   complementary body face, a utility face for captions or data if needed. The CSP
   blocks font CDNs (`AX003`), so inline the face or commit to a system stack —

@@ -243,6 +243,123 @@ class ThemeTests(unittest.TestCase):
         self.assertIn("AD101", rules_fired(bad))
 
 
+class ColorMathTests(unittest.TestCase):
+    """The ratio is a W3C spec constant — it must match published values exactly."""
+
+    def test_wcag_reference_ratios(self):
+        white, black = (255, 255, 255), (0, 0, 0)
+        for fg, bg, expected in (
+            (black, white, 21.00),
+            (white, white, 1.00),
+            ((0x76, 0x76, 0x76), white, 4.54),   # the canonical AA boundary grey
+            ((0x94, 0x94, 0x94), white, 3.03),
+            ((0, 0, 255), white, 8.59),
+        ):
+            self.assertAlmostEqual(expected, AL.contrast_ratio(fg, bg), places=2,
+                                   msg=f"{fg} on {bg}")
+
+    def test_parses_every_supported_notation(self):
+        cases = {
+            "#fff": (255, 255, 255, 1.0), "#ffffff": (255, 255, 255, 1.0),
+            "#00000080": (0, 0, 0, 128 / 255),
+            "rgb(255, 0, 0)": (255, 0, 0, 1.0), "rgba(0,0,0,.5)": (0, 0, 0, 0.5),
+            "hsl(0,0%,100%)": (255, 255, 255, 1.0),
+            "red": (255, 0, 0, 1.0), "transparent": (0, 0, 0, 0.0),
+        }
+        for value, expected in cases.items():
+            got = AL.parse_color(value)
+            self.assertIsNotNone(got, value)
+            for i in range(4):
+                self.assertAlmostEqual(expected[i], got[i], places=1, msg=value)
+
+    def test_important_suffix_is_stripped_as_a_suffix(self):
+        """rstrip('!important') strips CHARACTERS and turns 'transparent' into
+        'transpar' — a real bug this locks out."""
+        self.assertEqual((0.0, 0.0, 0.0, 0.0), AL.parse_color("transparent"))
+        self.assertEqual((255.0, 0.0, 0.0, 1.0), AL.parse_color("red !important"))
+
+    def test_unresolvable_notations_return_none_rather_than_guess(self):
+        for value in ("oklch(0.5 0.1 200)", "currentColor", "var(--x)", "", "nonsense"):
+            self.assertIsNone(AL.parse_color(value), value)
+
+    def test_alpha_composites_over_the_ground(self):
+        half_black = (0.0, 0.0, 0.0, 0.5)
+        self.assertEqual((127.5, 127.5, 127.5), AL.composite(half_black, (255, 255, 255)))
+
+    def test_var_resolution_follows_chains_and_fallbacks(self):
+        tokens = {"--a": "var(--b)", "--b": "#123456"}
+        self.assertEqual("#123456", AL.resolve_value("var(--a)", tokens))
+        self.assertEqual("#abcdef", AL.resolve_value("var(--missing, #abcdef)", tokens))
+
+    def test_var_cycle_terminates(self):
+        AL.resolve_value("var(--a)", {"--a": "var(--b)", "--b": "var(--a)"})
+
+
+class ContrastTests(unittest.TestCase):
+    THEMED = """<title>Tide Ledger</title>
+<style>
+:root {{ --paper:#ffffff; --ink:#111111; --accent:{light_accent}; }}
+@media (prefers-color-scheme: dark) {{
+  :root:not([data-theme="light"]) {{ --paper:#101010; --ink:#eeeeee; --accent:{dark_accent}; }}
+}}
+:root[data-theme="dark"] {{ --paper:#101010; --ink:#eeeeee; --accent:{dark_accent}; }}
+body {{ background: var(--paper); color: var(--ink); }}
+a {{ color: var(--accent); }}
+</style>
+<p>x</p><a href="#a">link</a>
+"""
+
+    def _fired(self, light_accent: str, dark_accent: str) -> list:
+        page = self.THEMED.format(light_accent=light_accent, dark_accent=dark_accent)
+        return [f for f in lint_source(page) if f.rule == "AD108"]
+
+    def test_ad108_catches_an_accent_that_only_fails_in_dark(self):
+        """The exact gap the theme rules cannot see: defined in every state,
+        legible in only one."""
+        found = self._fired("#7a4a2b", "#7a4a2b")
+        self.assertEqual(1, len(found))
+        self.assertIn("dark theme", found[0].message)
+
+    def test_ad108_silent_when_each_theme_has_its_own_working_value(self):
+        self.assertEqual([], self._fired("#7a4a2b", "#d99a63"))
+
+    def test_ad108_catches_a_light_theme_failure(self):
+        found = self._fired("#e8d9c8", "#d99a63")
+        self.assertTrue(found)
+        self.assertIn("light theme", found[0].message)
+
+    def test_ad108_silent_on_the_clean_fixture(self):
+        self.assertNotIn("AD108", rules_fired(CLEAN))
+
+    def test_ad108_checks_an_explicit_foreground_background_pair(self):
+        bad = swap(".prose { max-width: 62ch;",
+                   ".badge { color: #999999; background: #aaaaaa; }\n  "
+                   ".prose { max-width: 62ch;")
+        found = [f for f in lint_source(bad) if f.rule == "AD108"]
+        self.assertTrue(found)
+        self.assertIn(".badge", found[0].message)
+
+    def test_ad108_skips_unresolvable_colors_rather_than_guessing(self):
+        for accent in ("oklch(0.2 0.1 30)", "currentColor", "var(--nope)"):
+            self.assertEqual([], self._fired(accent, accent), accent)
+
+    def test_ad108_skips_gradient_backgrounds(self):
+        bad = swap(".prose { max-width: 62ch;",
+                   ".hero { color: #777777; background: linear-gradient(#fff, #eee); }\n  "
+                   ".prose { max-width: 62ch;")
+        self.assertEqual([], [f for f in lint_source(bad) if f.rule == "AD108"])
+
+    def test_ad108_skips_non_page_elements_with_no_stated_ground(self):
+        """A card may sit on a surface this linter cannot see — do not assume."""
+        bad = swap(".prose { max-width: 62ch;",
+                   ".card-title { color: #f0f0f0; }\n  .prose { max-width: 62ch;")
+        self.assertEqual([], [f for f in lint_source(bad) if f.rule == "AD108"])
+
+    def test_ad108_needs_no_finding_when_there_is_no_palette(self):
+        self.assertEqual([], [f for f in lint_source("<title>A B</title><p>x</p>")
+                              if f.rule == "AD108"])
+
+
 class IdentityTests(unittest.TestCase):
     def test_ad201_missing_title(self):
         self.assertIn("AD201", rules_fired(swap("<title>Tide Ledger</title>", "")))
@@ -477,8 +594,8 @@ class ContractTests(unittest.TestCase):
     def test_every_rule_is_reachable(self):
         """Each declared rule must be emitted by at least one test fixture."""
         covered = set()
-        for cls in (PortabilityTests, ThemeTests, IdentityTests, LayoutTests,
-                    ClicheTests, SvgTests):
+        for cls in (PortabilityTests, ThemeTests, ContrastTests, IdentityTests,
+                    LayoutTests, ClicheTests, SvgTests):
             for name in dir(cls):
                 if not name.startswith("test_"):
                     continue

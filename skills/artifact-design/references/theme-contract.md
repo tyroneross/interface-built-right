@@ -74,6 +74,39 @@ viewer paints its own ground behind the page. A body with no explicit background
 borrows the host's ground — which may be the opposite of the theme your text was
 written for. Always paint it from a token.
 
+## Defined in every state is not the same as legible in every state
+
+The four rules above check that a token *exists* wherever it is used. `AD108`
+checks that the pair it forms is *readable*. These fail independently: a palette
+can satisfy the entire three-state contract and still put 2.6:1 text on the ground.
+
+```css
+:root { --paper: #ffffff; --accent: #7a4a2b; }   /* 6.3:1 — fine */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --paper: #101010; }   /* --accent unchanged */
+}
+a { color: var(--accent); }                       /* 2.6:1 in dark — unreadable */
+```
+
+Nothing above catches this: `--accent` is defined on bare `:root`, the media query
+is guarded, the `[data-theme="dark"]` block exists, `body` has a background. Every
+theme rule passes. The link is still illegible for half your readers.
+
+An accent tuned against a light ground almost never survives the swap. Give the
+failing theme its own value:
+
+```css
+:root[data-theme="dark"] { --accent: #d99a63; }   /* 7.6:1 on #101010 */
+```
+
+`AD108` resolves each token map independently — bare `:root` for light, plus the
+dark overrides for dark — computes the WCAG 2.x ratio, and reports the state that
+fails. It skips anything it cannot resolve exactly (`oklch`, `currentColor`,
+gradients) rather than guessing, and it honours the WCAG 1.4.3 exemptions for
+disabled controls, placeholders, and visually-hidden text. It is a `warn`, not an
+`error`, because large text and non-text UI clear at 3:1 and the linter cannot see
+font size reliably.
+
 ## Styling components inside a theme block
 
 Don't (`AD107`, warn):

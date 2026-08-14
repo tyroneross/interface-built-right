@@ -99,6 +99,46 @@ Expected: these target artifact-specific failures (oversize, sandboxed downloads
 is covered by a unit-test fixture, so zero firings here is evidence about the
 corpus, not about the rule. **Do not delete a rule for never firing on one corpus.**
 
+## Follow-up: AD108 theme-contrast, calibrated the same way
+
+Added after the pass above and measured before shipping, per the policy below.
+
+The gap it closes: `AD101`–`AD105` verify a token is *defined* in every viewer
+state. Nothing verified the pair was *legible*. An accent tuned against the light
+ground routinely lands at 2.6:1 on the dark one with every existing theme rule
+still passing.
+
+First measurement: 210 findings across 61 files (12.8%), 3.4 per file. Reading the
+samples found two defects:
+
+- **`.btn-disabled:hover` was being flagged.** WCAG 1.4.3 exempts inactive
+  controls, placeholders, and visually-hidden text outright. Flagging correct
+  design trains authors to ignore the rule. Now skipped by selector.
+- **Single-theme pages reported every finding twice** — once per state, with an
+  identical ratio — the same duplicate-spam shape `AD102` had to be cured of.
+  Equal ratios across states now collapse to one row reading "in both themes".
+
+After: **112 findings across 59 files (12.4%), 1.9 per file** — a 47% cut with the
+file count essentially unchanged, so the removal was duplicates and exempt
+selectors, not coverage.
+
+Precision spot-check, computed by hand independently of the linter:
+`agent-astronomer/mockups/05-aurora-deep.html` sets `--muted: #5a5a72` on
+`--bg: #060611` → **3.01:1**, against the linter's reported 3.0:1. A real AA
+failure on secondary text, which is what the surviving findings look like
+throughout.
+
+The ratio itself is a W3C constant, asserted against five published reference
+values (21.00, 1.00, 4.54, 3.03, 8.59). The judgment is in *applicability*, which
+is why it ships `warn`: large text and non-text UI clear at 3:1, and the linter
+cannot see font size reliably. Anything it cannot resolve exactly — `oklch`,
+`currentColor`, gradients, a card whose real ground it cannot see — is skipped
+rather than approximated.
+
+→ One bug this surfaced in the linter itself: `rstrip("!important")` strips
+*characters*, not a suffix, so bare `transparent` was being mangled into
+`transpar` and returning None. Locked out by a test.
+
 ## Standing policy
 
 No heuristic may be promoted to `error` without a measurement like this one, and a
