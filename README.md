@@ -670,6 +670,32 @@ Optional — create `.ibrrc.json` in your project root:
 
 Available viewports: `desktop`, `laptop`, `tablet`, `mobile`, `iphone-14`, `iphone-14-pro-max`
 
+### `artifactLint` — check self-contained HTML on save
+
+**Off by default.** When enabled, writing or editing an `.html` file runs
+`scripts/artifact_lint.py` against it and prints findings. Advisory only — it never
+blocks a write, and a clean page prints nothing.
+
+```json
+{ "artifactLint": true }
+```
+
+```json
+{
+  "artifactLint": {
+    "enabled": true,
+    "minSeverity": "warn",     // error | warn | info  (default: warn)
+    "profile": "auto",         // auto | claude-artifact | standalone | markdown
+    "disable": "AD204,AD304"   // comma-separated rule ids
+  }
+}
+```
+
+Leave it off for projects whose `.html` files are templates or SSR output rather
+than self-contained pages — rules such as `AX004` and `AD105` are correct about an
+artifact and meaningless about a Jinja template. See `/ibr:artifact` for the manual
+path, which needs no configuration.
+
 ## Mobile and device emulation (1.1.0+)
 
 IBR emulates mobile and tablet devices end-to-end via CDP (no Playwright dependency). Three things happen on `driver.launch()`, in order, BEFORE the first navigate:

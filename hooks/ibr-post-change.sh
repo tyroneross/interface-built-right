@@ -10,16 +10,66 @@
 
 set -euo pipefail
 
-# --- Gate: pre-change state must exist (pre-hook passed all gates) ---
-[[ ! -f ".ibr/pre-change-state.json" ]] && exit 0
-
 # --- Read tool arguments from stdin ---
+# Read before any gate: the artifact check below needs FILE_PATH and does not
+# depend on the dev-server baseline the rest of this hook is gated on.
 INPUT=""
 if [[ ! -t 0 ]]; then
   INPUT=$(cat)
 fi
 
 FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
+
+# --- Artifact lint (opt-in, static, no dev server) ------------------------
+# OFF unless the project opts in, because this hook fires on Write|Edit in every
+# project that installs IBR and most .html files are not artifacts. Enable with
+# either shape in .ibrrc.json:
+#   "artifactLint": true
+#   "artifactLint": { "enabled": true, "minSeverity": "warn", "profile": "auto",
+#                     "disable": "AD204,AD304" }
+artifact_lint_check() {
+  [[ -f ".ibrrc.json" ]] || return 0
+  case "$FILE_PATH" in
+    *.html|*.htm) ;;
+    *) return 0 ;;
+  esac
+  [[ -f "$FILE_PATH" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+
+  local cfg enabled
+  cfg=$(jq -c '.artifactLint // empty' .ibrrc.json 2>/dev/null || echo "")
+  [[ -n "$cfg" ]] || return 0
+  if [[ "$cfg" == "true" ]]; then
+    enabled="true"
+  else
+    enabled=$(printf '%s' "$cfg" | jq -r 'if type=="object" then (.enabled // false) else false end' 2>/dev/null || echo false)
+  fi
+  [[ "$enabled" == "true" ]] || return 0
+
+  local linter min_sev profile disable
+  linter="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/scripts/artifact_lint.py"
+  [[ -f "$linter" ]] || return 0
+
+  min_sev="warn"; profile="auto"; disable=""
+  if [[ "$cfg" != "true" ]]; then
+    min_sev=$(printf '%s' "$cfg" | jq -r '.minSeverity // "warn"' 2>/dev/null || echo warn)
+    profile=$(printf '%s' "$cfg" | jq -r '.profile // "auto"' 2>/dev/null || echo auto)
+    disable=$(printf '%s' "$cfg" | jq -r '.disable // ""' 2>/dev/null || echo "")
+  fi
+
+  local out
+  # --fail-on never: advisory only. This hook informs, it never blocks a write.
+  out=$(python3 "$linter" check "$FILE_PATH" \
+          --profile "$profile" --min-severity "$min_sev" --fail-on never \
+          ${disable:+--disable "$disable"} 2>/dev/null) || return 0
+  grep -q "no findings" <<<"$out" && return 0
+  printf 'IBR artifact lint — %s\n' "$FILE_PATH"
+  printf '%s\n' "$out" | sed '1d'
+}
+artifact_lint_check || true
+
+# --- Gate: pre-change state must exist (pre-hook passed all gates) ---
+[[ ! -f ".ibr/pre-change-state.json" ]] && exit 0
 
 # Same UI file filter as pre-hook
 case "$FILE_PATH" in

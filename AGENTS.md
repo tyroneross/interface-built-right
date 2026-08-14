@@ -185,6 +185,8 @@ Firing rate is a proxy for *where to look*, never a substitute for reading insta
 
 Surfaces: `skills/artifact-design/`, `skills/artifact-diagramming/`, `commands/artifact.md` (Claude); `.codex-plugin/skills/artifact/` (Codex); the CLIs directly (everything else).
 
+**Automatic checking is opt-in per project.** `hooks/ibr-post-change.sh` runs the linter on `.html` writes only when `.ibrrc.json` sets `artifactLint` (boolean, or an object with `enabled`/`minSeverity`/`profile`/`disable`). It stays silent otherwise, because this hook fires on `Write|Edit` in every project that installs IBR and most `.html` files are templates or SSR output, not artifacts — `AX004` and `AD105` are correct about an artifact and meaningless about a Jinja template. The arm is advisory: it never blocks a write, and a clean page prints nothing. `scripts/test_artifact_hook.py` executes the hook in both directions (silent without config, firing with it) rather than reading it and concluding it is gated.
+
 ---
 
 ## Development Commands
