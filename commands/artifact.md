@@ -72,6 +72,19 @@ Print the rule contract. Use `--json` when an agent consumes it; that output is 
 single source of truth for rule IDs, severities, and profile scope — never restate
 the rules from memory.
 
+## Checking on save (opt-in)
+
+Off by default. Add to the project's `.ibrrc.json` to have `.html` writes checked
+automatically — advisory, never blocking, silent on a clean page:
+
+```json
+{ "artifactLint": { "enabled": true, "minSeverity": "warn" } }
+```
+
+Leave it off where `.html` means templates or SSR output rather than self-contained
+pages: `AX004` and `AD105` are correct about an artifact and meaningless about a
+Jinja template.
+
 ## Routing
 
 | Situation | Load |
