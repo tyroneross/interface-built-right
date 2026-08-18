@@ -92,6 +92,9 @@ Sensors (`scan.sensors.*`, v1.2.0):
 | `scripts/artifact_lint.py` | Stdlib-only artifact rule contract (39 rules). Host-neutral: any agent, hook, or CI runs it |
 | `scripts/artifact_build.py` | Stdlib-only artifact profile converter — `new` / `wrap` / `unwrap` / `info` |
 | `scripts/artifact_lint_corpus.py` | Measures rule firing rates across a corpus; the gate on promoting any heuristic to `error` |
+| `scripts/dashboard_lint.py` | Stdlib-only dashboard rule contract (8 graded `DB…` rules) — `check` / `rules` / `corpus` |
+| `scripts/dashboard_build.py` | Stdlib-only dashboard scaffold — `new` / `build`; `--check` grades and never exits 0 ungraded |
+| `scripts/dashboard_record.py` | Append-only event record backing a dashboard's captured actions (DB301–DB306) |
 | `hooks/hooks.json` | Hook configuration |
 | `hooks/ibr-pre-change.sh` | PreToolUse handler |
 | `hooks/ibr-post-change.sh` | PostToolUse handler |
@@ -186,6 +189,28 @@ Firing rate is a proxy for *where to look*, never a substitute for reading insta
 Surfaces: `skills/artifact-design/`, `skills/artifact-diagramming/`, `commands/artifact.md` (Claude); `.codex-plugin/skills/artifact/` (Codex); the CLIs directly (everything else).
 
 **Automatic checking is opt-in per project.** `hooks/ibr-post-change.sh` runs the linter on `.html` writes only when `.ibrrc.json` sets `artifactLint` (boolean, or an object with `enabled`/`minSeverity`/`profile`/`disable`). It stays silent otherwise, because this hook fires on `Write|Edit` in every project that installs IBR and most `.html` files are templates or SSR output, not artifacts — `AX004` and `AD105` are correct about an artifact and meaningless about a Jinja template. The arm is advisory: it never blocks a write, and a clean page prints nothing. `scripts/test_artifact_hook.py` executes the hook in both directions (silent without config, firing with it) rather than reading it and concluding it is gated.
+
+### Dashboard Lane (host-neutral)
+
+A dashboard surfaces current state so someone can act. Same stdlib-only, no-browser, no-install shape as the artifact lane, with its own `DB…` rule contract.
+
+```bash
+python3 scripts/dashboard_lint.py  rules --json                              # the contract (8 graded rules)
+python3 scripts/dashboard_lint.py  check dashboard.html --json               # verdict
+python3 scripts/dashboard_lint.py  corpus mockups --glob '**/*.html'         # firing rates
+python3 scripts/dashboard_build.py new --archetype queue --title T -o s.json # correct scaffold
+python3 scripts/dashboard_build.py build s.json -o dashboard.html --check    # render + grade
+```
+
+Exit codes match the artifact lane, with one addition: **`2` also means a grade that was asked for and did not run.** `--check` with no `-o`, no linter beside the script, or a linter that raised prints `NOT GRADED` and exits 2. A `--check` that cannot grade must never exit 0, because that reports a pass the page never earned. Without `--check`, `build` still prints `NOT GRADED — --check was not passed` and names the grading command, so a clean exit never doubles as a clean bill of health.
+
+Eight rules are graded because eight are decidable from the file: `DB402` `DB403` `DB401a` `DB401b` `DB501` `DB502` `DB503` `DB507`. The judgement rules are deliberately absent — DB101 (one archetype), DB102-DB104, DB201-DB203, DB504, DB505, DB506 need a reader or a browser, and a linter that pretends to grade them is worse than one that admits it cannot. DB507 is one-directional: it fires on a fixed width that forces a scrollbar and cannot certify that a flex layout fits.
+
+`DB502` delegates to `artifact_lint.check_contrast` rather than reimplementing it — one contrast implementation, not two sets of bugs.
+
+**No rule fails a build without a corpus measurement.** The tool is `dashboard_lint.py corpus`; the standing record is `docs/research/2026-08-18-dashboard-lint-calibration.md` (16 hand-authored pages). That pass caught DB503 matching `.tab-icon { height: 16px }` and calling a decorative glyph an undersized tab. Rules that reason from a vocabulary (`DB402`, `DB401a`, `DB501`) are flagged `heuristic: true`, ship `warn`, and can never hard-block — `DB402` fires on 100% of the repo's existing dashboards, and at `error` the first thing anyone would do is disable it.
+
+`scripts/test_dashboard_lint.py` proves each rule by mutation: one clean dashboard, one edit that breaks exactly one rule, and an assertion that the rule fires **and nothing else does**. A checker whose tests only exercise the passing path certifies the hole it was written to close.
 
 ---
 
