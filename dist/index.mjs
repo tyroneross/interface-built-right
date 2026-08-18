@@ -9753,31 +9753,162 @@ var init_css_extract = __esm({
   }
 });
 
-// src/rules/wcag-contrast.ts
-function parseColor3(color) {
-  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
-    return null;
-  }
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
-  }
-  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6Match) {
-    const n = parseInt(hex6Match[1], 16);
-    return [n >> 16 & 255, n >> 8 & 255, n & 255];
-  }
-  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3Match) {
-    const r = parseInt(hex3Match[1][0], 16) * 17;
-    const g = parseInt(hex3Match[1][1], 16) * 17;
-    const b = parseInt(hex3Match[1][2], 16) * 17;
-    return [r, g, b];
-  }
-  return null;
+// src/rules/color-parse.ts
+function linearToSrgb(c) {
+  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return clamp255(v * 255);
 }
+function oklabToLinearSrgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  ];
+}
+function labToLinearSrgb(L, a, bb) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
+  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
+  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
+  return [
+    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
+    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
+    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
+  ];
+}
+function num(tok, pctBasis = 1) {
+  const t = tok.trim();
+  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
+  return parseFloat(t);
+}
+function splitArgs(body) {
+  const [main, alphaPart] = body.split("/");
+  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
+  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
+  return { parts, alpha };
+}
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (h % 360 + 360) % 360 / 60;
+  const x = c * (1 - Math.abs(hp % 2 - 1));
+  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
+}
+function parseColor3(color) {
+  const raw = (color ?? "").trim();
+  if (!raw) return { kind: "none", reason: "empty" };
+  const lower = raw.toLowerCase();
+  if (lower === "transparent") return { kind: "none", reason: "transparent" };
+  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
+    return { kind: "none", reason: lower };
+  }
+  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
+  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex) {
+    const h = hex[1];
+    const exp = (i) => parseInt(h[i] + h[i], 16);
+    const pair = (i) => parseInt(h.slice(i, i + 2), 16);
+    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
+    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
+    if (h.length === 6) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: 1 };
+    if (h.length === 8) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: pair(6) / 255 };
+    return { kind: "unsupported", raw };
+  }
+  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
+  if (!fn) return { kind: "unsupported", raw };
+  const [, name, body] = fn;
+  const { parts, alpha } = splitArgs(body);
+  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
+  try {
+    switch (name) {
+      case "rgb":
+      case "rgba": {
+        const rgb = [
+          clamp255(num(parts[0], 255)),
+          clamp255(num(parts[1], 255)),
+          clamp255(num(parts[2], 255))
+        ];
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
+      }
+      case "hsl":
+      case "hsla": {
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        if (a === 0) return { kind: "none", reason: "alpha-0" };
+        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
+      }
+      case "oklch":
+      case "lch": {
+        const L = num(parts[0], name === "oklch" ? 1 : 100);
+        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
+        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
+        const a = C * Math.cos(H), b = C * Math.sin(H);
+        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "oklab":
+      case "lab": {
+        const L = num(parts[0], name === "oklab" ? 1 : 100);
+        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
+        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
+        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "color": {
+        const space = parts[0];
+        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
+          return { kind: "unsupported", raw };
+        }
+        const ch = parts.slice(1, 4).map((p) => num(p, 1));
+        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
+        return { kind: "rgb", rgb, alpha };
+      }
+      default:
+        return { kind: "unsupported", raw };
+    }
+  } catch {
+    return { kind: "unsupported", raw };
+  }
+}
+function flatten(fg, bg) {
+  if (fg.kind !== "rgb") return null;
+  if (fg.alpha >= 1) return fg.rgb;
+  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
+}
+var NAMED, clamp255;
+var init_color_parse = __esm({
+  "src/rules/color-parse.ts"() {
+    NAMED = {
+      black: [0, 0, 0],
+      white: [255, 255, 255],
+      red: [255, 0, 0],
+      green: [0, 128, 0],
+      blue: [0, 0, 255],
+      gray: [128, 128, 128],
+      grey: [128, 128, 128],
+      silver: [192, 192, 192],
+      maroon: [128, 0, 0],
+      olive: [128, 128, 0],
+      lime: [0, 255, 0],
+      aqua: [0, 255, 255],
+      cyan: [0, 255, 255],
+      teal: [0, 128, 128],
+      navy: [0, 0, 128],
+      fuchsia: [255, 0, 255],
+      magenta: [255, 0, 255],
+      purple: [128, 0, 128],
+      yellow: [255, 255, 0],
+      orange: [255, 165, 0]
+    };
+    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+  }
+});
+
+// src/rules/wcag-contrast.ts
 function linearize2(channel) {
   const c = channel / 255;
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -9796,11 +9927,12 @@ function isLargeText2(styles) {
   const fontSize = parseFloat(fontSizeStr);
   if (isNaN(fontSize)) return false;
   const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
-  return fontSize >= 18 || isBold && fontSize >= 14;
+  return fontSize >= 24 || isBold && fontSize >= 18.66;
 }
 var wcagContrastRules;
 var init_wcag_contrast = __esm({
   "src/rules/wcag-contrast.ts"() {
+    init_color_parse();
     wcagContrastRules = [
       {
         id: "wcag/contrast",
@@ -9812,9 +9944,24 @@ var init_wcag_contrast = __esm({
           if (!style) return null;
           const hasText = element.text && element.text.trim().length > 0;
           if (!hasText) return null;
-          const fgColor = parseColor3(style.color ?? "");
-          const bgColor = parseColor3(style.backgroundColor ?? "");
-          if (!fgColor || !bgColor) return null;
+          const fg = parseColor3(style.color ?? "");
+          const bg = parseColor3(style.backgroundColor ?? "");
+          const undecodable = [fg, bg].find((c) => c.kind === "unsupported");
+          if (undecodable && undecodable.kind === "unsupported") {
+            return {
+              ruleId: "wcag/contrast-unmeasurable",
+              ruleName: "WCAG 2.1: Color Contrast (not measurable)",
+              severity: "warn",
+              message: `Could not decode color "${undecodable.raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
+              element: element.selector,
+              bounds: element.bounds,
+              fix: `Add support for this color format to rules/color-parse.ts, or serve a format the parser understands.`
+            };
+          }
+          if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
+          const fgColor = flatten(fg, bg.rgb);
+          const bgColor = bg.rgb;
+          if (!fgColor) return null;
           const fgL = relativeLuminance2(...fgColor);
           const bgL = relativeLuminance2(...bgColor);
           const ratio = contrastRatio2(fgL, bgL);
@@ -10837,30 +10984,6 @@ var init_touch_targets2 = __esm({
 });
 
 // src/rules/presets/wcag-contrast.ts
-function parseColor5(color) {
-  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
-    return null;
-  }
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
-  }
-  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6Match) {
-    const n = parseInt(hex6Match[1], 16);
-    return [n >> 16 & 255, n >> 8 & 255, n & 255];
-  }
-  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3Match) {
-    const r = parseInt(hex3Match[1][0], 16) * 17;
-    const g = parseInt(hex3Match[1][1], 16) * 17;
-    const b = parseInt(hex3Match[1][2], 16) * 17;
-    return [r, g, b];
-  }
-  return null;
-}
 function linearize3(channel) {
   const c = channel / 255;
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -10881,11 +11004,12 @@ function isLargeText3(styles) {
   const fontSize = parseFloat(fontSizeStr);
   if (isNaN(fontSize)) return false;
   const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
-  return fontSize >= 18 || isBold && fontSize >= 14;
+  return fontSize >= 24 || isBold && fontSize >= 18.66;
 }
 var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules, wcagContrastPreset;
 var init_wcag_contrast2 = __esm({
   "src/rules/presets/wcag-contrast.ts"() {
+    init_color_parse();
     wcagAAContrastRule = {
       id: "wcag-aa-contrast",
       name: "WCAG 2.1 AA Contrast",
@@ -10896,10 +11020,24 @@ var init_wcag_contrast2 = __esm({
         if (!style) return null;
         const hasText = element.text && element.text.trim().length > 0;
         if (!hasText) return null;
-        const fg = parseColor5(style.color ?? "");
-        const bg = parseColor5(style.backgroundColor ?? "");
-        if (!fg || !bg) return null;
-        const ratio = contrastRatio4(fg, bg);
+        const fg = parseColor3(style.color ?? "");
+        const bg = parseColor3(style.backgroundColor ?? "");
+        if (fg.kind === "unsupported" || bg.kind === "unsupported") {
+          const raw = fg.kind === "unsupported" ? fg.raw : bg.raw;
+          return {
+            ruleId: "wcag-aa-contrast-unmeasurable",
+            ruleName: "WCAG 2.1 AA Contrast (not measurable)",
+            severity: "warn",
+            message: `Could not decode color "${raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add support for this color format in rules/color-parse.ts."
+          };
+        }
+        if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
+        const fgRgb = flatten(fg, bg.rgb);
+        if (!fgRgb) return null;
+        const ratio = contrastRatio4(fgRgb, bg.rgb);
         const large = isLargeText3(style);
         const required = large ? 3 : 4.5;
         if (ratio < required) {
@@ -10928,10 +11066,24 @@ var init_wcag_contrast2 = __esm({
         if (!style) return null;
         const hasText = element.text && element.text.trim().length > 0;
         if (!hasText) return null;
-        const fg = parseColor5(style.color ?? "");
-        const bg = parseColor5(style.backgroundColor ?? "");
-        if (!fg || !bg) return null;
-        const ratio = contrastRatio4(fg, bg);
+        const fg = parseColor3(style.color ?? "");
+        const bg = parseColor3(style.backgroundColor ?? "");
+        if (fg.kind === "unsupported" || bg.kind === "unsupported") {
+          const raw = fg.kind === "unsupported" ? fg.raw : bg.raw;
+          return {
+            ruleId: "wcag-aaa-contrast-unmeasurable",
+            ruleName: "WCAG 2.1 AAA Contrast (not measurable)",
+            severity: "warn",
+            message: `Could not decode color "${raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Add support for this color format in rules/color-parse.ts."
+          };
+        }
+        if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
+        const fgRgb = flatten(fg, bg.rgb);
+        if (!fgRgb) return null;
+        const ratio = contrastRatio4(fgRgb, bg.rgb);
         const large = isLargeText3(style);
         const required = large ? 4.5 : 7;
         if (ratio < required) {
@@ -11925,7 +12077,7 @@ async function extractNativeElements(device) {
 }
 function mapToEnhancedElements(nativeElements) {
   const enhanced = [];
-  function flatten(elements, depth = 0) {
+  function flatten2(elements, depth = 0) {
     for (const el of elements) {
       const tagName = mapRoleToTag(el.role);
       const isInteractive2 = isInteractiveRole(el.role) && el.isEnabled;
@@ -11953,11 +12105,11 @@ function mapToEnhancedElements(nativeElements) {
         }
       });
       if (el.children.length > 0) {
-        flatten(el.children, depth + 1);
+        flatten2(el.children, depth + 1);
       }
     }
   }
-  flatten(nativeElements);
+  flatten2(nativeElements);
   return enhanced;
 }
 var execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
@@ -12146,7 +12298,7 @@ function sleep(ms) {
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const enhanced = [];
-  function flatten(elements, path2, depth) {
+  function flatten2(elements, path2, depth) {
     const roleCounts = {};
     for (const el of elements) {
       const roleCount = roleCounts[el.role] || 0;
@@ -12185,11 +12337,11 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
         });
       }
       if (el.children.length > 0) {
-        flatten(el.children, currentPath, depth + 1);
+        flatten2(el.children, currentPath, depth + 1);
       }
     }
   }
-  flatten(nativeElements, parentPath, 0);
+  flatten2(nativeElements, parentPath, 0);
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {

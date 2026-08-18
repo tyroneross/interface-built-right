@@ -1,41 +1,14 @@
 import type { Rule, RuleContext, RulePreset } from '../types.js';
 import type { EnhancedElement, Violation } from '../../schemas.js';
+import { parseColor, flatten } from '../color-parse.js';
 
-/**
- * Parse a color string (hex, rgb, rgba) into [r, g, b] in 0–255 range.
- * Returns null if the string cannot be parsed, is transparent, or has zero alpha.
+/*
+ * parseColor now lives in ../color-parse.ts. This file used to carry its own
+ * rgb/hex-only copy, and THAT copy is what the engine actually loaded: the
+ * registered preset (engine.ts) resolves here, not to rules/wcag-contrast.ts.
+ * So an oklch fix applied only to the other file was never reachable by a scan.
+ * Import the shared parser; do not reintroduce a local one.
  */
-function parseColor(color: string): [number, number, number] | null {
-  if (!color || color === 'transparent' || color === 'initial' || color === 'inherit' || color === 'unset') {
-    return null;
-  }
-
-  // rgba(r, g, b, a) — skip fully transparent
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
-  }
-
-  // #rrggbb
-  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6Match) {
-    const n = parseInt(hex6Match[1], 16);
-    return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
-  }
-
-  // #rgb
-  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3Match) {
-    const r = parseInt(hex3Match[1][0], 16) * 17;
-    const g = parseInt(hex3Match[1][1], 16) * 17;
-    const b = parseInt(hex3Match[1][2], 16) * 17;
-    return [r, g, b];
-  }
-
-  return null;
-}
 
 /**
  * Linearize an sRGB channel value (0–255) per WCAG 2.1.
@@ -76,7 +49,7 @@ function isLargeText(styles: Record<string, string>): boolean {
   if (isNaN(fontSize)) return false;
 
   const isBold = fontWeightStr === 'bold' || parseInt(fontWeightStr, 10) >= 700;
-  return fontSize >= 18 || (isBold && fontSize >= 14);
+  return fontSize >= 24 || (isBold && fontSize >= 18.66);
 }
 
 // ============================================
@@ -97,9 +70,26 @@ const wcagAAContrastRule: Rule = {
 
     const fg = parseColor(style.color ?? '');
     const bg = parseColor(style.backgroundColor ?? '');
-    if (!fg || !bg) return null;
 
-    const ratio = contrastRatio(fg, bg);
+    // An undecodable color is NOT the same as no color. Returning null for both
+    // is what let a scan report zero findings on a page it never measured.
+    if (fg.kind === 'unsupported' || bg.kind === 'unsupported') {
+      const raw = fg.kind === 'unsupported' ? fg.raw : (bg as { raw: string }).raw;
+      return {
+        ruleId: 'wcag-aa-contrast-unmeasurable',
+        ruleName: 'WCAG 2.1 AA Contrast (not measurable)',
+        severity: 'warn',
+        message: `Could not decode color "${raw}", so contrast for "${(element.text ?? '').slice(0, 40)}" was NOT checked`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: 'Add support for this color format in rules/color-parse.ts.',
+      };
+    }
+    if (fg.kind !== 'rgb' || bg.kind !== 'rgb') return null;
+
+    const fgRgb = flatten(fg, bg.rgb);
+    if (!fgRgb) return null;
+    const ratio = contrastRatio(fgRgb, bg.rgb);
     const large = isLargeText(style);
     const required = large ? 3.0 : 4.5;
 
@@ -135,9 +125,26 @@ const wcagAAAContrastRule: Rule = {
 
     const fg = parseColor(style.color ?? '');
     const bg = parseColor(style.backgroundColor ?? '');
-    if (!fg || !bg) return null;
 
-    const ratio = contrastRatio(fg, bg);
+    // An undecodable color is NOT the same as no color. Returning null for both
+    // is what let a scan report zero findings on a page it never measured.
+    if (fg.kind === 'unsupported' || bg.kind === 'unsupported') {
+      const raw = fg.kind === 'unsupported' ? fg.raw : (bg as { raw: string }).raw;
+      return {
+        ruleId: 'wcag-aaa-contrast-unmeasurable',
+        ruleName: 'WCAG 2.1 AAA Contrast (not measurable)',
+        severity: 'warn',
+        message: `Could not decode color "${raw}", so contrast for "${(element.text ?? '').slice(0, 40)}" was NOT checked`,
+        element: element.selector,
+        bounds: element.bounds,
+        fix: 'Add support for this color format in rules/color-parse.ts.',
+      };
+    }
+    if (fg.kind !== 'rgb' || bg.kind !== 'rgb') return null;
+
+    const fgRgb = flatten(fg, bg.rgb);
+    if (!fgRgb) return null;
+    const ratio = contrastRatio(fgRgb, bg.rgb);
     const large = isLargeText(style);
     const required = large ? 4.5 : 7.0;
 

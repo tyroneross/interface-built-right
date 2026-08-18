@@ -1,40 +1,6 @@
 import type { Rule, RuleContext } from './types.js';
 import type { EnhancedElement, Violation } from '../schemas.js';
-
-/**
- * Parse a color string (hex, rgb, rgba) into [r, g, b] in 0–255 range.
- * Returns null if the string cannot be parsed or is transparent/unset.
- */
-function parseColor(color: string): [number, number, number] | null {
-  if (!color || color === 'transparent' || color === 'initial' || color === 'inherit' || color === 'unset') {
-    return null;
-  }
-
-  // rgba(r, g, b, a) — skip fully transparent
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
-  }
-
-  // #rrggbb or #rgb
-  const hex6Match = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6Match) {
-    const n = parseInt(hex6Match[1], 16);
-    return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
-  }
-
-  const hex3Match = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3Match) {
-    const r = parseInt(hex3Match[1][0], 16) * 17;
-    const g = parseInt(hex3Match[1][1], 16) * 17;
-    const b = parseInt(hex3Match[1][2], 16) * 17;
-    return [r, g, b];
-  }
-
-  return null;
-}
+import { parseColor, flatten } from './color-parse.js';
 
 /**
  * Linearize an sRGB channel value (0–255) per WCAG 2.1.
@@ -61,8 +27,13 @@ function contrastRatio(l1: number, l2: number): number {
 }
 
 /**
- * Determine if text qualifies as "large text" per WCAG 2.1:
- * >= 18px normal weight, or >= 14px bold.
+ * Determine if text qualifies as "large text" per WCAG 2.1.
+ *
+ * The spec is in POINTS: 18pt normal, or 14pt bold. At the CSS reference of
+ * 1pt = 1.333px that is 24px and 18.66px. The previous implementation used the
+ * point numbers as pixel numbers (18px / 14px), which handed the lenient 3:1
+ * threshold to everything from 18px up. An 18px semibold heading owes 4.5:1 and
+ * was being graded against 3:1.
  */
 function isLargeText(styles: Record<string, string>): boolean {
   const fontSizeStr = styles.fontSize ?? '';
@@ -73,7 +44,7 @@ function isLargeText(styles: Record<string, string>): boolean {
 
   const isBold = fontWeightStr === 'bold' || parseInt(fontWeightStr, 10) >= 700;
 
-  return fontSize >= 18 || (isBold && fontSize >= 14);
+  return fontSize >= 24 || (isBold && fontSize >= 18.66);
 }
 
 export const wcagContrastRules: Rule[] = [
@@ -90,11 +61,31 @@ export const wcagContrastRules: Rule[] = [
       const hasText = element.text && element.text.trim().length > 0;
       if (!hasText) return null;
 
-      const fgColor = parseColor(style.color ?? '');
-      const bgColor = parseColor(style.backgroundColor ?? '');
+      const fg = parseColor(style.color ?? '');
+      const bg = parseColor(style.backgroundColor ?? '');
 
-      // Skip if either color is unresolvable (transparent bg = inherits, can't compute)
-      if (!fgColor || !bgColor) return null;
+      // A color we cannot decode is NOT the same as no color. Report it, so a
+      // page that was never measured can never be mistaken for a page that passed.
+      const undecodable = [fg, bg].find((c) => c.kind === 'unsupported');
+      if (undecodable && undecodable.kind === 'unsupported') {
+        return {
+          ruleId: 'wcag/contrast-unmeasurable',
+          ruleName: 'WCAG 2.1: Color Contrast (not measurable)',
+          severity: 'warn',
+          message: `Could not decode color "${undecodable.raw}", so contrast for "${(element.text ?? '').slice(0, 40)}" was NOT checked`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Add support for this color format to rules/color-parse.ts, or serve a format the parser understands.`,
+        };
+      }
+
+      if (fg.kind !== 'rgb' || bg.kind !== 'rgb') return null;
+
+      // Composite translucent text over its background before measuring; taking
+      // rgba() at full strength overstates contrast.
+      const fgColor = flatten(fg, bg.rgb);
+      const bgColor = bg.rgb;
+      if (!fgColor) return null;
 
       const fgL = relativeLuminance(...fgColor);
       const bgL = relativeLuminance(...bgColor);

@@ -120,10 +120,28 @@ describe('wcag-aa-contrast rule', () => {
     expect(result).not.toBeNull();
   });
 
-  it('treats bold >= 14px as large text (14px 700 weight is large)', () => {
-    // rgb(128,128,128) on white ≈ 3.95 → passes large AA threshold (3.0) → null
+  // WCAG 2.1 defines large-scale text in POINTS: 18pt, or 14pt bold. At the CSS
+  // reference of 1pt = 1.333px that is 24px and 18.66px. This test previously
+  // asserted 14PX bold was large text, which encoded the same unit confusion the
+  // rule itself had, so the wrong threshold passed its own test. 14px bold is
+  // normal-scale text and owes the full 4.5:1.
+  it('treats 14px bold as NORMAL text (14pt bold = 18.66px, not 14px)', () => {
+    // rgb(128,128,128) on white ≈ 3.95 → below the 4.5 normal threshold → violation
     const el = makeTextElement('Bold14', 'rgb(128, 128, 128)', 'rgb(255, 255, 255)', '14', '700');
+    expect(wcagAARule.check(el, ctx)).not.toBeNull();
+  });
+
+  it('treats 18.66px bold as large text', () => {
+    // same 3.95:1 pair clears the 3.0 large-text threshold → null
+    const el = makeTextElement('Bold19', 'rgb(128, 128, 128)', 'rgb(255, 255, 255)', '18.66', '700');
     expect(wcagAARule.check(el, ctx)).toBeNull();
+  });
+
+  it('treats 24px normal as large text, and 23px normal as not', () => {
+    const large = makeTextElement('Big', 'rgb(128, 128, 128)', 'rgb(255, 255, 255)', '24', '400');
+    const notLarge = makeTextElement('Med', 'rgb(128, 128, 128)', 'rgb(255, 255, 255)', '23', '400');
+    expect(wcagAARule.check(large, ctx)).toBeNull();
+    expect(wcagAARule.check(notLarge, ctx)).not.toBeNull();
   });
 });
 
