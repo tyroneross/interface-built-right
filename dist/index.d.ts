@@ -3712,6 +3712,7 @@ declare class EngineDriver implements BrowserDriver {
     private console;
     private targetId;
     private sessionId;
+    private ownsTarget;
     private _currentUrl;
     private launched;
     private resolutionCache;
@@ -3749,13 +3750,12 @@ declare class EngineDriver implements BrowserDriver {
     /**
      * Release the CDP WebSocket for this driver without terminating the browser.
      * Used by one-shot CLI commands that attach to a shared browser-server via
-     * connectExisting() — they must drop their WebSocket at the end of the
-     * command so the node process can exit, but the browser-server's Chrome
-     * process must keep running for subsequent commands.
+     * connectExisting() — they must detach from a supplied persisted target and
+     * drop their WebSocket at the end of the command so the node process can
+     * exit, while the browser-server and session tab remain alive.
      *
-     * Closes the per-command tab that was spawned in connectExisting(), then
-     * closes the WebSocket. Does NOT call this.browser.close() (which would
-     * terminate the whole browser-server process).
+     * A target created without a supplied target ID is still owned by this
+     * driver and is closed on disconnect. Does NOT call this.browser.close().
      */
     disconnect(): Promise<void>;
     get isLaunched(): boolean;
@@ -4037,11 +4037,13 @@ declare class EngineDriver implements BrowserDriver {
     get cdpUrl(): string | null;
     /** The resolved browser WebSocket endpoint, when available. */
     get wsEndpoint(): string | null;
+    /** Current CDP page target. Persist this to reattach without navigating. */
+    get pageTargetId(): string | null;
     /**
      * Connect to an already-running Chrome instance instead of launching a new one.
      * Used by browser-server reconnection to attach to a persistent Chrome process.
      */
-    connectExisting(wsUrl: string): Promise<void>;
+    connectExisting(wsUrl: string, targetId?: string): Promise<void>;
 }
 
 /**
@@ -5737,6 +5739,13 @@ interface ScanResult {
     sensors?: SensorReport;
     /** Deterministic rule engine results — no LLM needed */
     ruleEngine?: RuleEngineResult[];
+    /**
+     * Results of caller-supplied DOM probes, keyed by the name given in
+     * `ScanOptions.probes`. A probe that threw is absent from this map rather
+     * than present-and-null, so a caller can tell "did not run" from "returned
+     * nothing".
+     */
+    probes?: Record<string, unknown>;
     /** Condensed summaries for model-assisted review */
     summaries?: ScanSummary;
     /** Overall scan verdict */
@@ -5805,6 +5814,18 @@ interface ScanOptions extends BrowserLaunchOptions {
      * omit `pool` so scan() launches with the full device profile.
      */
     pool?: BrowserPool;
+    /**
+     * Extra DOM measurements to collect from the settled page, as
+     * `{ name: jsExpression }`. Each expression is evaluated with
+     * `returnByValue`, so it must return JSON-serialisable data, and results land
+     * on `ScanResult.probes[name]`.
+     *
+     * Runs AFTER every wait and after element extraction, so a probe sees the
+     * same laid-out page the rest of the scan measured. A probe that throws is
+     * skipped — a supplementary measurement must never fail the scan that
+     * carries it.
+     */
+    probes?: Record<string, string>;
 }
 /**
  * Run a comprehensive UI scan on a URL.

@@ -3418,6 +3418,7 @@ var init_driver = __esm({
       console;
       targetId = null;
       sessionId = null;
+      ownsTarget = true;
       _currentUrl = "";
       launched = false;
       resolutionCache = new ResolutionCache();
@@ -3465,6 +3466,7 @@ var init_driver = __esm({
         this.target = new TargetDomain(this.conn);
         this.launched = true;
         this.targetId = await this.target.createPage("about:blank");
+        this.ownsTarget = true;
         this.sessionId = await this.target.attach(this.targetId);
         this._page = new PageDomain(this.conn, this.sessionId);
         this.ax = new AccessibilityDomain(this.conn, this.sessionId);
@@ -3516,19 +3518,24 @@ var init_driver = __esm({
       /**
        * Release the CDP WebSocket for this driver without terminating the browser.
        * Used by one-shot CLI commands that attach to a shared browser-server via
-       * connectExisting() — they must drop their WebSocket at the end of the
-       * command so the node process can exit, but the browser-server's Chrome
-       * process must keep running for subsequent commands.
+       * connectExisting() — they must detach from a supplied persisted target and
+       * drop their WebSocket at the end of the command so the node process can
+       * exit, while the browser-server and session tab remain alive.
        *
-       * Closes the per-command tab that was spawned in connectExisting(), then
-       * closes the WebSocket. Does NOT call this.browser.close() (which would
-       * terminate the whole browser-server process).
+       * A target created without a supplied target ID is still owned by this
+       * driver and is closed on disconnect. Does NOT call this.browser.close().
        */
       async disconnect() {
-        if (this.targetId) {
-          await this.target.close(this.targetId).catch(() => {
-          });
+        if (this.targetId && this.sessionId) {
+          if (this.ownsTarget) {
+            await this.target.close(this.targetId).catch(() => {
+            });
+          } else {
+            await this.target.detach(this.sessionId).catch(() => {
+            });
+          }
           this.targetId = null;
+          this.sessionId = null;
         }
         await this.conn.close().catch(() => {
         });
@@ -4633,15 +4640,20 @@ var init_driver = __esm({
       get wsEndpoint() {
         return this.browser.wsEndpoint;
       }
+      /** Current CDP page target. Persist this to reattach without navigating. */
+      get pageTargetId() {
+        return this.targetId;
+      }
       /**
        * Connect to an already-running Chrome instance instead of launching a new one.
        * Used by browser-server reconnection to attach to a persistent Chrome process.
        */
-      async connectExisting(wsUrl) {
+      async connectExisting(wsUrl, targetId) {
         await this.conn.connect(wsUrl);
         this.target = new TargetDomain(this.conn);
         this.launched = true;
-        this.targetId = await this.target.createPage("about:blank");
+        this.targetId = targetId ?? await this.target.createPage("about:blank");
+        this.ownsTarget = targetId === void 0;
         this.sessionId = await this.target.attach(this.targetId);
         this._page = new PageDomain(this.conn, this.sessionId);
         this.ax = new AccessibilityDomain(this.conn, this.sessionId);
@@ -4658,6 +4670,7 @@ var init_driver = __esm({
         await this.console.enable();
         await this.network.enable();
         this.setupDialogHandling();
+        this._currentUrl = await this.runtime.evaluate("location.href") ?? "";
       }
     };
   }
@@ -20942,6 +20955,97 @@ function formatCompressed(snapshot) {
   return lines.join("\n");
 }
 
+// src/session-hard-wall.ts
+var AUTH_URL = /(?:^|[/_?&.-])(login|log-in|signin|sign-in|authenticate|authentication|oauth)(?:$|[/_?&=.-])/i;
+var AUTH_TEXT = /\b(sign in|log in|continue with google|continue to (?:investment|application)|enter your (?:email|password))\b/i;
+var VERIFY_TEXT = /\b(verification (?:code|link)|verify your (?:email|identity)|resend verification|one[- ]time (?:code|password))\b/i;
+var CAPTCHA_TEXT = /\b(captcha|recaptcha|prove you(?:'|’)re human|verify you(?:'|’)re human|security challenge)\b/i;
+var ACCESS_TEXT = /\b(access denied|permission required|not authorized|unauthorized|request access|you do not have access)\b/i;
+var CONSENT_TEXT = /\b(accept (?:the )?(?:terms|cookies)|consent required|agree and continue)\b/i;
+function normalizeUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url.trim();
+  }
+}
+function sessionWallDisplayUrl(url) {
+  try {
+    const parsed = new URL(url);
+    parsed.username = "";
+    parsed.password = "";
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return "[redacted URL]";
+  }
+}
+function sessionAttemptKey(requestedUrl, strategyKey) {
+  return `${strategyKey.trim().toLowerCase()}::${normalizeUrl(requestedUrl)}`;
+}
+function classifySessionHardWall(observation, strategyKey, now = /* @__PURE__ */ new Date()) {
+  const body = observation.bodyText.slice(0, 2e4);
+  let kind = null;
+  if (observation.hasCaptcha || CAPTCHA_TEXT.test(body)) {
+    kind = "captcha";
+  } else if (observation.hasOneTimeCodeInput || VERIFY_TEXT.test(body)) {
+    kind = "identity-verification";
+  } else if (AUTH_URL.test(observation.currentUrl) && (observation.hasPasswordInput || observation.hasEmailInput || AUTH_TEXT.test(body))) {
+    kind = "authentication";
+  } else if (ACCESS_TEXT.test(body)) {
+    kind = "access-denied";
+  } else if (CONSENT_TEXT.test(body)) {
+    kind = "consent";
+  }
+  if (!kind) return null;
+  const requestedUrl = normalizeUrl(observation.requestedUrl);
+  const currentUrl = normalizeUrl(observation.currentUrl);
+  return {
+    kind,
+    requestedUrl,
+    currentUrl,
+    strategyKey,
+    attemptKey: sessionAttemptKey(requestedUrl, strategyKey),
+    detectedAt: now.toISOString(),
+    prompt: hardWallPrompt(kind, strategyKey)
+  };
+}
+async function inspectSessionHardWall(page, requestedUrl, strategyKey) {
+  const observation = await page.evaluate(`(() => {
+    const inputs = Array.from(document.querySelectorAll('input'));
+    return {
+      requestedUrl: '',
+      currentUrl: window.location.href,
+      title: document.title || '',
+      bodyText: document.body?.innerText || '',
+      hasPasswordInput: inputs.some((input) => input.type === 'password'),
+      hasEmailInput: inputs.some((input) => input.type === 'email' || /email/i.test(input.name || input.autocomplete || '')),
+      hasOneTimeCodeInput: inputs.some((input) => input.autocomplete === 'one-time-code' || /otp|verification.?code/i.test(input.name || input.id)),
+      hasCaptcha: Boolean(document.querySelector('[class*="captcha" i], [id*="captcha" i], iframe[src*="captcha" i], textarea[name="g-recaptcha-response"]')),
+    };
+  })()`);
+  return classifySessionHardWall({ ...observation, requestedUrl }, strategyKey);
+}
+function hardWallPrompt(kind, strategyKey = "") {
+  if (strategyKey.toLowerCase().includes("headless")) {
+    return "IBR stopped and will not retry this URL with the same headless strategy. Start one visible browser strategy, enter the required information yourself, then tell the agent to continue. IBR will not type or submit credentials.";
+  }
+  const action = kind === "captcha" ? "Complete the human-verification challenge in the open browser." : kind === "access-denied" ? "Resolve access in the open browser or ask the site owner for permission." : kind === "consent" ? "Review and complete the consent step in the open browser." : "Enter the required sign-in or verification information in the open browser.";
+  return `${action} IBR stopped and will not type, submit, or retry this URL with the same browser strategy. After you finish, tell the agent to continue; a meaningfully different browser strategy may be tried once.`;
+}
+function formatUserActionRequired(wall, repeatBlocked = false) {
+  return [
+    "USER_ACTION_REQUIRED",
+    `Wall: ${wall.kind}`,
+    `Current URL: ${sessionWallDisplayUrl(wall.currentUrl)}`,
+    repeatBlocked ? "Repeat blocked: this URL and browser strategy already reached the same hard wall." : "Automation stopped at the first hard wall.",
+    wall.prompt
+  ].join("\n");
+}
+
 // src/mcp/native-tools.ts
 var NATIVE_ACTION_KIND_VALUES = [
   "click",
@@ -21207,6 +21311,41 @@ function textResponse(text) {
 }
 function errorResponse2(text) {
   return { content: [{ type: "text", text }], isError: true };
+}
+var hardWallAttempts = /* @__PURE__ */ new Map();
+var hardWallsBySession = /* @__PURE__ */ new Map();
+function hardWallResponse(attempt, repeatBlocked = false) {
+  return textResponse(JSON.stringify({
+    status: "user_action_required",
+    sessionId: attempt.sessionId,
+    repeatBlocked,
+    wall: {
+      kind: attempt.wall.kind,
+      currentUrl: sessionWallDisplayUrl(attempt.wall.currentUrl),
+      strategyKey: attempt.wall.strategyKey,
+      detectedAt: attempt.wall.detectedAt,
+      prompt: attempt.wall.prompt
+    },
+    message: formatUserActionRequired(attempt.wall, repeatBlocked)
+  }, null, 2));
+}
+async function guardBrowserSessionHardWall(sessionId, driver2) {
+  const pending = hardWallsBySession.get(sessionId);
+  if (!pending) return null;
+  const current = await inspectSessionHardWall(
+    driver2,
+    pending.wall.requestedUrl,
+    pending.wall.strategyKey
+  );
+  if (current) {
+    const refreshed = { sessionId, wall: current };
+    hardWallsBySession.set(sessionId, refreshed);
+    hardWallAttempts.set(current.attemptKey, refreshed);
+    return hardWallResponse(refreshed, true);
+  }
+  hardWallsBySession.delete(sessionId);
+  hardWallAttempts.delete(pending.wall.attemptKey);
+  return null;
 }
 function isPageScrollTarget(target) {
   if (target == null) return true;
@@ -22160,7 +22299,7 @@ var TOOLS = [
   // --- Persistent session tools ---
   {
     name: "session_start",
-    description: "Start a persistent session for web (Chrome/Safari), macOS native app, or iOS/watchOS simulator. Chrome is default for web. Use 'app' for native macOS apps, 'simulator' for iOS/watchOS. Session stays alive across tool calls \u2014 use session_action to interact, session_read to observe/extract, session_close when done.",
+    description: "Start a persistent session for web (Chrome/Safari), macOS native app, or iOS/watchOS simulator. Chrome is default for web. Web sessions stop at authentication, identity-verification, CAPTCHA, access, or consent walls and return USER_ACTION_REQUIRED; IBR never types or submits credentials automatically, and the same URL + browser strategy is not retried. Use 'app' for native macOS apps, 'simulator' for iOS/watchOS.",
     inputSchema: {
       type: "object",
       properties: {
@@ -22896,6 +23035,11 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
         if (!url) {
           return errorResponse2(`session_start requires 'url' for web sessions, 'app' for macOS native, or 'simulator' for iOS/watchOS`);
         }
+        const strategyKey = browser === "safari" ? "safari:mcp:interactive" : `chrome:mcp:${headless ? "headless" : "headed"}`;
+        const priorAttempt = hardWallAttempts.get(sessionAttemptKey(url, strategyKey));
+        if (priorAttempt) {
+          return hardWallResponse(priorAttempt, true);
+        }
         if (browser === "safari") {
           try {
             const { SafariDriver: SafariDriver2 } = await Promise.resolve().then(() => (init_driver2(), driver_exports));
@@ -22903,6 +23047,13 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
             await safariDriver.launch({});
             await safariDriver.navigate(url);
             sessions.set(sessionId, { driver: safariDriver, type: "safari", url, createdAt: Date.now() });
+            const wall = await inspectSessionHardWall(safariDriver, url, strategyKey);
+            if (wall) {
+              const attempt = { sessionId, wall };
+              hardWallAttempts.set(wall.attemptKey, attempt);
+              hardWallsBySession.set(sessionId, attempt);
+              return hardWallResponse(attempt);
+            }
             return textResponse(JSON.stringify({
               sessionId,
               type: "safari",
@@ -22920,6 +23071,14 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
             viewport: viewport ? { width: viewport.width, height: viewport.height } : void 0
           });
           await driver2.navigate(url);
+          const wall = await inspectSessionHardWall(driver2, url, strategyKey);
+          if (wall) {
+            sessions.set(sessionId, { driver: driver2, type: "chrome", url: driver2.url || url, createdAt: Date.now() });
+            const attempt = { sessionId, wall };
+            hardWallAttempts.set(wall.attemptKey, attempt);
+            hardWallsBySession.set(sessionId, attempt);
+            return hardWallResponse(attempt);
+          }
           const elements = await driver2.getSnapshot();
           const elementCount = elements.filter((e) => e.actions.length > 0).length;
           sessions.set(sessionId, { driver: driver2, type: "chrome", url: driver2.url || url, createdAt: Date.now() });
@@ -22956,6 +23115,8 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
           return await runSimulatorSessionAction(entry, { action, target, value, role });
         }
         const driver2 = entry.driver;
+        const wallResult = await guardBrowserSessionHardWall(sessionId, driver2);
+        if (wallResult) return wallResult;
         if (action === "scroll" && isPageScrollTarget(target)) {
           try {
             const deltaY = parseScrollDelta(value);
@@ -23116,6 +23277,8 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
           return await readSimulatorSession(entry, what, Number(args.limit) || 50);
         }
         const driver2 = entry.driver;
+        const wallResult = await guardBrowserSessionHardWall(sessionId, driver2);
+        if (wallResult) return wallResult;
         try {
           switch (what) {
             case "observe": {
@@ -23192,9 +23355,19 @@ ${meta.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta.li
             await entry.driver.close();
           }
           sessions.delete(sessionId);
+          const pendingWall = hardWallsBySession.get(sessionId);
+          if (pendingWall) {
+            hardWallAttempts.delete(pendingWall.wall.attemptKey);
+            hardWallsBySession.delete(sessionId);
+          }
           return textResponse(`Session ${sessionId} closed.`);
         } catch (err) {
           sessions.delete(sessionId);
+          const pendingWall = hardWallsBySession.get(sessionId);
+          if (pendingWall) {
+            hardWallAttempts.delete(pendingWall.wall.attemptKey);
+            hardWallsBySession.delete(sessionId);
+          }
           return errorResponse2(`session_close error: ${err instanceof Error ? err.message : String(err)}`);
         }
       }

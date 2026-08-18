@@ -888,6 +888,23 @@ var init_target = __esm({
         const result = await this.conn.send("Target.getTargets");
         return result.targetInfos;
       }
+      /**
+       * Full `Target.getTargets` payload including `title` and `attached`.
+       * `list()` narrows those away; attaching to an already-running app (see
+       * `src/live/`) needs the title to pick the right window. Additive — existing
+       * callers of `list()` are untouched.
+       */
+      async listDetailed() {
+        const result = await this.conn.send("Target.getTargets");
+        return result.targetInfos;
+      }
+      /**
+       * Release a session created by `attach()` without closing the target.
+       * Required when auditing a live app: the page must survive detach.
+       */
+      async detach(sessionId) {
+        await this.conn.send("Target.detachFromTarget", { sessionId });
+      }
     };
   }
 });
@@ -3075,6 +3092,7 @@ var init_driver = __esm({
       console;
       targetId = null;
       sessionId = null;
+      ownsTarget = true;
       _currentUrl = "";
       launched = false;
       resolutionCache = new ResolutionCache();
@@ -3122,6 +3140,7 @@ var init_driver = __esm({
         this.target = new TargetDomain(this.conn);
         this.launched = true;
         this.targetId = await this.target.createPage("about:blank");
+        this.ownsTarget = true;
         this.sessionId = await this.target.attach(this.targetId);
         this._page = new PageDomain(this.conn, this.sessionId);
         this.ax = new AccessibilityDomain(this.conn, this.sessionId);
@@ -3173,19 +3192,24 @@ var init_driver = __esm({
       /**
        * Release the CDP WebSocket for this driver without terminating the browser.
        * Used by one-shot CLI commands that attach to a shared browser-server via
-       * connectExisting() — they must drop their WebSocket at the end of the
-       * command so the node process can exit, but the browser-server's Chrome
-       * process must keep running for subsequent commands.
+       * connectExisting() — they must detach from a supplied persisted target and
+       * drop their WebSocket at the end of the command so the node process can
+       * exit, while the browser-server and session tab remain alive.
        *
-       * Closes the per-command tab that was spawned in connectExisting(), then
-       * closes the WebSocket. Does NOT call this.browser.close() (which would
-       * terminate the whole browser-server process).
+       * A target created without a supplied target ID is still owned by this
+       * driver and is closed on disconnect. Does NOT call this.browser.close().
        */
       async disconnect() {
-        if (this.targetId) {
-          await this.target.close(this.targetId).catch(() => {
-          });
+        if (this.targetId && this.sessionId) {
+          if (this.ownsTarget) {
+            await this.target.close(this.targetId).catch(() => {
+            });
+          } else {
+            await this.target.detach(this.sessionId).catch(() => {
+            });
+          }
           this.targetId = null;
+          this.sessionId = null;
         }
         await this.conn.close().catch(() => {
         });
@@ -4288,15 +4312,20 @@ var init_driver = __esm({
       get wsEndpoint() {
         return this.browser.wsEndpoint;
       }
+      /** Current CDP page target. Persist this to reattach without navigating. */
+      get pageTargetId() {
+        return this.targetId;
+      }
       /**
        * Connect to an already-running Chrome instance instead of launching a new one.
        * Used by browser-server reconnection to attach to a persistent Chrome process.
        */
-      async connectExisting(wsUrl) {
+      async connectExisting(wsUrl, targetId) {
         await this.conn.connect(wsUrl);
         this.target = new TargetDomain(this.conn);
         this.launched = true;
-        this.targetId = await this.target.createPage("about:blank");
+        this.targetId = targetId ?? await this.target.createPage("about:blank");
+        this.ownsTarget = targetId === void 0;
         this.sessionId = await this.target.attach(this.targetId);
         this._page = new PageDomain(this.conn, this.sessionId);
         this.ax = new AccessibilityDomain(this.conn, this.sessionId);
@@ -4313,6 +4342,7 @@ var init_driver = __esm({
         await this.console.enable();
         await this.network.enable();
         this.setupDialogHandling();
+        this._currentUrl = await this.runtime.evaluate("location.href") ?? "";
       }
     };
   }
@@ -11208,6 +11238,16 @@ async function scan(url, options = {}) {
       }
     }
     const summaries = summarizeScan(elements.all, url);
+    let probeResults;
+    if (options.probes) {
+      for (const [name, expression] of Object.entries(options.probes)) {
+        try {
+          const value = await driver2.evaluate(expression);
+          probeResults = { ...probeResults ?? {}, [name]: value };
+        } catch {
+        }
+      }
+    }
     const baseResult = {
       url,
       route,
@@ -11219,6 +11259,7 @@ async function scan(url, options = {}) {
       sensors,
       ruleEngine,
       summaries,
+      probes: probeResults,
       console: {
         errors: consoleErrors,
         warnings: consoleWarnings
