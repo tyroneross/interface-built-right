@@ -68,3 +68,7 @@ CLAUDE.md
 # tool artifacts (codex rescue runtime, navgator architecture graph)
 .codex/
 .navgator/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
