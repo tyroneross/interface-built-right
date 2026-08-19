@@ -1,8 +1,9 @@
 {
   "name": "ibr",
-  "description": "End-to-end design tool for AI coding agents — guided UI builds, web/iOS/macOS guidance, visual checks, mockup matching, interaction testing, native scanning, native layout-fill / gap analysis",
+  "description": "End-to-end design tool for AI coding agents \u2014 guided UI builds, web/iOS/macOS guidance, visual checks, mockup matching, interaction testing, native scanning, native layout-fill / gap analysis",
   "author": {
-    "name": "Tyrone Ross, Jr"
+    "name": "Tyrone Ross, Jr",
+    "url": "https://github.com/tyroneross"
   },
   "homepage": "https://github.com/tyroneross/interface-built-right",
   "repository": "https://github.com/tyroneross/interface-built-right",

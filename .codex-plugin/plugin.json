@@ -2,7 +2,8 @@
   "name": "ibr",
   "description": "UI design planning and validation for Codex using IBR skills and MCP scans.",
   "author": {
-    "name": "Tyrone Ross, Jr"
+    "name": "Tyrone Ross, Jr",
+    "url": "https://github.com/tyroneross"
   },
   "homepage": "https://github.com/tyroneross/interface-built-right",
   "repository": "https://github.com/tyroneross/interface-built-right",
