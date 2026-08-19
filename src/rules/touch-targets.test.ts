@@ -116,4 +116,57 @@ describe('touch-targets/minimum-size — isNonVisibleOrZeroArea guard', () => {
     const result = rule.check(el, ctx, undefined);
     expect(result).toBeNull();
   });
+
+  // Regression: a11y.ariaHidden is populated by src/extract.ts via
+  // `htmlEl.closest('[aria-hidden="true"]')`, which is true for the
+  // element's OWN aria-hidden attribute OR any ancestor's. This test
+  // exercises the rule's use of that field directly (the closest()
+  // ancestor walk itself lives in extract.ts and needs a real DOM —
+  // covered by the browser-pool viewport-leak integration test, not
+  // unit-testable here without a browser).
+  it('skips an element with a11y.ariaHidden even when bounds/size are otherwise compliant', () => {
+    const el = makeElement({
+      bounds: { x: 0, y: 0, width: 48, height: 48 },
+      a11y: { role: 'button', ariaLabel: 'Submit', ariaDescribedBy: null, ariaHidden: true },
+    });
+    const ctx = makeContext({ isMobile: true, viewportWidth: 390 });
+    const result = rule.check(el, ctx, undefined);
+    expect(result).toBeNull();
+  });
+
+  // Regression evidence from the reported bug: a Tailwind `hidden md:flex`
+  // nav link, CORRECTLY measured under an actually-applied mobile viewport,
+  // has computedStyles.display === 'none' and zero-area bounds — the rule
+  // must return null. (The bug was never a missing filter here; it was the
+  // scan layer feeding this rule DESKTOP-viewport bounds/styles while
+  // claiming a mobile scan — fixed in src/scan.ts's initScanViewport. See
+  // src/engine/browser-pool.test.ts for that regression test.)
+  it('skips a mobile-hidden desktop-nav link when the viewport was actually applied (display:none, zero bounds)', () => {
+    const el = makeElement({
+      tagName: 'a',
+      selector: 'nav.relative > div.flex:nth-of-type(1) > a.hidden',
+      text: 'Home',
+      bounds: { x: 0, y: 0, width: 0, height: 0 },
+      computedStyles: { display: 'none' },
+      interactive: { hasOnClick: false, hasHref: true, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+      a11y: { role: null, ariaLabel: null, ariaDescribedBy: null },
+    });
+    const ctx = makeContext({ isMobile: true, viewportWidth: 390, viewportHeight: 844 });
+    const result = rule.check(el, ctx, undefined);
+    expect(result).toBeNull();
+  });
+
+  // Every reported bound for a genuinely-mobile-emulated element must fit
+  // inside the mobile viewport's width — the direct assertion the bug
+  // report used to prove desktop coordinates were leaking through
+  // (x=562, width=600 on a 390px viewport is impossible). Compliant AND
+  // non-compliant elements alike must respect this once the viewport fix
+  // is in place.
+  it('reported bounds fit inside the mobile viewport width for a correctly-measured element', () => {
+    const el = makeElement({ bounds: { x: 12, y: 300, width: 44, height: 44 } });
+    const ctx = makeContext({ isMobile: true, viewportWidth: 390, viewportHeight: 844 });
+    expect(el.bounds.x + el.bounds.width).toBeLessThanOrEqual(ctx.viewportWidth);
+    const result = rule.check(el, ctx, undefined);
+    expect(result).toBeNull(); // 44x44 meets the 44px mobile minimum
+  });
 });

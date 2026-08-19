@@ -39,12 +39,18 @@ function isInteractiveElement(element: EnhancedElement): boolean {
 /**
  * Returns true when the element should be excluded from the touch-target audit.
  * Matches the guard pattern used in src/responsive.ts:
- *   display:none, visibility:hidden, opacity:0, or zero/negative area in either dimension.
+ *   display:none, visibility:hidden, opacity:0, zero/negative area in either
+ *   dimension, or aria-hidden (own attribute or an ancestor's — see
+ *   `a11y.ariaHidden` in src/extract.ts, which now walks up via `closest()`).
+ * An aria-hidden element is unreachable to assistive tech regardless of its
+ * visual box, so grading its pixel size against the touch-target minimum is
+ * meaningless — it can never be the thing an AT user "taps".
  */
 function isNonVisibleOrZeroArea(element: EnhancedElement): boolean {
   if (element.computedStyles?.display === 'none') return true;
   if (element.computedStyles?.visibility === 'hidden') return true;
   if (element.computedStyles?.opacity === '0') return true;
+  if (element.a11y?.ariaHidden) return true;
   if (element.bounds.width <= 0) return true;
   if (element.bounds.height <= 0) return true;
   return false;

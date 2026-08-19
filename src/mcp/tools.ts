@@ -2585,11 +2585,10 @@ async function handleScan(
   }
 
   // Warm-browser pool reuse — drops cold-start cost on the second-onwards
-  // scan in this MCP process. scan() handles release in its finally block.
-  // Per-pool viewport is sticky, so the pool path skips the full device
-  // profile that the fresh-launch path applies; for viewport-sensitive
-  // scans (e.g. mobile/iphone-14), callers should omit `sessionId`-based
-  // pool reuse and accept a fresh launch.
+  // scan in this MCP process. scan() handles release in its finally block,
+  // and re-applies device-metrics emulation for the requested viewport on
+  // every pool-path call via `initScanViewport` (src/scan.ts) — so a
+  // `viewport: 'mobile'` request is honored even on a reused driver.
   const pool = await getMcpBrowserPool();
   const result = await scan(url, {
     viewport: viewport as ScanOptions["viewport"],

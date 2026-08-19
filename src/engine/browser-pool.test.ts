@@ -7,8 +7,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { BrowserPool } from './browser-pool.js'
-import { initScanCookies } from '../scan.js'
+import { initScanCookies, initScanViewport } from '../scan.js'
 import type { SetCookieParams } from './cdp/network.js'
+import type { Viewport } from '../schemas.js'
 
 // Stub the driver. The pool only calls launch() and close() on it.
 // `vi.hoisted` so the spies are available before the mock factory runs.
@@ -258,5 +259,84 @@ describe('scan() cookie initialization (cross-scan leak fix)', () => {
     ).resolves.toBeUndefined()
     // Clear still ran — the security boundary holds even when set fails.
     expect(driver.clearCookies).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Regression: cross-scan VIEWPORT leak on the warm BrowserPool path.
+ *
+ * Reported bug: an IBR `ask`/`scan` MCP call with `viewport: 'mobile'`
+ * returned desktop-sized bounds (e.g. x=562 width=600 on a 390px-wide
+ * viewport) and flagged a Tailwind `hidden` (mobile: display:none,
+ * desktop: flex) nav link as an interactive touch target. Root cause:
+ * `getMcpBrowserPool()` (src/mcp/tools.ts) launches its warm BrowserPool
+ * with NO viewport, and `driver.launch()`'s device-profile branch only
+ * runs on a FRESH (non-pooled) launch — so a pooled driver never received
+ * CDP device-metrics emulation at all, regardless of what viewport a
+ * caller requested. `initScanViewport` (src/scan.ts) closes this by
+ * re-applying the full device profile on every pool-path scan, before
+ * navigate. These tests exercise the helper directly (mirrors the
+ * `initScanCookies` cross-scan cookie-leak tests above) so the contract
+ * holds regardless of surrounding scan() refactors.
+ */
+describe('scan() viewport initialization (cross-scan viewport-leak fix)', () => {
+  type Call = { width: number; height: number; mobile?: boolean }
+
+  function makeDriver() {
+    const calls: Call[] = []
+    return {
+      calls,
+      emulationDomain: {
+        applyDeviceProfile: vi.fn(async (config: Call) => {
+          calls.push(config)
+        }),
+      },
+    }
+  }
+
+  const mobileViewport: Viewport = {
+    name: 'mobile',
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 3,
+    mobile: true,
+    hasTouch: true,
+  }
+
+  const desktopViewport: Viewport = {
+    name: 'desktop',
+    width: 1280,
+    height: 800,
+  }
+
+  it('pool path: re-applies device-metrics emulation for the requested viewport', async () => {
+    const driver = makeDriver()
+    await initScanViewport(driver, /* ownDriver */ false, mobileViewport)
+    expect(driver.emulationDomain.applyDeviceProfile).toHaveBeenCalledTimes(1)
+    expect(driver.emulationDomain.applyDeviceProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 390, height: 844, mobile: true }),
+    )
+  })
+
+  it('pool path: two consecutive calls with DIFFERENT viewports each apply their own — no stickiness (THE LEAK CASE)', async () => {
+    const driver = makeDriver()
+    // Scan A requests mobile.
+    await initScanViewport(driver, false, mobileViewport)
+    // Scan B, on the SAME pooled driver, requests desktop. Without the fix,
+    // the pool path never calls applyDeviceProfile at all, so scan B (and
+    // scan A before it) would silently render at whatever the pool's
+    // browser was launched at — never at either requested viewport.
+    await initScanViewport(driver, false, desktopViewport)
+
+    expect(driver.calls).toEqual([
+      expect.objectContaining({ width: 390, mobile: true }),
+      expect.objectContaining({ width: 1280 }),
+    ])
+  })
+
+  it('fresh-driver path: skips re-apply — driver.launch() already applied the full profile', async () => {
+    const driver = makeDriver()
+    await initScanViewport(driver, /* ownDriver */ true, mobileViewport)
+    expect(driver.emulationDomain.applyDeviceProfile).not.toHaveBeenCalled()
   })
 })

@@ -1,6 +1,7 @@
 import type { PageLike } from './engine/page-like.js';
 import { EngineDriver, type CoverageReport } from './engine/driver.js';
 import type { SetCookieParams } from './engine/cdp/network.js';
+import type { EmulationDomain } from './engine/cdp/emulation.js';
 import { CompatPage } from './engine/compat.js';
 import type { EnhancedElement, AuditResult, Viewport } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
@@ -242,10 +243,10 @@ export interface ScanOptions extends BrowserLaunchOptions {
    * (e.g. an MCP server fielding multiple `ask` calls). The pool's lifecycle
    * is the caller's responsibility — scan() does not close it.
    *
-   * Caveat: per-scan viewport is NOT re-applied on a pooled driver — the
-   * pool's launch viewport is sticky for the process. Callers that need a
-   * different viewport mid-process should construct a dedicated pool or
-   * omit `pool` so scan() launches with the full device profile.
+   * Per-scan viewport IS re-applied on every pool-path call (see
+   * `initScanViewport`), so a pooled driver correctly picks up whatever
+   * `viewport` each call requests — desktop, mobile, or a custom profile —
+   * even when consecutive calls on the same pool request different ones.
    */
   pool?: import('./engine/browser-pool.js').BrowserPool;
   /**
@@ -304,6 +305,52 @@ export async function initScanCookies(
 }
 
 /**
+ * Apply device-metrics emulation to a driver acquired from a warm
+ * BrowserPool, before navigation — closes the "mobile viewport silently
+ * ignored on the pool path" bug.
+ *
+ * Contract:
+ * - Fresh-driver path (`ownDriver === true`): a no-op here. `driver.launch()`
+ *   already applied the FULL resolved viewport (metrics + UA + touch) before
+ *   its own first navigate — see the launch call above.
+ * - Pool path (`ownDriver === false`): `driver.launch()` is never called for
+ *   a reused driver, and the pool itself launches with no viewport at all
+ *   (see `getMcpBrowserPool()` in src/mcp/tools.ts, which constructs
+ *   `BrowserPool({ launchOptions: { headless: true } })`). Without this
+ *   call, a pooled driver keeps whatever device-metrics state it last had —
+ *   none on first use, or a PRIOR caller's viewport on later calls — so a
+ *   caller requesting `viewport: 'mobile'` silently measured the page at
+ *   the pool's stale/default (desktop-ish) size. Bounds and
+ *   viewport-conditional CSS (`hidden md:flex`, `@media` breakpoints)
+ *   rendered under the WRONG breakpoint as a result. Called on EVERY
+ *   pool-path scan, unconditionally, so viewport is correct regardless of
+ *   what the previous caller on this pooled driver requested.
+ *
+ * Unlike `initScanCookies`, failures here are NOT swallowed: a scan that
+ * silently keeps the wrong viewport reproduces the exact bug this function
+ * fixes, so surfacing the error (and letting the caller's `finally` still
+ * release the pooled driver) is preferable to a quiet wrong-viewport scan.
+ *
+ * Exported for direct unit testing of the viewport-pool regression
+ * (browser-pool.test.ts), mirroring `initScanCookies` above.
+ */
+export async function initScanViewport(
+  driver: { emulationDomain: Pick<EmulationDomain, 'applyDeviceProfile'> },
+  ownDriver: boolean,
+  viewport: Viewport,
+): Promise<void> {
+  if (ownDriver) return;
+  await driver.emulationDomain.applyDeviceProfile({
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: viewport.deviceScaleFactor,
+    mobile: viewport.mobile,
+    userAgent: viewport.userAgent,
+    hasTouch: viewport.hasTouch,
+  });
+}
+
+/**
  * Run a comprehensive UI scan on a URL.
  *
  * Combines all IBR analysis capabilities into a single scan:
@@ -337,10 +384,11 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
 
   // Launch browser — or acquire one from the pool when supplied.
   //
-  // Pool path: reuses the pool's EngineDriver. Per-scan viewport is NOT
-  // re-applied (emulation is sticky on the pooled driver). Callers that
-  // need a different viewport mid-process should construct a dedicated
-  // pool or omit `pool` for viewport-sensitive scans.
+  // Pool path: reuses the pool's EngineDriver. Per-scan viewport IS
+  // re-applied — see `initScanViewport` below, called right before
+  // navigate. (Prior to that fix, emulation was sticky on the pooled
+  // driver and a requested viewport was silently ignored; see the
+  // touch-target false-positive bug this closed.)
   //
   // Fresh-launch path: passes the FULL resolved viewport (including
   // deviceScaleFactor, mobile, userAgent, hasTouch) so EngineDriver.launch
@@ -390,6 +438,15 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // cookies — the leak case is "B inherits A's by passing none"). The
     // helper enforces the contract; see `initScanCookies`.
     await initScanCookies(driver, ownDriver, cookies);
+
+    // SECURITY-ADJACENT CORRECTNESS: the warm BrowserPool reuses the
+    // EngineDriver's device-metrics emulation across scan() calls just like
+    // it reuses cookies above. Without an explicit re-apply on the pool
+    // path, a `viewport: 'mobile'` request silently measured the page at
+    // whatever viewport the pool's driver last had (or none, on first use)
+    // — see `initScanViewport` for the full contract and the false-positive
+    // touch-target bug this fixes.
+    await initScanViewport(driver, ownDriver, resolvedViewport);
 
     // Navigate
     await page.goto(url, {

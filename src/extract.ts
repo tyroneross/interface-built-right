@@ -361,6 +361,19 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               cursor: computed.cursor,
               color: computed.color,
               backgroundColor: computed.backgroundColor,
+              // display/visibility/opacity: the touch-targets rule's
+              // isNonVisibleOrZeroArea guard (src/rules/touch-targets.ts)
+              // reads these three fields to exclude non-visible elements.
+              // Before this, they were never populated here — the guard's
+              // display/visibility/opacity branches were unreachable in
+              // production (only its bounds<=0 branch ever fired, which
+              // happens to zero out for display:none via
+              // getBoundingClientRect, but does NOT zero out for
+              // visibility:hidden or opacity:0 — those retain full layout
+              // bounds and were silently graded for touch-target size).
+              display: computed.display,
+              visibility: computed.visibility,
+              opacity: computed.opacity,
             },
             interactive: {
               hasOnClick: handlers.hasAnyHandler,
@@ -378,7 +391,13 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               role: htmlEl.getAttribute('role'),
               ariaLabel: htmlEl.getAttribute('aria-label'),
               ariaDescribedBy: htmlEl.getAttribute('aria-describedby'),
-              ariaHidden: htmlEl.getAttribute('aria-hidden') === 'true' || undefined,
+              // Own attribute OR any ancestor's — an element nested inside
+              // an `aria-hidden="true"` container is just as unreachable to
+              // assistive tech as one hidden directly, so rules that key off
+              // this field (touch-targets, static/scan's aria-hidden check)
+              // should treat both the same way. Mirrors the `inForm` closest()
+              // pattern below.
+              ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || undefined,
               ariaHaspopup: htmlEl.getAttribute('aria-haspopup'),
             },
             sourceHint: {
