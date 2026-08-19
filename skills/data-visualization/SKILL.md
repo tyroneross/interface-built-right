@@ -1,6 +1,6 @@
 ---
 name: data-visualization
-description: Use when UI work includes charts, graphs, dashboards, KPIs, analytical search responses, metrics, tables, trend lines, rankings, distributions, or data storytelling. Provides chart-worthiness gates, chart routing, hierarchy, attribution, accessibility, and validation rules.
+description: Use when UI work includes a chart, graph, KPI, analytical search response, metric, trend line, ranking, distribution, or data storytelling. Provides chart-worthiness gates, chart routing, hierarchy, attribution, accessibility, and validation rules. Not for a full dashboard page layout; use `dashboard-design` instead.
 version: 0.1.0
 user-invocable: false
 ---

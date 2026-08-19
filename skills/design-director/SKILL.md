@@ -1,6 +1,6 @@
 ---
 name: design-director
-description: Use when starting a UI build, planning a page or flow, choosing design guidance, resolving mockup-gallery or imagegen concept targets, or acting as the primary IBR design agent. Produces design intent, specialist planning passes, target roles, and validation criteria before implementation.
+description: Use when starting a page, flow, app, or dashboard build, resolving mockup-gallery or imagegen concept targets, or acting as the primary IBR design agent. Produces design intent, specialist planning passes, target roles, and validation criteria before implementation. Not for a small isolated component with an obvious target; use `design-guidance` directly instead.
 version: 0.1.0
 user-invocable: false
 ---

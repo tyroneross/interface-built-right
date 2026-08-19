@@ -1,6 +1,6 @@
 ---
 name: design-guidance
-description: Use when building UI components, pages, flows, or layouts. Provides pre-build design direction, guidance selection, Calm Precision 6.5.0 rules, component pattern selection, active design tokens, and validation handoff.
+description: Use for a small isolated UI component or a tactical pre-build design decision — one card, form, or layout tweak. Provides Calm Precision 6.5.0 rules, component pattern selection, and active design tokens. Not for a full page, flow, app, or dashboard build; use `design-director` first instead.
 ---
 
 # Design Guidance

@@ -1,6 +1,6 @@
 ---
 name: dashboard-design
-description: Use when building a dashboard — any view that surfaces the current state of work, data, or decisions so someone can orient and act. Covers archetype selection, MECE data separation, the append-only record contract for dashboards that capture actions, progressive disclosure, and navigation. Triggers on "build a dashboard", "status page", "work queue", "scorecard", "tracker", "show me the state of", "aggregate across projects", "check off tasks in a dashboard".
+description: Use when building a full dashboard page — any view that surfaces the current state of work, data, or decisions so someone can orient and act. Covers archetype selection, MECE data separation, the append-only record contract for dashboards that capture actions, progressive disclosure, and navigation. Triggers on "build a dashboard", "status page", "work queue", "scorecard", "tracker", "show me the state of", "aggregate across projects", "check off tasks in a dashboard". Not for a single chart or metric — use `data-visualization`; not for one reusable component — use `component-patterns`.
 version: 0.1.0
 user-invocable: false
 ---

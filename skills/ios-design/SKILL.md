@@ -1,6 +1,6 @@
 ---
 name: ios-design
-description: Use when building SwiftUI/UIKit apps for iPhone/iPad, or when /ibr:build preamble returns platform=iOS. HIG rules: navigation, colors, SF Symbols, Dynamic Type, haptics, Liquid Glass.
+description: Use when building SwiftUI/UIKit apps for iPhone/iPad, or when /ibr:build preamble returns platform=iOS — HIG rules for navigation, colors, SF Symbols, Dynamic Type, haptics, Liquid Glass. Not for architecture, SwiftData, concurrency, or CI/CD; use `apple-platform` instead.
 version: 0.1.0
 user-invocable: false
 ---

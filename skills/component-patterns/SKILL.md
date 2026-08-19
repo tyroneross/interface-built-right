@@ -1,6 +1,6 @@
 ---
 name: component-patterns
-description: Use when building cards, navs, forms, dashboards, modals, tables, or lists. Opinionated patterns with Calm Precision principles, spacing, accessibility, and anti-patterns.
+description: Use when building one reusable component — a card, nav, form, modal, table, or list. Opinionated patterns with Calm Precision principles, spacing, accessibility, and anti-patterns. Not for a full dashboard page; use `dashboard-design` instead.
 user-invocable: true
 ---
 

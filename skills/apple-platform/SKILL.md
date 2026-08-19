@@ -1,6 +1,6 @@
 ---
 name: apple-platform
-description: Use when building iOS, watchOS, or macOS apps — architecture, SwiftData, Swift concurrency, CI/CD, TestFlight. How to build. For HIG design rules see ios-design.
+description: Use when building iOS, watchOS, or macOS apps — architecture, SwiftData, Swift concurrency, CI/CD, TestFlight pipeline. Not for HIG/UI rules or manual signing and notarization steps; use `ios-design` (iPhone/iPad) or `macos-ui` (Mac) instead.
 version: 0.1.0
 user-invocable: true
 argument-hint: "[ios|watchos|macos|multiplatform] [feature description]"

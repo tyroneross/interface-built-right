@@ -1,6 +1,6 @@
 ---
 name: macos-ui
-description: Use when building AppKit/SwiftUI apps for Mac, or when /ibr:build preamble returns platform=macOS. Covers windows, toolbars, menu bar, materials, Liquid Glass, notarization, distribution.
+description: Use when building AppKit/SwiftUI apps for Mac, or when /ibr:build preamble returns platform=macOS — HIG rules for windows, toolbars, menu bar, materials, Liquid Glass, plus manual signing/notarization/distribution steps. Not for app architecture, SwiftData, concurrency, or the CI/CD pipeline; use `apple-platform` instead.
 version: 0.1.0
 user-invocable: false
 ---
