@@ -4,7 +4,7 @@ import { runIbrCli, extractJson } from '@/lib/server/run-ibr';
 // POST /api/workflows/baseline - Capture a baseline for a URL, then immediately
 // scan to identify elements. Both calls go through runIbrCli (execFile + argv),
 // so URL/name values are literal arguments — no shell interpolation.
-export async function POST(request: NextRequest) {  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
+export async function POST(request: NextRequest) {  // nosec: single-user local tool; web-ui binds 127.0.0.1 only (package.json dev/start -H), so there is no remote caller to authenticate — owner decision 2026-08-18
   try {
     const body = await request.json();
     const { url, name, viewport } = body as {

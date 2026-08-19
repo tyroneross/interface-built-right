@@ -10,7 +10,7 @@ const SESSION_ID_RE = /^sess_[A-Za-z0-9_-]+$/;
 // POST /api/sessions/[id]/check - Re-run comparison via IBR's CDP engine.
 // `id` is shape-validated then passed as an argv element to runIbrCli — never
 // concatenated into a shell command.
-export async function POST(  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
+export async function POST(  // nosec: single-user local tool; web-ui binds 127.0.0.1 only (package.json dev/start -H), so there is no remote caller to authenticate — owner decision 2026-08-18
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {

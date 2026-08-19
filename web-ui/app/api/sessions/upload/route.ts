@@ -32,7 +32,7 @@ interface ReferenceSession {
 
 // POST /api/sessions/upload - Save an uploaded reference image as a new session.
 // No CLI invocation here; pure file IO + Sharp.
-export async function POST(request: NextRequest) {  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
+export async function POST(request: NextRequest) {  // nosec: single-user local tool; web-ui binds 127.0.0.1 only (package.json dev/start -H), so there is no remote caller to authenticate — owner decision 2026-08-18
   try {
     const formData = await request.formData();
 

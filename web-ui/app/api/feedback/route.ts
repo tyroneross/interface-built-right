@@ -6,7 +6,7 @@ import { resolveIbrDir } from '@/lib/server/ibr-paths';
 
 // POST /api/feedback - Write a viewer-submitted feedback note to <ibrDir>/feedback/pending.md
 // so the next coding agent in the loop can pick it up. Real backing: file on disk.
-export async function POST(request: NextRequest) {  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
+export async function POST(request: NextRequest) {  // nosec: single-user local tool; web-ui binds 127.0.0.1 only (package.json dev/start -H), so there is no remote caller to authenticate — owner decision 2026-08-18
   try {
     const { sessionId, feedback } = await request.json();
 
