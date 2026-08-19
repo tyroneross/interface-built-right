@@ -234,7 +234,12 @@ var init_schemas = __esm({
       // Framework-specific detection
       hasReactHandler: z.boolean().optional(),
       hasVueHandler: z.boolean().optional(),
-      hasAngularHandler: z.boolean().optional()
+      hasAngularHandler: z.boolean().optional(),
+      // True when Element.isContentEditable is true (native DOM property —
+      // resolves inheritance from an ancestor's contenteditable, unlike a raw
+      // getAttribute check). Natively interactive with no click handler of its
+      // own; see summarize.ts's isLooksInteractive/buildInteractionMap.
+      isContentEditable: z.boolean().optional()
     });
     A11yAttributesSchema = z.object({
       role: z.string().nullable(),
@@ -1071,7 +1076,73 @@ var init_normalize = __esm({
       region: "group",
       article: "group",
       section: "group",
-      complementary: "group"
+      complementary: "group",
+      // ── Interactive ARIA widget/composite roles (bug: every one of these
+      //    fell through to the `?? 'group'` default before this fix, which
+      //    strips them of both role identity and actions — see inferActions()
+      //    in cdp/accessibility.ts and driver.ts's inferFrameActions(), which
+      //    must stay in sync with this table). Confirmed against real Chrome
+      //    (Accessibility.getFullAXTree) via a repro fixture, not assumed from
+      //    the ARIA spec alone — see engine.test.ts for the exact raw role
+      //    strings Chrome emits for each native control.
+      radio: "radio",
+      // menuitemcheckbox/menuitemradio fold into the existing checkbox/radio
+      // concepts — same toggle interaction, same action set, distinguishing
+      // them would add a canonical name with no behavioral payoff.
+      menuitemcheckbox: "checkbox",
+      menuitemradio: "radio",
+      menuitem: "menuitem",
+      option: "option",
+      treeitem: "treeitem",
+      // spinbutton/searchbox are text-entry controls with a native <input>
+      // equivalent (number/search) — folding into 'textfield' gives them a
+      // correct setValue action for free instead of a bespoke canonical role.
+      spinbutton: "textfield",
+      searchbox: "textfield",
+      // Chrome-internal (non-ARIA) role names, not spec role strings — confirmed
+      // via live Accessibility.getFullAXTree, not literature. `<input type=date>`
+      // behaves like a text field for automation purposes (setValue with an
+      // ISO date string); the nested native "Show date picker" button already
+      // reports its own `button` role independently and needs no change.
+      Date: "textfield",
+      // `<input type=color>` mirrors the existing `<input type=file>` pattern
+      // already in this table (native role reports as a plain button that
+      // opens an OS-level picture; IBR has no "open native color picker" verb,
+      // so 'press' is the correct and only honest action).
+      ColorWell: "button",
+      // `<summary>` inside `<details>` — clicking it toggles expand/collapse,
+      // which is a press-equivalent action; no dedicated toggle verb exists
+      // for switch/checkbox either, so 'button' + press is consistent.
+      DisclosureTriangle: "button",
+      // ── Composite/container ARIA roles — deliberately left non-actionable.
+      //    Each of these is a container whose actionable content is its
+      //    children (already covered above: tab, menuitem, option, treeitem);
+      //    the container itself is not "pressed". Listed explicitly (rather
+      //    than left to the `?? 'group'` default) so every ARIA widget/
+      //    composite role has a visible, intentional disposition here.
+      radiogroup: "group",
+      tablist: "group",
+      menu: "group",
+      menubar: "group",
+      tree: "group",
+      treegrid: "group",
+      grid: "group",
+      gridcell: "group",
+      // scrollbar: only appears in the AX tree for hand-authored ARIA
+      // scrollbar widgets (native scrollbars are not AX nodes); the correct
+      // action is a drag gesture, which is outside IBR's press/setValue verb
+      // set today. Left as an inert 'group' rather than offering an action
+      // IBR cannot honestly perform.
+      scrollbar: "group",
+      // separator: ARIA overloads this role for both a non-focusable divider
+      // (no action, ever) and a focusable resizable splitter (needs a drag
+      // action IBR does not have). Since the two cannot be told apart from
+      // the role alone and a wrong action is worse than no action, both
+      // collapse to inert 'group'.
+      separator: "group",
+      // progressbar: read-only status display by definition (implicitly
+      // aria-readonly); there is no user action to infer, ever.
+      progressbar: "group"
     };
   }
 });
@@ -1190,8 +1261,11 @@ var init_accessibility = __esm({
         }
         for (const node of nodes) {
           if (SKIP_ROLES.has(node.role.value)) continue;
-          const role = normalizeRole(node.role.value);
+          let role = normalizeRole(node.role.value);
           const label = node.name?.value ?? "";
+          if (role === "group" && label && this.getProperty(node, "editable") !== void 0) {
+            role = "textfield";
+          }
           if (role === "group" && !label) continue;
           const id = node.backendDOMNodeId ? `e${node.backendDOMNodeId}` : `ex${Math.random().toString(36).slice(2, 8)}`;
           const el = {
@@ -1222,6 +1296,10 @@ var init_accessibility = __esm({
           case "checkbox":
           case "tab":
           case "switch":
+          case "radio":
+          case "menuitem":
+          case "option":
+          case "treeitem":
             return ["press"];
           case "textfield":
             return ["setValue"];
@@ -2978,6 +3056,10 @@ function inferFrameActions(role) {
     case "checkbox":
     case "tab":
     case "switch":
+    case "radio":
+    case "menuitem":
+    case "option":
+    case "treeitem":
       return ["press"];
     case "textfield":
       return ["setValue"];
@@ -3599,8 +3681,10 @@ var init_driver = __esm({
         for (const node of nodes) {
           const roleValue = node.role?.value;
           if (!roleValue || FRAME_SKIP_ROLES.has(roleValue)) continue;
-          const role = normalizeRole(roleValue);
+          let role = normalizeRole(roleValue);
           const label = node.name?.value ?? "";
+          const editableProp = node.properties?.find((p) => p.name === "editable")?.value?.value;
+          if (role === "group" && label && editableProp !== void 0) role = "textfield";
           if (role === "group" && !label) continue;
           if (!node.backendDOMNodeId) continue;
           const id = `f${frameTag}_e${node.backendDOMNodeId}`;
@@ -7501,7 +7585,20 @@ async function extractInteractiveElements(page) {
             computedStyles: {
               cursor: computed.cursor,
               color: computed.color,
-              backgroundColor: computed.backgroundColor
+              backgroundColor: computed.backgroundColor,
+              // display/visibility/opacity: the touch-targets rule's
+              // isNonVisibleOrZeroArea guard (src/rules/touch-targets.ts)
+              // reads these three fields to exclude non-visible elements.
+              // Before this, they were never populated here — the guard's
+              // display/visibility/opacity branches were unreachable in
+              // production (only its bounds<=0 branch ever fired, which
+              // happens to zero out for display:none via
+              // getBoundingClientRect, but does NOT zero out for
+              // visibility:hidden or opacity:0 — those retain full layout
+              // bounds and were silently graded for touch-target size).
+              display: computed.display,
+              visibility: computed.visibility,
+              opacity: computed.opacity
             },
             interactive: {
               hasOnClick: handlers.hasAnyHandler,
@@ -7511,13 +7608,22 @@ async function extractInteractiveElements(page) {
               cursor: computed.cursor,
               hasReactHandler: handlers.hasReactHandler || void 0,
               hasVueHandler: handlers.hasVueHandler || void 0,
-              hasAngularHandler: handlers.hasAngularHandler || void 0
+              hasAngularHandler: handlers.hasAngularHandler || void 0,
+              // .isContentEditable resolves inherited contenteditable
+              // correctly, unlike a raw getAttribute('contenteditable') check.
+              isContentEditable: htmlEl.isContentEditable || void 0
             },
             a11y: {
               role: htmlEl.getAttribute("role"),
               ariaLabel: htmlEl.getAttribute("aria-label"),
               ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
-              ariaHidden: htmlEl.getAttribute("aria-hidden") === "true" || void 0,
+              // Own attribute OR any ancestor's — an element nested inside
+              // an `aria-hidden="true"` container is just as unreachable to
+              // assistive tech as one hidden directly, so rules that key off
+              // this field (touch-targets, static/scan's aria-hidden check)
+              // should treat both the same way. Mirrors the `inForm` closest()
+              // pattern below.
+              ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || void 0,
               ariaHaspopup: htmlEl.getAttribute("aria-haspopup")
             },
             sourceHint: {
@@ -7542,12 +7648,13 @@ function analyzeElements(elements, isMobile = false) {
     const isLink = el.tagName === "a";
     const isInput = ["input", "select", "textarea"].includes(el.tagName);
     const looksClickable = el.interactive.cursor === "pointer";
-    return isButton || isLink || isInput || looksClickable;
+    const isNativelyEditableOrToggleable = el.tagName === "summary" || !!el.interactive.isContentEditable;
+    return isButton || isLink || isInput || looksClickable || isNativelyEditableOrToggleable;
   });
   for (const el of interactiveElements) {
     const isButton = el.tagName === "button" || el.a11y.role === "button";
     const isLink = el.tagName === "a";
-    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref;
+    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref || !!el.interactive.isContentEditable || el.tagName === "summary";
     if (hasHandler) {
       withHandlers++;
     } else {
@@ -7608,6 +7715,28 @@ var init_extract2 = __esm({
       'input[type="text"]',
       'input[type="email"]',
       'input[type="password"]',
+      // Same class of native form control as text/email/password above — these
+      // were silently invisible to scan/audit even though observe/session_action
+      // (the CDP AX-tree path in engine/cdp/accessibility.ts) already see them.
+      'input[type="radio"]',
+      'input[type="checkbox"]',
+      'input[type="search"]',
+      'input[type="tel"]',
+      'input[type="url"]',
+      'input[type="number"]',
+      'input[type="date"]',
+      'input[type="file"]',
+      'input[type="range"]',
+      'input[type="color"]',
+      // <summary> genuinely toggles <details> open/closed; a bare
+      // contenteditable region genuinely accepts typing. Neither needs a JS
+      // handler to be interactive — see isContentEditable capture below and
+      // summarize.ts's isLooksInteractive/buildInteractionMap for how the
+      // audit avoids flagging them as "looks interactive, no handler".
+      "details",
+      "summary",
+      // Exclude contenteditable="false", which explicitly opts OUT of editing.
+      '[contenteditable]:not([contenteditable="false"])',
       "select",
       "textarea",
       '[role="button"]',
@@ -9998,6 +10127,7 @@ function isNonVisibleOrZeroArea(element) {
   if (element.computedStyles?.display === "none") return true;
   if (element.computedStyles?.visibility === "hidden") return true;
   if (element.computedStyles?.opacity === "0") return true;
+  if (element.a11y?.ariaHidden) return true;
   if (element.bounds.width <= 0) return true;
   if (element.bounds.height <= 0) return true;
   return false;
@@ -10603,7 +10733,10 @@ function isLooksInteractive(el) {
   const tag = el.tagName ?? "";
   const role = el.a11y?.role ?? "";
   const cursor = el.interactive?.cursor ?? el.computedStyles?.["cursor"] ?? "";
-  return INTERACTIVE_TAGS2.has(tag) || INTERACTIVE_ROLES2.has(role) || cursor === "pointer";
+  return INTERACTIVE_TAGS2.has(tag) || INTERACTIVE_ROLES2.has(role) || cursor === "pointer" || // contenteditable is native, attribute-driven interactivity with no
+  // role or click handler of its own — see extract.ts's isContentEditable
+  // capture and buildInteractionMap's hasHandler treatment below.
+  !!el.interactive?.isContentEditable;
 }
 function buildInteractionMap(elements) {
   if (elements.length === 0) return [];
@@ -10616,7 +10749,10 @@ function buildInteractionMap(elements) {
   for (const el of elements) {
     const inter = el.interactive;
     if (!inter) continue;
-    const hasHandler = inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler;
+    const hasHandler = inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler || // contenteditable and <summary> are natively interactive without a
+    // JS handler; without this they'd be misclassified as
+    // 'looks-interactive-no-handler' (a false "looks broken" signal).
+    !!inter.isContentEditable || el.tagName === "summary";
     const isDisabled = inter.isDisabled ?? false;
     const looksInteractive2 = isLooksInteractive(el);
     if (isDisabled && hasHandler) {
@@ -10702,8 +10838,25 @@ var init_summarize = __esm({
       h6: 6
     };
     NAV_ROLES = /* @__PURE__ */ new Set(["navigation", "link", "tab", "menuitem", "option"]);
-    INTERACTIVE_TAGS2 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
-    INTERACTIVE_ROLES2 = /* @__PURE__ */ new Set(["button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem", "option", "tab"]);
+    INTERACTIVE_TAGS2 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea", "summary"]);
+    INTERACTIVE_ROLES2 = /* @__PURE__ */ new Set([
+      "button",
+      "link",
+      "textbox",
+      "checkbox",
+      "radio",
+      "combobox",
+      "menuitem",
+      "option",
+      "tab",
+      "switch",
+      "slider",
+      "searchbox",
+      "spinbutton",
+      "menuitemcheckbox",
+      "menuitemradio",
+      "treeitem"
+    ]);
   }
 });
 
@@ -11205,6 +11358,17 @@ async function initScanCookies(driver2, ownDriver, cookies) {
     }
   }
 }
+async function initScanViewport(driver2, ownDriver, viewport) {
+  if (ownDriver) return;
+  await driver2.emulationDomain.applyDeviceProfile({
+    width: viewport.width,
+    height: viewport.height,
+    deviceScaleFactor: viewport.deviceScaleFactor,
+    mobile: viewport.mobile,
+    userAgent: viewport.userAgent,
+    hasTouch: viewport.hasTouch
+  });
+}
 async function scan(url, options = {}) {
   const {
     viewport: viewportOpt = "desktop",
@@ -11257,6 +11421,7 @@ async function scan(url, options = {}) {
   });
   try {
     await initScanCookies(driver2, ownDriver, cookies);
+    await initScanViewport(driver2, ownDriver, resolvedViewport);
     await page.goto(url, {
       waitUntil: "domcontentloaded",
       timeout

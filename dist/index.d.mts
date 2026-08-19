@@ -1581,6 +1581,7 @@ declare const InteractiveStateSchema: z.ZodObject<{
     hasReactHandler: z.ZodOptional<z.ZodBoolean>;
     hasVueHandler: z.ZodOptional<z.ZodBoolean>;
     hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
+    isContentEditable: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 /**
  * Accessibility attributes
@@ -1617,6 +1618,7 @@ declare const EnhancedElementSchema: z.ZodObject<{
         hasReactHandler: z.ZodOptional<z.ZodBoolean>;
         hasVueHandler: z.ZodOptional<z.ZodBoolean>;
         hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
+        isContentEditable: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>;
     inForm: z.ZodOptional<z.ZodBoolean>;
     buttonType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -5808,10 +5810,10 @@ interface ScanOptions extends BrowserLaunchOptions {
      * (e.g. an MCP server fielding multiple `ask` calls). The pool's lifecycle
      * is the caller's responsibility — scan() does not close it.
      *
-     * Caveat: per-scan viewport is NOT re-applied on a pooled driver — the
-     * pool's launch viewport is sticky for the process. Callers that need a
-     * different viewport mid-process should construct a dedicated pool or
-     * omit `pool` so scan() launches with the full device profile.
+     * Per-scan viewport IS re-applied on every pool-path call (see
+     * `initScanViewport`), so a pooled driver correctly picks up whatever
+     * `viewport` each call requests — desktop, mobile, or a custom profile —
+     * even when consecutive calls on the same pool request different ones.
      */
     pool?: BrowserPool;
     /**
