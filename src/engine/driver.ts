@@ -298,6 +298,10 @@ function inferFrameActions(role: string): string[] {
     case 'checkbox':
     case 'tab':
     case 'switch':
+    case 'radio':
+    case 'menuitem':
+    case 'option':
+    case 'treeitem':
       return ['press']
     case 'textfield':
       return ['setValue']
@@ -966,8 +970,19 @@ export class EngineDriver implements BrowserDriver {
     for (const node of nodes) {
       const roleValue = node.role?.value
       if (!roleValue || FRAME_SKIP_ROLES.has(roleValue)) continue
-      const role = normalizeRole(roleValue, 'web')
+      let role = normalizeRole(roleValue, 'web')
       const label = node.name?.value ?? ''
+      const editableProp = node.properties?.find((p) => p.name === 'editable')?.value?.value
+      // See AccessibilityDomain.convertToElements — contenteditable regions
+      // compute to role 'generic' with no distinguishing role string; the
+      // 'editable' AX property is the only signal. Requires a non-empty
+      // label — verified live that plain text inputs also emit their own
+      // unlabeled internal shadow-editor AX node with this same signature;
+      // see that method's comment for the full explanation. Kept in sync
+      // with that main-frame path per this class's "mirrors
+      // AccessibilityDomain" contract (FRAME_SKIP_ROLES/inferFrameActions
+      // comments above).
+      if (role === 'group' && label && editableProp !== undefined) role = 'textfield'
       if (role === 'group' && !label) continue
       if (!node.backendDOMNodeId) continue // no stable ref to act on later — skip
 

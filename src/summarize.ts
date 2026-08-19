@@ -530,8 +530,23 @@ function buildContrastReport(elements: EnhancedElement[]): ContrastReportEntry[]
 // 5. Interaction Map
 // ============================================================================
 
-const INTERACTIVE_TAGS = new Set(['button', 'a', 'input', 'select', 'textarea']);
-const INTERACTIVE_ROLES = new Set(['button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'menuitem', 'option', 'tab']);
+// 'summary' is HTML-native interactivity (expand/collapse <details>), not
+// an ARIA role — kept in this tag set rather than INTERACTIVE_ROLES.
+const INTERACTIVE_TAGS = new Set(['button', 'a', 'input', 'select', 'textarea', 'summary']);
+// Explicit `role="..."` attribute values (el.a11y.role reads getAttribute,
+// not the computed/implicit AX role — see extract.ts). Reconciled against
+// engine/normalize.ts's WEB_ROLES: every raw ARIA role string a page author
+// could plausibly write that WEB_ROLES now treats as actionable is listed
+// here too, so a custom-role widget (e.g. `<div role="radio">`) isn't
+// flagged upstream but dropped from this downstream classifier. Chrome-
+// internal, non-ARIA role names (Date, ColorWell, DisclosureTriangle,
+// spinbutton's native counterpart) are deliberately excluded — they're
+// never legal `role="..."` attribute values, so they can't appear here.
+const INTERACTIVE_ROLES = new Set([
+  'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'menuitem',
+  'option', 'tab', 'switch', 'slider', 'searchbox', 'spinbutton',
+  'menuitemcheckbox', 'menuitemradio', 'treeitem',
+]);
 
 function isLooksInteractive(el: EnhancedElement): boolean {
   const tag = el.tagName ?? '';
@@ -540,7 +555,11 @@ function isLooksInteractive(el: EnhancedElement): boolean {
   return (
     INTERACTIVE_TAGS.has(tag) ||
     INTERACTIVE_ROLES.has(role) ||
-    cursor === 'pointer'
+    cursor === 'pointer' ||
+    // contenteditable is native, attribute-driven interactivity with no
+    // role or click handler of its own — see extract.ts's isContentEditable
+    // capture and buildInteractionMap's hasHandler treatment below.
+    !!el.interactive?.isContentEditable
   );
 }
 
@@ -559,7 +578,11 @@ function buildInteractionMap(elements: EnhancedElement[]): InteractionMapEntry[]
     if (!inter) continue;
 
     const hasHandler =
-      inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler;
+      inter.hasOnClick || inter.hasHref || !!inter.hasReactHandler ||
+      // contenteditable and <summary> are natively interactive without a
+      // JS handler; without this they'd be misclassified as
+      // 'looks-interactive-no-handler' (a false "looks broken" signal).
+      !!inter.isContentEditable || el.tagName === 'summary';
     const isDisabled = inter.isDisabled ?? false;
     const looksInteractive = isLooksInteractive(el);
 

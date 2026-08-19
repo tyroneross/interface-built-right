@@ -42,10 +42,62 @@ describe('normalizeRole', () => {
     expect(normalizeRole('generic', 'web')).toBe('group')
   })
 
+  // Regression test for the radio bug: every one of these ARIA
+  // widget/composite roles fell through to the `?? 'group'` default before
+  // the fix, which silently strips both role identity and actions. Each
+  // assertion here is the exact failure mode a fall-through regression
+  // would reproduce — asserting NOT-'group' catches a re-introduced gap
+  // even for roles not explicitly listed below.
+  it('does not let interactive ARIA widget roles fall through to group', () => {
+    const interactiveRoles = [
+      'radio', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option',
+      'treeitem', 'spinbutton', 'searchbox', 'tab', 'checkbox', 'switch',
+      'slider', 'combobox', 'listbox',
+    ]
+    for (const role of interactiveRoles) {
+      expect(normalizeRole(role, 'web'), `role "${role}" fell through to group`).not.toBe('group')
+    }
+  })
+
+  it('maps radio to its own canonical role, distinct from checkbox/tab', () => {
+    expect(normalizeRole('radio', 'web')).toBe('radio')
+  })
+
+  it('folds menuitemcheckbox/menuitemradio into the existing checkbox/radio concepts', () => {
+    expect(normalizeRole('menuitemcheckbox', 'web')).toBe('checkbox')
+    expect(normalizeRole('menuitemradio', 'web')).toBe('radio')
+  })
+
+  it('folds spinbutton and searchbox into textfield', () => {
+    expect(normalizeRole('spinbutton', 'web')).toBe('textfield')
+    expect(normalizeRole('searchbox', 'web')).toBe('textfield')
+  })
+
+  it('maps Chrome-internal native-control roles (not ARIA spec strings)', () => {
+    // Confirmed live via Accessibility.getFullAXTree, not assumed — see
+    // radio-roles.html fixture test below for the end-to-end version.
+    expect(normalizeRole('Date', 'web')).toBe('textfield')       // <input type=date>
+    expect(normalizeRole('ColorWell', 'web')).toBe('button')     // <input type=color>
+    expect(normalizeRole('DisclosureTriangle', 'web')).toBe('button') // <summary>
+  })
+
+  it('leaves non-actionable ARIA composite/container roles as group, explicitly', () => {
+    // These resolve to 'group' by explicit map entry, not just the default
+    // fallback — see normalize.ts for the reasoning per role.
+    for (const role of ['radiogroup', 'tablist', 'menu', 'menubar', 'tree', 'treegrid', 'grid', 'gridcell', 'scrollbar', 'separator', 'progressbar']) {
+      expect(normalizeRole(role, 'web')).toBe('group')
+    }
+  })
+
   it('normalizes macOS roles', () => {
     expect(normalizeRole('AXButton', 'macos')).toBe('button')
     expect(normalizeRole('AXTextField', 'macos')).toBe('textfield')
     expect(normalizeRole('AXPopUpButton', 'macos')).toBe('select')
+  })
+
+  it('maps AXRadioButton to radio, not tab — matches native/role-map.ts and safari/driver.ts', () => {
+    expect(normalizeRole('AXRadioButton', 'macos')).toBe('radio')
+    expect(normalizeRole('AXTab', 'macos')).toBe('tab')
   })
 
   it('falls back to group for unknown roles', () => {

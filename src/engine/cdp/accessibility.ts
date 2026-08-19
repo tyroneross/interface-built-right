@@ -153,8 +153,33 @@ export class AccessibilityDomain {
     for (const node of nodes) {
       if (SKIP_ROLES.has(node.role.value)) continue
 
-      const role = normalizeRole(node.role.value, 'web')
+      let role = normalizeRole(node.role.value, 'web')
       const label = node.name?.value ?? ''
+
+      // `contenteditable` regions are NOT implied by a role of their own —
+      // per the ARIA/HTML-AAM spec, a bare `<div contenteditable>` with no
+      // explicit `role="textbox"` computes to the generic role 'generic'
+      // (confirmed live: Chrome's AX tree reports role.value === 'generic'
+      // for such a node, never 'textbox'). Role-table lookups alone can
+      // never catch this — it has to be read off the AX node's 'editable'
+      // property (present with value 'plaintext' or 'richtext' whenever
+      // the DOM's isContentEditable is true), independent of raw role.
+      //
+      // Requires a non-empty label: verified live that every plain
+      // `<input type=text>` (and by extension search/tel/url/etc.) also
+      // emits its OWN internal, unlabeled, role='generic'+editable AX node
+      // for its shadow-internal text editor — a child of the already-
+      // correctly-classified 'textbox' node, not a distinct element. That
+      // phantom node is indistinguishable from a genuinely-unlabeled
+      // authored contenteditable div at this per-node level (no parent-role
+      // lookup available here), so requiring a label trades rare unlabeled-
+      // contenteditable-div coverage for eliminating a duplicate spurious
+      // 'textfield' entry on literally every page with a plain text input —
+      // consistent with the existing "skip unlabeled containers" policy
+      // just below, which already drops unlabeled elements as noise.
+      if (role === 'group' && label && this.getProperty(node, 'editable') !== undefined) {
+        role = 'textfield'
+      }
 
       // Skip unlabeled containers
       if (role === 'group' && !label) continue
@@ -195,6 +220,10 @@ export class AccessibilityDomain {
       case 'checkbox':
       case 'tab':
       case 'switch':
+      case 'radio':
+      case 'menuitem':
+      case 'option':
+      case 'treeitem':
         return ['press']
       case 'textfield':
         return ['setValue']

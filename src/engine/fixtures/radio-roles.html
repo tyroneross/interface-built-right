@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>radio + ARIA role coverage fixture</title>
+<style>
+  .card { position: relative; display:inline-block; border:1px solid #ccc; padding:12px; margin:6px; }
+  .overlay { position:absolute; inset:0; width:100%; height:100%; margin:0; opacity:0; cursor:pointer; appearance:none; }
+  .srclip { position:absolute; width:1px; height:1px; margin:-1px; overflow:hidden; clip-path: inset(50%); }
+  .vh { visibility:hidden; }
+  .dn { display:none; }
+</style>
+</head>
+<body>
+<h1>radio + ARIA role coverage fixture</h1>
+
+<!-- Visibility-exclusion matrix (mirrors the reporter's axrepro.html) -->
+<label class="card">A plain visible<input type="radio" name="g" id="a" checked></label>
+<label class="card">B opacity zero overlay<input type="radio" name="g" id="b" class="overlay" aria-label="B opacity zero overlay"></label>
+<label class="card">C sr-only clip<input type="radio" name="g" id="c" class="srclip" aria-label="C sr-only clip"></label>
+<label class="card">D visibility hidden<input type="radio" name="g" id="d" class="vh" aria-label="D visibility hidden"></label>
+<label class="card">E display none<input type="radio" name="g" id="e" class="dn" aria-label="E display none"></label>
+<label class="card">F aria hidden<input type="radio" name="g" id="f" aria-hidden="true" aria-label="F aria hidden"></label>
+<label class="card">G plain checkbox<input type="checkbox" id="g" aria-label="G plain checkbox"></label>
+
+<!-- Native role-coverage matrix (mirrors the reporter's axrepro2.html) -->
+<input type="number" aria-label="Native Number">
+<input type="search" aria-label="Native Search">
+<input type="color" aria-label="Native Color">
+<progress value="40" max="100" aria-label="Native Progress"></progress>
+<details><summary>Native Summary</summary><p>body</p></details>
+<div contenteditable="true" aria-label="Editable Div">edit me</div>
+<div role="menu" aria-label="Aria Menu"><div role="menuitem" tabindex="0" aria-label="Aria Menuitem">item</div></div>
+<div role="tablist" aria-label="Aria Tablist"><div role="tab" tabindex="0" aria-label="Aria Tab">tab</div></div>
+<div role="tree" aria-label="Aria Tree"><div role="treeitem" tabindex="0" aria-label="Aria Treeitem">node</div></div>
+<div role="spinbutton" tabindex="0" aria-label="Aria Spinbutton" aria-valuenow="1">1</div>
+
+<!-- role="option" REQUIRES a listbox/combobox ancestor to keep its role —
+     Chrome demotes an orphaned role="option" to 'generic' per the ARIA
+     required-context-role rules (confirmed live against the reporter's
+     non-conformant axrepro2.html fixture, which lacked this wrapper). -->
+<div role="listbox" aria-label="Aria Listbox">
+  <div role="option" tabindex="0" aria-label="Aria Option">opt</div>
+</div>
+</body>
+</html>

@@ -233,6 +233,28 @@ const INTERACTIVE_SELECTORS = [
   'input[type="text"]',
   'input[type="email"]',
   'input[type="password"]',
+  // Same class of native form control as text/email/password above — these
+  // were silently invisible to scan/audit even though observe/session_action
+  // (the CDP AX-tree path in engine/cdp/accessibility.ts) already see them.
+  'input[type="radio"]',
+  'input[type="checkbox"]',
+  'input[type="search"]',
+  'input[type="tel"]',
+  'input[type="url"]',
+  'input[type="number"]',
+  'input[type="date"]',
+  'input[type="file"]',
+  'input[type="range"]',
+  'input[type="color"]',
+  // <summary> genuinely toggles <details> open/closed; a bare
+  // contenteditable region genuinely accepts typing. Neither needs a JS
+  // handler to be interactive — see isContentEditable capture below and
+  // summarize.ts's isLooksInteractive/buildInteractionMap for how the
+  // audit avoids flagging them as "looks interactive, no handler".
+  'details',
+  'summary',
+  // Exclude contenteditable="false", which explicitly opts OUT of editing.
+  '[contenteditable]:not([contenteditable="false"])',
   'select',
   'textarea',
   '[role="button"]',
@@ -386,6 +408,9 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               hasReactHandler: handlers.hasReactHandler || undefined,
               hasVueHandler: handlers.hasVueHandler || undefined,
               hasAngularHandler: handlers.hasAngularHandler || undefined,
+              // .isContentEditable resolves inherited contenteditable
+              // correctly, unlike a raw getAttribute('contenteditable') check.
+              isContentEditable: htmlEl.isContentEditable || undefined,
             },
             a11y: {
               role: htmlEl.getAttribute('role'),
@@ -433,13 +458,20 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
     const isLink = el.tagName === 'a';
     const isInput = ['input', 'select', 'textarea'].includes(el.tagName);
     const looksClickable = el.interactive.cursor === 'pointer';
-    return isButton || isLink || isInput || looksClickable;
+    // <summary> and contenteditable regions are natively interactive
+    // (expand/collapse, accept typing) without a JS handler or role.
+    const isNativelyEditableOrToggleable = el.tagName === 'summary' || !!el.interactive.isContentEditable;
+    return isButton || isLink || isInput || looksClickable || isNativelyEditableOrToggleable;
   });
 
   for (const el of interactiveElements) {
     const isButton = el.tagName === 'button' || el.a11y.role === 'button';
     const isLink = el.tagName === 'a';
-    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref;
+    // Native interactivity (contenteditable / <summary>) needs no JS handler
+    // to be legitimately wired — count it as handled rather than flagging
+    // withoutHandlers for controls the browser drives natively.
+    const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref ||
+      !!el.interactive.isContentEditable || el.tagName === 'summary';
 
     if (hasHandler) {
       withHandlers++;

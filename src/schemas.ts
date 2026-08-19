@@ -298,6 +298,11 @@ export const InteractiveStateSchema = z.object({
   hasReactHandler: z.boolean().optional(),
   hasVueHandler: z.boolean().optional(),
   hasAngularHandler: z.boolean().optional(),
+  // True when Element.isContentEditable is true (native DOM property —
+  // resolves inheritance from an ancestor's contenteditable, unlike a raw
+  // getAttribute check). Natively interactive with no click handler of its
+  // own; see summarize.ts's isLooksInteractive/buildInteractionMap.
+  isContentEditable: z.boolean().optional(),
 });
 
 /**

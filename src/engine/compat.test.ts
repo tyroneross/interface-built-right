@@ -558,3 +558,124 @@ describe('EngineDriver JS dialog handling (live Chrome fixture, E3-D / T-11)', (
     await expect(driver.handleDialog(true)).rejects.toThrow(/no js dialog/i)
   }, 8000)
 })
+
+// End-to-end coverage for the radio/ARIA-role fix: WEB_ROLES in
+// normalize.ts previously mapped every one of these roles to 'group',
+// which stripped both role identity AND actions (inferActions('group')
+// returns []). A unit test on normalizeRole alone would not have caught
+// the D/E/F visibility-exclusion requirement, or the contenteditable
+// role-computation quirk (see accessibility.ts comments) — both only
+// exist as real Chrome AX-tree behavior, confirmed here against a live
+// browser rather than assumed from the ARIA spec.
+describe('EngineDriver radio + ARIA role coverage (live Chrome fixture)', () => {
+  const fixtureUrl = pathToFileURL(join(__dirname, 'fixtures', 'radio-roles.html')).href
+
+  async function elements() {
+    await ensureLaunched()
+    await driver.navigate(fixtureUrl, { waitFor: 'load' })
+    return driver.getSnapshot()
+  }
+
+  function find(els: Awaited<ReturnType<typeof elements>>, label: string, role?: string) {
+    return els.find((e) => e.label === label && (role === undefined || e.role === role))
+  }
+
+  it('makes a plain radio actionable — the originally reported bug', async () => {
+    const els = await elements()
+    const radio = find(els, 'A plain visible', 'radio')
+    expect(radio).toBeDefined()
+    expect(radio!.actions).toContain('press')
+  }, 15000)
+
+  it('keeps opacity:0 and clip-path sr-only radios actionable (still in the a11y tree, still hit-testable)', async () => {
+    const els = await elements()
+    expect(find(els, 'B opacity zero overlay', 'radio')?.actions).toContain('press')
+    expect(find(els, 'C sr-only clip', 'radio')?.actions).toContain('press')
+  }, 15000)
+
+  it('does NOT make genuinely hidden radios actionable (visibility:hidden, display:none, aria-hidden)', async () => {
+    const els = await elements()
+    // These must never appear as role 'radio' at all — Chrome's own AX
+    // tree already excludes them (confirmed via raw Accessibility.
+    // getFullAXTree), so this also guards against a future regression
+    // that starts synthesizing/including them.
+    expect(find(els, 'D visibility hidden', 'radio')).toBeUndefined()
+    expect(find(els, 'E display none', 'radio')).toBeUndefined()
+    expect(find(els, 'F aria hidden', 'radio')).toBeUndefined()
+  }, 15000)
+
+  it('does not regress the checkbox that already worked', async () => {
+    const els = await elements()
+    const checkbox = find(els, 'G plain checkbox', 'checkbox')
+    expect(checkbox).toBeDefined()
+    expect(checkbox!.actions).toContain('press')
+  }, 15000)
+
+  it('folds native number/search inputs into textfield with setValue', async () => {
+    const els = await elements()
+    expect(find(els, 'Native Number', 'textfield')?.actions).toContain('setValue')
+    expect(find(els, 'Native Search', 'textfield')?.actions).toContain('setValue')
+  }, 15000)
+
+  it('maps input[type=color] to a pressable button, mirroring the existing input[type=file] pattern', async () => {
+    const els = await elements()
+    expect(find(els, 'Native Color', 'button')?.actions).toContain('press')
+  }, 15000)
+
+  it('leaves <progress> visible but non-actionable', async () => {
+    const els = await elements()
+    const progress = find(els, 'Native Progress')
+    expect(progress).toBeDefined()
+    expect(progress!.role).toBe('group')
+    expect(progress!.actions).toEqual([])
+  }, 15000)
+
+  it('makes <summary> pressable (expand/collapse)', async () => {
+    const els = await elements()
+    expect(find(els, 'Native Summary', 'button')?.actions).toContain('press')
+  }, 15000)
+
+  it('makes a labeled contenteditable region actionable via setValue, despite computing role "generic"', async () => {
+    const els = await elements()
+    const editable = find(els, 'Editable Div', 'textfield')
+    expect(editable).toBeDefined()
+    expect(editable!.actions).toContain('setValue')
+  }, 15000)
+
+  it('does not spuriously turn a plain text input into a duplicate unlabeled textfield', async () => {
+    // Regression guard: the contenteditable/editable-property override was
+    // originally observed to also fire on plain <input> elements' internal
+    // shadow-editor AX node (role generic + editable, but unlabeled and a
+    // duplicate of the input's own already-correct 'textbox'->'textfield'
+    // node). The label requirement in accessibility.ts's override exists
+    // specifically to exclude this.
+    const els = await elements()
+    const unlabeledTextfields = els.filter((e) => e.role === 'textfield' && e.label === '')
+    expect(unlabeledTextfields).toHaveLength(0)
+  }, 15000)
+
+  it('gives ARIA menuitem/tab/treeitem/option roles a press action', async () => {
+    const els = await elements()
+    expect(find(els, 'Aria Menuitem', 'menuitem')?.actions).toContain('press')
+    expect(find(els, 'Aria Tab', 'tab')?.actions).toContain('press')
+    expect(find(els, 'Aria Treeitem', 'treeitem')?.actions).toContain('press')
+    // role="option" only keeps its role inside a listbox/combobox ancestor
+    // per the ARIA required-context-role rules — this fixture's option is
+    // correctly nested (unlike the reporter's original, non-conformant probe).
+    expect(find(els, 'Aria Option', 'option')?.actions).toContain('press')
+  }, 15000)
+
+  it('gives ARIA spinbutton a setValue action, folded into textfield', async () => {
+    const els = await elements()
+    expect(find(els, 'Aria Spinbutton', 'textfield')?.actions).toContain('setValue')
+  }, 15000)
+
+  it('leaves ARIA container/composite roles (menu, tablist, tree) non-actionable', async () => {
+    const els = await elements()
+    for (const label of ['Aria Menu', 'Aria Tablist', 'Aria Tree']) {
+      const container = find(els, label, 'group')
+      expect(container, `${label} should resolve to role 'group'`).toBeDefined()
+      expect(container!.actions).toEqual([])
+    }
+  }, 15000)
+})
