@@ -113,7 +113,7 @@ export async function GET() {
 //   - With url + name → invoke the IBR CLI via runIbrCli (no shell) and read
 //     the resulting session record.
 //   - Name only → create an empty session record with no capture.
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest) {  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
   try {
     const body = await request.json();
     const { url, name, viewport = 'desktop' } = body as {

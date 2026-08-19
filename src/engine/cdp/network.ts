@@ -249,7 +249,7 @@ export class NetworkDomain {
   /**
    * Set a cookie.
    */
-  async setCookie(cookie: SetCookieParams): Promise<boolean> {
+  async setCookie(cookie: SetCookieParams): Promise<boolean> {  // nosec: sets a cookie on the page under test via CDP; this is the browser driver, not a server issuing session cookies — httpOnly/secure/sameSite are the caller's to pass through
     const result = await this.conn.send<{ success: boolean }>(
       'Network.setCookie', cookie as unknown as Record<string, unknown>, this.sessionId,
     )

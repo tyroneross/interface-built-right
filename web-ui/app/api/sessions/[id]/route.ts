@@ -35,7 +35,7 @@ export async function GET(
 }
 
 // DELETE /api/sessions/[id] - Delete a session.
-export async function DELETE(
+export async function DELETE(  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {

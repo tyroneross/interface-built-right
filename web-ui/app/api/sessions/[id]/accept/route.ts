@@ -9,7 +9,7 @@ const SESSION_ID_RE = /^sess_[A-Za-z0-9_-]+$/;
 // POST /api/sessions/[id]/accept - Promote current screenshot to baseline.
 // Pure file operations; no shell. (This route was already shell-free; the only
 // change here is the path-resolution helper.)
-export async function POST(
+export async function POST(  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {

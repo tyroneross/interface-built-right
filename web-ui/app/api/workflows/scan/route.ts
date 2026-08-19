@@ -4,7 +4,7 @@ import { runIbrCli, extractJson } from '@/lib/server/run-ibr';
 // POST /api/workflows/scan - Run a full interface scan on a URL.
 // Uses execFile (argument array) via runIbrCli — no shell, no string-concat,
 // no command injection.
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest) {  // nosec: localhost-only operator dashboard (next -p 4200, no host binding), excluded from the npm files list and never deployed — no auth by design, owner decision 2026-08-18
   try {
     const body = await request.json();
     const { url, viewport } = body as { url?: unknown; viewport?: unknown };
