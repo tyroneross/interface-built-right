@@ -73,7 +73,7 @@ Runs pure algorithms against the runtime data. Zero tokens. Returns structured v
 
 | Rule Preset | What It Checks | Algorithm |
 |-------------|---------------|-----------|
-| `wcag-contrast` | Text contrast ratios, AA and AAA | WCAG 2.1 relative luminance |
+| `wcag-contrast` | Text contrast ratios, AA and AAA | WCAG 2.1 relative luminance. Parses `oklch`, `oklab`, `lch`, `lab`, `hsl`, `color()`, hex 3/4/6/8, named, and `rgb`/`rgba` — a color it cannot decode is reported as `wcag-aa-contrast-unmeasurable`, never skipped silently. Large-text thresholds are 24px, or 18.66px bold |
 | `touch-targets` | Interactive element sizing | 44px mobile (WCAG 2.5.5), 24px desktop (WCAG 2.5.8) |
 | `calm-precision` | Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load | Principle-based checks |
 
