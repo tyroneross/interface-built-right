@@ -14704,7 +14704,7 @@ window.__IBR_STUB_ERRORS = [];
       doc.querySelectorAll('*').forEach(function (el) {
         for (var i = el.attributes.length - 1; i >= 0; i--) {
           var name = el.attributes[i].name;
-          if (/^on/i.test(name) || (name === 'href' && /^s*javascript:/i.test(el.getAttribute('href') || ''))) {
+          if (/^on/i.test(name) || (name === 'href' && /^\\s*javascript:/i.test(el.getAttribute('href') || ''))) {
             el.removeAttribute(name);
           }
         }
