@@ -751,7 +751,61 @@ function resolveBrowserConnectionOptions(options = {}, env = process.env) {
     chromePath: options.chromePath || env.IBR_CHROME_PATH
   };
 }
-var CHROME_PATHS, BrowserManager;
+function reclaimStaleSingletonLock(lockPath) {
+  let target;
+  try {
+    target = fs$1.readlinkSync(lockPath);
+  } catch {
+    return false;
+  }
+  const sep = target.lastIndexOf("-");
+  if (sep <= 0) return false;
+  const host = target.slice(0, sep);
+  const pid = Number(target.slice(sep + 1));
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (host !== os.hostname()) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err) {
+    if (err.code === "EPERM") return false;
+  }
+  try {
+    fs$1.unlinkSync(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function reapOrphanedProfiles() {
+  let inUse;
+  try {
+    const ps = child_process.execFileSync("ps", ["-eo", "command"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+    inUse = new Set(
+      [...ps.matchAll(/--user-data-dir=(\S*ibr-chrome-[A-Za-z0-9]+)/g)].map((m) => m[1])
+    );
+  } catch {
+    return;
+  }
+  const dir = os.tmpdir();
+  let entries;
+  try {
+    entries = fs$1.readdirSync(dir).filter((n) => n.startsWith("ibr-chrome-"));
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const name of entries) {
+    const full = path.join(dir, name);
+    if (inUse.has(full)) continue;
+    try {
+      if (now - fs$1.statSync(full).mtimeMs < PROFILE_REAP_GRACE_MS) continue;
+      fs$1.rmSync(full, { recursive: true, force: true });
+    } catch {
+    }
+  }
+}
+var CHROME_PATHS, PROFILE_REAP_GRACE_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     CHROME_PATHS = [
@@ -767,12 +821,15 @@ var init_browser = __esm({
       // Windows (WSL)
       "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
     ];
+    PROFILE_REAP_GRACE_MS = 60 * 60 * 1e3;
     BrowserManager = class {
       process = null;
       _port = 0;
       _mode = "local";
       _cdpUrl = null;
       _wsEndpoint = null;
+      /** Set only when this browser owns a throwaway profile it must delete on close. */
+      _ephemeralProfileDir = null;
       async launch(options = {}) {
         const connection = resolveBrowserConnectionOptions(options);
         this._mode = connection.mode;
@@ -799,8 +856,12 @@ var init_browser = __esm({
         const lockPath = path.join(userDataDir, "SingletonLock");
         const lockStat = fs$1.lstatSync(lockPath, { throwIfNoEntry: false });
         if (lockStat) {
-          userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
+          if (reclaimStaleSingletonLock(lockPath)) ; else {
+            userDataDir = fs$1.mkdtempSync(path.join(os.tmpdir(), "ibr-chrome-"));
+            this._ephemeralProfileDir = userDataDir;
+          }
         }
+        reapOrphanedProfiles();
         const chromePath = connection.chromePath ?? findChrome();
         if (!chromePath) {
           throw new Error(
@@ -868,6 +929,13 @@ If you are running inside a sandbox, retry with connect mode:
           });
           proc.kill("SIGTERM");
         });
+        if (this._ephemeralProfileDir) {
+          try {
+            fs$1.rmSync(this._ephemeralProfileDir, { recursive: true, force: true });
+          } catch {
+          }
+          this._ephemeralProfileDir = null;
+        }
       }
       get running() {
         return this.process !== null && !this.process.killed;

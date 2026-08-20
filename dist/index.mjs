@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { execFile, exec, spawn } from 'child_process';
-import { existsSync, readFileSync, statSync, writeFileSync, createReadStream, createWriteStream, lstatSync, mkdtempSync } from 'fs';
+import { execFile, exec, spawn, execFileSync } from 'child_process';
+import { existsSync, readFileSync, statSync, writeFileSync, createReadStream, createWriteStream, lstatSync, mkdtempSync, rmSync, readlinkSync, unlinkSync, readdirSync } from 'fs';
 import * as fs from 'fs/promises';
 import { mkdir, readFile, writeFile, unlink, readdir, copyFile, chmod, rm, access, appendFile, stat } from 'fs/promises';
 import { createServer } from 'net';
-import { homedir, tmpdir, userInfo } from 'os';
+import { homedir, tmpdir, userInfo, hostname } from 'os';
 import * as path from 'path';
 import { join, dirname } from 'path';
 import pixelmatch from 'pixelmatch';
@@ -726,7 +726,61 @@ function resolveBrowserConnectionOptions(options = {}, env = process.env) {
     chromePath: options.chromePath || env.IBR_CHROME_PATH
   };
 }
-var CHROME_PATHS, BrowserManager;
+function reclaimStaleSingletonLock(lockPath) {
+  let target;
+  try {
+    target = readlinkSync(lockPath);
+  } catch {
+    return false;
+  }
+  const sep = target.lastIndexOf("-");
+  if (sep <= 0) return false;
+  const host = target.slice(0, sep);
+  const pid = Number(target.slice(sep + 1));
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (host !== hostname()) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err) {
+    if (err.code === "EPERM") return false;
+  }
+  try {
+    unlinkSync(lockPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function reapOrphanedProfiles() {
+  let inUse;
+  try {
+    const ps = execFileSync("ps", ["-eo", "command"], { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+    inUse = new Set(
+      [...ps.matchAll(/--user-data-dir=(\S*ibr-chrome-[A-Za-z0-9]+)/g)].map((m) => m[1])
+    );
+  } catch {
+    return;
+  }
+  const dir = tmpdir();
+  let entries;
+  try {
+    entries = readdirSync(dir).filter((n) => n.startsWith("ibr-chrome-"));
+  } catch {
+    return;
+  }
+  const now = Date.now();
+  for (const name of entries) {
+    const full = join(dir, name);
+    if (inUse.has(full)) continue;
+    try {
+      if (now - statSync(full).mtimeMs < PROFILE_REAP_GRACE_MS) continue;
+      rmSync(full, { recursive: true, force: true });
+    } catch {
+    }
+  }
+}
+var CHROME_PATHS, PROFILE_REAP_GRACE_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
     CHROME_PATHS = [
@@ -742,12 +796,15 @@ var init_browser = __esm({
       // Windows (WSL)
       "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"
     ];
+    PROFILE_REAP_GRACE_MS = 60 * 60 * 1e3;
     BrowserManager = class {
       process = null;
       _port = 0;
       _mode = "local";
       _cdpUrl = null;
       _wsEndpoint = null;
+      /** Set only when this browser owns a throwaway profile it must delete on close. */
+      _ephemeralProfileDir = null;
       async launch(options = {}) {
         const connection = resolveBrowserConnectionOptions(options);
         this._mode = connection.mode;
@@ -774,8 +831,12 @@ var init_browser = __esm({
         const lockPath = join(userDataDir, "SingletonLock");
         const lockStat = lstatSync(lockPath, { throwIfNoEntry: false });
         if (lockStat) {
-          userDataDir = mkdtempSync(join(tmpdir(), "ibr-chrome-"));
+          if (reclaimStaleSingletonLock(lockPath)) ; else {
+            userDataDir = mkdtempSync(join(tmpdir(), "ibr-chrome-"));
+            this._ephemeralProfileDir = userDataDir;
+          }
         }
+        reapOrphanedProfiles();
         const chromePath = connection.chromePath ?? findChrome();
         if (!chromePath) {
           throw new Error(
@@ -843,6 +904,13 @@ If you are running inside a sandbox, retry with connect mode:
           });
           proc.kill("SIGTERM");
         });
+        if (this._ephemeralProfileDir) {
+          try {
+            rmSync(this._ephemeralProfileDir, { recursive: true, force: true });
+          } catch {
+          }
+          this._ephemeralProfileDir = null;
+        }
       }
       get running() {
         return this.process !== null && !this.process.killed;

@@ -3,11 +3,11 @@
  * Forked from Spectra — adapted for IBR engine.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, lstatSync, mkdtempSync } from 'node:fs'
+import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
+import { existsSync, lstatSync, mkdtempSync, readdirSync, readlinkSync, rmSync, statSync, unlinkSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { createServer } from 'node:net'
-import { homedir, tmpdir } from 'node:os'
+import { homedir, hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 export const CHROME_PATHS = [
@@ -122,12 +122,91 @@ export function resolveBrowserConnectionOptions(
   }
 }
 
+/** Age below which an unreferenced profile is left alone, in ms. */
+const PROFILE_REAP_GRACE_MS = 60 * 60 * 1000
+
+/**
+ * Chrome writes `SingletonLock` as a symlink to `<hostname>-<pid>`. A crash
+ * leaves the link with a pid that no longer exists.
+ *
+ * Returns true when the lock was a leftover and has been removed, meaning the
+ * shared profile is safe to use. Returns false when the holder is alive, when
+ * the link belongs to another host, or when anything is unreadable — every
+ * uncertain case keeps the lock, because wrongly reclaiming a LIVE profile
+ * makes two Chromes fight over it.
+ */
+function reclaimStaleSingletonLock(lockPath: string): boolean {
+  let target: string
+  try {
+    target = readlinkSync(lockPath)
+  } catch {
+    return false // not a symlink, or unreadable — do not touch it
+  }
+  const sep = target.lastIndexOf('-')
+  if (sep <= 0) return false
+  const host = target.slice(0, sep)
+  const pid = Number(target.slice(sep + 1))
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  // A pid is only meaningful on the host that wrote it.
+  if (host !== hostname()) return false
+  try {
+    process.kill(pid, 0)
+    return false // holder is alive
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'EPERM') return false // alive, other user
+  }
+  try {
+    unlinkSync(lockPath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Delete `ibr-chrome-*` profiles that no running Chrome references.
+ *
+ * Liveness first: the in-use set is read from the `--user-data-dir` arguments
+ * of running processes, so a profile in active use is never removed no matter
+ * how old. Age is only a secondary guard against deleting a profile in the
+ * window between `mkdtemp` and Chrome opening it.
+ */
+function reapOrphanedProfiles(): void {
+  let inUse: Set<string>
+  try {
+    const ps = execFileSync('ps', ['-eo', 'command'], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
+    inUse = new Set(
+      [...ps.matchAll(/--user-data-dir=(\S*ibr-chrome-[A-Za-z0-9]+)/g)].map((m) => m[1]),
+    )
+  } catch {
+    return // cannot establish liveness — delete nothing
+  }
+  const dir = tmpdir()
+  let entries: string[]
+  try {
+    entries = readdirSync(dir).filter((n) => n.startsWith('ibr-chrome-'))
+  } catch {
+    return
+  }
+  const now = Date.now()
+  for (const name of entries) {
+    const full = join(dir, name)
+    if (inUse.has(full)) continue
+    try {
+      if (now - statSync(full).mtimeMs < PROFILE_REAP_GRACE_MS) continue
+      rmSync(full, { recursive: true, force: true })
+    } catch { /* best effort; retried next launch */ }
+  }
+}
+
 export class BrowserManager {
   private process: ChildProcess | null = null
   private _port = 0
   private _mode: BrowserMode = 'local'
   private _cdpUrl: string | null = null
   private _wsEndpoint: string | null = null
+  /** Set only when this browser owns a throwaway profile it must delete on close. */
+  private _ephemeralProfileDir: string | null = null
 
   async launch(options: BrowserOptions = {}): Promise<string> {
     const connection = resolveBrowserConnectionOptions(options)
@@ -166,10 +245,28 @@ export class BrowserManager {
     const lockPath = join(userDataDir, 'SingletonLock')
     const lockStat = lstatSync(lockPath, { throwIfNoEntry: false })
     if (lockStat) {
-      // Profile is locked (or has a stale crash-leftover lock symlink).
-      // Use a temp profile to avoid conflict.
-      userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
+      // A lock can mean two very different things, and treating them alike is
+      // what produced 965 abandoned profiles (~16GB) on one machine: a single
+      // stale symlink dated 2026-05-16 sent EVERY launch for three months down
+      // the temp-profile path, and nothing ever deleted them.
+      //
+      // So resolve which it is. The target is `<hostname>-<pid>`: if that pid
+      // is gone on this host, the lock is a crash leftover and the shared
+      // profile is free — reclaim it. Only a genuinely live holder (real
+      // concurrency) justifies a throwaway profile.
+      if (reclaimStaleSingletonLock(lockPath)) {
+        // Shared profile reclaimed; keep using it.
+      } else {
+        userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
+        this._ephemeralProfileDir = userDataDir
+      }
     }
+
+    // Liveness-aware sweep of profiles abandoned by earlier runs. Age alone is
+    // not evidence of abandonment — a long scan legitimately holds a profile
+    // for hours — so a directory is removed only when no running Chrome still
+    // names it AND it is past the grace window.
+    reapOrphanedProfiles()
 
     const chromePath = connection.chromePath ?? findChrome()
     if (!chromePath) {
@@ -250,6 +347,13 @@ export class BrowserManager {
 
       proc.kill('SIGTERM')
     })
+
+    // The profile only existed for this browser; Chrome has exited, so nothing
+    // else can be reading it. Without this the directory outlives every run.
+    if (this._ephemeralProfileDir) {
+      try { rmSync(this._ephemeralProfileDir, { recursive: true, force: true }) } catch { /* best effort */ }
+      this._ephemeralProfileDir = null
+    }
   }
 
   get running(): boolean {
