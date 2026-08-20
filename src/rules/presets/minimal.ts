@@ -1,5 +1,6 @@
 import type { Rule, RuleContext, RulePreset } from '../types.js';
 import type { EnhancedElement, Violation } from '../../schemas.js';
+import { evaluateTargetSize } from '../target-sizing.js';
 
 /**
  * An element is treated as "not present to the user" when its layout box has
@@ -134,21 +135,20 @@ const touchTargetRule: Rule = {
       ? (options?.mobileMinSize as number) ?? 44
       : (options?.desktopMinSize as number) ?? 24;
 
-    const { width, height } = element.bounds;
+    // Grade the real activation rect and honour WCAG's inline-text
+    // exception — see src/rules/target-sizing.ts.
+    const { bounds, violates } = evaluateTargetSize(element, minSize);
+    if (!violates) return null;
 
-    if (width < minSize || height < minSize) {
-      return {
-        ruleId: 'touch-target-small',
-        ruleName: 'Touch Target Too Small',
-        severity: 'warn',
-        message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: `Increase element size to at least ${minSize}x${minSize}px`,
-      };
-    }
-
-    return null;
+    return {
+      ruleId: 'touch-target-small',
+      ruleName: 'Touch Target Too Small',
+      severity: 'warn',
+      message: `"${element.text || element.selector}" touch target is ${bounds.width}x${bounds.height}px (min: ${minSize}px)`,
+      element: element.selector,
+      bounds,
+      fix: `Increase element size to at least ${minSize}x${minSize}px`,
+    };
   },
 };
 

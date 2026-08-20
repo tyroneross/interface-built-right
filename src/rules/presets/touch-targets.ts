@@ -1,5 +1,6 @@
 import type { Rule, RuleContext, RulePreset } from '../types.js';
 import type { EnhancedElement, Violation } from '../../schemas.js';
+import { evaluateTargetSize } from '../target-sizing.js';
 
 /**
  * Determine whether an element is likely interactive (tappable/clickable).
@@ -43,23 +44,23 @@ const mobileTouchTargetRule: Rule = {
     if (!context.isMobile) return null;
     if (!isInteractive(element)) return null;
 
-    const { width, height } = element.bounds;
-    if (width === 0 || height === 0) return null;
+    if (element.bounds.width === 0 || element.bounds.height === 0) return null;
 
     const MIN = 44;
-    if (width < MIN || height < MIN) {
-      return {
-        ruleId: 'touch-target-mobile',
-        ruleName: 'Mobile Touch Target Size',
-        severity: 'error',
-        message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`,
-      };
-    }
+    // Grade the real activation rect and honour WCAG's inline-text
+    // exception — see src/rules/target-sizing.ts.
+    const { bounds, violates } = evaluateTargetSize(element, MIN);
+    if (!violates) return null;
 
-    return null;
+    return {
+      ruleId: 'touch-target-mobile',
+      ruleName: 'Mobile Touch Target Size',
+      severity: 'error',
+      message: `"${element.text || element.selector}" touch target is ${bounds.width}x${bounds.height}px (minimum ${MIN}x${MIN}px)`,
+      element: element.selector,
+      bounds,
+      fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`,
+    };
   },
 };
 
@@ -72,23 +73,21 @@ const desktopPointerTargetRule: Rule = {
     if (context.isMobile) return null;
     if (!isInteractive(element)) return null;
 
-    const { width, height } = element.bounds;
-    if (width === 0 || height === 0) return null;
+    if (element.bounds.width === 0 || element.bounds.height === 0) return null;
 
     const MIN = 24;
-    if (width < MIN || height < MIN) {
-      return {
-        ruleId: 'touch-target-desktop',
-        ruleName: 'Desktop Pointer Target Size',
-        severity: 'warn',
-        message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
-        element: element.selector,
-        bounds: element.bounds,
-        fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`,
-      };
-    }
+    const { bounds, violates } = evaluateTargetSize(element, MIN);
+    if (!violates) return null;
 
-    return null;
+    return {
+      ruleId: 'touch-target-desktop',
+      ruleName: 'Desktop Pointer Target Size',
+      severity: 'warn',
+      message: `"${element.text || element.selector}" pointer target is ${bounds.width}x${bounds.height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
+      element: element.selector,
+      bounds,
+      fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`,
+    };
   },
 };
 

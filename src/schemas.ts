@@ -322,6 +322,40 @@ export const A11yAttributesSchema = z.object({
 });
 
 /**
+ * DOM measurements that decide what a target's REAL activation box is, and
+ * whether the target is one WCAG exempts from size grading. Both are only
+ * computable in the browser (they need computed styles of ancestors and the
+ * `labels` association), so src/extract.ts measures them and
+ * src/rules/target-sizing.ts applies the thresholds.
+ */
+export const TargetContextSchema = z.object({
+  /**
+   * Count of non-target text characters (whitespace-collapsed) in the
+   * element's nearest block-level ancestor, after subtracting the text of
+   * every interactive descendant. Feeds the WCAG 2.5.8 "Inline" exception:
+   * a link in a sentence has hundreds; a link in a `|`-separated inline nav
+   * has one or two.
+   */
+  surroundingTextChars: z.number().optional(),
+  /**
+   * Bounds of the largest visible `<label>` associated with this control
+   * (via `HTMLInputElement.labels` or an ancestor `<label>`). Clicking an
+   * associated label activates the control, so for a visually-hidden input
+   * this rect — not the input's own box — is the thing a finger lands on.
+   * Absent when the control has no usable label.
+   */
+  labelTargetBounds: BoundsSchema.optional(),
+  /**
+   * How many `<label>` elements are associated with this control, counted
+   * regardless of visibility. Non-zero with `labelTargetBounds` absent means
+   * every label is hidden at THIS viewport — the responsive-nav-toggle case,
+   * where the control's affordance is deliberately switched off above a
+   * breakpoint and no pointer target exists to grade.
+   */
+  associatedLabels: z.number().optional(),
+});
+
+/**
  * Enhanced element with interactivity and accessibility
  */
 export const EnhancedElementSchema = z.object({
@@ -351,6 +385,9 @@ export const EnhancedElementSchema = z.object({
 
   // Accessibility
   a11y: A11yAttributesSchema,
+
+  // Target-size context — see TargetContextSchema.
+  targetContext: TargetContextSchema.optional(),
 
   // Source hints for debugging
   sourceHint: z.object({
@@ -403,6 +440,7 @@ export type Session = z.infer<typeof SessionSchema>;
 export type ComparisonReport = z.infer<typeof ComparisonReportSchema>;
 export type InteractiveState = z.infer<typeof InteractiveStateSchema>;
 export type A11yAttributes = z.infer<typeof A11yAttributesSchema>;
+export type TargetContext = z.infer<typeof TargetContextSchema>;
 export type Bounds = z.infer<typeof BoundsSchema>;
 export type EnhancedElement = z.infer<typeof EnhancedElementSchema>;
 export type ElementIssue = z.infer<typeof ElementIssueSchema>;

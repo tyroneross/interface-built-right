@@ -7,6 +7,7 @@ import { join } from 'path';
 import type { Viewport, EnhancedElement, ElementIssue, AuditResult } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
 import { viewportToConfig } from './devices.js';
+import { evaluateTargetSize } from './rules/target-sizing.js';
 
 /**
  * Lock file to prevent concurrent extractions
@@ -350,6 +351,80 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
       };
     };
 
+    // Helper: bounds of the largest VISIBLE <label> that activates this
+    // control. Clicking an associated label activates its control, so for a
+    // visually-hidden input (`sr-only`, `clip-path: inset(50%)`, `opacity:0`)
+    // the label is the thing a finger actually lands on — the input's own
+    // 1x1 box never was the target. Read by src/rules/target-sizing.ts.
+    const measureLabelTarget = (el: HTMLElement): {
+      bounds?: { x: number; y: number; width: number; height: number };
+      count: number;
+    } => {
+      const labelled = el as HTMLElement & { labels?: NodeListOf<HTMLLabelElement> | null };
+      let labels: HTMLElement[] = labelled.labels ? Array.from(labelled.labels) : [];
+      if (labels.length === 0) {
+        // Non-labelable elements (e.g. a [role="checkbox"] div) can still sit
+        // inside a <label> that forwards the click.
+        const ancestor = el.closest?.('label');
+        if (ancestor) labels = [ancestor as HTMLElement];
+      }
+
+      let best: { x: number; y: number; width: number; height: number } | undefined;
+      let bestArea = 0;
+      for (const label of labels) {
+        const style = window.getComputedStyle(label);
+        // A label that is itself hidden or click-through supplies no hit area.
+        if (style.display === 'none' || style.visibility === 'hidden') continue;
+        if (style.opacity === '0' || style.pointerEvents === 'none') continue;
+        const r = label.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        const labelArea = r.width * r.height;
+        if (labelArea <= bestArea) continue;
+        bestArea = labelArea;
+        best = {
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          width: Math.round(r.width),
+          height: Math.round(r.height),
+        };
+      }
+      // `count` is reported even when no label is VISIBLE: a control whose
+      // only label is hidden at this viewport (a `sm:hidden` nav toggle above
+      // the breakpoint) has no pointer target to grade at all.
+      return { bounds: best, count: labels.length };
+    };
+
+    // Helper: how much NON-target text sits in this element's nearest
+    // block-level ancestor. Feeds the WCAG 2.5.8 "Inline" exception — a link
+    // in a sentence is surrounded by hundreds of characters of prose, while a
+    // link in a `|`-separated inline nav is surrounded by one or two. The
+    // threshold itself lives in src/rules/target-sizing.ts so it is tunable
+    // and unit-testable without a browser.
+    const TARGET_SELECTOR = 'a,button,input,select,textarea,[role="button"],[role="link"],[onclick]';
+    const measureSurroundingText = (el: HTMLElement): number => {
+      // Walk out of inline wrappers (<strong>, <em>, <span>) to the block
+      // that establishes the line box — that is the "sentence" WCAG means.
+      let block: HTMLElement | null = el.parentElement;
+      while (block && window.getComputedStyle(block).display.startsWith('inline')) {
+        block = block.parentElement;
+      }
+      if (!block) return 0;
+
+      const collapse = (s: string) => s.replace(/\s+/g, ' ').trim();
+      const blockText = collapse(block.textContent || '');
+      if (!blockText) return 0;
+
+      let targetChars = 0;
+      block.querySelectorAll(TARGET_SELECTOR).forEach((t) => {
+        targetChars += collapse(t.textContent || '').length;
+      });
+
+      // Nested targets are counted twice and can drive this negative; clamp
+      // to 0 so ambiguity errs toward grading the target, never toward
+      // exempting it.
+      return Math.max(0, blockText.length - targetChars);
+    };
+
     // Process each selector
     for (const selector of selectors) {
       try {
@@ -425,6 +500,17 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || undefined,
               ariaHaspopup: htmlEl.getAttribute('aria-haspopup'),
             },
+            // What the touch/pointer-target rules must measure instead of
+            // this element's own layout box — see TargetContextSchema and
+            // src/rules/target-sizing.ts.
+            targetContext: (() => {
+              const label = measureLabelTarget(htmlEl);
+              return {
+                surroundingTextChars: measureSurroundingText(htmlEl),
+                labelTargetBounds: label.bounds,
+                associatedLabels: label.count,
+              };
+            })(),
             sourceHint: {
               dataTestId: htmlEl.getAttribute('data-testid'),
             },
@@ -498,12 +584,16 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
     }
 
     // Check: Touch target too small (mobile)
+    // Grades the real activation rect (an associated <label> when one
+    // supplies the hit area) and skips targets WCAG 2.5.8 exempts as inline
+    // text in a sentence — see src/rules/target-sizing.ts.
     const minSize = isMobile ? 44 : 24;
-    if (el.bounds.width < minSize || el.bounds.height < minSize) {
+    const targetSize = evaluateTargetSize(el, minSize);
+    if (targetSize.violates) {
       issues.push({
         type: 'TOUCH_TARGET_SMALL',
         severity: isMobile ? 'error' : 'warning',
-        message: `"${el.text || el.selector}" touch target is ${el.bounds.width}x${el.bounds.height}px (min: ${minSize}px)`,
+        message: `"${el.text || el.selector}" touch target is ${targetSize.bounds.width}x${targetSize.bounds.height}px (min: ${minSize}px)`,
       });
     }
 

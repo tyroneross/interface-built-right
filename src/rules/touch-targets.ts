@@ -1,5 +1,7 @@
 import type { Rule, RuleContext } from './types.js';
 import type { EnhancedElement, Violation } from '../schemas.js';
+import { evaluateTargetSize, tallyTargetExemptions } from './target-sizing.js';
+import type { TargetExemptionKind } from './target-sizing.js';
 
 /**
  * ARIA roles that indicate an element is interactive.
@@ -29,7 +31,7 @@ const INTERACTIVE_ROLES = new Set([
  */
 const INTERACTIVE_TAGS = new Set(['button', 'a', 'input', 'select', 'textarea']);
 
-function isInteractiveElement(element: EnhancedElement): boolean {
+export function isInteractiveElement(element: EnhancedElement): boolean {
   if (INTERACTIVE_TAGS.has(element.tagName.toLowerCase())) return true;
   const role = element.a11y?.role;
   if (role && INTERACTIVE_ROLES.has(role)) return true;
@@ -56,6 +58,42 @@ function isNonVisibleOrZeroArea(element: EnhancedElement): boolean {
   return false;
 }
 
+/**
+ * Minimum target size for this context, in CSS px. Mobile is decided by the
+ * context flag OR a sub-768px viewport. Exported so callers that need to
+ * reason about exemptions (src/ask.ts) derive the threshold the same way the
+ * rule does, rather than re-deriving it and drifting.
+ */
+export function minTargetSize(context: RuleContext, options?: Record<string, unknown>): number {
+  const isMobile = context.isMobile || context.viewportWidth < 768;
+  return isMobile
+    ? (options?.mobileMinSize as number) ?? 44
+    : (options?.desktopMinSize as number) ?? 24;
+}
+
+/**
+ * True when this element is one the size rule grades at all — interactive,
+ * visible, and non-degenerate. Exported so exemption accounting counts the
+ * same population the rule walks.
+ */
+export function isGradableTarget(element: EnhancedElement): boolean {
+  return isInteractiveElement(element) && !isNonVisibleOrZeroArea(element);
+}
+
+/**
+ * How many findings the WCAG-inline and label-hit-area policies suppressed
+ * across `elements`. Callers surface these counts so the two exemptions stay
+ * auditable — a gate that silently drops findings is the failure mode this
+ * rule already hit once.
+ */
+export function tallyTouchTargetExemptions(
+  elements: EnhancedElement[],
+  context: RuleContext,
+  options?: Record<string, unknown>,
+): Partial<Record<TargetExemptionKind, number>> {
+  return tallyTargetExemptions(elements.filter(isGradableTarget), minTargetSize(context, options));
+}
+
 export const touchTargetRules: Rule[] = [
   {
     id: 'touch-targets/minimum-size',
@@ -65,32 +103,29 @@ export const touchTargetRules: Rule[] = [
     check: (element: EnhancedElement, context: RuleContext, options?: Record<string, unknown>): Violation | null => {
       if (!isInteractiveElement(element)) return null;
 
-      // Use viewport width to determine mobile vs desktop (< 768px = mobile)
       const isMobile = context.isMobile || context.viewportWidth < 768;
-      const minSize = isMobile
-        ? (options?.mobileMinSize as number) ?? 44
-        : (options?.desktopMinSize as number) ?? 24;
-
-      const { width, height } = element.bounds;
+      const minSize = minTargetSize(context, options);
 
       // Skip non-visible elements (display:none, visibility:hidden, opacity:0)
       // and elements with zero or negative area in either dimension.
       if (isNonVisibleOrZeroArea(element)) return null;
 
-      if (width < minSize || height < minSize) {
-        const label = element.text || element.a11y?.ariaLabel || element.selector;
-        return {
-          ruleId: 'touch-targets/minimum-size',
-          ruleName: 'Touch Target: Minimum Size',
-          severity: 'warn',
-          message: `"${label.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? 'mobile' : 'desktop'})`,
-          element: element.selector,
-          bounds: element.bounds,
-          fix: `Increase element size to at least ${minSize}x${minSize}px`,
-        };
-      }
+      // Grade the REAL activation rect, and skip targets WCAG exempts —
+      // an inline link in a sentence, or a hidden control whose <label>
+      // supplies the hit area. See src/rules/target-sizing.ts.
+      const { bounds, violates } = evaluateTargetSize(element, minSize);
+      if (!violates) return null;
 
-      return null;
+      const label = element.text || element.a11y?.ariaLabel || element.selector;
+      return {
+        ruleId: 'touch-targets/minimum-size',
+        ruleName: 'Touch Target: Minimum Size',
+        severity: 'warn',
+        message: `"${label.slice(0, 40)}" touch target is ${bounds.width}x${bounds.height}px (minimum ${minSize}x${minSize}px on ${isMobile ? 'mobile' : 'desktop'})`,
+        element: element.selector,
+        bounds,
+        fix: `Increase element size to at least ${minSize}x${minSize}px`,
+      };
     },
   },
 ];

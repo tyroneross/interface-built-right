@@ -14,7 +14,8 @@
 import { scan } from './scan.js'
 import type { SetCookieParams } from './engine/cdp/network.js'
 import type { RuleContext } from './rules/types.js'
-import { touchTargetRules } from './rules/touch-targets.js'
+import { touchTargetRules, tallyTouchTargetExemptions } from './rules/touch-targets.js'
+import type { TargetExemptionKind } from './rules/target-sizing.js'
 import { signalNoiseRules } from './design-system/principles/signal-noise.js'
 import { loadDesignSystemConfig } from './design-system/index.js'
 import { validateExtendedTokens } from './design-system/tokens/validator.js'
@@ -57,6 +58,16 @@ export interface AskResponse {
     durationMs: number
     elementsScanned: number
     rulesRun: string[]
+    /**
+     * Findings the target-size policies deliberately did NOT report, by
+     * reason: `wcag-inline` (a link in a sentence — WCAG 2.5.8 exempts it,
+     * and resizing it would reflow the paragraph) and `label-hit-area` (a
+     * visually-hidden control whose associated <label> supplies the real
+     * hit area). Present only on touch-target questions, and only when
+     * something was actually exempted — so the two policies stay auditable
+     * instead of dropping findings invisibly.
+     */
+    exempted?: Partial<Record<TargetExemptionKind, number>>
     /** When verdict is UNCERTAIN, list of supported question phrasings. */
     supportedQuestions?: string[]
     /**
@@ -237,6 +248,8 @@ export type AskStreamEvent =
       truncated: boolean
       rulesRun: string[]
       elementsScanned: number
+      /** See AskResponse.meta.exempted. */
+      exempted?: Partial<Record<TargetExemptionKind, number>>
       screenshotPath?: string
       /** Set when the rule loop halted because options.signal fired. */
       aborted?: boolean
@@ -419,6 +432,7 @@ export async function* askStream(
 
   const signal = options.signal
   let aborted = false
+  let exempted: Partial<Record<TargetExemptionKind, number>> | undefined
 
   // Per-finding cropping: when a screenshot was captured, attach a cropped
   // region to each finding's evidence. Token-economic: the agent gets the
@@ -451,6 +465,14 @@ export async function* askStream(
   if (def.kind === 'touch-target' || def.kind === 'signal-noise') {
     const targetRules = def.kind === 'touch-target' ? touchTargetRules : signalNoiseRules
     for (const r of targetRules) rulesRun.push(r.id)
+
+    // Count what the WCAG-inline and label-hit-area policies suppressed, so
+    // the `end` event can report it. A gate whose skipped findings are
+    // invisible is exactly the failure mode these policies are fixing.
+    if (def.kind === 'touch-target') {
+      const counts = tallyTouchTargetExemptions(elements, context)
+      if (Object.keys(counts).length > 0) exempted = counts
+    }
 
     outer: for (const element of elements) {
       // Check before each element so cancellation halts within one element's worth of work.
@@ -530,6 +552,7 @@ export async function* askStream(
     truncated: totalProduced > emitted,
     rulesRun,
     elementsScanned: elements.length,
+    ...(exempted ? { exempted } : {}),
     ...(screenshotPath ? { screenshotPath } : {}),
     ...(aborted ? { aborted: true } : {}),
   }
@@ -575,6 +598,7 @@ export async function ask(
       durationMs: endEvent.durationMs,
       elementsScanned: endEvent.elementsScanned,
       rulesRun: endEvent.rulesRun,
+      ...(endEvent.exempted ? { exempted: endEvent.exempted } : {}),
       ...(supportedQuestions ? { supportedQuestions } : {}),
       ...(endEvent.screenshotPath ? { screenshotPath: endEvent.screenshotPath } : {}),
     },

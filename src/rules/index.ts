@@ -8,7 +8,15 @@ import { spacingGridRules } from './spacing-grid.js';
 
 // Re-export individual rule arrays
 export { wcagContrastRules } from './wcag-contrast.js';
-export { touchTargetRules } from './touch-targets.js';
+export { touchTargetRules, tallyTouchTargetExemptions, minTargetSize, isGradableTarget } from './touch-targets.js';
+export {
+  evaluateTargetSize,
+  isWcagInlineTarget,
+  largestActivationBounds,
+  tallyTargetExemptions,
+  MIN_SURROUNDING_TEXT_CHARS,
+} from './target-sizing.js';
+export type { TargetExemption, TargetExemptionKind, TargetSizeDecision } from './target-sizing.js';
 export { textHierarchyRules } from './text-hierarchy.js';
 export { handlerIntegrityRules } from './handler-integrity.js';
 export { spacingGridRules } from './spacing-grid.js';

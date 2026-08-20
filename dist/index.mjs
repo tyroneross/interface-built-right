@@ -28,7 +28,7 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-var ViewportSchema, VIEWPORTS, ThresholdBasisSchema, ProvenancedThresholdSchema, VerdictPolicySchema, ThresholdOverrideSchema, VerdictPolicyOverrideSchema, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema, DesignSystemViolationSchema, DesignSystemResultSchema;
+var ViewportSchema, VIEWPORTS, ThresholdBasisSchema, ProvenancedThresholdSchema, VerdictPolicySchema, ThresholdOverrideSchema, VerdictPolicyOverrideSchema, ConfigSchema, SessionQuerySchema, ComparisonResultSchema, ChangedRegionSchema, VerdictSchema, AnalysisSchema, SessionStatusSchema, BoundsSchema, LandmarkElementSchema, SessionSchema, ComparisonReportSchema, InteractiveStateSchema, A11yAttributesSchema, TargetContextSchema, EnhancedElementSchema, ElementIssueSchema, AuditResultSchema, RuleSeveritySchema, RuleSettingSchema, RulesConfigSchema, ViolationSchema, RuleAuditResultSchema, MemorySourceSchema, PreferenceCategorySchema, ExpectationOperatorSchema, ExpectationSchema, PreferenceSchema, ObservationSchema, LearnedExpectationSchema, ActivePreferenceSchema, MemorySummarySchema, DesignSystemViolationSchema, DesignSystemResultSchema;
 var init_schemas = __esm({
   "src/schemas.ts"() {
     ViewportSchema = z.object({
@@ -253,6 +253,32 @@ var init_schemas = __esm({
       // Captured here so rules can opt out of grading these as orphans.
       ariaHaspopup: z.string().nullable().optional()
     });
+    TargetContextSchema = z.object({
+      /**
+       * Count of non-target text characters (whitespace-collapsed) in the
+       * element's nearest block-level ancestor, after subtracting the text of
+       * every interactive descendant. Feeds the WCAG 2.5.8 "Inline" exception:
+       * a link in a sentence has hundreds; a link in a `|`-separated inline nav
+       * has one or two.
+       */
+      surroundingTextChars: z.number().optional(),
+      /**
+       * Bounds of the largest visible `<label>` associated with this control
+       * (via `HTMLInputElement.labels` or an ancestor `<label>`). Clicking an
+       * associated label activates the control, so for a visually-hidden input
+       * this rect — not the input's own box — is the thing a finger lands on.
+       * Absent when the control has no usable label.
+       */
+      labelTargetBounds: BoundsSchema.optional(),
+      /**
+       * How many `<label>` elements are associated with this control, counted
+       * regardless of visibility. Non-zero with `labelTargetBounds` absent means
+       * every label is hidden at THIS viewport — the responsive-nav-toggle case,
+       * where the control's affordance is deliberately switched off above a
+       * breakpoint and no pointer target exists to grade.
+       */
+      associatedLabels: z.number().optional()
+    });
     EnhancedElementSchema = z.object({
       // Identity
       selector: z.string(),
@@ -275,6 +301,8 @@ var init_schemas = __esm({
       buttonType: z.string().nullable().optional(),
       // Accessibility
       a11y: A11yAttributesSchema,
+      // Target-size context — see TargetContextSchema.
+      targetContext: TargetContextSchema.optional(),
       // Source hints for debugging
       sourceHint: z.object({
         dataTestId: z.string().nullable()
@@ -7499,6 +7527,74 @@ var init_memory = __esm({
   }
 });
 
+// src/rules/target-sizing.ts
+function area(b) {
+  return Math.max(0, b.width) * Math.max(0, b.height);
+}
+function isWcagInlineTarget(element) {
+  if (element.computedStyles?.display !== "inline") return false;
+  if (!element.text || element.text.trim().length === 0) return false;
+  const surrounding = element.targetContext?.surroundingTextChars ?? 0;
+  return surrounding >= MIN_SURROUNDING_TEXT_CHARS;
+}
+function largestActivationBounds(element) {
+  const label = element.targetContext?.labelTargetBounds;
+  if (!label) return element.bounds;
+  return area(label) > area(element.bounds) ? label : element.bounds;
+}
+function evaluateTargetSize(element, minSize) {
+  const own = element.bounds;
+  const ownViolates = own.width < minSize || own.height < minSize;
+  if (isWcagInlineTarget(element)) {
+    return {
+      bounds: own,
+      violates: false,
+      exemption: ownViolates ? {
+        kind: "wcag-inline",
+        reason: "Target is inline text inside a block of prose \u2014 WCAG 2.5.8 exempts targets in a sentence, and resizing it would reflow the paragraph."
+      } : null
+    };
+  }
+  const labelsHiddenAtThisViewport = !element.targetContext?.labelTargetBounds && (element.targetContext?.associatedLabels ?? 0) > 0 && own.width <= MAX_STUB_CONTROL_PX && own.height <= MAX_STUB_CONTROL_PX;
+  if (labelsHiddenAtThisViewport) {
+    return {
+      bounds: own,
+      violates: false,
+      exemption: ownViolates ? {
+        kind: "label-hit-area",
+        reason: `Control is a ${own.width}x${own.height}px stub whose associated <label> is hidden at this viewport, so it has no pointer target here to size.`
+      } : null
+    };
+  }
+  const bounds = largestActivationBounds(element);
+  const violates = bounds.width < minSize || bounds.height < minSize;
+  const measuredViaLabel = bounds !== own;
+  return {
+    bounds,
+    violates,
+    exemption: !violates && ownViolates && measuredViaLabel ? {
+      kind: "label-hit-area",
+      reason: `Hit area is supplied by an associated <label> measuring ${bounds.width}x${bounds.height}px; the control's own box (${own.width}x${own.height}px) is not the target.`
+    } : null
+  };
+}
+function tallyTargetExemptions(elements, minSize) {
+  const counts = {};
+  for (const element of elements) {
+    const { exemption } = evaluateTargetSize(element, minSize);
+    if (!exemption) continue;
+    counts[exemption.kind] = (counts[exemption.kind] ?? 0) + 1;
+  }
+  return counts;
+}
+var MIN_SURROUNDING_TEXT_CHARS, MAX_STUB_CONTROL_PX;
+var init_target_sizing = __esm({
+  "src/rules/target-sizing.ts"() {
+    MIN_SURROUNDING_TEXT_CHARS = 12;
+    MAX_STUB_CONTROL_PX = 4;
+  }
+});
+
 // src/extract.ts
 async function extractInteractiveElements(page) {
   return page.evaluate((selectors) => {
@@ -7558,6 +7654,49 @@ async function extractInteractiveElements(page) {
         hasVanillaHandler,
         hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler
       };
+    };
+    const measureLabelTarget = (el) => {
+      const labelled = el;
+      let labels = labelled.labels ? Array.from(labelled.labels) : [];
+      if (labels.length === 0) {
+        const ancestor = el.closest?.("label");
+        if (ancestor) labels = [ancestor];
+      }
+      let best;
+      let bestArea = 0;
+      for (const label of labels) {
+        const style = window.getComputedStyle(label);
+        if (style.display === "none" || style.visibility === "hidden") continue;
+        if (style.opacity === "0" || style.pointerEvents === "none") continue;
+        const r = label.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        const labelArea = r.width * r.height;
+        if (labelArea <= bestArea) continue;
+        bestArea = labelArea;
+        best = {
+          x: Math.round(r.x),
+          y: Math.round(r.y),
+          width: Math.round(r.width),
+          height: Math.round(r.height)
+        };
+      }
+      return { bounds: best, count: labels.length };
+    };
+    const TARGET_SELECTOR = 'a,button,input,select,textarea,[role="button"],[role="link"],[onclick]';
+    const measureSurroundingText = (el) => {
+      let block = el.parentElement;
+      while (block && window.getComputedStyle(block).display.startsWith("inline")) {
+        block = block.parentElement;
+      }
+      if (!block) return 0;
+      const collapse = (s) => s.replace(/\s+/g, " ").trim();
+      const blockText = collapse(block.textContent || "");
+      if (!blockText) return 0;
+      let targetChars = 0;
+      block.querySelectorAll(TARGET_SELECTOR).forEach((t) => {
+        targetChars += collapse(t.textContent || "").length;
+      });
+      return Math.max(0, blockText.length - targetChars);
     };
     for (const selector of selectors) {
       try {
@@ -7626,6 +7765,17 @@ async function extractInteractiveElements(page) {
               ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || void 0,
               ariaHaspopup: htmlEl.getAttribute("aria-haspopup")
             },
+            // What the touch/pointer-target rules must measure instead of
+            // this element's own layout box — see TargetContextSchema and
+            // src/rules/target-sizing.ts.
+            targetContext: (() => {
+              const label = measureLabelTarget(htmlEl);
+              return {
+                surroundingTextChars: measureSurroundingText(htmlEl),
+                labelTargetBounds: label.bounds,
+                associatedLabels: label.count
+              };
+            })(),
             sourceHint: {
               dataTestId: htmlEl.getAttribute("data-testid")
             },
@@ -7675,11 +7825,12 @@ function analyzeElements(elements, isMobile = false) {
       });
     }
     const minSize = isMobile ? 44 : 24;
-    if (el.bounds.width < minSize || el.bounds.height < minSize) {
+    const targetSize = evaluateTargetSize(el, minSize);
+    if (targetSize.violates) {
       issues.push({
         type: "TOUCH_TARGET_SMALL",
         severity: isMobile ? "error" : "warning",
-        message: `"${el.text || el.selector}" touch target is ${el.bounds.width}x${el.bounds.height}px (min: ${minSize}px)`
+        message: `"${el.text || el.selector}" touch target is ${targetSize.bounds.width}x${targetSize.bounds.height}px (min: ${minSize}px)`
       });
     }
     if (hasHandler && !el.text && !el.a11y.ariaLabel) {
@@ -7705,6 +7856,7 @@ var init_extract2 = __esm({
     init_compat();
     init_schemas();
     init_devices();
+    init_target_sizing();
     INTERACTIVE_SELECTORS = [
       "button",
       "a[href]",
@@ -10132,9 +10284,20 @@ function isNonVisibleOrZeroArea(element) {
   if (element.bounds.height <= 0) return true;
   return false;
 }
+function minTargetSize(context, options) {
+  const isMobile = context.isMobile || context.viewportWidth < 768;
+  return isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
+}
+function isGradableTarget(element) {
+  return isInteractiveElement(element) && !isNonVisibleOrZeroArea(element);
+}
+function tallyTouchTargetExemptions(elements, context, options) {
+  return tallyTargetExemptions(elements.filter(isGradableTarget), minTargetSize(context, options));
+}
 var INTERACTIVE_ROLES, INTERACTIVE_TAGS, touchTargetRules;
 var init_touch_targets = __esm({
   "src/rules/touch-targets.ts"() {
+    init_target_sizing();
     INTERACTIVE_ROLES = /* @__PURE__ */ new Set([
       "button",
       "link",
@@ -10164,22 +10327,20 @@ var init_touch_targets = __esm({
         check: (element, context, options) => {
           if (!isInteractiveElement(element)) return null;
           const isMobile = context.isMobile || context.viewportWidth < 768;
-          const minSize = isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
-          const { width, height } = element.bounds;
+          const minSize = minTargetSize(context, options);
           if (isNonVisibleOrZeroArea(element)) return null;
-          if (width < minSize || height < minSize) {
-            const label = element.text || element.a11y?.ariaLabel || element.selector;
-            return {
-              ruleId: "touch-targets/minimum-size",
-              ruleName: "Touch Target: Minimum Size",
-              severity: "warn",
-              message: `"${label.slice(0, 40)}" touch target is ${width}x${height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
-              element: element.selector,
-              bounds: element.bounds,
-              fix: `Increase element size to at least ${minSize}x${minSize}px`
-            };
-          }
-          return null;
+          const { bounds, violates } = evaluateTargetSize(element, minSize);
+          if (!violates) return null;
+          const label = element.text || element.a11y?.ariaLabel || element.selector;
+          return {
+            ruleId: "touch-targets/minimum-size",
+            ruleName: "Touch Target: Minimum Size",
+            severity: "warn",
+            message: `"${label.slice(0, 40)}" touch target is ${bounds.width}x${bounds.height}px (minimum ${minSize}x${minSize}px on ${isMobile ? "mobile" : "desktop"})`,
+            element: element.selector,
+            bounds,
+            fix: `Increase element size to at least ${minSize}x${minSize}px`
+          };
         }
       }
     ];
@@ -10458,6 +10619,7 @@ var init_rules = __esm({
     init_spacing_grid();
     init_wcag_contrast();
     init_touch_targets();
+    init_target_sizing();
     init_text_hierarchy();
     init_handler_integrity();
     init_spacing_grid();
@@ -10901,6 +11063,7 @@ function isFormSubmitButton(element) {
 var noHandlerRule, placeholderLinkRule, touchTargetRule, missingAriaLabelRule, disabledNoVisualRule, minimalPreset;
 var init_minimal = __esm({
   "src/rules/presets/minimal.ts"() {
+    init_target_sizing();
     noHandlerRule = {
       id: "no-handler",
       name: "No Click Handler",
@@ -10961,19 +11124,17 @@ var init_minimal = __esm({
         const isInteractive2 = element.interactive.hasOnClick || element.interactive.hasHref;
         if (!isInteractive2) return null;
         const minSize = context.isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
-        const { width, height } = element.bounds;
-        if (width < minSize || height < minSize) {
-          return {
-            ruleId: "touch-target-small",
-            ruleName: "Touch Target Too Small",
-            severity: "warn",
-            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (min: ${minSize}px)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${minSize}x${minSize}px`
-          };
-        }
-        return null;
+        const { bounds, violates } = evaluateTargetSize(element, minSize);
+        if (!violates) return null;
+        return {
+          ruleId: "touch-target-small",
+          ruleName: "Touch Target Too Small",
+          severity: "warn",
+          message: `"${element.text || element.selector}" touch target is ${bounds.width}x${bounds.height}px (min: ${minSize}px)`,
+          element: element.selector,
+          bounds,
+          fix: `Increase element size to at least ${minSize}x${minSize}px`
+        };
       }
     };
     missingAriaLabelRule = {
@@ -11073,6 +11234,7 @@ function isInteractive(el) {
 var mobileTouchTargetRule, desktopPointerTargetRule, touchTargetPresetRules, touchTargetsPreset;
 var init_touch_targets2 = __esm({
   "src/rules/presets/touch-targets.ts"() {
+    init_target_sizing();
     mobileTouchTargetRule = {
       id: "touch-target-mobile",
       name: "Mobile Touch Target Size",
@@ -11081,21 +11243,19 @@ var init_touch_targets2 = __esm({
       check(element, context) {
         if (!context.isMobile) return null;
         if (!isInteractive(element)) return null;
-        const { width, height } = element.bounds;
-        if (width === 0 || height === 0) return null;
+        if (element.bounds.width === 0 || element.bounds.height === 0) return null;
         const MIN = 44;
-        if (width < MIN || height < MIN) {
-          return {
-            ruleId: "touch-target-mobile",
-            ruleName: "Mobile Touch Target Size",
-            severity: "error",
-            message: `"${element.text || element.selector}" touch target is ${width}x${height}px (minimum ${MIN}x${MIN}px)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
-          };
-        }
-        return null;
+        const { bounds, violates } = evaluateTargetSize(element, MIN);
+        if (!violates) return null;
+        return {
+          ruleId: "touch-target-mobile",
+          ruleName: "Mobile Touch Target Size",
+          severity: "error",
+          message: `"${element.text || element.selector}" touch target is ${bounds.width}x${bounds.height}px (minimum ${MIN}x${MIN}px)`,
+          element: element.selector,
+          bounds,
+          fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.5 / Apple HIG)`
+        };
       }
     };
     desktopPointerTargetRule = {
@@ -11106,21 +11266,19 @@ var init_touch_targets2 = __esm({
       check(element, context) {
         if (context.isMobile) return null;
         if (!isInteractive(element)) return null;
-        const { width, height } = element.bounds;
-        if (width === 0 || height === 0) return null;
+        if (element.bounds.width === 0 || element.bounds.height === 0) return null;
         const MIN = 24;
-        if (width < MIN || height < MIN) {
-          return {
-            ruleId: "touch-target-desktop",
-            ruleName: "Desktop Pointer Target Size",
-            severity: "warn",
-            message: `"${element.text || element.selector}" pointer target is ${width}x${height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
-          };
-        }
-        return null;
+        const { bounds, violates } = evaluateTargetSize(element, MIN);
+        if (!violates) return null;
+        return {
+          ruleId: "touch-target-desktop",
+          ruleName: "Desktop Pointer Target Size",
+          severity: "warn",
+          message: `"${element.text || element.selector}" pointer target is ${bounds.width}x${bounds.height}px (minimum ${MIN}x${MIN}px per WCAG 2.5.8)`,
+          element: element.selector,
+          bounds,
+          fix: `Increase element size to at least ${MIN}x${MIN}px (WCAG 2.5.8)`
+        };
       }
     };
     touchTargetPresetRules = [mobileTouchTargetRule, desktopPointerTargetRule];
@@ -16878,6 +17036,7 @@ async function* askStream(url, question, options = {}) {
   }
   const signal = options.signal;
   let aborted = false;
+  let exempted;
   let cropFn = null;
   async function maybeCrop(b) {
     if (!screenshotPath) return null;
@@ -16899,6 +17058,10 @@ async function* askStream(url, question, options = {}) {
   if (def.kind === "touch-target" || def.kind === "signal-noise") {
     const targetRules = def.kind === "touch-target" ? touchTargetRules : signalNoiseRules;
     for (const r of targetRules) rulesRun.push(r.id);
+    if (def.kind === "touch-target") {
+      const counts = tallyTouchTargetExemptions(elements, context);
+      if (Object.keys(counts).length > 0) exempted = counts;
+    }
     outer: for (const element of elements) {
       if (signal?.aborted) {
         aborted = true;
@@ -16969,6 +17132,7 @@ async function* askStream(url, question, options = {}) {
     truncated: totalProduced > emitted,
     rulesRun,
     elementsScanned: elements.length,
+    ...exempted ? { exempted } : {},
     ...screenshotPath ? { screenshotPath } : {},
     ...aborted ? { aborted: true } : {}
   };
@@ -17000,6 +17164,7 @@ async function ask(url, question, options = {}) {
       durationMs: endEvent.durationMs,
       elementsScanned: endEvent.elementsScanned,
       rulesRun: endEvent.rulesRun,
+      ...endEvent.exempted ? { exempted: endEvent.exempted } : {},
       ...supportedQuestions ? { supportedQuestions } : {},
       ...endEvent.screenshotPath ? { screenshotPath: endEvent.screenshotPath } : {}
     }
@@ -19892,6 +20057,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, TargetContextSchema, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

@@ -43,6 +43,47 @@ increment before it is cut into a release.
 
 ### Fixed
 
+- **Touch-target rules graded the wrong box, and graded targets WCAG exempts.**
+  With viewport emulation fixed in 1.5.0 the rules measured the right layout, but
+  two finding classes remained false by construction. On `rosslabs.ai` at both
+  viewports they were **every** surviving finding on some pages — a gate whose
+  output is entirely unactionable teaches the reader to ignore it, which is the
+  failure mode the pooled-viewport bug already caused once.
+
+  - **Inline prose links.** An `<a>` inside a sentence measured its text box
+    (91x18px) and was flagged. WCAG 2.5.8 exempts a target "in a sentence or
+    whose size is otherwise constrained by the line-height of non-target text";
+    growing one to 44px would reflow the paragraph.
+  - **Label-overlay controls.** An `sr-only` `<input>` whose hit area is supplied
+    by an associated visible `<label>` measured at its own size (1x1px for the
+    CSS-only nav-toggle pattern) while the label — the thing a finger lands on —
+    measured 44x44. Above the label's breakpoint, where the label is
+    `display: none`, the 1x1 stub has no pointer affordance at all to size.
+
+  Fixed by measuring the real activation rect and applying the standard's own
+  exception, in one shared policy module (`src/rules/target-sizing.ts`) used by
+  every touch-target grading site: `ask`, the `touch-targets` preset (including
+  its `error`-severity mobile rule), the `minimal` preset, and `scan`'s
+  `analyzeElements`. `src/extract.ts` measures the two DOM inputs the policy
+  needs — surrounding non-target text, and associated-label bounds.
+
+  **Precision measured before any change to severity**, over 8 page x viewport
+  combinations on `rosslabs.ai`: **33% before (7 genuine of 21 findings) → 100%
+  after (7 of 7)**, with all 7 genuine findings preserved. Severity is unchanged.
+  Counterexamples are asserted, not assumed: an `inline-block`/`inline-flex`
+  control in prose, a `|`-separated inline nav, a paragraph whose only content is
+  a link, an undersized `<label>` (the finding now reports the label's bounds so
+  the fix targets the right element), and any control large enough to point at
+  all stay flagged.
+
+  Nothing is dropped silently — `ask` reports what it skipped under
+  `meta.exempted`, keyed by reason (`wcag-inline`, `label-hit-area`).
+
+  46 new tests: policy unit tests against handmade payloads, plus a real-Chrome
+  integration test (`src/rules/target-sizing.integration.test.ts`) covering both
+  viewports, because `HTMLInputElement.labels` and a real cascade cannot be
+  proven by a fixture object.
+
 - `AGENTS.md` counts and inventories had drifted from the tree: skills listed 22
   against 23 on disk (`obsidian-plugin-ui` undocumented), commands listed 27/30
   against 31 (`/ibr:ibr` undocumented). Both corrected alongside the new entries.

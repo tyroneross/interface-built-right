@@ -74,8 +74,26 @@ Runs pure algorithms against the runtime data. Zero tokens. Returns structured v
 | Rule Preset | What It Checks | Algorithm |
 |-------------|---------------|-----------|
 | `wcag-contrast` | Text contrast ratios, AA and AAA | WCAG 2.1 relative luminance. Parses `oklch`, `oklab`, `lch`, `lab`, `hsl`, `color()`, hex 3/4/6/8, named, and `rgb`/`rgba` — a color it cannot decode is reported as `wcag-aa-contrast-unmeasurable`, never skipped silently. Large-text thresholds are 24px, or 18.66px bold |
-| `touch-targets` | Interactive element sizing | 44px mobile (WCAG 2.5.5), 24px desktop (WCAG 2.5.8) |
+| `touch-targets` | Interactive element sizing | 44px mobile (WCAG 2.5.5), 24px desktop (WCAG 2.5.8). Measures the real activation rect and honours WCAG's inline exception — see below |
 | `calm-precision` | Gestalt, Signal-to-Noise, Fitts, Hick, Content-Chrome, Cognitive Load | Principle-based checks |
+
+#### What the touch-target rules measure
+
+The size rules grade the rect a pointer can actually land on, not always the element's own layout box, and they skip the one target class WCAG exempts. Both landed after the rule reached **0% precision** on a real page: every surviving finding was unactionable by construction.
+
+| Target | Graded as | Why |
+|---|---|---|
+| `<a>` inline in a sentence | **not graded** | WCAG 2.5.8 exempts a target "in a sentence or whose size is otherwise constrained by the line-height of non-target text". Growing it to 44px would reflow the paragraph |
+| Hidden `<input>` with a visible `<label>` | **the label's rect** | Clicking an associated label activates the control, so the label is the target. An `sr-only` checkbox measures 1x1; its label measures 44x44 |
+| Hidden `<input>` whose label is hidden at this viewport | **not graded** | A `sm:hidden` nav toggle above its breakpoint has no pointer affordance at that width, so there is nothing to size |
+
+Deliberately still graded, because suppressing a real finding is worse than the defect being fixed: an `inline-block` / `inline-flex` control in prose (a box, resizable without reflowing text), a `|`-separated inline nav (separators are not prose), a paragraph whose only content is a link, a control whose `<label>` is itself undersized (the finding reports the **label's** bounds so the fix targets the right element), and any control large enough to point at whatever its label is doing.
+
+Nothing is dropped silently: `ibr ask ... 'is the touch-target compliant'` reports what it skipped under `meta.exempted`, keyed by reason.
+
+```json
+{ "verdict": "PASS", "findings": [], "meta": { "exempted": { "wcag-inline": 3, "label-hit-area": 1 } } }
+```
 
 Enable via `.ibr/rules.json`:
 
