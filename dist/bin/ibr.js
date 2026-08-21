@@ -5714,6 +5714,10 @@ async function closeBrowser() {
     driver = null;
   }
 }
+async function applyViewportToPooledDriver(driver3, viewport) {
+  const cfg = viewportToConfig(viewport);
+  if (cfg) await driver3.setViewport(cfg);
+}
 async function captureScreenshot(options) {
   const {
     url,
@@ -5721,6 +5725,7 @@ async function captureScreenshot(options) {
     viewport = VIEWPORTS.desktop,
     fullPage = true,
     headed = false,
+    pool,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
@@ -5739,15 +5744,22 @@ async function captureScreenshot(options) {
       console.log("\u{1F510} Using saved authentication state");
     }
   }
-  const driverInstance = new EngineDriver();
-  await driverInstance.launch({
-    headless: !headed,
-    viewport: viewportToConfig(viewport),
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath
-  });
+  const ownDriver = !pool;
+  let driverInstance;
+  if (pool) {
+    driverInstance = await pool.acquire();
+    await applyViewportToPooledDriver(driverInstance, viewport);
+  } else {
+    driverInstance = new EngineDriver();
+    await driverInstance.launch({
+      headless: !headed,
+      viewport: viewportToConfig(viewport),
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
+    });
+  }
   const page = new CompatPage(driverInstance);
   try {
     await page.goto(url, {
@@ -5777,7 +5789,11 @@ async function captureScreenshot(options) {
     }
     return outputPath;
   } finally {
-    await driverInstance.close();
+    if (ownDriver) {
+      await driverInstance.close();
+    } else if (pool) {
+      pool.release();
+    }
   }
 }
 async function captureWithLandmarks(options) {
@@ -19406,6 +19422,17 @@ function __test_setSession(id, entry) {
     sessions.set(id, entry);
   }
 }
+async function closeAllSessions() {
+  const entries = [...sessions.entries()];
+  sessions.clear();
+  await Promise.all(entries.map(async ([, entry]) => {
+    try {
+      await entry.driver?.close?.();
+    } catch {
+    }
+  }));
+  return entries.length;
+}
 var sessions;
 var init_sessions = __esm({
   "src/mcp/sessions.ts"() {
@@ -30788,6 +30815,10 @@ function getMcpBrowserPool() {
   return mcpBrowserPoolPromise;
 }
 async function closeMcpBrowserPool() {
+  try {
+    await closeAllSessions();
+  } catch {
+  }
   if (mcpBrowserPoolPromise) {
     const p = mcpBrowserPoolPromise;
     mcpBrowserPoolPromise = void 0;
@@ -32021,7 +32052,8 @@ async function handleScreenshot(args) {
     timeout: isExternal ? 6e4 : 3e4,
     selector,
     waitFor,
-    delay
+    delay,
+    pool: await getMcpBrowserPool()
   });
   const imageBuffer = (0, import_fs23.readFileSync)(tempPath);
   const base64 = imageBuffer.toString("base64");

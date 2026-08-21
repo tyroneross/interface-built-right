@@ -4228,6 +4228,66 @@ declare class CompatPage {
 }
 
 /**
+ * BrowserPool — keeps a single warm EngineDriver alive across multiple scans
+ * in the same process.
+ *
+ * Cold launch is the single largest contributor to scan() latency (~600-800ms
+ * out of ~1.4s total measured against example.com). For long-running consumers
+ * — most importantly the MCP server, where every tool call shares a process —
+ * launching once and reusing for subsequent scans drops first-finding latency
+ * to roughly the cost of `goto` + extraction (~400-600ms total).
+ *
+ * Concurrency: the pool serialises scans through a simple async mutex. Two
+ * `scan()` calls against the same pool will not race on the shared page; the
+ * second call waits for the first to release. Concurrent scans are out of
+ * scope for this iteration; if we need them later, the pool can be extended
+ * with a max-pages knob and on-demand target.createPage().
+ *
+ * Lifecycle: pool.close() must be called by the host (e.g. on SIGTERM in the
+ * MCP server) to release the underlying browser process. The pool does not
+ * register exit handlers automatically — explicit lifecycle keeps test
+ * isolation clean.
+ */
+
+interface BrowserPoolOptions {
+    /** Launch options applied on the first acquire. Subsequent acquires reuse. */
+    launchOptions?: LaunchOptions;
+}
+declare class BrowserPool {
+    private driver;
+    private launchOptions;
+    private inUse;
+    private waiters;
+    private closed;
+    constructor(options?: BrowserPoolOptions);
+    /**
+     * Acquire the warm driver. Launches on first call. Awaits if another
+     * caller currently holds the driver.
+     *
+     * Ticket-lock pattern: when a waiter wakes, the lock is *theirs* — no
+     * re-check loop. release() hands ownership directly so the queue is
+     * strictly FIFO and a fresh caller cannot jump in between release() and
+     * the woken waiter's continuation.
+     */
+    acquire(): Promise<EngineDriver>;
+    /**
+     * Release the driver back to the pool. Hands off ownership to the next
+     * waiter directly (without resetting inUse) so the queue stays FIFO.
+     */
+    release(): void;
+    /**
+     * Close the underlying browser. Future acquire() calls throw. Already-
+     * waiting callers wake and observe `closed`, so no one hangs.
+     *
+     * Note: a current holder is *not* forcibly evicted. Their next release()
+     * is still valid (it just falls through the no-waiters branch).
+     */
+    close(): Promise<void>;
+    /** True if the pool has a live driver. Useful for diagnostics. */
+    hasWarmDriver(): boolean;
+}
+
+/**
  * Capture result with timing and diagnostic info
  */
 interface CaptureResult {
@@ -4259,6 +4319,14 @@ declare function closeBrowser(): Promise<void>;
  */
 declare function captureScreenshot(options: CaptureOptions & {
     outputDir?: string;
+    /**
+     * Optional warm browser pool. Supplied by long-lived hosts (the MCP
+     * server) so consecutive screenshots reuse one browser instead of
+     * launching per call. Omitted by the CLI, which is one-shot and has
+     * nothing to amortise. Widened here rather than on the shared
+     * CaptureOptions type, which other capture paths also use.
+     */
+    pool?: BrowserPool;
 }): Promise<string>;
 /**
  * Get viewport dimensions by name
@@ -5315,66 +5383,6 @@ declare function addKnownIssue(outputDir: string, issue: string): Promise<Compac
  * Check if compact context exceeds the 4KB target
  */
 declare function isCompactContextOversize(outputDir: string): Promise<boolean>;
-
-/**
- * BrowserPool — keeps a single warm EngineDriver alive across multiple scans
- * in the same process.
- *
- * Cold launch is the single largest contributor to scan() latency (~600-800ms
- * out of ~1.4s total measured against example.com). For long-running consumers
- * — most importantly the MCP server, where every tool call shares a process —
- * launching once and reusing for subsequent scans drops first-finding latency
- * to roughly the cost of `goto` + extraction (~400-600ms total).
- *
- * Concurrency: the pool serialises scans through a simple async mutex. Two
- * `scan()` calls against the same pool will not race on the shared page; the
- * second call waits for the first to release. Concurrent scans are out of
- * scope for this iteration; if we need them later, the pool can be extended
- * with a max-pages knob and on-demand target.createPage().
- *
- * Lifecycle: pool.close() must be called by the host (e.g. on SIGTERM in the
- * MCP server) to release the underlying browser process. The pool does not
- * register exit handlers automatically — explicit lifecycle keeps test
- * isolation clean.
- */
-
-interface BrowserPoolOptions {
-    /** Launch options applied on the first acquire. Subsequent acquires reuse. */
-    launchOptions?: LaunchOptions;
-}
-declare class BrowserPool {
-    private driver;
-    private launchOptions;
-    private inUse;
-    private waiters;
-    private closed;
-    constructor(options?: BrowserPoolOptions);
-    /**
-     * Acquire the warm driver. Launches on first call. Awaits if another
-     * caller currently holds the driver.
-     *
-     * Ticket-lock pattern: when a waiter wakes, the lock is *theirs* — no
-     * re-check loop. release() hands ownership directly so the queue is
-     * strictly FIFO and a fresh caller cannot jump in between release() and
-     * the woken waiter's continuation.
-     */
-    acquire(): Promise<EngineDriver>;
-    /**
-     * Release the driver back to the pool. Hands off ownership to the next
-     * waiter directly (without resetting inUse) so the queue stays FIFO.
-     */
-    release(): void;
-    /**
-     * Close the underlying browser. Future acquire() calls throw. Already-
-     * waiting callers wake and observe `closed`, so no one hangs.
-     *
-     * Note: a current holder is *not* forcibly evicted. Their next release()
-     * is still valid (it just falls through the no-waiters branch).
-     */
-    close(): Promise<void>;
-    /** True if the pool has a live driver. Useful for diagnostics. */
-    hasWarmDriver(): boolean;
-}
 
 interface LayoutCollision {
     element1: {

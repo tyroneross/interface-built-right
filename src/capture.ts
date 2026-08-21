@@ -138,11 +138,39 @@ export async function closeBrowser(): Promise<void> {
   }
 }
 
+
+/**
+ * Re-apply device metrics to a driver taken from the pool.
+ *
+ * A pooled driver keeps whatever viewport the PREVIOUS caller left on it, so a
+ * request for `mobile` would otherwise be measured at the last caller's size.
+ * scan() hit this exact bug on its own pool path; this is the capture-side
+ * equivalent. Failures are not swallowed: a screenshot silently taken at the
+ * wrong breakpoint is the defect this prevents.
+ */
+async function applyViewportToPooledDriver(
+  driver: EngineDriver,
+  viewport: Parameters<typeof viewportToConfig>[0],
+): Promise<void> {
+  const cfg = viewportToConfig(viewport);
+  if (cfg) await driver.setViewport(cfg);
+}
+
 /**
  * Capture a screenshot of a URL
  */
 export async function captureScreenshot(
-  options: CaptureOptions & { outputDir?: string }
+  options: CaptureOptions & {
+    outputDir?: string
+    /**
+     * Optional warm browser pool. Supplied by long-lived hosts (the MCP
+     * server) so consecutive screenshots reuse one browser instead of
+     * launching per call. Omitted by the CLI, which is one-shot and has
+     * nothing to amortise. Widened here rather than on the shared
+     * CaptureOptions type, which other capture paths also use.
+     */
+    pool?: import('./engine/browser-pool.js').BrowserPool
+  }
 ): Promise<string> {
   const {
     url,
@@ -150,6 +178,7 @@ export async function captureScreenshot(
     viewport = VIEWPORTS.desktop,
     fullPage = true,
     headed = false,
+    pool,
     waitForNetworkIdle = true,
     timeout = 30000,
     outputDir,
@@ -173,15 +202,35 @@ export async function captureScreenshot(
     }
   }
 
-  const driverInstance = new EngineDriver();
-  await driverInstance.launch({
-    headless: !headed,
-    viewport: viewportToConfig(viewport),
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath,
-  });
+  // Pool path vs fresh-driver path — the same shape scan() uses.
+  //
+  // WHY: every screenshot used to launch its own Chrome. Measured over 30 days
+  // that was 207 calls, so 207 cold browser launches, each one also creating a
+  // profile directory. When the caller hands us a warm pool we reuse its
+  // browser and RELEASE it back instead of closing, so consecutive screenshots
+  // pay the launch cost once.
+  //
+  // The viewport is applied per capture on BOTH paths (see applyViewport
+  // below): a pooled driver carries whatever device metrics the previous caller
+  // left on it, which is exactly the "mobile viewport silently ignored on the
+  // pool path" bug scan() already had to fix. Do not assume a pooled driver is
+  // in a default state.
+  const ownDriver = !pool;
+  let driverInstance: EngineDriver;
+  if (pool) {
+    driverInstance = await pool.acquire();
+    await applyViewportToPooledDriver(driverInstance, viewport);
+  } else {
+    driverInstance = new EngineDriver();
+    await driverInstance.launch({
+      headless: !headed,
+      viewport: viewportToConfig(viewport),
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath,
+    });
+  }
   const page = new CompatPage(driverInstance);
 
   try {
@@ -223,7 +272,14 @@ export async function captureScreenshot(
 
     return outputPath;
   } finally {
-    await driverInstance.close();
+    // Pool drivers are RELEASED, not closed — closing one would tear down the
+    // shared browser other callers are queued on. ownDriver is the only case
+    // that owns the process and may close it.
+    if (ownDriver) {
+      await driverInstance.close();
+    } else if (pool) {
+      pool.release();
+    }
   }
 }
 

@@ -13671,6 +13671,10 @@ async function applyMasking(page, mask) {
 }
 async function closeBrowser() {
 }
+async function applyViewportToPooledDriver(driver2, viewport) {
+  const cfg = viewportToConfig(viewport);
+  if (cfg) await driver2.setViewport(cfg);
+}
 async function captureScreenshot(options) {
   const {
     url,
@@ -13678,6 +13682,7 @@ async function captureScreenshot(options) {
     viewport = VIEWPORTS.desktop,
     fullPage = true,
     headed = false,
+    pool,
     waitForNetworkIdle = true,
     timeout = 3e4,
     outputDir,
@@ -13696,15 +13701,22 @@ async function captureScreenshot(options) {
       console.log("\u{1F510} Using saved authentication state");
     }
   }
-  const driverInstance = new EngineDriver();
-  await driverInstance.launch({
-    headless: !headed,
-    viewport: viewportToConfig(viewport),
-    mode: browserMode,
-    cdpUrl,
-    wsEndpoint,
-    chromePath
-  });
+  const ownDriver = !pool;
+  let driverInstance;
+  if (pool) {
+    driverInstance = await pool.acquire();
+    await applyViewportToPooledDriver(driverInstance, viewport);
+  } else {
+    driverInstance = new EngineDriver();
+    await driverInstance.launch({
+      headless: !headed,
+      viewport: viewportToConfig(viewport),
+      mode: browserMode,
+      cdpUrl,
+      wsEndpoint,
+      chromePath
+    });
+  }
   const page = new CompatPage(driverInstance);
   try {
     await page.goto(url, {
@@ -13734,7 +13746,11 @@ async function captureScreenshot(options) {
     }
     return outputPath;
   } finally {
-    await driverInstance.close();
+    if (ownDriver) {
+      await driverInstance.close();
+    } else if (pool) {
+      pool.release();
+    }
   }
 }
 async function captureWithLandmarks(options) {

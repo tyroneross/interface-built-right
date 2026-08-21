@@ -74,7 +74,7 @@ import {
 } from '../session-hard-wall.js';
 // Shared session registry (extracted at Wave 0 / C0). Import direction is
 // one-way: tools.ts (web) → sessions.ts / native-tools.ts, never the reverse.
-import { sessions } from './sessions.js';
+import { sessions, closeAllSessions } from './sessions.js';
 export { __test_setSession } from './sessions.js';
 // Native MCP tools (defs + handlers + frozen web→native delegation functions),
 // physically split out of this file at Wave 0 (ADR-03). Single aggregation import.
@@ -1504,6 +1504,18 @@ function getMcpBrowserPool() {
 }
 /** Test/host hook — close and reset the pool. Used at process exit. */
 export async function closeMcpBrowserPool(): Promise<void> {
+  // Sessions FIRST, and unconditionally — they are closed even when no pool was
+  // ever created. The pool and the session store are two different
+  // browser-owning resources; this function used to release only the pool, so a
+  // clean shutdown still orphaned every session started via `session_start`.
+  // Measured over 30 days: 92 starts, 72 closes, 20 stranded browsers.
+  try {
+    await closeAllSessions();
+  } catch {
+    // closeAllSessions is already best-effort internally; belt and braces so a
+    // shutdown path can never throw.
+  }
+
   if (mcpBrowserPoolPromise) {
     const p = mcpBrowserPoolPromise;
     mcpBrowserPoolPromise = undefined;
@@ -2990,6 +3002,11 @@ async function handleScreenshot(
   mkdirSync(screenshotsDir, { recursive: true });
   const tempPath = join(screenshotsDir, `capture-${timestamp}.png`);
 
+  // Reuse the warm pool rather than launching a browser per screenshot. This
+  // handler is the single busiest browser-launch site in the server — 207 calls
+  // over 30 days, each previously a cold Chrome launch plus a profile
+  // directory. The pool serialises, which is correct here: screenshots are
+  // already sequential from one MCP client.
   await captureScreenshot({
     url,
     outputPath: tempPath,
@@ -3000,6 +3017,7 @@ async function handleScreenshot(
     selector,
     waitFor,
     delay,
+    pool: await getMcpBrowserPool(),
   });
 
   // Read captured PNG as base64
