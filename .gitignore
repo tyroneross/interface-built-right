@@ -69,6 +69,6 @@ CLAUDE.md
 .codex/
 .navgator/
 
-# Python bytecode
+# Python bytecode from the stdlib-only artifact/dashboard lanes
 __pycache__/
 *.py[cod]

@@ -142,16 +142,46 @@ Load `design-guidance` for tokens, layout, and component selection.
 **DB505 — Reduced motion respected**; visible keyboard focus on every control.
 **DB506 — Real controls only.** A control that looks interactive does something. No
 placeholder buttons, no fake mutation — that is `integrity` in the design foundations.
+**DB507 — No horizontal overflow at 320px.** A dashboard read sideways is not read.
+Use `max-width`, never a fixed `width`, and put any wide value behind a `min-width`
+media query.
 
 ## 6 · Build it
 
 ```bash
 python3 scripts/dashboard_build.py new --archetype queue --title "…" -o spec.json
 python3 scripts/dashboard_build.py build spec.json -o dashboard.html --check
-python3 scripts/dashboard_lint.py dashboard.html --json
+python3 scripts/dashboard_lint.py check dashboard.html --json
+python3 scripts/dashboard_lint.py rules --json          # the graded contract
 python3 scripts/dashboard_record.py append --scope <dir> --entity <id> --op check
 python3 scripts/dashboard_record.py replay --scope <dir> --json
 ```
+
+Exit codes: `0` clean · `1` findings at or above `--fail-on` (default `error`) ·
+`2` usage error, **or a grade that was asked for and could not run**. A `--check`
+that cannot reach the linter exits 2 and says `NOT GRADED` rather than exiting 0 as
+though the page had passed.
+
+### What is graded, and what is not
+
+Eight of these rules are decidable from the file alone, and only those are graded:
+**DB402**, **DB403**, **DB401a**, **DB401b**, **DB501**, **DB502**, **DB503**,
+**DB507**. `dashboard_lint.py rules --json` is the single source of truth for their
+IDs and severities; cite IDs here rather than restating the rule, or the two copies
+drift.
+
+The rest are yours to hold, because a static parse cannot prove them: DB101 (one
+archetype), DB102–DB104 (priorities, disclosure, round-trip nav), DB201–DB203 (MECE
+separation), DB504 (content ratio), DB505 (reduced motion), DB506 (real controls).
+DB301–DB306 are graded by `dashboard_record.py` against the record, not against the
+rendered page. **DB507 is one-directional:** it fires on a fixed width that forces a
+scrollbar, and cannot certify that a flex or grid layout fits.
+
+Only mechanically unambiguous rules carry `error`. Rules that reason from a
+vocabulary (DB402, DB401a, DB501) ship `warn` and never hard-block, and no rule is
+promoted without a firing-rate measurement — `dashboard_lint.py corpus <dir>`, with
+the standing record in `docs/research/2026-08-18-dashboard-lint-calibration.md`. A
+gate that cries wolf gets switched off, and is then worse than no gate.
 
 Verify the result in a browser before calling it done — `design-validation` owns that
 pass. A dashboard that lints clean and renders wrong is not done.
