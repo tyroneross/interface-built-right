@@ -19028,6 +19028,7 @@ var sessions = /* @__PURE__ */ new Map();
 async function closeAllSessions() {
   const entries = [...sessions.entries()];
   sessions.clear();
+  lastTouched.clear();
   await Promise.all(entries.map(async ([, entry]) => {
     try {
       await entry.driver?.close?.();
@@ -19035,6 +19036,31 @@ async function closeAllSessions() {
     }
   }));
   return entries.length;
+}
+var lastTouched = /* @__PURE__ */ new Map();
+async function sweepIdleSessions(maxIdleMs) {
+  if (!Number.isFinite(maxIdleMs) || maxIdleMs <= 0) return [];
+  const now = Date.now();
+  const expired = [];
+  for (const [id, entry] of sessions) {
+    const last = lastTouched.get(id) ?? entry.createdAt;
+    if (now - last >= maxIdleMs) expired.push([id, entry]);
+  }
+  for (const [id] of expired) {
+    sessions.delete(id);
+    lastTouched.delete(id);
+  }
+  await Promise.all(expired.map(async ([, entry]) => {
+    try {
+      await entry.driver?.close?.();
+    } catch {
+    }
+  }));
+  return expired.map(([id]) => id);
+}
+function configuredSessionIdleMs() {
+  const raw = Number(process.env.IBR_SESSION_IDLE_MS ?? 0);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
 }
 
 // src/native/actions.ts
@@ -25409,6 +25435,21 @@ if (IDLE_TIMEOUT_MS > 0) {
     }
   }, IDLE_POLL_MS);
   idleWatchdog.unref();
+}
+var SESSION_IDLE_MS = configuredSessionIdleMs();
+if (SESSION_IDLE_MS > 0) {
+  const sweep = setInterval(() => {
+    void sweepIdleSessions(SESSION_IDLE_MS).then((closed) => {
+      if (closed.length > 0) {
+        process.stderr.write(
+          `ibr-mcp: swept ${closed.length} idle session(s) after ${SESSION_IDLE_MS}ms
+`
+        );
+      }
+    }).catch(() => {
+    });
+  }, Math.min(SESSION_IDLE_MS, 6e4));
+  sweep.unref();
 }
 var rl = (0, import_readline.createInterface)({ input: process.stdin, terminal: false });
 var buffer = "";

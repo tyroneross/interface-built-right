@@ -72,6 +72,7 @@ export function __test_setSession(id: string, entry: SessionEntry | null): void 
 export async function closeAllSessions(): Promise<number> {
   const entries = [...sessions.entries()];
   sessions.clear();
+  lastTouched.clear();
   await Promise.all(entries.map(async ([, entry]) => {
     try {
       await entry.driver?.close?.();
@@ -82,4 +83,65 @@ export async function closeAllSessions(): Promise<number> {
     }
   }));
   return entries.length;
+}
+
+// ─── Idle sweep (L4 analogue for sessions) ──────────────────────────────────
+//
+// SHAPE NOTE: last-touch lives in a SIDE TABLE, not on SessionEntry. That type
+// is documented frozen at the top of this file because its shape ripples into
+// both the web and native threads; a side table adds the capability without
+// touching it.
+const lastTouched = new Map<string, number>();
+
+/** Record activity on a session. Safe to call for ids that no longer exist. */
+export function touchSession(id: string): void {
+  if (sessions.has(id)) lastTouched.set(id, Date.now());
+}
+
+/**
+ * Close sessions with no activity for `maxIdleMs`.
+ *
+ * DEFAULT-OFF, deliberately, matching `mcp-lifecycle/SPEC.md` L4 and its
+ * reasoning: from inside the server a leaked session and a live-but-quiet one
+ * are indistinguishable. A user can legitimately hold a session open for an
+ * hour while working elsewhere, and closing it out from under them is worse
+ * than leaking it. So the mechanism is always implemented and never fires
+ * unless `IBR_SESSION_IDLE_MS` is set to a positive value.
+ *
+ * This complements, and does not replace, `closeAllSessions()`: that one runs
+ * at shutdown and is the guarantee; this one bounds accumulation DURING a
+ * long-lived server, which is where the measured 22% start/close gap actually
+ * builds up.
+ *
+ * A session with no recorded touch is dated from `createdAt`, so one that is
+ * started and never used is still eligible rather than immortal.
+ *
+ * Returns the ids it closed.
+ */
+export async function sweepIdleSessions(maxIdleMs: number): Promise<string[]> {
+  if (!Number.isFinite(maxIdleMs) || maxIdleMs <= 0) return [];
+  const now = Date.now();
+  const expired: Array<[string, SessionEntry]> = [];
+  for (const [id, entry] of sessions) {
+    const last = lastTouched.get(id) ?? entry.createdAt;
+    if (now - last >= maxIdleMs) expired.push([id, entry]);
+  }
+  for (const [id] of expired) {
+    sessions.delete(id);
+    lastTouched.delete(id);
+  }
+  await Promise.all(expired.map(async ([, entry]) => {
+    try {
+      await entry.driver?.close?.();
+    } catch {
+      // Best effort, same contract as closeAllSessions().
+    }
+  }));
+  return expired.map(([id]) => id);
+}
+
+/** Configured idle threshold in ms. 0 (the default) disables the sweep. */
+export function configuredSessionIdleMs(): number {
+  const raw = Number(process.env.IBR_SESSION_IDLE_MS ?? 0);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
 }

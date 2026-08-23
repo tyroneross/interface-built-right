@@ -19627,6 +19627,7 @@ function __test_setSession(id, entry) {
 async function closeAllSessions() {
   const entries = [...sessions.entries()];
   sessions.clear();
+  lastTouched.clear();
   await Promise.all(entries.map(async ([, entry]) => {
     try {
       await entry.driver?.close?.();
@@ -19635,11 +19636,12 @@ async function closeAllSessions() {
   }));
   return entries.length;
 }
-var sessions;
+var sessions, lastTouched;
 var init_sessions = __esm({
   "src/mcp/sessions.ts"() {
     "use strict";
     sessions = /* @__PURE__ */ new Map();
+    lastTouched = /* @__PURE__ */ new Map();
   }
 });
 

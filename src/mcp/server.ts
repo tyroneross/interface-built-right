@@ -8,6 +8,7 @@
 
 import { createInterface } from "readline";
 import { TOOLS, handleToolCall, closeMcpBrowserPool } from "./tools.js";
+import { configuredSessionIdleMs, sweepIdleSessions } from "./sessions.js";
 import { ensureToolchainPath } from "../native/toolchain-env.js";
 
 // Repair PATH before any native tool spawns swift/xcrun/osascript. A GUI/MCP
@@ -81,6 +82,29 @@ if (IDLE_TIMEOUT_MS > 0) {
     }
   }, IDLE_POLL_MS);
   idleWatchdog.unref();
+}
+
+// --- Session idle sweep (implemented always, disabled by default) ---
+// Closes SESSIONS that have gone untouched for IBR_SESSION_IDLE_MS. Distinct
+// from L4 above: L4 exits the whole server, this one only releases idle
+// browsers and leaves the server serving.
+//
+// Default 0 (disabled), on the same reasoning L4 documents — from in here a
+// leaked session and a live-but-quiet one look identical, and closing a browser
+// out from under someone mid-task is worse than leaking it. shutdownPool()
+// remains the guarantee; this only bounds accumulation during a long run.
+const SESSION_IDLE_MS = configuredSessionIdleMs();
+if (SESSION_IDLE_MS > 0) {
+  const sweep = setInterval(() => {
+    void sweepIdleSessions(SESSION_IDLE_MS).then((closed) => {
+      if (closed.length > 0) {
+        process.stderr.write(
+          `ibr-mcp: swept ${closed.length} idle session(s) after ${SESSION_IDLE_MS}ms\n`,
+        );
+      }
+    }).catch(() => { /* sweeping is best-effort; never take the server down */ });
+  }, Math.min(SESSION_IDLE_MS, 60_000));
+  sweep.unref();
 }
 
 // --- JSON-RPC transport over stdio ---
