@@ -1005,7 +1005,16 @@ program
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
 
-      console.log(`Scanning ${resolvedUrl}...`);
+      // Progress chatter goes to STDERR whenever --json is set, so stdout is
+      // pure JSON and `ibr scan <url> --json | jq` works. Printing this banner
+      // to stdout made the output un-parseable: every consumer had to know to
+      // strip a human line first, and one that did not simply crashed.
+      // stderr still shows it to a human watching the terminal.
+      if (options.json) {
+        process.stderr.write(`Scanning ${resolvedUrl}...\n`);
+      } else {
+        console.log(`Scanning ${resolvedUrl}...`);
+      }
 
       // Parse comma-separated rule presets
       const rulePresets = options.rules
@@ -4497,6 +4506,69 @@ program
       }
     } catch (error) {
       await driver.close().catch(() => {});
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+// zoom-track command — element geometry as a spatial zoom signal for Spectra
+program
+  .command('zoom-track <url>')
+  .description('Emit a Spectra zoom track [{tMs,cx,cy}] from the page\'s interactive elements')
+  // NOT `-o/--output`: the program already declares a global `-o, --output <dir>`
+  // (see near the top of this file), and commander routes that to the PROGRAM's
+  // option bag, so a command-level flag of the same name silently never arrives.
+  // The action received {viewport, perMs, min} with no `output` at all and wrote
+  // to stdout while reporting success — the exact silent-wrong-result this
+  // command is supposed to make impossible. `--out` does not collide.
+  .option('--out <path>', 'Write the track here (default: stdout)')
+  .option('--viewport <name>', 'Viewport preset', 'desktop')
+  .option('--per-ms <ms>', 'Spacing between targets in ms', '1500')
+  .option('--min <n>', 'Fail if fewer than N targets are found', '1')
+  .action(async (url: string, options: { out?: string; viewport: string; perMs: string; min: string }) => {
+    try {
+      const { scan } = await import('../scan.js');
+      const { buildZoomTrackFromScan, toSpectraClicks } = await import('../zoom-track.js');
+      const resolvedUrl = await resolveBaseUrl(url);
+
+      // Progress to stderr — stdout is the track when no --output is given.
+      process.stderr.write(`Scanning ${resolvedUrl} for zoom targets...\n`);
+
+      const result = await scan(resolvedUrl, { viewport: options.viewport as any });
+      const track = buildZoomTrackFromScan(result, { perMs: Number(options.perMs) || 1500 });
+      const min = Number(options.min);
+
+      // LOUD ON EMPTY. A zoom track with no targets is not a valid result that
+      // happens to be short — it means the page was never measured, or nothing
+      // on it was interactive, and a caller piping this into a video pipeline
+      // would silently get no zoom at all. Distinguish the two causes and exit
+      // non-zero rather than writing an empty file and returning success.
+      if (track.clicks.length < min) {
+        const why = track.elementsConsidered === 0
+          ? `the scan returned NO elements at all for ${resolvedUrl} — the page did not render, or the URL is wrong`
+          : `${track.elementsConsidered} element(s) were scanned but none were interactive `
+            + `(IBR reports interactivity as hasOnClick / hasHref / cursor / tabIndex, not a single isInteractive flag)`;
+        process.stderr.write(
+          `zoom-track: found ${track.clicks.length} target(s), need at least ${min} — ${why}\n`,
+        );
+        process.exit(1);
+      }
+
+      const payload = JSON.stringify(toSpectraClicks(track.clicks), null, 1);
+      if (options.out) {
+        const { writeFileSync } = await import('fs');
+        writeFileSync(options.out, payload + '\n');
+        process.stderr.write(
+          `zoom-track: wrote ${track.clicks.length} target(s) to ${options.out} `
+          + `(viewport ${track.viewport.width}x${track.viewport.height})\n`,
+        );
+        for (const c of track.clicks.slice(0, 8)) {
+          process.stderr.write(`  t=${c.tMs}ms cx=${c.cx} cy=${c.cy}  ${c.label}\n`);
+        }
+      } else {
+        console.log(payload);
+      }
+    } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
       process.exit(1);
     }

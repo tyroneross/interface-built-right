@@ -2,6 +2,10 @@
 
 Universal AI agent guidance for Claude Code, Codex, Cursor, Copilot, Gemini CLI, and any other coding agent working in this repository.
 
+> **Just need the commands?** Read [`docs/AGENTS-QUICKSTART.md`](docs/AGENTS-QUICKSTART.md) —
+> exact invocations, the real response shape, and the field names that are easy to
+> guess wrong. This page is orientation; that page is what to type.
+
 ---
 
 ## What IBR Is
