@@ -57,6 +57,9 @@ increment before it is cut into a release.
 
 ### Fixed
 
+- **Patched the production `nanoid` dependency to 5.1.16.** This removes the
+  denial-of-service advisory affecting non-secure ID generation in 5.1.15.
+
 - **Touch-target rules graded the wrong box, and graded targets WCAG exempts.**
   With viewport emulation fixed in 1.5.0 the rules measured the right layout, but
   two finding classes remained false by construction. On `rosslabs.ai` at both
