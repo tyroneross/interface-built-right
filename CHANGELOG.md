@@ -9,6 +9,20 @@ increment before it is cut into a release.
 
 ### Added
 
+- **General breadcrumb auditing in every web scan.** IBR now recognizes
+  breadcrumb trails by accessible name or conventional component markers and
+  checks the WAI-ARIA APG contract: a labelled navigation landmark, semantic
+  list structure, and exactly one final `aria-current="page"` when the current
+  item remains a link. A plain-text current item is accepted without
+  `aria-current`, matching the pattern's explicit exception. Existing mobile
+  target-size rules continue to grade every breadcrumb link independently.
+
+- **Impact-targeted validation guidance.** IBR now selects checks from the
+  specified change and its affected components, routes, states, viewports, and
+  shared dependencies. It expands beyond that set only when impact is uncertain,
+  a shared dependency changed, or a targeted failure indicates wider breakage;
+  running every route or every test is no longer the default validation pattern.
+
 - **Artifact lane — author, check, and port single-file self-contained HTML pages.**
   A page that carries its own styles, scripts, fonts, and images: openable from
   `file://`, publishable through Claude's Artifact tool, and checkable by any agent.

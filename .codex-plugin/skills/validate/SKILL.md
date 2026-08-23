@@ -21,19 +21,24 @@ Use IBR MCP tools as evidence, not decoration. Validate the rendered interface a
 ## Audit Order
 
 1. Read the user request and any `.ibr/builds/<topic>/design-intent.json`.
-2. Run the narrowest scan or flow that can prove the claim.
-3. Sort failures by severity: console errors, broken handlers, inaccessible controls, semantic/state errors, then visual polish.
-4. Fix high-severity issues before treating a design as complete.
-5. Re-scan or re-run the interaction to prove the issue moved.
+2. Map the specified change to affected components, routes, states, and shared dependencies.
+3. Select the smallest set of scans, flows, viewports, and regression checks that covers that impact surface. Do not run every route or every test by default.
+4. Expand scope only when a shared dependency changed, the impact map is uncertain, or a targeted check exposes broader breakage.
+5. Sort failures by severity: console errors, broken handlers, inaccessible controls, semantic/state errors, then visual polish.
+6. Fix high-severity issues before treating a design as complete.
+7. Re-scan or re-run the selected interaction to prove the issue moved.
 
 ## Evidence Standard
 
 Report the actual issue and the file or UI area it affects. Do not treat an `ISSUES` verdict as acceptable without reading the issue list. If the tool cannot run, state the exact blocker and the fallback evidence used.
+
+Report why each route or flow was selected and identify any impact area that could not be verified. “All tests passed” is not useful evidence when most tests are unrelated to the change.
 
 ## Common Acceptance Gates
 
 - No JavaScript errors during the tested route or flow.
 - Primary actions have real handlers or real destinations.
 - Interactive elements have accessible names and adequate target size.
+- Breadcrumb trails use a labelled navigation landmark and list structure; a linked current page uses `aria-current="page"` on the final item.
 - Loading, empty, error, disabled, and success states are visible when expected.
 - Snapshot comparison has no unexpected layout break.

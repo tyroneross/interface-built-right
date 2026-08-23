@@ -260,6 +260,10 @@ const INTERACTIVE_SELECTORS = [
   'textarea',
   '[role="button"]',
   '[role="link"]',
+  // Current breadcrumb pages are sometimes plain text rather than links.
+  // Include them so the breadcrumb contract can distinguish the APG-allowed
+  // non-link current item from a linked item missing aria-current="page".
+  '[aria-current]',
   '[onclick]',
   '[tabindex]:not([tabindex="-1"])',
 ];
@@ -425,6 +429,86 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
       return Math.max(0, blockText.length - targetChars);
     };
 
+    // Detect a breadcrumb trail from its accessible name or conventional
+    // component marker, then attach page-level facts to the first element in
+    // that trail. WAI-ARIA APG requires a labelled navigation landmark and
+    // aria-current="page" when the current item is a link.
+    const measureBreadcrumb = (el: HTMLElement) => {
+      const markerCandidates: HTMLElement[] = [];
+      let ancestor: HTMLElement | null = el;
+      while (ancestor && ancestor !== document.body) {
+        const ariaLabel = ancestor.getAttribute('aria-label') || '';
+        const marker = [
+          ancestor.id,
+          typeof ancestor.className === 'string' ? ancestor.className : '',
+          ancestor.getAttribute('data-breadcrumb') || '',
+          ancestor.getAttribute('data-component') || '',
+          ancestor.getAttribute('data-testid') || '',
+        ].join(' ');
+        if (/\bbreadcrumbs?\b/i.test(ariaLabel) || /breadcrumb/i.test(marker)) {
+          markerCandidates.push(ancestor);
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (markerCandidates.length === 0) return undefined;
+
+      // Prefer the containing navigation landmark when one exists, even when
+      // the marker is on an inner <ol> or list item. This lets the rule report
+      // an unlabeled landmark rather than misclassifying the list as the root.
+      const markerRoot = markerCandidates[markerCandidates.length - 1]!;
+      const landmark = markerCandidates.find(candidate =>
+        candidate.matches('nav,[role="navigation"]')
+      ) ?? markerCandidates
+        .map(candidate => candidate.closest<HTMLElement>('nav,[role="navigation"]'))
+        .find((candidate): candidate is HTMLElement => !!candidate);
+      const root = landmark ?? markerRoot;
+
+      const labelledBy = (root.getAttribute('aria-labelledby') || '')
+        .split(/\s+/)
+        .filter(Boolean)
+        .map(id => document.getElementById(id)?.textContent?.trim() || '')
+        .filter(Boolean)
+        .join(' ');
+      const accessibleName = (root.getAttribute('aria-label') || labelledBy).trim() || null;
+
+      const list = root.querySelector<HTMLElement>('ol, ul');
+      const listItems = list
+        ? Array.from(list.children).filter((item): item is HTMLElement => item instanceof HTMLElement && item.tagName.toLowerCase() === 'li')
+        : [];
+      const fallbackItems = Array.from(root.querySelectorAll<HTMLElement>('a[href], [aria-current]'));
+      const items = listItems.length > 0 ? listItems : fallbackItems;
+      const lastItem = items[items.length - 1];
+      const currentElements = Array.from(root.querySelectorAll<HTMLElement>('[aria-current]'))
+        .filter(item => {
+          const value = (item.getAttribute('aria-current') || '').trim().toLowerCase();
+          return value !== '' && value !== 'false';
+        });
+      const currentValues = currentElements.map(item =>
+        (item.getAttribute('aria-current') || '').trim().toLowerCase()
+      );
+      const currentPageElements = currentElements.filter((_, index) => currentValues[index] === 'page');
+      const representativeElements = Array.from(root.querySelectorAll<HTMLElement>('a[href], [aria-current]'));
+
+      return {
+        rootSelector: generateSelector(root),
+        rootTag: root.tagName.toLowerCase(),
+        rootRole: root.getAttribute('role'),
+        accessibleName,
+        listTag: list?.tagName.toLowerCase() ?? null,
+        itemCount: items.length,
+        linkCount: root.querySelectorAll('a[href]').length,
+        currentValues,
+        currentPageCount: currentPageElements.length,
+        currentPageIsLast: !!lastItem && currentPageElements.some(current =>
+          current === lastItem || lastItem.contains(current)
+        ),
+        lastItemIsLink: !!lastItem && (
+          lastItem.matches('a[href]') || !!lastItem.querySelector('a[href]')
+        ),
+        representative: representativeElements[0] === el,
+      };
+    };
+
     // Process each selector
     for (const selector of selectors) {
       try {
@@ -491,6 +575,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               role: htmlEl.getAttribute('role'),
               ariaLabel: htmlEl.getAttribute('aria-label'),
               ariaDescribedBy: htmlEl.getAttribute('aria-describedby'),
+              ariaCurrent: htmlEl.getAttribute('aria-current'),
               // Own attribute OR any ancestor's — an element nested inside
               // an `aria-hidden="true"` container is just as unreachable to
               // assistive tech as one hidden directly, so rules that key off
@@ -500,6 +585,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || undefined,
               ariaHaspopup: htmlEl.getAttribute('aria-haspopup'),
             },
+            breadcrumb: measureBreadcrumb(htmlEl),
             // What the touch/pointer-target rules must measure instead of
             // this element's own layout box — see TargetContextSchema and
             // src/rules/target-sizing.ts.

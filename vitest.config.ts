@@ -11,6 +11,7 @@ const BROWSER_INTEGRATION = [
   'src/engine/engine.integration.test.ts',
   'src/engine/browser-pool-viewport.integration.test.ts',
   'src/rules/target-sizing.integration.test.ts',
+  'src/rules/breadcrumbs.integration.test.ts',
   'src/obsidian/obsidian.integration.test.ts',
   'src/live/live.integration.test.ts',
 ];

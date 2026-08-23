@@ -5,6 +5,7 @@ import { touchTargetRules } from './touch-targets.js';
 import { textHierarchyRules } from './text-hierarchy.js';
 import { handlerIntegrityRules } from './handler-integrity.js';
 import { spacingGridRules } from './spacing-grid.js';
+import { breadcrumbRules } from './breadcrumbs.js';
 
 // Re-export individual rule arrays
 export { wcagContrastRules } from './wcag-contrast.js';
@@ -20,6 +21,7 @@ export type { TargetExemption, TargetExemptionKind, TargetSizeDecision } from '.
 export { textHierarchyRules } from './text-hierarchy.js';
 export { handlerIntegrityRules } from './handler-integrity.js';
 export { spacingGridRules } from './spacing-grid.js';
+export { breadcrumbRules } from './breadcrumbs.js';
 
 /**
  * Combined array of all deterministic rules.
@@ -30,6 +32,7 @@ export const allRules: Rule[] = [
   ...textHierarchyRules,
   ...handlerIntegrityRules,
   ...spacingGridRules,
+  ...breadcrumbRules,
 ];
 
 /**

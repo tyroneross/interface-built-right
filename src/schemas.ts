@@ -312,6 +312,10 @@ export const A11yAttributesSchema = z.object({
   role: z.string().nullable(),
   ariaLabel: z.string().nullable(),
   ariaDescribedBy: z.string().nullable(),
+  // Captured for navigation-state checks such as breadcrumb trails. The raw
+  // token is preserved because values other than "page" are meaningful in
+  // other widgets (step, location, date, time).
+  ariaCurrent: z.string().nullable().optional(),
   ariaHidden: z.boolean().optional(),
   // WAI-ARIA aria-haspopup signals that activating the element opens a
   // menu/dialog/listbox/tree/grid. Headless component libraries (Radix,
@@ -319,6 +323,26 @@ export const A11yAttributesSchema = z.object({
   // than a direct `onClick`, which trips the `no-handler` rule's heuristic.
   // Captured here so rules can opt out of grading these as orphans.
   ariaHaspopup: z.string().nullable().optional(),
+});
+
+/**
+ * Page-level breadcrumb facts attached to one representative element per
+ * detected trail. This keeps the deterministic rule engine element-shaped
+ * while avoiding one duplicate finding for every link in the trail.
+ */
+export const BreadcrumbContextSchema = z.object({
+  rootSelector: z.string(),
+  rootTag: z.string(),
+  rootRole: z.string().nullable(),
+  accessibleName: z.string().nullable(),
+  listTag: z.string().nullable(),
+  itemCount: z.number(),
+  linkCount: z.number(),
+  currentValues: z.array(z.string()),
+  currentPageCount: z.number(),
+  currentPageIsLast: z.boolean(),
+  lastItemIsLink: z.boolean(),
+  representative: z.boolean(),
 });
 
 /**
@@ -386,6 +410,10 @@ export const EnhancedElementSchema = z.object({
   // Accessibility
   a11y: A11yAttributesSchema,
 
+  // Present on elements inside a detected breadcrumb trail. Only the
+  // representative element is graded by breadcrumb rules.
+  breadcrumb: BreadcrumbContextSchema.optional(),
+
   // Target-size context — see TargetContextSchema.
   targetContext: TargetContextSchema.optional(),
 
@@ -440,6 +468,7 @@ export type Session = z.infer<typeof SessionSchema>;
 export type ComparisonReport = z.infer<typeof ComparisonReportSchema>;
 export type InteractiveState = z.infer<typeof InteractiveStateSchema>;
 export type A11yAttributes = z.infer<typeof A11yAttributesSchema>;
+export type BreadcrumbContext = z.infer<typeof BreadcrumbContextSchema>;
 export type TargetContext = z.infer<typeof TargetContextSchema>;
 export type Bounds = z.infer<typeof BoundsSchema>;
 export type EnhancedElement = z.infer<typeof EnhancedElementSchema>;

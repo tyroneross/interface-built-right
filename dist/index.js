@@ -53,7 +53,7 @@ var __export = (target, all) => {
   for (var name in all)
     __defProp(target, name, { get: all[name], enumerable: true });
 };
-exports.ViewportSchema = void 0; exports.VIEWPORTS = void 0; exports.ThresholdBasisSchema = void 0; exports.ProvenancedThresholdSchema = void 0; exports.VerdictPolicySchema = void 0; exports.ThresholdOverrideSchema = void 0; exports.VerdictPolicyOverrideSchema = void 0; exports.ConfigSchema = void 0; exports.SessionQuerySchema = void 0; exports.ComparisonResultSchema = void 0; exports.ChangedRegionSchema = void 0; exports.VerdictSchema = void 0; exports.AnalysisSchema = void 0; exports.SessionStatusSchema = void 0; exports.BoundsSchema = void 0; exports.LandmarkElementSchema = void 0; exports.SessionSchema = void 0; exports.ComparisonReportSchema = void 0; exports.InteractiveStateSchema = void 0; exports.A11yAttributesSchema = void 0; exports.TargetContextSchema = void 0; exports.EnhancedElementSchema = void 0; exports.ElementIssueSchema = void 0; exports.AuditResultSchema = void 0; exports.RuleSeveritySchema = void 0; exports.RuleSettingSchema = void 0; exports.RulesConfigSchema = void 0; exports.ViolationSchema = void 0; exports.RuleAuditResultSchema = void 0; exports.MemorySourceSchema = void 0; exports.PreferenceCategorySchema = void 0; exports.ExpectationOperatorSchema = void 0; exports.ExpectationSchema = void 0; exports.PreferenceSchema = void 0; exports.ObservationSchema = void 0; exports.LearnedExpectationSchema = void 0; exports.ActivePreferenceSchema = void 0; exports.MemorySummarySchema = void 0; exports.DesignSystemViolationSchema = void 0; exports.DesignSystemResultSchema = void 0;
+exports.ViewportSchema = void 0; exports.VIEWPORTS = void 0; exports.ThresholdBasisSchema = void 0; exports.ProvenancedThresholdSchema = void 0; exports.VerdictPolicySchema = void 0; exports.ThresholdOverrideSchema = void 0; exports.VerdictPolicyOverrideSchema = void 0; exports.ConfigSchema = void 0; exports.SessionQuerySchema = void 0; exports.ComparisonResultSchema = void 0; exports.ChangedRegionSchema = void 0; exports.VerdictSchema = void 0; exports.AnalysisSchema = void 0; exports.SessionStatusSchema = void 0; exports.BoundsSchema = void 0; exports.LandmarkElementSchema = void 0; exports.SessionSchema = void 0; exports.ComparisonReportSchema = void 0; exports.InteractiveStateSchema = void 0; exports.A11yAttributesSchema = void 0; exports.BreadcrumbContextSchema = void 0; exports.TargetContextSchema = void 0; exports.EnhancedElementSchema = void 0; exports.ElementIssueSchema = void 0; exports.AuditResultSchema = void 0; exports.RuleSeveritySchema = void 0; exports.RuleSettingSchema = void 0; exports.RulesConfigSchema = void 0; exports.ViolationSchema = void 0; exports.RuleAuditResultSchema = void 0; exports.MemorySourceSchema = void 0; exports.PreferenceCategorySchema = void 0; exports.ExpectationOperatorSchema = void 0; exports.ExpectationSchema = void 0; exports.PreferenceSchema = void 0; exports.ObservationSchema = void 0; exports.LearnedExpectationSchema = void 0; exports.ActivePreferenceSchema = void 0; exports.MemorySummarySchema = void 0; exports.DesignSystemViolationSchema = void 0; exports.DesignSystemResultSchema = void 0;
 var init_schemas = __esm({
   "src/schemas.ts"() {
     exports.ViewportSchema = zod.z.object({
@@ -270,6 +270,10 @@ var init_schemas = __esm({
       role: zod.z.string().nullable(),
       ariaLabel: zod.z.string().nullable(),
       ariaDescribedBy: zod.z.string().nullable(),
+      // Captured for navigation-state checks such as breadcrumb trails. The raw
+      // token is preserved because values other than "page" are meaningful in
+      // other widgets (step, location, date, time).
+      ariaCurrent: zod.z.string().nullable().optional(),
       ariaHidden: zod.z.boolean().optional(),
       // WAI-ARIA aria-haspopup signals that activating the element opens a
       // menu/dialog/listbox/tree/grid. Headless component libraries (Radix,
@@ -277,6 +281,20 @@ var init_schemas = __esm({
       // than a direct `onClick`, which trips the `no-handler` rule's heuristic.
       // Captured here so rules can opt out of grading these as orphans.
       ariaHaspopup: zod.z.string().nullable().optional()
+    });
+    exports.BreadcrumbContextSchema = zod.z.object({
+      rootSelector: zod.z.string(),
+      rootTag: zod.z.string(),
+      rootRole: zod.z.string().nullable(),
+      accessibleName: zod.z.string().nullable(),
+      listTag: zod.z.string().nullable(),
+      itemCount: zod.z.number(),
+      linkCount: zod.z.number(),
+      currentValues: zod.z.array(zod.z.string()),
+      currentPageCount: zod.z.number(),
+      currentPageIsLast: zod.z.boolean(),
+      lastItemIsLink: zod.z.boolean(),
+      representative: zod.z.boolean()
     });
     exports.TargetContextSchema = zod.z.object({
       /**
@@ -326,6 +344,9 @@ var init_schemas = __esm({
       buttonType: zod.z.string().nullable().optional(),
       // Accessibility
       a11y: exports.A11yAttributesSchema,
+      // Present on elements inside a detected breadcrumb trail. Only the
+      // representative element is graded by breadcrumb rules.
+      breadcrumb: exports.BreadcrumbContextSchema.optional(),
       // Target-size context — see TargetContextSchema.
       targetContext: exports.TargetContextSchema.optional(),
       // Source hints for debugging
@@ -7791,6 +7812,62 @@ async function extractInteractiveElements(page) {
       });
       return Math.max(0, blockText.length - targetChars);
     };
+    const measureBreadcrumb = (el) => {
+      const markerCandidates = [];
+      let ancestor = el;
+      while (ancestor && ancestor !== document.body) {
+        const ariaLabel = ancestor.getAttribute("aria-label") || "";
+        const marker = [
+          ancestor.id,
+          typeof ancestor.className === "string" ? ancestor.className : "",
+          ancestor.getAttribute("data-breadcrumb") || "",
+          ancestor.getAttribute("data-component") || "",
+          ancestor.getAttribute("data-testid") || ""
+        ].join(" ");
+        if (/\bbreadcrumbs?\b/i.test(ariaLabel) || /breadcrumb/i.test(marker)) {
+          markerCandidates.push(ancestor);
+        }
+        ancestor = ancestor.parentElement;
+      }
+      if (markerCandidates.length === 0) return void 0;
+      const markerRoot = markerCandidates[markerCandidates.length - 1];
+      const landmark = markerCandidates.find(
+        (candidate) => candidate.matches('nav,[role="navigation"]')
+      ) ?? markerCandidates.map((candidate) => candidate.closest('nav,[role="navigation"]')).find((candidate) => !!candidate);
+      const root = landmark ?? markerRoot;
+      const labelledBy = (root.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent?.trim() || "").filter(Boolean).join(" ");
+      const accessibleName = (root.getAttribute("aria-label") || labelledBy).trim() || null;
+      const list = root.querySelector("ol, ul");
+      const listItems = list ? Array.from(list.children).filter((item) => item instanceof HTMLElement && item.tagName.toLowerCase() === "li") : [];
+      const fallbackItems = Array.from(root.querySelectorAll("a[href], [aria-current]"));
+      const items = listItems.length > 0 ? listItems : fallbackItems;
+      const lastItem = items[items.length - 1];
+      const currentElements = Array.from(root.querySelectorAll("[aria-current]")).filter((item) => {
+        const value = (item.getAttribute("aria-current") || "").trim().toLowerCase();
+        return value !== "" && value !== "false";
+      });
+      const currentValues = currentElements.map(
+        (item) => (item.getAttribute("aria-current") || "").trim().toLowerCase()
+      );
+      const currentPageElements = currentElements.filter((_, index) => currentValues[index] === "page");
+      const representativeElements = Array.from(root.querySelectorAll("a[href], [aria-current]"));
+      return {
+        rootSelector: generateSelector(root),
+        rootTag: root.tagName.toLowerCase(),
+        rootRole: root.getAttribute("role"),
+        accessibleName,
+        listTag: list?.tagName.toLowerCase() ?? null,
+        itemCount: items.length,
+        linkCount: root.querySelectorAll("a[href]").length,
+        currentValues,
+        currentPageCount: currentPageElements.length,
+        currentPageIsLast: !!lastItem && currentPageElements.some(
+          (current) => current === lastItem || lastItem.contains(current)
+        ),
+        lastItemIsLink: !!lastItem && (lastItem.matches("a[href]") || !!lastItem.querySelector("a[href]")),
+        representative: representativeElements[0] === el
+      };
+    };
     for (const selector of selectors) {
       try {
         document.querySelectorAll(selector).forEach((el) => {
@@ -7849,6 +7926,7 @@ async function extractInteractiveElements(page) {
               role: htmlEl.getAttribute("role"),
               ariaLabel: htmlEl.getAttribute("aria-label"),
               ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
+              ariaCurrent: htmlEl.getAttribute("aria-current"),
               // Own attribute OR any ancestor's — an element nested inside
               // an `aria-hidden="true"` container is just as unreachable to
               // assistive tech as one hidden directly, so rules that key off
@@ -7858,6 +7936,7 @@ async function extractInteractiveElements(page) {
               ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || void 0,
               ariaHaspopup: htmlEl.getAttribute("aria-haspopup")
             },
+            breadcrumb: measureBreadcrumb(htmlEl),
             // What the touch/pointer-target rules must measure instead of
             // this element's own layout box — see TargetContextSchema and
             // src/rules/target-sizing.ts.
@@ -7986,6 +8065,10 @@ var init_extract2 = __esm({
       "textarea",
       '[role="button"]',
       '[role="link"]',
+      // Current breadcrumb pages are sometimes plain text rather than links.
+      // Include them so the breadcrumb contract can distinguish the APG-allowed
+      // non-link current item from a linked item missing aria-current="page".
+      "[aria-current]",
       "[onclick]",
       '[tabindex]:not([tabindex="-1"])'
     ];
@@ -10676,6 +10759,121 @@ var init_spacing_grid = __esm({
   }
 });
 
+// src/rules/breadcrumbs.ts
+function breadcrumbRepresentative(element) {
+  const breadcrumb = element.breadcrumb;
+  return breadcrumb?.representative ? breadcrumb : void 0;
+}
+var breadcrumbRules;
+var init_breadcrumbs = __esm({
+  "src/rules/breadcrumbs.ts"() {
+    breadcrumbRules = [
+      {
+        id: "breadcrumbs/navigation-landmark",
+        name: "Breadcrumb: Navigation Landmark",
+        description: "Breadcrumb trails must use a labelled navigation landmark",
+        defaultSeverity: "warn",
+        check: (element) => {
+          const breadcrumb = breadcrumbRepresentative(element);
+          if (!breadcrumb) return null;
+          const isNavigation = breadcrumb.rootTag === "nav" || breadcrumb.rootRole === "navigation";
+          if (!isNavigation) {
+            return {
+              ruleId: "breadcrumbs/navigation-landmark",
+              ruleName: "Breadcrumb: Navigation Landmark",
+              severity: "warn",
+              message: "Breadcrumb trail is not contained in a navigation landmark",
+              element: breadcrumb.rootSelector,
+              fix: 'Wrap the breadcrumb trail in <nav aria-label="Breadcrumb"> or use role="navigation" with an accessible label'
+            };
+          }
+          if (!breadcrumb.accessibleName) {
+            return {
+              ruleId: "breadcrumbs/navigation-landmark",
+              ruleName: "Breadcrumb: Navigation Landmark",
+              severity: "warn",
+              message: "Breadcrumb navigation landmark has no accessible name",
+              element: breadcrumb.rootSelector,
+              fix: 'Add aria-label="Breadcrumb" or aria-labelledby to the breadcrumb navigation landmark'
+            };
+          }
+          return null;
+        }
+      },
+      {
+        id: "breadcrumbs/list-structure",
+        name: "Breadcrumb: List Structure",
+        description: "Breadcrumb items should be represented as a semantic list",
+        defaultSeverity: "warn",
+        check: (element) => {
+          const breadcrumb = breadcrumbRepresentative(element);
+          if (!breadcrumb || breadcrumb.listTag === "ol" || breadcrumb.listTag === "ul") return null;
+          return {
+            ruleId: "breadcrumbs/list-structure",
+            ruleName: "Breadcrumb: List Structure",
+            severity: "warn",
+            message: "Breadcrumb trail is not structured as a list",
+            element: breadcrumb.rootSelector,
+            fix: "Place breadcrumb items in an <ol> or <ul> inside the navigation landmark"
+          };
+        }
+      },
+      {
+        id: "breadcrumbs/current-page",
+        name: "Breadcrumb: Current Page",
+        description: 'A linked current page must use aria-current="page" on the final breadcrumb item',
+        defaultSeverity: "warn",
+        check: (element) => {
+          const breadcrumb = breadcrumbRepresentative(element);
+          if (!breadcrumb) return null;
+          const unsupportedValues = breadcrumb.currentValues.filter((value) => value !== "page");
+          if (unsupportedValues.length > 0) {
+            return {
+              ruleId: "breadcrumbs/current-page",
+              ruleName: "Breadcrumb: Current Page",
+              severity: "warn",
+              message: `Breadcrumb uses aria-current="${unsupportedValues[0]}" instead of "page"`,
+              element: breadcrumb.rootSelector,
+              fix: 'Use aria-current="page" for the current page in a breadcrumb trail'
+            };
+          }
+          if (breadcrumb.currentPageCount > 1) {
+            return {
+              ruleId: "breadcrumbs/current-page",
+              ruleName: "Breadcrumb: Current Page",
+              severity: "warn",
+              message: `Breadcrumb marks ${breadcrumb.currentPageCount} items as the current page`,
+              element: breadcrumb.rootSelector,
+              fix: 'Apply aria-current="page" to exactly one final breadcrumb item'
+            };
+          }
+          if (breadcrumb.lastItemIsLink && breadcrumb.currentPageCount === 0) {
+            return {
+              ruleId: "breadcrumbs/current-page",
+              ruleName: "Breadcrumb: Current Page",
+              severity: "warn",
+              message: 'Linked current breadcrumb item is missing aria-current="page"',
+              element: breadcrumb.rootSelector,
+              fix: 'Add aria-current="page" to the final breadcrumb link, or render the current page as plain text'
+            };
+          }
+          if (breadcrumb.currentPageCount === 1 && !breadcrumb.currentPageIsLast) {
+            return {
+              ruleId: "breadcrumbs/current-page",
+              ruleName: "Breadcrumb: Current Page",
+              severity: "warn",
+              message: 'aria-current="page" is not on the final breadcrumb item',
+              element: breadcrumb.rootSelector,
+              fix: 'Move aria-current="page" to the final breadcrumb item'
+            };
+          }
+          return null;
+        }
+      }
+    ];
+  }
+});
+
 // src/rules/index.ts
 function runAllRules(elements, context) {
   const results = [];
@@ -10710,18 +10908,21 @@ var init_rules = __esm({
     init_text_hierarchy();
     init_handler_integrity();
     init_spacing_grid();
+    init_breadcrumbs();
     init_wcag_contrast();
     init_touch_targets();
     init_target_sizing();
     init_text_hierarchy();
     init_handler_integrity();
     init_spacing_grid();
+    init_breadcrumbs();
     allRules = [
       ...wcagContrastRules,
       ...touchTargetRules,
       ...textHierarchyRules,
       ...handlerIntegrityRules,
-      ...spacingGridRules
+      ...spacingGridRules,
+      ...breadcrumbRules
     ];
   }
 });

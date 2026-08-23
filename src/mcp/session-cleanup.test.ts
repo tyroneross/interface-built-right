@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { sessions, closeAllSessions, __test_setSession } from './src/mcp/sessions.js'
+import { sessions, closeAllSessions, __test_setSession } from './sessions.js'
 
 describe('closeAllSessions', () => {
   beforeEach(() => sessions.clear())

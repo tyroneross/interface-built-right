@@ -20,7 +20,7 @@ A full validation pass covers:
 - **Console health** — no JavaScript errors or warnings during page load
 - **Structure** — no orphaned elements, disabled states are visually distinct, layout is intact
 
-Run a complete pass, not a spot check. Issue categories compound — an inaccessible button that also lacks a handler is two separate failures, not one.
+Run a complete pass over the change's impact surface, not a spot check and not an indiscriminate all-route sweep. Start from the specified behavior and changed files, map affected components/routes/states/shared dependencies, then select the smallest route, viewport, and flow set that proves those impacts. Expand only when a shared dependency changed, the impact map is uncertain, or a targeted check exposes broader breakage. Issue categories compound — an inaccessible button that also lacks a handler is two separate failures, not one.
 
 ## Primary Tool: `ibr scan`
 
@@ -68,6 +68,7 @@ Accessibility validation is a first-class concern, not an afterthought. Check ev
 - Focusable elements are reachable via keyboard (Tab order)
 - Error messages are associated with their inputs via `a11y.ariaDescribedBy`
 - Icons without visible text have an accessible label
+- Breadcrumb trails use a labelled `nav`/`navigation` landmark and semantic list; when the current page remains a link, the final item has `aria-current="page"`
 
 Report each accessibility failure with its selector, the missing attribute, and the expected value.
 
@@ -137,13 +138,14 @@ Call `ibr scan_macos` to audit a running macOS application via its accessibility
 A complete post-build validation pass:
 
 1. **Read design intent** — load `.ibr/builds/<topic>/design-intent.json` and `specialists/validation-plan.md` when present
-2. **Scan all routes** — call `ibr scan` on each page in the application, not just the primary route
-3. **Triage the issue list** — sort by severity; address all high-severity issues before moving to medium
-4. **Accessibility pass** — verify every interactive element has a label, role, and adequate touch target
-5. **Interactivity pass** — confirm every button, link, and form has a working handler and real target
-6. **Console pass** — confirm zero JavaScript errors on page load for every route
-7. **Reference pass** — validate `wireframe-target` semantically and `visual-target` visually when target roles exist
-8. **Regression check** — call `ibr compare` if baselines exist; verify no unexpected changes
+2. **Map impact** — connect the specified change and changed files to affected components, routes, states, and shared dependencies
+3. **Select targeted coverage** — scan the smallest route/viewport/flow set that covers the impact map; do not run every route or every test by default
+4. **Triage the issue list** — sort by severity; address all high-severity issues before moving to medium
+5. **Accessibility pass** — verify every affected interactive element has a label, role, and adequate touch target
+6. **Interactivity pass** — confirm every affected button, link, and form has a working handler and real target
+7. **Console pass** — confirm zero JavaScript errors on each selected route
+8. **Reference pass** — validate `wireframe-target` semantically and `visual-target` visually when target roles exist
+9. **Regression check** — call `ibr compare` if baselines exist; verify no unexpected changes in the affected region or its dependents
 
 Do not close the audit until all high-severity issues are resolved or explicitly accepted with documented rationale.
 
@@ -189,7 +191,7 @@ When auditing after a PR or deployment:
 
 1. Ensure a pre-change baseline exists (`ibr list_sessions` to confirm)
 2. Run `ibr compare` to surface any layout regressions
-3. Run `ibr scan` on all affected routes
+3. Run `ibr scan` on the selected affected routes and states
 4. Report: verdict per route, issue count by severity, regression status (MATCH/UNEXPECTED_CHANGE)
 
 If no baseline exists, create one now and note that regression comparison is not available for this cycle.
