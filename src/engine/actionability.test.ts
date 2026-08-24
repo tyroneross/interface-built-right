@@ -8,6 +8,12 @@
 
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
+// `join(__dirname, …)` rather than `new URL(…, import.meta.url)`: the root
+// tsconfig compiles src/**/* as NodeNext/CommonJS, where import.meta is a hard
+// error (TS1470). vitest resolves ESM fine, so the suite passed while
+// `tsc --noEmit` stayed red — green tests are not a green typecheck. The
+// sibling compat.test.ts already uses this form.
+import { join } from 'node:path'
 import { waitForActionable, ActionabilityTimeoutError, type ActionabilityState } from './actionability.js'
 
 function state(overrides: Partial<ActionabilityState> = {}): ActionabilityState {
@@ -194,8 +200,8 @@ describe('waitForActionable', () => {
  */
 describe('actionability probe: below-the-fold elements', () => {
   const probes: Array<[string, string]> = [
-    ['compat (selector path)', readFileSync(new URL('./compat.ts', import.meta.url), 'utf8')],
-    ['driver (elementId path)', readFileSync(new URL('./driver.ts', import.meta.url), 'utf8')],
+    ['compat (selector path)', readFileSync(join(__dirname, 'compat.ts'), 'utf8')],
+    ['driver (elementId path)', readFileSync(join(__dirname, 'driver.ts'), 'utf8')],
   ]
 
   for (const [name, src] of probes) {
