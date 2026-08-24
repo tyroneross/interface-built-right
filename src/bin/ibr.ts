@@ -4560,7 +4560,12 @@ program
         writeFileSync(options.out, payload + '\n');
         process.stderr.write(
           `zoom-track: wrote ${track.clicks.length} target(s) to ${options.out} `
-          + `(viewport ${track.viewport.width}x${track.viewport.height})\n`,
+          + `(viewport ${track.viewport.width}x${track.viewport.height}`
+          + (track.offscreenSkipped > 0
+              ? `; skipped ${track.offscreenSkipped} off-screen — this page scrolls, `
+                + `so the track covers only what is visible without scrolling`
+              : '')
+          + `)\n`,
         );
         for (const c of track.clicks.slice(0, 8)) {
           process.stderr.write(`  t=${c.tMs}ms cx=${c.cx} cy=${c.cy}  ${c.label}\n`);

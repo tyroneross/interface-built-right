@@ -80,3 +80,21 @@ describe('buildZoomTrackFromScan', () => {
     expect(Object.keys(toSpectraClicks(r.clicks)[0]).sort()).toEqual(['cx', 'cy', 'tMs']);
   });
 });
+
+describe('off-screen targets', () => {
+  it('excludes elements below the fold and counts them', () => {
+    // bounds are DOCUMENT-relative: an element 2 viewports down yields cy>1,
+    // which is outside the frame and useless as a zoom anchor.
+    const r = buildZoomTrackFromScan(scan([
+      { tagName: 'button', text: 'visible', bounds: { x: 100, y: 100, width: 80, height: 40 } },
+      { tagName: 'button', text: 'below',   bounds: { x: 100, y: 2200, width: 80, height: 40 } },
+      { tagName: 'button', text: 'right',   bounds: { x: 4000, y: 100, width: 80, height: 40 } },
+    ]));
+    expect(r.clicks.map((c) => c.label)).toEqual(['visible']);
+    expect(r.offscreenSkipped).toBe(2);
+    for (const c of r.clicks) {
+      expect(c.cx).toBeGreaterThanOrEqual(0); expect(c.cx).toBeLessThanOrEqual(1);
+      expect(c.cy).toBeGreaterThanOrEqual(0); expect(c.cy).toBeLessThanOrEqual(1);
+    }
+  });
+});

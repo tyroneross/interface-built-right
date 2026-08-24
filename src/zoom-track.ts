@@ -34,6 +34,10 @@ export interface ZoomTrackResult {
   /** Elements seen before the interactive filter — separates "page was empty"
    *  from "nothing on the page was interactive". */
   elementsConsidered: number;
+  /** Interactive elements dropped because they sit outside the viewport. A
+   *  non-zero count means the page scrolls and this track covers only what was
+   *  visible without scrolling — the caller should know that, not discover it. */
+  offscreenSkipped: number;
 }
 
 interface Bounds { x: number; y: number; width: number; height: number }
@@ -98,6 +102,7 @@ export function buildZoomTrackFromScan(
 
   const clicks: LabelledZoomClick[] = [];
   const seen = new Set<string>();
+  let offscreenSkipped = 0;
 
   for (const el of all) {
     const b = el.bounds;
@@ -107,6 +112,21 @@ export function buildZoomTrackFromScan(
     if (w <= 0 || h <= 0) continue;          // zero-area cannot be aimed at
     if (!isInteractiveElement(el)) continue; // a wrapper div teaches nothing
 
+    // `bounds` is DOCUMENT-relative, so an element below the fold yields a cy
+    // above 1 — on a 3-viewport-tall page the bottom button came back at
+    // cy=3.01. As a zoom anchor that is not merely imprecise, it is outside the
+    // frame entirely, and Spectra would aim the camera at nothing. Until this
+    // command can emit a scroll position alongside each target, restrict the
+    // track to what is on screen without scrolling and COUNT what that drops,
+    // so a short track on a long page is visibly explained rather than silently
+    // wrong.
+    const cxRaw = (x + w / 2) / width;
+    const cyRaw = (y + h / 2) / height;
+    if (cxRaw < 0 || cxRaw > 1 || cyRaw < 0 || cyRaw > 1) {
+      offscreenSkipped += 1;
+      continue;
+    }
+
     const label = (el.text ?? el.selector ?? '').trim().slice(0, 40);
     const key = `${Math.round(x)},${Math.round(y)},${label}`;
     if (seen.has(key)) continue;
@@ -114,13 +134,13 @@ export function buildZoomTrackFromScan(
 
     clicks.push({
       tMs: clicks.length * perMs,
-      cx: round4((x + w / 2) / width),
-      cy: round4((y + h / 2) / height),
+      cx: round4(cxRaw),
+      cy: round4(cyRaw),
       label,
     });
   }
 
-  return { clicks, viewport: { width, height }, elementsConsidered: all.length };
+  return { clicks, viewport: { width, height }, elementsConsidered: all.length, offscreenSkipped };
 }
 
 function round4(n: number): number {
