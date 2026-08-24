@@ -4525,7 +4525,11 @@ program
   .option('--viewport <name>', 'Viewport preset', 'desktop')
   .option('--per-ms <ms>', 'Spacing between targets in ms', '1500')
   .option('--min <n>', 'Fail if fewer than N targets are found', '1')
-  .action(async (url: string, options: { out?: string; viewport: string; perMs: string; min: string }) => {
+  // Real timing beats even spacing. A static scan cannot know WHEN anything
+  // happened in a recording, so --per-ms is a placeholder; --events lets a
+  // caller supply the truth as [{tMs, label}], matched on element text.
+  .option('--events <path>', 'JSON [{tMs,label}] of real event times, matched by element text')
+  .action(async (url: string, options: { out?: string; viewport: string; perMs: string; min: string; events?: string }) => {
     try {
       const { scan } = await import('../scan.js');
       const { buildZoomTrackFromScan, toSpectraClicks } = await import('../zoom-track.js');
@@ -4534,8 +4538,30 @@ program
       // Progress to stderr — stdout is the track when no --output is given.
       process.stderr.write(`Scanning ${resolvedUrl} for zoom targets...\n`);
 
+      let events;
+      if (options.events) {
+        const { readFileSync } = await import('fs');
+        events = JSON.parse(readFileSync(options.events, 'utf8'));
+        if (!Array.isArray(events)) {
+          throw new Error(`--events must be a JSON array of {tMs,label}, got ${typeof events}`);
+        }
+      }
+
       const result = await scan(resolvedUrl, { viewport: options.viewport as any });
-      const track = buildZoomTrackFromScan(result, { perMs: Number(options.perMs) || 1500 });
+      const track = buildZoomTrackFromScan(result, {
+        perMs: Number(options.perMs) || 1500,
+        events,
+      });
+
+      // An event that matched no element means the timing source and the page
+      // disagree. Say so — silently falling back to even spacing would present
+      // invented timing as if it were the caller's.
+      if (track.unmatchedEvents.length > 0) {
+        process.stderr.write(
+          `zoom-track: ${track.unmatchedEvents.length} event(s) matched no element `
+          + `and were ignored: ${track.unmatchedEvents.join(', ')}\n`,
+        );
+      }
       const min = Number(options.min);
 
       // LOUD ON EMPTY. A zoom track with no targets is not a valid result that
@@ -4562,13 +4588,16 @@ program
           `zoom-track: wrote ${track.clicks.length} target(s) to ${options.out} `
           + `(viewport ${track.viewport.width}x${track.viewport.height}`
           + (track.offscreenSkipped > 0
-              ? `; skipped ${track.offscreenSkipped} off-screen — this page scrolls, `
-                + `so the track covers only what is visible without scrolling`
+              ? `; skipped ${track.offscreenSkipped} horizontally unreachable`
+              : '')
+          + (track.estimatedDocHeight > track.viewport.height
+              ? `; page is ~${track.estimatedDocHeight}px tall, targets carry scrollY`
               : '')
           + `)\n`,
         );
         for (const c of track.clicks.slice(0, 8)) {
-          process.stderr.write(`  t=${c.tMs}ms cx=${c.cx} cy=${c.cy}  ${c.label}\n`);
+          process.stderr.write(
+            `  t=${c.tMs}ms cx=${c.cx} cy=${c.cy} scrollY=${c.scrollY}  ${c.label}\n`);
         }
       } else {
         console.log(payload);

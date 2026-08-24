@@ -81,20 +81,65 @@ describe('buildZoomTrackFromScan', () => {
   });
 });
 
-describe('off-screen targets', () => {
-  it('excludes elements below the fold and counts them', () => {
-    // bounds are DOCUMENT-relative: an element 2 viewports down yields cy>1,
-    // which is outside the frame and useless as a zoom anchor.
+describe('scroll offsets — the whole page is reachable from one scan', () => {
+  it('emits a scrollY that brings a below-the-fold element into view', () => {
     const r = buildZoomTrackFromScan(scan([
-      { tagName: 'button', text: 'visible', bounds: { x: 100, y: 100, width: 80, height: 40 } },
-      { tagName: 'button', text: 'below',   bounds: { x: 100, y: 2200, width: 80, height: 40 } },
-      { tagName: 'button', text: 'right',   bounds: { x: 4000, y: 100, width: 80, height: 40 } },
+      { tagName: 'button', text: 'top',   bounds: { x: 100, y: 100,  width: 80, height: 40 } },
+      { tagName: 'button', text: 'below', bounds: { x: 100, y: 2200, width: 80, height: 40 } },
     ]));
-    expect(r.clicks.map((c) => c.label)).toEqual(['visible']);
-    expect(r.offscreenSkipped).toBe(2);
+    expect(r.clicks.map((c) => c.label)).toEqual(['top', 'below']);
     for (const c of r.clicks) {
-      expect(c.cx).toBeGreaterThanOrEqual(0); expect(c.cx).toBeLessThanOrEqual(1);
-      expect(c.cy).toBeGreaterThanOrEqual(0); expect(c.cy).toBeLessThanOrEqual(1);
+      expect(c.cy).toBeGreaterThanOrEqual(0);
+      expect(c.cy).toBeLessThanOrEqual(1);
     }
+    expect(r.clicks[0].scrollY).toBe(0);            // already visible
+    expect(r.clicks[1].scrollY).toBeGreaterThan(0); // needs scrolling
+  });
+
+  it('centres the target when the document allows it', () => {
+    // element far from both edges of a tall document -> centred, cy ~ 0.5
+    const r = buildZoomTrackFromScan(scan([
+      { tagName: 'button', text: 'mid', bounds: { x: 100, y: 5000, width: 80, height: 40 } },
+      { tagName: 'div', bounds: { x: 0, y: 12000, width: 10, height: 10 } },
+    ]));
+    expect(r.clicks[0].cy).toBeCloseTo(0.5, 2);
+  });
+
+  it('cannot scroll above the document top — cy reflects the real position', () => {
+    const r = buildZoomTrackFromScan(scan([
+      { tagName: 'button', text: 'top', bounds: { x: 100, y: 100, width: 80, height: 40 } },
+    ]));
+    expect(r.clicks[0].scrollY).toBe(0);
+    expect(r.clicks[0].cy).toBeCloseTo(120 / 1080, 3);
+  });
+
+  it('still drops horizontally unreachable targets, since there is no h-scroll', () => {
+    const r = buildZoomTrackFromScan(scan([
+      { tagName: 'button', text: 'right', bounds: { x: 4000, y: 100, width: 80, height: 40 } },
+    ]));
+    expect(r.clicks).toHaveLength(0);
+    expect(r.offscreenSkipped).toBe(1);
+  });
+});
+
+describe('timing', () => {
+  it('uses real event timestamps when supplied, and orders by them', () => {
+    const r = buildZoomTrackFromScan(
+      scan([btn(10, 10, 'Second'), btn(200, 200, 'First')]),
+      { events: [{ tMs: 4000, label: 'Second' }, { tMs: 1000, label: 'First' }] },
+    );
+    expect(r.clicks.map((c) => [c.label, c.tMs])).toEqual([['First', 1000], ['Second', 4000]]);
+    expect(r.unmatchedEvents).toEqual([]);
+  });
+
+  it('falls back to even spacing for elements with no event', () => {
+    const r = buildZoomTrackFromScan(scan([btn(10, 10, 'A'), btn(200, 200, 'B')]), { perMs: 1500 });
+    expect(r.clicks.map((c) => c.tMs)).toEqual([0, 1500]);
+  });
+
+  it('reports events that matched nothing instead of silently ignoring them', () => {
+    const r = buildZoomTrackFromScan(scan([btn(10, 10, 'A')]),
+      { events: [{ tMs: 500, label: 'A' }, { tMs: 900, label: 'Ghost' }] });
+    expect(r.unmatchedEvents).toEqual(['Ghost']);
   });
 });

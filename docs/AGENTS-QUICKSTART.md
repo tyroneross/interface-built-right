@@ -70,9 +70,22 @@ ibr zoom-track http://localhost:3000 --out clicks.json
 spectra polish recording.mp4 --clicks-json clicks.json
 ```
 
-Writes `[{tMs, cx, cy}]`, where `cx`/`cy` are the element centre as a **fraction
-of the viewport** — the shape Spectra's `buildZoomTrack()` already accepts.
+Writes `[{tMs, cx, cy, scrollY}]`. `cx`/`cy` are the element centre as a
+**fraction of the viewport** at that scroll position — the shape Spectra's
+`buildZoomTrack()` already accepts. `scrollY` is an extra field Spectra ignores,
+so the whole page is reachable from one scan instead of just the first screenful.
 `--out`, not `-o`: the program reserves `-o/--output` globally.
+
+Even spacing is a **placeholder** — a static scan cannot know when anything
+happened in a recording. Pass real times when you have them:
+
+```bash
+echo '[{"tMs":1200,"label":"Submit Order"}]' > events.json
+ibr zoom-track http://localhost:3000 --events events.json --out clicks.json
+```
+
+Labels match element text (then selector), case-insensitively. Events matching
+nothing are reported, never silently dropped.
 
 Finding nothing is an **error, not an empty file**: exit 1, no file written, and
 a message saying whether the page returned no elements at all or returned
