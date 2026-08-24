@@ -38,11 +38,22 @@ const SELECTOR_ACTIONABILITY_PROBE_FN = `(sel) => {
   const el = document.querySelector(sel);
   if (!el || !el.isConnected) return { present: false, visible: false, enabled: false, rect: null };
   const style = getComputedStyle(el);
-  const r = el.getBoundingClientRect();
+  let r = el.getBoundingClientRect();
   const hasSize = r.width > 0 && r.height > 0;
   let visible = style.display !== 'none' && style.visibility !== 'hidden' &&
     parseFloat(style.opacity) !== 0 && hasSize;
   if (visible) {
+    // An off-screen element cannot be probed for occlusion: elementFromPoint takes
+    // VIEWPORT coordinates, so a node below the fold resolves to null and the element
+    // is reported "covered" forever. Bring it into view first -- the present -> scroll
+    // -> visible -> enabled -> stable order every actionability model uses. 'instant'
+    // because a CSS smooth-scroll would fight the rect-stability check below.
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) {
+      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      r = el.getBoundingClientRect();
+    }
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     const atPoint = document.elementFromPoint(cx, cy);

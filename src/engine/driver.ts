@@ -249,6 +249,14 @@ const ACTIONABILITY_PROBE_FN = `function() {
   var visible = style.display !== 'none' && style.visibility !== 'hidden' &&
     parseFloat(style.opacity) !== 0 && hasSize;
   if (visible) {
+    // elementFromPoint takes VIEWPORT coordinates, so a node below the fold probes as
+    // null and is reported "covered" forever. Scroll it in first, then test occlusion.
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) {
+      this.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      r = this.getBoundingClientRect();
+    }
     var cx = r.left + r.width / 2;
     var cy = r.top + r.height / 2;
     var atPoint = document.elementFromPoint(cx, cy);

@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
 import { waitForActionable, ActionabilityTimeoutError, type ActionabilityState } from './actionability.js'
 
 function state(overrides: Partial<ActionabilityState> = {}): ActionabilityState {
@@ -177,4 +178,36 @@ describe('waitForActionable', () => {
 
     expect(result).toBe('real')
   })
+})
+
+/**
+ * Regression: an element below the fold must be scrolled into view BEFORE the
+ * occlusion probe runs.
+ *
+ * `document.elementFromPoint` takes VIEWPORT coordinates. A node 6,548px down a
+ * long page has a `getBoundingClientRect().top` far outside a 1080px viewport,
+ * so elementFromPoint returned null, the probe read that as "covered", and every
+ * click on it failed with "not actionable: not visible (hidden or covered)"
+ * until the 5s timeout -- on an element that was plainly visible and had real
+ * size. Found driving a 14,465px documentation page whose controls all sit below
+ * the fold.
+ */
+describe('actionability probe: below-the-fold elements', () => {
+  const probes: Array<[string, string]> = [
+    ['compat (selector path)', readFileSync(new URL('./compat.ts', import.meta.url), 'utf8')],
+    ['driver (elementId path)', readFileSync(new URL('./driver.ts', import.meta.url), 'utf8')],
+  ]
+
+  for (const [name, src] of probes) {
+    it(`${name} scrolls into view before testing occlusion`, () => {
+      expect(src).toContain('scrollIntoView')
+      // The scroll must be instant: a CSS smooth-scroll animates the rect and
+      // fights the stability check, which needs consecutive matching rects.
+      expect(src).toMatch(/behavior:\s*'instant'/)
+      // And it must happen before elementFromPoint, not after.
+      const scrollAt = src.indexOf('scrollIntoView')
+      const pointAt = src.indexOf('elementFromPoint', scrollAt)
+      expect(pointAt).toBeGreaterThan(scrollAt)
+    })
+  }
 })
