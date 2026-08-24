@@ -4529,7 +4529,9 @@ program
   // happened in a recording, so --per-ms is a placeholder; --events lets a
   // caller supply the truth as [{tMs, label}], matched on element text.
   .option('--events <path>', 'JSON [{tMs,label}] of real event times, matched by element text')
-  .action(async (url: string, options: { out?: string; viewport: string; perMs: string; min: string; events?: string }) => {
+  .option('--max <n>', 'Keep at most N targets, highest importance first')
+  .option('--rich', 'Include text, role, weight and resolved colours per target')
+  .action(async (url: string, options: { out?: string; viewport: string; perMs: string; min: string; events?: string; max?: string; rich?: boolean }) => {
     try {
       const { scan } = await import('../scan.js');
       const { buildZoomTrackFromScan, toSpectraClicks } = await import('../zoom-track.js');
@@ -4551,6 +4553,7 @@ program
       const track = buildZoomTrackFromScan(result, {
         perMs: Number(options.perMs) || 1500,
         events,
+        max: options.max ? Number(options.max) : undefined,
       });
 
       // An event that matched no element means the timing source and the page
@@ -4580,7 +4583,11 @@ program
         process.exit(1);
       }
 
-      const payload = JSON.stringify(toSpectraClicks(track.clicks), null, 1);
+      // --rich keeps text/role/weight/colours alongside the geometry. Spectra
+      // ignores the extra fields, so the same file drives a zoom AND a caption
+      // or a recolour. Default stays the minimal Spectra shape.
+      const payload = JSON.stringify(
+        options.rich ? track.clicks : toSpectraClicks(track.clicks), null, 1);
       if (options.out) {
         const { writeFileSync } = await import('fs');
         writeFileSync(options.out, payload + '\n');
@@ -4589,6 +4596,9 @@ program
           + `(viewport ${track.viewport.width}x${track.viewport.height}`
           + (track.offscreenSkipped > 0
               ? `; skipped ${track.offscreenSkipped} horizontally unreachable`
+              : '')
+          + (track.trimmed > 0
+              ? `; trimmed ${track.trimmed} lower-importance target(s)`
               : '')
           + (track.estimatedDocHeight > track.viewport.height
               ? `; page is ~${track.estimatedDocHeight}px tall, targets carry scrollY`

@@ -143,3 +143,55 @@ describe('timing', () => {
     expect(r.unmatchedEvents).toEqual(['Ghost']);
   });
 });
+
+describe('rich targets — text, colours, importance', () => {
+  const styled = (tag: string, text: string, css: Record<string, string>, y = 100) => ({
+    tagName: tag, text, bounds: { x: 100, y, width: 120, height: 40 }, computedStyles: css,
+  });
+
+  it('carries the element text verbatim, not the truncated label', () => {
+    const long = 'A heading long enough that the 40-char label truncates it';
+    const r = buildZoomTrackFromScan(scan([styled('button', long, {})]));
+    expect(r.clicks[0].text).toBe(long);
+    expect(r.clicks[0].label.length).toBeLessThanOrEqual(40);
+  });
+
+  it('resolves oklch to hex — the format a Tailwind v4 page emits', () => {
+    const r = buildZoomTrackFromScan(scan([
+      styled('button', 'Go', { backgroundColor: 'oklch(0.606 0.25 292.717)', color: 'rgb(255,255,255)' }),
+    ]));
+    expect(r.clicks[0].backgroundColorHex).toBe('#8e51ff');
+    expect(r.clicks[0].colorHex).toBe('#ffffff');
+  });
+
+  it('leaves an undecodable or transparent colour UNDEFINED, never defaulted', () => {
+    const r = buildZoomTrackFromScan(scan([
+      styled('button', 'Go', { backgroundColor: 'rgba(0, 0, 0, 0)', color: 'weird-nonsense' }),
+    ]));
+    expect(r.clicks[0].backgroundColorHex).toBeUndefined();
+    expect(r.clicks[0].colorHex).toBeUndefined();
+    expect(r.clicks[0].backgroundColor).toBe('rgba(0, 0, 0, 0)'); // raw still reported
+  });
+
+  it('ranks a button above a link', () => {
+    const r = buildZoomTrackFromScan(scan([styled('a', 'link', {}), styled('button', 'btn', {}, 300)]));
+    const btn = r.clicks.find((c) => c.role === 'button')!;
+    const link = r.clicks.find((c) => c.role === 'a')!;
+    expect(btn.weight).toBeGreaterThan(link.weight);
+  });
+
+  it('--max keeps the most important and restores time order', () => {
+    const r = buildZoomTrackFromScan(
+      scan([styled('a', 'first', {}, 100), styled('button', 'second', {}, 300)]),
+      { max: 1 },
+    );
+    expect(r.clicks).toHaveLength(1);
+    expect(r.clicks[0].role).toBe('button'); // kept by weight, not by scan order
+    expect(r.trimmed).toBe(1);
+  });
+
+  it('reports trimmed=0 when under the cap', () => {
+    const r = buildZoomTrackFromScan(scan([styled('button', 'only', {})]), { max: 5 });
+    expect(r.trimmed).toBe(0);
+  });
+});

@@ -16,6 +16,8 @@
  * missing piece was a producer, which is all this module is.
  */
 
+import { parseColor } from './rules/color-parse.js';
+
 /** Spectra's ZoomClick. cx/cy are viewport FRACTIONS, not pixels. */
 export interface ZoomClick {
   tMs: number;
@@ -33,9 +35,29 @@ export interface ZoomClick {
   scrollY?: number;
 }
 
-/** A ZoomClick plus the label it came from — useful for logs, not for Spectra. */
+/**
+ * A ZoomClick enriched with what the element IS, not just where it is.
+ *
+ * Spectra ignores every field beyond {tMs,cx,cy}, so these ride along for free
+ * and unlock the two things geometry alone cannot do: caption a moment with the
+ * text actually on screen, and recolor or restyle a region in editing because
+ * the current colour is known rather than sampled from pixels.
+ */
 export interface LabelledZoomClick extends ZoomClick {
   label: string;
+  /** Element text, verbatim, untruncated — captions need the real string. */
+  text: string;
+  role: string;
+  /** Importance 0..1. Higher wins when --max trims the track. */
+  weight: number;
+  /** Raw computed values, exactly as the browser reported them (may be oklch). */
+  color?: string;
+  backgroundColor?: string;
+  /** The same colours resolved to #rrggbb, or undefined when undecodable.
+   *  Undecodable is left UNDEFINED rather than defaulted — a wrong colour in an
+   *  edit is worse than a missing one. */
+  colorHex?: string;
+  backgroundColorHex?: string;
 }
 
 export interface TimedEvent {
@@ -50,6 +72,8 @@ export interface ZoomTrackResult {
   /** Elements seen before the interactive filter — separates "page was empty"
    *  from "nothing on the page was interactive". */
   elementsConsidered: number;
+  /** Targets dropped by --max, lowest weight first. */
+  trimmed: number;
   /** Interactive elements dropped for a reason other than scroll position
    *  (zero area, malformed bounds, horizontal overflow). */
   offscreenSkipped: number;
@@ -67,6 +91,7 @@ interface Bounds { x: number; y: number; width: number; height: number }
 
 interface ScanElement {
   bounds?: Bounds;
+  computedStyles?: Record<string, string>;
   text?: string;
   selector?: string;
   tagName?: string;
@@ -80,6 +105,25 @@ interface ScanElement {
 }
 
 const INTERACTIVE_TAGS = new Set(['button', 'a', 'input', 'select', 'textarea']);
+
+/**
+ * Importance by role. A track trimmed by --max should keep the primary action,
+ * not whichever element happened to be scanned first.
+ *
+ * NOTE: headings are absent because the scan cannot supply them WITH GEOMETRY.
+ * `sensors.hierarchy` reports h1-h6 text and counts but no bounds, and
+ * `elements.all` is populated from INTERACTIVE_SELECTORS (src/extract.ts), which
+ * by design excludes headings. Ranking by heading level needs a content-element
+ * extraction that does not exist yet — see docs/AGENTS-QUICKSTART.md.
+ */
+const ROLE_WEIGHT: Record<string, number> = {
+  button: 1.0,
+  a: 0.7,
+  select: 0.6,
+  textarea: 0.6,
+  input: 0.5,
+  summary: 0.4,
+};
 
 /**
  * Is this element worth zooming to?
@@ -112,7 +156,7 @@ export function isInteractiveElement(el: ScanElement): boolean {
  */
 export function buildZoomTrackFromScan(
   scan: unknown,
-  opts: { perMs?: number; events?: TimedEvent[] } = {},
+  opts: { perMs?: number; events?: TimedEvent[]; max?: number } = {},
 ): ZoomTrackResult {
   const perMs = opts.perMs ?? 1500;
   const events = opts.events ?? [];
@@ -173,7 +217,17 @@ export function buildZoomTrackFromScan(
       continue;
     }
 
-    const label = (el.text ?? el.selector ?? '').trim().slice(0, 40);
+    const text = (el.text ?? '').trim();
+    const label = (text || el.selector || '').slice(0, 40);
+    const role = (el.tagName ?? '').toLowerCase();
+
+    // Importance = role, nudged by how much of the viewport the element covers.
+    // Area is a weak signal on its own (a full-width nav bar is not the primary
+    // action) so it only ever adjusts, never dominates.
+    const areaFrac = Math.min(1, (w * h) / (width * height));
+    const weight = round4(Math.min(1, (ROLE_WEIGHT[role] ?? 0.3) + areaFrac * 0.2));
+
+    const cs = el.computedStyles ?? {};
     const key = `${Math.round(x)},${Math.round(y)},${label}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -193,20 +247,53 @@ export function buildZoomTrackFromScan(
       cy: round4(cyRaw),
       scrollY: Math.round(scrollY),
       label,
+      text,
+      role,
+      weight,
+      color: cs.color,
+      backgroundColor: cs.backgroundColor,
+      colorHex: toHex(cs.color),
+      backgroundColorHex: toHex(cs.backgroundColor),
     });
   }
 
-  clicks.sort((a, b) => a.tMs - b.tMs);
+  // Trim by IMPORTANCE, then restore time order. Emitting every interactive
+  // element gives a real page dozens of zooms, which is unusable; dropping the
+  // tail in scan order would keep whatever came first rather than what matters.
+  let kept = clicks;
+  let trimmed = 0;
+  if (opts.max !== undefined && opts.max > 0 && clicks.length > opts.max) {
+    kept = [...clicks].sort((a, b) => b.weight - a.weight).slice(0, opts.max);
+    trimmed = clicks.length - kept.length;
+  }
+  kept.sort((a, b) => a.tMs - b.tMs);
   const unmatchedEvents = events.filter((_, i) => !usedEvents.has(i)).map((e) => e.label);
 
   return {
-    clicks,
+    clicks: kept,
+    trimmed,
     viewport: { width, height },
     elementsConsidered: all.length,
     offscreenSkipped,
     estimatedDocHeight,
     unmatchedEvents,
   };
+}
+
+/**
+ * Resolve a computed colour to #rrggbb, reusing the rule engine's parser so
+ * oklch/oklab/lch/lab/hsl all decode — the same parser gap that made a Tailwind
+ * v4 page scan as clean while nothing was measured.
+ *
+ * Returns undefined when the value cannot be decoded. Deliberately NOT a
+ * fallback colour: an edit applied against an invented colour is worse than one
+ * the caller knows it has to resolve itself.
+ */
+function toHex(css: string | undefined): string | undefined {
+  if (!css) return undefined;
+  const parsed = parseColor(css);
+  if (parsed.kind !== 'rgb') return undefined;
+  return '#' + parsed.rgb.map((c) => c.toString(16).padStart(2, '0')).join('');
 }
 
 function clamp(n: number, lo: number, hi: number): number {

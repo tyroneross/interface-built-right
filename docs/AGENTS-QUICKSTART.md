@@ -87,6 +87,55 @@ ibr zoom-track http://localhost:3000 --events events.json --out clicks.json
 Labels match element text (then selector), case-insensitively. Events matching
 nothing are reported, never silently dropped.
 
+### Text, colours, importance
+
+```bash
+ibr zoom-track http://localhost:3000 --rich --max 6 --out clicks.json
+```
+
+`--rich` adds `text` (verbatim), `role`, `weight` (0..1), and both raw and
+resolved colours per target:
+
+```json
+{ "tMs": 0, "cx": 0.93, "cy": 0.07, "scrollY": 0,
+  "text": "Export", "role": "button", "weight": 1,
+  "backgroundColor": "oklch(0.606 0.25 292.717)", "backgroundColorHex": "#8e51ff" }
+```
+
+Spectra ignores the extra fields, so one file drives a zoom *and* a caption or a
+recolour. An undecodable or transparent colour is left **undefined** — never
+defaulted, because an edit applied against an invented colour is worse than one
+you know you have to resolve.
+
+`--max` keeps the highest-weight targets and restores time order, so trimming a
+busy page keeps the primary action rather than whatever was scanned first.
+
+## What a scan does NOT give you
+
+**Headings have text but no geometry.** `sensors.hierarchy` reports h1–h6 counts
+and texts; `sensors.typography` reports size and weight per selector. Neither
+carries `bounds`, and `elements.all` comes from `INTERACTIVE_SELECTORS`
+(`src/extract.ts`), which excludes headings by design. So you can *read* the
+heading outline but cannot zoom to, caption, or recolour a specific heading.
+
+**No SEO metadata.** There is no `<title>`, meta description, canonical, or
+og:/twitter: tag anywhere in a scan result. `semantic.title` exists but is
+populated from the page's accessible title, not the `<head>`.
+
+Both need a content-element extraction that does not exist yet. Do not infer
+either from a scan — it will look empty rather than unsupported.
+
+## Running your own probe
+
+When a scan cannot answer the question, IBR runs a sandboxed script for you:
+
+```bash
+ibr run-script probe.py --url http://localhost:3000 --timeout 60000 --memory 512
+```
+
+The URL arrives as `IBR_URL`. Resource limits are enforced, so a runaway probe
+cannot take the machine with it.
+
 Finding nothing is an **error, not an empty file**: exit 1, no file written, and
 a message saying whether the page returned no elements at all or returned
 elements of which none were interactive.
