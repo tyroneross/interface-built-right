@@ -1000,7 +1000,8 @@ program
   .option('--network-idle-timeout <ms>', 'Network idle timeout in ms (default: 10000)')
   .option('--rules <presets>', 'Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)')
   .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
-  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string; output: string }) => {
+  .option('--content', 'Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata — adds scan.content.elements and scan.metadata')
+  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string; output: string; content?: boolean }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
@@ -1042,6 +1043,7 @@ program
         networkIdleTimeout: options.networkIdleTimeout ? parseInt(options.networkIdleTimeout, 10) : undefined,
         screenshot: options.screenshot ? { path: options.screenshot } : undefined,
         rules: rulePresets,
+        content: options.content,
         ...getBrowserConnectionOptions(),
       });
 
@@ -4549,7 +4551,11 @@ program
         }
       }
 
-      const result = await scan(resolvedUrl, { viewport: options.viewport as any });
+      // Always scan with content: true — headings are now a zoom-target
+      // source (see buildZoomTrackFromScan) and only arrive via
+      // scan.content.elements, so a plain scan here would silently starve
+      // the track of every heading target.
+      const result = await scan(resolvedUrl, { viewport: options.viewport as any, content: true });
       const track = buildZoomTrackFromScan(result, {
         perMs: Number(options.perMs) || 1500,
         events,

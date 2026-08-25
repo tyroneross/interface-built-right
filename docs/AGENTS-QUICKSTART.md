@@ -110,20 +110,53 @@ you know you have to resolve.
 `--max` keeps the highest-weight targets and restores time order, so trimming a
 busy page keeps the primary action rather than whatever was scanned first.
 
-## What a scan does NOT give you
+## Content elements and page metadata (opt-in)
 
-**Headings have text but no geometry.** `sensors.hierarchy` reports h1–h6 counts
-and texts; `sensors.typography` reports size and weight per selector. Neither
-carries `bounds`, and `elements.all` comes from `INTERACTIVE_SELECTORS`
-(`src/extract.ts`), which excludes headings by design. So you can *read* the
-heading outline but cannot zoom to, caption, or recolour a specific heading.
+```bash
+ibr scan http://localhost:3000 --content --json > scan.json
+```
 
-**No SEO metadata.** There is no `<title>`, meta description, canonical, or
-og:/twitter: tag anywhere in a scan result. `semantic.title` exists but is
-populated from the page's accessible title, not the `<head>`.
+Adds two keys, and ONLY with the flag — without it both are absent, so ordinary
+scans pay nothing:
 
-Both need a content-element extraction that does not exist yet. Do not infer
-either from a scan — it will look empty rather than unsupported.
+```jsonc
+{
+  "content": { "elements": [
+    { "tagName": "h1", "contentKind": "heading", "headingLevel": 1,
+      "text": "Quarterly Report", "bounds": { "x": 24, "y": 24, "width": 300, "height": 38 } },
+    { "tagName": "img", "contentKind": "image", "alt": "Revenue chart", "src": "/chart.png", "bounds": {} }
+  ]},
+  "metadata": {
+    "title": "Q3 Report", "description": "...", "canonical": "https://example.com/q3",
+    "og": { "title": "...", "image": "..." },     // namespace stripped: og.title
+    "twitter": { "card": "summary_large_image" },
+    "jsonLd": [ { "@type": "Article" }, "{ raw string if the block was invalid JSON }" ]
+  }
+}
+```
+
+`contentKind` is `heading | paragraph | image | caption | quote`. Invalid JSON-LD
+is kept as its raw string — one malformed block never costs you the others.
+
+`elements.all` still holds ONLY interactive elements. The two lanes are separate
+on purpose: `extractInteractiveElements` feeds the touch-target audit rules, and
+a heading is not a touch target.
+
+### Heading level drives zoom-track importance
+
+`zoom-track` scans with content automatically, so headings are targets and the
+h-level is the ranking — it is the author's own statement of what matters:
+
+```
+h1     w=0.95   'Quarterly Report'
+button w=0.85   'Export'
+h2     w=0.75   'Revenue'
+h3     w=0.65   'By region'
+```
+
+An h1 outranks the primary action: a viewer needs to know what they are looking
+at before what they can do. A subsection heading does not — the area bonus
+(max 0.08) nudges rank without ever inverting adjacent roles.
 
 ## Running your own probe
 

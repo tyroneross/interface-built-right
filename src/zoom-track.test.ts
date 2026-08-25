@@ -195,3 +195,111 @@ describe('rich targets — text, colours, importance', () => {
     expect(r.trimmed).toBe(0);
   });
 });
+
+describe('headings — content elements as zoom targets', () => {
+  // Mirrors src/extract.ts's ContentElement shape closely enough for the
+  // duck-typed fields buildZoomTrackFromScan actually reads.
+  const heading = (
+    level: 1 | 2 | 3 | 4 | 5 | 6,
+    text: string,
+    x: number,
+    y: number,
+    width = 800,
+    height = 60,
+  ) => ({
+    tagName: `h${level}`,
+    contentKind: 'heading' as const,
+    headingLevel: level,
+    text,
+    selector: `h${level}`,
+    bounds: { x, y, width, height },
+    computedStyles: {},
+  });
+
+  const scanWithContent = (all: unknown[], content: unknown[], w = 1920, h = 1080) => ({
+    viewport: { width: w, height: h },
+    elements: { all },
+    content: { elements: content },
+  });
+
+  it('an h1 becomes a target with role h1 and the top weight', () => {
+    const r = buildZoomTrackFromScan(scanWithContent([], [heading(1, 'Welcome', 100, 50)]));
+    expect(r.clicks).toHaveLength(1);
+    expect(r.clicks[0].role).toBe('h1');
+    expect(r.clicks[0].weight).toBeCloseTo(0.95, 1);
+    expect(r.clicks[0].text).toBe('Welcome');
+  });
+
+  it('heading weight follows the level table exactly, h1 highest down to h6', () => {
+    // A near-zero-area heading isolates the base ROLE_WEIGHT value from the
+    // areaFrac bonus (a full-width heading would otherwise nudge these up).
+    const levels = [1, 2, 3, 4, 5, 6] as const;
+    const weights = levels.map((lvl) => {
+      const r = buildZoomTrackFromScan(scanWithContent([], [heading(lvl, `H${lvl}`, 100, 100, 4, 4)]));
+      return r.clicks[0].weight;
+    });
+    expect(weights).toEqual([0.95, 0.75, 0.65, 0.5, 0.4, 0.3]);
+  });
+
+  it('ranks by weight, not by which candidate was appended first', () => {
+    // An earlier revision pinned button at 1.0 — the ceiling — so `min(1, …)`
+    // collapsed h1 and button onto the same value and ordering fell to a
+    // stable-sort tie. That is invisible and breaks the moment anyone changes
+    // the sort. Every role now has a distinct base, so these assertions are
+    // about the numbers rather than about insertion order.
+    const tinyH1 = { tagName: 'h1', text: 'Title', contentKind: 'heading', headingLevel: 1,
+                     bounds: { x: 0, y: 0, width: 40, height: 20 } };
+    const hugeButton = { tagName: 'button', text: 'Buy', bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
+
+    // h1 outranks the primary action even when the button fills the viewport:
+    // a viewer needs to know what they are looking at before what they can do.
+    const r = buildZoomTrackFromScan(scanWithContent([hugeButton], [tinyH1]), { max: 1 });
+    expect(r.clicks[0].role).toBe('h1');
+
+    // …but a subsection heading does NOT outrank the primary action, even at
+    // full viewport. The area bonus nudges rank; it never inverts adjacent roles.
+    const hugeH2 = { tagName: 'h2', text: 'Section', contentKind: 'heading', headingLevel: 2,
+                     bounds: { x: 0, y: 0, width: 1920, height: 1080 } };
+    const tinyButton = { tagName: 'button', text: 'Buy', bounds: { x: 0, y: 0, width: 40, height: 20 } };
+    const r2 = buildZoomTrackFromScan(scanWithContent([tinyButton], [hugeH2]), { max: 1 });
+    expect(r2.clicks[0].role).toBe('button');
+  });
+
+  it('paragraphs and images are not zoom targets even though they have geometry', () => {
+    const para = {
+      tagName: 'p', contentKind: 'paragraph', text: 'Some body copy',
+      bounds: { x: 100, y: 100, width: 400, height: 60 },
+    };
+    const img = {
+      tagName: 'img', contentKind: 'image', alt: 'hero',
+      bounds: { x: 100, y: 200, width: 400, height: 300 },
+    };
+    const r = buildZoomTrackFromScan(scanWithContent([], [para, img]));
+    expect(r.clicks).toHaveLength(0);
+    // Still counted as considered — distinguishes "page has content but none
+    // of it is a heading" from "the scan returned nothing at all".
+    expect(r.elementsConsidered).toBe(2);
+  });
+
+  it('a heading below the fold still gets a correct scrollY', () => {
+    const r = buildZoomTrackFromScan(scanWithContent([], [heading(2, 'Deep section', 100, 3000)]));
+    expect(r.clicks).toHaveLength(1);
+    expect(r.clicks[0].scrollY).toBeGreaterThan(0);
+    expect(r.clicks[0].cy).toBeGreaterThanOrEqual(0);
+    expect(r.clicks[0].cy).toBeLessThanOrEqual(1);
+  });
+
+  it('headings and interactive elements coexist in one track, ordered by time', () => {
+    const button = {
+      tagName: 'button', text: 'Buy',
+      bounds: { x: 1700, y: 700, width: 100, height: 40 },
+      interactive: { hasOnClick: true },
+    };
+    const r = buildZoomTrackFromScan(
+      scanWithContent([button], [heading(3, 'Details', 100, 50)]),
+      { events: [{ tMs: 5000, label: 'Buy' }, { tMs: 1000, label: 'Details' }] },
+    );
+    expect(r.clicks.map((c) => c.role)).toEqual(['h3', 'button']);
+    expect(r.clicks.map((c) => c.tMs)).toEqual([1000, 5000]);
+  });
+});

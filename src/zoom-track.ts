@@ -104,26 +104,69 @@ interface ScanElement {
   };
 }
 
+/**
+ * A heading from `scan.content.elements` (src/extract.ts's ContentElement,
+ * opt-in via `ScanOptions.content`). Loosely typed like ScanElement above —
+ * this module treats the whole scan as `unknown` and duck-types what it
+ * needs, rather than importing extract.ts's types and coupling to them.
+ */
+interface ContentElementLike {
+  bounds?: Bounds;
+  text?: string;
+  selector?: string;
+  computedStyles?: Record<string, string>;
+  contentKind?: string;
+  headingLevel?: number;
+}
+
 const INTERACTIVE_TAGS = new Set(['button', 'a', 'input', 'select', 'textarea']);
 
 /**
  * Importance by role. A track trimmed by --max should keep the primary action,
  * not whichever element happened to be scanned first.
  *
- * NOTE: headings are absent because the scan cannot supply them WITH GEOMETRY.
- * `sensors.hierarchy` reports h1-h6 text and counts but no bounds, and
- * `elements.all` is populated from INTERACTIVE_SELECTORS (src/extract.ts), which
- * by design excludes headings. Ranking by heading level needs a content-element
- * extraction that does not exist yet — see docs/AGENTS-QUICKSTART.md.
+ * h1..h6 rank headings by structure — a heading needs no click handler to be
+ * the most important thing on the page. h1 deliberately TIES the interactive
+ * ceiling (button=1.0): a page's <h1> matters exactly as much as its primary
+ * action, and buildZoomTrackFromScan processes headings BEFORE interactive
+ * elements so an exact-weight tie is won by the heading (Array.prototype.sort
+ * is stable, so the earlier-pushed candidate survives a --max trim). Strict
+ * Every role has a DISTINCT base and nothing reaches 1.0, so ranking is
+ * decided by the weight itself rather than by which candidate happened to be
+ * appended first. An earlier revision pinned button at 1.0 — the ceiling —
+ * which made `min(1, base + bonus)` collapse every high role onto the same
+ * value and left ordering to a stable-sort tie. That is invisible, and it
+ * breaks the moment anyone changes the sort or the candidate order.
  */
 const ROLE_WEIGHT: Record<string, number> = {
-  button: 1.0,
-  a: 0.7,
-  select: 0.6,
-  textarea: 0.6,
-  input: 0.5,
-  summary: 0.4,
+  // Headings first: they are the page's own statement of what matters, and the
+  // h-level IS the author's ranking. An h1 outranks the primary action because
+  // a viewer needs to know what they are looking at before what they can do.
+  h1: 0.95,
+  // The primary action sits between h1 and h2 — more important than a
+  // subsection, less than the page's subject.
+  button: 0.85,
+  h2: 0.75,
+  h3: 0.65,
+  a: 0.55,
+  h4: 0.5,
+  select: 0.45,
+  textarea: 0.45,
+  h5: 0.4,
+  input: 0.35,
+  h6: 0.3,
+  summary: 0.25,
 };
+
+/**
+ * How much the area bonus can add. Kept small and BELOW the gap between
+ * adjacent roles (0.10) so a large element nudges its rank without erasing the
+ * distinction — a full-width nav bar is not the primary action.
+ */
+const AREA_BONUS_MAX = 0.08;
+
+/** Hard ceiling below 1.0 so no two roles can collide at the top. */
+const WEIGHT_CEILING = 0.99;
 
 /**
  * Is this element worth zooming to?
@@ -168,12 +211,26 @@ export function buildZoomTrackFromScan(
 
   const all: ScanElement[] = Array.isArray(root?.elements?.all) ? root.elements.all : [];
 
+  // Headings from the opt-in content extraction (`ScanOptions.content` →
+  // `scan.content.elements`, src/extract.ts's ContentElement). Only
+  // `contentKind === 'heading'` becomes a zoom target — paragraphs, images,
+  // captions and quotes describe the page but are not places a viewer would
+  // zoom TO. Filtered here, not upstream, so this module stays the single
+  // place that decides what is zoom-worthy.
+  const contentAll: ContentElementLike[] = Array.isArray(root?.content?.elements)
+    ? root.content.elements
+    : [];
+  const headings = contentAll.filter(
+    (el) => el.contentKind === 'heading' && typeof el.headingLevel === 'number',
+  );
+
   // The scan does not report document height, so estimate it from the furthest
-  // element extent. This is a FLOOR — real content may extend past the last
-  // element we saw — and it is used only to stop scrollY running past the end
-  // of a document, where a browser would clamp anyway.
+  // element extent — interactive AND heading. This is a FLOOR — real content
+  // may extend past the last element we saw — and it is used only to stop
+  // scrollY running past the end of a document, where a browser would clamp
+  // anyway.
   let estimatedDocHeight = height;
-  for (const el of all) {
+  for (const el of [...all, ...headings]) {
     const b = el.bounds;
     if (b && Number.isFinite(b.y) && Number.isFinite(b.height)) {
       estimatedDocHeight = Math.max(estimatedDocHeight, b.y + b.height);
@@ -186,13 +243,21 @@ export function buildZoomTrackFromScan(
   let offscreenSkipped = 0;
   const usedEvents = new Set<number>();
 
-  for (const el of all) {
-    const b = el.bounds;
-    if (!b) continue;
+  // Shared body for both sources: bounds → scrollY, cx/cy fraction, zero-area
+  // and off-screen skip, dedupe, event matching, the rich fields. `role` is
+  // the only thing that differs between the two call sites below (h1..h6 vs
+  // the element's own tag), so it is passed in rather than re-derived here.
+  const addCandidate = (
+    b: Bounds | undefined,
+    rawText: string | undefined,
+    selector: string | undefined,
+    role: string,
+    computedStyles: Record<string, string> | undefined,
+  ) => {
+    if (!b) return;
     const { x, y, width: w, height: h } = b;
-    if (![x, y, w, h].every((n) => Number.isFinite(n))) continue;
-    if (w <= 0 || h <= 0) continue;          // zero-area cannot be aimed at
-    if (!isInteractiveElement(el)) continue; // a wrapper div teaches nothing
+    if (![x, y, w, h].every((n) => Number.isFinite(n))) return;
+    if (w <= 0 || h <= 0) return; // zero-area cannot be aimed at
 
     // `bounds` is DOCUMENT-relative. Rather than discard everything below the
     // fold — which limited a track to the first screenful — compute the scroll
@@ -214,22 +279,24 @@ export function buildZoomTrackFromScan(
     // unreachable and is dropped and counted.
     if (cxRaw < 0 || cxRaw > 1 || cyRaw < 0 || cyRaw > 1) {
       offscreenSkipped += 1;
-      continue;
+      return;
     }
 
-    const text = (el.text ?? '').trim();
-    const label = (text || el.selector || '').slice(0, 40);
-    const role = (el.tagName ?? '').toLowerCase();
+    const text = (rawText ?? '').trim();
+    const label = (text || selector || '').slice(0, 40);
 
     // Importance = role, nudged by how much of the viewport the element covers.
     // Area is a weak signal on its own (a full-width nav bar is not the primary
     // action) so it only ever adjusts, never dominates.
     const areaFrac = Math.min(1, (w * h) / (width * height));
-    const weight = round4(Math.min(1, (ROLE_WEIGHT[role] ?? 0.3) + areaFrac * 0.2));
+    const weight = round4(Math.min(
+      WEIGHT_CEILING,
+      (ROLE_WEIGHT[role] ?? 0.2) + areaFrac * AREA_BONUS_MAX,
+    ));
 
-    const cs = el.computedStyles ?? {};
+    const cs = computedStyles ?? {};
     const key = `${Math.round(x)},${Math.round(y)},${label}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
 
     // Timing: a real timestamp when the caller supplied one for this element,
@@ -237,7 +304,7 @@ export function buildZoomTrackFromScan(
     // cannot know when anything happened in a recording — so a caller with real
     // event times should always pass them.
     const evIdx = events.findIndex((e, i) =>
-      !usedEvents.has(i) && matchesLabel(e.label, label, el.selector));
+      !usedEvents.has(i) && matchesLabel(e.label, label, selector));
     if (evIdx >= 0) usedEvents.add(evIdx);
     const tMs = evIdx >= 0 ? events[evIdx].tMs : clicks.length * perMs;
 
@@ -255,6 +322,19 @@ export function buildZoomTrackFromScan(
       colorHex: toHex(cs.color),
       backgroundColorHex: toHex(cs.backgroundColor),
     });
+  };
+
+  // Headings BEFORE interactive elements: see the ROLE_WEIGHT comment above —
+  // this ordering is what makes an exact weight tie (h1 vs. a maxed-out
+  // button, both 1.0) resolve in the heading's favor once --max trims via a
+  // stable sort.
+  for (const el of headings) {
+    addCandidate(el.bounds, el.text, el.selector, `h${el.headingLevel}`, el.computedStyles);
+  }
+
+  for (const el of all) {
+    if (!isInteractiveElement(el)) continue; // a wrapper div teaches nothing
+    addCandidate(el.bounds, el.text, el.selector, (el.tagName ?? '').toLowerCase(), el.computedStyles);
   }
 
   // Trim by IMPORTANCE, then restore time order. Emitting every interactive
@@ -273,7 +353,10 @@ export function buildZoomTrackFromScan(
     clicks: kept,
     trimmed,
     viewport: { width, height },
-    elementsConsidered: all.length,
+    // Before ANY filter: every scanned interactive-candidate plus every
+    // scanned content element — separates "page was empty" from "nothing on
+    // it was interactive and nothing was a heading".
+    elementsConsidered: all.length + contentAll.length,
     offscreenSkipped,
     estimatedDocHeight,
     unmatchedEvents,
