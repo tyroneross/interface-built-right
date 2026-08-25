@@ -109,6 +109,17 @@ export async function testInteractivity(page: Page): Promise<InteractivityResult
 
     // Helper to check if element has event handlers
     function hasEventHandler(el: Element): boolean {
+      // Event-handler PROPERTIES, set as `el.onclick = fn`. These create no
+      // attribute, so the getAttribute() loop below cannot see them. Missing
+      // this reported every `<li role="button">` in a real app as handler-less
+      // -- 22 of them -- while all 22 worked. src/extract.ts already checks the
+      // property (`typeof el.onclick === 'function'` in detectHandlers); this
+      // makes the two paths agree.
+      const handlerProps = ['onclick', 'onmousedown', 'onmouseup', 'ontouchstart', 'ontouchend'] as const;
+      for (const prop of handlerProps) {
+        if (typeof (el as unknown as Record<string, unknown>)[prop] === 'function') return true;
+      }
+
       // Check for inline handlers
       const inlineHandlers = ['onclick', 'onmousedown', 'onmouseup', 'ontouchstart', 'ontouchend'];
       for (const handler of inlineHandlers) {
@@ -129,6 +140,8 @@ export async function testInteractivity(page: Page): Promise<InteractivityResult
       const tagName = el.tagName.toLowerCase();
       if (tagName === 'a' && (el as HTMLAnchorElement).href) return true;
       if (tagName === 'button') return true;
+      // A <summary> toggles its <details> with no author handler at all.
+      if (tagName === 'summary') return true;
       if (tagName === 'input' && ['submit', 'button'].includes((el as HTMLInputElement).type)) return true;
 
       return false;
