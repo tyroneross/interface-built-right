@@ -7,6 +7,32 @@ import type { EnhancedElement, Violation } from '../schemas.js';
 const VISUALLY_INTERACTIVE_ROLES = new Set(['button', 'link', 'menuitem', 'tab', 'option']);
 const VISUALLY_INTERACTIVE_TAGS = new Set(['button', 'a']);
 
+/**
+ * Elements the browser makes interactive on its own. A <summary> toggles its
+ * <details>, a <select> opens its list, an <input> takes focus and edits -- none
+ * of them needs an author-supplied handler, and demanding one reports working
+ * markup as broken.
+ *
+ * These carry `cursor: pointer` from the UA stylesheet or ordinary app CSS, so
+ * looksInteractive() returns true for them and the rule fired on every one.
+ * src/extract.ts already exempts `summary` when counting handled elements
+ * (see the `el.tagName === 'summary'` clause); this set makes the rule engine
+ * agree with the extractor instead of contradicting it.
+ */
+const NATIVELY_INTERACTIVE_TAGS = new Set([
+  'summary', 'details', 'select', 'option', 'optgroup',
+  'input', 'textarea', 'audio', 'video',
+]);
+
+function isNativelyInteractive(element: EnhancedElement): boolean {
+  const tag = element.tagName.toLowerCase();
+  if (NATIVELY_INTERACTIVE_TAGS.has(tag)) return true;
+  // A <label> activates the control it points at; <area> navigates via href.
+  if (tag === 'label') return true;
+  if (tag === 'area' && element.interactive?.hasHref) return true;
+  return false;
+}
+
 function looksInteractive(element: EnhancedElement): boolean {
   const tag = element.tagName.toLowerCase();
   const role = element.a11y?.role ?? '';
@@ -72,6 +98,7 @@ export const handlerIntegrityRules: Rule[] = [
     check: (element: EnhancedElement, _context: RuleContext): Violation | null => {
       if (!looksInteractive(element)) return null;
       if (element.interactive.isDisabled) return null;
+      if (isNativelyInteractive(element)) return null;
       if (hasAnyHandler(element)) return null;
 
       const label = element.text || element.a11y?.ariaLabel || element.selector;

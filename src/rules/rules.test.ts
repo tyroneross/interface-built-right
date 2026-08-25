@@ -123,4 +123,43 @@ describe('handler-integrity', () => {
     const handler = results.filter((r: RuleEngineResult) => r.rule === 'handler-integrity/fake-interactive');
     expect(handler.length).toBe(0);
   });
+
+  // Natively interactive elements need no author-supplied handler: the browser
+  // supplies the behaviour. They carry cursor:pointer, so looksInteractive()
+  // returns true and the rule used to flag every one of them as fake.
+  // Observed on a real app: 4 <summary> plus 1 <select> reported as errors while
+  // all five worked correctly.
+  it.each([
+    ['summary', 'toggles its parent <details>'],
+    ['select', 'opens its own option list'],
+    ['input', 'takes focus and edits'],
+    ['textarea', 'takes focus and edits'],
+    ['details', 'is the disclosure container itself'],
+    ['option', 'is selected by its parent <select>'],
+    ['label', 'activates the control it points at'],
+  ])('does not flag <%s>, which %s without a handler', (tagName) => {
+    const el = makeElement({
+      tagName,
+      interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+      computedStyles: { cursor: 'pointer' },
+    });
+    const ctx = makeContext({ allElements: [el] });
+    const results = runAllRules([el], ctx);
+    const handler = results.filter((r: RuleEngineResult) => r.rule === 'handler-integrity/fake-interactive');
+    expect(handler.length).toBe(0);
+  });
+
+  // The exemption must not swallow the defect the rule exists to catch.
+  it('still flags a handler-less <div> styled to look clickable', () => {
+    const el = makeElement({
+      tagName: 'div',
+      a11y: { role: 'button', ariaLabel: 'Save', ariaDescribedBy: null },
+      interactive: { hasOnClick: false, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+      computedStyles: { cursor: 'pointer' },
+    });
+    const ctx = makeContext({ allElements: [el] });
+    const results = runAllRules([el], ctx);
+    const handler = results.filter((r: RuleEngineResult) => r.rule === 'handler-integrity/fake-interactive');
+    expect(handler.length).toBe(1);
+  });
 });
