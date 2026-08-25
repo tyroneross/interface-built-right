@@ -637,6 +637,11 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
   });
 
   for (const el of interactiveElements) {
+    // A collapsed responsive/closed control has no hit area in the active
+    // render. Keep it in the raw extraction for traceability, but do not grade
+    // a 0×0 box as an operable touch target.
+    if (el.bounds.width <= 0 || el.bounds.height <= 0) continue;
+
     const isButton = el.tagName === 'button' || el.a11y.role === 'button';
     const isLink = el.tagName === 'a';
     // Native interactivity (contenteditable / <summary>) needs no JS handler
@@ -700,6 +705,243 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
     withoutHandlers,
     issues,
   };
+}
+
+/**
+ * Content element selectors — headings, paragraphs, images, and their
+ * surrounding text carriers. Deliberately a separate lane from
+ * INTERACTIVE_SELECTORS: a heading is not a touch target, and folding it
+ * into elements.all would corrupt the touch-target audit rules
+ * (analyzeElements above / src/rules/target-sizing.ts) that consume that
+ * array. Opt-in via ScanOptions.content — see scan.ts.
+ */
+const CONTENT_SELECTORS = [
+  'h1',
+  'h2',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'p',
+  'img',
+  'figcaption',
+  'blockquote',
+];
+
+/**
+ * A content (non-interactive) element with real geometry and a subset of
+ * computed styles — mirrors the identity/bounds/style shape of
+ * EnhancedElement without forcing the `interactive`/`a11y` fields that only
+ * make sense for controls.
+ */
+export interface ContentElement {
+  selector: string;
+  tagName: string;
+  id?: string;
+  className?: string;
+  /** Trimmed textContent, capped like extractInteractiveElements' `text`. Absent for <img>. */
+  text?: string;
+  bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  computedStyles: Record<string, string>;
+  /** Only set for h1-h6. */
+  headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
+  contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
+  /** <img> only. */
+  alt?: string;
+  /** <img> only. */
+  src?: string;
+}
+
+/**
+ * Extract CONTENT elements (headings/paragraphs/images/captions/quotes)
+ * with real bounds and computed styles — today's scan only sees interactive
+ * elements, so a heading has text but no geometry. Mirrors
+ * extractInteractiveElements' page.evaluate approach (bounds shape,
+ * computedStyles subset, zero-area skip) but stays out of that function
+ * entirely so the interactive lane feeding the touch-target rules is
+ * untouched.
+ */
+export async function extractContentElements(page: PageLike): Promise<ContentElement[]> {
+  return page.evaluate((selectors: string[]) => {
+    const seen = new Set<Element>();
+    const results: ContentElement[] = [];
+
+    // Local copy of extractInteractiveElements' generateSelector — each
+    // page.evaluate() call ships its own closure across the CDP boundary,
+    // so there is no runtime module to share it from.
+    const generateSelector = (el: HTMLElement): string => {
+      if (el.id) return `#${el.id}`;
+
+      const path: string[] = [];
+      let current: HTMLElement | null = el;
+
+      while (current && current !== document.body) {
+        let selector = current.tagName.toLowerCase();
+        if (current.id) {
+          selector = `#${current.id}`;
+          path.unshift(selector);
+          break;
+        } else if (current.className && typeof current.className === 'string') {
+          const classes = current.className.split(' ').filter(c => c.trim() && !c.includes(':'));
+          if (classes.length > 0) {
+            selector += `.${classes[0]}`;
+          }
+        }
+
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            c => c.tagName === current!.tagName
+          );
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+        }
+
+        path.unshift(selector);
+        current = current.parentElement;
+      }
+
+      return path.join(' > ').slice(0, 200);
+    };
+
+    const kindFor = (tag: string): ContentElement['contentKind'] => {
+      if (/^h[1-6]$/.test(tag)) return 'heading';
+      if (tag === 'img') return 'image';
+      if (tag === 'figcaption') return 'caption';
+      if (tag === 'blockquote') return 'quote';
+      return 'paragraph';
+    };
+
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          seen.add(el);
+
+          const htmlEl = el as HTMLElement;
+          const rect = htmlEl.getBoundingClientRect();
+          // Collapsed/hidden content (display:none ancestor, closed
+          // accordion) has no real geometry to report — same reasoning as
+          // the interactive path's zero-area touch-target guard.
+          if (rect.width <= 0 || rect.height <= 0) return;
+
+          const computed = window.getComputedStyle(htmlEl);
+          const tag = htmlEl.tagName.toLowerCase();
+          const kind = kindFor(tag);
+
+          const entry: ContentElement = {
+            selector: generateSelector(htmlEl),
+            tagName: tag,
+            id: htmlEl.id || undefined,
+            className: typeof htmlEl.className === 'string' ? htmlEl.className : undefined,
+            text: (htmlEl.textContent || '').trim().slice(0, 300) || undefined,
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            computedStyles: {
+              cursor: computed.cursor,
+              color: computed.color,
+              backgroundColor: computed.backgroundColor,
+              display: computed.display,
+              visibility: computed.visibility,
+              opacity: computed.opacity,
+            },
+            contentKind: kind,
+          };
+
+          if (kind === 'heading') {
+            entry.headingLevel = Number(tag[1]) as ContentElement['headingLevel'];
+          }
+          if (tag === 'img') {
+            // <img> has no textContent of its own; alt/src are the signal.
+            entry.text = undefined;
+            entry.alt = htmlEl.getAttribute('alt') ?? undefined;
+            entry.src = htmlEl.getAttribute('src') ?? undefined;
+          }
+
+          results.push(entry);
+        });
+      } catch {
+        // Skip invalid selectors — matches extractInteractiveElements.
+      }
+    }
+
+    return results;
+  }, CONTENT_SELECTORS);
+}
+
+/**
+ * <head> metadata for SEO/social-share checks — today's scan captures none
+ * of this. Every field is optional/empty-safe: a page with no metadata
+ * returns empty containers, not a thrown error or an undefined explosion.
+ */
+export interface PageMetadata {
+  title?: string;
+  description?: string;
+  canonical?: string;
+  og: Record<string, string>;
+  twitter: Record<string, string>;
+  /** Parsed JSON-LD blocks. A block that fails JSON.parse is kept as its raw string rather than dropped. */
+  jsonLd: unknown[];
+}
+
+/**
+ * Extract page-level SEO/social metadata: <title>, meta description,
+ * canonical link, all og: and twitter: meta tags, and JSON-LD script blocks.
+ */
+export async function extractPageMetadata(page: PageLike): Promise<PageMetadata> {
+  return page.evaluate(() => {
+    const og: Record<string, string> = {};
+    document.querySelectorAll('meta[property^="og:"]').forEach((meta) => {
+      const property = meta.getAttribute('property');
+      const content = meta.getAttribute('content');
+      // Strip the namespace: the object is already called `og`, so keying it
+      // `og['og:title']` makes every consumer repeat the prefix. `og.title`.
+      if (property && content !== null) og[property.slice(3)] = content;
+    });
+
+    const twitter: Record<string, string> = {};
+    document.querySelectorAll('meta[name^="twitter:"]').forEach((meta) => {
+      const name = meta.getAttribute('name');
+      const content = meta.getAttribute('content');
+      // Same reasoning as `og` above — `twitter.card`, not `twitter['twitter:card']`.
+      if (name && content !== null) twitter[name.slice(8)] = content;
+    });
+
+    const jsonLd: unknown[] = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+      const raw = script.textContent || '';
+      try {
+        jsonLd.push(JSON.parse(raw));
+      } catch {
+        // A malformed JSON-LD block is itself a finding — keep the raw
+        // string rather than silently dropping it.
+        jsonLd.push(raw);
+      }
+    });
+
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    const canonicalLink = document.querySelector('link[rel="canonical"]');
+
+    return {
+      title: document.title || undefined,
+      description: descriptionMeta?.getAttribute('content') ?? undefined,
+      canonical: canonicalLink?.getAttribute('href') ?? undefined,
+      og,
+      twitter,
+      jsonLd,
+    };
+  });
 }
 
 /**

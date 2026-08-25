@@ -5,7 +5,14 @@ import type { EmulationDomain } from './engine/cdp/emulation.js';
 import { CompatPage } from './engine/compat.js';
 import type { EnhancedElement, AuditResult, Viewport } from './schemas.js';
 import { VIEWPORTS } from './schemas.js';
-import { extractInteractiveElements, analyzeElements } from './extract.js';
+import {
+  extractInteractiveElements,
+  analyzeElements,
+  extractContentElements,
+  extractPageMetadata,
+  type ContentElement,
+  type PageMetadata,
+} from './extract.js';
 import { testInteractivity, type InteractivityResult } from './interactivity.js';
 import { getSemanticOutput, type SemanticResult } from './semantic/index.js';
 import { detectLayoutCollisions, type LayoutCollisionResult } from './layout-collision.js';
@@ -61,6 +68,22 @@ export interface ScanResult {
 
   /** Design system check results — principle violations, token compliance */
   designSystem?: DesignSystemResult;
+
+  /**
+   * CONTENT elements (headings/paragraphs/images/captions/quotes) with real
+   * bounds and computed styles — opt-in via `ScanOptions.content`. Kept out
+   * of `elements.all`: a heading is not a touch target, and mixing lanes
+   * would corrupt the touch-target audit rules that consume that array.
+   * Absent entirely (not `undefined`-valued) when `content` was not
+   * requested, so existing callers pay no extra token cost.
+   */
+  content?: { elements: ContentElement[] };
+
+  /**
+   * <head> SEO/social metadata — opt-in via `ScanOptions.content`, same
+   * absence contract as `content` above.
+   */
+  metadata?: PageMetadata;
 
   /** Hydration wait result — present when SPA hydration detection ran */
   hydration?: {
@@ -261,6 +284,15 @@ export interface ScanOptions extends BrowserLaunchOptions {
    * carries it.
    */
   probes?: Record<string, string>;
+  /**
+   * Opt-in extraction of CONTENT elements (headings/paragraphs/images with
+   * real bounds) plus <head> metadata (title, description, canonical,
+   * og: and twitter: tags, JSON-LD). Off by default — a plain scan() call is
+   * unchanged. When true, populates `ScanResult.content` and
+   * `ScanResult.metadata`; when false/absent, BOTH fields are entirely
+   * absent from the result (not present-and-undefined).
+   */
+  content?: boolean;
 }
 
 /**
@@ -613,6 +645,27 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       }
     }
 
+    // Opt-in CONTENT extraction (headings/paragraphs/images with real
+    // bounds) + <head> metadata. Off by default — a plain scan() call pays
+    // nothing extra. Best-effort like cssExtract above: a broken extraction
+    // must not take down the scan that requested it, so on failure both
+    // fields simply stay absent even though `content` was true.
+    let contentResult: { elements: ContentElement[] } | undefined;
+    let metadataResult: PageMetadata | undefined;
+    if (options.content) {
+      try {
+        const [contentElements, pageMetadata] = await Promise.all([
+          extractContentElements(page),
+          extractPageMetadata(page),
+        ]);
+        contentResult = { elements: contentElements };
+        metadataResult = pageMetadata;
+      } catch {
+        contentResult = undefined;
+        metadataResult = undefined;
+      }
+    }
+
     const baseResult = {
       url,
       route,
@@ -639,6 +692,10 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       skeleton: (skeletonResult && !skeletonResult.settled)
         ? { persistent: true, count: skeletonResult.skeletonCount }
         : undefined,
+      // Spread rather than a plain key: false/absent `content` must leave
+      // both fields entirely ABSENT from the result (not present with value
+      // `undefined`) so existing callers and their token cost are unchanged.
+      ...(contentResult ? { content: contentResult, metadata: metadataResult } : {}),
       verdict,
       issues,
       summary,
