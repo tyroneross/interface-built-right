@@ -3259,6 +3259,14 @@ var init_driver = __esm({
   var visible = style.display !== 'none' && style.visibility !== 'hidden' &&
     parseFloat(style.opacity) !== 0 && hasSize;
   if (visible) {
+    // elementFromPoint takes VIEWPORT coordinates, so a node below the fold probes as
+    // null and is reported "covered" forever. Scroll it in first, then test occlusion.
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) {
+      this.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      r = this.getBoundingClientRect();
+    }
     var cx = r.left + r.width / 2;
     var cy = r.top + r.height / 2;
     var atPoint = document.elementFromPoint(cx, cy);
@@ -4584,11 +4592,22 @@ var init_compat = __esm({
   const el = document.querySelector(sel);
   if (!el || !el.isConnected) return { present: false, visible: false, enabled: false, rect: null };
   const style = getComputedStyle(el);
-  const r = el.getBoundingClientRect();
+  let r = el.getBoundingClientRect();
   const hasSize = r.width > 0 && r.height > 0;
   let visible = style.display !== 'none' && style.visibility !== 'hidden' &&
     parseFloat(style.opacity) !== 0 && hasSize;
   if (visible) {
+    // An off-screen element cannot be probed for occlusion: elementFromPoint takes
+    // VIEWPORT coordinates, so a node below the fold resolves to null and the element
+    // is reported "covered" forever. Bring it into view first -- the present -> scroll
+    // -> visible -> enabled -> stable order every actionability model uses. 'instant'
+    // because a CSS smooth-scroll would fight the rect-stability check below.
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) {
+      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      r = el.getBoundingClientRect();
+    }
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     const atPoint = document.elementFromPoint(cx, cy);
@@ -6662,6 +6681,10 @@ async function testInteractivity(page) {
       forms: []
     };
     function hasEventHandler(el) {
+      const handlerProps = ["onclick", "onmousedown", "onmouseup", "ontouchstart", "ontouchend"];
+      for (const prop of handlerProps) {
+        if (typeof el[prop] === "function") return true;
+      }
       const inlineHandlers = ["onclick", "onmousedown", "onmouseup", "ontouchstart", "ontouchend"];
       for (const handler of inlineHandlers) {
         if (el.getAttribute(handler)) return true;
@@ -6675,6 +6698,7 @@ async function testInteractivity(page) {
       const tagName = el.tagName.toLowerCase();
       if (tagName === "a" && el.href) return true;
       if (tagName === "button") return true;
+      if (tagName === "summary") return true;
       if (tagName === "input" && ["submit", "button"].includes(el.type)) return true;
       return false;
     }
@@ -10582,6 +10606,13 @@ var init_text_hierarchy = __esm({
 });
 
 // src/rules/handler-integrity.ts
+function isNativelyInteractive(element) {
+  const tag = element.tagName.toLowerCase();
+  if (NATIVELY_INTERACTIVE_TAGS.has(tag)) return true;
+  if (tag === "label") return true;
+  if (tag === "area" && element.interactive?.hasHref) return true;
+  return false;
+}
 function looksInteractive(element) {
   const tag = element.tagName.toLowerCase();
   const role = element.a11y?.role ?? "";
@@ -10615,11 +10646,22 @@ function hasDisabledVisual(element) {
   }
   return false;
 }
-var VISUALLY_INTERACTIVE_ROLES, VISUALLY_INTERACTIVE_TAGS, handlerIntegrityRules;
+var VISUALLY_INTERACTIVE_ROLES, VISUALLY_INTERACTIVE_TAGS, NATIVELY_INTERACTIVE_TAGS, handlerIntegrityRules;
 var init_handler_integrity = __esm({
   "src/rules/handler-integrity.ts"() {
     VISUALLY_INTERACTIVE_ROLES = /* @__PURE__ */ new Set(["button", "link", "menuitem", "tab", "option"]);
     VISUALLY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a"]);
+    NATIVELY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set([
+      "summary",
+      "details",
+      "select",
+      "option",
+      "optgroup",
+      "input",
+      "textarea",
+      "audio",
+      "video"
+    ]);
     handlerIntegrityRules = [
       {
         id: "handler-integrity/fake-interactive",
@@ -10629,6 +10671,7 @@ var init_handler_integrity = __esm({
         check: (element, _context) => {
           if (!looksInteractive(element)) return null;
           if (element.interactive.isDisabled) return null;
+          if (isNativelyInteractive(element)) return null;
           if (hasAnyHandler(element)) return null;
           const label = element.text || element.a11y?.ariaLabel || element.selector;
           return {

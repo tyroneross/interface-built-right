@@ -2780,6 +2780,14 @@ var init_driver = __esm({
   var visible = style.display !== 'none' && style.visibility !== 'hidden' &&
     parseFloat(style.opacity) !== 0 && hasSize;
   if (visible) {
+    // elementFromPoint takes VIEWPORT coordinates, so a node below the fold probes as
+    // null and is reported "covered" forever. Scroll it in first, then test occlusion.
+    var vw = window.innerWidth || document.documentElement.clientWidth;
+    var vh = window.innerHeight || document.documentElement.clientHeight;
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) {
+      this.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      r = this.getBoundingClientRect();
+    }
     var cx = r.left + r.width / 2;
     var cy = r.top + r.height / 2;
     var atPoint = document.elementFromPoint(cx, cy);
@@ -4121,11 +4129,22 @@ var init_compat = __esm({
   const el = document.querySelector(sel);
   if (!el || !el.isConnected) return { present: false, visible: false, enabled: false, rect: null };
   const style = getComputedStyle(el);
-  const r = el.getBoundingClientRect();
+  let r = el.getBoundingClientRect();
   const hasSize = r.width > 0 && r.height > 0;
   let visible = style.display !== 'none' && style.visibility !== 'hidden' &&
     parseFloat(style.opacity) !== 0 && hasSize;
   if (visible) {
+    // An off-screen element cannot be probed for occlusion: elementFromPoint takes
+    // VIEWPORT coordinates, so a node below the fold resolves to null and the element
+    // is reported "covered" forever. Bring it into view first -- the present -> scroll
+    // -> visible -> enabled -> stable order every actionability model uses. 'instant'
+    // because a CSS smooth-scroll would fight the rect-stability check below.
+    const vw = window.innerWidth || document.documentElement.clientWidth;
+    const vh = window.innerHeight || document.documentElement.clientHeight;
+    if (r.bottom <= 0 || r.right <= 0 || r.top >= vh || r.left >= vw) {
+      el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+      r = el.getBoundingClientRect();
+    }
     const cx = r.left + r.width / 2;
     const cy = r.top + r.height / 2;
     const atPoint = document.elementFromPoint(cx, cy);
@@ -10093,6 +10112,10 @@ async function testInteractivity(page) {
       forms: []
     };
     function hasEventHandler(el) {
+      const handlerProps = ["onclick", "onmousedown", "onmouseup", "ontouchstart", "ontouchend"];
+      for (const prop of handlerProps) {
+        if (typeof el[prop] === "function") return true;
+      }
       const inlineHandlers = ["onclick", "onmousedown", "onmouseup", "ontouchstart", "ontouchend"];
       for (const handler of inlineHandlers) {
         if (el.getAttribute(handler)) return true;
@@ -10106,6 +10129,7 @@ async function testInteractivity(page) {
       const tagName = el.tagName.toLowerCase();
       if (tagName === "a" && el.href) return true;
       if (tagName === "button") return true;
+      if (tagName === "summary") return true;
       if (tagName === "input" && ["submit", "button"].includes(el.type)) return true;
       return false;
     }
@@ -15005,6 +15029,13 @@ var init_text_hierarchy = __esm({
 });
 
 // src/rules/handler-integrity.ts
+function isNativelyInteractive(element) {
+  const tag = element.tagName.toLowerCase();
+  if (NATIVELY_INTERACTIVE_TAGS.has(tag)) return true;
+  if (tag === "label") return true;
+  if (tag === "area" && element.interactive?.hasHref) return true;
+  return false;
+}
 function looksInteractive(element) {
   const tag = element.tagName.toLowerCase();
   const role = element.a11y?.role ?? "";
@@ -15038,12 +15069,23 @@ function hasDisabledVisual(element) {
   }
   return false;
 }
-var VISUALLY_INTERACTIVE_ROLES, VISUALLY_INTERACTIVE_TAGS, handlerIntegrityRules;
+var VISUALLY_INTERACTIVE_ROLES, VISUALLY_INTERACTIVE_TAGS, NATIVELY_INTERACTIVE_TAGS, handlerIntegrityRules;
 var init_handler_integrity = __esm({
   "src/rules/handler-integrity.ts"() {
     "use strict";
     VISUALLY_INTERACTIVE_ROLES = /* @__PURE__ */ new Set(["button", "link", "menuitem", "tab", "option"]);
     VISUALLY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set(["button", "a"]);
+    NATIVELY_INTERACTIVE_TAGS = /* @__PURE__ */ new Set([
+      "summary",
+      "details",
+      "select",
+      "option",
+      "optgroup",
+      "input",
+      "textarea",
+      "audio",
+      "video"
+    ]);
     handlerIntegrityRules = [
       {
         id: "handler-integrity/fake-interactive",
@@ -15053,6 +15095,7 @@ var init_handler_integrity = __esm({
         check: (element, _context) => {
           if (!looksInteractive(element)) return null;
           if (element.interactive.isDisabled) return null;
+          if (isNativelyInteractive(element)) return null;
           if (hasAnyHandler(element)) return null;
           const label2 = element.text || element.a11y?.ariaLabel || element.selector;
           return {
@@ -28552,6 +28595,138 @@ var init_design_verifier = __esm({
   }
 });
 
+// src/zoom-track.ts
+var zoom_track_exports = {};
+__export(zoom_track_exports, {
+  buildZoomTrackFromScan: () => buildZoomTrackFromScan,
+  isInteractiveElement: () => isInteractiveElement2,
+  toSpectraClicks: () => toSpectraClicks
+});
+function isInteractiveElement2(el) {
+  const ia = el.interactive ?? {};
+  if (ia.isDisabled) return false;
+  const tag = (el.tagName ?? "").toLowerCase();
+  return INTERACTIVE_TAGS3.has(tag) || ia.hasOnClick === true || ia.hasHref === true || ia.cursor === "pointer" || typeof ia.tabIndex === "number" && ia.tabIndex >= 0;
+}
+function buildZoomTrackFromScan(scan2, opts = {}) {
+  const perMs = opts.perMs ?? 1500;
+  const events = opts.events ?? [];
+  const root = scan2 ?? {};
+  const vpRaw = root.viewport ?? {};
+  const width = Number(vpRaw.width) > 0 ? Number(vpRaw.width) : 1920;
+  const height = Number(vpRaw.height) > 0 ? Number(vpRaw.height) : 1080;
+  const all = Array.isArray(root?.elements?.all) ? root.elements.all : [];
+  let estimatedDocHeight = height;
+  for (const el of all) {
+    const b = el.bounds;
+    if (b && Number.isFinite(b.y) && Number.isFinite(b.height)) {
+      estimatedDocHeight = Math.max(estimatedDocHeight, b.y + b.height);
+    }
+  }
+  const maxScroll = Math.max(0, estimatedDocHeight - height);
+  const clicks = [];
+  const seen = /* @__PURE__ */ new Set();
+  let offscreenSkipped = 0;
+  const usedEvents = /* @__PURE__ */ new Set();
+  for (const el of all) {
+    const b = el.bounds;
+    if (!b) continue;
+    const { x, y, width: w, height: h } = b;
+    if (![x, y, w, h].every((n) => Number.isFinite(n))) continue;
+    if (w <= 0 || h <= 0) continue;
+    if (!isInteractiveElement2(el)) continue;
+    const centreX = x + w / 2;
+    const centreY = y + h / 2;
+    const scrollY = clamp2(centreY - height / 2, 0, maxScroll);
+    const cxRaw = centreX / width;
+    const cyRaw = (centreY - scrollY) / height;
+    if (cxRaw < 0 || cxRaw > 1 || cyRaw < 0 || cyRaw > 1) {
+      offscreenSkipped += 1;
+      continue;
+    }
+    const text = (el.text ?? "").trim();
+    const label2 = (text || el.selector || "").slice(0, 40);
+    const role = (el.tagName ?? "").toLowerCase();
+    const areaFrac = Math.min(1, w * h / (width * height));
+    const weight = round4(Math.min(1, (ROLE_WEIGHT[role] ?? 0.3) + areaFrac * 0.2));
+    const cs = el.computedStyles ?? {};
+    const key = `${Math.round(x)},${Math.round(y)},${label2}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const evIdx = events.findIndex((e, i) => !usedEvents.has(i) && matchesLabel(e.label, label2, el.selector));
+    if (evIdx >= 0) usedEvents.add(evIdx);
+    const tMs = evIdx >= 0 ? events[evIdx].tMs : clicks.length * perMs;
+    clicks.push({
+      tMs,
+      cx: round4(cxRaw),
+      cy: round4(cyRaw),
+      scrollY: Math.round(scrollY),
+      label: label2,
+      text,
+      role,
+      weight,
+      color: cs.color,
+      backgroundColor: cs.backgroundColor,
+      colorHex: toHex(cs.color),
+      backgroundColorHex: toHex(cs.backgroundColor)
+    });
+  }
+  let kept = clicks;
+  let trimmed = 0;
+  if (opts.max !== void 0 && opts.max > 0 && clicks.length > opts.max) {
+    kept = [...clicks].sort((a, b) => b.weight - a.weight).slice(0, opts.max);
+    trimmed = clicks.length - kept.length;
+  }
+  kept.sort((a, b) => a.tMs - b.tMs);
+  const unmatchedEvents = events.filter((_, i) => !usedEvents.has(i)).map((e) => e.label);
+  return {
+    clicks: kept,
+    trimmed,
+    viewport: { width, height },
+    elementsConsidered: all.length,
+    offscreenSkipped,
+    estimatedDocHeight,
+    unmatchedEvents
+  };
+}
+function toHex(css) {
+  if (!css) return void 0;
+  const parsed = parseColor3(css);
+  if (parsed.kind !== "rgb") return void 0;
+  return "#" + parsed.rgb.map((c) => c.toString(16).padStart(2, "0")).join("");
+}
+function clamp2(n, lo, hi) {
+  return Math.min(hi, Math.max(lo, n));
+}
+function matchesLabel(eventLabel, text, selector) {
+  const needle = eventLabel.trim().toLowerCase();
+  if (!needle) return false;
+  if (text.trim().toLowerCase() === needle) return true;
+  return (selector ?? "").trim().toLowerCase() === needle;
+}
+function round4(n) {
+  return Math.round(n * 1e4) / 1e4;
+}
+function toSpectraClicks(clicks) {
+  return clicks.map(({ tMs, cx, cy }) => ({ tMs, cx, cy }));
+}
+var INTERACTIVE_TAGS3, ROLE_WEIGHT;
+var init_zoom_track = __esm({
+  "src/zoom-track.ts"() {
+    "use strict";
+    init_color_parse();
+    INTERACTIVE_TAGS3 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
+    ROLE_WEIGHT = {
+      button: 1,
+      a: 0.7,
+      select: 0.6,
+      textarea: 0.6,
+      input: 0.5,
+      summary: 0.4
+    };
+  }
+});
+
 // src/test-generator.ts
 var test_generator_exports = {};
 __export(test_generator_exports, {
@@ -30191,7 +30366,7 @@ var init_attach = __esm({
 });
 
 // src/live/color.ts
-function clamp2(n, min, max) {
+function clamp3(n, min, max) {
   return n < min ? min : n > max ? max : n;
 }
 function parseChannel(token) {
@@ -30200,11 +30375,11 @@ function parseChannel(token) {
   if (t.endsWith("%")) {
     const pct = Number(t.slice(0, -1));
     if (!Number.isFinite(pct)) return null;
-    return clamp2(Math.round(pct / 100 * 255), 0, 255);
+    return clamp3(Math.round(pct / 100 * 255), 0, 255);
   }
   const n = Number(t);
   if (!Number.isFinite(n)) return null;
-  return clamp2(Math.round(n), 0, 255);
+  return clamp3(Math.round(n), 0, 255);
 }
 function parseAlpha(token) {
   if (token === void 0) return 1;
@@ -30212,10 +30387,10 @@ function parseAlpha(token) {
   if (t === "") return 1;
   if (t.endsWith("%")) {
     const pct = Number(t.slice(0, -1));
-    return Number.isFinite(pct) ? clamp2(pct / 100, 0, 1) : 1;
+    return Number.isFinite(pct) ? clamp3(pct / 100, 0, 1) : 1;
   }
   const n = Number(t);
-  return Number.isFinite(n) ? clamp2(n, 0, 1) : 1;
+  return Number.isFinite(n) ? clamp3(n, 0, 1) : 1;
 }
 function parseCssColor(input) {
   if (!input) return null;
@@ -30270,7 +30445,7 @@ function parseUnitChannel(token) {
   if (t === "" || t === "none") return t === "none" ? 0 : null;
   const n = t.endsWith("%") ? Number(t.slice(0, -1)) / 100 : Number(t);
   if (!Number.isFinite(n)) return null;
-  return clamp2(Math.round(n * 255), 0, 255);
+  return clamp3(Math.round(n * 255), 0, 255);
 }
 function formatRgba(c) {
   const a = Math.round(c.a * 1e3) / 1e3;
@@ -35079,7 +35254,12 @@ program.command("scan <url>").description("Full UI scan: elements + interactivit
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url);
-    console.log(`Scanning ${resolvedUrl}...`);
+    if (options.json) {
+      process.stderr.write(`Scanning ${resolvedUrl}...
+`);
+    } else {
+      console.log(`Scanning ${resolvedUrl}...`);
+    }
     const rulePresets = options.rules ? options.rules.split(",").map((s) => s.trim()).filter(Boolean) : void 0;
     const resolvedViewport = resolveViewportFromFlags(
       options.device,
@@ -37566,6 +37746,68 @@ program.command("verify-changes <url>").description("Verify all recorded design 
   } catch (error) {
     await driver3.close().catch(() => {
     });
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+});
+program.command("zoom-track <url>").description("Emit a Spectra zoom track [{tMs,cx,cy}] from the page's interactive elements").option("--out <path>", "Write the track here (default: stdout)").option("--viewport <name>", "Viewport preset", "desktop").option("--per-ms <ms>", "Spacing between targets in ms", "1500").option("--min <n>", "Fail if fewer than N targets are found", "1").option("--events <path>", "JSON [{tMs,label}] of real event times, matched by element text").option("--max <n>", "Keep at most N targets, highest importance first").option("--rich", "Include text, role, weight and resolved colours per target").action(async (url, options) => {
+  try {
+    const { scan: scan2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
+    const { buildZoomTrackFromScan: buildZoomTrackFromScan2, toSpectraClicks: toSpectraClicks2 } = await Promise.resolve().then(() => (init_zoom_track(), zoom_track_exports));
+    const resolvedUrl = await resolveBaseUrl(url);
+    process.stderr.write(`Scanning ${resolvedUrl} for zoom targets...
+`);
+    let events;
+    if (options.events) {
+      const { readFileSync: readFileSync13 } = await import("fs");
+      events = JSON.parse(readFileSync13(options.events, "utf8"));
+      if (!Array.isArray(events)) {
+        throw new Error(`--events must be a JSON array of {tMs,label}, got ${typeof events}`);
+      }
+    }
+    const result = await scan2(resolvedUrl, { viewport: options.viewport });
+    const track = buildZoomTrackFromScan2(result, {
+      perMs: Number(options.perMs) || 1500,
+      events,
+      max: options.max ? Number(options.max) : void 0
+    });
+    if (track.unmatchedEvents.length > 0) {
+      process.stderr.write(
+        `zoom-track: ${track.unmatchedEvents.length} event(s) matched no element and were ignored: ${track.unmatchedEvents.join(", ")}
+`
+      );
+    }
+    const min = Number(options.min);
+    if (track.clicks.length < min) {
+      const why = track.elementsConsidered === 0 ? `the scan returned NO elements at all for ${resolvedUrl} \u2014 the page did not render, or the URL is wrong` : `${track.elementsConsidered} element(s) were scanned but none were interactive (IBR reports interactivity as hasOnClick / hasHref / cursor / tabIndex, not a single isInteractive flag)`;
+      process.stderr.write(
+        `zoom-track: found ${track.clicks.length} target(s), need at least ${min} \u2014 ${why}
+`
+      );
+      process.exit(1);
+    }
+    const payload = JSON.stringify(
+      options.rich ? track.clicks : toSpectraClicks2(track.clicks),
+      null,
+      1
+    );
+    if (options.out) {
+      const { writeFileSync: writeFileSync6 } = await import("fs");
+      writeFileSync6(options.out, payload + "\n");
+      process.stderr.write(
+        `zoom-track: wrote ${track.clicks.length} target(s) to ${options.out} (viewport ${track.viewport.width}x${track.viewport.height}` + (track.offscreenSkipped > 0 ? `; skipped ${track.offscreenSkipped} horizontally unreachable` : "") + (track.trimmed > 0 ? `; trimmed ${track.trimmed} lower-importance target(s)` : "") + (track.estimatedDocHeight > track.viewport.height ? `; page is ~${track.estimatedDocHeight}px tall, targets carry scrollY` : "") + `)
+`
+      );
+      for (const c of track.clicks.slice(0, 8)) {
+        process.stderr.write(
+          `  t=${c.tMs}ms cx=${c.cx} cy=${c.cy} scrollY=${c.scrollY}  ${c.label}
+`
+        );
+      }
+    } else {
+      console.log(payload);
+    }
+  } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
     process.exit(1);
   }
