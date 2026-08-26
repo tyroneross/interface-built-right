@@ -15,19 +15,26 @@ IBR scans native Apple UI via the accessibility tree — iOS/watchOS through sim
 - Checking touch target sizes, accessibility labels, watchOS screen constraints
 - Generating actionable fix instructions with source file mapping
 
-## MCP Tools
+## Invocation
 
-| Tool | Purpose |
-|------|---------|
-| `native_scan` | Extract a11y elements, check touch targets (44pt), watchOS constraints |
-| `native_snapshot` | Capture reference point from running simulator |
-| `native_compare` | Compare simulator state against reference point |
-| `native_devices` | List available simulators with boot status |
-| `scan_macos` | Scan a running macOS app via accessibility tree |
-| `native_session_start` | Start a cursor-free native session for a macOS app or simulator |
-| `native_session_read` | Observe/extract native AX elements from an active native session |
-| `native_session_action` | Press, fill, focus, show menus, and scroll via AX without moving the user's cursor; also `keystroke`, `app`, `menuPath` — all live (see below) |
-| `native_session_close` | Close the native session record without quitting the app |
+Use the CLI (`npx ibr native:*`, below) or Bash. IBR's MCP server is
+dormant/opt-in by default — do not assume `native_*` MCP tools are connected,
+and never substitute a different automation tool if they aren't; every MCP
+tool below has full CLI parity.
+
+## MCP Tools (optional — requires MCP re-enabled, see `optional-mcp/README.md`)
+
+| Tool | Purpose | CLI equivalent |
+|------|---------|-----------------|
+| `native_scan` | Extract a11y elements, check touch targets (44pt), watchOS constraints | `npx ibr native:scan [device]` |
+| `native_snapshot` | Capture reference point from running simulator | `npx ibr native:start [device]` |
+| `native_compare` | Compare simulator state against reference point | `npx ibr native:check [sessionId]` |
+| `native_devices` | List available simulators with boot status | `npx ibr native:devices` |
+| `scan_macos` | Scan a running macOS app via accessibility tree | `npx ibr scan:macos --app "<name>"` |
+| `native_session_start` | Start a cursor-free native session for a macOS app or simulator | `npx ibr native:session:start ...` |
+| `native_session_read` | Observe/extract native AX elements from an active native session | `npx ibr native:session:read <sessionId> ...` |
+| `native_session_action` | Press, fill, focus, show menus, and scroll via AX without moving the user's cursor; also `keystroke`, `app`, `menuPath` — all live (see below) | `npx ibr native:session:action <sessionId> ...` |
+| `native_session_close` | Close the native session record without quitting the app | `npx ibr native:session:close <sessionId>` |
 
 ## CLI Reference
 
@@ -53,7 +60,7 @@ npx ibr scan:macos --app "MyApp"                  # scan your own app
 
 ## Cursor-Free Native Sessions
 
-Use `native_session_*` MCP tools when the agent needs to navigate a running macOS app without taking over the user's mouse cursor. The same lifecycle is also available as a typed `NativeSessionController` API and as `ibr native:session:*` CLI commands — one controller drives all three surfaces. See `docs/native-session-cli-reference.md` for one example per surface and the full CLI flag/exit-code reference.
+Use `ibr native:session:*` CLI commands (or the typed `NativeSessionController` API) when the agent needs to navigate a running macOS app without taking over the user's mouse cursor. The `native_session_*` MCP tools are the same lifecycle exposed for MCP-connected sessions, but MCP is dormant/opt-in by default — the CLI is the reliable path. One controller drives all three surfaces. See `docs/native-session-cli-reference.md` for one example per surface and the full CLI flag/exit-code reference.
 
 1. `native_session_start` with `app: "MyApp"`, `pid: 12345`, or `simulator: "iPhone 16 Pro"`
 2. `native_session_read` with `what: "observe"` to list actionable AX elements, or `what: "screenshot"` when pixel evidence is needed

@@ -17,6 +17,18 @@ Capture screenshots of any web page — local or external — and return the ima
 - User wants to save a design for later reference
 - Replicating an external UI requires seeing the target design
 
+## Invocation
+
+There is no dedicated one-shot CLI screenshot command yet — the ad-hoc
+`screenshot` tool and the `references` library manager below are currently
+MCP-only. IBR's MCP server is dormant/opt-in by default (see
+`optional-mcp/README.md` to re-enable it). Until then, the closest CLI
+workaround is `npx ibr start <url> [--name "<label>"]`, which captures a
+screenshot into `.ibr/sessions/<id>/` (view it directly or via
+`npx ibr screenshots:view <path>`) — it lacks `selector`/`save_as`/reference-
+library management. Never substitute Playwright/Puppeteer for this; re-enable
+MCP instead if you need the full capability.
+
 ## Primary Workflow: Capture & View
 
 Call the `ibr screenshot` MCP tool to navigate to any URL and return the captured image.

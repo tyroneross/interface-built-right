@@ -23,6 +23,15 @@ IBR is an end-to-end design tool for AI coding agents. It guides UI builds with 
 
 Built on a custom CDP engine — no Playwright. Works from terminal, Codex, Claude Code slash commands, or code. Zero config.
 
+## Surfaces
+
+IBR ships three ways to drive it: a **CLI** (`npx ibr ...`, see
+`skills/cli-reference/SKILL.md`), a **programmatic API**
+(`@tyroneross/interface-built-right`'s `exports` map), and an **MCP server**.
+The CLI and the API are the supported, auto-wired surfaces. The MCP server is
+**dormant/opt-in** — it still builds, ships, and passes its tests, but Claude
+Code no longer auto-discovers it. See `optional-mcp/README.md` to re-enable it.
+
 ## Design Workflow
 
 `/ibr:build <topic>` orchestrates the full design-to-validation flow:

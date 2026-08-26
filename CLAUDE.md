@@ -16,21 +16,36 @@ IBR runs on a custom CDP engine — direct Chrome DevTools Protocol over WebSock
 - **Tracking changes** — capture a reference point with `start`, then `check` after changes
 - **Skip for** — backend-only changes, config, docs, type-only changes
 
-## MCP Tools (preferred for Claude Code)
+## Invocation: CLI first, MCP is dormant/opt-in
 
-| Tool | Use For |
-|------|---------|
-| `observe` | See all clickable/fillable elements before interacting |
-| `interact` | Click, type, fill elements by accessible name (e.g. `interact` → action: click, target: "Submit"). `success` reflects a real expected-outcome validator — check `validator.passed`, don't assume `success` is always `true` on a no-op |
-| `extract` | Read page headings, buttons, inputs, links after interactions |
-| `interact_and_verify` | Act + capture before/after element diff (elements added/removed) |
-| `scan` | Full page analysis — CSS, handlers, a11y, console errors |
-| `ask` | Ask a focused question, get a verdict + evidence (touch-target, signal-noise, token-compliance). Token-minimal alternative to scan |
-| `snapshot` | Capture visual baseline |
-| `compare` | Compare current vs baseline |
-| `screenshot` | Capture screenshot of any URL |
-| `scan_obsidian` | Mount an Obsidian plugin view in a REAL browser and scan it — computed styles, layout, touch targets, a11y. Loads Obsidian's **real `app.css`** from the local install by default, so Obsidian's own custom properties and element rules are in the cascade, and reports **layout overflow** (content rendering outside its box, naming the declaration responsible). Use this, never `scan_static`, for Obsidian views: `scan_static` is a regex parser and resolves no `var()`, layout, or `::before`. Needs `plugin_path` + `view_class`; `view_state` is the fixture, `post_mount` opens transient sheets. See `skills/obsidian-plugin-ui` |
-| `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app` (live lifecycle launch/switch/quit; `quit` can fail with `osascript -128` on unsaved docs under `NSCloseAlwaysConfirmsChanges=1` — no force-quit fallback), `menuPath` (live AXMenu traversal). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` |
+Drive IBR through Bash and the `ibr` CLI (`npx ibr ...`, see
+`skills/cli-reference/SKILL.md`) or the programmatic API. These are the only
+surfaces auto-wired by default — IBR's MCP server is **not** auto-discovered
+(`.mcp.json` moved to `optional-mcp/`; see `optional-mcp/README.md` to
+re-enable it and restart Claude Code). If the tools below are unavailable in
+this session, that is expected — use the CLI equivalent, never Playwright or
+Puppeteer.
+
+| Tool | Use For | CLI equivalent |
+|------|---------|-----------------|
+| `observe` | See all clickable/fillable elements before interacting | `npx ibr observe <url>` |
+| `interact` | Click, type, fill elements by accessible name (e.g. `interact` → action: click, target: "Submit"). `success` reflects a real expected-outcome validator — check `validator.passed`, don't assume `success` is always `true` on a no-op | `npx ibr interact <url> --action click --target "Submit"` (uses the same `validateWebAction` check) |
+| `extract` | Read page headings, buttons, inputs, links after interactions | `npx ibr extract <url>` |
+| `interact_and_verify` | Act + capture before/after element diff (elements added/removed) | `npx ibr interact <url> --action ...` (validates via the same before/after check; no separate element-diff report) |
+| `scan` | Full page analysis — CSS, handlers, a11y, console errors | `npx ibr scan <url> --json` |
+| `ask` | Ask a focused question, get a verdict + evidence (touch-target, signal-noise, token-compliance). Token-minimal alternative to scan | `npx ibr ask <url> "<question>"` |
+| `snapshot` | Capture visual baseline | `npx ibr start <url>` |
+| `compare` | Compare current vs baseline | `npx ibr check [sessionId]` |
+| `screenshot` | Capture screenshot of any URL | **MCP-only, no CLI equivalent yet.** Closest workaround: `npx ibr start <url>` (writes a screenshot into `.ibr/sessions/<id>/`, no selector/save_as support). Re-enable MCP if you need the full tool |
+| `scan_obsidian` | Mount an Obsidian plugin view in a REAL browser and scan it — computed styles, layout, touch targets, a11y. Loads Obsidian's **real `app.css`** from the local install by default, so Obsidian's own custom properties and element rules are in the cascade, and reports **layout overflow** (content rendering outside its box, naming the declaration responsible). Use this, never `scan_static`, for Obsidian views: `scan_static` is a regex parser and resolves no `var()`, layout, or `::before`. Needs `plugin_path` + `view_class`; `view_state` is the fixture, `post_mount` opens transient sheets. See `skills/obsidian-plugin-ui` | `npx ibr scan-obsidian <plugin-path> --view-class <Class> [--view-state fixture.json] --json` |
+| `native_session_action` | Cursor-free macOS/simulator session action by accessible name — click/fill/focus/etc., plus `keystroke` (live chord synthesis), `app` (live lifecycle launch/switch/quit; `quit` can fail with `osascript -128` on unsaved docs under `NSCloseAlwaysConfirmsChanges=1` — no force-quit fallback), `menuPath` (live AXMenu traversal). Same lifecycle also available as `ibr native:session:{start,read,action,close}` CLI — see `skills/native-testing` | `npx ibr native:session:action <sessionId> --action ... --target ...` |
+
+Two MCP tools have no CLI or API equivalent at all today: the `references`
+design-library manager (list/show/delete saved captures) and the
+`design_system` mutators (`set_token`, `add_principle`, `set_severity` — reads
+are covered by the `loadDesignSystemConfig`/`runDesignSystemCheck` API exports
+or by editing `.ibr/design-system.json` directly). Re-enable MCP for those
+workflows; do not reach for a different tool.
 
 ## Native App Driving (macOS/iOS) — use the CLI, not MCP
 

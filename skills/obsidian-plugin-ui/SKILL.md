@@ -18,7 +18,7 @@ npx ibr scan-obsidian /path/to/plugin --view-class DailyPlannerView \
   --viewport iphone-14 --view-state fixture.json --json
 ```
 
-MCP: `scan_obsidian` with `plugin_path` + `view_class`. `view_state` is the fixture (properties assigned onto the view before render); `post_mount` opens transient surfaces (`view.openSheet(document.body)`) so modals and pickers can be scanned too.
+MCP (optional, dormant by default — see `optional-mcp/README.md`): `scan_obsidian` with `plugin_path` + `view_class`. `view_state` is the fixture (properties assigned onto the view before render); `post_mount` opens transient surfaces (`view.openSheet(document.body)`) so modals and pickers can be scanned too.
 
 ## Base-CSS fidelity is on by default
 
@@ -124,5 +124,5 @@ A view that throws during mount leaves an empty page, and an empty page has no c
 ## When NOT to use
 
 - Non-Obsidian web UI — use `scan` (see `design-validation`).
-- Questions about what the *running* Obsidian renders right now, including host-cascade conflicts on an installed plugin — use `live_measure` against Obsidian's CDP port. `scan_obsidian` mounts the plugin in a synthetic page and cannot see the host workspace's own rules.
+- Questions about what the *running* Obsidian renders right now, including host-cascade conflicts on an installed plugin — use `npx ibr live:measure` (or the `live_measure` MCP tool, if MCP is re-enabled — it is dormant/opt-in by default) against Obsidian's CDP port. `scan_obsidian` mounts the plugin in a synthetic page and cannot see the host workspace's own rules.
 - Native macOS/iOS apps — see `native-testing`.

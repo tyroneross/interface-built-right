@@ -7,6 +7,12 @@ argument-hint: <url>
 
 Capture a screenshot using IBR's `screenshot` MCP tool. Returns a base64 image content block that Claude can see directly.
 
+**This tool is currently MCP-only — no CLI equivalent exists yet.** MCP is
+dormant/opt-in by default; see `optional-mcp/README.md` to re-enable it. If
+MCP is unavailable, fall back to `npx ibr start <url>` (captures a screenshot
+into `.ibr/sessions/<id>/`, no `selector`/`save_as`/viewport-preset support)
+and read the PNG with the Read tool. Never substitute Playwright/Puppeteer.
+
 ## Usage
 
 Call the `ibr screenshot` MCP tool with the provided URL.

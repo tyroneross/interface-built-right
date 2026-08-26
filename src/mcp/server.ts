@@ -209,3 +209,10 @@ async function handleMessage(msg: {
 
 // Log to stderr so it doesn't interfere with the protocol
 process.stderr.write("IBR MCP server started\n");
+// Dormant/opt-in notice: someone explicitly re-enabled this server (it is no
+// longer auto-discovered via .mcp.json at the plugin root), so let them know
+// the supported surfaces going forward are the CLI and the programmatic API.
+// STDOUT is the MCP transport — this must never write there.
+process.stderr.write(
+  "[ibr] MCP server is dormant/opt-in. The supported surfaces are the ibr CLI and the programmatic API. See optional-mcp/README.md.\n"
+);

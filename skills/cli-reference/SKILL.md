@@ -8,6 +8,17 @@ user_invocable: true
 
 Use these commands via Bash. IBR runs in the project directory — all state is stored in `.ibr/`.
 
+## Invocation rule
+
+Drive IBR through Bash and the `ibr` CLI (`npx ibr ...` or `dist/bin/ibr.js`).
+IBR's MCP server is dormant/opt-in by default — IBR's MCP-namespaced tools
+may be entirely absent from this session. Never fall back to Playwright
+or Puppeteer if they seem gone; that is exactly the failure mode this rule
+exists to prevent. If a workflow genuinely has no CLI equivalent yet (a few
+MCP-only tools remain — ad-hoc `screenshot`, the `references` library, and the
+`design_system` mutators), see `optional-mcp/README.md` for how to re-enable
+MCP rather than reaching for a different browser driver.
+
 ## Quick Reference
 
 | Command | Purpose |

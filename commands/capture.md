@@ -12,6 +12,10 @@ Capture a design reference from an external site and save to the current build's
 ### screenshot (default)
 
 Calls the `ibr screenshot` MCP tool. Saves to `.ibr/references/<slug>.png`.
+This tool is currently MCP-only (no CLI equivalent) — MCP is dormant/opt-in by
+default, see `optional-mcp/README.md`. If MCP is unavailable, fall back to
+`npx ibr start <url>` for a plain screenshot (no reference-library save) and
+never substitute Playwright/Puppeteer.
 
 ### extract
 

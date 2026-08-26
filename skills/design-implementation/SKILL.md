@@ -56,7 +56,9 @@ Each scan should produce fewer issues than the previous. If issue count is not d
 
 ## Primary Tool: `ibr scan`
 
-Call the `ibr scan` MCP tool to read the live page state.
+Run `npx ibr scan <url> --json` via Bash to read the live page state (the
+`ibr scan` MCP tool does the same thing, but MCP is dormant/opt-in by default
+— use the CLI).
 
 **Input:** `url` (required), `format` (optional: "json"), `viewport` (optional), `waitFor` (optional CSS selector)
 

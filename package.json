@@ -34,7 +34,7 @@
     "src/native/swift/ibr-ax-extract/Sources",
     ".claude-plugin",
     ".codex-plugin",
-    ".mcp.json",
+    "optional-mcp",
     "adapters",
     "agents",
     "assets",

@@ -10,7 +10,14 @@ argument-hint: <url>
 
 IBR can click, type, fill, and interact with elements on live pages — no Playwright needed. Elements are found by accessible name (not CSS selectors).
 
-## MCP Tools (preferred — works directly in Claude Code)
+## Invocation
+
+Drive this via the CLI Commands section below (`npx ibr observe/interact/extract`)
+or Bash + `npx ibr session:*`. The MCP tools named in this section exist too, but
+the MCP server is dormant/opt-in by default — do not assume it is connected, and
+never substitute Playwright/Puppeteer if it isn't.
+
+## MCP Tools (optional — requires MCP re-enabled, see `optional-mcp/README.md`)
 
 ### `observe` — See what's interactive
 ```
@@ -45,6 +52,9 @@ Use persistent sessions when the test depends on current UI context:
 3. `session_action` to click, type, fill, or press by accessible name.
 4. `session_read` with `what: "extract"` or `what: "state"` to verify.
 5. `session_close` when done.
+
+CLI equivalent: `npx ibr session:start <url>`, `npx ibr session:click/type/press/scroll <sessionId> ...`,
+`npx ibr session:scan|session:html|session:text <sessionId> ...`, `npx ibr session:close <sessionId>`.
 
 ### `flow_search` — Search/semantic search flow
 Use `flow_search` for search and semantic AI search. It can run against a URL or an existing Chrome session:

@@ -18,7 +18,12 @@ cp templates/design-system.json .ibr/design-system.json
 
 Then customize tokens for the project — colors, type scale, spacing, radii. The template contains sensible defaults for a Calm Precision-compliant interface.
 
-To manage config programmatically, use the `design_system` MCP tool.
+To manage config programmatically, use the `loadDesignSystemConfig` /
+`runDesignSystemCheck` API exports, or edit `.ibr/design-system.json` directly
+(see Configuration Format below). The `design_system` MCP tool below covers
+the same reads plus mutators (`set_token`, `add_principle`, `set_severity`)
+that have no CLI/API equivalent yet — it requires MCP to be re-enabled (it is
+dormant/opt-in by default; see `optional-mcp/README.md`).
 
 ## Configuration Format
 
@@ -144,7 +149,7 @@ Each token category maps to what the scan validates:
 
 Values are compared as computed pixel values. Set tokens to the exact resolved values you expect (e.g. `"14px"` not `"0.875rem"` — the scan reads computed values post-resolution).
 
-## MCP Tool
+## MCP Tool (optional — requires MCP re-enabled, see `optional-mcp/README.md`)
 
 Use the `design_system` MCP tool to manage config without editing JSON directly:
 
