@@ -1,0 +1,7 @@
+source: RossLabs-AI-Toolkit/skills/calm-precision
+version: 6.6.0
+installed: 2026-08-28T21:41:22Z
+installer: scripts/install-calm-precision.sh
+
+DO NOT EDIT THIS COPY. Edit the canonical source and re-run the installer.
+Verify with: scripts/install-calm-precision.sh <this dir's parent> --check

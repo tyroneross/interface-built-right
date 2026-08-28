@@ -1,6 +1,6 @@
 ---
 name: design-guidance
-description: Use for a small isolated UI component or a tactical pre-build design decision — one card, form, or layout tweak. Provides Calm Precision 6.5.0 rules, component pattern selection, and active design tokens. Not for a full page, flow, app, or dashboard build; use `design-director` first instead.
+description: Use for a small isolated UI component or a tactical pre-build design decision — one card, form, or layout tweak. Provides Calm Precision rules (vendored skill `calm-precision`, authoritative), component pattern selection, and active design tokens. Not for a full page, flow, app, or dashboard build; use `design-director` first instead.
 ---
 
 # Design Guidance
@@ -28,7 +28,7 @@ Resolve guidance in this order:
 3. `design-intent.json` from Design Director, when present
 4. Mockup Gallery target roles, when present
 5. Platform router: `web-design-router`, `ios-design-router`, `macos-ui`, `mobile-web-ui`
-6. Calm Precision 6.5.0 structural defaults
+6. Calm Precision structural defaults — see the vendored `calm-precision` skill
 7. Component pattern files in `templates/patterns/`
 8. Data visualization guidance, only when metrics/charts are in scope
 
@@ -60,7 +60,12 @@ Map user intent to the relevant pattern:
 
 Read the relevant pattern file before implementing.
 
-## Calm Precision 6.5.0 Quick Reference
+## Calm Precision Quick Reference
+
+> Excerpt only. The vendored `calm-precision` skill in this plugin is authoritative;
+> its `references/SOURCES.md` carries the citation behind each principle.
+> Never hand-edit that copy — edit RossLabs-AI-Toolkit `skills/calm-precision/`
+> and re-run `scripts/install-calm-precision.sh`.
 
 Apply these during design, not after:
 

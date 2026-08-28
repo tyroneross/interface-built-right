@@ -33,7 +33,7 @@ Resolve guidance in this order. Higher rows override lower rows only when they a
 3. Explicitly approved imagegen visual target concepts
 4. Platform router: iOS, macOS, web, mobile web, or cross-platform
 5. Product archetype router: iOS archetype or web archetype
-6. Calm Precision 6.4.1 structural rules
+6. Calm Precision structural rules — see the vendored `calm-precision` skill
 7. Component patterns and local templates
 8. Data visualization guidance, only when charts or metrics are part of the UI
 9. Presentation/deck guidance, only as hierarchy/data-storytelling input for screen design
