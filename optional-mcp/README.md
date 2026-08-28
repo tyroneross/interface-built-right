@@ -45,6 +45,34 @@ because `.mcp.json` no longer lives at the plugin root.
 
 To go back to dormant, delete `.mcp.json` at the plugin root and restart again.
 
+## Re-enabling for Codex
+
+Codex is a second host with its own manifest, so it needs its own opt-in. The
+Codex config lives beside this file as `codex-mcp.json`, and
+`.codex-plugin/plugin.json` no longer declares an `mcpServers` key.
+
+1. Restore the config and point the manifest at it:
+   ```bash
+   cp optional-mcp/codex-mcp.json .codex-plugin/mcp.json
+   ```
+   then add back to `.codex-plugin/plugin.json`, beside `"skills"`:
+   ```json
+   "mcpServers": "./.codex-plugin/mcp.json",
+   ```
+2. Reinstall the bundle so Codex picks it up:
+   ```bash
+   npm run plugin:install-codex
+   ```
+3. Restart Codex.
+
+To go back to dormant, remove the `mcpServers` key and delete
+`.codex-plugin/mcp.json`, then reinstall.
+
+**Both hosts must be handled separately.** Making the Claude host dormant does
+not make the Codex host dormant — `.mcp.json` and `.codex-plugin/mcp.json` are
+read by different processes, and leaving either one wired keeps a background
+MCP server discoverable on that host.
+
 ## What's in `mcp.json`
 
 Identical to the file that used to live at the plugin root — it launches

@@ -22,7 +22,6 @@
     "codex"
   ],
   "skills": "./.codex-plugin/skills",
-  "mcpServers": "./.codex-plugin/mcp.json",
   "interface": {
     "displayName": "Interface Built Right",
     "shortDescription": "Plan, build, scan, and iterate UI work from Codex.",

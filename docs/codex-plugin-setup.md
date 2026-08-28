@@ -1,14 +1,13 @@
 # Codex Plugin Setup
 
-IBR is viable as a Codex plugin when Codex can discover the plugin root, load `.codex-plugin/plugin.json`, expose compact Codex routing skills, and start the IBR MCP server from `.codex-plugin/mcp.json`.
+IBR is viable as a Codex plugin when Codex can discover the plugin root, load `.codex-plugin/plugin.json`, and expose compact Codex routing skills. Those skills drive the `ibr` CLI. The MCP server is dormant by default and is not started unless you opt in — see `optional-mcp/README.md`.
 
 ## What Codex Loads
 
 Codex uses:
 
-- `.codex-plugin/plugin.json` for plugin identity, marketplace metadata, skills, and MCP config.
+- `.codex-plugin/plugin.json` for plugin identity, marketplace metadata, and skills.
 - `.codex-plugin/skills/` for the agent-facing design, validation, and native routing guidance.
-- `.codex-plugin/mcp.json` for the `ibr` MCP server.
 - `references/` for detailed UI/UX reference files used by the compact Codex skills.
 
 Codex does not load Claude slash-command routing from `commands/`, Claude hooks from `hooks/`, or Claude-style agent frontmatter from `agents/`. The larger shared `skills/` directory remains the source library for Claude/source workflows; the Codex manifest intentionally points at the compact `.codex-plugin/skills/` layer to keep activation costs low.
@@ -56,7 +55,6 @@ Use local checks before relying on the plugin:
 
 ```bash
 python3 -m json.tool .codex-plugin/plugin.json
-python3 -m json.tool .codex-plugin/mcp.json
 npm run build
 ```
 
@@ -72,10 +70,10 @@ Expected hard requirements:
 
 - Manifest has `interface.websiteURL`, `privacyPolicyURL`, `termsOfServiceURL`, and `defaultPrompt`.
 - `skills` points to `./.codex-plugin/skills`.
-- `mcpServers` points to `./.codex-plugin/mcp.json`.
+- The manifest declares no `mcpServers` key — the MCP server is dormant by default.
 - Installed skills include `design`, `ui-ux-guidance`, `validate`, and `native`.
 - Installed references include `references/web-design/`.
-- The MCP server command resolves to `dist/mcp/server.js` after build.
+- If MCP is opted in via `optional-mcp/codex-mcp.json`, its command resolves to `dist/mcp/server.js` after build.
 
 ## Use From Codex
 

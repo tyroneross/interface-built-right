@@ -87,9 +87,9 @@ Sensors (`scan.sensors.*`, v1.2.0):
 | Path | Purpose |
 |---|---|
 | `.claude-plugin/plugin.json` | Claude Code plugin manifest metadata |
-| `.codex-plugin/plugin.json` | Codex plugin manifest metadata, compact Codex skills path, and Codex MCP path |
-| `.mcp.json` | Claude-shaped MCP server configuration |
-| `.codex-plugin/mcp.json` | Codex-shaped MCP server configuration |
+| `.codex-plugin/plugin.json` | Codex plugin manifest metadata and compact Codex skills path |
+| `optional-mcp/mcp.json` | Claude-shaped MCP server configuration — dormant; copy to `.mcp.json` to opt in |
+| `optional-mcp/codex-mcp.json` | Codex-shaped MCP server configuration — dormant; see `optional-mcp/README.md` to opt in |
 | `skills/` | 25 detailed skill definitions (markdown guidance loaded by Claude Code and source workflows) |
 | `.codex-plugin/skills/` | 5 compact Codex routing skills for lower token activation cost |
 | `commands/` | 32 slash command definitions |

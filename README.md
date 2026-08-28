@@ -416,7 +416,7 @@ The plugin hooks run automatic pre/post scans around UI file edits and surface c
 
 ### Codex
 
-Codex consumes `.codex-plugin/plugin.json`, compact skills under `.codex-plugin/skills/`, and `.codex-plugin/mcp.json`. The Codex-compatible agent approach is skills plus MCP tools; Claude-style files under `commands/`, `hooks/`, and `agents/` are retained for Claude Code and should not be treated as Codex-loaded routing.
+Codex consumes `.codex-plugin/plugin.json` and compact skills under `.codex-plugin/skills/`. Those skills drive the `ibr` CLI directly. The Codex MCP server is **dormant by default** — its config lives at `optional-mcp/codex-mcp.json` and is not wired into the manifest; see `optional-mcp/README.md` to opt in. Claude-style files under `commands/`, `hooks/`, and `agents/` are retained for Claude Code and should not be treated as Codex-loaded routing.
 
 Install this checkout as a local Codex plugin:
 
