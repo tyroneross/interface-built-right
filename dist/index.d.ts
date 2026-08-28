@@ -5420,6 +5420,49 @@ declare function addKnownIssue(outputDir: string, issue: string): Promise<Compac
  */
 declare function isCompactContextOversize(outputDir: string): Promise<boolean>;
 
+/**
+ * A content (non-interactive) element with real geometry and a subset of
+ * computed styles — mirrors the identity/bounds/style shape of
+ * EnhancedElement without forcing the `interactive`/`a11y` fields that only
+ * make sense for controls.
+ */
+interface ContentElement {
+    selector: string;
+    tagName: string;
+    id?: string;
+    className?: string;
+    /** Trimmed textContent, capped like extractInteractiveElements' `text`. Absent for <img>. */
+    text?: string;
+    bounds: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    computedStyles: Record<string, string>;
+    /** Only set for h1-h6. */
+    headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
+    contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
+    /** <img> only. */
+    alt?: string;
+    /** <img> only. */
+    src?: string;
+}
+/**
+ * <head> metadata for SEO/social-share checks — today's scan captures none
+ * of this. Every field is optional/empty-safe: a page with no metadata
+ * returns empty containers, not a thrown error or an undefined explosion.
+ */
+interface PageMetadata {
+    title?: string;
+    description?: string;
+    canonical?: string;
+    og: Record<string, string>;
+    twitter: Record<string, string>;
+    /** Parsed JSON-LD blocks. A block that fails JSON.parse is kept as its raw string rather than dropped. */
+    jsonLd: unknown[];
+}
+
 interface LayoutCollision {
     element1: {
         selector: string;
@@ -5831,6 +5874,22 @@ interface ScanResult {
     themeAnalysis?: ThemeAnalysis;
     /** Design system check results — principle violations, token compliance */
     designSystem?: DesignSystemResult;
+    /**
+     * CONTENT elements (headings/paragraphs/images/captions/quotes) with real
+     * bounds and computed styles — opt-in via `ScanOptions.content`. Kept out
+     * of `elements.all`: a heading is not a touch target, and mixing lanes
+     * would corrupt the touch-target audit rules that consume that array.
+     * Absent entirely (not `undefined`-valued) when `content` was not
+     * requested, so existing callers pay no extra token cost.
+     */
+    content?: {
+        elements: ContentElement[];
+    };
+    /**
+     * <head> SEO/social metadata — opt-in via `ScanOptions.content`, same
+     * absence contract as `content` above.
+     */
+    metadata?: PageMetadata;
     /** Hydration wait result — present when SPA hydration detection ran */
     hydration?: {
         timedOut: boolean;
@@ -5934,6 +5993,15 @@ interface ScanOptions extends BrowserLaunchOptions {
      * carries it.
      */
     probes?: Record<string, string>;
+    /**
+     * Opt-in extraction of CONTENT elements (headings/paragraphs/images with
+     * real bounds) plus <head> metadata (title, description, canonical,
+     * og: and twitter: tags, JSON-LD). Off by default — a plain scan() call is
+     * unchanged. When true, populates `ScanResult.content` and
+     * `ScanResult.metadata`; when false/absent, BOTH fields are entirely
+     * absent from the result (not present-and-undefined).
+     */
+    content?: boolean;
 }
 /**
  * Run a comprehensive UI scan on a URL.

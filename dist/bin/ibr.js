@@ -11849,8 +11849,10 @@ var extract_exports = {};
 __export(extract_exports, {
   analyzeElements: () => analyzeElements,
   closeBrowser: () => closeBrowser2,
+  extractContentElements: () => extractContentElements,
   extractFromURL: () => extractFromURL,
   extractInteractiveElements: () => extractInteractiveElements,
+  extractPageMetadata: () => extractPageMetadata,
   getReferenceSessionPaths: () => getReferenceSessionPaths
 });
 async function closeBrowser2() {
@@ -12189,6 +12191,7 @@ function analyzeElements(elements, isMobile = false) {
     return isButton || isLink || isInput || looksClickable || isNativelyEditableOrToggleable;
   });
   for (const el of interactiveElements) {
+    if (el.bounds.width <= 0 || el.bounds.height <= 0) continue;
     const isButton = el.tagName === "button" || el.a11y.role === "button";
     const isLink = el.tagName === "a";
     const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref || !!el.interactive.isContentEditable || el.tagName === "summary";
@@ -12235,6 +12238,132 @@ function analyzeElements(elements, isMobile = false) {
     withoutHandlers,
     issues
   };
+}
+async function extractContentElements(page) {
+  return page.evaluate((selectors) => {
+    const seen = /* @__PURE__ */ new Set();
+    const results = [];
+    const generateSelector = (el) => {
+      if (el.id) return `#${el.id}`;
+      const path2 = [];
+      let current = el;
+      while (current && current !== document.body) {
+        let selector = current.tagName.toLowerCase();
+        if (current.id) {
+          selector = `#${current.id}`;
+          path2.unshift(selector);
+          break;
+        } else if (current.className && typeof current.className === "string") {
+          const classes = current.className.split(" ").filter((c) => c.trim() && !c.includes(":"));
+          if (classes.length > 0) {
+            selector += `.${classes[0]}`;
+          }
+        }
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            (c) => c.tagName === current.tagName
+          );
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+        }
+        path2.unshift(selector);
+        current = current.parentElement;
+      }
+      return path2.join(" > ").slice(0, 200);
+    };
+    const kindFor = (tag) => {
+      if (/^h[1-6]$/.test(tag)) return "heading";
+      if (tag === "img") return "image";
+      if (tag === "figcaption") return "caption";
+      if (tag === "blockquote") return "quote";
+      return "paragraph";
+    };
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          seen.add(el);
+          const htmlEl = el;
+          const rect = htmlEl.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          const computed = window.getComputedStyle(htmlEl);
+          const tag = htmlEl.tagName.toLowerCase();
+          const kind = kindFor(tag);
+          const entry = {
+            selector: generateSelector(htmlEl),
+            tagName: tag,
+            id: htmlEl.id || void 0,
+            className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
+            text: (htmlEl.textContent || "").trim().slice(0, 300) || void 0,
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            },
+            computedStyles: {
+              cursor: computed.cursor,
+              color: computed.color,
+              backgroundColor: computed.backgroundColor,
+              display: computed.display,
+              visibility: computed.visibility,
+              opacity: computed.opacity
+            },
+            contentKind: kind
+          };
+          if (kind === "heading") {
+            entry.headingLevel = Number(tag[1]);
+          }
+          if (tag === "img") {
+            entry.text = void 0;
+            entry.alt = htmlEl.getAttribute("alt") ?? void 0;
+            entry.src = htmlEl.getAttribute("src") ?? void 0;
+          }
+          results.push(entry);
+        });
+      } catch {
+      }
+    }
+    return results;
+  }, CONTENT_SELECTORS);
+}
+async function extractPageMetadata(page) {
+  return page.evaluate(() => {
+    const og = {};
+    document.querySelectorAll('meta[property^="og:"]').forEach((meta) => {
+      const property = meta.getAttribute("property");
+      const content = meta.getAttribute("content");
+      if (property && content !== null) og[property.slice(3)] = content;
+    });
+    const twitter = {};
+    document.querySelectorAll('meta[name^="twitter:"]').forEach((meta) => {
+      const name = meta.getAttribute("name");
+      const content = meta.getAttribute("content");
+      if (name && content !== null) twitter[name.slice(8)] = content;
+    });
+    const jsonLd = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+      const raw = script.textContent || "";
+      try {
+        jsonLd.push(JSON.parse(raw));
+      } catch {
+        jsonLd.push(raw);
+      }
+    });
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    const canonicalLink = document.querySelector('link[rel="canonical"]');
+    return {
+      title: document.title || void 0,
+      description: descriptionMeta?.getAttribute("content") ?? void 0,
+      canonical: canonicalLink?.getAttribute("href") ?? void 0,
+      og,
+      twitter,
+      jsonLd
+    };
+  });
 }
 async function extractCSSVariables(page) {
   return page.evaluate(() => {
@@ -12376,7 +12505,7 @@ function getReferenceSessionPaths(outputDir, sessionId) {
     diff: (0, import_path13.join)(root, "diff.png")
   };
 }
-var import_promises14, import_fs6, import_path13, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS;
+var import_promises14, import_fs6, import_path13, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, CONTENT_SELECTORS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
@@ -12475,6 +12604,18 @@ var init_extract2 = __esm({
       "[aria-current]",
       "[onclick]",
       '[tabindex]:not([tabindex="-1"])'
+    ];
+    CONTENT_SELECTORS = [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "p",
+      "img",
+      "figcaption",
+      "blockquote"
     ];
   }
 });
@@ -16566,6 +16707,21 @@ async function scan(url, options = {}) {
         }
       }
     }
+    let contentResult;
+    let metadataResult;
+    if (options.content) {
+      try {
+        const [contentElements, pageMetadata] = await Promise.all([
+          extractContentElements(page),
+          extractPageMetadata(page)
+        ]);
+        contentResult = { elements: contentElements };
+        metadataResult = pageMetadata;
+      } catch {
+        contentResult = void 0;
+        metadataResult = void 0;
+      }
+    }
     const baseResult = {
       url,
       route,
@@ -16588,6 +16744,10 @@ async function scan(url, options = {}) {
       designSystem,
       hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
       skeleton: skeletonResult && !skeletonResult.settled ? { persistent: true, count: skeletonResult.skeletonCount } : void 0,
+      // Spread rather than a plain key: false/absent `content` must leave
+      // both fields entirely ABSENT from the result (not present with value
+      // `undefined`) so existing callers and their token cost are unchanged.
+      ...contentResult ? { content: contentResult, metadata: metadataResult } : {},
       verdict,
       issues,
       summary
@@ -28616,8 +28776,12 @@ function buildZoomTrackFromScan(scan2, opts = {}) {
   const width = Number(vpRaw.width) > 0 ? Number(vpRaw.width) : 1920;
   const height = Number(vpRaw.height) > 0 ? Number(vpRaw.height) : 1080;
   const all = Array.isArray(root?.elements?.all) ? root.elements.all : [];
+  const contentAll = Array.isArray(root?.content?.elements) ? root.content.elements : [];
+  const headings = contentAll.filter(
+    (el) => el.contentKind === "heading" && typeof el.headingLevel === "number"
+  );
   let estimatedDocHeight = height;
-  for (const el of all) {
+  for (const el of [...all, ...headings]) {
     const b = el.bounds;
     if (b && Number.isFinite(b.y) && Number.isFinite(b.height)) {
       estimatedDocHeight = Math.max(estimatedDocHeight, b.y + b.height);
@@ -28628,13 +28792,11 @@ function buildZoomTrackFromScan(scan2, opts = {}) {
   const seen = /* @__PURE__ */ new Set();
   let offscreenSkipped = 0;
   const usedEvents = /* @__PURE__ */ new Set();
-  for (const el of all) {
-    const b = el.bounds;
-    if (!b) continue;
+  const addCandidate = (b, rawText, selector, role, computedStyles) => {
+    if (!b) return;
     const { x, y, width: w, height: h } = b;
-    if (![x, y, w, h].every((n) => Number.isFinite(n))) continue;
-    if (w <= 0 || h <= 0) continue;
-    if (!isInteractiveElement2(el)) continue;
+    if (![x, y, w, h].every((n) => Number.isFinite(n))) return;
+    if (w <= 0 || h <= 0) return;
     const centreX = x + w / 2;
     const centreY = y + h / 2;
     const scrollY = clamp2(centreY - height / 2, 0, maxScroll);
@@ -28642,18 +28804,20 @@ function buildZoomTrackFromScan(scan2, opts = {}) {
     const cyRaw = (centreY - scrollY) / height;
     if (cxRaw < 0 || cxRaw > 1 || cyRaw < 0 || cyRaw > 1) {
       offscreenSkipped += 1;
-      continue;
+      return;
     }
-    const text = (el.text ?? "").trim();
-    const label2 = (text || el.selector || "").slice(0, 40);
-    const role = (el.tagName ?? "").toLowerCase();
+    const text = (rawText ?? "").trim();
+    const label2 = (text || selector || "").slice(0, 40);
     const areaFrac = Math.min(1, w * h / (width * height));
-    const weight = round4(Math.min(1, (ROLE_WEIGHT[role] ?? 0.3) + areaFrac * 0.2));
-    const cs = el.computedStyles ?? {};
+    const weight = round4(Math.min(
+      WEIGHT_CEILING,
+      (ROLE_WEIGHT[role] ?? 0.2) + areaFrac * AREA_BONUS_MAX
+    ));
+    const cs = computedStyles ?? {};
     const key = `${Math.round(x)},${Math.round(y)},${label2}`;
-    if (seen.has(key)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
-    const evIdx = events.findIndex((e, i) => !usedEvents.has(i) && matchesLabel(e.label, label2, el.selector));
+    const evIdx = events.findIndex((e, i) => !usedEvents.has(i) && matchesLabel(e.label, label2, selector));
     if (evIdx >= 0) usedEvents.add(evIdx);
     const tMs = evIdx >= 0 ? events[evIdx].tMs : clicks.length * perMs;
     clicks.push({
@@ -28670,6 +28834,13 @@ function buildZoomTrackFromScan(scan2, opts = {}) {
       colorHex: toHex(cs.color),
       backgroundColorHex: toHex(cs.backgroundColor)
     });
+  };
+  for (const el of headings) {
+    addCandidate(el.bounds, el.text, el.selector, `h${el.headingLevel}`, el.computedStyles);
+  }
+  for (const el of all) {
+    if (!isInteractiveElement2(el)) continue;
+    addCandidate(el.bounds, el.text, el.selector, (el.tagName ?? "").toLowerCase(), el.computedStyles);
   }
   let kept = clicks;
   let trimmed = 0;
@@ -28683,7 +28854,10 @@ function buildZoomTrackFromScan(scan2, opts = {}) {
     clicks: kept,
     trimmed,
     viewport: { width, height },
-    elementsConsidered: all.length,
+    // Before ANY filter: every scanned interactive-candidate plus every
+    // scanned content element — separates "page was empty" from "nothing on
+    // it was interactive and nothing was a heading".
+    elementsConsidered: all.length + contentAll.length,
     offscreenSkipped,
     estimatedDocHeight,
     unmatchedEvents
@@ -28710,20 +28884,33 @@ function round4(n) {
 function toSpectraClicks(clicks) {
   return clicks.map(({ tMs, cx, cy }) => ({ tMs, cx, cy }));
 }
-var INTERACTIVE_TAGS3, ROLE_WEIGHT;
+var INTERACTIVE_TAGS3, ROLE_WEIGHT, AREA_BONUS_MAX, WEIGHT_CEILING;
 var init_zoom_track = __esm({
   "src/zoom-track.ts"() {
     "use strict";
     init_color_parse();
     INTERACTIVE_TAGS3 = /* @__PURE__ */ new Set(["button", "a", "input", "select", "textarea"]);
     ROLE_WEIGHT = {
-      button: 1,
-      a: 0.7,
-      select: 0.6,
-      textarea: 0.6,
-      input: 0.5,
-      summary: 0.4
+      // Headings first: they are the page's own statement of what matters, and the
+      // h-level IS the author's ranking. An h1 outranks the primary action because
+      // a viewer needs to know what they are looking at before what they can do.
+      h1: 0.95,
+      // The primary action sits between h1 and h2 — more important than a
+      // subsection, less than the page's subject.
+      button: 0.85,
+      h2: 0.75,
+      h3: 0.65,
+      a: 0.55,
+      h4: 0.5,
+      select: 0.45,
+      textarea: 0.45,
+      h5: 0.4,
+      input: 0.35,
+      h6: 0.3,
+      summary: 0.25
     };
+    AREA_BONUS_MAX = 0.08;
+    WEIGHT_CEILING = 0.99;
   }
 });
 
@@ -35250,7 +35437,7 @@ function applyOutputMode(result, mode) {
 program.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option(
   "-d, --device <name>",
   `Canonical device profile (overrides --viewport). One of: ${DEVICE_NAMES.join(", ")}`
-).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", "Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").action(async (url, options) => {
+).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", "Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").option("--content", "Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata \u2014 adds scan.content.elements and scan.metadata").action(async (url, options) => {
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url);
@@ -35276,6 +35463,7 @@ program.command("scan <url>").description("Full UI scan: elements + interactivit
       networkIdleTimeout: options.networkIdleTimeout ? parseInt(options.networkIdleTimeout, 10) : void 0,
       screenshot: options.screenshot ? { path: options.screenshot } : void 0,
       rules: rulePresets,
+      content: options.content,
       ...getBrowserConnectionOptions()
     });
     if (options.json) {
@@ -37765,7 +37953,7 @@ program.command("zoom-track <url>").description("Emit a Spectra zoom track [{tMs
         throw new Error(`--events must be a JSON array of {tMs,label}, got ${typeof events}`);
       }
     }
-    const result = await scan2(resolvedUrl, { viewport: options.viewport });
+    const result = await scan2(resolvedUrl, { viewport: options.viewport, content: true });
     const track = buildZoomTrackFromScan2(result, {
       perMs: Number(options.perMs) || 1500,
       events,

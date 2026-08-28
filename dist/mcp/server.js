@@ -6094,6 +6094,7 @@ function analyzeElements(elements, isMobile = false) {
     return isButton || isLink || isInput || looksClickable || isNativelyEditableOrToggleable;
   });
   for (const el of interactiveElements) {
+    if (el.bounds.width <= 0 || el.bounds.height <= 0) continue;
     const isButton = el.tagName === "button" || el.a11y.role === "button";
     const isLink = el.tagName === "a";
     const hasHandler = el.interactive.hasOnClick || el.interactive.hasHref || !!el.interactive.isContentEditable || el.tagName === "summary";
@@ -6141,7 +6142,133 @@ function analyzeElements(elements, isMobile = false) {
     issues
   };
 }
-var INTERACTIVE_SELECTORS;
+async function extractContentElements(page) {
+  return page.evaluate((selectors) => {
+    const seen = /* @__PURE__ */ new Set();
+    const results = [];
+    const generateSelector = (el) => {
+      if (el.id) return `#${el.id}`;
+      const path = [];
+      let current = el;
+      while (current && current !== document.body) {
+        let selector = current.tagName.toLowerCase();
+        if (current.id) {
+          selector = `#${current.id}`;
+          path.unshift(selector);
+          break;
+        } else if (current.className && typeof current.className === "string") {
+          const classes = current.className.split(" ").filter((c) => c.trim() && !c.includes(":"));
+          if (classes.length > 0) {
+            selector += `.${classes[0]}`;
+          }
+        }
+        const parent = current.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            (c) => c.tagName === current.tagName
+          );
+          if (siblings.length > 1) {
+            const index = siblings.indexOf(current) + 1;
+            selector += `:nth-of-type(${index})`;
+          }
+        }
+        path.unshift(selector);
+        current = current.parentElement;
+      }
+      return path.join(" > ").slice(0, 200);
+    };
+    const kindFor = (tag) => {
+      if (/^h[1-6]$/.test(tag)) return "heading";
+      if (tag === "img") return "image";
+      if (tag === "figcaption") return "caption";
+      if (tag === "blockquote") return "quote";
+      return "paragraph";
+    };
+    for (const selector of selectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          seen.add(el);
+          const htmlEl = el;
+          const rect = htmlEl.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          const computed = window.getComputedStyle(htmlEl);
+          const tag = htmlEl.tagName.toLowerCase();
+          const kind = kindFor(tag);
+          const entry = {
+            selector: generateSelector(htmlEl),
+            tagName: tag,
+            id: htmlEl.id || void 0,
+            className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
+            text: (htmlEl.textContent || "").trim().slice(0, 300) || void 0,
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            },
+            computedStyles: {
+              cursor: computed.cursor,
+              color: computed.color,
+              backgroundColor: computed.backgroundColor,
+              display: computed.display,
+              visibility: computed.visibility,
+              opacity: computed.opacity
+            },
+            contentKind: kind
+          };
+          if (kind === "heading") {
+            entry.headingLevel = Number(tag[1]);
+          }
+          if (tag === "img") {
+            entry.text = void 0;
+            entry.alt = htmlEl.getAttribute("alt") ?? void 0;
+            entry.src = htmlEl.getAttribute("src") ?? void 0;
+          }
+          results.push(entry);
+        });
+      } catch {
+      }
+    }
+    return results;
+  }, CONTENT_SELECTORS);
+}
+async function extractPageMetadata(page) {
+  return page.evaluate(() => {
+    const og = {};
+    document.querySelectorAll('meta[property^="og:"]').forEach((meta) => {
+      const property = meta.getAttribute("property");
+      const content = meta.getAttribute("content");
+      if (property && content !== null) og[property.slice(3)] = content;
+    });
+    const twitter = {};
+    document.querySelectorAll('meta[name^="twitter:"]').forEach((meta) => {
+      const name = meta.getAttribute("name");
+      const content = meta.getAttribute("content");
+      if (name && content !== null) twitter[name.slice(8)] = content;
+    });
+    const jsonLd = [];
+    document.querySelectorAll('script[type="application/ld+json"]').forEach((script) => {
+      const raw = script.textContent || "";
+      try {
+        jsonLd.push(JSON.parse(raw));
+      } catch {
+        jsonLd.push(raw);
+      }
+    });
+    const descriptionMeta = document.querySelector('meta[name="description"]');
+    const canonicalLink = document.querySelector('link[rel="canonical"]');
+    return {
+      title: document.title || void 0,
+      description: descriptionMeta?.getAttribute("content") ?? void 0,
+      canonical: canonicalLink?.getAttribute("href") ?? void 0,
+      og,
+      twitter,
+      jsonLd
+    };
+  });
+}
+var INTERACTIVE_SELECTORS, CONTENT_SELECTORS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
@@ -6192,6 +6319,18 @@ var init_extract2 = __esm({
       "[aria-current]",
       "[onclick]",
       '[tabindex]:not([tabindex="-1"])'
+    ];
+    CONTENT_SELECTORS = [
+      "h1",
+      "h2",
+      "h3",
+      "h4",
+      "h5",
+      "h6",
+      "p",
+      "img",
+      "figcaption",
+      "blockquote"
     ];
   }
 });
@@ -10723,6 +10862,21 @@ async function scan(url, options = {}) {
         }
       }
     }
+    let contentResult;
+    let metadataResult;
+    if (options.content) {
+      try {
+        const [contentElements, pageMetadata] = await Promise.all([
+          extractContentElements(page),
+          extractPageMetadata(page)
+        ]);
+        contentResult = { elements: contentElements };
+        metadataResult = pageMetadata;
+      } catch {
+        contentResult = void 0;
+        metadataResult = void 0;
+      }
+    }
     const baseResult = {
       url,
       route,
@@ -10745,6 +10899,10 @@ async function scan(url, options = {}) {
       designSystem,
       hydration: hydrationReason !== "skipped" ? { timedOut: hydrationTimedOut, reason: hydrationReason } : void 0,
       skeleton: skeletonResult && !skeletonResult.settled ? { persistent: true, count: skeletonResult.skeletonCount } : void 0,
+      // Spread rather than a plain key: false/absent `content` must leave
+      // both fields entirely ABSENT from the result (not present with value
+      // `undefined`) so existing callers and their token cost are unchanged.
+      ...contentResult ? { content: contentResult, metadata: metadataResult } : {},
       verdict,
       issues,
       summary
@@ -25565,4 +25723,7 @@ async function handleMessage(msg) {
   }
 }
 process.stderr.write("IBR MCP server started\n");
+process.stderr.write(
+  "[ibr] MCP server is dormant/opt-in. The supported surfaces are the ibr CLI and the programmatic API. See optional-mcp/README.md.\n"
+);
 //# sourceMappingURL=server.js.map
