@@ -5531,7 +5531,21 @@ async function detectErrorState(page) {
   const errors = [];
   const checks = await page.evaluate(() => {
     const doc = document;
-    const text = doc.body?.innerText || "";
+    const textParts = [];
+    if (doc.body) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const parent = node.parentElement;
+        const excluded = parent?.closest("style, script, template, noscript");
+        const style = parent ? window.getComputedStyle(parent) : null;
+        if (!excluded && style?.display !== "none" && style?.visibility !== "hidden" && style?.opacity !== "0") {
+          textParts.push(node.textContent || "");
+        }
+        node = walker.nextNode();
+      }
+    }
+    const text = textParts.join(" ");
     const validationErrors = doc.querySelectorAll(
       '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
     );
@@ -5540,7 +5554,7 @@ async function detectErrorState(page) {
     );
     const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
     const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
-    const serverText = text.match(/500|server error|something went wrong|internal error/i);
+    const serverText = text.match(/\b(?:http(?:\s+status)?|status|error)\s*(?:code\s*)?500\b|server error|something went wrong|internal error/i);
     const toastErrors = doc.querySelectorAll(
       '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
     );

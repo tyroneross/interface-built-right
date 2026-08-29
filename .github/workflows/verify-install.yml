@@ -85,7 +85,7 @@ jobs:
             dist/index.d.ts \
             .claude-plugin/plugin.json \
             .codex-plugin/plugin.json \
-            .mcp.json
+            optional-mcp/mcp.json
           do
             if [ ! -e "node_modules/@tyroneross/interface-built-right/$required" ]; then
               echo "::error::Missing required path: $required"
