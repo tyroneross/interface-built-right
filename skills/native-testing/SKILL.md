@@ -1,6 +1,7 @@
 ---
 name: native-testing
 description: Use when working on iOS, watchOS, or macOS apps — .swift files, SwiftUI views, simulators. IBR's native scan workflow for touch targets, a11y labels, watchOS constraints, Fix Guide.
+user-invocable: false
 ---
 
 # IBR Native Testing (iOS / watchOS / macOS)

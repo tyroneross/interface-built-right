@@ -2,7 +2,7 @@
 name: interactive-testing
 description: Use when the user asks to test a form, click through a flow, test search or login, interact with a page, or needs browser interaction testing.
 version: 0.8.0
-user-invocable: true
+user-invocable: false
 argument-hint: <url>
 ---
 

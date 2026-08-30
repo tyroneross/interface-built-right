@@ -1,7 +1,7 @@
 ---
 name: design-system
 description: Use when setting up a project's design system or modifying design constraints. Initialize design tokens, view active principles, add custom rules, update token values.
-user-invocable: true
+user-invocable: false
 ---
 
 # Design System Configuration

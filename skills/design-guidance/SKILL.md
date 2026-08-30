@@ -1,6 +1,7 @@
 ---
 name: design-guidance
 description: Use for a small isolated UI component or a tactical pre-build design decision — one card, form, or layout tweak. Provides Calm Precision rules (vendored skill `calm-precision`, authoritative), component pattern selection, and active design tokens. Not for a full page, flow, app, or dashboard build; use `design-director` first instead.
+user-invocable: false
 ---
 
 # Design Guidance

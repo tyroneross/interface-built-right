@@ -2,6 +2,7 @@
 name: cli-reference
 description: Use when you need to inspect, test, validate, or audit UI (web or native) via IBR CLI. Reference for scan, sessions, native testing, design memory commands.
 user_invocable: true
+user-invocable: false
 ---
 
 # IBR CLI Reference
