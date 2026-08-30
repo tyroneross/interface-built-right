@@ -114,10 +114,10 @@ Do not implement unrated or rejected mockups as binding targets. Do not implemen
 
 After implementation:
 
-1. Run `/ibr:scan` and write result to `iterations/<n>/scan.json`.
+1. Load `design-validation` to scan the page, and write the result to `iterations/<n>/scan.json`.
 2. If `wireframe-target` exists, run semantic/layout comparison and write `iterations/<n>/wireframe-match.json`.
 3. If `visual-target` exists, run `/ibr:match` and write `iterations/<n>/visual-match.json`.
-4. If platform is iOS/macOS, run `/ibr:native-scan` and write `iterations/<n>/native.json`.
+4. If platform is iOS/macOS, load `native-testing` to run the native scan and write `iterations/<n>/native.json`.
 5. If primary flow exists, run an interaction test or session and write `iterations/<n>/interaction.json`.
 6. Merge into `iterations/<n>/report.json`.
 7. Decide: pass / iterate / surface-to-user.

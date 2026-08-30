@@ -26,37 +26,31 @@ Route this request to the appropriate ibr subcommand or skill based on the user'
 
 ## Available subcommands
 
-- **`/ibr:build-baseline`** — Create baselines for all pages and identify key UI elements across the app
 - **`/ibr:build`** — UI-focused build orchestrator. Sequences preamble → Design Director → plan → implement → validate
+- **`/ibr:capture`** — Capture external design references — screenshot a URL, extract full HTML/CSS, or crawl a sitemap
+- **`/ibr:screenshot`** — Capture a screenshot of any URL and return the image. Optionally save to the design reference library
+- **`/ibr:snapshot`** — Capture a baseline of a URL before making UI changes (for regression verification)
+- **`/ibr:compare`** — Compare current page state against baseline and show what changed (regression check)
+- **`/ibr:match`** — Compare a design mockup PNG against a live rendered page using SSIM and pixel diff
+- **`/ibr:iterate`** — Run one iteration of a test-fix loop and detect convergence (stagnant, oscillating, regressing)
 - **`/ibr:cancel-iterate`** — Cancel an active IBR iterative refinement loop
-- **`/ibr:capture`** — Capture external design references — screenshot a URL, extract full HTML/CSS, or
-- **`/ibr:compare-browsers`** — Scan a URL in both Chrome and Safari, then diff screenshots and element counts t
-- **`/ibr:compare`** — Compare current page state against baseline and show what changed (regression ch
-- **`/ibr:full-interface-scan`** — Fully scan all UI pages and test every component for functionality, accessibilit
-- **`/ibr:generate-test`** — Generate a declarative .ibr-test.json test file by observing interactive element
-- **`/ibr:interact`** — Run interaction assertions on a live page — click X, verify Y happened
-- **`/ibr:iterate`** — Run one iteration of a test-fix loop and detect convergence (stagnant, oscillati
-- **`/ibr:match`** — Compare a design mockup PNG against a live rendered web page using SSIM and pixe
-- **`/ibr:native-scan`**
-- **`/ibr:only-use-ibr`** — Enforce IBR-only for capture and validation tasks. Blocks Playwright screenshot/
-- **`/ibr:prefer-ibr`** — Enable soft IBR preference. Claude will prefer IBR for UI validation and capture
-- **`/ibr:record-change`** — Record a structured design change specification for later verification
-- **`/ibr:replicate`** — Build UI from an uploaded reference image or extracted HTML. Use when user has u
-- **`/ibr:run-script`** — Execute a Python test script with sandboxed CPU and memory limits
-- **`/ibr:scan`** — Run a comprehensive end-to-end UI scan on a URL
-- **`/ibr:screenshot`** — Capture a screenshot of any URL and return the image for Claude to see. Optional
-- **`/ibr:setup-hooks`** — Configure Claude Code hooks for better IBR experience
-- **`/ibr:snapshot`** — Capture a baseline of a URL before making UI changes (for regression verificatio
-- **`/ibr:test-form`** — Test form submission on a page using the IBR form flow
-- **`/ibr:test-login`** — Test login flow on a page using the IBR login flow
-- **`/ibr:test-search`** — Test search functionality on a page using the IBR search flow
-- **`/ibr:test`** — Run a declarative .ibr-test.json test file against a live URL
-- **`/ibr:ui-audit`** — Run a comprehensive end-to-end UI audit on an app's workflows
-- **`/ibr:ui-guidance`** — List, show, or promote IBR UI Guidance templates. Central library at `/Users/tyr
-- **`/ibr:ui`** — Launch the IBR design validation dashboard to view scan results, comparisons, an
-- **`/ibr:update`** — Update IBR to the latest version
-- **`/ibr:verify-changes`** — Verify all recorded design changes against the live page
+- **`/ibr:ui`** — Launch the IBR design validation dashboard to view scan results, comparisons, and element data
+- **`/ibr:artifact`** — Author, check, and port single-file self-contained HTML artifacts
+- **`/ibr:prefer-ibr`** — Enable soft IBR preference for UI validation, capture, and semantic interaction
+- **`/ibr:only-use-ibr`** — Enforce IBR-only for capture and validation. Blocks Playwright screenshot/snapshot tools
+- **`/ibr:feedback`** — Report a bug or send feedback about the ibr plugin
 
+## Capability routing — no subcommand, load the skill
+
+These capabilities have no slash command. Load the named skill and follow it.
+
+- **Scan, audit, validate, check accessibility, find regressions, compare browsers** → load `design-validation`
+- **Test a form, login, or search; click through a flow; assert an interaction; generate a test file** → load `interactive-testing`
+- **Scan a native iOS / watchOS / macOS app; touch targets; a11y labels** → load `native-testing`
+- **List, show, or promote UI Guidance templates** → load `ui-guidance-library`
+- **Run the IBR CLI directly; baselines; record or verify a design change; run a test script; install or update IBR** → load `cli-reference`
+- **Configure the automatic before/after scan on UI file edits** → load `auto-verify`
+- **Build UI from a reference image or extracted HTML** → load `design-reference`, then `design-implementation`
 
 ## Examples
 

@@ -93,7 +93,7 @@ Jinja template.
 | drawing a diagram in it | `ibr:artifact-diagramming` |
 | it has charts or KPIs | `ibr:data-visualization` |
 | diagram generated from source, not argued | the `diagram-intelligence` plugin |
-| verifying it renders in a real browser | `/ibr:screenshot` or `/ibr:scan` |
+| verifying it renders in a real browser | `/ibr:screenshot`, or load `design-validation` for a full scan |
 
 ## Notes
 
