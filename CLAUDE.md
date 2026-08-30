@@ -138,11 +138,13 @@ IBR now enforces design principles and tokens. When `.ibr/design-system.json` ex
 **Core principles** (error): gestalt, signal-noise, content-chrome, cognitive-load
 **Stylistic principles** (warn): fitts, hick
 
-Skills: `/ibr:design-system` (config management), `/ibr:component-patterns` (pattern library), design-guidance (auto-activates when building UI)
+Skills: `design-system` (config management), `component-patterns` (pattern library), `design-guidance` (auto-activates when building UI)
 
 ## Slash Commands
 
-`/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:design-system` `/ibr:component-patterns` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
+`/ibr:ibr` `/ibr:build` `/ibr:capture` `/ibr:screenshot` `/ibr:snapshot` `/ibr:compare` `/ibr:match` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:ui` `/ibr:artifact` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:feedback`
+
+No subcommand for scan/audit/validate/compare-browsers, interaction testing, native scans, UI Guidance templates, direct CLI/baselines, or auto-verify config — load the matching skill instead (`design-validation`, `interactive-testing`, `native-testing`, `ui-guidance-library`, `cli-reference`, `auto-verify`). See `commands/ibr.md` for the full routing table.
 
 Use skill for details.
 

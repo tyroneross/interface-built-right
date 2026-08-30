@@ -156,9 +156,11 @@ Codex uses compact `.codex-plugin/skills/` routing guidance plus MCP/session too
 
 `scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `native_session_start` | `native_session_read` | `native_session_action` | `native_session_close` | `validate_tokens` | `scan_static` | `scan_obsidian` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `design_system` | `sim_action`
 
-### Slash Commands (32)
+### Slash Commands (14)
 
-`/ibr:ibr` `/ibr:artifact` `/ibr:snapshot` `/ibr:compare` `/ibr:interact` `/ibr:match` `/ibr:test` `/ibr:generate-test` `/ibr:record-change` `/ibr:verify-changes` `/ibr:compare-browsers` `/ibr:test-search` `/ibr:test-form` `/ibr:test-login` `/ibr:full-interface-scan` `/ibr:build-baseline` `/ibr:ui` `/ibr:ui-audit` `/ibr:scan` `/ibr:screenshot` `/ibr:native-scan` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:replicate` `/ibr:run-script` `/ibr:setup-hooks` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:update` `/ibr:build` `/ibr:capture` `/ibr:ui-guidance`
+`/ibr:ibr` `/ibr:build` `/ibr:capture` `/ibr:screenshot` `/ibr:snapshot` `/ibr:compare` `/ibr:match` `/ibr:iterate` `/ibr:cancel-iterate` `/ibr:ui` `/ibr:artifact` `/ibr:prefer-ibr` `/ibr:only-use-ibr` `/ibr:feedback`
+
+No subcommand for scan/audit/validate/compare-browsers, interaction testing (forms, login, search, generate a test), native iOS/watchOS/macOS scans, UI Guidance templates, direct CLI/baselines/record-verify/run-script/install-update, or auto-verify config — the model routes those to a skill instead (`design-validation`, `interactive-testing`, `native-testing`, `ui-guidance-library`, `cli-reference`, `auto-verify`). See `commands/ibr.md`'s capability-routing table for the authoritative mapping.
 
 ### Storage
 

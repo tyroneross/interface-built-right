@@ -281,7 +281,7 @@ See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 |---------|----------------|-------------|
 | **Build command** | `/ibr:build <topic>` | Guided UI build — brainstorm, plan, implement, verify in one flow |
 | **Capture command** | `/ibr:capture <url>` | Capture a named baseline snapshot for any URL |
-| **UI guidance** | `/ibr:ui-guidance` | On-demand design guidance using IBR scan data |
+| **UI guidance** | skill: `ui-guidance-library` | On-demand design guidance using IBR scan data |
 | **UI brainstorm preamble** | skill: `ui-brainstorm-preamble` | Pre-build exploration — explore directions before implementing |
 | **UI guidance library** | skill: `ui-guidance-library` | Reusable UI guidance patterns and decision aids |
 | **Mockup gallery bridge** | skill: `mockup-gallery-bridge` | Bridge mockup gallery reviews to IBR scan verification |
@@ -401,11 +401,11 @@ IBR works standalone and ships plugin metadata for both Claude Code and Codex. C
 | Command | What it does |
 |---------|-------------|
 | `/ibr:build <topic>` | Guided UI build: preamble → brainstorm → plan → implement → validate |
-| `/ibr:scan <url>` | Full page scan with sensor summaries and optional rule checks |
+| skill: `design-validation` | Full page scan with sensor summaries and optional rule checks |
 | `/ibr:snapshot` / `/ibr:compare` | Before/after regression check |
-| `/ibr:interact` | Click, type, fill by accessible name |
+| skill: `interactive-testing` | Click, type, fill by accessible name; assert an interaction |
 | `/ibr:match` | Compare rendered UI against a mockup (SSIM) |
-| `/ibr:native-scan` | Scan iOS/watchOS/macOS apps |
+| skill: `native-testing` | Scan iOS/watchOS/macOS apps |
 | `/ibr:ui` | Open the web dashboard at localhost:4200 |
 
 **Example:**

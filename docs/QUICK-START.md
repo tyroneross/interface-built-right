@@ -164,17 +164,16 @@ npx ibr scan <url> --viewport mobile --json
 
 IBR is also a Claude Code plugin. When installed, use slash commands:
 
-| Command | Purpose |
+| Command / Skill | Purpose |
 |---------|---------|
-| `/ibr:scan` | Scan a page |
-| `/ibr:interact` | Interaction assertions |
-| `/ibr:match` | Mockup comparison |
-| `/ibr:test` | Run .ibr-test.json |
-| `/ibr:verify-changes` | Verify design changes |
-| `/ibr:compare-browsers` | Chrome vs Safari |
 | `/ibr:build <topic>` | Guided UI build — brainstorm, plan, implement, verify |
 | `/ibr:capture <url>` | Capture a named baseline snapshot for any URL |
-| `/ibr:ui-guidance` | On-demand design guidance using IBR scan data |
+| `/ibr:snapshot` / `/ibr:compare` | Before/after regression check |
+| `/ibr:match` | Mockup comparison (SSIM) |
+| skill: `design-validation` | Scan, audit, validate accessibility, find regressions, compare browsers |
+| skill: `interactive-testing` | Test a form, login, or search; assert an interaction; generate a test file |
+| skill: `cli-reference` | Run the IBR CLI directly, baselines, record or verify a design change, run a test script |
+| skill: `ui-guidance-library` | List, show, or promote UI Guidance templates |
 
 Full list: see `CLAUDE.md`
 
