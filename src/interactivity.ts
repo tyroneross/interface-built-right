@@ -230,11 +230,27 @@ export async function testInteractivity(page: Page): Promise<InteractivityResult
         const labelEl = el.querySelector(`label[for="${field.id}"]`) ||
                         field.closest('label');
 
+        // The accessible name, not just a <label> element. A field labelled
+        // with aria-label or aria-labelledby IS labelled; reporting it as
+        // MISSING_LABEL produced a remediation ("add aria-label") for an
+        // attribute already present, observed 2026-08-31 on two unrelated
+        // pages. aria-labelledby wins over aria-label per the accname spec.
+        const labelledBy = (field.getAttribute('aria-labelledby') || '')
+          .split(/\s+/)
+          .filter(Boolean)
+          .map(id => el.ownerDocument?.getElementById(id)?.textContent?.trim() || '')
+          .filter(Boolean)
+          .join(' ');
+        const accessibleName =
+          labelledBy ||
+          (field.getAttribute('aria-label') || '').trim() ||
+          (field.getAttribute('title') || '').trim();
+
         fields.push({
           selector: getSelector(field),
           name: field.name || undefined,
           type: field.type || field.tagName.toLowerCase(),
-          label: labelEl?.textContent?.trim() || undefined,
+          label: labelEl?.textContent?.trim() || accessibleName || undefined,
           required: field.required,
           hasValidation: field.hasAttribute('pattern') ||
                          field.hasAttribute('min') ||
