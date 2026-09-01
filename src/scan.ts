@@ -27,7 +27,7 @@ import { runAllRules, type RuleEngineResult } from './rules/index.js';
 import { summarizeScan, type ScanSummary } from './summarize.js';
 import { runRules, resolveRulesConfig, configHasContentRules, getActiveRules } from './rules/engine.js';
 import { contentElementsToEnhanced } from './rules/content-adapter.js';
-import { measureElementContrast } from './rules/presets/wcag-contrast.js';
+import { measureElementContrast } from './rules/contrast-measure.js';
 import type { RuleContext as PresetRuleContext } from './rules/types.js';
 
 

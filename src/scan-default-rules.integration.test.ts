@@ -145,6 +145,53 @@ describe('scan default rules — planted-defect regression', () => {
     expect(aa.some((i) => i.description.includes('TRANSPARENT BG low contrast'))).toBe(true);
   }, 60_000);
 
+  // DEFECT 3, SECOND LANE. Two contrast rules ship in IBR and BOTH run on every
+  // scan: `wcag/contrast` (always on, reported under `ruleEngine`) and the
+  // `wcag-contrast` preset pair (reported under `issues`). They carried
+  // duplicate math and the same transparent-background bail, so fixing one left
+  // the other silently measuring nothing. Both now share
+  // `measureElementContrast`, and this asserts the always-on lane agrees.
+  it('measures transparent backgrounds in the always-on ruleEngine lane too', async () => {
+    const result = await scan(`${baseUrl}/planted`, { projectDir });
+
+    const engineContrast = (result.ruleEngine ?? []).filter((r) => r.rule.startsWith('wcag/contrast'));
+    const graded = engineContrast.map((r) => r.element).join(' ');
+    expect(graded).toContain('transp');
+    expect(graded).toContain('opaque');
+  }, 60_000);
+
+  // The two lanes must never DISAGREE about an element they both graded — a
+  // disagreement is what a duplicated implementation produces, and it is what
+  // shipped before they shared `measureElementContrast`.
+  //
+  // They are not expected to cover the same SET: `runAllRules` is
+  // interactive-only on purpose. Its rule list (touch-targets, handler
+  // integrity, spacing) carries no `appliesTo` guard, so feeding it paragraphs
+  // would flag body copy as an undersized tap target. Content coverage is the
+  // preset lane's job, and the preset lane is now on by default. So the
+  // invariant is containment plus agreement, not equality.
+  it('never disagrees with the preset lane on an element both graded', async () => {
+    const result = await scan(`${baseUrl}/planted`, { projectDir });
+
+    const engineHits = new Set(
+      (result.ruleEngine ?? [])
+        .filter((r) => r.rule === 'wcag/contrast')
+        .map((r) => r.element),
+    );
+    const presetHits = new Set(
+      result.issues
+        .filter((i) => i.description.includes('[wcag-aa-contrast]'))
+        .map((i) => i.element ?? ''),
+    );
+
+    expect(engineHits.size).toBeGreaterThan(0);
+    for (const element of engineHits) {
+      expect(presetHits.has(element)).toBe(true);
+    }
+    // And the preset lane reaches strictly further — that is defect 2's fix.
+    expect(presetHits.size).toBeGreaterThan(engineHits.size);
+  }, 60_000);
+
   // DEFECT 4 — verdict was computed before preset violations were injected.
   it('reflects preset violations in the verdict and exit-worthy state', async () => {
     const result = await scan(`${baseUrl}/planted`, { projectDir });

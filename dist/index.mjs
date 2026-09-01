@@ -6181,11 +6181,11 @@ function parseColor(color) {
   return named[color.toLowerCase()] ?? null;
 }
 function relativeLuminance(r, g, b) {
-  const linearize4 = (c) => {
+  const linearize3 = (c) => {
     const s = c / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
-  return 0.2126 * linearize4(r) + 0.7152 * linearize4(g) + 0.0722 * linearize4(b);
+  return 0.2126 * linearize3(r) + 0.7152 * linearize3(g) + 0.0722 * linearize3(b);
 }
 async function analyzeThemeConsistency(page) {
   const data = await page.evaluate(() => {
@@ -10592,7 +10592,7 @@ var init_color_parse = __esm({
   }
 });
 
-// src/rules/wcag-contrast.ts
+// src/rules/contrast-measure.ts
 function linearize2(channel) {
   const c = channel / 255;
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
@@ -10600,7 +10600,9 @@ function linearize2(channel) {
 function relativeLuminance2(r, g, b) {
   return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
 }
-function contrastRatio2(l1, l2) {
+function contrastRatio2(fg, bg) {
+  const l1 = relativeLuminance2(...fg);
+  const l2 = relativeLuminance2(...bg);
   const lighter = Math.max(l1, l2);
   const darker = Math.min(l1, l2);
   return (lighter + 0.05) / (darker + 0.05);
@@ -10613,10 +10615,57 @@ function isLargeText2(styles) {
   const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
   return fontSize >= 24 || isBold && fontSize >= 18.66;
 }
+function measureElementContrast(element) {
+  const style = element.computedStyles;
+  if (!style) return { status: "no-styles" };
+  const text = (element.text ?? "").trim();
+  if (text.length === 0) return { status: "no-text" };
+  const fg = parseColor3(style.color ?? "");
+  if (fg.kind === "unsupported") {
+    return { status: "unmeasurable", raw: fg.raw, text };
+  }
+  if (fg.kind === "none") {
+    return { status: "invisible", reason: fg.reason };
+  }
+  const chain = element.backgroundChain && element.backgroundChain.length > 0 ? element.backgroundChain : [style.backgroundColor ?? ""];
+  const bg = resolveEffectiveBackground(chain);
+  if (bg.unsupported !== void 0) {
+    return { status: "unmeasurable", raw: bg.unsupported, text };
+  }
+  const fgRgb = flatten(fg, bg.rgb);
+  if (!fgRgb) return { status: "invisible", reason: "foreground did not composite" };
+  return {
+    status: "measured",
+    ratio: contrastRatio2(fgRgb, bg.rgb),
+    large: isLargeText2(style),
+    backgroundResolved: bg.resolved,
+    backgroundImageBehind: element.backgroundImageBehind === true,
+    text,
+    fgRaw: style.color ?? "",
+    bgRaw: `rgb(${bg.rgb.join(", ")})`
+  };
+}
+function confidenceNote(m) {
+  const notes = [];
+  if (!m.backgroundResolved) {
+    notes.push("measured against an assumed white page background \u2014 no opaque background found in the ancestor chain");
+  }
+  if (m.backgroundImageBehind) {
+    notes.push("a background-image paints behind this text; only the color layers were sampled");
+  }
+  return notes.length > 0 ? ` [${notes.join("; ")}]` : "";
+}
+var init_contrast_measure = __esm({
+  "src/rules/contrast-measure.ts"() {
+    init_color_parse();
+  }
+});
+
+// src/rules/wcag-contrast.ts
 var wcagContrastRules;
 var init_wcag_contrast = __esm({
   "src/rules/wcag-contrast.ts"() {
-    init_color_parse();
+    init_contrast_measure();
     wcagContrastRules = [
       {
         id: "wcag/contrast",
@@ -10624,47 +10673,30 @@ var init_wcag_contrast = __esm({
         description: "Text must meet WCAG 2.1 minimum contrast: 4.5:1 normal, 3:1 large text",
         defaultSeverity: "error",
         check: (element, _context) => {
-          const style = element.computedStyles;
-          if (!style) return null;
-          const hasText = element.text && element.text.trim().length > 0;
-          if (!hasText) return null;
-          const fg = parseColor3(style.color ?? "");
-          const bg = parseColor3(style.backgroundColor ?? "");
-          const undecodable = [fg, bg].find((c) => c.kind === "unsupported");
-          if (undecodable && undecodable.kind === "unsupported") {
+          const m = measureElementContrast(element);
+          if (m.status === "unmeasurable") {
             return {
               ruleId: "wcag/contrast-unmeasurable",
               ruleName: "WCAG 2.1: Color Contrast (not measurable)",
               severity: "warn",
-              message: `Could not decode color "${undecodable.raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
+              message: `Could not decode color "${m.raw}", so contrast for "${m.text.slice(0, 40)}" was NOT checked`,
               element: element.selector,
               bounds: element.bounds,
               fix: `Add support for this color format to rules/color-parse.ts, or serve a format the parser understands.`
             };
           }
-          if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
-          const fgColor = flatten(fg, bg.rgb);
-          const bgColor = bg.rgb;
-          if (!fgColor) return null;
-          const fgL = relativeLuminance2(...fgColor);
-          const bgL = relativeLuminance2(...bgColor);
-          const ratio = contrastRatio2(fgL, bgL);
-          const largeText = isLargeText2(style);
-          const threshold = largeText ? 3 : 4.5;
-          if (ratio < threshold) {
-            const ratioStr = ratio.toFixed(2);
-            const textSnippet = (element.text ?? "").slice(0, 40);
-            return {
-              ruleId: "wcag/contrast",
-              ruleName: "WCAG 2.1: Color Contrast",
-              severity: "error",
-              message: `"${textSnippet}" has contrast ratio ${ratioStr}:1 (required ${threshold}:1 for ${largeText ? "large" : "normal"} text)`,
-              element: element.selector,
-              bounds: element.bounds,
-              fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
-            };
-          }
-          return null;
+          if (m.status !== "measured") return null;
+          const threshold = m.large ? 3 : 4.5;
+          if (m.ratio >= threshold) return null;
+          return {
+            ruleId: "wcag/contrast",
+            ruleName: "WCAG 2.1: Color Contrast",
+            severity: "error",
+            message: `"${m.text.slice(0, 40)}" has contrast ratio ${m.ratio.toFixed(2)}:1 (required ${threshold}:1 for ${m.large ? "large" : "normal"} text)${confidenceNote(m)}`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: `Increase contrast between foreground ${m.fgRaw} and effective background ${m.bgRaw}`
+          };
         }
       }
     ];
@@ -11835,68 +11867,6 @@ var init_touch_targets2 = __esm({
 });
 
 // src/rules/presets/wcag-contrast.ts
-function linearize3(channel) {
-  const c = channel / 255;
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-}
-function relativeLuminance4(r, g, b) {
-  return 0.2126 * linearize3(r) + 0.7152 * linearize3(g) + 0.0722 * linearize3(b);
-}
-function contrastRatio4(fg, bg) {
-  const l1 = relativeLuminance4(...fg);
-  const l2 = relativeLuminance4(...bg);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-function isLargeText3(styles) {
-  const fontSizeStr = styles.fontSize ?? "";
-  const fontWeightStr = styles.fontWeight ?? "";
-  const fontSize = parseFloat(fontSizeStr);
-  if (isNaN(fontSize)) return false;
-  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
-  return fontSize >= 24 || isBold && fontSize >= 18.66;
-}
-function measureElementContrast(element) {
-  const style = element.computedStyles;
-  if (!style) return { status: "no-styles" };
-  const text = (element.text ?? "").trim();
-  if (text.length === 0) return { status: "no-text" };
-  const fg = parseColor3(style.color ?? "");
-  if (fg.kind === "unsupported") {
-    return { status: "unmeasurable", raw: fg.raw, text };
-  }
-  if (fg.kind === "none") {
-    return { status: "invisible", reason: fg.reason };
-  }
-  const chain = element.backgroundChain && element.backgroundChain.length > 0 ? element.backgroundChain : [style.backgroundColor ?? ""];
-  const bg = resolveEffectiveBackground(chain);
-  if (bg.unsupported !== void 0) {
-    return { status: "unmeasurable", raw: bg.unsupported, text };
-  }
-  const fgRgb = flatten(fg, bg.rgb);
-  if (!fgRgb) return { status: "invisible", reason: "foreground did not composite" };
-  return {
-    status: "measured",
-    ratio: contrastRatio4(fgRgb, bg.rgb),
-    large: isLargeText3(style),
-    backgroundResolved: bg.resolved,
-    backgroundImageBehind: element.backgroundImageBehind === true,
-    text,
-    fgRaw: style.color ?? "",
-    bgRaw: `rgb(${bg.rgb.join(", ")})`
-  };
-}
-function confidenceNote(m) {
-  const notes = [];
-  if (!m.backgroundResolved) {
-    notes.push("measured against an assumed white page background \u2014 no opaque background found in the ancestor chain");
-  }
-  if (m.backgroundImageBehind) {
-    notes.push("a background-image paints behind this text; only the color layers were sampled");
-  }
-  return notes.length > 0 ? ` [${notes.join("; ")}]` : "";
-}
 function unmeasurableViolation(element, m, level) {
   return {
     ruleId: `wcag-${level}-contrast-unmeasurable`,
@@ -11911,7 +11881,7 @@ function unmeasurableViolation(element, m, level) {
 var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules, wcagContrastPreset;
 var init_wcag_contrast2 = __esm({
   "src/rules/presets/wcag-contrast.ts"() {
-    init_color_parse();
+    init_contrast_measure();
     wcagAAContrastRule = {
       id: "wcag-aa-contrast",
       name: "WCAG 2.1 AA Contrast",
@@ -12749,7 +12719,7 @@ var init_scan = __esm({
     init_summarize();
     init_engine();
     init_content_adapter();
-    init_wcag_contrast2();
+    init_contrast_measure();
     IssueCollector = class {
       issues = [];
       add(issue) {
