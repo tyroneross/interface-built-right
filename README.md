@@ -112,13 +112,17 @@ Enable via `.ibr/rules.json`:
 }
 ```
 
-Or one-off via CLI:
+`ibr scan` runs `touch-targets`, `wcag-contrast`, and `calm-precision` **by default** — no flag needed. Contrast is graded on body copy and headings, not just on controls, and text on a transparent background is measured by compositing through its ancestors rather than skipped.
 
 ```bash
-ibr scan http://localhost:3000 --rules wcag-contrast,touch-targets
+ibr scan http://localhost:3000                            # default rules
+ibr scan http://localhost:3000 --rules wcag-contrast      # only these
+ibr scan http://localhost:3000 --rules none               # no preset rules (also: --no-rules)
 ```
 
-Output in `scanResult.issues` with `ruleId`, `severity`, `message`, `element`, and `fix` fields.
+Precedence: `--rules` beats `.ibr/rules.json`, which beats the built-in defaults.
+
+Output in `scanResult.issues` with `ruleId`, `severity`, `message`, `element`, and `fix` fields. `scanResult.rulesApplied` names the presets that ran and where they came from; `scanResult.contrastCoverage` reports how much text was actually measured, so "no findings" can be read against a real measurement count rather than mistaken for a clean page when nothing ran.
 
 ### `ibr ask` — focused verdicts (v3 thesis M1)
 
@@ -269,7 +273,7 @@ See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 | **Data visualization guidance** | skill: `data-visualization` | Chart-worthiness gate, chart routing, attribution, accessibility, and validation rules |
 | **iOS design system** | `/ibr:build` with platform=iOS | 6-archetype router, 7 domain reference files covering navigation, lists, buttons, color, motion, task economy |
 | **apple-platform skill** | Loaded during iOS builds | Architecture, SwiftData, concurrency, CI/CD, TestFlight — integrated from standalone apple-dev |
-| **Deterministic rule engine** | `ibr scan --rules wcag-contrast,touch-targets` | WCAG AA/AAA contrast, touch target sizes. No LLM tokens |
+| **Deterministic rule engine** | `ibr scan` (on by default) | WCAG AA/AAA contrast on text and controls, touch target sizes, Calm Precision. No LLM tokens |
 | **Sensor layer** | `scanResult.sensors` | Visual patterns, component census, interaction map, contrast report, navigation, one-liners |
 | **Summary output mode** | `ibr scan --output summary` | Returns sensors + verdict, cuts ~60% of tokens |
 | **Hydration wait** | Built into `ibr scan` | Fixes "0 elements" on SPAs; polls AX tree stability + detects Next.js/React markers |

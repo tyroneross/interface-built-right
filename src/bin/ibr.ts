@@ -522,7 +522,7 @@ program
       const globalOpts = program.opts();
 
       // Import modules
-      const { loadRulesConfig, runRules, createAuditResult, formatAuditResult, registerPreset } = await import('../rules/engine.js');
+      const { loadRulesConfig, runRules, createAuditResult, formatAuditResult, registerPreset, DEFAULT_RULE_PRESETS } = await import('../rules/engine.js');
       const { extractInteractiveElements } = await import('../extract.js');
       const { discoverUserContext, formatContextSummary } = await import('../context-loader.js');
       const { createPresetFromFramework } = await import('../rules/dynamic-rules.js');
@@ -557,14 +557,16 @@ program
         console.log(`Source: ${userContext.framework.source}`);
         console.log(`Generated ${preset.rules.length} rules from ${userContext.framework.principles.length} principles`);
       } else {
-        // No framework detected - show guidance
+        // No framework detected. Fall back to the same accessibility defaults
+        // `ibr scan` runs — NOT to `minimal`, which checked essentially
+        // nothing and read as a clean audit for doing so.
+        rulesConfig.extends = [...DEFAULT_RULE_PRESETS];
         console.log('No design framework detected in CLAUDE.md.');
-        console.log('Running basic interactivity checks only.');
+        console.log(`Running default accessibility rules: ${rulesConfig.extends.join(', ')}`);
         console.log('');
-        console.log('To enable design validation:');
+        console.log('To tailor these:');
         console.log('  Add your framework to ~/.claude/CLAUDE.md or .claude/CLAUDE.md');
-        console.log('  Or use --rules minimal for basic checks');
-        rulesConfig.extends = ['minimal'];
+        console.log('  Or use --rules <preset> to pick explicitly');
       }
 
       console.log('');
@@ -998,10 +1000,11 @@ program
   .option('--timeout <ms>', 'Page load timeout in ms', '30000')
   .option('--patience <ms>', 'Wait longer for slow async content (AI search, LLM results)')
   .option('--network-idle-timeout <ms>', 'Network idle timeout in ms (default: 10000)')
-  .option('--rules <presets>', 'Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)')
+  .option('--rules <presets>', 'Rule presets to run. Defaults to touch-targets,wcag-contrast,calm-precision. Use "none" (or --no-rules) to run no preset rules.')
+  .option('--no-rules', 'Run no preset rules — restores the pre-default silent behavior')
   .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
   .option('--content', 'Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata — adds scan.content.elements and scan.metadata')
-  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string; output: string; content?: boolean }) => {
+  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
@@ -1017,10 +1020,20 @@ program
         console.log(`Scanning ${resolvedUrl}...`);
       }
 
-      // Parse comma-separated rule presets
-      const rulePresets = options.rules
-        ? options.rules.split(',').map(s => s.trim()).filter(Boolean)
-        : undefined;
+      // Parse comma-separated rule presets.
+      //
+      // `undefined` means "caller expressed no preference" and lets
+      // resolveRulesConfig fall through to .ibr/rules.json, then to the
+      // built-in defaults. `--no-rules` / `--rules none` is the explicit
+      // opt-out. Commander represents `--no-rules` as `rules === false`, and
+      // may represent the un-passed case as `true` once a negation exists for
+      // the same key — hence the explicit string check rather than truthiness.
+      const rulePresets =
+        options.rules === false
+          ? ['none']
+          : typeof options.rules === 'string' && options.rules.trim().length > 0
+            ? options.rules.split(',').map(s => s.trim()).filter(Boolean)
+            : undefined;
 
       // --device wins over --viewport. resolveDevice throws on unknown
       // names so the user sees a useful error rather than silently

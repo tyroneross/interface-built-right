@@ -22207,6 +22207,24 @@ var init_schemas3 = __esm({
       bounds: BoundsSchema,
       // Styles (subset)
       computedStyles: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+      /**
+       * This element's own `background-color` followed by each ancestor's, up to
+       * and including the first fully-opaque one.
+       *
+       * WHY IT IS A CHAIN AND NOT ONE COLOR: on a real page a text element almost
+       * always computes `background-color: rgba(0, 0, 0, 0)`. The contrast rule
+       * used to read only that single value, find nothing measurable, and return
+       * null — so it reported zero findings on pages it had never actually
+       * measured. `resolveEffectiveBackground` (src/rules/color-parse.ts)
+       * composites this chain down to the color a reader actually sees.
+       */
+      backgroundChain: external_exports.array(external_exports.string()).optional(),
+      /**
+       * Some layer in `backgroundChain` paints a `background-image` (gradient,
+       * photo) that color math cannot sample. The ratio is still computed from the
+       * color layers and reported — labelled, never dropped.
+       */
+      backgroundImageBehind: external_exports.boolean().optional(),
       // Interactivity
       interactive: InteractiveStateSchema,
       // True when the element is descendant of a <form>. A `<button>` inside a
@@ -24629,21 +24647,7 @@ async function detectErrorState(page) {
   const errors = [];
   const checks = await page.evaluate(() => {
     const doc = document;
-    const textParts = [];
-    if (doc.body) {
-      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-      let node = walker.nextNode();
-      while (node) {
-        const parent = node.parentElement;
-        const excluded = parent?.closest("style, script, template, noscript");
-        const style = parent ? window.getComputedStyle(parent) : null;
-        if (!excluded && style?.display !== "none" && style?.visibility !== "hidden" && style?.opacity !== "0") {
-          textParts.push(node.textContent || "");
-        }
-        node = walker.nextNode();
-      }
-    }
-    const text = textParts.join(" ");
+    const text = doc.body?.innerText || "";
     const validationErrors = doc.querySelectorAll(
       '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
     );
@@ -24652,7 +24656,7 @@ async function detectErrorState(page) {
     );
     const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
     const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
-    const serverText = text.match(/\b(?:http(?:\s+status)?|status|error)\s*(?:code\s*)?500\b|server error|something went wrong|internal error/i);
+    const serverText = text.match(/500|server error|something went wrong|internal error/i);
     const toastErrors = doc.querySelectorAll(
       '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
     );
@@ -27703,11 +27707,13 @@ async function testInteractivity(page) {
         const field = input;
         if (["hidden", "submit", "button"].includes(field.type)) continue;
         const labelEl = el.querySelector(`label[for="${field.id}"]`) || field.closest("label");
+        const labelledBy = (field.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map((id) => el.ownerDocument?.getElementById(id)?.textContent?.trim() || "").filter(Boolean).join(" ");
+        const accessibleName = labelledBy || (field.getAttribute("aria-label") || "").trim() || (field.getAttribute("title") || "").trim();
         fields.push({
           selector: getSelector(field),
           name: field.name || void 0,
           type: field.type || field.tagName.toLowerCase(),
-          label: labelEl?.textContent?.trim() || void 0,
+          label: labelEl?.textContent?.trim() || accessibleName || void 0,
           required: field.required,
           hasValidation: field.hasAttribute("pattern") || field.hasAttribute("min") || field.hasAttribute("max") || field.hasAttribute("minlength") || field.hasAttribute("maxlength")
         });
@@ -29591,6 +29597,24 @@ async function extractInteractiveElements(page) {
         representative: representativeElements[0] === el
       };
     };
+    const collectBackgroundChain = (start) => {
+      const chain = [];
+      let image = false;
+      let node = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        const bg = cs.backgroundColor || "";
+        chain.push(bg);
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== "none") image = true;
+        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        if (opaque) break;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
     for (const selector of selectors) {
       try {
         document.querySelectorAll(selector).forEach((el) => {
@@ -29632,6 +29656,13 @@ async function extractInteractiveElements(page) {
               visibility: computed.visibility,
               opacity: computed.opacity
             },
+            ...(() => {
+              const bgChain = collectBackgroundChain(htmlEl);
+              return {
+                backgroundChain: bgChain.chain,
+                ...bgChain.image ? { backgroundImageBehind: true } : {}
+              };
+            })(),
             interactive: {
               hasOnClick: handlers.hasAnyHandler,
               hasHref: hasValidHref,
@@ -29780,6 +29811,24 @@ async function extractContentElements(page) {
       }
       return path3.join(" > ").slice(0, 200);
     };
+    const collectBackgroundChain = (start) => {
+      const chain = [];
+      let image = false;
+      let node = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        const bg = cs.backgroundColor || "";
+        chain.push(bg);
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== "none") image = true;
+        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        if (opaque) break;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
     const kindFor = (tag) => {
       if (/^h[1-6]$/.test(tag)) return "heading";
       if (tag === "img") return "image";
@@ -29820,6 +29869,9 @@ async function extractContentElements(page) {
             },
             contentKind: kind
           };
+          const bgChain = collectBackgroundChain(htmlEl);
+          entry.backgroundChain = bgChain.chain;
+          if (bgChain.image) entry.backgroundImageBehind = true;
           if (kind === "heading") {
             entry.headingLevel = Number(tag[1]);
           }
@@ -32426,7 +32478,29 @@ function flatten(fg, bg) {
   if (fg.alpha >= 1) return fg.rgb;
   return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
 }
-var NAMED, clamp255;
+function resolveEffectiveBackground(chain) {
+  const layers = [];
+  for (const raw of chain) {
+    const parsed = parseColor3(raw);
+    if (parsed.kind === "unsupported") {
+      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
+    }
+    if (parsed.kind === "none") continue;
+    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
+    if (parsed.alpha >= 1) break;
+  }
+  const bottom = layers[layers.length - 1];
+  const resolved = bottom !== void 0 && bottom.alpha >= 1;
+  let acc = resolved ? bottom.rgb : CANVAS_BASE;
+  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
+    const layer = layers[i];
+    acc = layer.rgb.map(
+      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
+    );
+  }
+  return { rgb: acc, resolved };
+}
+var NAMED, clamp255, CANVAS_BASE;
 var init_color_parse = __esm({
   "src/rules/color-parse.ts"() {
     "use strict";
@@ -32453,6 +32527,7 @@ var init_color_parse = __esm({
       orange: [255, 165, 0]
     };
     clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    CANVAS_BASE = [255, 255, 255];
   }
 });
 
@@ -33732,6 +33807,57 @@ function isLargeText3(styles) {
   const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
   return fontSize >= 24 || isBold && fontSize >= 18.66;
 }
+function measureElementContrast(element) {
+  const style = element.computedStyles;
+  if (!style) return { status: "no-styles" };
+  const text = (element.text ?? "").trim();
+  if (text.length === 0) return { status: "no-text" };
+  const fg = parseColor3(style.color ?? "");
+  if (fg.kind === "unsupported") {
+    return { status: "unmeasurable", raw: fg.raw, text };
+  }
+  if (fg.kind === "none") {
+    return { status: "invisible", reason: fg.reason };
+  }
+  const chain = element.backgroundChain && element.backgroundChain.length > 0 ? element.backgroundChain : [style.backgroundColor ?? ""];
+  const bg = resolveEffectiveBackground(chain);
+  if (bg.unsupported !== void 0) {
+    return { status: "unmeasurable", raw: bg.unsupported, text };
+  }
+  const fgRgb = flatten(fg, bg.rgb);
+  if (!fgRgb) return { status: "invisible", reason: "foreground did not composite" };
+  return {
+    status: "measured",
+    ratio: contrastRatio4(fgRgb, bg.rgb),
+    large: isLargeText3(style),
+    backgroundResolved: bg.resolved,
+    backgroundImageBehind: element.backgroundImageBehind === true,
+    text,
+    fgRaw: style.color ?? "",
+    bgRaw: `rgb(${bg.rgb.join(", ")})`
+  };
+}
+function confidenceNote(m) {
+  const notes = [];
+  if (!m.backgroundResolved) {
+    notes.push("measured against an assumed white page background \u2014 no opaque background found in the ancestor chain");
+  }
+  if (m.backgroundImageBehind) {
+    notes.push("a background-image paints behind this text; only the color layers were sampled");
+  }
+  return notes.length > 0 ? ` [${notes.join("; ")}]` : "";
+}
+function unmeasurableViolation(element, m, level) {
+  return {
+    ruleId: `wcag-${level}-contrast-unmeasurable`,
+    ruleName: `WCAG 2.1 ${level.toUpperCase()} Contrast (not measurable)`,
+    severity: "warn",
+    message: `Could not decode color "${m.raw}", so contrast for "${m.text.slice(0, 40)}" was NOT checked`,
+    element: element.selector,
+    bounds: element.bounds,
+    fix: "Add support for this color format in rules/color-parse.ts."
+  };
+}
 var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules, wcagContrastPreset;
 var init_wcag_contrast2 = __esm({
   "src/rules/presets/wcag-contrast.ts"() {
@@ -33742,45 +33868,24 @@ var init_wcag_contrast2 = __esm({
       name: "WCAG 2.1 AA Contrast",
       description: "Text must meet WCAG 2.1 AA contrast ratio: 4.5:1 normal text, 3:1 large text",
       defaultSeverity: "error",
+      // Body copy and headings are exactly where readability failures hurt a
+      // reader, so this rule grades TEXT anywhere — not just controls.
+      appliesTo: "any",
       check(element, _context) {
-        const style = element.computedStyles;
-        if (!style) return null;
-        const hasText = element.text && element.text.trim().length > 0;
-        if (!hasText) return null;
-        const fg = parseColor3(style.color ?? "");
-        const bg = parseColor3(style.backgroundColor ?? "");
-        if (fg.kind === "unsupported" || bg.kind === "unsupported") {
-          const raw = fg.kind === "unsupported" ? fg.raw : bg.raw;
-          return {
-            ruleId: "wcag-aa-contrast-unmeasurable",
-            ruleName: "WCAG 2.1 AA Contrast (not measurable)",
-            severity: "warn",
-            message: `Could not decode color "${raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add support for this color format in rules/color-parse.ts."
-          };
-        }
-        if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
-        const fgRgb = flatten(fg, bg.rgb);
-        if (!fgRgb) return null;
-        const ratio = contrastRatio4(fgRgb, bg.rgb);
-        const large = isLargeText3(style);
-        const required2 = large ? 3 : 4.5;
-        if (ratio < required2) {
-          const ratioStr = ratio.toFixed(2);
-          const textSnippet = (element.text ?? "").slice(0, 40);
-          return {
-            ruleId: "wcag-aa-contrast",
-            ruleName: "WCAG 2.1 AA Contrast",
-            severity: "error",
-            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 fails WCAG 2.1 AA (requires ${required2}:1 for ${large ? "large" : "normal"} text)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
-          };
-        }
-        return null;
+        const m = measureElementContrast(element);
+        if (m.status === "unmeasurable") return unmeasurableViolation(element, m, "aa");
+        if (m.status !== "measured") return null;
+        const required2 = m.large ? 3 : 4.5;
+        if (m.ratio >= required2) return null;
+        return {
+          ruleId: "wcag-aa-contrast",
+          ruleName: "WCAG 2.1 AA Contrast",
+          severity: "error",
+          message: `"${m.text.slice(0, 40)}" contrast ratio ${m.ratio.toFixed(2)}:1 fails WCAG 2.1 AA (requires ${required2}:1 for ${m.large ? "large" : "normal"} text)${confidenceNote(m)}`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Increase contrast between foreground ${m.fgRaw} and effective background ${m.bgRaw}`
+        };
       }
     };
     wcagAAAContrastRule = {
@@ -33788,45 +33893,22 @@ var init_wcag_contrast2 = __esm({
       name: "WCAG 2.1 AAA Contrast",
       description: "Text should meet WCAG 2.1 AAA contrast ratio: 7:1 normal text, 4.5:1 large text",
       defaultSeverity: "warn",
+      appliesTo: "any",
       check(element, _context) {
-        const style = element.computedStyles;
-        if (!style) return null;
-        const hasText = element.text && element.text.trim().length > 0;
-        if (!hasText) return null;
-        const fg = parseColor3(style.color ?? "");
-        const bg = parseColor3(style.backgroundColor ?? "");
-        if (fg.kind === "unsupported" || bg.kind === "unsupported") {
-          const raw = fg.kind === "unsupported" ? fg.raw : bg.raw;
-          return {
-            ruleId: "wcag-aaa-contrast-unmeasurable",
-            ruleName: "WCAG 2.1 AAA Contrast (not measurable)",
-            severity: "warn",
-            message: `Could not decode color "${raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add support for this color format in rules/color-parse.ts."
-          };
-        }
-        if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
-        const fgRgb = flatten(fg, bg.rgb);
-        if (!fgRgb) return null;
-        const ratio = contrastRatio4(fgRgb, bg.rgb);
-        const large = isLargeText3(style);
-        const required2 = large ? 4.5 : 7;
-        if (ratio < required2) {
-          const ratioStr = ratio.toFixed(2);
-          const textSnippet = (element.text ?? "").slice(0, 40);
-          return {
-            ruleId: "wcag-aaa-contrast",
-            ruleName: "WCAG 2.1 AAA Contrast",
-            severity: "warn",
-            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 below WCAG 2.1 AAA (${required2}:1 for ${large ? "large" : "normal"} text)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""} to ${required2}:1`
-          };
-        }
-        return null;
+        const m = measureElementContrast(element);
+        if (m.status === "unmeasurable") return unmeasurableViolation(element, m, "aaa");
+        if (m.status !== "measured") return null;
+        const required2 = m.large ? 4.5 : 7;
+        if (m.ratio >= required2) return null;
+        return {
+          ruleId: "wcag-aaa-contrast",
+          ruleName: "WCAG 2.1 AAA Contrast",
+          severity: "warn",
+          message: `"${m.text.slice(0, 40)}" contrast ratio ${m.ratio.toFixed(2)}:1 below WCAG 2.1 AAA (${required2}:1 for ${m.large ? "large" : "normal"} text)${confidenceNote(m)}`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Increase contrast between foreground ${m.fgRaw} and effective background ${m.bgRaw} to ${required2}:1`
+        };
       }
     };
     wcagContrastPresetRules = [wcagAAContrastRule, wcagAAAContrastRule];
@@ -33845,13 +33927,18 @@ var init_wcag_contrast2 = __esm({
 // src/rules/engine.ts
 var engine_exports = {};
 __export(engine_exports, {
+  DEFAULT_RULE_PRESETS: () => DEFAULT_RULE_PRESETS,
+  RULES_OPT_OUT: () => RULES_OPT_OUT,
+  configHasContentRules: () => configHasContentRules,
   createAuditResult: () => createAuditResult,
   formatAuditResult: () => formatAuditResult,
+  getActiveRules: () => getActiveRules,
   getPreset: () => getPreset,
   listPresets: () => listPresets,
   loadMemoryPreset: () => loadMemoryPreset,
   loadRulesConfig: () => loadRulesConfig,
   registerPreset: () => registerPreset,
+  resolveRulesConfig: () => resolveRulesConfig,
   runRules: () => runRules
 });
 function registerPreset(preset) {
@@ -33875,6 +33962,24 @@ async function loadRulesConfig(projectDir) {
     console.warn(`Failed to parse rules.json: ${error51}`);
     return { extends: [], rules: {} };
   }
+}
+async function resolveRulesConfig(projectDir, requested) {
+  if (requested && requested.some((r) => r.trim().toLowerCase() === RULES_OPT_OUT)) {
+    return { config: { extends: [], rules: {} }, source: "opt-out", presets: [] };
+  }
+  if (requested && requested.length > 0) {
+    const presets3 = [...requested];
+    return { config: { extends: presets3, rules: {} }, source: "flag", presets: presets3 };
+  }
+  if ((0, import_fs9.existsSync)((0, import_path15.join)(projectDir, ".ibr", "rules.json"))) {
+    const config2 = await loadRulesConfig(projectDir);
+    const presets3 = config2.extends ?? [];
+    if (presets3.length > 0 || Object.keys(config2.rules ?? {}).length > 0) {
+      return { config: config2, source: "config", presets: presets3 };
+    }
+  }
+  const presets2 = [...DEFAULT_RULE_PRESETS];
+  return { config: { extends: presets2, rules: {} }, source: "default", presets: presets2 };
 }
 function mergeRuleSettings(presetNames, userRules = {}) {
   const allRules2 = [];
@@ -33908,11 +34013,33 @@ function mergeRuleSettings(presetNames, userRules = {}) {
   }
   return { rules: allRules2, settings };
 }
-function runRules(elements, context, config2) {
+function getActiveRules(config2) {
+  const { rules, settings } = mergeRuleSettings(
+    config2.extends ?? [],
+    config2.rules
+  );
+  return rules.filter((rule) => {
+    const setting = settings.get(rule.id);
+    return !!setting && setting.severity !== "off";
+  });
+}
+function configHasContentRules(config2) {
+  return getActiveRules(config2).some((rule) => {
+    const applies = rule.appliesTo ?? "interactive";
+    return applies === "any" || applies === "text";
+  });
+}
+function ruleAppliesTo(rule, surface) {
+  const applies = rule.appliesTo ?? "interactive";
+  return surface === "interactive" ? applies === "interactive" || applies === "any" : applies === "text" || applies === "any";
+}
+function runRules(elements, context, config2, options = {}) {
   const { rules, settings } = mergeRuleSettings(config2.extends ?? [], config2.rules);
+  const surface = options.surface ?? "interactive";
+  const applicable = rules.filter((rule) => ruleAppliesTo(rule, surface));
   const violations = [];
   for (const element of elements) {
-    for (const rule of rules) {
+    for (const rule of applicable) {
       const setting = settings.get(rule.id);
       if (!setting || setting.severity === "off") {
         continue;
@@ -33979,7 +34106,7 @@ async function loadMemoryPreset(outputDir) {
   } catch {
   }
 }
-var import_promises16, import_fs9, import_path15, presets;
+var import_promises16, import_fs9, import_path15, presets, DEFAULT_RULE_PRESETS, RULES_OPT_OUT;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
@@ -33999,6 +34126,47 @@ var init_engine = __esm({
     ]) {
       registerPreset(preset);
     }
+    DEFAULT_RULE_PRESETS = ["touch-targets", "wcag-contrast", "calm-precision"];
+    RULES_OPT_OUT = "none";
+  }
+});
+
+// src/rules/content-adapter.ts
+function contentElementToEnhanced(content) {
+  return {
+    selector: content.selector,
+    tagName: content.tagName,
+    id: content.id,
+    className: content.className,
+    // <img> carries no text; alt is its readable content and is what a
+    // text-oriented rule should see if one ever grades images.
+    text: content.text ?? content.alt,
+    bounds: content.bounds,
+    computedStyles: content.computedStyles,
+    backgroundChain: content.backgroundChain,
+    backgroundImageBehind: content.backgroundImageBehind,
+    interactive: {
+      hasOnClick: false,
+      hasHref: false,
+      isDisabled: false,
+      // -1, not 0: a paragraph is not in the tab order. 0 would read as
+      // "focusable" to any rule that checks it.
+      tabIndex: -1,
+      cursor: content.computedStyles.cursor ?? "auto"
+    },
+    a11y: {
+      role: null,
+      ariaLabel: null,
+      ariaDescribedBy: null
+    }
+  };
+}
+function contentElementsToEnhanced(content) {
+  return content.map(contentElementToEnhanced);
+}
+var init_content_adapter = __esm({
+  "src/rules/content-adapter.ts"() {
+    "use strict";
   }
 });
 
@@ -34015,7 +34183,8 @@ __export(scan_exports, {
   initScanCookies: () => initScanCookies,
   initScanViewport: () => initScanViewport,
   isIntentNoise: () => isIntentNoise,
-  scan: () => scan
+  scan: () => scan,
+  summarizeContrastCoverage: () => summarizeContrastCoverage
 });
 async function initScanCookies(driver3, ownDriver, cookies) {
   if (!ownDriver) {
@@ -34164,8 +34333,6 @@ async function scan(url2, options = {}) {
       url2,
       options.outputDir || process.cwd()
     );
-    const verdict = determineVerdict2(issues);
-    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     let cssExtract;
     try {
       cssExtract = await extractCssRulesAndMeta(page);
@@ -34189,9 +34356,35 @@ async function scan(url2, options = {}) {
       allElements: elements.all
     };
     const ruleEngine = runAllRules(elements.all, ruleContext);
-    if (rulePresets && rulePresets.length > 0) {
-      const presetConfig = { extends: rulePresets, rules: {} };
-      const presetViolations = runRules(elements.all, ruleContext, presetConfig);
+    const resolvedRules = await resolveRulesConfig(options.projectDir ?? process.cwd(), rulePresets);
+    const activeRuleIds = new Set(getActiveRules(resolvedRules.config).map((r) => r.id));
+    const gradesContent = configHasContentRules(resolvedRules.config);
+    let contentResult;
+    let metadataResult;
+    let contentElements = [];
+    if (options.content || gradesContent) {
+      try {
+        const [extractedContent, pageMetadata] = await Promise.all([
+          extractContentElements(page),
+          extractPageMetadata(page)
+        ]);
+        contentElements = extractedContent;
+        if (options.content) {
+          contentResult = { elements: extractedContent };
+          metadataResult = pageMetadata;
+        }
+      } catch {
+        contentElements = [];
+        contentResult = void 0;
+        metadataResult = void 0;
+      }
+    }
+    const contentAsElements = gradesContent ? contentElementsToEnhanced(contentElements) : [];
+    if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
+      const presetViolations = [
+        ...runRules(elements.all, ruleContext, resolvedRules.config, { surface: "interactive" }),
+        ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" })
+      ];
       for (const v of presetViolations) {
         issues.push({
           category: "interactivity",
@@ -34202,6 +34395,9 @@ async function scan(url2, options = {}) {
         });
       }
     }
+    const contrastCoverage = activeRuleIds.has("wcag-aa-contrast") || activeRuleIds.has("wcag-aaa-contrast") ? summarizeContrastCoverage([...elements.all, ...contentAsElements]) : void 0;
+    const verdict = determineVerdict2(issues);
+    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     const summaries = summarizeScan(elements.all, url2);
     let probeResults;
     if (options.probes) {
@@ -34211,21 +34407,6 @@ async function scan(url2, options = {}) {
           probeResults = { ...probeResults ?? {}, [name]: value };
         } catch {
         }
-      }
-    }
-    let contentResult;
-    let metadataResult;
-    if (options.content) {
-      try {
-        const [contentElements, pageMetadata] = await Promise.all([
-          extractContentElements(page),
-          extractPageMetadata(page)
-        ]);
-        contentResult = { elements: contentElements };
-        metadataResult = pageMetadata;
-      } catch {
-        contentResult = void 0;
-        metadataResult = void 0;
       }
     }
     const baseResult = {
@@ -34238,6 +34419,12 @@ async function scan(url2, options = {}) {
       semantic,
       sensors,
       ruleEngine,
+      rulesApplied: {
+        presets: resolvedRules.presets,
+        source: resolvedRules.source,
+        gradedContentElements: contentAsElements.length
+      },
+      ...contrastCoverage ? { contrastCoverage } : {},
       summaries,
       probes: probeResults,
       console: {
@@ -34369,6 +34556,39 @@ async function applyDesignSystemCheck(elements, issues, viewport, url2, outputDi
   }
   return designSystem;
 }
+function summarizeContrastCoverage(elements) {
+  const coverage = {
+    candidates: elements.length,
+    measured: 0,
+    assumedWhiteBackground: 0,
+    unmeasurable: 0,
+    invisibleText: 0,
+    noText: 0,
+    noStyles: 0
+  };
+  for (const element of elements) {
+    const m = measureElementContrast(element);
+    switch (m.status) {
+      case "measured":
+        if (m.backgroundResolved) coverage.measured++;
+        else coverage.assumedWhiteBackground++;
+        break;
+      case "unmeasurable":
+        coverage.unmeasurable++;
+        break;
+      case "invisible":
+        coverage.invisibleText++;
+        break;
+      case "no-text":
+        coverage.noText++;
+        break;
+      case "no-styles":
+        coverage.noStyles++;
+        break;
+    }
+  }
+  return coverage;
+}
 function determineVerdict2(issues) {
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
@@ -34466,6 +34686,31 @@ function formatScanResult(result) {
   lines.push(`  With handlers:      ${result.elements.audit.withHandlers}`);
   lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
   lines.push("");
+  if (result.rulesApplied) {
+    const { presets: presets2, source, gradedContentElements } = result.rulesApplied;
+    lines.push("  CHECKS");
+    lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
+    lines.push(
+      presets2.length > 0 ? `  Rules:              ${presets2.join(", ")} (${source})` : `  Rules:              \x1B[33mnone \u2014 no preset rules ran (${source})\x1B[0m`
+    );
+    if (gradedContentElements > 0) {
+      lines.push(`  Content graded:     ${gradedContentElements} headings/paragraphs`);
+    }
+    const cc = result.contrastCoverage;
+    if (cc) {
+      lines.push(`  Text measured:      ${cc.measured + cc.assumedWhiteBackground}`);
+      if (cc.assumedWhiteBackground > 0) {
+        lines.push(`    of which assumed white page background: ${cc.assumedWhiteBackground}`);
+      }
+      if (cc.unmeasurable > 0) {
+        lines.push(`  \x1B[33mNot measurable:     ${cc.unmeasurable} (color format could not be decoded)\x1B[0m`);
+      }
+      if (cc.measured + cc.assumedWhiteBackground === 0) {
+        lines.push("  \x1B[33m!\x1B[0m No text was measured \u2014 a clean contrast result here means nothing.");
+      }
+    }
+    lines.push("");
+  }
   const { buttons, links, forms } = result.interactivity;
   lines.push("  INTERACTIVITY");
   lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500");
@@ -34506,9 +34751,11 @@ function formatScanResult(result) {
     lines.push("");
   }
   if (result.issues.length > 0) {
+    const rank = { error: 0, warning: 1, info: 2 };
+    const ranked = [...result.issues].sort((a, b) => rank[a.severity] - rank[b.severity]);
     lines.push("  ISSUES");
     lines.push("  \u2500\u2500\u2500\u2500\u2500\u2500");
-    for (const issue2 of result.issues) {
+    for (const issue2 of ranked) {
       const icon = issue2.severity === "error" ? "\x1B[31m\u2717\x1B[0m" : issue2.severity === "warning" ? "\x1B[33m!\x1B[0m" : "\u2139";
       lines.push(`  ${icon} [${issue2.category}] ${issue2.description}`);
       if (issue2.fix) {
@@ -34548,6 +34795,8 @@ var init_scan = __esm({
     init_rules();
     init_summarize();
     init_engine();
+    init_content_adapter();
+    init_wcag_contrast2();
     IssueCollector = class {
       issues = [];
       add(issue2) {
@@ -42242,26 +42491,6 @@ function buildLayoutOverflowProbe(options = {}) {
     return t.length > 80 ? t.slice(0, 80) : t;
   }
 
-  // A closed disclosure can retain child geometry while its zero-height
-  // overflow:hidden body paints none of that subtree. Rect intersections alone
-  // would report those hidden descendants as collisions with later content.
-  function isPainted(el, rect) {
-    var cur = el.parentElement;
-    while (cur) {
-      var cs;
-      try { cs = getComputedStyle(cur); } catch (e) { cur = cur.parentElement; continue; }
-      var clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
-      var clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
-      if (clipsX || clipsY) {
-        var parentRect = cur.getBoundingClientRect();
-        if (clipsX && (rect.right <= parentRect.left || rect.left >= parentRect.right)) return false;
-        if (clipsY && (rect.bottom <= parentRect.top || rect.top >= parentRect.bottom)) return false;
-      }
-      cur = cur.parentElement;
-    }
-    return true;
-  }
-
   function walk(el, parentIndex, depth) {
     if (out.length >= MAX) return;
     var cs;
@@ -42295,7 +42524,6 @@ function buildLayoutOverflowProbe(options = {}) {
       maxWidth: cs.maxWidth,
       boxSizing: cs.boxSizing,
       hasTransform: cs.transform !== 'none' && cs.transform !== '',
-      painted: isPainted(el, r),
       inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim()
     });
 
@@ -42321,14 +42549,6 @@ function hasBoxMetrics(node) {
 }
 function isInFlow(node) {
   return (node.position === "static" || node.position === "relative") && !node.hasTransform;
-}
-function hasOutOfFlowAncestor(node, byIndex) {
-  let parent = node.parent === null ? void 0 : byIndex.get(node.parent);
-  while (parent) {
-    if (parent.position === "fixed" || parent.position === "sticky" || parent.hasTransform) return true;
-    parent = parent.parent === null ? void 0 : byIndex.get(parent.parent);
-  }
-  return false;
 }
 function short(text, max = 40) {
   return text.length > max ? `${text.slice(0, max)}\u2026` : text;
@@ -42398,7 +42618,6 @@ function analyzeLayoutOverflow(nodes, options = {}) {
   const overflowingBoxes = /* @__PURE__ */ new Set();
   const EPSILON_PX = 0.5;
   for (const node of nodes) {
-    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
     if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
       overflowingBoxes.add(`${node.index}:vertical`);
@@ -42408,7 +42627,6 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   for (const node of nodes) {
-    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
     if (isVisibleOverflow(node.overflowY)) {
       const spill = node.scrollHeight - node.clientHeight;
@@ -42448,7 +42666,6 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   for (const node of nodes) {
-    if (!node.painted) continue;
     if (node.parent === null) continue;
     if (!isInFlow(node)) continue;
     const parent = byIndex.get(node.parent);
@@ -42499,7 +42716,7 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   const textNodes = nodes.filter(
-    (n) => n.ownText.length > 0 && n.painted && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n) && !hasOutOfFlowAncestor(n, byIndex)
+    (n) => n.ownText.length > 0 && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n)
   ).sort((a, b) => a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x);
   const ancestorsOf = buildAncestorSets(nodes, byIndex);
   for (let i = 0; i < textNodes.length; i++) {
@@ -48192,7 +48409,7 @@ function compositeOver(src, dst) {
     a: outA
   };
 }
-function resolveEffectiveBackground(chain) {
+function resolveEffectiveBackground2(chain) {
   const parsed = [];
   for (const raw of chain) {
     const c = parseCssColor(raw);
@@ -48481,7 +48698,7 @@ function buildMeasureExpression(selector, limit = DEFAULT_LIMIT) {
 }
 function finalizeMeasurements(raw) {
   return raw.map((el) => {
-    const effective = resolveEffectiveBackground(el.backgroundChain);
+    const effective = resolveEffectiveBackground2(el.backgroundChain);
     const fg = parseCssColor(el.colorNorm) ?? parseCssColor(el.colorRaw);
     const fontSizePx = parsePx2(el.typography.fontSize) ?? Number.NaN;
     const weight = parseFontWeight(el.typography.fontWeight);
@@ -48695,7 +48912,7 @@ __export(live_exports, {
   parseFontWeight: () => parseFontWeight,
   parsePx: () => parsePx2,
   relativeLuminance: () => relativeLuminance5,
-  resolveEffectiveBackground: () => resolveEffectiveBackground,
+  resolveEffectiveBackground: () => resolveEffectiveBackground2,
   resolveLiveWsEndpoint: () => resolveLiveWsEndpoint,
   selectTarget: () => selectTarget,
   toLiveTarget: () => toLiveTarget,
@@ -56028,7 +56245,7 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
   try {
     const resolvedUrl = await resolveBaseUrl(url2);
     const globalOpts = program2.opts();
-    const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
+    const { loadRulesConfig: loadRulesConfig2, runRules: runRules2, createAuditResult: createAuditResult2, formatAuditResult: formatAuditResult2, registerPreset: registerPreset2, DEFAULT_RULE_PRESETS: DEFAULT_RULE_PRESETS2 } = await Promise.resolve().then(() => (init_engine(), engine_exports));
     const { extractInteractiveElements: extractInteractiveElements2 } = await Promise.resolve().then(() => (init_extract2(), extract_exports));
     const { discoverUserContext: discoverUserContext2, formatContextSummary: formatContextSummary2 } = await Promise.resolve().then(() => (init_context_loader(), context_loader_exports));
     const { createPresetFromFramework: createPresetFromFramework2 } = await Promise.resolve().then(() => (init_dynamic_rules(), dynamic_rules_exports));
@@ -56052,13 +56269,13 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
       console.log(`Source: ${userContext.framework.source}`);
       console.log(`Generated ${preset.rules.length} rules from ${userContext.framework.principles.length} principles`);
     } else {
+      rulesConfig.extends = [...DEFAULT_RULE_PRESETS2];
       console.log("No design framework detected in CLAUDE.md.");
-      console.log("Running basic interactivity checks only.");
+      console.log(`Running default accessibility rules: ${rulesConfig.extends.join(", ")}`);
       console.log("");
-      console.log("To enable design validation:");
+      console.log("To tailor these:");
       console.log("  Add your framework to ~/.claude/CLAUDE.md or .claude/CLAUDE.md");
-      console.log("  Or use --rules minimal for basic checks");
-      rulesConfig.extends = ["minimal"];
+      console.log("  Or use --rules <preset> to pick explicitly");
     }
     console.log("");
     console.log(`Auditing ${resolvedUrl}...`);
@@ -56342,7 +56559,7 @@ function applyOutputMode(result, mode) {
 program2.command("scan <url>").description("Full UI scan: elements + interactivity + semantic + console errors").option("-v, --viewport <preset>", "Viewport preset (desktop, mobile, tablet)", "desktop").option(
   "-d, --device <name>",
   `Canonical device profile (overrides --viewport). One of: ${DEVICE_NAMES.join(", ")}`
-).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", "Comma-separated rule presets to enable (wcag-contrast,touch-targets,calm-precision,minimal)").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").option("--content", "Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata \u2014 adds scan.content.elements and scan.metadata").action(async (url2, options) => {
+).option("--wait-for <selector>", "Wait for selector before scanning").option("--screenshot <path>", "Save screenshot to path").option("--json", "Output as JSON").option("--timeout <ms>", "Page load timeout in ms", "30000").option("--patience <ms>", "Wait longer for slow async content (AI search, LLM results)").option("--network-idle-timeout <ms>", "Network idle timeout in ms (default: 10000)").option("--rules <presets>", 'Rule presets to run. Defaults to touch-targets,wcag-contrast,calm-precision. Use "none" (or --no-rules) to run no preset rules.').option("--no-rules", "Run no preset rules \u2014 restores the pre-default silent behavior").option("--output <mode>", "Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)", "full").option("--content", "Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata \u2014 adds scan.content.elements and scan.metadata").action(async (url2, options) => {
   try {
     const { scan: scan2, formatScanResult: formatScanResult2 } = await Promise.resolve().then(() => (init_scan(), scan_exports));
     const resolvedUrl = await resolveBaseUrl(url2);
@@ -56352,7 +56569,7 @@ program2.command("scan <url>").description("Full UI scan: elements + interactivi
     } else {
       console.log(`Scanning ${resolvedUrl}...`);
     }
-    const rulePresets = options.rules ? options.rules.split(",").map((s) => s.trim()).filter(Boolean) : void 0;
+    const rulePresets = options.rules === false ? ["none"] : typeof options.rules === "string" && options.rules.trim().length > 0 ? options.rules.split(",").map((s) => s.trim()).filter(Boolean) : void 0;
     const resolvedViewport = resolveViewportFromFlags(
       options.device,
       options.viewport,

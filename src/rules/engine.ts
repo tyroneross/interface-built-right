@@ -77,6 +77,71 @@ export async function loadRulesConfig(projectDir: string): Promise<RulesConfig> 
 }
 
 /**
+ * What `ibr scan` grades when nobody has said otherwise.
+ *
+ * These used to be OFF. `scan()` ran the preset engine only when `--rules` was
+ * passed, and `loadRulesConfig` returns an empty config when no
+ * `.ibr/rules.json` exists — so a bare `ibr scan <url>` checked no contrast, no
+ * touch targets, and no Calm Precision rules, and printed a clean verdict for
+ * doing nothing. The MCP tool surface and the Obsidian scan lane had already
+ * defaulted these on; the CLI was the outlier.
+ *
+ * IBR is an advisory instrument for a human triaging real UI, not a gate. A
+ * missed defect costs a user who cannot read or tap something; a false positive
+ * costs a few seconds of triage. Default to catching things.
+ */
+export const DEFAULT_RULE_PRESETS: readonly string[] = ['touch-targets', 'wcag-contrast', 'calm-precision'];
+
+/** Passed as `--rules none` to restore the old run-nothing behavior. */
+export const RULES_OPT_OUT = 'none';
+
+/** Where the active preset list came from — reported so a scan can explain itself. */
+export type RulesSource = 'opt-out' | 'flag' | 'config' | 'default';
+
+export interface ResolvedRulesConfig {
+  config: RulesConfig;
+  source: RulesSource;
+  presets: string[];
+}
+
+/**
+ * Decide which presets a scan runs.
+ *
+ * Precedence, highest first:
+ *   1. `--rules none`            — explicit opt-out, run nothing.
+ *   2. `--rules a,b`             — an explicit request beats everything else.
+ *   3. `.ibr/rules.json`         — a project that configured itself keeps its config.
+ *   4. DEFAULT_RULE_PRESETS      — otherwise, check the things that matter.
+ */
+export async function resolveRulesConfig(
+  projectDir: string,
+  requested?: readonly string[],
+): Promise<ResolvedRulesConfig> {
+  if (requested && requested.some((r) => r.trim().toLowerCase() === RULES_OPT_OUT)) {
+    return { config: { extends: [], rules: {} }, source: 'opt-out', presets: [] };
+  }
+
+  if (requested && requested.length > 0) {
+    const presets = [...requested];
+    return { config: { extends: presets, rules: {} }, source: 'flag', presets };
+  }
+
+  if (existsSync(join(projectDir, '.ibr', 'rules.json'))) {
+    const config = await loadRulesConfig(projectDir);
+    const presets = config.extends ?? [];
+    // A config file that exists but configures nothing is not a decision to
+    // check nothing — fall through to the defaults rather than silently
+    // reverting to the old no-op.
+    if (presets.length > 0 || Object.keys(config.rules ?? {}).length > 0) {
+      return { config, source: 'config', presets };
+    }
+  }
+
+  const presets = [...DEFAULT_RULE_PRESETS];
+  return { config: { extends: presets, rules: {} }, source: 'default', presets };
+}
+
+/**
  * Merge rule settings from presets and user config
  */
 function mergeRuleSettings(
@@ -124,19 +189,70 @@ function mergeRuleSettings(
 }
 
 /**
+ * The rules a config actually activates (severity `off` excluded).
+ *
+ * Exposed so a caller can answer two questions BEFORE paying for work:
+ * "is any rule going to look at page content?" (skip the content extraction if
+ * not) and "did the contrast rules run at all?" (a coverage count is misleading
+ * when they did not).
+ */
+export function getActiveRules(config: RulesConfig): Rule[] {
+  const { rules, settings } = mergeRuleSettings(
+    config.extends ?? [],
+    config.rules as Record<string, RuleSetting> | undefined,
+  );
+  return rules.filter((rule) => {
+    const setting = settings.get(rule.id);
+    return !!setting && setting.severity !== 'off';
+  });
+}
+
+/** True when at least one active rule grades non-interactive page content. */
+export function configHasContentRules(config: RulesConfig): boolean {
+  return getActiveRules(config).some((rule) => {
+    const applies = rule.appliesTo ?? 'interactive';
+    return applies === 'any' || applies === 'text';
+  });
+}
+
+/** Options for one `runRules` pass. */
+export interface RunRulesOptions {
+  /**
+   * Which element surface `elements` represents. Defaults to `'interactive'`,
+   * which is what every pre-existing caller passes.
+   *
+   * A `'content'` pass runs ONLY rules declaring `appliesTo: 'any' | 'text'`,
+   * so headings and paragraphs get contrast-graded without ever reaching the
+   * touch-target or handler-integrity rules.
+   */
+  surface?: 'interactive' | 'content';
+}
+
+/** Does this rule run on the surface being scanned? */
+function ruleAppliesTo(rule: Rule, surface: 'interactive' | 'content'): boolean {
+  const applies = rule.appliesTo ?? 'interactive';
+  return surface === 'interactive'
+    ? applies === 'interactive' || applies === 'any'
+    : applies === 'text' || applies === 'any';
+}
+
+/**
  * Run rules against elements
  */
 export function runRules(
   elements: EnhancedElement[],
   context: RuleContext,
-  config: RulesConfig
+  config: RulesConfig,
+  options: RunRulesOptions = {}
 ): Violation[] {
   // No rules by default - user must configure in .ibr/rules.json or pass --rules flag
   const { rules, settings } = mergeRuleSettings(config.extends ?? [], config.rules as Record<string, RuleSetting> | undefined);
+  const surface = options.surface ?? 'interactive';
+  const applicable = rules.filter((rule) => ruleAppliesTo(rule, surface));
   const violations: Violation[] = [];
 
   for (const element of elements) {
-    for (const rule of rules) {
+    for (const rule of applicable) {
       const setting = settings.get(rule.id);
 
       // Skip if rule is off

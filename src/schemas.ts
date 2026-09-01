@@ -396,6 +396,26 @@ export const EnhancedElementSchema = z.object({
   // Styles (subset)
   computedStyles: z.record(z.string(), z.string()).optional(),
 
+  /**
+   * This element's own `background-color` followed by each ancestor's, up to
+   * and including the first fully-opaque one.
+   *
+   * WHY IT IS A CHAIN AND NOT ONE COLOR: on a real page a text element almost
+   * always computes `background-color: rgba(0, 0, 0, 0)`. The contrast rule
+   * used to read only that single value, find nothing measurable, and return
+   * null — so it reported zero findings on pages it had never actually
+   * measured. `resolveEffectiveBackground` (src/rules/color-parse.ts)
+   * composites this chain down to the color a reader actually sees.
+   */
+  backgroundChain: z.array(z.string()).optional(),
+
+  /**
+   * Some layer in `backgroundChain` paints a `background-image` (gradient,
+   * photo) that color math cannot sample. The ratio is still computed from the
+   * color layers and reported — labelled, never dropped.
+   */
+  backgroundImageBehind: z.boolean().optional(),
+
   // Interactivity
   interactive: InteractiveStateSchema,
 

@@ -22957,6 +22957,24 @@ var init_schemas3 = __esm({
       bounds: BoundsSchema,
       // Styles (subset)
       computedStyles: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+      /**
+       * This element's own `background-color` followed by each ancestor's, up to
+       * and including the first fully-opaque one.
+       *
+       * WHY IT IS A CHAIN AND NOT ONE COLOR: on a real page a text element almost
+       * always computes `background-color: rgba(0, 0, 0, 0)`. The contrast rule
+       * used to read only that single value, find nothing measurable, and return
+       * null — so it reported zero findings on pages it had never actually
+       * measured. `resolveEffectiveBackground` (src/rules/color-parse.ts)
+       * composites this chain down to the color a reader actually sees.
+       */
+      backgroundChain: external_exports.array(external_exports.string()).optional(),
+      /**
+       * Some layer in `backgroundChain` paints a `background-image` (gradient,
+       * photo) that color math cannot sample. The ratio is still computed from the
+       * color layers and reported — labelled, never dropped.
+       */
+      backgroundImageBehind: external_exports.boolean().optional(),
       // Interactivity
       interactive: InteractiveStateSchema,
       // True when the element is descendant of a <form>. A `<button>` inside a
@@ -23431,6 +23449,24 @@ async function extractInteractiveElements(page) {
         representative: representativeElements[0] === el
       };
     };
+    const collectBackgroundChain = (start) => {
+      const chain = [];
+      let image = false;
+      let node = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        const bg = cs.backgroundColor || "";
+        chain.push(bg);
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== "none") image = true;
+        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        if (opaque) break;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
     for (const selector of selectors) {
       try {
         document.querySelectorAll(selector).forEach((el) => {
@@ -23472,6 +23508,13 @@ async function extractInteractiveElements(page) {
               visibility: computed.visibility,
               opacity: computed.opacity
             },
+            ...(() => {
+              const bgChain = collectBackgroundChain(htmlEl);
+              return {
+                backgroundChain: bgChain.chain,
+                ...bgChain.image ? { backgroundImageBehind: true } : {}
+              };
+            })(),
             interactive: {
               hasOnClick: handlers.hasAnyHandler,
               hasHref: hasValidHref,
@@ -23620,6 +23663,24 @@ async function extractContentElements(page) {
       }
       return path.join(" > ").slice(0, 200);
     };
+    const collectBackgroundChain = (start) => {
+      const chain = [];
+      let image = false;
+      let node = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        const bg = cs.backgroundColor || "";
+        chain.push(bg);
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== "none") image = true;
+        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        if (opaque) break;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
     const kindFor = (tag) => {
       if (/^h[1-6]$/.test(tag)) return "heading";
       if (tag === "img") return "image";
@@ -23660,6 +23721,9 @@ async function extractContentElements(page) {
             },
             contentKind: kind
           };
+          const bgChain = collectBackgroundChain(htmlEl);
+          entry.backgroundChain = bgChain.chain;
+          if (bgChain.image) entry.backgroundImageBehind = true;
           if (kind === "heading") {
             entry.headingLevel = Number(tag[1]);
           }
@@ -23877,11 +23941,13 @@ async function testInteractivity(page) {
         const field = input;
         if (["hidden", "submit", "button"].includes(field.type)) continue;
         const labelEl = el.querySelector(`label[for="${field.id}"]`) || field.closest("label");
+        const labelledBy = (field.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map((id) => el.ownerDocument?.getElementById(id)?.textContent?.trim() || "").filter(Boolean).join(" ");
+        const accessibleName = labelledBy || (field.getAttribute("aria-label") || "").trim() || (field.getAttribute("title") || "").trim();
         fields.push({
           selector: getSelector(field),
           name: field.name || void 0,
           type: field.type || field.tagName.toLowerCase(),
-          label: labelEl?.textContent?.trim() || void 0,
+          label: labelEl?.textContent?.trim() || accessibleName || void 0,
           required: field.required,
           hasValidation: field.hasAttribute("pattern") || field.hasAttribute("min") || field.hasAttribute("max") || field.hasAttribute("minlength") || field.hasAttribute("maxlength")
         });
@@ -24477,21 +24543,7 @@ async function detectErrorState(page) {
   const errors = [];
   const checks = await page.evaluate(() => {
     const doc = document;
-    const textParts = [];
-    if (doc.body) {
-      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
-      let node = walker.nextNode();
-      while (node) {
-        const parent = node.parentElement;
-        const excluded = parent?.closest("style, script, template, noscript");
-        const style = parent ? window.getComputedStyle(parent) : null;
-        if (!excluded && style?.display !== "none" && style?.visibility !== "hidden" && style?.opacity !== "0") {
-          textParts.push(node.textContent || "");
-        }
-        node = walker.nextNode();
-      }
-    }
-    const text = textParts.join(" ");
+    const text = doc.body?.innerText || "";
     const validationErrors = doc.querySelectorAll(
       '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
     );
@@ -24500,7 +24552,7 @@ async function detectErrorState(page) {
     );
     const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
     const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
-    const serverText = text.match(/\b(?:http(?:\s+status)?|status|error)\s*(?:code\s*)?500\b|server error|something went wrong|internal error/i);
+    const serverText = text.match(/500|server error|something went wrong|internal error/i);
     const toastErrors = doc.querySelectorAll(
       '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
     );
@@ -26630,7 +26682,29 @@ function flatten(fg, bg) {
   if (fg.alpha >= 1) return fg.rgb;
   return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
 }
-var NAMED, clamp255;
+function resolveEffectiveBackground(chain) {
+  const layers = [];
+  for (const raw of chain) {
+    const parsed = parseColor3(raw);
+    if (parsed.kind === "unsupported") {
+      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
+    }
+    if (parsed.kind === "none") continue;
+    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
+    if (parsed.alpha >= 1) break;
+  }
+  const bottom = layers[layers.length - 1];
+  const resolved = bottom !== void 0 && bottom.alpha >= 1;
+  let acc = resolved ? bottom.rgb : CANVAS_BASE;
+  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
+    const layer = layers[i];
+    acc = layer.rgb.map(
+      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
+    );
+  }
+  return { rgb: acc, resolved };
+}
+var NAMED, clamp255, CANVAS_BASE;
 var init_color_parse = __esm({
   "src/rules/color-parse.ts"() {
     "use strict";
@@ -26657,6 +26731,7 @@ var init_color_parse = __esm({
       orange: [255, 165, 0]
     };
     clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    CANVAS_BASE = [255, 255, 255];
   }
 });
 
@@ -27936,6 +28011,57 @@ function isLargeText3(styles) {
   const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
   return fontSize >= 24 || isBold && fontSize >= 18.66;
 }
+function measureElementContrast(element) {
+  const style = element.computedStyles;
+  if (!style) return { status: "no-styles" };
+  const text = (element.text ?? "").trim();
+  if (text.length === 0) return { status: "no-text" };
+  const fg = parseColor3(style.color ?? "");
+  if (fg.kind === "unsupported") {
+    return { status: "unmeasurable", raw: fg.raw, text };
+  }
+  if (fg.kind === "none") {
+    return { status: "invisible", reason: fg.reason };
+  }
+  const chain = element.backgroundChain && element.backgroundChain.length > 0 ? element.backgroundChain : [style.backgroundColor ?? ""];
+  const bg = resolveEffectiveBackground(chain);
+  if (bg.unsupported !== void 0) {
+    return { status: "unmeasurable", raw: bg.unsupported, text };
+  }
+  const fgRgb = flatten(fg, bg.rgb);
+  if (!fgRgb) return { status: "invisible", reason: "foreground did not composite" };
+  return {
+    status: "measured",
+    ratio: contrastRatio4(fgRgb, bg.rgb),
+    large: isLargeText3(style),
+    backgroundResolved: bg.resolved,
+    backgroundImageBehind: element.backgroundImageBehind === true,
+    text,
+    fgRaw: style.color ?? "",
+    bgRaw: `rgb(${bg.rgb.join(", ")})`
+  };
+}
+function confidenceNote(m) {
+  const notes = [];
+  if (!m.backgroundResolved) {
+    notes.push("measured against an assumed white page background \u2014 no opaque background found in the ancestor chain");
+  }
+  if (m.backgroundImageBehind) {
+    notes.push("a background-image paints behind this text; only the color layers were sampled");
+  }
+  return notes.length > 0 ? ` [${notes.join("; ")}]` : "";
+}
+function unmeasurableViolation(element, m, level) {
+  return {
+    ruleId: `wcag-${level}-contrast-unmeasurable`,
+    ruleName: `WCAG 2.1 ${level.toUpperCase()} Contrast (not measurable)`,
+    severity: "warn",
+    message: `Could not decode color "${m.raw}", so contrast for "${m.text.slice(0, 40)}" was NOT checked`,
+    element: element.selector,
+    bounds: element.bounds,
+    fix: "Add support for this color format in rules/color-parse.ts."
+  };
+}
 var wcagAAContrastRule, wcagAAAContrastRule, wcagContrastPresetRules, wcagContrastPreset;
 var init_wcag_contrast2 = __esm({
   "src/rules/presets/wcag-contrast.ts"() {
@@ -27946,45 +28072,24 @@ var init_wcag_contrast2 = __esm({
       name: "WCAG 2.1 AA Contrast",
       description: "Text must meet WCAG 2.1 AA contrast ratio: 4.5:1 normal text, 3:1 large text",
       defaultSeverity: "error",
+      // Body copy and headings are exactly where readability failures hurt a
+      // reader, so this rule grades TEXT anywhere — not just controls.
+      appliesTo: "any",
       check(element, _context) {
-        const style = element.computedStyles;
-        if (!style) return null;
-        const hasText = element.text && element.text.trim().length > 0;
-        if (!hasText) return null;
-        const fg = parseColor3(style.color ?? "");
-        const bg = parseColor3(style.backgroundColor ?? "");
-        if (fg.kind === "unsupported" || bg.kind === "unsupported") {
-          const raw = fg.kind === "unsupported" ? fg.raw : bg.raw;
-          return {
-            ruleId: "wcag-aa-contrast-unmeasurable",
-            ruleName: "WCAG 2.1 AA Contrast (not measurable)",
-            severity: "warn",
-            message: `Could not decode color "${raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add support for this color format in rules/color-parse.ts."
-          };
-        }
-        if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
-        const fgRgb = flatten(fg, bg.rgb);
-        if (!fgRgb) return null;
-        const ratio = contrastRatio4(fgRgb, bg.rgb);
-        const large = isLargeText3(style);
-        const required2 = large ? 3 : 4.5;
-        if (ratio < required2) {
-          const ratioStr = ratio.toFixed(2);
-          const textSnippet = (element.text ?? "").slice(0, 40);
-          return {
-            ruleId: "wcag-aa-contrast",
-            ruleName: "WCAG 2.1 AA Contrast",
-            severity: "error",
-            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 fails WCAG 2.1 AA (requires ${required2}:1 for ${large ? "large" : "normal"} text)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""}`
-          };
-        }
-        return null;
+        const m = measureElementContrast(element);
+        if (m.status === "unmeasurable") return unmeasurableViolation(element, m, "aa");
+        if (m.status !== "measured") return null;
+        const required2 = m.large ? 3 : 4.5;
+        if (m.ratio >= required2) return null;
+        return {
+          ruleId: "wcag-aa-contrast",
+          ruleName: "WCAG 2.1 AA Contrast",
+          severity: "error",
+          message: `"${m.text.slice(0, 40)}" contrast ratio ${m.ratio.toFixed(2)}:1 fails WCAG 2.1 AA (requires ${required2}:1 for ${m.large ? "large" : "normal"} text)${confidenceNote(m)}`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Increase contrast between foreground ${m.fgRaw} and effective background ${m.bgRaw}`
+        };
       }
     };
     wcagAAAContrastRule = {
@@ -27992,45 +28097,22 @@ var init_wcag_contrast2 = __esm({
       name: "WCAG 2.1 AAA Contrast",
       description: "Text should meet WCAG 2.1 AAA contrast ratio: 7:1 normal text, 4.5:1 large text",
       defaultSeverity: "warn",
+      appliesTo: "any",
       check(element, _context) {
-        const style = element.computedStyles;
-        if (!style) return null;
-        const hasText = element.text && element.text.trim().length > 0;
-        if (!hasText) return null;
-        const fg = parseColor3(style.color ?? "");
-        const bg = parseColor3(style.backgroundColor ?? "");
-        if (fg.kind === "unsupported" || bg.kind === "unsupported") {
-          const raw = fg.kind === "unsupported" ? fg.raw : bg.raw;
-          return {
-            ruleId: "wcag-aaa-contrast-unmeasurable",
-            ruleName: "WCAG 2.1 AAA Contrast (not measurable)",
-            severity: "warn",
-            message: `Could not decode color "${raw}", so contrast for "${(element.text ?? "").slice(0, 40)}" was NOT checked`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: "Add support for this color format in rules/color-parse.ts."
-          };
-        }
-        if (fg.kind !== "rgb" || bg.kind !== "rgb") return null;
-        const fgRgb = flatten(fg, bg.rgb);
-        if (!fgRgb) return null;
-        const ratio = contrastRatio4(fgRgb, bg.rgb);
-        const large = isLargeText3(style);
-        const required2 = large ? 4.5 : 7;
-        if (ratio < required2) {
-          const ratioStr = ratio.toFixed(2);
-          const textSnippet = (element.text ?? "").slice(0, 40);
-          return {
-            ruleId: "wcag-aaa-contrast",
-            ruleName: "WCAG 2.1 AAA Contrast",
-            severity: "warn",
-            message: `"${textSnippet}" contrast ratio ${ratioStr}:1 below WCAG 2.1 AAA (${required2}:1 for ${large ? "large" : "normal"} text)`,
-            element: element.selector,
-            bounds: element.bounds,
-            fix: `Increase contrast between foreground ${style.color ?? ""} and background ${style.backgroundColor ?? ""} to ${required2}:1`
-          };
-        }
-        return null;
+        const m = measureElementContrast(element);
+        if (m.status === "unmeasurable") return unmeasurableViolation(element, m, "aaa");
+        if (m.status !== "measured") return null;
+        const required2 = m.large ? 4.5 : 7;
+        if (m.ratio >= required2) return null;
+        return {
+          ruleId: "wcag-aaa-contrast",
+          ruleName: "WCAG 2.1 AAA Contrast",
+          severity: "warn",
+          message: `"${m.text.slice(0, 40)}" contrast ratio ${m.ratio.toFixed(2)}:1 below WCAG 2.1 AAA (${required2}:1 for ${m.large ? "large" : "normal"} text)${confidenceNote(m)}`,
+          element: element.selector,
+          bounds: element.bounds,
+          fix: `Increase contrast between foreground ${m.fgRaw} and effective background ${m.bgRaw} to ${required2}:1`
+        };
       }
     };
     wcagContrastPresetRules = [wcagAAContrastRule, wcagAAAContrastRule];
@@ -28049,6 +28131,37 @@ var init_wcag_contrast2 = __esm({
 // src/rules/engine.ts
 function registerPreset(preset) {
   presets.set(preset.name, preset);
+}
+async function loadRulesConfig(projectDir) {
+  const configPath = (0, import_path3.join)(projectDir, ".ibr", "rules.json");
+  if (!(0, import_fs3.existsSync)(configPath)) {
+    return { extends: [], rules: {} };
+  }
+  try {
+    const content = await (0, import_promises4.readFile)(configPath, "utf-8");
+    return JSON.parse(content);
+  } catch (error51) {
+    console.warn(`Failed to parse rules.json: ${error51}`);
+    return { extends: [], rules: {} };
+  }
+}
+async function resolveRulesConfig(projectDir, requested) {
+  if (requested && requested.some((r) => r.trim().toLowerCase() === RULES_OPT_OUT)) {
+    return { config: { extends: [], rules: {} }, source: "opt-out", presets: [] };
+  }
+  if (requested && requested.length > 0) {
+    const presets3 = [...requested];
+    return { config: { extends: presets3, rules: {} }, source: "flag", presets: presets3 };
+  }
+  if ((0, import_fs3.existsSync)((0, import_path3.join)(projectDir, ".ibr", "rules.json"))) {
+    const config2 = await loadRulesConfig(projectDir);
+    const presets3 = config2.extends ?? [];
+    if (presets3.length > 0 || Object.keys(config2.rules ?? {}).length > 0) {
+      return { config: config2, source: "config", presets: presets3 };
+    }
+  }
+  const presets2 = [...DEFAULT_RULE_PRESETS];
+  return { config: { extends: presets2, rules: {} }, source: "default", presets: presets2 };
 }
 function mergeRuleSettings(presetNames, userRules = {}) {
   const allRules2 = [];
@@ -28082,11 +28195,33 @@ function mergeRuleSettings(presetNames, userRules = {}) {
   }
   return { rules: allRules2, settings };
 }
-function runRules(elements, context, config2) {
+function getActiveRules(config2) {
+  const { rules, settings } = mergeRuleSettings(
+    config2.extends ?? [],
+    config2.rules
+  );
+  return rules.filter((rule) => {
+    const setting = settings.get(rule.id);
+    return !!setting && setting.severity !== "off";
+  });
+}
+function configHasContentRules(config2) {
+  return getActiveRules(config2).some((rule) => {
+    const applies = rule.appliesTo ?? "interactive";
+    return applies === "any" || applies === "text";
+  });
+}
+function ruleAppliesTo(rule, surface) {
+  const applies = rule.appliesTo ?? "interactive";
+  return surface === "interactive" ? applies === "interactive" || applies === "any" : applies === "text" || applies === "any";
+}
+function runRules(elements, context, config2, options = {}) {
   const { rules, settings } = mergeRuleSettings(config2.extends ?? [], config2.rules);
+  const surface = options.surface ?? "interactive";
+  const applicable = rules.filter((rule) => ruleAppliesTo(rule, surface));
   const violations = [];
   for (const element of elements) {
-    for (const rule of rules) {
+    for (const rule of applicable) {
       const setting = settings.get(rule.id);
       if (!setting || setting.severity === "off") {
         continue;
@@ -28102,10 +28237,13 @@ function runRules(elements, context, config2) {
   }
   return violations;
 }
-var presets;
+var import_promises4, import_fs3, import_path3, presets, DEFAULT_RULE_PRESETS, RULES_OPT_OUT;
 var init_engine = __esm({
   "src/rules/engine.ts"() {
     "use strict";
+    import_promises4 = require("fs/promises");
+    import_fs3 = require("fs");
+    import_path3 = require("path");
     init_calm_precision2();
     init_minimal();
     init_touch_targets2();
@@ -28119,6 +28257,47 @@ var init_engine = __esm({
     ]) {
       registerPreset(preset);
     }
+    DEFAULT_RULE_PRESETS = ["touch-targets", "wcag-contrast", "calm-precision"];
+    RULES_OPT_OUT = "none";
+  }
+});
+
+// src/rules/content-adapter.ts
+function contentElementToEnhanced(content) {
+  return {
+    selector: content.selector,
+    tagName: content.tagName,
+    id: content.id,
+    className: content.className,
+    // <img> carries no text; alt is its readable content and is what a
+    // text-oriented rule should see if one ever grades images.
+    text: content.text ?? content.alt,
+    bounds: content.bounds,
+    computedStyles: content.computedStyles,
+    backgroundChain: content.backgroundChain,
+    backgroundImageBehind: content.backgroundImageBehind,
+    interactive: {
+      hasOnClick: false,
+      hasHref: false,
+      isDisabled: false,
+      // -1, not 0: a paragraph is not in the tab order. 0 would read as
+      // "focusable" to any rule that checks it.
+      tabIndex: -1,
+      cursor: content.computedStyles.cursor ?? "auto"
+    },
+    a11y: {
+      role: null,
+      ariaLabel: null,
+      ariaDescribedBy: null
+    }
+  };
+}
+function contentElementsToEnhanced(content) {
+  return content.map(contentElementToEnhanced);
+}
+var init_content_adapter = __esm({
+  "src/rules/content-adapter.ts"() {
+    "use strict";
   }
 });
 
@@ -28270,8 +28449,6 @@ async function scan(url2, options = {}) {
       url2,
       options.outputDir || process.cwd()
     );
-    const verdict = determineVerdict2(issues);
-    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     let cssExtract;
     try {
       cssExtract = await extractCssRulesAndMeta(page);
@@ -28295,9 +28472,35 @@ async function scan(url2, options = {}) {
       allElements: elements.all
     };
     const ruleEngine = runAllRules(elements.all, ruleContext);
-    if (rulePresets && rulePresets.length > 0) {
-      const presetConfig = { extends: rulePresets, rules: {} };
-      const presetViolations = runRules(elements.all, ruleContext, presetConfig);
+    const resolvedRules = await resolveRulesConfig(options.projectDir ?? process.cwd(), rulePresets);
+    const activeRuleIds = new Set(getActiveRules(resolvedRules.config).map((r) => r.id));
+    const gradesContent = configHasContentRules(resolvedRules.config);
+    let contentResult;
+    let metadataResult;
+    let contentElements = [];
+    if (options.content || gradesContent) {
+      try {
+        const [extractedContent, pageMetadata] = await Promise.all([
+          extractContentElements(page),
+          extractPageMetadata(page)
+        ]);
+        contentElements = extractedContent;
+        if (options.content) {
+          contentResult = { elements: extractedContent };
+          metadataResult = pageMetadata;
+        }
+      } catch {
+        contentElements = [];
+        contentResult = void 0;
+        metadataResult = void 0;
+      }
+    }
+    const contentAsElements = gradesContent ? contentElementsToEnhanced(contentElements) : [];
+    if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
+      const presetViolations = [
+        ...runRules(elements.all, ruleContext, resolvedRules.config, { surface: "interactive" }),
+        ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" })
+      ];
       for (const v of presetViolations) {
         issues.push({
           category: "interactivity",
@@ -28308,6 +28511,9 @@ async function scan(url2, options = {}) {
         });
       }
     }
+    const contrastCoverage = activeRuleIds.has("wcag-aa-contrast") || activeRuleIds.has("wcag-aaa-contrast") ? summarizeContrastCoverage([...elements.all, ...contentAsElements]) : void 0;
+    const verdict = determineVerdict2(issues);
+    const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     const summaries = summarizeScan(elements.all, url2);
     let probeResults;
     if (options.probes) {
@@ -28317,21 +28523,6 @@ async function scan(url2, options = {}) {
           probeResults = { ...probeResults ?? {}, [name]: value };
         } catch {
         }
-      }
-    }
-    let contentResult;
-    let metadataResult;
-    if (options.content) {
-      try {
-        const [contentElements, pageMetadata] = await Promise.all([
-          extractContentElements(page),
-          extractPageMetadata(page)
-        ]);
-        contentResult = { elements: contentElements };
-        metadataResult = pageMetadata;
-      } catch {
-        contentResult = void 0;
-        metadataResult = void 0;
       }
     }
     const baseResult = {
@@ -28344,6 +28535,12 @@ async function scan(url2, options = {}) {
       semantic,
       sensors,
       ruleEngine,
+      rulesApplied: {
+        presets: resolvedRules.presets,
+        source: resolvedRules.source,
+        gradedContentElements: contentAsElements.length
+      },
+      ...contrastCoverage ? { contrastCoverage } : {},
       summaries,
       probes: probeResults,
       console: {
@@ -28475,6 +28672,39 @@ async function applyDesignSystemCheck(elements, issues, viewport, url2, outputDi
   }
   return designSystem;
 }
+function summarizeContrastCoverage(elements) {
+  const coverage = {
+    candidates: elements.length,
+    measured: 0,
+    assumedWhiteBackground: 0,
+    unmeasurable: 0,
+    invisibleText: 0,
+    noText: 0,
+    noStyles: 0
+  };
+  for (const element of elements) {
+    const m = measureElementContrast(element);
+    switch (m.status) {
+      case "measured":
+        if (m.backgroundResolved) coverage.measured++;
+        else coverage.assumedWhiteBackground++;
+        break;
+      case "unmeasurable":
+        coverage.unmeasurable++;
+        break;
+      case "invisible":
+        coverage.invisibleText++;
+        break;
+      case "no-text":
+        coverage.noText++;
+        break;
+      case "no-styles":
+        coverage.noStyles++;
+        break;
+    }
+  }
+  return coverage;
+}
 function determineVerdict2(issues) {
   const errorCount = issues.filter((i) => i.severity === "error").length;
   const warningCount = issues.filter((i) => i.severity === "warning").length;
@@ -28559,6 +28789,8 @@ var init_scan = __esm({
     init_rules();
     init_summarize();
     init_engine();
+    init_content_adapter();
+    init_wcag_contrast2();
     IssueCollector = class {
       issues = [];
       add(issue2) {
@@ -28674,7 +28906,7 @@ var init_nanoid = __esm({
 // src/git-context.ts
 async function parseGitConfig(configPath) {
   try {
-    const content = await (0, import_promises7.readFile)(configPath, "utf-8");
+    const content = await (0, import_promises8.readFile)(configPath, "utf-8");
     const lines = content.split("\n");
     let currentRemote = null;
     let remoteUrl = null;
@@ -28724,7 +28956,7 @@ function getCurrentBranch(dir) {
   }
 }
 async function getGitContext(dir) {
-  const gitConfigPath = (0, import_path6.join)(dir, ".git", "config");
+  const gitConfigPath = (0, import_path7.join)(dir, ".git", "config");
   const { remote, remoteUrl } = await parseGitConfig(gitConfigPath);
   const repoName = remoteUrl ? extractRepoName(remoteUrl) : null;
   const branch = getCurrentBranch(dir);
@@ -28737,8 +28969,8 @@ async function getGitContext(dir) {
 }
 async function getAppName(dir) {
   try {
-    const packageJsonPath = (0, import_path6.join)(dir, "package.json");
-    const content = await (0, import_promises7.readFile)(packageJsonPath, "utf-8");
+    const packageJsonPath = (0, import_path7.join)(dir, "package.json");
+    const content = await (0, import_promises8.readFile)(packageJsonPath, "utf-8");
     const packageJson = JSON.parse(content);
     if (packageJson.name) {
       const name = packageJson.name;
@@ -28747,7 +28979,7 @@ async function getAppName(dir) {
     }
   } catch {
   }
-  return (0, import_path6.basename)(dir);
+  return (0, import_path7.basename)(dir);
 }
 async function getAppContext(dir) {
   const [gitContext, appName] = await Promise.all([
@@ -28761,16 +28993,16 @@ async function getAppContext(dir) {
 }
 function getSessionBasePath(outputDir, context) {
   if (context.repoName && context.branch) {
-    return (0, import_path6.join)(outputDir, "apps", context.appName, context.branch, "sessions");
+    return (0, import_path7.join)(outputDir, "apps", context.appName, context.branch, "sessions");
   }
-  return (0, import_path6.join)(outputDir, "sessions");
+  return (0, import_path7.join)(outputDir, "sessions");
 }
-var import_promises7, import_path6, import_child_process;
+var import_promises8, import_path7, import_child_process;
 var init_git_context = __esm({
   "src/git-context.ts"() {
     "use strict";
-    import_promises7 = require("fs/promises");
-    import_path6 = require("path");
+    import_promises8 = require("fs/promises");
+    import_path7 = require("path");
     import_child_process = require("child_process");
   }
 });
@@ -28799,24 +29031,24 @@ function generateSessionId() {
   return `${SESSION_PREFIX}${nanoid3(10)}`;
 }
 function getSessionPaths(outputDir, sessionId) {
-  const root = (0, import_path7.join)(outputDir, "sessions", sessionId);
+  const root = (0, import_path8.join)(outputDir, "sessions", sessionId);
   return {
     root,
-    sessionJson: (0, import_path7.join)(root, "session.json"),
-    baseline: (0, import_path7.join)(root, "baseline.png"),
-    current: (0, import_path7.join)(root, "current.png"),
-    diff: (0, import_path7.join)(root, "diff.png")
+    sessionJson: (0, import_path8.join)(root, "session.json"),
+    baseline: (0, import_path8.join)(root, "baseline.png"),
+    current: (0, import_path8.join)(root, "current.png"),
+    diff: (0, import_path8.join)(root, "diff.png")
   };
 }
 function getSessionPathsWithContext(outputDir, sessionId, context) {
-  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path7.join)(outputDir, "sessions");
-  const root = (0, import_path7.join)(basePath, sessionId);
+  const basePath = context ? getSessionBasePath(outputDir, context) : (0, import_path8.join)(outputDir, "sessions");
+  const root = (0, import_path8.join)(basePath, sessionId);
   return {
     root,
-    sessionJson: (0, import_path7.join)(root, "session.json"),
-    baseline: (0, import_path7.join)(root, "baseline.png"),
-    current: (0, import_path7.join)(root, "current.png"),
-    diff: (0, import_path7.join)(root, "diff.png")
+    sessionJson: (0, import_path8.join)(root, "session.json"),
+    baseline: (0, import_path8.join)(root, "baseline.png"),
+    current: (0, import_path8.join)(root, "current.png"),
+    diff: (0, import_path8.join)(root, "diff.png")
   };
 }
 async function getCachedAppContext(projectDir) {
@@ -28847,14 +29079,14 @@ async function createSession(outputDir, url2, name, viewport, platform) {
     createdAt: now,
     updatedAt: now
   };
-  await (0, import_promises8.mkdir)(paths.root, { recursive: true });
-  await (0, import_promises8.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
+  await (0, import_promises9.mkdir)(paths.root, { recursive: true });
+  await (0, import_promises9.writeFile)(paths.sessionJson, JSON.stringify(session, null, 2));
   return session;
 }
 async function getSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    const content = await (0, import_promises8.readFile)(paths.sessionJson, "utf-8");
+    const content = await (0, import_promises9.readFile)(paths.sessionJson, "utf-8");
     const data = JSON.parse(content);
     return SessionSchema.parse(data);
   } catch {
@@ -28872,7 +29104,7 @@ async function updateSession(outputDir, sessionId, updates) {
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
   const paths = getSessionPaths(outputDir, sessionId);
-  await (0, import_promises8.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
+  await (0, import_promises9.writeFile)(paths.sessionJson, JSON.stringify(updated, null, 2));
   return updated;
 }
 async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
@@ -28883,9 +29115,9 @@ async function markSessionCompared(outputDir, sessionId, comparison, analysis) {
   });
 }
 async function listSessions(outputDir) {
-  const sessionsDir = (0, import_path7.join)(outputDir, "sessions");
+  const sessionsDir = (0, import_path8.join)(outputDir, "sessions");
   try {
-    const entries = await (0, import_promises8.readdir)(sessionsDir, { withFileTypes: true });
+    const entries = await (0, import_promises9.readdir)(sessionsDir, { withFileTypes: true });
     const sessions2 = [];
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith(SESSION_PREFIX)) {
@@ -28909,7 +29141,7 @@ async function getMostRecentSession(outputDir) {
 async function deleteSession(outputDir, sessionId) {
   const paths = getSessionPaths(outputDir, sessionId);
   try {
-    await (0, import_promises8.rm)(paths.root, { recursive: true, force: true });
+    await (0, import_promises9.rm)(paths.root, { recursive: true, force: true });
     return true;
   } catch {
     return false;
@@ -29040,13 +29272,13 @@ async function getSessionStats(outputDir) {
     byVerdict
   };
 }
-var import_promises8, import_path7, SESSION_PREFIX, cachedContext, contextCacheDir;
+var import_promises9, import_path8, SESSION_PREFIX, cachedContext, contextCacheDir;
 var init_session = __esm({
   "src/session.ts"() {
     "use strict";
     init_nanoid();
-    import_promises8 = require("fs/promises");
-    import_path7 = require("path");
+    import_promises9 = require("fs/promises");
+    import_path8 = require("path");
     init_schemas3();
     init_git_context();
     SESSION_PREFIX = "sess_";
@@ -29688,15 +29920,15 @@ var init_api_timing = __esm({
 });
 
 // src/memory.ts
-var import_path10, import_os2, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY;
+var import_path11, import_os2, GLOBAL_DIR, GLOBAL_PREFS_DIR, GLOBAL_SUMMARY;
 var init_memory = __esm({
   "src/memory.ts"() {
     "use strict";
-    import_path10 = require("path");
+    import_path11 = require("path");
     import_os2 = require("os");
-    GLOBAL_DIR = (0, import_path10.join)((0, import_os2.homedir)(), ".ibr", "global-memory");
-    GLOBAL_PREFS_DIR = (0, import_path10.join)(GLOBAL_DIR, "preferences");
-    GLOBAL_SUMMARY = (0, import_path10.join)(GLOBAL_DIR, "summary.json");
+    GLOBAL_DIR = (0, import_path11.join)((0, import_os2.homedir)(), ".ibr", "global-memory");
+    GLOBAL_PREFS_DIR = (0, import_path11.join)(GLOBAL_DIR, "preferences");
+    GLOBAL_SUMMARY = (0, import_path11.join)(GLOBAL_DIR, "summary.json");
   }
 });
 
@@ -29824,7 +30056,7 @@ async function captureNativeScreenshot(options) {
   const { device, outputPath, mask } = options;
   const start = Date.now();
   try {
-    await (0, import_promises11.mkdir)((0, import_path11.dirname)(outputPath), { recursive: true });
+    await (0, import_promises12.mkdir)((0, import_path12.dirname)(outputPath), { recursive: true });
     const args = ["simctl", "io", device.udid, "screenshot", "--type=png"];
     const effectiveMask = mask ?? (device.platform === "watchos" ? "black" : void 0);
     if (effectiveMask) {
@@ -29850,14 +30082,14 @@ async function captureNativeScreenshot(options) {
     };
   }
 }
-var import_child_process3, import_util4, import_promises11, import_path11, execFileAsync2;
+var import_child_process3, import_util4, import_promises12, import_path12, execFileAsync2;
 var init_capture = __esm({
   "src/native/capture.ts"() {
     "use strict";
     import_child_process3 = require("child_process");
     import_util4 = require("util");
-    import_promises11 = require("fs/promises");
-    import_path11 = require("path");
+    import_promises12 = require("fs/promises");
+    import_path12 = require("path");
     init_viewports();
     execFileAsync2 = (0, import_util4.promisify)(import_child_process3.execFile);
   }
@@ -29951,14 +30183,14 @@ var init_role_map = __esm({
 });
 
 // src/native/runtime-path.mts
-var import_path12, import_url, import_meta, moduleDir;
+var import_path13, import_url, import_meta, moduleDir;
 var init_runtime_path = __esm({
   "src/native/runtime-path.mts"() {
     "use strict";
-    import_path12 = require("path");
+    import_path13 = require("path");
     import_url = require("url");
     import_meta = {};
-    moduleDir = typeof __dirname === "string" ? __dirname : (0, import_path12.dirname)((0, import_url.fileURLToPath)(import_meta.url));
+    moduleDir = typeof __dirname === "string" ? __dirname : (0, import_path13.dirname)((0, import_url.fileURLToPath)(import_meta.url));
   }
 });
 
@@ -29973,11 +30205,11 @@ __export(extract_exports, {
 function resolveSwiftSourceDir() {
   const candidates = [
     // TypeScript source execution: src/native/extract.ts
-    (0, import_path13.join)(moduleDir, "swift", "ibr-ax-extract"),
+    (0, import_path14.join)(moduleDir, "swift", "ibr-ax-extract"),
     // Bundled package execution: dist/index.{js,mjs}
-    (0, import_path13.join)(moduleDir, "..", "src", "native", "swift", "ibr-ax-extract")
+    (0, import_path14.join)(moduleDir, "..", "src", "native", "swift", "ibr-ax-extract")
   ];
-  return candidates.find((candidate) => (0, import_fs3.existsSync)((0, import_path13.join)(candidate, "Package.swift"))) ?? candidates[0];
+  return candidates.find((candidate) => (0, import_fs4.existsSync)((0, import_path14.join)(candidate, "Package.swift"))) ?? candidates[0];
 }
 async function ensureExtractor() {
   if (process.platform !== "darwin") {
@@ -29985,19 +30217,19 @@ async function ensureExtractor() {
       `macOS AX extractor requires macOS (current platform: ${process.platform})`
     );
   }
-  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
+  if ((0, import_fs4.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
   }
-  await (0, import_promises12.mkdir)(EXTRACTOR_DIR, { recursive: true });
+  await (0, import_promises13.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
-    if (!(0, import_fs3.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
+    if (!(0, import_fs4.existsSync)(SWIFT_BUILD_PATH) || !isFileFresh(SWIFT_BUILD_PATH)) {
       await buildSwiftExtractor();
     }
-    if (!(0, import_fs3.existsSync)(SWIFT_BUILD_PATH)) {
+    if (!(0, import_fs4.existsSync)(SWIFT_BUILD_PATH)) {
       throw new Error("Swift build succeeded but binary not found at expected path");
     }
-    await (0, import_promises12.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
-    await (0, import_promises12.chmod)(EXTRACTOR_PATH, 493);
+    await (0, import_promises13.copyFile)(SWIFT_BUILD_PATH, EXTRACTOR_PATH);
+    await (0, import_promises13.chmod)(EXTRACTOR_PATH, 493);
     return EXTRACTOR_PATH;
   } catch (err) {
     throw new Error(
@@ -30020,10 +30252,10 @@ async function buildSwiftExtractor() {
 }
 function isFileFresh(path) {
   try {
-    const binaryMtime = (0, import_fs3.statSync)(path).mtimeMs;
+    const binaryMtime = (0, import_fs4.statSync)(path).mtimeMs;
     const sourceMtime = Math.max(
-      (0, import_fs3.statSync)(SWIFT_MAIN_PATH).mtimeMs,
-      (0, import_fs3.statSync)(SWIFT_PACKAGE_PATH).mtimeMs
+      (0, import_fs4.statSync)(SWIFT_MAIN_PATH).mtimeMs,
+      (0, import_fs4.statSync)(SWIFT_PACKAGE_PATH).mtimeMs
     );
     return binaryMtime >= sourceMtime;
   } catch {
@@ -30031,8 +30263,8 @@ function isFileFresh(path) {
   }
 }
 function isExtractorAvailable() {
-  if ((0, import_fs3.existsSync)(EXTRACTOR_PATH)) return true;
-  return (0, import_fs3.existsSync)((0, import_path13.join)(SWIFT_SOURCE_DIR, "Package.swift"));
+  if ((0, import_fs4.existsSync)(EXTRACTOR_PATH)) return true;
+  return (0, import_fs4.existsSync)((0, import_path14.join)(SWIFT_SOURCE_DIR, "Package.swift"));
 }
 async function extractNativeElements(device) {
   const extractorPath = await ensureExtractor();
@@ -30092,24 +30324,24 @@ function mapToEnhancedElements(nativeElements) {
   flatten2(nativeElements);
   return enhanced;
 }
-var import_child_process4, import_util5, import_fs3, import_promises12, import_path13, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
+var import_child_process4, import_util5, import_fs4, import_promises13, import_path14, execFileAsync3, EXTRACTOR_DIR, EXTRACTOR_PATH, SWIFT_SOURCE_DIR, SWIFT_MAIN_PATH, SWIFT_PACKAGE_PATH, SWIFT_BUILD_PATH;
 var init_extract3 = __esm({
   "src/native/extract.ts"() {
     "use strict";
     import_child_process4 = require("child_process");
     import_util5 = require("util");
-    import_fs3 = require("fs");
-    import_promises12 = require("fs/promises");
-    import_path13 = require("path");
+    import_fs4 = require("fs");
+    import_promises13 = require("fs/promises");
+    import_path14 = require("path");
     init_role_map();
     init_runtime_path();
     execFileAsync3 = (0, import_util5.promisify)(import_child_process4.execFile);
-    EXTRACTOR_DIR = (0, import_path13.join)(process.cwd(), ".ibr", "bin");
-    EXTRACTOR_PATH = (0, import_path13.join)(EXTRACTOR_DIR, "ibr-ax-extract");
+    EXTRACTOR_DIR = (0, import_path14.join)(process.cwd(), ".ibr", "bin");
+    EXTRACTOR_PATH = (0, import_path14.join)(EXTRACTOR_DIR, "ibr-ax-extract");
     SWIFT_SOURCE_DIR = resolveSwiftSourceDir();
-    SWIFT_MAIN_PATH = (0, import_path13.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
-    SWIFT_PACKAGE_PATH = (0, import_path13.join)(SWIFT_SOURCE_DIR, "Package.swift");
-    SWIFT_BUILD_PATH = (0, import_path13.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
+    SWIFT_MAIN_PATH = (0, import_path14.join)(SWIFT_SOURCE_DIR, "Sources", "main.swift");
+    SWIFT_PACKAGE_PATH = (0, import_path14.join)(SWIFT_SOURCE_DIR, "Package.swift");
+    SWIFT_BUILD_PATH = (0, import_path14.join)(SWIFT_SOURCE_DIR, ".build", "release", "ibr-ax-extract");
   }
 });
 
@@ -30334,19 +30566,19 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   return enhanced;
 }
 async function captureMacOSScreenshot(windowId, outputPath) {
-  await (0, import_promises13.mkdir)((0, import_path14.dirname)(outputPath), { recursive: true });
+  await (0, import_promises14.mkdir)((0, import_path15.dirname)(outputPath), { recursive: true });
   await execFileAsync4("screencapture", ["-l", String(windowId), "-x", outputPath], {
     timeout: 1e4
   });
 }
-var import_child_process5, import_util6, import_promises13, import_path14, execFileAsync4, execAsync;
+var import_child_process5, import_util6, import_promises14, import_path15, execFileAsync4, execAsync;
 var init_macos = __esm({
   "src/native/macos.ts"() {
     "use strict";
     import_child_process5 = require("child_process");
     import_util6 = require("util");
-    import_promises13 = require("fs/promises");
-    import_path14 = require("path");
+    import_promises14 = require("fs/promises");
+    import_path15 = require("path");
     init_extract3();
     init_role_map();
     execFileAsync4 = (0, import_util6.promisify)(import_child_process5.execFile);
@@ -30773,7 +31005,7 @@ async function scanNative(options = {}) {
   let screenshotPath;
   if (screenshot) {
     const timestamp = Date.now();
-    const ssPath = (0, import_path15.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const ssPath = (0, import_path16.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -31038,11 +31270,11 @@ function formatNativeScanResult(result) {
   lines.push("", "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var import_path15;
+var import_path16;
 var init_scan2 = __esm({
   "src/native/scan.ts"() {
     "use strict";
-    import_path15 = require("path");
+    import_path16 = require("path");
     init_scan();
     init_extract2();
     init_simulator();
@@ -31065,12 +31297,12 @@ __export(crop_exports, {
 function loadPng(path) {
   return new Promise((resolve4, reject) => {
     const png = new import_pngjs3.PNG();
-    (0, import_fs4.createReadStream)(path).pipe(png).on("parsed", () => resolve4(png)).on("error", reject);
+    (0, import_fs5.createReadStream)(path).pipe(png).on("parsed", () => resolve4(png)).on("error", reject);
   });
 }
 function writePng(png, path) {
   return new Promise((resolve4, reject) => {
-    png.pack().pipe((0, import_fs4.createWriteStream)(path)).on("finish", resolve4).on("error", reject);
+    png.pack().pipe((0, import_fs5.createWriteStream)(path)).on("finish", resolve4).on("error", reject);
   });
 }
 function clamp(v, lo, hi) {
@@ -31089,17 +31321,17 @@ async function cropPng(srcPath, bounds, destPath, opts = {}) {
   if (cropW <= 0 || cropH <= 0) return null;
   const out = new import_pngjs3.PNG({ width: cropW, height: cropH });
   src.bitblt(out, x0, y0, cropW, cropH, 0, 0);
-  await (0, import_promises14.mkdir)((0, import_path16.dirname)(destPath), { recursive: true });
+  await (0, import_promises15.mkdir)((0, import_path17.dirname)(destPath), { recursive: true });
   await writePng(out, destPath);
   return destPath;
 }
-var import_fs4, import_promises14, import_path16, import_pngjs3;
+var import_fs5, import_promises15, import_path17, import_pngjs3;
 var init_crop = __esm({
   "src/utils/crop.ts"() {
     "use strict";
-    import_fs4 = require("fs");
-    import_promises14 = require("fs/promises");
-    import_path16 = require("path");
+    import_fs5 = require("fs");
+    import_promises15 = require("fs/promises");
+    import_path17 = require("path");
     import_pngjs3 = __toESM(require_png());
   }
 });
@@ -32401,16 +32633,16 @@ __export(scan_exports2, {
 });
 function scanStatic(options) {
   const { htmlPath, cssPath } = options;
-  if (!(0, import_fs8.existsSync)(htmlPath)) {
+  if (!(0, import_fs9.existsSync)(htmlPath)) {
     throw new Error(`HTML file not found: ${htmlPath}`);
   }
-  if (cssPath && !(0, import_fs8.existsSync)(cssPath)) {
+  if (cssPath && !(0, import_fs9.existsSync)(cssPath)) {
     throw new Error(`CSS file not found: ${cssPath}`);
   }
-  const html = (0, import_fs8.readFileSync)(htmlPath, "utf-8");
+  const html = (0, import_fs9.readFileSync)(htmlPath, "utf-8");
   let elements = parseStaticHTML(html);
   if (cssPath) {
-    const css = (0, import_fs8.readFileSync)(cssPath, "utf-8");
+    const css = (0, import_fs9.readFileSync)(cssPath, "utf-8");
     const rules = parseCSS(css);
     elements = applyStyles(elements, rules);
   }
@@ -32518,11 +32750,11 @@ function generateSummary3(totalElements, interactiveCount, errors, warnings) {
   }
   return parts.join(", ") + ".";
 }
-var import_fs8;
+var import_fs9;
 var init_scan3 = __esm({
   "src/static/scan.ts"() {
     "use strict";
-    import_fs8 = require("fs");
+    import_fs9 = require("fs");
     init_parser();
   }
 });
@@ -33335,26 +33567,6 @@ function buildLayoutOverflowProbe(options = {}) {
     return t.length > 80 ? t.slice(0, 80) : t;
   }
 
-  // A closed disclosure can retain child geometry while its zero-height
-  // overflow:hidden body paints none of that subtree. Rect intersections alone
-  // would report those hidden descendants as collisions with later content.
-  function isPainted(el, rect) {
-    var cur = el.parentElement;
-    while (cur) {
-      var cs;
-      try { cs = getComputedStyle(cur); } catch (e) { cur = cur.parentElement; continue; }
-      var clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
-      var clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
-      if (clipsX || clipsY) {
-        var parentRect = cur.getBoundingClientRect();
-        if (clipsX && (rect.right <= parentRect.left || rect.left >= parentRect.right)) return false;
-        if (clipsY && (rect.bottom <= parentRect.top || rect.top >= parentRect.bottom)) return false;
-      }
-      cur = cur.parentElement;
-    }
-    return true;
-  }
-
   function walk(el, parentIndex, depth) {
     if (out.length >= MAX) return;
     var cs;
@@ -33388,7 +33600,6 @@ function buildLayoutOverflowProbe(options = {}) {
       maxWidth: cs.maxWidth,
       boxSizing: cs.boxSizing,
       hasTransform: cs.transform !== 'none' && cs.transform !== '',
-      painted: isPainted(el, r),
       inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim()
     });
 
@@ -33414,14 +33625,6 @@ function hasBoxMetrics(node) {
 }
 function isInFlow(node) {
   return (node.position === "static" || node.position === "relative") && !node.hasTransform;
-}
-function hasOutOfFlowAncestor(node, byIndex) {
-  let parent = node.parent === null ? void 0 : byIndex.get(node.parent);
-  while (parent) {
-    if (parent.position === "fixed" || parent.position === "sticky" || parent.hasTransform) return true;
-    parent = parent.parent === null ? void 0 : byIndex.get(parent.parent);
-  }
-  return false;
 }
 function short(text, max = 40) {
   return text.length > max ? `${text.slice(0, max)}\u2026` : text;
@@ -33491,7 +33694,6 @@ function analyzeLayoutOverflow(nodes, options = {}) {
   const overflowingBoxes = /* @__PURE__ */ new Set();
   const EPSILON_PX = 0.5;
   for (const node of nodes) {
-    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
     if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
       overflowingBoxes.add(`${node.index}:vertical`);
@@ -33501,7 +33703,6 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   for (const node of nodes) {
-    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
     if (isVisibleOverflow(node.overflowY)) {
       const spill = node.scrollHeight - node.clientHeight;
@@ -33541,7 +33742,6 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   for (const node of nodes) {
-    if (!node.painted) continue;
     if (node.parent === null) continue;
     if (!isInFlow(node)) continue;
     const parent = byIndex.get(node.parent);
@@ -33592,7 +33792,7 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   const textNodes = nodes.filter(
-    (n) => n.ownText.length > 0 && n.painted && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n) && !hasOutOfFlowAncestor(n, byIndex)
+    (n) => n.ownText.length > 0 && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n)
   ).sort((a, b) => a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x);
   const ancestorsOf = buildAncestorSets(nodes, byIndex);
   for (let i = 0; i < textNodes.length; i++) {
@@ -34213,7 +34413,7 @@ function compositeOver(src, dst) {
     a: outA
   };
 }
-function resolveEffectiveBackground(chain) {
+function resolveEffectiveBackground2(chain) {
   const parsed = [];
   for (const raw of chain) {
     const c = parseCssColor(raw);
@@ -34502,7 +34702,7 @@ function buildMeasureExpression(selector, limit = DEFAULT_LIMIT) {
 }
 function finalizeMeasurements(raw) {
   return raw.map((el) => {
-    const effective = resolveEffectiveBackground(el.backgroundChain);
+    const effective = resolveEffectiveBackground2(el.backgroundChain);
     const fg = parseCssColor(el.colorNorm) ?? parseCssColor(el.colorRaw);
     const fontSizePx = parsePx2(el.typography.fontSize) ?? Number.NaN;
     const weight = parseFontWeight(el.typography.fontWeight);
@@ -34716,7 +34916,7 @@ __export(live_exports, {
   parseFontWeight: () => parseFontWeight,
   parsePx: () => parsePx2,
   relativeLuminance: () => relativeLuminance5,
-  resolveEffectiveBackground: () => resolveEffectiveBackground,
+  resolveEffectiveBackground: () => resolveEffectiveBackground2,
   resolveLiveWsEndpoint: () => resolveLiveWsEndpoint,
   selectTarget: () => selectTarget,
   toLiveTarget: () => toLiveTarget,
@@ -34736,8 +34936,8 @@ var init_live = __esm({
 var import_readline = require("readline");
 
 // src/mcp/tools.ts
-var import_fs9 = require("fs");
-var import_path22 = require("path");
+var import_fs10 = require("fs");
+var import_path23 = require("path");
 init_design_system();
 init_scan();
 
@@ -34748,8 +34948,8 @@ init_devices();
 // src/capture.ts
 init_driver();
 init_compat2();
-var import_promises5 = require("fs/promises");
-var import_path4 = require("path");
+var import_promises6 = require("fs/promises");
+var import_path5 = require("path");
 init_schemas3();
 init_devices();
 
@@ -34783,8 +34983,8 @@ var DEFAULT_DYNAMIC_SELECTORS = [
 // src/auth.ts
 init_driver();
 init_compat2();
-var import_promises4 = require("fs/promises");
-var import_path3 = require("path");
+var import_promises5 = require("fs/promises");
+var import_path4 = require("path");
 var import_os = require("os");
 var import_crypto = require("crypto");
 function isDeployedEnvironment() {
@@ -34792,7 +34992,7 @@ function isDeployedEnvironment() {
 }
 function getAuthStatePath(outputDir) {
   const username = (0, import_os.userInfo)().username;
-  return (0, import_path3.join)(outputDir, `auth.${username}.json`);
+  return (0, import_path4.join)(outputDir, `auth.${username}.json`);
 }
 async function loadAuthState(outputDir) {
   if (isDeployedEnvironment()) {
@@ -34801,7 +35001,7 @@ async function loadAuthState(outputDir) {
   }
   try {
     const authPath = getAuthStatePath(outputDir);
-    const content = await (0, import_promises4.readFile)(authPath, "utf-8");
+    const content = await (0, import_promises5.readFile)(authPath, "utf-8");
     const stored = JSON.parse(content);
     if (!stored.metadata) {
       console.warn("\u26A0\uFE0F  Legacy auth format detected. Please re-authenticate with `ibr login`.");
@@ -34829,10 +35029,10 @@ async function loadAuthState(outputDir) {
 async function clearAuthState(outputDir) {
   const authPath = getAuthStatePath(outputDir);
   try {
-    const stats = await (0, import_promises4.stat)(authPath);
+    const stats = await (0, import_promises5.stat)(authPath);
     const randomData = (0, import_crypto.randomBytes)(stats.size);
-    await (0, import_promises4.writeFile)(authPath, randomData, { mode: 384 });
-    await (0, import_promises4.unlink)(authPath);
+    await (0, import_promises5.writeFile)(authPath, randomData, { mode: 384 });
+    await (0, import_promises5.unlink)(authPath);
     console.log("\u2705 Auth state securely cleared");
   } catch {
     console.log("\u2139\uFE0F  No auth state to clear");
@@ -34937,7 +35137,7 @@ async function captureScreenshot(options) {
     wsEndpoint,
     chromePath
   } = options;
-  await (0, import_promises5.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
+  await (0, import_promises6.mkdir)((0, import_path5.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -35013,7 +35213,7 @@ async function captureWithLandmarks(options) {
     wsEndpoint,
     chromePath
   } = options;
-  await (0, import_promises5.mkdir)((0, import_path4.dirname)(outputPath), { recursive: true });
+  await (0, import_promises6.mkdir)((0, import_path5.dirname)(outputPath), { recursive: true });
   if (outputDir && !isDeployedEnvironment()) {
     const authState = await loadAuthState(outputDir);
     if (authState) {
@@ -35071,8 +35271,8 @@ async function captureWithLandmarks(options) {
 // src/compare.ts
 init_pixelmatch();
 var import_pngjs2 = __toESM(require_png());
-var import_promises6 = require("fs/promises");
-var import_path5 = require("path");
+var import_promises7 = require("fs/promises");
+var import_path6 = require("path");
 
 // src/verdict-policy.ts
 var REVIEWED_AT = "2026-07-13";
@@ -35247,8 +35447,8 @@ async function compareImages(options) {
   } = options;
   const pixelColorThreshold = options.pixelColorThreshold ?? options.threshold ?? 0.1;
   const [baselineBuffer, currentBuffer] = await Promise.all([
-    (0, import_promises6.readFile)(baselinePath),
-    (0, import_promises6.readFile)(currentPath)
+    (0, import_promises7.readFile)(baselinePath),
+    (0, import_promises7.readFile)(currentPath)
   ]);
   const baseline = import_pngjs2.PNG.sync.read(baselineBuffer);
   const current = import_pngjs2.PNG.sync.read(currentBuffer);
@@ -35283,8 +35483,8 @@ async function compareImages(options) {
   for (let i = 0; i < totalPixels; i++) {
     if (isDiffMarker(diff.data, i * 4)) diffMask[i] = 1;
   }
-  await (0, import_promises6.mkdir)((0, import_path5.dirname)(diffPath), { recursive: true });
-  await (0, import_promises6.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
+  await (0, import_promises7.mkdir)((0, import_path6.dirname)(diffPath), { recursive: true });
+  await (0, import_promises7.writeFile)(diffPath, import_pngjs2.PNG.sync.write(diff));
   const diffPercent = diffPixels / totalPixels * 100;
   return {
     match: diffPixels === 0,
@@ -35542,8 +35742,8 @@ async function loginFlow(page, options) {
 }
 
 // src/flows/search.ts
-var import_promises9 = require("fs/promises");
-var import_path8 = require("path");
+var import_promises10 = require("fs/promises");
+var import_path9 = require("path");
 init_types();
 async function openSearchPaletteAndFindInput(page, timeoutMs = 4e3) {
   let triggerClicked;
@@ -35695,7 +35895,7 @@ async function captureStepScreenshot(page, step, artifactDir, startTime) {
   const timing = Date.now() - startTime;
   const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
   const filename = `${stepNum}-${step}.png`;
-  const path = (0, import_path8.join)(artifactDir, filename);
+  const path = (0, import_path9.join)(artifactDir, filename);
   await page.addStyleTag({
     content: `
       *, *::before, *::after {
@@ -35761,8 +35961,8 @@ async function aiSearchFlow(page, options) {
   };
   let artifactDir;
   if (captureSteps && options.sessionDir) {
-    artifactDir = (0, import_path8.join)(options.sessionDir, `search-${Date.now()}`);
-    await (0, import_promises9.mkdir)(artifactDir, { recursive: true });
+    artifactDir = (0, import_path9.join)(options.sessionDir, `search-${Date.now()}`);
+    await (0, import_promises10.mkdir)(artifactDir, { recursive: true });
   }
   try {
     if (captureSteps && artifactDir) {
@@ -35845,8 +36045,8 @@ async function aiSearchFlow(page, options) {
         timing,
         extractedResults
       };
-      await (0, import_promises9.writeFile)(
-        (0, import_path8.join)(artifactDir, "results.json"),
+      await (0, import_promises10.writeFile)(
+        (0, import_path9.join)(artifactDir, "results.json"),
         JSON.stringify(resultsData, null, 2)
       );
     }
@@ -36076,13 +36276,13 @@ function analyzeForObviousIssues(context) {
 // src/index.ts
 init_driver();
 init_compat2();
-var import_promises16 = require("fs/promises");
-var import_path20 = require("path");
+var import_promises17 = require("fs/promises");
+var import_path21 = require("path");
 var import_os3 = require("os");
 
 // src/cleanup.ts
-var import_promises10 = require("fs/promises");
-var import_path9 = require("path");
+var import_promises11 = require("fs/promises");
+var import_path10 = require("path");
 init_session();
 var DEFAULT_RETENTION = {
   maxSessions: void 0,
@@ -36091,10 +36291,10 @@ var DEFAULT_RETENTION = {
   autoClean: false
 };
 async function loadRetentionConfig(outputDir) {
-  const configPath = (0, import_path9.join)(outputDir, "..", ".ibrrc.json");
+  const configPath = (0, import_path10.join)(outputDir, "..", ".ibrrc.json");
   try {
-    await (0, import_promises10.access)(configPath);
-    const content = await (0, import_promises10.readFile)(configPath, "utf-8");
+    await (0, import_promises11.access)(configPath);
+    const content = await (0, import_promises11.readFile)(configPath, "utf-8");
     const config2 = JSON.parse(content);
     return {
       ...DEFAULT_RETENTION,
@@ -36315,36 +36515,36 @@ var import_util8 = require("util");
 
 // src/native/sim-driver.ts
 var import_child_process6 = require("child_process");
-var import_fs5 = require("fs");
-var import_promises15 = require("fs/promises");
-var import_path17 = require("path");
+var import_fs6 = require("fs");
+var import_promises16 = require("fs/promises");
+var import_path18 = require("path");
 var import_util7 = require("util");
 init_runtime_path();
 var execFileAsync5 = (0, import_util7.promisify)(import_child_process6.execFile);
 var DRIVER_NAME = "ibr-sim-driver";
-var CACHE_DIR = (0, import_path17.join)(process.cwd(), ".ibr", "bin");
-var CACHE_PATH = (0, import_path17.join)(CACHE_DIR, DRIVER_NAME);
+var CACHE_DIR = (0, import_path18.join)(process.cwd(), ".ibr", "bin");
+var CACHE_PATH = (0, import_path18.join)(CACHE_DIR, DRIVER_NAME);
 var cachedPath;
 var buildError = null;
 function existingBinaryCandidates() {
   return [
-    (0, import_path17.join)(moduleDir, "..", "bin", DRIVER_NAME),
-    (0, import_path17.join)(moduleDir, "bin", DRIVER_NAME),
-    (0, import_path17.join)(moduleDir, "..", "..", "dist", "bin", DRIVER_NAME),
+    (0, import_path18.join)(moduleDir, "..", "bin", DRIVER_NAME),
+    (0, import_path18.join)(moduleDir, "bin", DRIVER_NAME),
+    (0, import_path18.join)(moduleDir, "..", "..", "dist", "bin", DRIVER_NAME),
     CACHE_PATH
   ];
 }
 function sourceDirCandidates() {
   return [
-    (0, import_path17.join)(moduleDir, "..", "..", "mobile-ui", "sim-driver"),
-    (0, import_path17.join)(moduleDir, "..", "mobile-ui", "sim-driver")
+    (0, import_path18.join)(moduleDir, "..", "..", "mobile-ui", "sim-driver"),
+    (0, import_path18.join)(moduleDir, "..", "mobile-ui", "sim-driver")
   ];
 }
 function findExistingBinary() {
-  return existingBinaryCandidates().find((p) => (0, import_fs5.existsSync)(p)) ?? null;
+  return existingBinaryCandidates().find((p) => (0, import_fs6.existsSync)(p)) ?? null;
 }
 function findSourceDir() {
-  return sourceDirCandidates().find((p) => (0, import_fs5.existsSync)((0, import_path17.join)(p, "Package.swift"))) ?? null;
+  return sourceDirCandidates().find((p) => (0, import_fs6.existsSync)((0, import_path18.join)(p, "Package.swift"))) ?? null;
 }
 function errorMessage(err) {
   if (err && typeof err === "object") {
@@ -36383,13 +36583,13 @@ async function ensureSimDriver() {
     await execFileAsync5("swift", ["build", "--package-path", sourceDir, "-c", "release"], {
       timeout: 12e4
     });
-    const builtPath = (0, import_path17.join)(sourceDir, ".build", "release", DRIVER_NAME);
-    if (!(0, import_fs5.existsSync)(builtPath)) {
+    const builtPath = (0, import_path18.join)(sourceDir, ".build", "release", DRIVER_NAME);
+    if (!(0, import_fs6.existsSync)(builtPath)) {
       throw new Error("Swift build succeeded but binary was not created");
     }
-    await (0, import_promises15.mkdir)(CACHE_DIR, { recursive: true });
-    await (0, import_promises15.copyFile)(builtPath, CACHE_PATH);
-    await (0, import_promises15.chmod)(CACHE_PATH, 493);
+    await (0, import_promises16.mkdir)(CACHE_DIR, { recursive: true });
+    await (0, import_promises16.copyFile)(builtPath, CACHE_PATH);
+    await (0, import_promises16.chmod)(CACHE_PATH, 493);
     cachedPath = CACHE_PATH;
     return CACHE_PATH;
   } catch (err) {
@@ -36744,7 +36944,7 @@ var import_pngjs4 = __toESM(require_png());
 init_layout_fill();
 
 // src/native/session-controller.ts
-var import_path19 = require("path");
+var import_path20 = require("path");
 
 // src/mcp/sessions.ts
 var sessions = /* @__PURE__ */ new Map();
@@ -37656,8 +37856,8 @@ var RespawnBackend = class {
         };
       }
       await captureMacOSScreenshot(window2.windowId, outputPath);
-      const { readFile: readFile8 } = await import("fs/promises");
-      const buf2 = await readFile8(outputPath);
+      const { readFile: readFile9 } = await import("fs/promises");
+      const buf2 = await readFile9(outputPath);
       return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
     }
     const device = await findDevice(target.device.udid);
@@ -37671,8 +37871,8 @@ var RespawnBackend = class {
         error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
       };
     }
-    const { readFile: readFile7 } = await import("fs/promises");
-    const buf = await readFile7(capture.outputPath);
+    const { readFile: readFile8 } = await import("fs/promises");
+    const buf = await readFile8(capture.outputPath);
     return {
       kind: "simulator",
       base64: buf.toString("base64"),
@@ -37822,8 +38022,8 @@ var DaemonBackend = class {
           };
         }
         await captureMacOSScreenshot(window2.windowId, outputPath);
-        const { readFile: readFile7 } = await import("fs/promises");
-        const buf = await readFile7(outputPath);
+        const { readFile: readFile8 } = await import("fs/promises");
+        const buf = await readFile8(outputPath);
         return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
       },
       () => this.fallback.captureScreenshot(target, outputPath)
@@ -37939,8 +38139,8 @@ function getNativeBackend() {
 // src/native/preflight.ts
 var import_child_process13 = require("child_process");
 var import_util13 = require("util");
-var import_fs6 = require("fs");
-var import_path18 = require("path");
+var import_fs7 = require("fs");
+var import_path19 = require("path");
 var execFileAsync11 = (0, import_util13.promisify)(import_child_process13.execFile);
 function isMacOS(platformOverride) {
   return (platformOverride ?? process.platform) === "darwin";
@@ -37971,9 +38171,9 @@ async function macOSNativePreflight(options) {
       message: "Xcode Command Line Tools missing \u2014 `swift` not on PATH. Install with: xcode-select --install"
     };
   }
-  const extractorPath = options?.extractorBinaryPath ?? (0, import_path18.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
-  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path18.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
-  if (!(0, import_fs6.existsSync)(extractorPath) && !(0, import_fs6.existsSync)((0, import_path18.join)(swiftSourceDir, "Package.swift"))) {
+  const extractorPath = options?.extractorBinaryPath ?? (0, import_path19.join)(process.cwd(), ".ibr", "bin", "ibr-ax-extract");
+  const swiftSourceDir = options?.swiftSourceDir ?? (0, import_path19.join)(process.cwd(), "src", "native", "swift", "ibr-ax-extract");
+  if (!(0, import_fs7.existsSync)(extractorPath) && !(0, import_fs7.existsSync)((0, import_path19.join)(swiftSourceDir, "Package.swift"))) {
     return {
       ok: false,
       reason: "extractor-build-failed",
@@ -38130,7 +38330,7 @@ var NativeSessionController = class {
   async readMacOS(entry, what, limit) {
     try {
       if (what === "screenshot") {
-        const screenshotPath = (0, import_path19.join)(
+        const screenshotPath = (0, import_path20.join)(
           DEFAULT_OUTPUT_DIR,
           "native",
           "macos-sessions",
@@ -38190,7 +38390,7 @@ var NativeSessionController = class {
   async readSimulator(entry, what, limit) {
     try {
       if (what === "screenshot") {
-        const screenshotPath = (0, import_path19.join)(
+        const screenshotPath = (0, import_path20.join)(
           DEFAULT_OUTPUT_DIR,
           "native",
           "simulator-sessions",
@@ -38640,7 +38840,7 @@ async function compare(options) {
     baselinePath,
     currentPath,
     regions,
-    outputDir = (0, import_path20.join)((0, import_os3.tmpdir)(), "ibr-compare"),
+    outputDir = (0, import_path21.join)((0, import_os3.tmpdir)(), "ibr-compare"),
     viewport = "desktop",
     fullPage = true,
     waitForNetworkIdle = true,
@@ -38662,11 +38862,11 @@ async function compare(options) {
     throw new Error("Either baselinePath or url must be provided");
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
-  await (0, import_promises16.mkdir)(outputDir, { recursive: true });
+  await (0, import_promises17.mkdir)(outputDir, { recursive: true });
   const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path20.join)(outputDir, `baseline-${timestamp}.png`);
-  const actualCurrentPath = currentPath || (0, import_path20.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path20.join)(outputDir, `diff-${timestamp}.png`);
+  const actualBaselinePath = baselinePath || (0, import_path21.join)(outputDir, `baseline-${timestamp}.png`);
+  const actualCurrentPath = currentPath || (0, import_path21.join)(outputDir, `current-${timestamp}.png`);
+  const diffPath = (0, import_path21.join)(outputDir, `diff-${timestamp}.png`);
   if (url2 && !baselinePath) {
     await captureScreenshot({
       url: url2,
@@ -38698,12 +38898,12 @@ async function compare(options) {
     });
   }
   try {
-    await (0, import_promises16.access)(actualBaselinePath);
+    await (0, import_promises17.access)(actualBaselinePath);
   } catch {
     throw new Error(`Baseline image not found: ${actualBaselinePath}`);
   }
   try {
-    await (0, import_promises16.access)(actualCurrentPath);
+    await (0, import_promises17.access)(actualCurrentPath);
   } catch {
     throw new Error(`Current image not found: ${actualCurrentPath}`);
   }
@@ -39117,8 +39317,8 @@ init_schemas3();
 init_tokens();
 
 // src/native/bridge.ts
-var import_fs7 = require("fs");
-var import_path21 = require("path");
+var import_fs8 = require("fs");
+var import_path22 = require("path");
 function findSwiftFiles(dir, rootDir) {
   const SKIP_DIRS = /* @__PURE__ */ new Set([
     "node_modules",
@@ -39134,23 +39334,23 @@ function findSwiftFiles(dir, rootDir) {
   function walk(currentDir) {
     let entries;
     try {
-      entries = (0, import_fs7.readdirSync)(currentDir);
+      entries = (0, import_fs8.readdirSync)(currentDir);
     } catch {
       return;
     }
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
-      const fullPath = (0, import_path21.join)(currentDir, entry);
+      const fullPath = (0, import_path22.join)(currentDir, entry);
       let stat2;
       try {
-        stat2 = (0, import_fs7.statSync)(fullPath);
+        stat2 = (0, import_fs8.statSync)(fullPath);
       } catch {
         continue;
       }
       if (stat2.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
-        results.push((0, import_path21.relative)(rootDir, fullPath));
+        results.push((0, import_path22.relative)(rootDir, fullPath));
       }
     }
   }
@@ -39166,10 +39366,10 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   const TEXT_RE = /Text\(\s*"([^"]+)"/g;
   const VIEW_STRUCT_RE = /struct\s+(\w+)\s*:\s*(?:\w+,\s*)*View\b/g;
   for (const filePath of swiftFiles) {
-    const fullPath = (0, import_path21.join)(projectRoot, filePath);
+    const fullPath = (0, import_path22.join)(projectRoot, filePath);
     let content;
     try {
-      content = (0, import_fs7.readFileSync)(fullPath, "utf-8");
+      content = (0, import_fs8.readFileSync)(fullPath, "utf-8");
     } catch {
       continue;
     }
@@ -39252,16 +39452,16 @@ function scanSwiftSources(projectRoot, swiftFiles) {
   return matches;
 }
 var NAVGATOR_PATHS = [
-  (0, import_path21.join)(".navgator", "architecture"),
-  (0, import_path21.join)(".claude", "architecture")
+  (0, import_path22.join)(".navgator", "architecture"),
+  (0, import_path22.join)(".claude", "architecture")
   // legacy — NavGator < 0.3
 ];
 function loadNavGatorFileMap(projectRoot) {
   for (const navPath of NAVGATOR_PATHS) {
-    const fileMapPath = (0, import_path21.join)(projectRoot, navPath, "file_map.json");
-    if (!(0, import_fs7.existsSync)(fileMapPath)) continue;
+    const fileMapPath = (0, import_path22.join)(projectRoot, navPath, "file_map.json");
+    if (!(0, import_fs8.existsSync)(fileMapPath)) continue;
     try {
-      const content = (0, import_fs7.readFileSync)(fileMapPath, "utf-8");
+      const content = (0, import_fs8.readFileSync)(fileMapPath, "utf-8");
       const parsed = JSON.parse(content);
       return parsed.files || null;
     } catch {
@@ -41341,8 +41541,8 @@ ${meta3.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta3.
           }
           const page = new CompatPage(driver2);
           if (aiValidation) {
-            const artifactDir = (0, import_path22.join)(DEFAULT_OUTPUT_DIR2, "mcp-search", `${Date.now()}`);
-            (0, import_fs9.mkdirSync)(artifactDir, { recursive: true });
+            const artifactDir = (0, import_path23.join)(DEFAULT_OUTPUT_DIR2, "mcp-search", `${Date.now()}`);
+            (0, import_fs10.mkdirSync)(artifactDir, { recursive: true });
             const result2 = await aiSearchFlow(page, {
               query,
               userIntent: userIntent || `Find results related to: ${query}`,
@@ -42122,8 +42322,8 @@ async function handleAsk(args) {
   const screenshotPath = response.meta?.screenshotPath;
   if (wantScreenshot && screenshotPath) {
     try {
-      const { readFile: readFile7 } = await import("fs/promises");
-      const buf = await readFile7(screenshotPath);
+      const { readFile: readFile8 } = await import("fs/promises");
+      const buf = await readFile8(screenshotPath);
       content.unshift({
         type: "image",
         data: buf.toString("base64"),
@@ -42222,17 +42422,17 @@ async function handleListSessions() {
   );
   return textResponse(lines.join("\n"));
 }
-var REFERENCES_DIR = (0, import_path22.join)(DEFAULT_OUTPUT_DIR2, "references");
-var REFERENCES_INDEX = (0, import_path22.join)(REFERENCES_DIR, "index.json");
+var REFERENCES_DIR = (0, import_path23.join)(DEFAULT_OUTPUT_DIR2, "references");
+var REFERENCES_INDEX = (0, import_path23.join)(REFERENCES_DIR, "index.json");
 function readReferencesIndex() {
-  if (!(0, import_fs9.existsSync)(REFERENCES_INDEX)) {
+  if (!(0, import_fs10.existsSync)(REFERENCES_INDEX)) {
     return { references: [] };
   }
-  return JSON.parse((0, import_fs9.readFileSync)(REFERENCES_INDEX, "utf-8"));
+  return JSON.parse((0, import_fs10.readFileSync)(REFERENCES_INDEX, "utf-8"));
 }
 function writeReferencesIndex(index) {
-  (0, import_fs9.mkdirSync)(REFERENCES_DIR, { recursive: true });
-  (0, import_fs9.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
+  (0, import_fs10.mkdirSync)(REFERENCES_DIR, { recursive: true });
+  (0, import_fs10.writeFileSync)(REFERENCES_INDEX, JSON.stringify(index, null, 2));
 }
 async function handleScreenshot(args) {
   const url2 = args.url;
@@ -42248,9 +42448,9 @@ async function handleScreenshot(args) {
   const isExternal = !url2.includes("localhost") && !url2.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
   const timestamp = Date.now();
-  const screenshotsDir = (0, import_path22.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
-  (0, import_fs9.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path22.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const screenshotsDir = (0, import_path23.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
+  (0, import_fs10.mkdirSync)(screenshotsDir, { recursive: true });
+  const tempPath = (0, import_path23.join)(screenshotsDir, `capture-${timestamp}.png`);
   await captureScreenshot({
     url: url2,
     outputPath: tempPath,
@@ -42263,14 +42463,14 @@ async function handleScreenshot(args) {
     delay,
     pool: await getMcpBrowserPool()
   });
-  const imageBuffer = (0, import_fs9.readFileSync)(tempPath);
+  const imageBuffer = (0, import_fs10.readFileSync)(tempPath);
   const base643 = imageBuffer.toString("base64");
   const fileSize = imageBuffer.length;
   let savedPath = "not saved";
   if (saveAs) {
-    (0, import_fs9.mkdirSync)(REFERENCES_DIR, { recursive: true });
-    const refPath = (0, import_path22.join)(REFERENCES_DIR, `${saveAs}.png`);
-    (0, import_fs9.writeFileSync)(refPath, imageBuffer);
+    (0, import_fs10.mkdirSync)(REFERENCES_DIR, { recursive: true });
+    const refPath = (0, import_path23.join)(REFERENCES_DIR, `${saveAs}.png`);
+    (0, import_fs10.writeFileSync)(refPath, imageBuffer);
     savedPath = refPath;
     const index = readReferencesIndex();
     index.references = index.references.filter((r) => r.name !== saveAs);
@@ -42325,11 +42525,11 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path22.join)(REFERENCES_DIR, ref.path);
-      if (!(0, import_fs9.existsSync)(refPath)) {
+      const refPath = (0, import_path23.join)(REFERENCES_DIR, ref.path);
+      if (!(0, import_fs10.existsSync)(refPath)) {
         return errorResponse2(`Reference file missing: ${refPath}`);
       }
-      const imageBuffer = (0, import_fs9.readFileSync)(refPath);
+      const imageBuffer = (0, import_fs10.readFileSync)(refPath);
       const base643 = imageBuffer.toString("base64");
       const metadata = [
         `Reference: ${ref.name}`,
@@ -42351,9 +42551,9 @@ async function handleReferences(args) {
           `Reference "${name}" not found. Use action 'list' to see available references.`
         );
       }
-      const refPath = (0, import_path22.join)(REFERENCES_DIR, ref.path);
-      if ((0, import_fs9.existsSync)(refPath)) {
-        (0, import_fs9.unlinkSync)(refPath);
+      const refPath = (0, import_path23.join)(REFERENCES_DIR, ref.path);
+      if ((0, import_fs10.existsSync)(refPath)) {
+        (0, import_fs10.unlinkSync)(refPath);
       }
       index.references = index.references.filter((r) => r.name !== name);
       writeReferencesIndex(index);
@@ -42797,7 +42997,7 @@ async function handleBridgeToSource(args) {
   if (!projectRoot) {
     return errorResponse2("The 'project_root' parameter is required.");
   }
-  if (!(0, import_fs9.existsSync)(projectRoot)) {
+  if (!(0, import_fs10.existsSync)(projectRoot)) {
     return errorResponse2(`Project root not found: ${projectRoot}`);
   }
   const deviceQuery = args.device;
@@ -42994,32 +43194,32 @@ async function handleSimAction(args) {
 async function handleDesignSystem(args) {
   const action = args.action;
   const projectDir = args.projectDir || process.cwd();
-  const ibrDir = (0, import_path22.join)(projectDir, ".ibr");
-  const configPath = (0, import_path22.join)(ibrDir, "design-system.json");
+  const ibrDir = (0, import_path23.join)(projectDir, ".ibr");
+  const configPath = (0, import_path23.join)(ibrDir, "design-system.json");
   switch (action) {
     case "init": {
       const templateCandidates = [
-        (0, import_path22.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
-        (0, import_path22.join)(projectDir, "templates", "design-system.json"),
+        (0, import_path23.join)(projectDir, "node_modules", "interface-built-right", "templates", "design-system.json"),
+        (0, import_path23.join)(projectDir, "templates", "design-system.json"),
         // Dev: relative to this compiled file in dist/mcp/ → ../../templates/
-        (0, import_path22.join)(__dirname, "..", "..", "templates", "design-system.json")
+        (0, import_path23.join)(__dirname, "..", "..", "templates", "design-system.json")
       ];
-      const templatePath = templateCandidates.find((p) => (0, import_fs9.existsSync)(p));
+      const templatePath = templateCandidates.find((p) => (0, import_fs10.existsSync)(p));
       if (!templatePath) {
         return errorResponse2(
           "Could not find design-system template. Expected at templates/design-system.json or node_modules/interface-built-right/templates/design-system.json"
         );
       }
-      if ((0, import_fs9.existsSync)(configPath)) {
+      if ((0, import_fs10.existsSync)(configPath)) {
         return textResponse(
           `.ibr/design-system.json already exists. Delete it first if you want to reset to defaults.
 Path: ${configPath}`
         );
       }
-      if (!(0, import_fs9.existsSync)(ibrDir)) {
-        (0, import_fs9.mkdirSync)(ibrDir, { recursive: true });
+      if (!(0, import_fs10.existsSync)(ibrDir)) {
+        (0, import_fs10.mkdirSync)(ibrDir, { recursive: true });
       }
-      (0, import_fs9.copyFileSync)(templatePath, configPath);
+      (0, import_fs10.copyFileSync)(templatePath, configPath);
       return textResponse(
         `Design system config created at .ibr/design-system.json
 Edit it to add your tokens and configure principle severities.
@@ -43027,13 +43227,13 @@ Path: ${configPath}`
       );
     }
     case "status": {
-      if (!(0, import_fs9.existsSync)(configPath)) {
+      if (!(0, import_fs10.existsSync)(configPath)) {
         return textResponse(
           `No design system config found. Run design_system with action "init" to create one.
 Expected: ${configPath}`
         );
       }
-      const raw = (0, import_fs9.readFileSync)(configPath, "utf-8");
+      const raw = (0, import_fs10.readFileSync)(configPath, "utf-8");
       const config2 = JSON.parse(raw);
       return textResponse(
         `Design system config: ${configPath}
@@ -43091,7 +43291,7 @@ Expected: ${configPath}`
 }
 
 // src/native/toolchain-env.ts
-var import_fs10 = require("fs");
+var import_fs11 = require("fs");
 var TOOLCHAIN_DIRS = [
   "/usr/bin",
   "/bin",
@@ -43104,7 +43304,7 @@ function hardenPath(currentPath) {
   const existing = (currentPath ?? "").split(":").filter(Boolean);
   const have = new Set(existing);
   const additions = TOOLCHAIN_DIRS.filter(
-    (dir) => !have.has(dir) && (0, import_fs10.existsSync)(dir)
+    (dir) => !have.has(dir) && (0, import_fs11.existsSync)(dir)
   );
   return [...existing, ...additions].join(":");
 }

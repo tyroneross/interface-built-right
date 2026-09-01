@@ -509,6 +509,37 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
       };
     };
 
+
+    // Walk the element's own background-color, then each ancestor's, stopping
+    // at the first FULLY OPAQUE layer. This is what the contrast rule needs and
+    // could never get: a text element on a real page almost always computes to
+    // `rgba(0, 0, 0, 0)`, so its own backgroundColor measures nothing. Without
+    // the chain the rule had no choice but to skip the element silently.
+    //
+    // Chrome always computes background-color to `rgb(...)` or `rgba(...)`, so
+    // "opaque" is a cheap string test — no color parsing needed in-page.
+    // Compositing and the white-canvas fallback happen in
+    // src/rules/color-parse.ts (resolveEffectiveBackground), not here.
+    const collectBackgroundChain = (start: HTMLElement): { chain: string[]; image: boolean } => {
+      const chain: string[] = [];
+      let image = false;
+      let node: HTMLElement | null = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        const bg = cs.backgroundColor || '';
+        chain.push(bg);
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== 'none') image = true;
+        // rgb(...) is opaque by definition; rgba(...) is opaque only at alpha 1.
+        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        if (opaque) break;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
+
     // Process each selector
     for (const selector of selectors) {
       try {
@@ -556,6 +587,13 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               visibility: computed.visibility,
               opacity: computed.opacity,
             },
+            ...(() => {
+              const bgChain = collectBackgroundChain(htmlEl);
+              return {
+                backgroundChain: bgChain.chain,
+                ...(bgChain.image ? { backgroundImageBehind: true } : {}),
+              };
+            })(),
             interactive: {
               hasOnClick: handlers.hasAnyHandler,
               hasHref: hasValidHref,
@@ -748,6 +786,15 @@ export interface ContentElement {
     height: number;
   };
   computedStyles: Record<string, string>;
+  /**
+   * This element's own background-color followed by each ancestor's, up to and
+   * including the first fully-opaque one. Feeds
+   * `resolveEffectiveBackground` (src/rules/color-parse.ts) so text on a
+   * transparent background can actually be contrast-graded instead of skipped.
+   */
+  backgroundChain?: string[];
+  /** Some layer in `backgroundChain` paints a background-image the color math cannot see. */
+  backgroundImageBehind?: boolean;
   /** Only set for h1-h6. */
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
@@ -811,6 +858,28 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
       return path.join(' > ').slice(0, 200);
     };
 
+    // Same walk as the interactive path's collectBackgroundChain — each
+    // page.evaluate() ships its own closure across CDP, so there is no runtime
+    // module to share it from. Keep the two in sync.
+    const collectBackgroundChain = (start: HTMLElement): { chain: string[]; image: boolean } => {
+      const chain: string[] = [];
+      let image = false;
+      let node: HTMLElement | null = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        const bg = cs.backgroundColor || '';
+        chain.push(bg);
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== 'none') image = true;
+        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        if (opaque) break;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
+
     const kindFor = (tag: string): ContentElement['contentKind'] => {
       if (/^h[1-6]$/.test(tag)) return 'heading';
       if (tag === 'img') return 'image';
@@ -858,6 +927,10 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
             },
             contentKind: kind,
           };
+
+          const bgChain = collectBackgroundChain(htmlEl);
+          entry.backgroundChain = bgChain.chain;
+          if (bgChain.image) entry.backgroundImageBehind = true;
 
           if (kind === 'heading') {
             entry.headingLevel = Number(tag[1]) as ContentElement['headingLevel'];

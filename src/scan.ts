@@ -25,9 +25,10 @@ import { runSensors, type SensorReport } from './sensors/index.js';
 import { extractCssRulesAndMeta } from './sensors/css-extract.js';
 import { runAllRules, type RuleEngineResult } from './rules/index.js';
 import { summarizeScan, type ScanSummary } from './summarize.js';
-import { runRules } from './rules/engine.js';
+import { runRules, resolveRulesConfig, configHasContentRules, getActiveRules } from './rules/engine.js';
+import { contentElementsToEnhanced } from './rules/content-adapter.js';
+import { measureElementContrast } from './rules/presets/wcag-contrast.js';
 import type { RuleContext as PresetRuleContext } from './rules/types.js';
-import type { RulesConfig } from './schemas.js';
 
 
 /**
@@ -104,6 +105,31 @@ export interface ScanResult {
 
   /** Deterministic rule engine results — no LLM needed */
   ruleEngine?: RuleEngineResult[];
+
+  /**
+   * Which preset rules ran, and why they were chosen. Present on every scan so
+   * "no findings" can be read against "these checks ran" instead of being
+   * mistaken for a clean page when nothing ran at all.
+   */
+  rulesApplied?: {
+    presets: string[];
+    /** `default` = built-in defaults, `config` = .ibr/rules.json, `flag` = --rules, `opt-out` = --rules none. */
+    source: 'opt-out' | 'flag' | 'config' | 'default';
+    /** Headings/paragraphs/captions/quotes fed through the text rules. */
+    gradedContentElements: number;
+  };
+
+  /**
+   * Text-contrast measurement accounting. Present only when a contrast rule was
+   * active.
+   *
+   * WHY THIS EXISTS: the contrast rule used to return null for any text on a
+   * transparent background, which is nearly all text on a real page. It
+   * reported zero findings because it measured nothing, and nothing in the
+   * output could tell those two states apart. `measured` is the number that
+   * makes a clean report trustworthy.
+   */
+  contrastCoverage?: ContrastCoverage;
 
   /**
    * Results of caller-supplied DOM probes, keyed by the name given in
@@ -293,6 +319,12 @@ export interface ScanOptions extends BrowserLaunchOptions {
    * absent from the result (not present-and-undefined).
    */
   content?: boolean;
+
+  /**
+   * Directory searched for `.ibr/rules.json` when resolving which rule presets
+   * to run. Defaults to `process.cwd()`.
+   */
+  projectDir?: string;
 }
 
 /**
@@ -570,9 +602,6 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       options.outputDir || process.cwd()
     );
 
-    const verdict = determineVerdict(issues);
-    const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
-
     // Extract live CSS rules + document meta for the typography, breakpoints,
     // motion, hierarchy, and interaction-states sensors. Best-effort — on
     // failure (e.g. browser detach), sensors degrade to empty results.
@@ -609,11 +638,57 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     };
     const ruleEngine = runAllRules(elements.all, ruleContext);
 
-    // Run preset rule engine if --rules flag was provided
-    if (rulePresets && rulePresets.length > 0) {
-      // Build in-memory config equivalent to .ibr/rules.json { extends: [...], rules: {} }
-      const presetConfig: RulesConfig = { extends: rulePresets, rules: {} };
-      const presetViolations = runRules(elements.all, ruleContext as PresetRuleContext, presetConfig);
+    // Decide the preset rule set BEFORE extracting content, so a run that
+    // grades no content never pays for the extra page.evaluate.
+    //
+    // `--rules` beats `.ibr/rules.json` beats DEFAULT_RULE_PRESETS. Passing
+    // `--rules none` runs nothing. Before this, presets ran ONLY when --rules
+    // was passed, so a bare scan graded no contrast and no touch targets and
+    // still printed a verdict.
+    const resolvedRules = await resolveRulesConfig(options.projectDir ?? process.cwd(), rulePresets);
+    const activeRuleIds = new Set(getActiveRules(resolvedRules.config).map((r) => r.id));
+    const gradesContent = configHasContentRules(resolvedRules.config);
+
+    // CONTENT extraction (headings/paragraphs/images with real bounds) +
+    // <head> metadata. Runs when the caller asked for it OR when a rule will
+    // actually grade page content — body copy and headings are where most
+    // readability defects live, and they were never reaching the rule engine.
+    // Best-effort like cssExtract above: a broken extraction must not take
+    // down the scan that requested it.
+    let contentResult: { elements: ContentElement[] } | undefined;
+    let metadataResult: PageMetadata | undefined;
+    let contentElements: ContentElement[] = [];
+    if (options.content || gradesContent) {
+      try {
+        const [extractedContent, pageMetadata] = await Promise.all([
+          extractContentElements(page),
+          extractPageMetadata(page),
+        ]);
+        contentElements = extractedContent;
+        // `content`/`metadata` stay ABSENT from the result unless the caller
+        // asked, so a default scan pays no extra output tokens for elements it
+        // only needed internally.
+        if (options.content) {
+          contentResult = { elements: extractedContent };
+          metadataResult = pageMetadata;
+        }
+      } catch {
+        contentElements = [];
+        contentResult = undefined;
+        metadataResult = undefined;
+      }
+    }
+
+    // Adapt content into the rule engine's element shape. The `surface` option
+    // is what keeps touch-target and handler-integrity rules off paragraphs:
+    // only rules declaring `appliesTo: 'any' | 'text'` run on this pass.
+    const contentAsElements = gradesContent ? contentElementsToEnhanced(contentElements) : [];
+
+    if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
+      const presetViolations = [
+        ...runRules(elements.all, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'interactive' }),
+        ...runRules(contentAsElements, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'content' }),
+      ];
       // Inject preset violations into issues so they appear in the standard output
       for (const v of presetViolations) {
         issues.push({
@@ -625,6 +700,19 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
         });
       }
     }
+
+    // How much text was actually GRADED. Zero findings and zero measurements
+    // are different outcomes and used to be indistinguishable — that ambiguity
+    // is what let a contrast rule that measured nothing read as a clean page.
+    const contrastCoverage = activeRuleIds.has('wcag-aa-contrast') || activeRuleIds.has('wcag-aaa-contrast')
+      ? summarizeContrastCoverage([...elements.all, ...contentAsElements])
+      : undefined;
+
+    // Verdict is computed HERE, after every violation has been aggregated into
+    // `issues`. It used to be computed before the preset violations were
+    // injected, so a scan could print a contrast ERROR and still report PASS.
+    const verdict = determineVerdict(issues);
+    const summary = generateSummary(elements, interactivity, semantic, issues, consoleErrors);
 
     // Generate condensed summaries
     const summaries = summarizeScan(elements.all, url);
@@ -645,27 +733,6 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       }
     }
 
-    // Opt-in CONTENT extraction (headings/paragraphs/images with real
-    // bounds) + <head> metadata. Off by default — a plain scan() call pays
-    // nothing extra. Best-effort like cssExtract above: a broken extraction
-    // must not take down the scan that requested it, so on failure both
-    // fields simply stay absent even though `content` was true.
-    let contentResult: { elements: ContentElement[] } | undefined;
-    let metadataResult: PageMetadata | undefined;
-    if (options.content) {
-      try {
-        const [contentElements, pageMetadata] = await Promise.all([
-          extractContentElements(page),
-          extractPageMetadata(page),
-        ]);
-        contentResult = { elements: contentElements };
-        metadataResult = pageMetadata;
-      } catch {
-        contentResult = undefined;
-        metadataResult = undefined;
-      }
-    }
-
     const baseResult = {
       url,
       route,
@@ -676,6 +743,12 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       semantic,
       sensors,
       ruleEngine,
+      rulesApplied: {
+        presets: resolvedRules.presets,
+        source: resolvedRules.source,
+        gradedContentElements: contentAsElements.length,
+      },
+      ...(contrastCoverage ? { contrastCoverage } : {}),
       summaries,
       probes: probeResults,
       console: {
@@ -871,6 +944,73 @@ export async function applyDesignSystemCheck(
 }
 
 /**
+ * Text-contrast measurement accounting for one scan.
+ *
+ * Every text-bearing element lands in exactly one bucket, so `measured +
+ * assumedWhiteBackground` is the count a reader can trust a clean contrast
+ * report against, and `unmeasurable` is the count that still needs a human.
+ */
+export interface ContrastCoverage {
+  /** Elements considered (interactive + content), before text filtering. */
+  candidates: number;
+  /** Graded against a background that was actually found in the DOM. */
+  measured: number;
+  /** Graded, but no opaque background existed anywhere up the tree — white was assumed. */
+  assumedWhiteBackground: number;
+  /** A color in the stack could not be decoded. Each one also emits a warn-level finding. */
+  unmeasurable: number;
+  /** `color: transparent` or alpha 0 — the text is not painted, so there is nothing to grade. */
+  invisibleText: number;
+  /** No rendered text. */
+  noText: number;
+  /** No computed styles were captured (extraction gap, not a page problem). */
+  noStyles: number;
+}
+
+/**
+ * Tally what the contrast rules were actually able to look at.
+ *
+ * Uses the SAME `measureElementContrast` the rules use, so the accounting
+ * cannot drift from the grading — a second implementation here would be able
+ * to claim coverage the rules never had.
+ */
+export function summarizeContrastCoverage(elements: EnhancedElement[]): ContrastCoverage {
+  const coverage: ContrastCoverage = {
+    candidates: elements.length,
+    measured: 0,
+    assumedWhiteBackground: 0,
+    unmeasurable: 0,
+    invisibleText: 0,
+    noText: 0,
+    noStyles: 0,
+  };
+
+  for (const element of elements) {
+    const m = measureElementContrast(element);
+    switch (m.status) {
+      case 'measured':
+        if (m.backgroundResolved) coverage.measured++;
+        else coverage.assumedWhiteBackground++;
+        break;
+      case 'unmeasurable':
+        coverage.unmeasurable++;
+        break;
+      case 'invisible':
+        coverage.invisibleText++;
+        break;
+      case 'no-text':
+        coverage.noText++;
+        break;
+      case 'no-styles':
+        coverage.noStyles++;
+        break;
+    }
+  }
+
+  return coverage;
+}
+
+/**
  * Determine overall verdict from issues.
  * Exported for use by LiveSession.scanPage().
  */
@@ -1032,6 +1172,36 @@ export function formatScanResult(result: ScanResult): string {
   lines.push(`  Without handlers:   ${result.elements.audit.withoutHandlers}`);
   lines.push('');
 
+  // What actually ran, and how much it measured. Printed unconditionally: "no
+  // issues" is only trustworthy next to the count of things that were checked.
+  if (result.rulesApplied) {
+    const { presets, source, gradedContentElements } = result.rulesApplied;
+    lines.push('  CHECKS');
+    lines.push('  ──────');
+    lines.push(
+      presets.length > 0
+        ? `  Rules:              ${presets.join(', ')} (${source})`
+        : `  Rules:              \x1b[33mnone — no preset rules ran (${source})\x1b[0m`,
+    );
+    if (gradedContentElements > 0) {
+      lines.push(`  Content graded:     ${gradedContentElements} headings/paragraphs`);
+    }
+    const cc = result.contrastCoverage;
+    if (cc) {
+      lines.push(`  Text measured:      ${cc.measured + cc.assumedWhiteBackground}`);
+      if (cc.assumedWhiteBackground > 0) {
+        lines.push(`    of which assumed white page background: ${cc.assumedWhiteBackground}`);
+      }
+      if (cc.unmeasurable > 0) {
+        lines.push(`  \x1b[33mNot measurable:     ${cc.unmeasurable} (color format could not be decoded)\x1b[0m`);
+      }
+      if (cc.measured + cc.assumedWhiteBackground === 0) {
+        lines.push('  \x1b[33m!\x1b[0m No text was measured — a clean contrast result here means nothing.');
+      }
+    }
+    lines.push('');
+  }
+
   // Interactivity breakdown
   const { buttons, links, forms } = result.interactivity;
   lines.push('  INTERACTIVITY');
@@ -1078,11 +1248,14 @@ export function formatScanResult(result: ScanResult): string {
     lines.push('');
   }
 
-  // Issues
+  // Issues, ranked so the user-impacting ones read first. Nothing is dropped —
+  // ordering is the answer to volume, not suppression.
   if (result.issues.length > 0) {
+    const rank = { error: 0, warning: 1, info: 2 } as const;
+    const ranked = [...result.issues].sort((a, b) => rank[a.severity] - rank[b.severity]);
     lines.push('  ISSUES');
     lines.push('  ──────');
-    for (const issue of result.issues) {
+    for (const issue of ranked) {
       const icon = issue.severity === 'error' ? '\x1b[31m✗\x1b[0m' :
                    issue.severity === 'warning' ? '\x1b[33m!\x1b[0m' : 'ℹ';
       lines.push(`  ${icon} [${issue.category}] ${issue.description}`);

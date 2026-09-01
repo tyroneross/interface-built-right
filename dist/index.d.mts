@@ -1646,6 +1646,8 @@ declare const EnhancedElementSchema: z.ZodObject<{
         height: z.ZodNumber;
     }, z.core.$strip>;
     computedStyles: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
+    backgroundChain: z.ZodOptional<z.ZodArray<z.ZodString>>;
+    backgroundImageBehind: z.ZodOptional<z.ZodBoolean>;
     interactive: z.ZodObject<{
         hasOnClick: z.ZodBoolean;
         hasHref: z.ZodBoolean;
@@ -4932,12 +4934,28 @@ interface RuleContext {
     url: string;
     allElements: EnhancedElement[];
 }
+/**
+ * Which element surface a rule is valid on.
+ *
+ * `interactive` (the default when omitted) is the historical behavior: the rule
+ * only ever sees controls. Touch-target sizing and handler-integrity rules MUST
+ * stay here — grading a paragraph as an undersized tap target is nonsense.
+ *
+ * `any` opts a rule into the content surface too (headings, paragraphs,
+ * captions, quotes). Text contrast belongs here: readability failures live in
+ * body copy at least as often as in buttons, and body copy was never graded.
+ *
+ * `text` is content-only, for rules that make no sense on a control.
+ */
+type RuleSurface = 'interactive' | 'text' | 'any';
 /** A rule that can evaluate one scanned element. */
 interface Rule {
     id: string;
     name: string;
     description: string;
     defaultSeverity: 'warn' | 'error';
+    /** Defaults to `'interactive'` when omitted, preserving pre-existing rule scope. */
+    appliesTo?: RuleSurface;
     check: (element: EnhancedElement, context: RuleContext, options?: Record<string, unknown>) => Violation | null;
 }
 /** A named collection of rules with default settings. */
@@ -5440,6 +5458,15 @@ interface ContentElement {
         height: number;
     };
     computedStyles: Record<string, string>;
+    /**
+     * This element's own background-color followed by each ancestor's, up to and
+     * including the first fully-opaque one. Feeds
+     * `resolveEffectiveBackground` (src/rules/color-parse.ts) so text on a
+     * transparent background can actually be contrast-graded instead of skipped.
+     */
+    backgroundChain?: string[];
+    /** Some layer in `backgroundChain` paints a background-image the color math cannot see. */
+    backgroundImageBehind?: boolean;
     /** Only set for h1-h6. */
     headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
     contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
@@ -5907,6 +5934,29 @@ interface ScanResult {
     /** Deterministic rule engine results — no LLM needed */
     ruleEngine?: RuleEngineResult[];
     /**
+     * Which preset rules ran, and why they were chosen. Present on every scan so
+     * "no findings" can be read against "these checks ran" instead of being
+     * mistaken for a clean page when nothing ran at all.
+     */
+    rulesApplied?: {
+        presets: string[];
+        /** `default` = built-in defaults, `config` = .ibr/rules.json, `flag` = --rules, `opt-out` = --rules none. */
+        source: 'opt-out' | 'flag' | 'config' | 'default';
+        /** Headings/paragraphs/captions/quotes fed through the text rules. */
+        gradedContentElements: number;
+    };
+    /**
+     * Text-contrast measurement accounting. Present only when a contrast rule was
+     * active.
+     *
+     * WHY THIS EXISTS: the contrast rule used to return null for any text on a
+     * transparent background, which is nearly all text on a real page. It
+     * reported zero findings because it measured nothing, and nothing in the
+     * output could tell those two states apart. `measured` is the number that
+     * makes a clean report trustworthy.
+     */
+    contrastCoverage?: ContrastCoverage;
+    /**
      * Results of caller-supplied DOM probes, keyed by the name given in
      * `ScanOptions.probes`. A probe that threw is absent from this map rather
      * than present-and-null, so a caller can tell "did not run" from "returned
@@ -6002,6 +6052,11 @@ interface ScanOptions extends BrowserLaunchOptions {
      * absent from the result (not present-and-undefined).
      */
     content?: boolean;
+    /**
+     * Directory searched for `.ibr/rules.json` when resolving which rule presets
+     * to run. Defaults to `process.cwd()`.
+     */
+    projectDir?: string;
 }
 /**
  * Run a comprehensive UI scan on a URL.
@@ -6021,6 +6076,29 @@ declare function scan(url: string, options?: ScanOptions): Promise<ScanResult>;
  * Mutates the issues array by pushing design-system category issues.
  */
 declare function applyDesignSystemCheck(elements: EnhancedElement[], issues: ScanIssue[], viewport: Viewport, url: string, outputDir: string): Promise<DesignSystemResult | undefined>;
+/**
+ * Text-contrast measurement accounting for one scan.
+ *
+ * Every text-bearing element lands in exactly one bucket, so `measured +
+ * assumedWhiteBackground` is the count a reader can trust a clean contrast
+ * report against, and `unmeasurable` is the count that still needs a human.
+ */
+interface ContrastCoverage {
+    /** Elements considered (interactive + content), before text filtering. */
+    candidates: number;
+    /** Graded against a background that was actually found in the DOM. */
+    measured: number;
+    /** Graded, but no opaque background existed anywhere up the tree — white was assumed. */
+    assumedWhiteBackground: number;
+    /** A color in the stack could not be decoded. Each one also emits a warn-level finding. */
+    unmeasurable: number;
+    /** `color: transparent` or alpha 0 — the text is not painted, so there is nothing to grade. */
+    invisibleText: number;
+    /** No rendered text. */
+    noText: number;
+    /** No computed styles were captured (extraction gap, not a page problem). */
+    noStyles: number;
+}
 /**
  * Format scan result for console output
  */
