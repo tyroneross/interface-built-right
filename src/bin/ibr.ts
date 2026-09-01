@@ -2012,6 +2012,49 @@ program
     }
   });
 
+// Session select command
+program
+  .command('session:select <sessionId> <selector> <option>')
+  .description('Choose an option in a <select> (native selects cannot be clicked)')
+  .option('--by <strategy>', 'Match by: auto, value, label, or index', 'auto')
+  .action(async (sessionId: string, selector: string, option: string, options: { by: string }) => {
+    const globalOpts = program.opts();
+    const outputDir = globalOpts.output || './.ibr';
+    const opId = await registerOperation(outputDir, {
+      type: 'select',
+      sessionId,
+      command: `session:select ${sessionId} "${selector}" "${option}"`,
+    });
+
+    try {
+      const by = options.by as 'auto' | 'value' | 'label' | 'index';
+      if (!['auto', 'value', 'label', 'index'].includes(by)) {
+        throw new Error(`--by must be auto, value, label, or index (got "${options.by}")`);
+      }
+
+      const session = await getSession(outputDir, sessionId);
+      setActiveSession(session);
+
+      const chosen = await session.select(selector, option, { by });
+      console.log(`Selected: ${chosen.join(', ')} in: ${selector}`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      console.error('Error:', msg);
+      console.log('');
+      if (msg.includes('Not a <select>')) {
+        console.log('Tip: session:select only drives native <select> elements.');
+        console.log('     For a custom dropdown, session:click the trigger then the option.');
+      } else if (msg.includes('No option matched')) {
+        console.log('Tip: the available options are listed above. Match is by value then');
+        console.log('     visible label; use --by label or --by index to be explicit.');
+      } else {
+        console.log('Tip: Session is still active. Use session:html to inspect the DOM.');
+      }
+    } finally {
+      await completeOperation(outputDir, opId);
+    }
+  });
+
 // Session type command
 program
   .command('session:type <sessionId> <selector> <text>')

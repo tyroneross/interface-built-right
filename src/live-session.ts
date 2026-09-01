@@ -76,7 +76,7 @@ export interface ActionDiff {
  * Recorded action for reproducibility
  */
 export interface ActionRecord {
-  type: 'navigate' | 'click' | 'type' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait' | 'capture' | 'scan';
+  type: 'navigate' | 'click' | 'type' | 'select' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait' | 'capture' | 'scan';
   timestamp: string;
   params: Record<string, unknown>;
   success: boolean;

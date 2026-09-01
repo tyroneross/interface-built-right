@@ -221,6 +221,61 @@ export class CompatLocator {
     }
   }
 
+  /**
+   * Choose an option in a <select>, returning the values that ended up selected.
+   *
+   * A native select cannot be driven by click: its option list is painted by the
+   * OS rather than the page, so there is no option node in the DOM to click. The
+   * value is set directly and input+change are dispatched, matching `fill`, so
+   * React and other frameworks observe the change through their normal path.
+   */
+  async selectOption(
+    spec: { value?: string; label?: string; index?: number },
+    _options?: { timeout?: number },
+  ): Promise<string[]> {
+    await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout })
+    const result = await this.driver.runtimeDomain.callFunctionOn(
+      `(sel, spec) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        if (el.tagName.toLowerCase() !== 'select') {
+          throw new Error('Not a <select>: ' + sel + ' is <' + el.tagName.toLowerCase() + '>');
+        }
+        const opts = Array.from(el.options);
+        let match = -1;
+        if (typeof spec.index === 'number') {
+          match = spec.index;
+        } else if (spec.value !== undefined) {
+          match = opts.findIndex((o) => o.value === spec.value);
+        } else if (spec.label !== undefined) {
+          // Exact label first, then trimmed text, so a caller can pass what they see.
+          match = opts.findIndex((o) => o.label === spec.label);
+          if (match === -1) match = opts.findIndex((o) => o.text.trim() === String(spec.label).trim());
+        }
+        if (match < 0 || match >= opts.length) return [];
+        el.selectedIndex = match;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return [el.value];
+      }`,
+      [this.selector, spec],
+    )
+    return (Array.isArray(result) ? result : []) as string[]
+  }
+
+  /** Every option on the target select, as "value (label)", for error messages. */
+  async listOptions(): Promise<string[]> {
+    const result = await this.driver.runtimeDomain.callFunctionOn(
+      `(sel) => {
+        const el = document.querySelector(sel);
+        if (!el || el.tagName.toLowerCase() !== 'select') return [];
+        return Array.from(el.options).map((o) => o.value + ' (' + o.text.trim() + ')');
+      }`,
+      [this.selector],
+    )
+    return (Array.isArray(result) ? result : []) as string[]
+  }
+
   async waitFor(options?: { state?: string; timeout?: number }): Promise<void> {
     const timeout = options?.timeout ?? 30000
     const deadline = Date.now() + timeout

@@ -7,7 +7,7 @@ const OPERATION_PREFIX = 'op_';
 /**
  * Pending operation types
  */
-export type OperationType = 'screenshot' | 'type' | 'click' | 'navigate' | 'evaluate' | 'fill' | 'hover' | 'wait';
+export type OperationType = 'screenshot' | 'type' | 'select' | 'click' | 'navigate' | 'evaluate' | 'fill' | 'hover' | 'wait';
 
 /**
  * A pending operation that's currently running

@@ -80,7 +80,7 @@ export interface StepCapture {
  * Action record for session history
  */
 export interface ActionRecord {
-  type: 'navigate' | 'click' | 'type' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait' | 'capture' | 'scan';
+  type: 'navigate' | 'click' | 'type' | 'select' | 'fill' | 'hover' | 'evaluate' | 'screenshot' | 'wait' | 'capture' | 'scan';
   timestamp: string;
   params: Record<string, unknown>;
   success: boolean;
@@ -684,6 +684,74 @@ export class PersistentSession {
         type: 'click',
         timestamp: new Date().toISOString(),
         params: { selector },
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+        duration: Date.now() - start,
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Choose an option in a <select>.
+   *
+   * A native select cannot be driven by click: its option list is painted by the
+   * OS rather than the page, so there is no option node in the DOM to click. That
+   * is why click and press both fail on one and this command exists.
+   *
+   * `by` picks the matching strategy. Default 'auto' tries value then label,
+   * because a caller usually knows what the option SAYS, not what its value
+   * attribute is.
+   */
+  async select(
+    selector: string,
+    option: string,
+    options?: { timeout?: number; by?: 'auto' | 'value' | 'label' | 'index' },
+  ): Promise<string[]> {
+    const start = Date.now();
+    const timeout = options?.timeout || 5000;
+    const by = options?.by || 'auto';
+
+    try {
+      const locator = this.page.locator(selector).filter({ visible: true }).first();
+
+      let chosen: string[] = [];
+      if (by === 'index') {
+        const index = Number.parseInt(option, 10);
+        if (!Number.isInteger(index)) throw new Error(`--by index needs a number, got "${option}"`);
+        chosen = await locator.selectOption({ index }, { timeout });
+      } else if (by === 'value') {
+        chosen = await locator.selectOption({ value: option }, { timeout });
+      } else if (by === 'label') {
+        chosen = await locator.selectOption({ label: option }, { timeout });
+      } else {
+        chosen = await locator.selectOption({ value: option }, { timeout });
+        if (chosen.length === 0) {
+          chosen = await locator.selectOption({ label: option }, { timeout });
+        }
+      }
+
+      if (chosen.length === 0) {
+        const available = await locator.listOptions();
+        throw new Error(
+          `No option matched "${option}" on ${selector}. ` +
+          `Available: ${available.join(', ') || '(none)'}`,
+        );
+      }
+
+      await this.recordAction({
+        type: 'select',
+        timestamp: new Date().toISOString(),
+        params: { selector, option, by },
+        success: true,
+        duration: Date.now() - start,
+      });
+      return chosen;
+    } catch (error) {
+      await this.recordAction({
+        type: 'select',
+        timestamp: new Date().toISOString(),
+        params: { selector, option, by },
         success: false,
         error: error instanceof Error ? error.message : String(error),
         duration: Date.now() - start,
