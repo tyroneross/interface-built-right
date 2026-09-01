@@ -386,8 +386,11 @@ export class EngineDriver implements BrowserDriver {
   // ─── Lifecycle ──────────────────────────────────────────
 
   async launch(options: LaunchOptions = {}): Promise<void> {
+    const progress = options.onProgress ?? (() => {})
     const wsUrl = await this.browser.launch(options)
+    progress('opening CDP websocket')
     await this.conn.connect(wsUrl)
+    progress('CDP websocket open')
     this.target = new TargetDomain(this.conn)
     this.launched = true
 
@@ -395,6 +398,7 @@ export class EngineDriver implements BrowserDriver {
     this.targetId = await this.target.createPage('about:blank')
     this.ownsTarget = true
     this.sessionId = await this.target.attach(this.targetId)
+    progress('page target attached')
 
     // Initialize domains with session
     this._page = new PageDomain(this.conn, this.sessionId)
@@ -409,6 +413,7 @@ export class EngineDriver implements BrowserDriver {
     this.console = new ConsoleDomain(this.conn, this.sessionId)
 
     // Enable required domains
+    progress('enabling CDP domains')
     await this._page.enableLifecycleEvents()
     await this.ax.enable()
     await this.console.enable()

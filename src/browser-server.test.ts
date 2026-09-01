@@ -71,7 +71,12 @@ describe('PersistentSession safe reattachment', () => {
       actions: [],
     }));
 
+    // `ok`/`status` are required, not decoration: the manifest is only trusted
+    // when the CDP endpoint answers with a real 200. A stub without them reads
+    // — correctly — as a browser server that is not there.
     vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      status: 200,
       json: async () => ({ webSocketDebuggerUrl: 'ws://127.0.0.1/browser' }),
     })));
   });

@@ -9,6 +9,7 @@
 
 import { spawn, execFile, type ChildProcess } from 'child_process'
 import { promisify } from 'util'
+import { CDP_PROBE_TIMEOUT_MS, fetchWithTimeout } from '../net-timeout.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -97,7 +98,12 @@ export class SafariSession {
 
     while (Date.now() < deadline) {
       try {
-        const res = await fetch(url)
+        // Per-probe deadline: without it one silent socket blocks the whole
+        // loop and READY_TIMEOUT_MS never gets a chance to fire.
+        const res = await fetchWithTimeout(url, {
+          timeoutMs: CDP_PROBE_TIMEOUT_MS,
+          waitingOn: `safaridriver status ${url}`,
+        })
         if (res.ok) return
       } catch {
         // Not ready yet

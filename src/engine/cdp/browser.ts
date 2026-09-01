@@ -9,6 +9,12 @@ import { mkdir } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir, hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  BROWSER_SPAWN_TIMEOUT_MS,
+  CDP_PROBE_TIMEOUT_MS,
+  ConnectTimeoutError,
+  fetchWithTimeout,
+} from '../net-timeout.js'
 
 export const CHROME_PATHS = [
   // macOS
@@ -58,6 +64,12 @@ export interface BrowserOptions extends BrowserConnectionOptions {
    * Default: false
    */
   normalize?: boolean
+  /**
+   * Called with each spawn step ('finding chrome', 'spawned pid 123', ...).
+   * A spawn that fails silently is unusable; this makes every stage visible
+   * without turning on a debugger.
+   */
+  onProgress?: (step: string) => void
 }
 
 function randomPort(): number {
@@ -90,7 +102,10 @@ function checkPortFree(port: number): Promise<boolean> {
 }
 
 async function resolveWsEndpoint(cdpUrl: string): Promise<string> {
-  const res = await fetch(`${cdpUrl}/json/version`)
+  const res = await fetchWithTimeout(`${cdpUrl}/json/version`, {
+    timeoutMs: CDP_PROBE_TIMEOUT_MS,
+    waitingOn: `CDP version probe ${cdpUrl}/json/version`,
+  })
   if (!res.ok) {
     throw new Error(`CDP endpoint did not respond: ${cdpUrl}`)
   }
@@ -207,6 +222,10 @@ export class BrowserManager {
   private _wsEndpoint: string | null = null
   /** Set only when this browser owns a throwaway profile it must delete on close. */
   private _ephemeralProfileDir: string | null = null
+  /** Tail of Chrome's stderr, so a spawn failure can say why Chrome refused. */
+  private _stderrTail = ''
+  /** Set once the child exits, so waitForDebugger stops polling a dead process. */
+  private _exit: { code: number | null; signal: NodeJS.Signals | null } | null = null
 
   async launch(options: BrowserOptions = {}): Promise<string> {
     const connection = resolveBrowserConnectionOptions(options)
@@ -232,8 +251,11 @@ export class BrowserManager {
       )
     }
 
+    const progress = options.onProgress ?? (() => {})
     const headless = options.headless ?? true
+    progress('selecting debugging port')
     this._port = options.port ?? await findFreePort()
+    progress(`debugging port ${this._port}`)
     let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
 
     // Chrome creates `SingletonLock` as a SYMLINK whose target is `<hostname>-<pid>`.
@@ -266,8 +288,10 @@ export class BrowserManager {
     // not evidence of abandonment — a long scan legitimately holds a profile
     // for hours — so a directory is removed only when no running Chrome still
     // names it AND it is past the grace window.
+    progress('reaping orphaned profiles')
     reapOrphanedProfiles()
 
+    progress('locating chrome binary')
     const chromePath = connection.chromePath ?? findChrome()
     if (!chromePath) {
       throw new Error(
@@ -295,35 +319,98 @@ export class BrowserManager {
       args.push('--force-device-scale-factor=1') // prevent HiDPI scaling differences
     }
 
+    progress(`spawning ${chromePath} (profile ${userDataDir})`)
+    this._stderrTail = ''
+    this._exit = null
     this.process = spawn(chromePath, args, { stdio: 'pipe' })
 
     this.process.on('error', (err) => {
       console.error(`Chrome process error: ${err.message}`)
     })
+    // Chrome explains its own refusals on stderr ("Failed to create a
+    // ProcessSingleton", a missing library, a bad flag). Without capturing it
+    // a spawn failure could only report "did not respond", which names the
+    // symptom and hides the cause.
+    this.process.stderr?.on('data', (chunk: Buffer) => {
+      this._stderrTail = (this._stderrTail + chunk.toString()).slice(-2000)
+    })
+    this.process.on('exit', (code, signal) => {
+      this._exit = { code, signal }
+    })
+    progress(`spawned chrome pid ${this.process.pid ?? 'unknown'}`)
 
-    const wsUrl = await this.waitForDebugger()
+    const wsUrl = await this.waitForDebugger(progress)
+    progress('debugger answered')
     this._cdpUrl = `http://127.0.0.1:${this._port}`
     this._wsEndpoint = wsUrl
     return wsUrl
   }
 
-  private async waitForDebugger(): Promise<string> {
-    const maxAttempts = 50 // 5 seconds at 100ms intervals
-    for (let i = 0; i < maxAttempts; i++) {
-      try {
-        const res = await fetch(`http://127.0.0.1:${this._port}/json/version`)
-        const data = (await res.json()) as { webSocketDebuggerUrl: string }
-        return data.webSocketDebuggerUrl
-      } catch {
-        await new Promise((r) => setTimeout(r, 100))
+  /**
+   * Poll the freshly spawned Chrome until its debugger answers.
+   *
+   * This used to be `for (i < 50) { await fetch(...) }` with a comment claiming
+   * "5 seconds at 100ms intervals". It was not 5 seconds and it was not
+   * bounded: `fetch()` has no default deadline, so ONE attempt against a port
+   * that is listening but silent blocks the whole loop forever. That is the
+   * shape of the reported hang — no output, no error, no timeout of its own.
+   *
+   * Now: a wall-clock deadline governs the loop, each probe carries its own
+   * short timeout, and an exited child ends the wait immediately instead of
+   * polling a process that is never coming back.
+   */
+  private async waitForDebugger(
+    onProgress: (step: string) => void = () => {},
+    timeoutMs = BROWSER_SPAWN_TIMEOUT_MS,
+  ): Promise<string> {
+    const url = `http://127.0.0.1:${this._port}/json/version`
+    const started = Date.now()
+    const deadline = started + timeoutMs
+    let attempts = 0
+    let lastError = 'no response yet'
+
+    while (Date.now() < deadline) {
+      // A child that already exited cannot start answering later.
+      if (this._exit) {
+        throw new Error(
+          `Chrome exited before its debugger came up (code ${this._exit.code}, `
+          + `signal ${this._exit.signal}) after ${Date.now() - started}ms on port `
+          + `${this._port}.${this.stderrHint()}`,
+        )
       }
+      attempts++
+      try {
+        const remaining = deadline - Date.now()
+        const res = await fetchWithTimeout(url, {
+          timeoutMs: Math.max(250, Math.min(CDP_PROBE_TIMEOUT_MS, remaining)),
+          waitingOn: `Chrome debugger ${url}`,
+        })
+        const data = (await res.json()) as { webSocketDebuggerUrl: string }
+        if (data.webSocketDebuggerUrl) return data.webSocketDebuggerUrl
+        lastError = 'endpoint answered without a webSocketDebuggerUrl'
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err)
+        if (attempts === 1 || attempts % 10 === 0) {
+          onProgress(`waiting for debugger on port ${this._port} (attempt ${attempts}: ${lastError})`)
+        }
+      }
+      await new Promise((r) => setTimeout(r, 100))
     }
-    throw new Error(
-      `Chrome debugger did not respond within 5s on port ${this._port}. `
-      + 'Is another Chrome instance using this port?\n'
-      + 'If you are running inside a sandbox, retry with connect mode:\n'
-      + '  --browser-mode connect --cdp-url http://127.0.0.1:9222'
+
+    const elapsed = Date.now() - started
+    throw new ConnectTimeoutError(
+      `Chrome debugger ${url} — ${attempts} probes over ${elapsed}ms, last: ${lastError}.`
+      + this.stderrHint()
+      + '\nIs another process holding this port? If you are running inside a sandbox, '
+      + 'retry with connect mode:\n  --browser-mode connect --cdp-url http://127.0.0.1:9222',
+      timeoutMs,
+      elapsed,
     )
+  }
+
+  private stderrHint(): string {
+    const tail = this._stderrTail.trim()
+    return tail ? `\nChrome stderr (tail):\n${tail}` : ''
   }
 
   async close(): Promise<void> {

@@ -3,6 +3,15 @@
  * Uses Node.js built-in fetch (Node 18+).
  */
 
+import { fetchWithTimeout } from '../net-timeout.js'
+
+/**
+ * WebDriver commands drive a real browser, so they are slower than a liveness
+ * probe — but still bounded. An unbounded `fetch()` against a safaridriver that
+ * wedged leaves the CLI with no output and no error.
+ */
+const WEBDRIVER_TIMEOUT_MS = 60_000
+
 interface WdResponse<T = unknown> {
   value: T
 }
@@ -18,10 +27,12 @@ export class WebDriverClient {
   // ─── Internal HTTP helpers ───────────────────────────────
 
   private async post<T>(path: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, {
+    const res = await fetchWithTimeout(`${this.baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+      timeoutMs: WEBDRIVER_TIMEOUT_MS,
+      waitingOn: `WebDriver POST ${this.baseUrl}${path}`,
     })
     if (!res.ok) {
       const text = await res.text().catch(() => '(no body)')
@@ -32,7 +43,10 @@ export class WebDriverClient {
   }
 
   private async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`)
+    const res = await fetchWithTimeout(`${this.baseUrl}${path}`, {
+      timeoutMs: WEBDRIVER_TIMEOUT_MS,
+      waitingOn: `WebDriver GET ${this.baseUrl}${path}`,
+    })
     if (!res.ok) {
       const text = await res.text().catch(() => '(no body)')
       throw new Error(`WebDriver GET ${path} failed: HTTP ${res.status} — ${text}`)
@@ -42,7 +56,11 @@ export class WebDriverClient {
   }
 
   private async delete<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${path}`, { method: 'DELETE' })
+    const res = await fetchWithTimeout(`${this.baseUrl}${path}`, {
+      method: 'DELETE',
+      timeoutMs: WEBDRIVER_TIMEOUT_MS,
+      waitingOn: `WebDriver DELETE ${this.baseUrl}${path}`,
+    })
     if (!res.ok) {
       const text = await res.text().catch(() => '(no body)')
       throw new Error(`WebDriver DELETE ${path} failed: HTTP ${res.status} — ${text}`)

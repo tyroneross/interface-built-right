@@ -7,6 +7,12 @@ import { nanoid } from 'nanoid';
 import { VIEWPORTS, type Viewport, type EnhancedElement, type AuditResult } from './schemas.js';
 import { viewportToConfig } from './devices.js';
 import type { BrowserConnectionOptions, BrowserMode } from './engine/cdp/browser.js';
+import {
+  CDP_PROBE_TIMEOUT_MS,
+  WS_CONNECT_TIMEOUT_MS,
+  fetchWithTimeout,
+  withTimeout,
+} from './engine/net-timeout.js';
 import { extractInteractiveElements, analyzeElements } from './extract.js';
 import {
   type ScanResult,
@@ -157,93 +163,157 @@ async function findPendingHardWall(
 }
 
 /**
- * Check if browser server is running by fetching the CDP debug URL
+ * What the on-disk manifest actually proves right now.
+ *
+ * `alive` requires BOTH checks to pass: the owning ibr pid is still running AND
+ * the CDP endpoint answers `GET /json/version` inside a short deadline. Either
+ * check failing means the manifest is stale — a file on disk is a claim, not
+ * evidence, and `browser-server.json` outlives the browser routinely (a
+ * terminated `session:start` used to leave one behind on every run).
+ *
+ * `unreachable` is deliberately NOT `stale`: Chrome is alive by pid but did not
+ * answer in time, which happens when it is merely busy. Killing it there would
+ * destroy a working browser out from under an active session.
  */
-export async function isServerRunning(outputDir: string): Promise<boolean> {
+export type ServerStatus = 'no-manifest' | 'alive' | 'stale' | 'unreachable';
+
+export interface ServerInspection {
+  status: ServerStatus;
+  /** One sentence naming what was checked and what it said. */
+  reason: string;
+  state: BrowserServerState | null;
+}
+
+/**
+ * Validate the manifest before anything trusts it.
+ *
+ * Cleans up the manifest on `stale` so the next `session:start` spawns fresh
+ * rather than trying to connect to something that is gone.
+ */
+export async function inspectBrowserServer(outputDir: string): Promise<ServerInspection> {
   const { stateFile } = getPaths(outputDir);
 
   if (!existsSync(stateFile)) {
-    return false;
+    return { status: 'no-manifest', reason: 'No browser-server.json on disk.', state: null };
   }
 
+  let state: BrowserServerState;
   try {
-    const content = await readFile(stateFile, 'utf-8');
-    const state: BrowserServerState = JSON.parse(content);
-
-    // Reaper: if the parent ibr process that owned this server is gone, the
-    // Chrome it spawned is orphaned. Kill Chrome and treat the server as
-    // not-running so the next session:start can launch fresh.
-    // process.kill(pid, 0) is a free liveness check — no signal delivered.
-    if (state.pid && state.pid !== process.pid) {
-      try {
-        process.kill(state.pid, 0);
-      } catch {
-        if (state.chromePid) {
-          try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
-        }
-        await cleanupServerState(outputDir);
-        return false;
-      }
-    }
-
-    if (!state.cdpUrl) {
-      return Boolean(state.wsEndpoint);
-    }
-
-    // Use fetch() to check if Chrome is alive — avoids spawning a new process
-    const res = await fetch(`${state.cdpUrl}/json/version`, {
-      signal: AbortSignal.timeout(2000),
-    });
-    return res.ok;
+    state = JSON.parse(await readFile(stateFile, 'utf-8')) as BrowserServerState;
   } catch {
+    await cleanupServerState(outputDir);
+    return {
+      status: 'stale',
+      reason: 'browser-server.json was unreadable or malformed; removed it.',
+      state: null,
+    };
+  }
+
+  // Check 1 — is the ibr process that owns this server still alive?
+  // process.kill(pid, 0) delivers no signal; it only asks.
+  if (state.pid && state.pid !== process.pid && !pidAlive(state.pid)) {
+    if (state.chromePid) {
+      try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+    }
+    await cleanupServerState(outputDir);
+    return {
+      status: 'stale',
+      reason:
+        `Owning ibr process pid ${state.pid} is dead, so the browser it launched is orphaned. `
+        + `Reaped chrome pid ${state.chromePid ?? 'unknown'} and removed the manifest.`,
+      state,
+    };
+  }
+
+  if (!state.cdpUrl) {
+    return state.wsEndpoint
+      ? { status: 'alive', reason: `Manifest carries a ws endpoint and pid ${state.pid} is alive.`, state }
+      : (await cleanupServerState(outputDir), {
+          status: 'stale' as const,
+          reason: 'Manifest has neither a CDP URL nor a ws endpoint; removed it.',
+          state,
+        });
+  }
+
+  // Check 2 — does the CDP endpoint actually answer?
+  const probeUrl = `${state.cdpUrl}/json/version`;
+  try {
+    const res = await fetchWithTimeout(probeUrl, {
+      timeoutMs: CDP_PROBE_TIMEOUT_MS,
+      waitingOn: `CDP version probe ${probeUrl}`,
+    });
+    if (res.ok) {
+      return { status: 'alive', reason: `${probeUrl} answered ${res.status}.`, state };
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+
     // A FETCH THAT THREW IS NOT PROOF CHROME IS DEAD.
     //
     // This block used to SIGKILL `state.chromePid` and delete the state file on
-    // any throw — including the `AbortSignal.timeout(2000)` above firing. A
-    // Chrome that is alive and merely BUSY (loading a heavy page, or being
-    // driven by another session) can miss a 2s deadline on /json/version, and
-    // `isServerRunning` is a read-only liveness CHECK called by ordinary
-    // commands like `session:list`. So checking whether the browser was running
-    // could destroy the browser, and a poll loop became repeated kill attempts.
-    // It cost two interaction passes on 2026-09-01.
+    // any throw — including the probe deadline firing. A Chrome that is alive
+    // and merely BUSY can miss a short deadline, and this is a read-only
+    // liveness CHECK called by ordinary commands like `session:list`. So
+    // checking whether the browser was running could destroy the browser, and a
+    // poll loop became repeated kill attempts. It cost two interaction passes
+    // on 2026-09-01.
     //
-    // That is this sweep's pattern wearing different clothes: a failed
-    // MEASUREMENT ("could not reach Chrome in 2s") was recorded as a
-    // definitive FACT ("Chrome is gone") and then acted on destructively.
-    // `process.kill(pid, 0)` delivers no signal and answers the actual
-    // question, so ask it before reaping anything.
-    try {
-      const content = await readFile(stateFile, 'utf-8');
-      const state = JSON.parse(content);
-      if (state.chromePid) {
-        let chromeAlive = true;
-        try {
-          process.kill(state.chromePid, 0);
-        } catch {
-          chromeAlive = false;
-        }
-
-        if (chromeAlive) {
-          // Running, just not answering right now. Leave it alone and leave the
-          // state file intact — a wedged browser the user can close explicitly
-          // is strictly better than one this function killed out from under an
-          // active session.
-          return true;
-        }
-
-        // Genuinely gone. Reaping is now a no-op that documents intent.
-        try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
-      }
-    } catch { /* state unreadable — best effort */ }
+    // A failed MEASUREMENT ("could not reach Chrome in time") is not a FACT
+    // ("Chrome is gone"). Ask the pid, which answers the actual question.
+    if (state.chromePid && pidAlive(state.chromePid)) {
+      return {
+        status: 'unreachable',
+        reason:
+          `Chrome pid ${state.chromePid} is alive but ${probeUrl} did not answer: ${detail}. `
+          + 'Leaving it running — close it explicitly with: npx ibr session:close all',
+        state,
+      };
+    }
+    if (state.chromePid) {
+      try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
+    }
     await cleanupServerState(outputDir);
-    return false;
+    return {
+      status: 'stale',
+      reason: `Chrome pid ${state.chromePid ?? 'unknown'} is gone and ${probeUrl} did not answer: ${detail}. Removed the manifest.`,
+      state,
+    };
   }
+
+  await cleanupServerState(outputDir);
+  return {
+    status: 'stale',
+    reason: `${probeUrl} responded with a non-OK status; removed the manifest.`,
+    state,
+  };
+}
+
+/** `process.kill(pid, 0)` delivers no signal — it only asks whether pid exists. */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM means the process exists but belongs to another user.
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Check if browser server is running.
+ *
+ * `unreachable` counts as running on purpose: a busy browser is still a browser,
+ * and reporting it as gone would let the caller launch a second one.
+ */
+export async function isServerRunning(outputDir: string): Promise<boolean> {
+  const { status } = await inspectBrowserServer(outputDir);
+  return status === 'alive' || status === 'unreachable';
 }
 
 /**
  * Clean up stale server state
  */
-async function cleanupServerState(outputDir: string): Promise<void> {
+export async function cleanupServerState(outputDir: string): Promise<void> {
   const { stateFile } = getPaths(outputDir);
   try {
     await unlink(stateFile);
@@ -254,9 +324,16 @@ async function cleanupServerState(outputDir: string): Promise<void> {
 
 /**
  * Resolve the browser-level WebSocket URL from the CDP debug endpoint.
+ *
+ * Bounded: an unbounded `fetch()` here blocks forever against a port that is
+ * listening but silent, which is exactly what a recycled ephemeral port from a
+ * stale manifest looks like.
  */
 async function resolveWsEndpoint(cdpUrl: string): Promise<string> {
-  const res = await fetch(`${cdpUrl}/json/version`);
+  const res = await fetchWithTimeout(`${cdpUrl}/json/version`, {
+    timeoutMs: CDP_PROBE_TIMEOUT_MS,
+    waitingOn: `CDP version probe ${cdpUrl}/json/version`,
+  });
   const data = await res.json() as { webSocketDebuggerUrl: string };
   return data.webSocketDebuggerUrl;
 }
@@ -351,33 +428,49 @@ export async function startBrowserServer(
  * Creates a new EngineDriver and attaches it to the running Chrome process
  */
 export async function connectToBrowserServer(outputDir: string, targetId?: string): Promise<EngineDriver | null> {
-  const { stateFile } = getPaths(outputDir);
-
-  if (!existsSync(stateFile)) {
+  // Validate before trusting: never attempt a connect against a manifest that
+  // has already been shown to be stale. `inspectBrowserServer` removes the file
+  // in that case, so the caller's next step is a clean spawn rather than a
+  // connect to a port that belongs to something else now.
+  const inspection = await inspectBrowserServer(outputDir);
+  if (inspection.status === 'no-manifest' || inspection.status === 'stale' || !inspection.state) {
+    lastConnectFailure = inspection.reason;
     return null;
   }
 
+  const state = inspection.state;
   try {
-    const content = await readFile(stateFile, 'utf-8');
-    const state: BrowserServerState = JSON.parse(content);
-
     // Resolve the current browser-level WS endpoint (avoids stale cached URL)
-    let wsUrl: string;
-    if (state.cdpUrl) {
-      wsUrl = await resolveWsEndpoint(state.cdpUrl);
-    } else {
-      wsUrl = state.wsEndpoint;
-    }
+    const wsUrl = state.cdpUrl ? await resolveWsEndpoint(state.cdpUrl) : state.wsEndpoint;
 
-    // Create a new driver and connect to the existing Chrome process
+    // Create a new driver and connect to the existing Chrome process. Bounded:
+    // the CDP handshake plus domain setup must not outlive the connect budget.
     const driver = new EngineDriver();
-    await driver.connectExisting(wsUrl, targetId);
+    await withTimeout(
+      driver.connectExisting(wsUrl, targetId),
+      WS_CONNECT_TIMEOUT_MS,
+      `CDP attach to browser server at ${state.cdpUrl ?? wsUrl}`,
+    );
+    lastConnectFailure = null;
     return driver;
   } catch (error) {
-    // Server not running - clean up
+    // Reaching here means the manifest looked live a moment ago but the attach
+    // failed. Record why so the caller can print a cause instead of a bare
+    // "no browser server running".
+    lastConnectFailure = error instanceof Error ? error.message : String(error);
     await cleanupServerState(outputDir);
     return null;
   }
+}
+
+/**
+ * Why the last `connectToBrowserServer` returned null. Read by callers that
+ * would otherwise turn a specific, diagnosable failure into a generic message.
+ */
+let lastConnectFailure: string | null = null;
+
+export function lastBrowserServerFailure(): string | null {
+  return lastConnectFailure;
 }
 
 /**
@@ -400,12 +493,18 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
       ? await resolveWsEndpoint(state.cdpUrl)
       : state.wsEndpoint;
 
+    // Bounded: a shutdown that hangs is worse than one that escalates to
+    // SIGKILL, because the user is left with no way to reclaim the browser.
     const driver = new EngineDriver();
-    await driver.connectExisting(wsUrl);
+    await withTimeout(
+      driver.connectExisting(wsUrl),
+      WS_CONNECT_TIMEOUT_MS,
+      `CDP attach to shut down browser server at ${state.cdpUrl ?? wsUrl}`,
+    );
     if (state.ownsBrowser) {
-      await driver.close();
+      await withTimeout(driver.close(), WS_CONNECT_TIMEOUT_MS, 'browser shutdown');
     } else {
-      await driver.disconnect();
+      await withTimeout(driver.disconnect(), WS_CONNECT_TIMEOUT_MS, 'browser detach');
     }
 
     // Clean up state file
@@ -477,8 +576,10 @@ export class PersistentSession {
     // Connect to browser server
     const driver = await connectToBrowserServer(outputDir);
     if (!driver) {
+      const why = lastBrowserServerFailure();
       throw new Error(
         'No browser server running.\n' +
+        (why ? `Reason: ${why}\n` : '') +
         'Start one with: npx ibr session:start <url>\n' +
         'The first session:start launches the server and keeps it alive.'
       );

@@ -4,6 +4,8 @@
  * Uses Node.js 22+ built-in WebSocket (no ws package).
  */
 
+import { ConnectTimeoutError, WS_CONNECT_TIMEOUT_MS } from '../net-timeout.js'
+
 type EventHandler = (params: unknown) => void
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -23,14 +25,37 @@ export class CdpConnection {
     this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS
   }
 
-  async connect(wsUrl: string): Promise<void> {
+  /**
+   * Open the CDP WebSocket, bounded by `timeoutMs`.
+   *
+   * `new WebSocket()` fires 'open' or 'error' — and NEITHER when the peer
+   * completes the TCP handshake then goes silent, which is exactly what a
+   * recycled ephemeral port looks like. Without the timer below this call
+   * never settles: measured still pending at 25s on 2026-09-01. On timeout we
+   * also close the half-open socket, or the process keeps a live handle and
+   * cannot exit.
+   */
+  async connect(wsUrl: string, options?: { timeoutMs?: number }): Promise<void> {
+    const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS
+    const started = Date.now()
     return new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(wsUrl)
       let settled = false
+      const timer = setTimeout(() => {
+        if (settled) return
+        settled = true
+        try { ws.close() } catch { /* half-open; best effort */ }
+        reject(new ConnectTimeoutError(
+          `CDP WebSocket open ${wsUrl}`,
+          timeoutMs,
+          Date.now() - started,
+        ))
+      }, timeoutMs)
 
       const onOpen = () => {
         if (settled) return
         settled = true
+        clearTimeout(timer)
         this.ws = ws
         // Register persistent handlers after successful connect
         ws.addEventListener('message', (event) => this.handleMessage(event))
@@ -42,6 +67,7 @@ export class CdpConnection {
       const onError = () => {
         if (settled) return
         settled = true
+        clearTimeout(timer)
         reject(new Error(`WebSocket connection failed: ${wsUrl}`))
       }
 
