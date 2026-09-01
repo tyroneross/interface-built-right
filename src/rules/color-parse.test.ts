@@ -87,3 +87,49 @@ describe('flatten', () => {
     expect(flatten(fg, [255, 255, 255])).toEqual([97, 95, 255]);
   });
 });
+
+/**
+ * `num()` is `parseFloat`, which returns NaN for any token it does not
+ * understand — and NaN flows through clamp255 and every colour-space
+ * conversion untouched. CSS Color 5 relative syntax (`rgb(from red r g b)`,
+ * shipping in Chrome) therefore parsed "successfully" into
+ * `{ kind: 'rgb', rgb: [NaN, NaN, NaN], alpha: NaN }`.
+ *
+ * That is worse than the silent skips this sweep is about: a skip reports
+ * nothing, while this reports a MEASUREMENT that contains none. `NaN >= 4.5`
+ * is false, so the contrast rule emits a violation reading "NaN:1" instead of
+ * saying it could not read the colour.
+ */
+describe('parseColor — a decoded colour must contain numbers', () => {
+  it('refuses relative colour syntax rather than returning NaN channels', () => {
+    const r = parseColor('rgb(from red r g b)');
+    expect(r.kind).toBe('unsupported');
+  });
+
+  it('never returns a non-finite channel for any input', () => {
+    const inputs = [
+      'rgb(from red r g b)',
+      'rgb(from var(--x) r g b / 50%)',
+      'hsl(from blue h s l)',
+      'rgb(a, b, c)',
+      'oklch(from white l c h)',
+      'color(srgb from red r g b)',
+    ];
+    for (const input of inputs) {
+      const r = parseColor(input);
+      if (r.kind === 'rgb') {
+        expect(r.rgb.every(Number.isFinite), `${input} -> ${JSON.stringify(r.rgb)}`).toBe(true);
+        expect(Number.isFinite(r.alpha), `${input} alpha`).toBe(true);
+      }
+    }
+  });
+
+  // The gate must not become "reject everything modern" — these are the formats
+  // real stylesheets ship and the reason the local live/ parser was replaced.
+  it('still decodes the modern colour spaces it supports', () => {
+    for (const input of ['oklch(0.2 0 0)', 'lab(50 20 30)', 'color(display-p3 0.1 0.1 0.1)']) {
+      const r = parseColor(input);
+      expect(r.kind, input).toBe('rgb');
+    }
+  });
+});

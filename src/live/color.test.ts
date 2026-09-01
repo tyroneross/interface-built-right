@@ -110,13 +110,46 @@ describe('resolveEffectiveBackground', () => {
     expect(color).toEqual({ r: 255, g: 255, b: 255, a: 1 });
   });
 
-  it('ignores entries it cannot parse instead of aborting the walk', () => {
+  // WAS: 'ignores entries it cannot parse instead of aborting the walk',
+  // asserting `{ r: 10, g: 10, b: 10 }` — i.e. that an opaque oklch card is
+  // SKIPPED and the layer behind it reported as the background. That is the
+  // defect written down as a requirement. Skipping an opaque layer means
+  // grading text against something the reader cannot see, and the old code
+  // still returned `resolved: true`, so the one honesty flag the type carries
+  // said the answer was measured.
+  //
+  // Delegating to src/rules/color-parse.ts fixes it twice over: that parser
+  // DECODES oklch, so the card is not skipped — it is measured, and the walk
+  // correctly stops at the first opaque layer.
+  it('stops at an opaque oklch ancestor instead of walking past it', () => {
     const { color, resolved } = resolveEffectiveBackground([
       'oklch(0.2 0 0)',
       'rgb(10, 10, 10)',
     ]);
     expect(resolved).toBe(true);
-    expect(color).toEqual({ r: 10, g: 10, b: 10, a: 1 });
+    // oklch(0.2 0 0) is a near-black grey. The layer BEHIND it (10,10,10) must
+    // not be the reported background — the reader cannot see through the card.
+    expect(color.a).toBe(1);
+    expect(color).not.toEqual({ r: 10, g: 10, b: 10, a: 1 });
+    expect(color.r).toBeGreaterThan(15);
+    expect(color.r).toBeLessThan(30);
+  });
+
+  // The arm that has to exist for the honesty contract to hold: a colour the
+  // parser genuinely cannot decode must ABORT the chain, not be stepped over.
+  // Everything beneath an unknown layer is unknown.
+  it('aborts and reports when a layer cannot be decoded at all', () => {
+    // `hwb()` is genuinely undecodable here; display-p3, oklch and lab are all
+    // handled, which is exactly why delegating beats keeping a local parser.
+    const { color, resolved, unsupported } = resolveEffectiveBackground([
+      'hwb(0 0% 0%)',
+      'rgb(255, 255, 255)',
+    ]);
+    expect(unsupported).toBeDefined();
+    expect(resolved).toBe(false);
+    // Falls back to the canvas default, flagged — never to the layer behind the
+    // one it could not read.
+    expect(color).toEqual({ r: 255, g: 255, b: 255, a: 1 });
   });
 });
 

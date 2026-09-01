@@ -124,7 +124,39 @@ export function parseColor(color: string): ParsedColor {
   const { parts, alpha } = splitArgs(body);
   if (alpha === 0) return { kind: 'none', reason: 'alpha-0' };
 
+  // A DECODED COLOUR MUST BE A NUMBER. `num()` is `parseFloat`, which returns
+  // NaN for any token it does not understand, and NaN flows through clamp255
+  // and the colour-space conversions untouched. So CSS Color 5 relative syntax
+  // — `rgb(from red r g b)`, now shipping in Chrome — came back as
+  // `{ kind: 'rgb', rgb: [NaN, NaN, NaN], alpha: NaN }`: a claimed measurement
+  // with no measurement in it. Downstream that produces a NaN luminance, a NaN
+  // ratio, and `ratio >= threshold` is false for NaN — so it reports a contrast
+  // VIOLATION reading "NaN:1" rather than admitting it could not read the
+  // colour.
+  //
+  // Gated once, structurally, around every branch, rather than per-case: the
+  // point is that no arm CAN return a non-finite channel, not that today's arms
+  // happen not to.
+  const finite = (r: ParsedColor): ParsedColor =>
+    r.kind === 'rgb' && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha))
+      ? { kind: 'unsupported', raw }
+      : r;
+
   try {
+    return finite(parseColorBody(name!, parts, alpha, raw));
+  } catch {
+    return { kind: 'unsupported', raw };
+  }
+}
+
+/** The per-function-name decode. Wrapped by `parseColor`, which validates it. */
+function parseColorBody(
+  name: string,
+  parts: string[],
+  alpha: number,
+  raw: string,
+): ParsedColor {
+  {
     switch (name) {
       case 'rgb':
       case 'rgba': {
@@ -171,8 +203,6 @@ export function parseColor(color: string): ParsedColor {
       default:
         return { kind: 'unsupported', raw };
     }
-  } catch {
-    return { kind: 'unsupported', raw };
   }
 }
 

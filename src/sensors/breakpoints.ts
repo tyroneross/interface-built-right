@@ -37,8 +37,31 @@ export interface BreakpointEntry {
   raw_condition: string;
 }
 
-const MIN_WIDTH_RE = /\(\s*min-width\s*:\s*([\d.]+)px\s*\)/i;
-const MAX_WIDTH_RE = /\(\s*max-width\s*:\s*([\d.]+)px\s*\)/i;
+/**
+ * Width conditions in px, rem, or em.
+ *
+ * The unit used to be a hard literal `px`, so `@media (min-width: 48rem)` fell
+ * through to `type: 'other'` — and `src/sensors/index.ts` filters `other` out
+ * of the one-liner. Tailwind's breakpoints are all rem, so a Tailwind site
+ * reported "0 viewport breakpoints" while declaring five. Not a wrong number;
+ * an absent one, reported as though the page had nothing to say.
+ */
+const MIN_WIDTH_RE = /\(\s*min-width\s*:\s*([\d.]+)(px|rem|em)\s*\)/i;
+const MAX_WIDTH_RE = /\(\s*max-width\s*:\s*([\d.]+)(px|rem|em)\s*\)/i;
+
+/**
+ * Resolve a width match to pixels.
+ *
+ * rem/em resolve against the ROOT font size — inside a media query there is no
+ * element context, so em means the same thing rem does. `rootPx` comes from
+ * `documentMeta.rootFontSizePx`; 16 is the browser default and the honest
+ * fallback when the document meta is unavailable.
+ */
+function widthToPx(match: RegExpMatchArray, rootPx: number): number {
+  const value = parseFloat(match[1]!);
+  const unit = (match[2] ?? 'px').toLowerCase();
+  return unit === 'px' ? value : value * rootPx;
+}
 
 /**
  * Recursively count style rules under a (possibly nested) rule.
@@ -53,7 +76,7 @@ function countStyleRules(rule: ExtractedCSSRule): number {
   return 0;
 }
 
-function classifyMediaCondition(text: string): {
+function classifyMediaCondition(text: string, rootPx = 16): {
   type: BreakpointType;
   value_px?: number;
   min?: number;
@@ -71,15 +94,15 @@ function classifyMediaCondition(text: string): {
   if (minMatch && maxMatch) {
     return {
       type: 'range',
-      min: parseFloat(minMatch[1]!),
-      max: parseFloat(maxMatch[1]!),
+      min: widthToPx(minMatch, rootPx),
+      max: widthToPx(maxMatch, rootPx),
     };
   }
   if (minMatch) {
-    return { type: 'min-width', value_px: parseFloat(minMatch[1]!) };
+    return { type: 'min-width', value_px: widthToPx(minMatch, rootPx) };
   }
   if (maxMatch) {
-    return { type: 'max-width', value_px: parseFloat(maxMatch[1]!) };
+    return { type: 'max-width', value_px: widthToPx(maxMatch, rootPx) };
   }
 
   return { type: 'other' };
@@ -114,10 +137,12 @@ export function collectBreakpoints(ctx: SensorContext): BreakpointEntry[] {
   if (rules.length === 0) return [];
 
   const byKey = new Map<string, BreakpointEntry>();
+  // rem/em breakpoints resolve against the document root font size.
+  const rootPx = ctx.documentMeta?.rootFontSizePx ?? 16;
 
   for (const rule of rules) {
     if (rule.kind === 'media') {
-      const classified = classifyMediaCondition(rule.conditionText);
+      const classified = classifyMediaCondition(rule.conditionText, rootPx);
       const ruleCount = rule.rules.reduce((acc, r) => acc + countStyleRules(r), 0);
       const entry: BreakpointEntry = {
         ...classified,

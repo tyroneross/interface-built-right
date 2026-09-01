@@ -78,3 +78,61 @@ describe('collectMotion', () => {
     expect(result.transitions[0].property).toBe('transform');
   });
 });
+
+/**
+ * PRODUCTION SHAPE. Every test above passes `{ transition: '...' }` — the
+ * shorthand — and every one of them passed while `motion.transitions` was
+ * empty on every real page ever scanned.
+ *
+ * `declarationsFromStyle` (src/sensors/css-extract.ts) enumerates a
+ * CSSStyleDeclaration with `style.item(i)`, which yields LONGHANDS and never
+ * the shorthand the author typed. So `decls.transition` was always undefined
+ * and `collectTransitionsFromStyle` always returned []. The fixtures were
+ * richer than production, which is exactly how the third contrast copy
+ * survived two audit passes.
+ */
+describe('collectMotion — longhand declarations, as the extractor emits them', () => {
+  it('reconstructs a transition from its longhands', () => {
+    const rules = [makeStyleRule('.anim', {
+      'transition-property': 'opacity',
+      'transition-duration': '0.2s',
+      'transition-timing-function': 'ease-out',
+      'transition-delay': '0.05s',
+    })];
+    const result = collectMotion(makeCtx([], 1920, 1080, { cssRules: rules }));
+    expect(result.transitions).toHaveLength(1);
+    expect(result.transitions[0]).toMatchObject({
+      selector: '.anim',
+      property: 'opacity',
+      duration_ms: 200,
+      easing: 'ease-out',
+      delay_ms: 50,
+    });
+  });
+
+  it('cycles shorter longhand lists across multiple properties, per spec', () => {
+    const rules = [makeStyleRule('.multi', {
+      'transition-property': 'opacity, transform',
+      'transition-duration': '0.2s',
+      'transition-timing-function': 'linear',
+      'transition-delay': '0s',
+    })];
+    const result = collectMotion(makeCtx([], 1920, 1080, { cssRules: rules }));
+    expect(result.transitions).toHaveLength(2);
+    expect(result.transitions.map((t) => t.property)).toEqual(['opacity', 'transform']);
+    expect(result.transitions.every((t) => t.duration_ms === 200)).toBe(true);
+  });
+
+  // Chrome emits `transition-property: all; transition-duration: 0s` on
+  // elements that declare no transition at all. Reporting those would bury the
+  // real ones under one entry per rule on the page.
+  it('does not report the browser default of a zero-duration transition', () => {
+    const rules = [makeStyleRule('.plain', {
+      'transition-property': 'all',
+      'transition-duration': '0s',
+      'transition-delay': '0s',
+    })];
+    const result = collectMotion(makeCtx([], 1920, 1080, { cssRules: rules }));
+    expect(result.transitions).toHaveLength(0);
+  });
+});

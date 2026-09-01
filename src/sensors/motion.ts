@@ -129,12 +129,58 @@ function parseTransitionEntry(part: string): { property: string; duration_ms: nu
  * Walk rules collecting transitions from style rules.
  * Inline rules (selector === '<inline>') are kept as-is so callers can trace.
  */
+/**
+ * Rebuild the `transition` shorthand from its longhands.
+ *
+ * WHY THIS EXISTS. `collectTransitionsFromStyle` read `decls.transition`, and
+ * that key is NEVER PRESENT. `declarationsFromStyle` (src/sensors/css-extract.ts)
+ * enumerates a CSSStyleDeclaration with `style.item(i)`, which yields LONGHANDS
+ * — `transition-property`, `transition-duration`, `transition-timing-function`,
+ * `transition-delay` — and never the shorthand the author typed. So
+ * `transitionValue` was always undefined, the function always returned [], and
+ * `motion.transitions` was empty on every page ever scanned.
+ *
+ * Proven by planted defect: `.anim { transition: opacity 200ms ease-out 50ms }`
+ * produced `transitions: []` and a one-liner reading "0 transition(s)".
+ *
+ * Same shape as the rule-side defects in this sweep: a lane reads a key nobody
+ * produces, gets undefined, and files it as "nothing to report".
+ */
+function transitionFromLonghands(decls: Record<string, string>): string | undefined {
+  const props = decls['transition-property'];
+  if (!props || props === 'none') return undefined;
+
+  const list = (key: string): string[] =>
+    (decls[key] ?? '').split(',').map((v) => v.trim()).filter(Boolean);
+
+  const properties = props.split(',').map((v) => v.trim()).filter(Boolean);
+  const durations = list('transition-duration');
+  const easings = list('transition-timing-function');
+  const delays = list('transition-delay');
+
+  // Per spec each longhand list cycles independently to match the longest.
+  const at = (arr: string[], i: number, fallback: string) =>
+    arr.length > 0 ? arr[i % arr.length]! : fallback;
+
+  return properties
+    .map((prop, i) =>
+      [prop, at(durations, i, '0s'), at(easings, i, 'ease'), at(delays, i, '0s')].join(' '),
+    )
+    .join(', ');
+}
+
 function collectTransitionsFromStyle(rule: Extract<ExtractedCSSRule, { kind: 'style' }>): TransitionEntry[] {
   const decls = rule.declarations;
-  const transitionValue = decls.transition ?? decls['transition'];
+  // Shorthand first for any producer that supplies one (hand-built fixtures,
+  // older cached scans); longhands are what the live extractor actually emits.
+  const transitionValue = decls.transition ?? transitionFromLonghands(decls);
   if (!transitionValue || transitionValue === 'none') return [];
   const parts = splitTransitionValue(transitionValue);
-  return parts.map((p) => ({ selector: rule.selector, ...parseTransitionEntry(p) }));
+  return parts
+    .map((p) => ({ selector: rule.selector, ...parseTransitionEntry(p) }))
+    // A zero-duration transition is the browser's default for every element
+    // that declares none; reporting those would drown the real ones.
+    .filter((t) => t.duration_ms > 0 || t.delay_ms > 0);
 }
 
 /**

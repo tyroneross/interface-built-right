@@ -73,3 +73,37 @@ describe('collectBreakpoints', () => {
     expect(result[0].rule_count).toBe(2);
   });
 });
+
+/**
+ * The unit was a hard literal `px`, so `@media (min-width: 48rem)` fell through
+ * to `type: 'other'` — and `src/sensors/index.ts` filters `other` out of the
+ * one-liner entirely. Tailwind's breakpoints are all rem, so a Tailwind site
+ * reported "0 viewport breakpoints" while declaring five: not a wrong number,
+ * an absent one, presented as though the page had nothing to say.
+ */
+describe('collectBreakpoints — rem and em widths', () => {
+  it('resolves a rem breakpoint against the root font size', () => {
+    const rule = makeMediaRule('(min-width: 48rem)', [makeStyleRule('.a', { color: 'red' })]);
+    const result = collectBreakpoints(
+      makeCtx([], 1920, 1080, { cssRules: [rule], documentMeta: { rootFontSizePx: 16, fontsStatus: 'loaded' } }),
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('min-width');
+    expect(result[0].value_px).toBe(768);
+  });
+
+  it('honours a non-default root font size instead of assuming 16', () => {
+    const rule = makeMediaRule('(max-width: 30em)', [makeStyleRule('.a', { color: 'red' })]);
+    const result = collectBreakpoints(
+      makeCtx([], 1920, 1080, { cssRules: [rule], documentMeta: { rootFontSizePx: 20, fontsStatus: 'loaded' } }),
+    );
+    expect(result[0].type).toBe('max-width');
+    expect(result[0].value_px).toBe(600);
+  });
+
+  it('still classifies a genuinely non-width condition as other', () => {
+    const rule = makeMediaRule('(orientation: landscape)', [makeStyleRule('.a', { color: 'red' })]);
+    const result = collectBreakpoints(makeCtx([], 1920, 1080, { cssRules: [rule] }));
+    expect(result[0].type).toBe('other');
+  });
+});

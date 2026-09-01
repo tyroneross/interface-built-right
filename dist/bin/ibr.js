@@ -31709,7 +31709,15 @@ function parseColor2(color) {
   const [, name, body] = fn;
   const { parts, alpha } = splitArgs(body);
   if (alpha === 0) return { kind: "none", reason: "alpha-0" };
+  const finite = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
   try {
+    return finite(parseColorBody(name, parts, alpha, raw));
+  } catch {
+    return { kind: "unsupported", raw };
+  }
+}
+function parseColorBody(name, parts, alpha, raw) {
+  {
     switch (name) {
       case "rgb":
       case "rgba": {
@@ -31756,8 +31764,6 @@ function parseColor2(color) {
       default:
         return { kind: "unsupported", raw };
     }
-  } catch {
-    return { kind: "unsupported", raw };
   }
 }
 function flatten(fg, bg) {
@@ -32191,6 +32197,11 @@ var init_typography = __esm({
 });
 
 // src/sensors/breakpoints.ts
+function widthToPx(match, rootPx) {
+  const value = parseFloat(match[1]);
+  const unit = (match[2] ?? "px").toLowerCase();
+  return unit === "px" ? value : value * rootPx;
+}
 function countStyleRules(rule) {
   if (rule.kind === "style") return 1;
   if (rule.kind === "media" || rule.kind === "container" || rule.kind === "supports") {
@@ -32198,7 +32209,7 @@ function countStyleRules(rule) {
   }
   return 0;
 }
-function classifyMediaCondition(text) {
+function classifyMediaCondition(text, rootPx = 16) {
   const lower = text.toLowerCase().trim();
   if (lower.includes("print")) {
     return { type: "print" };
@@ -32208,15 +32219,15 @@ function classifyMediaCondition(text) {
   if (minMatch && maxMatch) {
     return {
       type: "range",
-      min: parseFloat(minMatch[1]),
-      max: parseFloat(maxMatch[1])
+      min: widthToPx(minMatch, rootPx),
+      max: widthToPx(maxMatch, rootPx)
     };
   }
   if (minMatch) {
-    return { type: "min-width", value_px: parseFloat(minMatch[1]) };
+    return { type: "min-width", value_px: widthToPx(minMatch, rootPx) };
   }
   if (maxMatch) {
-    return { type: "max-width", value_px: parseFloat(maxMatch[1]) };
+    return { type: "max-width", value_px: widthToPx(maxMatch, rootPx) };
   }
   return { type: "other" };
 }
@@ -32242,9 +32253,10 @@ function collectBreakpoints(ctx) {
   const rules = ctx.cssRules ?? [];
   if (rules.length === 0) return [];
   const byKey = /* @__PURE__ */ new Map();
+  const rootPx = ctx.documentMeta?.rootFontSizePx ?? 16;
   for (const rule of rules) {
     if (rule.kind === "media") {
-      const classified = classifyMediaCondition(rule.conditionText);
+      const classified = classifyMediaCondition(rule.conditionText, rootPx);
       const ruleCount = rule.rules.reduce((acc, r) => acc + countStyleRules(r), 0);
       const entry = {
         ...classified,
@@ -32295,8 +32307,8 @@ var MIN_WIDTH_RE, MAX_WIDTH_RE;
 var init_breakpoints = __esm({
   "src/sensors/breakpoints.ts"() {
     "use strict";
-    MIN_WIDTH_RE = /\(\s*min-width\s*:\s*([\d.]+)px\s*\)/i;
-    MAX_WIDTH_RE = /\(\s*max-width\s*:\s*([\d.]+)px\s*\)/i;
+    MIN_WIDTH_RE = /\(\s*min-width\s*:\s*([\d.]+)(px|rem|em)\s*\)/i;
+    MAX_WIDTH_RE = /\(\s*max-width\s*:\s*([\d.]+)(px|rem|em)\s*\)/i;
   }
 });
 
@@ -32364,12 +32376,25 @@ function parseTransitionEntry(part) {
   }
   return { property, duration_ms, easing, delay_ms };
 }
+function transitionFromLonghands(decls) {
+  const props = decls["transition-property"];
+  if (!props || props === "none") return void 0;
+  const list = (key) => (decls[key] ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  const properties = props.split(",").map((v) => v.trim()).filter(Boolean);
+  const durations = list("transition-duration");
+  const easings = list("transition-timing-function");
+  const delays = list("transition-delay");
+  const at = (arr, i, fallback) => arr.length > 0 ? arr[i % arr.length] : fallback;
+  return properties.map(
+    (prop, i) => [prop, at(durations, i, "0s"), at(easings, i, "ease"), at(delays, i, "0s")].join(" ")
+  ).join(", ");
+}
 function collectTransitionsFromStyle(rule) {
   const decls = rule.declarations;
-  const transitionValue = decls.transition ?? decls["transition"];
+  const transitionValue = decls.transition ?? transitionFromLonghands(decls);
   if (!transitionValue || transitionValue === "none") return [];
   const parts = splitTransitionValue(transitionValue);
-  return parts.map((p) => ({ selector: rule.selector, ...parseTransitionEntry(p) }));
+  return parts.map((p) => ({ selector: rule.selector, ...parseTransitionEntry(p) })).filter((t) => t.duration_ms > 0 || t.delay_ms > 0);
 }
 function isReducedMotionMedia(conditionText) {
   return /prefers-reduced-motion\s*:\s*reduce/i.test(conditionText);
@@ -32611,8 +32636,11 @@ function interactiveBaseSelectors(ctx) {
     if (!isInteractive2) continue;
     out.add(el.selector);
     out.add(tag);
-    const classMatch = el.selector.match(/^\.[A-Za-z_][\w-]*/);
-    if (classMatch) out.add(classMatch[0]);
+    if (typeof el.className === "string") {
+      for (const cls of el.className.split(/\s+/)) {
+        if (cls && !cls.includes(":")) out.add(`.${cls}`);
+      }
+    }
   }
   return out;
 }
@@ -32643,9 +32671,7 @@ function collectInteractionStates(ctx) {
   }
   const findings = [];
   for (const sel of /* @__PURE__ */ new Set([...hasHover.keys(), ...interactiveBases])) {
-    const interactive = interactiveBases.has(sel) || // Also flag rule-derived selectors that look interactive
-    sel.includes("btn") || sel.includes("button") || sel.includes("link") || sel === "a" || sel === "button";
-    if (!interactive) continue;
+    if (!interactiveBases.has(sel)) continue;
     if (!hasFocus.get(sel)) {
       findings.push({ selector: sel, missing: "focus_indicator" });
     }
@@ -32845,8 +32871,7 @@ async function extractCssRulesAndMeta(page) {
         const cr = rule;
         const nested = [];
         for (let i = 0; i < cr.cssRules.length; i++) {
-          const child = convertRule(cr.cssRules[i], sourceUrl);
-          if (child) nested.push(child);
+          nested.push(...expandRule(cr.cssRules[i], sourceUrl));
         }
         return {
           kind: "container",
@@ -32861,8 +32886,7 @@ async function extractCssRulesAndMeta(page) {
         const sr = rule;
         const nested = [];
         for (let i = 0; i < sr.cssRules.length; i++) {
-          const child = convertRule(sr.cssRules[i], sourceUrl);
-          if (child) nested.push(child);
+          nested.push(...expandRule(sr.cssRules[i], sourceUrl));
         }
         return {
           kind: "supports",
@@ -32872,6 +32896,17 @@ async function extractCssRulesAndMeta(page) {
         };
       }
       return null;
+    }
+    function expandRule(rule, sourceUrl) {
+      const converted = convertRule(rule, sourceUrl);
+      if (converted) return [converted];
+      const group = rule;
+      if (!group.cssRules || group.cssRules.length === 0) return [];
+      const out = [];
+      for (let i = 0; i < group.cssRules.length; i++) {
+        out.push(...expandRule(group.cssRules[i], sourceUrl));
+      }
+      return out;
     }
     const sheets = Array.from(document.styleSheets);
     const allRules2 = [];
@@ -32886,8 +32921,7 @@ async function extractCssRulesAndMeta(page) {
       }
       const sourceUrl = sheet.href ?? void 0;
       for (let i = 0; i < rules.length; i++) {
-        const converted = convertRule(rules[i], sourceUrl);
-        if (converted) allRules2.push(converted);
+        allRules2.push(...expandRule(rules[i], sourceUrl));
       }
     }
     const rootFontSize = parseFloat(
@@ -34790,12 +34824,28 @@ async function scan(url2, options = {}) {
     const layoutCollisions = detectLayoutCollisions(elements.all);
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
     let cssExtract;
+    let cssExtractionFailed;
     try {
       cssExtract = await extractCssRulesAndMeta(page);
-    } catch {
+    } catch (err) {
       cssExtract = void 0;
+      cssExtractionFailed = err instanceof Error ? err.message : String(err);
+      issues.push({
+        category: "structure",
+        severity: "warning",
+        description: `[css-extraction-failed] Stylesheets could not be read, so breakpoints, motion, interaction states, typography, and heading hierarchy were NOT measured: ${cssExtractionFailed}`,
+        fix: "Re-run the scan. If it persists, the page navigated or the browser detached mid-scan."
+      });
     }
     const sensorElements = cssExtract ? [...elements.all, ...cssExtract.structuralElements] : elements.all;
+    if (cssExtract && cssExtract.sheetsSkipped > 0) {
+      issues.push({
+        category: "structure",
+        severity: "warning",
+        description: `[stylesheets-unreadable] ${cssExtract.sheetsSkipped} of ${cssExtract.sheetsSeen} stylesheets could not be read (cross-origin), so any @media, transition, or :hover rule they declare is absent from the breakpoints, motion, and interaction-state sensors.`,
+        fix: "Serve the stylesheet same-origin, or read those sensor results as a lower bound."
+      });
+    }
     const sensors = runSensors({
       elements: sensorElements,
       interactivity,
@@ -36556,6 +36606,7 @@ async function scanNative(options = {}) {
     "nav"
   ]);
   let iosGuestUnreachable = false;
+  let extractionError;
   if (isExtractorAvailable()) {
     try {
       const nativeElements = await extractNativeElements(device);
@@ -36567,8 +36618,11 @@ async function scanNative(options = {}) {
       }
       audit = analyzeElements(elements, true);
       extractionSucceeded = !iosGuestUnreachable;
-    } catch {
+    } catch (err) {
+      extractionError = err instanceof Error ? err.message : String(err);
     }
+  } else {
+    extractionError = "the native accessibility extractor is not available (not built or not on PATH)";
   }
   const nativeIssues = extractionSucceeded ? auditNativeElements(elements, device.platform, viewport) : [];
   const issues = [];
@@ -36584,6 +36638,14 @@ async function scanNative(options = {}) {
       category: issue2.type === "MISSING_ARIA_LABEL" ? "accessibility" : "structure",
       severity: issue2.severity,
       description: issue2.message
+    });
+  }
+  if (extractionError) {
+    issues.push({
+      category: "structure",
+      severity: "error",
+      description: `[native-extraction-failed] No elements were extracted, so NO touch-target, label, or layout check ran on this app: ${extractionError}`,
+      fix: "Grant Accessibility permission to the terminal running ibr (System Settings > Privacy & Security > Accessibility), confirm the app is running, and re-run. Screenshot-only output cannot be read as a clean scan."
     });
   }
   if (iosGuestUnreachable) {
@@ -49026,21 +49088,12 @@ function compositeOver(src, dst) {
   };
 }
 function resolveEffectiveBackground2(chain) {
-  const parsed = [];
-  for (const raw of chain) {
-    const c = parseCssColor(raw);
-    if (!c) continue;
-    parsed.push(c);
-    if (isOpaque(c)) break;
-  }
-  const last = parsed[parsed.length - 1];
-  const resolved = last !== void 0 && isOpaque(last);
-  let acc = resolved ? parsed[parsed.length - 1] : DEFAULT_CANVAS_BASE;
-  const top = resolved ? parsed.length - 2 : parsed.length - 1;
-  for (let i = top; i >= 0; i--) {
-    acc = compositeOver(parsed[i], acc);
-  }
-  return { color: acc, resolved };
+  const canonical = resolveEffectiveBackground(chain);
+  return {
+    color: { r: canonical.rgb[0], g: canonical.rgb[1], b: canonical.rgb[2], a: 1 },
+    resolved: canonical.resolved,
+    ...canonical.unsupported !== void 0 ? { unsupported: canonical.unsupported } : {}
+  };
 }
 function channelLuminance(v) {
   const s = v / 255;
@@ -49079,14 +49132,14 @@ function parseFontWeight(value) {
   const n = Number.parseFloat(t);
   return Number.isFinite(n) ? n : 400;
 }
-var HEX_RE, FUNC_RE, COLOR_SRGB_RE, DEFAULT_CANVAS_BASE;
+var HEX_RE, FUNC_RE, COLOR_SRGB_RE;
 var init_color = __esm({
   "src/live/color.ts"() {
     "use strict";
+    init_color_parse();
     HEX_RE = /^#([0-9a-f]{3,8})$/i;
     FUNC_RE = /^(rgba?)\(([^)]*)\)$/i;
     COLOR_SRGB_RE = /^color\(\s*srgb\s+([^)]*)\)$/i;
-    DEFAULT_CANVAS_BASE = { r: 255, g: 255, b: 255, a: 1 };
   }
 });
 

@@ -95,6 +95,8 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
   ]);
 
   let iosGuestUnreachable = false;
+  /** Why element extraction produced nothing. Absent when it succeeded. */
+  let extractionError: string | undefined;
 
   if (isExtractorAvailable()) {
     try {
@@ -114,9 +116,26 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
       }
       audit = analyzeElements(elements, true); // Always treat as mobile-sized targets
       extractionSucceeded = !iosGuestUnreachable;
-    } catch {
-      // Graceful fallback to screenshot-only mode
+    } catch (err) {
+      // NOT a graceful fallback — a SILENT one, which is what this was.
+      //
+      // The error was not even bound to a variable, so the reason was
+      // unrecoverable. Accessibility permission denied, a Swift build failure,
+      // a 30s timeout, malformed JSON — all landed here, `elements` stayed
+      // empty, `nativeIssues` came back empty, `issues` stayed empty, and
+      // `determineVerdict([])` returned **PASS**. A scan that measured nothing
+      // reported a clean app.
+      //
+      // The only trace was a substring in the free-text summary
+      // ('screenshot-only mode'), which nothing can test against. This file
+      // already demonstrates the right shape 30 lines down, where
+      // `iosGuestUnreachable` pushes an explicit error naming the cause and the
+      // alternative — it just was not applied here.
+      extractionError = err instanceof Error ? err.message : String(err);
     }
+  } else {
+    // Same class: no extractor, no elements, no issues, PASS. Say so instead.
+    extractionError = 'the native accessibility extractor is not available (not built or not on PATH)';
   }
 
   // --- Native audit rules ---
@@ -143,6 +162,23 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
       category: issue.type === 'MISSING_ARIA_LABEL' ? 'accessibility' : 'structure',
       severity: issue.severity,
       description: issue.message,
+    });
+  }
+
+  // A scan that could not extract elements checked NOTHING. Every rule below
+  // ran over an empty array and found nothing wrong, which is not the same as
+  // finding nothing wrong.
+  if (extractionError) {
+    issues.push({
+      category: 'structure',
+      severity: 'error',
+      description:
+        `[native-extraction-failed] No elements were extracted, so NO touch-target, ` +
+        `label, or layout check ran on this app: ${extractionError}`,
+      fix:
+        'Grant Accessibility permission to the terminal running ibr (System Settings > ' +
+        'Privacy & Security > Accessibility), confirm the app is running, and re-run. ' +
+        'Screenshot-only output cannot be read as a clean scan.',
     });
   }
 

@@ -633,10 +633,31 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // motion, hierarchy, and interaction-states sensors. Best-effort — on
     // failure (e.g. browser detach), sensors degrade to empty results.
     let cssExtract: Awaited<ReturnType<typeof extractCssRulesAndMeta>> | undefined;
+    let cssExtractionFailed: string | undefined;
     try {
       cssExtract = await extractCssRulesAndMeta(page);
-    } catch {
+    } catch (err) {
+      // NOTHING WAS RECORDED HERE. No issue, no field, no partialReason — and
+      // FIVE sensors degrade at once when this fires: breakpoints, motion and
+      // interaction-states all return empty on `cssRules.length === 0`, while
+      // typography and hierarchy lose every structural element because
+      // `sensorElements` falls back to the interactive list. The output was
+      // then byte-identical in shape to a page with no stylesheets, no
+      // headings, and no body copy.
+      //
+      // The correct pattern is 60 lines below, where content-extraction failure
+      // pushes `[content-extraction-failed]` and sets
+      // `rulesApplied.contentExtractionFailed`. It simply was not applied here.
       cssExtract = undefined;
+      cssExtractionFailed = err instanceof Error ? err.message : String(err);
+      issues.push({
+        category: 'structure' as const,
+        severity: 'warning' as const,
+        description:
+          `[css-extraction-failed] Stylesheets could not be read, so breakpoints, motion, ` +
+          `interaction states, typography, and heading hierarchy were NOT measured: ${cssExtractionFailed}`,
+        fix: 'Re-run the scan. If it persists, the page navigated or the browser detached mid-scan.',
+      });
     }
 
     // Run sensor layer — condense raw elements into model-friendly summaries.
@@ -646,6 +667,22 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     const sensorElements = cssExtract
       ? [...elements.all, ...cssExtract.structuralElements]
       : elements.all;
+    // Cross-origin stylesheets throw on `.cssRules` and are dropped. That is
+    // the normal case for a CDN-hosted or Tailwind-CDN page, and dropping them
+    // uncounted is how `breakpoints: []` came to mean both "declares none" and
+    // "we could not look".
+    if (cssExtract && cssExtract.sheetsSkipped > 0) {
+      issues.push({
+        category: 'structure' as const,
+        severity: 'warning' as const,
+        description:
+          `[stylesheets-unreadable] ${cssExtract.sheetsSkipped} of ${cssExtract.sheetsSeen} stylesheets ` +
+          `could not be read (cross-origin), so any @media, transition, or :hover rule they declare ` +
+          `is absent from the breakpoints, motion, and interaction-state sensors.`,
+        fix: 'Serve the stylesheet same-origin, or read those sensor results as a lower bound.',
+      });
+    }
+
     const sensors = runSensors({
       elements: sensorElements,
       interactivity,

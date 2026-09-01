@@ -63,3 +63,49 @@ describe('collectInteractionStates', () => {
     expect(result.states[0].conditional_hover).toBe(true);
   });
 });
+
+/**
+ * The class bridge was a regex asking for the class portion of a selector IF
+ * that selector STARTS with a class. Both selector generators always
+ * start with a tag name or `#id`, so that branch was unreachable in production
+ * and `interactiveBases` held only DOM paths and bare tags.
+ *
+ * With no bridge from a CSS class to an element, the findings loop fell back to
+ * a substring test on 'btn' / 'button' / 'link' — which failed in BOTH
+ * directions on one fixture: a real `<button class="cta">` with `.cta:hover`
+ * and no `:focus` produced no finding, while `.pill-btn:hover` produced one
+ * with no such element anywhere on the page.
+ */
+describe('collectInteractionStates — findings must correspond to real elements', () => {
+  const button = (selector: string, className: string) =>
+    makeButton('Go', { selector, className });
+
+  it('flags a hovered element whose class is not named "btn"', () => {
+    const result = collectInteractionStates(makeCtx([button('button.cta', 'cta')], 1920, 1080, {
+      cssRules: [makeStyleRule('.cta:hover', { background: '#ddd' })],
+    }));
+    expect(result.findings.some((f) => f.selector === '.cta')).toBe(true);
+  });
+
+  it('does NOT invent a finding for a selector with no element on the page', () => {
+    const result = collectInteractionStates(makeCtx([button('button.cta', 'cta')], 1920, 1080, {
+      cssRules: [
+        makeStyleRule('.cta:hover', { background: '#ddd' }),
+        makeStyleRule('.cta:focus', { outline: '2px solid' }),
+        // A stylesheet rule for a component that is not rendered here.
+        makeStyleRule('.pill-btn:hover', { background: '#ccc' }),
+      ],
+    }));
+    expect(result.findings.some((f) => f.selector === '.pill-btn')).toBe(false);
+  });
+
+  it('stays quiet when the element does declare a focus state', () => {
+    const result = collectInteractionStates(makeCtx([button('button.cta', 'cta')], 1920, 1080, {
+      cssRules: [
+        makeStyleRule('.cta:hover', { background: '#ddd' }),
+        makeStyleRule('.cta:focus-visible', { outline: '2px solid' }),
+      ],
+    }));
+    expect(result.findings.some((f) => f.selector === '.cta')).toBe(false);
+  });
+});

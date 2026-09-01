@@ -128,8 +128,7 @@ export async function extractCssRulesAndMeta(
         const cr = rule as any;
         const nested: InlineExtractedRule[] = [];
         for (let i = 0; i < cr.cssRules.length; i++) {
-          const child = convertRule(cr.cssRules[i], sourceUrl);
-          if (child) nested.push(child);
+          nested.push(...expandRule(cr.cssRules[i], sourceUrl));
         }
         return {
           kind: 'container',
@@ -147,8 +146,7 @@ export async function extractCssRulesAndMeta(
         const sr = rule as any;
         const nested: InlineExtractedRule[] = [];
         for (let i = 0; i < sr.cssRules.length; i++) {
-          const child = convertRule(sr.cssRules[i], sourceUrl);
-          if (child) nested.push(child);
+          nested.push(...expandRule(sr.cssRules[i], sourceUrl));
         }
         return {
           kind: 'supports',
@@ -158,6 +156,41 @@ export async function extractCssRulesAndMeta(
         };
       }
       return null;
+    }
+
+    /**
+     * Convert one rule into ZERO OR MORE extracted rules.
+     *
+     * `convertRule` returns null for anything it does not recognise, and a
+     * grouping at-rule it does not recognise takes its whole subtree with it.
+     * `@layer` is the one that bit: Tailwind v4 wraps essentially everything in
+     * `@layer`, so a stylesheet's media queries, transitions and :hover rules
+     * were invisible to the breakpoints, motion and interaction-state sensors —
+     * which then reported empty, indistinguishable from a page that declares
+     * none.
+     *
+     * Proven by planted defect: `@layer utilities { @media (min-width: 1024px)
+     * { ... } }` produced NO breakpoint at all, while an identical unwrapped
+     * media query produced one.
+     *
+     * Handled by SHAPE rather than by name — anything that groups child rules
+     * and carries no condition of its own gets flattened into its parent — so
+     * `@scope` and `@starting-style` do not each need their own future fix.
+     * Cascade layers affect precedence, not whether a declaration exists, and
+     * these sensors ask the second question.
+     */
+    function expandRule(rule: CSSRule, sourceUrl?: string): InlineExtractedRule[] {
+      const converted = convertRule(rule, sourceUrl);
+      if (converted) return [converted];
+
+      const group = rule as unknown as { cssRules?: CSSRuleList };
+      if (!group.cssRules || group.cssRules.length === 0) return [];
+
+      const out: InlineExtractedRule[] = [];
+      for (let i = 0; i < group.cssRules.length; i++) {
+        out.push(...expandRule(group.cssRules[i]!, sourceUrl));
+      }
+      return out;
     }
 
     // ---- walk all stylesheets ----
@@ -178,8 +211,7 @@ export async function extractCssRulesAndMeta(
       }
       const sourceUrl = sheet.href ?? undefined;
       for (let i = 0; i < rules.length; i++) {
-        const converted = convertRule(rules[i]!, sourceUrl);
-        if (converted) allRules.push(converted);
+        allRules.push(...expandRule(rules[i]!, sourceUrl));
       }
     }
 

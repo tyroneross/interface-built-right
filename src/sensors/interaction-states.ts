@@ -114,13 +114,32 @@ function interactiveBaseSelectors(ctx: SensorContext): Set<string> {
       Boolean(el.interactive?.hasHref);
     if (!isInteractive) continue;
 
-    // Add the raw selector (e.g. ".btn", "a.link")
+    // Add the raw selector (e.g. "button.btn:nth-of-type(2)")
     out.add(el.selector);
     // Also add the tag name (".btn:hover" may target "button" rules)
     out.add(tag);
-    // And the class portion if the selector starts with a class
-    const classMatch = el.selector.match(/^\.[A-Za-z_][\w-]*/);
-    if (classMatch) out.add(classMatch[0]);
+
+    // AND every class the element actually carries.
+    //
+    // This used to be `el.selector.match(/^\.[A-Za-z_][\w-]*/)` — the class
+    // portion IF the selector starts with a class. It never does: both
+    // selector generators (src/extract.ts `generateSelector`,
+    // src/sensors/css-extract.ts `buildStructuralSelector`) always begin with a
+    // tag name or `#id`, so that branch was unreachable in production and
+    // `interactiveBases` held only DOM paths and bare tag names.
+    //
+    // With no bridge from a CSS class to an element, the findings loop fell
+    // back to a substring test on the literal strings 'btn' / 'button' /
+    // 'link'. That failed in both directions: a real `<button class="cta">`
+    // with a `.cta:hover` rule and no `:focus` produced NO finding because its
+    // class is not named "btn", and a stylesheet containing `.pill-btn:hover`
+    // produced a finding even with no such element on the page — proven by
+    // planted defect, both on one fixture.
+    if (typeof el.className === 'string') {
+      for (const cls of el.className.split(/\s+/)) {
+        if (cls && !cls.includes(':')) out.add(`.${cls}`);
+      }
+    }
   }
   return out;
 }
@@ -157,15 +176,13 @@ export function collectInteractionStates(ctx: SensorContext): InteractionStatesR
 
   const findings: StateFinding[] = [];
   for (const sel of new Set([...hasHover.keys(), ...interactiveBases])) {
-    const interactive =
-      interactiveBases.has(sel) ||
-      // Also flag rule-derived selectors that look interactive
-      sel.includes('btn') ||
-      sel.includes('button') ||
-      sel.includes('link') ||
-      sel === 'a' ||
-      sel === 'button';
-    if (!interactive) continue;
+    // A finding must correspond to an element that EXISTS. The substring
+    // heuristic this replaces reported `.pill-btn` as missing a focus
+    // indicator on a page containing no such element — a defect invented from
+    // a stylesheet, which a reader cannot act on and learns to ignore.
+    // `interactiveBases` is now built from real elements and their real
+    // classes, so it can carry the whole test.
+    if (!interactiveBases.has(sel)) continue;
     if (!hasFocus.get(sel)) {
       findings.push({ selector: sel, missing: 'focus_indicator' });
     }

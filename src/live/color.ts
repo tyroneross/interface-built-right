@@ -2,15 +2,34 @@
  * sRGB color math for live-pane measurement: parsing, alpha compositing,
  * WCAG 2.x relative luminance and contrast ratio.
  *
- * DUPLICATION NOTE — deliberate, not an oversight.
- * `src/rules/color-parse.ts` and `src/rules/wcag-contrast.ts` cover overlapping
- * ground, but both are being rewritten concurrently by another workstream.
- * Importing an in-flight interface would couple this module to a moving target,
- * so `src/live/` carries its own copy.
- * FOLLOW-UP: once the rules/ rewrite lands, collapse this file into
- * `src/rules/color-parse.ts` (one sRGB parser) + `src/rules/wcag-contrast.ts`
- * (one ratio implementation) and re-point `src/live/measure.ts` at them.
+ * DUPLICATION NOTE — the follow-up below CAME DUE, and this is the partial
+ * payment.
+ *
+ * The original note said the rules/ modules were "being rewritten concurrently"
+ * and that this file should collapse into them "once the rules/ rewrite lands".
+ * The rewrite landed: `src/rules/contrast-measure.ts` now says in its own
+ * header that everything grading text contrast imports from there and that
+ * "adding a fourth copy is the defect, not the fix". This file WAS the fourth
+ * copy, and the note describing it as temporary kept reading as a plan rather
+ * than as a defect.
+ *
+ * `resolveEffectiveBackground` now delegates to the canonical implementation,
+ * because that is where the actual bug was: this copy did
+ * `if (!c) continue` on a layer it could not parse and kept walking. An opaque
+ * dark `oklch()` card that this file's parser returns null for was SKIPPED, the
+ * walk climbed past it to the white body, and light text on dark was graded
+ * against white as a comfortable pass — with `resolved: true`, so the one
+ * honesty flag the type carries actively lied. The canonical version stops and
+ * reports `unsupported`.
+ *
+ * REMAINING: the ratio/luminance/isLargeText half of this file is still a
+ * private copy. It is not wrong today, but it is a second place for WCAG
+ * thresholds to drift, and `contrast-measure.ts` is the one that should own
+ * them. Collapsing it requires reshaping `LiveColor` around
+ * `ContrastMeasurement`, which is a separate change.
  */
+
+import { resolveEffectiveBackground as canonicalResolveEffectiveBackground } from '../rules/color-parse.js';
 
 export interface Rgba {
   r: number;
@@ -171,6 +190,14 @@ export interface EffectiveBackground {
   color: Rgba;
   /** true when an opaque background was actually found in the ancestor chain */
   resolved: boolean;
+  /**
+   * Set when a layer carried a colour that could not be decoded.
+   *
+   * The chain is then NOT gradeable — everything beneath that layer is unknown
+   * — and `resolved` is false. Without this arm the walk skipped the layer and
+   * reported the eventual white canvas as a resolved measurement.
+   */
+  unsupported?: string;
 }
 
 /**
@@ -182,22 +209,17 @@ export interface EffectiveBackground {
  * `resolved` is false — an honest signal that the answer is an assumption.
  */
 export function resolveEffectiveBackground(chain: readonly string[]): EffectiveBackground {
-  const parsed: Rgba[] = [];
-  for (const raw of chain) {
-    const c = parseCssColor(raw);
-    if (!c) continue;
-    parsed.push(c);
-    if (isOpaque(c)) break;
-  }
-
-  const last = parsed[parsed.length - 1];
-  const resolved = last !== undefined && isOpaque(last);
-  let acc: Rgba = resolved ? parsed[parsed.length - 1] : DEFAULT_CANVAS_BASE;
-  const top = resolved ? parsed.length - 2 : parsed.length - 1;
-  for (let i = top; i >= 0; i--) {
-    acc = compositeOver(parsed[i], acc);
-  }
-  return { color: acc, resolved };
+  // Delegates. The local walk did `if (!c) continue`, which skipped any layer
+  // this file's parser could not decode and kept climbing — so an opaque dark
+  // card in a colour space it does not support vanished, the walk reached the
+  // white body, and the result came back `resolved: true`. The canonical
+  // implementation stops at the undecodable layer and says so.
+  const canonical = canonicalResolveEffectiveBackground(chain);
+  return {
+    color: { r: canonical.rgb[0], g: canonical.rgb[1], b: canonical.rgb[2], a: 1 },
+    resolved: canonical.resolved,
+    ...(canonical.unsupported !== undefined ? { unsupported: canonical.unsupported } : {}),
+  };
 }
 
 function channelLuminance(v: number): number {
