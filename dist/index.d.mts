@@ -2127,7 +2127,15 @@ declare const DesignSystemResultSchema: z.ZodObject<{
         }, z.core.$strip>>;
         fix: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>>;
-    complianceScore: z.ZodNumber;
+    complianceScore: z.ZodNullable<z.ZodNumber>;
+    coverage: z.ZodOptional<z.ZodObject<{
+        elementsConsidered: z.ZodNumber;
+        elementsEvaluated: z.ZodNumber;
+        elementsSkippedNoStyles: z.ZodNumber;
+        declaredCategories: z.ZodArray<z.ZodString>;
+        validatedCategoriesDeclared: z.ZodArray<z.ZodString>;
+        categoriesWithoutValidator: z.ZodArray<z.ZodString>;
+    }, z.core.$strip>>;
 }, z.core.$strip>;
 type DesignSystemViolation = z.infer<typeof DesignSystemViolationSchema>;
 type DesignSystemResult = z.infer<typeof DesignSystemResultSchema>;
@@ -6393,10 +6401,30 @@ type ExtendedTokenSpec = z.infer<typeof ExtendedTokenSpecSchema>;
  */
 declare function validateExtendedTokens(elements: EnhancedElement[], tokens: ExtendedTokenSpec, systemName: string): TokenViolation[];
 /**
- * Calculate compliance score (0-100).
- * Percentage of checked properties that match tokens.
+ * Percentage of evaluated units that carried no violation, or `null` when
+ * nothing was evaluated.
+ *
+ * TWO DEFECTS LIVED IN THE PREVIOUS VERSION, both proven by planted config
+ * against the installed binary:
+ *
+ *   1. `if (totalChecked === 0) return 100` — a scan that checked NOTHING
+ *      reported PERFECT COMPLIANCE. A config declaring no tokens
+ *      (`{"version":1,"name":"x"}`) scored 100 on a page full of violations.
+ *      "Nothing was measured" and "everything passed" produced the identical
+ *      number, which is the false-clean class this whole sweep is about.
+ *      It now returns `null`, which a consumer must handle rather than read
+ *      as a pass.
+ *   2. The result was UNBOUNDED BELOW. Its caller passed a fabricated
+ *      denominator that violations could exceed, and a real scan produced
+ *      **-58** — a percentage that cannot be a percentage. Clamped now, but
+ *      the clamp is the seatbelt: the caller was also fixed to count real
+ *      units instead of inventing them.
+ *
+ * The old test asserted `calculateComplianceScore(0, 0) === 100`. It passed
+ * against the defect because it was written from the implementation rather
+ * than from what the number is supposed to mean.
  */
-declare function calculateComplianceScore(totalChecked: number, violationCount: number): number;
+declare function calculateComplianceScore(totalChecked: number, violationCount: number): number | null;
 
 /** All Calm Precision rules */
 declare const allCalmPrecisionRules: Rule[];

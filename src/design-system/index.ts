@@ -4,6 +4,24 @@ import { allCalmPrecisionRules, principleToRules } from './principles/calm-preci
 import type { EnhancedElement, DesignSystemResult } from '../schemas.js';
 import type { RuleContext } from '../rules/types.js';
 
+/**
+ * Token categories that actually have a registered validator.
+ *
+ * `DesignSystemConfigSchema` accepts `shadows` and `transitions`, but
+ * `tokenValidators` (src/tokens.ts) registers five categories and
+ * `toDesignTokenSpec` maps only those five. Declaring an unvalidated category
+ * used to raise `complianceScore` while checking nothing — it is now reported
+ * as a coverage gap instead.
+ */
+const VALIDATED_TOKEN_CATEGORIES: ReadonlySet<string> = new Set([
+  'colors',
+  'spacing',
+  'fontSizes',
+  'touchTargets',
+  'cornerRadius',
+  'typography',
+]);
+
 export { loadDesignSystemConfig, type DesignSystemConfig } from './config.js';
 
 /**
@@ -103,13 +121,63 @@ export async function runDesignSystemCheck(
     ? validateExtendedTokens(elements, config.tokens, config.name)
     : [];
 
-  // Calculate compliance score
-  // Total checkable = elements × active token categories
-  const tokenCategories = Object.keys(config.tokens).filter(
-    k => config.tokens[k as keyof typeof config.tokens] !== undefined
-  ).length;
-  const totalChecked = elements.length * Math.max(tokenCategories, 1);
-  const complianceScore = calculateComplianceScore(totalChecked, tokenViolations.length);
+  // ── Compliance score ───────────────────────────────────────────────────
+  //
+  // THE OLD DENOMINATOR WAS INVENTED, and three separate absurdities followed
+  // from it. All three were proven by planted config against the installed
+  // binary, on one unchanged fixture page:
+  //
+  //   const totalChecked = elements.length * Math.max(tokenCategories, 1);
+  //
+  //   1. IT COULD GO NEGATIVE. `colorValidator` emits up to two violations per
+  //      element (text colour AND background), so violations routinely exceed
+  //      `elements × categories`. A config declaring one category scored
+  //      **-58**.
+  //   2. DECLARING MORE TOKENS RAISED THE SCORE. `shadows` and `transitions`
+  //      pass the schema but have NO registered validator (see
+  //      `tokenValidators` in src/tokens.ts — five entries, and
+  //      `toDesignTokenSpec` drops the other two). Adding them enlarged the
+  //      denominator and checked nothing: the identical page with the identical
+  //      52 violations moved from **-58 to +47**.
+  //   3. CHECKING NOTHING SCORED 100. A config with no `tokens` key gave
+  //      `tokenCategories = 0`, `Math.max(0,1) = 1`, zero violations — and a
+  //      perfect score for grading nothing.
+  //
+  // The replacement counts REAL UNITS on both sides: how many elements were
+  // evaluable (they carry computed styles the validators can read), and how
+  // many of those carried no violation. Numerator and denominator are the same
+  // kind of thing, so the result cannot go negative, cannot exceed 100, and
+  // cannot be inflated by declaring a token nobody validates.
+  //
+  // When nothing was evaluable the score is `null`, never a number — "we could
+  // not measure" must not be readable as "it passed".
+
+  const declaredCategories = Object.keys(config.tokens ?? {}).filter(
+    k => config.tokens![k as keyof typeof config.tokens] !== undefined
+  );
+  const categoriesWithoutValidator = declaredCategories.filter(
+    k => !VALIDATED_TOKEN_CATEGORIES.has(k),
+  );
+
+  // A validator can only read an element that has computed styles. Every
+  // validator in tokens.ts and validator.ts opens with the same
+  // `if (!element.computedStyles) continue`, so this is the honest population.
+  const evaluableElements = elements.filter(el => !!el.computedStyles);
+  const elementsWithViolations = new Set(tokenViolations.map(v => v.element)).size;
+
+  // AND there has to be something to check. A config declaring no validated
+  // token category runs every validator over the full element list, each one
+  // returns immediately, zero violations come back — and dividing 33 by 33
+  // scored a page full of defects at 100. Proven by planted config:
+  // `{"version":1,"name":"proof"}` scored 100 against 52 violations' worth of
+  // page. If no declared category has a validator, no check happened, and the
+  // honest answer is `null`.
+  const validatedCategoriesDeclared = declaredCategories.filter(
+    k => VALIDATED_TOKEN_CATEGORIES.has(k),
+  );
+  const complianceScore = validatedCategoriesDeclared.length === 0
+    ? null
+    : calculateComplianceScore(evaluableElements.length, elementsWithViolations);
 
   return {
     configName: config.name,
@@ -117,5 +185,17 @@ export async function runDesignSystemCheck(
     tokenViolations,
     customViolations,
     complianceScore,
+    coverage: {
+      elementsConsidered: elements.length,
+      elementsEvaluated: evaluableElements.length,
+      elementsSkippedNoStyles: elements.length - evaluableElements.length,
+      declaredCategories,
+      /** Declared AND backed by a validator — the categories actually checked. */
+      validatedCategoriesDeclared,
+      // Declared in config, silently checked by nothing. These used to INFLATE
+      // the score; now they are named so the reader can delete them or ask for
+      // a validator.
+      categoriesWithoutValidator,
+    },
   };
 }

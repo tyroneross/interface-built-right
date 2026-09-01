@@ -31,6 +31,17 @@ import { contentElementsToEnhanced } from './rules/content-adapter.js';
 import { measureElementContrast } from './rules/contrast-measure.js';
 import type { RuleContext as PresetRuleContext } from './rules/types.js';
 
+/**
+ * Boxes that CONTAIN page regions — the population the page-level rules
+ * (`content-chrome-ratio`, `cognitive-load-elements`) reason over.
+ *
+ * Text carriers are deliberately absent: they are the content pass's job, and
+ * inline wrappers are excluded from contrast grading on purpose.
+ */
+const CONTAINER_TAGS: ReadonlySet<string> = new Set([
+  'header', 'nav', 'main', 'aside', 'footer', 'section', 'form',
+]);
+
 
 /**
  * Comprehensive UI scan result combining all IBR analysis capabilities
@@ -641,14 +652,34 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       ...(cssExtract ? { cssRules: cssExtract.cssRules, documentMeta: cssExtract.documentMeta } : {}),
     });
 
-    // Run deterministic rule engine
+    // Page-level rules reason over the PAGE, not over the control list.
+    // `allElements` used to be `elements.all` — the interactive-only array —
+    // so `calm-precision/content-chrome-ratio` summed chrome area over a
+    // population containing no <nav>, <header>, or <footer>, always computed
+    // ~0%, and never fired; and `calm-precision/cognitive-load-elements`,
+    // which by construction only grades NON-interactive containers, was handed
+    // exclusively interactive elements and returned null every single time.
+    // Both were proven silent by planted defect (an 800x360 <nav> in an
+    // 800x600 viewport, and a <div> holding 12 buttons, produced no findings).
+    //
+    // The landmark and container elements already exist — `cssExtract`
+    // gathers them a few lines above for the sensor layer. They were simply
+    // never offered to the rules.
+    const structuralElements = cssExtract?.structuralElements ?? [];
     const ruleContext = {
       isMobile: resolvedViewport.width < 768,
       viewportWidth: resolvedViewport.width,
       viewportHeight: resolvedViewport.height,
       url,
-      allElements: elements.all,
+      allElements: [...elements.all, ...structuralElements],
     };
+    // The always-on engine ran ONLY over interactive elements, so its two
+    // content-shaped rules could never fire: `text-hierarchy/title-vs-
+    // description` returns null unless the element is a heading, and
+    // `spacing-grid/off-grid` grades the margins that set a page's rhythm —
+    // which live on body copy. The content pass is added below, after content
+    // extraction resolves; `runAllRules` filters by `appliesTo`, so the
+    // touch-target and handler-integrity rules stay off paragraphs.
     const ruleEngine = runAllRules(elements.all, ruleContext);
 
     // Decide the preset rule set BEFORE extracting content, so a run that
@@ -712,10 +743,42 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // only rules declaring `appliesTo: 'any' | 'text'` run on this pass.
     const contentAsElements = gradesContent ? contentElementsToEnhanced(contentElements) : [];
 
+    // Landmarks and containers ONLY — an explicit allowlist, not "everything
+    // structural minus the content tags".
+    //
+    // The subtractive version let `<span>` through, because span is in the
+    // structural extractor's list and NOT in CONTENT_ELEMENT_TAGS. That
+    // silently reversed a deliberate, documented decision: see the
+    // CONTENT_SELECTORS comment in src/extract.ts — span and div wrap almost
+    // everything, so grading them re-grades the same words many times at many
+    // inherited colors. It showed up immediately as a wrapper reported with the
+    // concatenated text of its three children.
+    //
+    // These rules need boxes that CONTAIN things (chrome area, child counts).
+    // A text wrapper is not one, and inline span/div contrast stays the
+    // declared gap it was, reported through `rulesApplied.gradedTags`.
+    const containerElements = gradesContent
+      ? structuralElements.filter((el) => CONTAINER_TAGS.has(el.tagName))
+      : [];
+
+    // Same surface filter the preset engine uses, applied to the always-on
+    // rules. Without this, a heading was never handed to a rule that only
+    // grades headings.
+    ruleEngine.push(
+      ...runAllRules([...contentAsElements, ...containerElements], ruleContext, { surface: 'content' }),
+    );
+
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
       const presetViolations = [
         ...runRules(elements.all, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'interactive' }),
         ...runRules(contentAsElements, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'content' }),
+        // Containers and landmarks. CONTENT_SELECTORS covers text carriers
+        // (h1-h6, p, li, td...) and deliberately excludes wrappers, so a
+        // <nav>/<section>/<div> was iterated by NO pass and the container
+        // rules could not fire even once the styles existed. Filtered to the
+        // tags the content pass does not already carry, so nothing is graded
+        // twice.
+        ...runRules(containerElements, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'content' }),
       ];
       // Inject preset violations into issues so they appear in the standard output
       for (const v of presetViolations) {
@@ -933,6 +996,14 @@ export async function applyDesignSystemCheck(
   url: string,
   outputDir: string
 ): Promise<DesignSystemResult | undefined> {
+  // A THROW HERE USED TO VANISH. `.catch(() => undefined)` discarded the error
+  // without binding it, and `runDesignSystemCheck` also returns `undefined`
+  // when no config exists — so a malformed `.ibr/design-system.json` produced
+  // output byte-identical to having no design system at all. Proven by planted
+  // config: writing `{ this is not json` yielded no `designSystem` section, no
+  // issue, and no warning, on a page with 52 real token violations. The user
+  // asked for design-system enforcement and silently got none.
+  let designSystemConfigError: string | undefined;
   const designSystem = await runDesignSystemCheck(
     elements,
     {
@@ -943,7 +1014,19 @@ export async function applyDesignSystemCheck(
       allElements: elements,
     },
     outputDir
-  ).catch(() => undefined);
+  ).catch((err) => {
+    designSystemConfigError = err instanceof Error ? err.message : String(err);
+    return undefined;
+  });
+
+  if (designSystemConfigError) {
+    issues.push({
+      category: 'design-system' as const,
+      severity: 'error' as const,
+      description: `[design-system-config-failed] Design system checks did NOT run: ${designSystemConfigError}`,
+      fix: 'Fix .ibr/design-system.json (malformed JSON, or a field that fails the schema). Until then no principle or token check is being applied.',
+    });
+  }
 
   if (designSystem) {
     for (const v of designSystem.principleViolations) {

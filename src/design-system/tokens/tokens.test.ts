@@ -99,8 +99,20 @@ describe('Extended Token Validation', () => {
       expect(calculateComplianceScore(100, 25)).toBe(75);
     });
 
-    it('handles zero total', () => {
-      expect(calculateComplianceScore(0, 0)).toBe(100);
+    // Was `expect(...).toBe(100)`. That assertion codified the defect: a scan
+    // that evaluated nothing reported perfect compliance, so "we could not
+    // measure" and "everything passed" were the same number. A planted config
+    // declaring no tokens scored 100 on a page full of violations.
+    it('returns null when nothing was evaluated, never a passing score', () => {
+      expect(calculateComplianceScore(0, 0)).toBeNull();
+      expect(calculateComplianceScore(-1, 0)).toBeNull();
+    });
+
+    // The score was unbounded below: a real scan produced -58 because the
+    // caller's denominator was invented and violations could exceed it.
+    it('never returns a value outside 0-100', () => {
+      expect(calculateComplianceScore(10, 40)).toBe(0);
+      expect(calculateComplianceScore(10, -5)).toBe(100);
     });
   });
 });

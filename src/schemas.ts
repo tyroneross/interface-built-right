@@ -700,7 +700,26 @@ export const DesignSystemResultSchema = z.object({
     message: z.string(),
   })),
   customViolations: z.array(DesignSystemViolationSchema),
-  complianceScore: z.number().min(0).max(100),
+  /**
+   * Percentage of EVALUATED elements carrying no token violation, or `null`
+   * when nothing was evaluable.
+   *
+   * `null` is load-bearing: the previous version returned 100 for a scan that
+   * checked nothing, so a reader could not tell perfect compliance from no
+   * measurement. It also declared `.min(0)` here while the runtime produced
+   * -58 — this schema types the result, it does not validate it, so the
+   * constraint caught nothing.
+   */
+  complianceScore: z.number().min(0).max(100).nullable(),
+  /** What the score was computed over. Absent on results predating coverage. */
+  coverage: z.object({
+    elementsConsidered: z.number(),
+    elementsEvaluated: z.number(),
+    elementsSkippedNoStyles: z.number(),
+    declaredCategories: z.array(z.string()),
+    validatedCategoriesDeclared: z.array(z.string()),
+    categoriesWithoutValidator: z.array(z.string()),
+  }).optional(),
 });
 
 // Design system type exports

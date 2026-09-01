@@ -62,7 +62,18 @@ describe('applyDesignSystemCheck', () => {
       mockElement({
         tagName: 'li',
         selector: 'ul > li',
-        computedStyles: { border: '1px solid black' },
+        // Longhands, matching what getComputedStyle actually returns. The old
+        // `{ border: '1px solid black' }` is a shorthand the browser never
+        // reports for width and no extractor ever captured — the fixture was
+        // richer than production, so the test passed while the rule could not
+        // fire on any real page.
+        computedStyles: {
+          borderTopWidth: '1px',
+          borderRightWidth: '1px',
+          borderBottomWidth: '1px',
+          borderLeftWidth: '1px',
+          borderStyle: 'solid',
+        },
       }),
     ];
     const issues: ScanIssue[] = [];
@@ -108,9 +119,15 @@ describe('applyDesignSystemCheck', () => {
 
     expect(result).toBeDefined();
     expect(result!.configName).toBe('Token System');
-    expect(typeof result!.complianceScore).toBe('number');
-    expect(result!.complianceScore).toBeGreaterThanOrEqual(0);
-    expect(result!.complianceScore).toBeLessThanOrEqual(100);
+    // `mockElement()` carries no computedStyles, so no validator can read it
+    // and NOTHING was evaluated. This assertion used to require a number, and
+    // the implementation obliged with 100 — a perfect score for grading
+    // nothing. `null` is the honest answer and the reason the type is nullable.
+    expect(result!.complianceScore).toBeNull();
+    expect(result!.coverage?.elementsEvaluated).toBe(0);
+    expect(result!.coverage?.validatedCategoriesDeclared).toEqual(
+      expect.arrayContaining(['colors', 'spacing', 'touchTargets']),
+    );
   });
 
   it('does not mutate issues when design system has no violations', async () => {

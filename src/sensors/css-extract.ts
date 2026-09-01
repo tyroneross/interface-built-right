@@ -1,6 +1,7 @@
 import type { PageLike } from '../engine/page-like.js';
 import type { EnhancedElement } from '../schemas.js';
 import type { ExtractedCSSRule, DocumentMeta } from './types.js';
+import { CAPTURED_STYLE_KEYS } from '../rules/style-read.js';
 
 /**
  * Live-page extractor for CSS rules + document-level metadata used by the
@@ -8,8 +9,13 @@ import type { ExtractedCSSRule, DocumentMeta } from './types.js';
  *
  * Runs inside the browser via `page.evaluate(...)` so it can access
  * `document.styleSheets` and `document.fonts`. Same-origin sheets are
- * walked; cross-origin sheets throw on `.cssRules` access and are silently
- * skipped (the sensor layer treats missing rules as `data_unavailable`).
+ * walked; cross-origin sheets throw on `.cssRules` access and are COUNTED,
+ * not silently skipped — `sheetsSkipped` rides back on the result so a
+ * consumer can tell "this page declares no media queries" from "we could not
+ * read the stylesheet that declares them". The previous version of this
+ * comment claimed the sensor layer treated missing rules as
+ * `data_unavailable`; that was false when written. `data_unavailable` exists
+ * only in typography.ts and refers to text elements, never to cssRules.
  *
  * Returned `cssRules` is the discriminated-union shape consumed by the
  * sensors directly (no further transformation needed downstream).
@@ -20,8 +26,12 @@ export async function extractCssRulesAndMeta(
   cssRules: ExtractedCSSRule[];
   documentMeta: DocumentMeta;
   structuralElements: EnhancedElement[];
+  /** How many stylesheets were present on the page. */
+  sheetsSeen: number;
+  /** How many of them threw on `.cssRules` (cross-origin) and were NOT read. */
+  sheetsSkipped: number;
 }> {
-  return page.evaluate(() => {
+  return page.evaluate((styleKeys: string[]) => {
     // ---- helpers run inside the browser context ----
     interface InlineStyleRule {
       kind: 'style';
@@ -153,12 +163,17 @@ export async function extractCssRulesAndMeta(
     // ---- walk all stylesheets ----
     const sheets = Array.from(document.styleSheets);
     const allRules: InlineExtractedRule[] = [];
+    // COUNT the sheets we cannot read. A cross-origin stylesheet is the normal
+    // case for a CDN-hosted or Tailwind-CDN site, and dropping it silently is
+    // how `breakpoints: []` came to mean both "declares none" and "we could not
+    // look". The counts ride back on the result so the sensors can say which.
+    let sheetsSkipped = 0;
     for (const sheet of sheets) {
       let rules: CSSRuleList;
       try {
         rules = sheet.cssRules;
       } catch {
-        // cross-origin — skip
+        sheetsSkipped++;
         continue;
       }
       const sourceUrl = sheet.href ?? undefined;
@@ -222,6 +237,28 @@ export async function extractCssRulesAndMeta(
     }
 
     const seenStructural = new Set<Element>();
+    // Same walk as src/extract.ts's collectBackgroundChain — each
+    // page.evaluate() ships its own closure across CDP, so there is no runtime
+    // module to share it from. Keep the two in step; the compositing itself
+    // lives in src/rules/color-parse.ts and is genuinely shared.
+    const collectStructuralBackgroundChain = (
+      start: HTMLElement,
+    ): { chain: string[]; image: boolean } => {
+      const chain: string[] = [];
+      let image = false;
+      let node: HTMLElement | null = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        chain.push(cs.backgroundColor || '');
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== 'none') image = true;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
+
     const structuralElements: EnhancedElement[] = [];
     for (const sel of STRUCTURAL_SELECTORS) {
       let found: NodeListOf<Element>;
@@ -244,17 +281,21 @@ export async function extractCssRulesAndMeta(
         const isTextBearing =
           /^h[1-6]$/.test(tagLower) || tagLower === 'p' || tagLower === 'span' || tagLower === 'li';
 
-        const styles: Record<string, string> = {
-          color: computed.color,
-          backgroundColor: computed.backgroundColor,
-        };
-        if (isTextBearing) {
-          // Bypass extract.ts line-198-style filtering — sensors need 'normal' too.
-          styles.fontFamily = computed.fontFamily;
-          styles.fontSize = computed.fontSize.replace(/px$/, ''); // strip px to match existing convention
-          styles.fontWeight = computed.fontWeight;
-          styles.lineHeight = computed.lineHeight;
+        // ONE capture contract with src/extract.ts, driven by
+        // CAPTURED_STYLE_KEYS. This used to be a two-property object widened to
+        // six for text-bearing tags, which starved the sensor lane of the exact
+        // fields the shared contrast measurement needs. The visible symptom was
+        // two lanes of ONE scan reporting opposite verdicts on the same <p>:
+        // `issues` said 1.49:1 FAIL (the rule engine has backgroundChain) while
+        // `sensors.contrast` said PASS (assumed white). `isTextBearing` is gone
+        // — capturing a uniform property set costs a few bytes and removes a
+        // whole class of "this lane cannot see what that lane sees".
+        const styles: Record<string, string> = {};
+        for (const key of styleKeys) {
+          const value = (computed as unknown as Record<string, string>)[key];
+          if (typeof value === 'string' && value !== '') styles[key] = value;
         }
+        void isTextBearing;
 
         const ariaLevel = htmlEl.getAttribute('aria-level');
 
@@ -271,6 +312,18 @@ export async function extractCssRulesAndMeta(
             height: Math.round(rect.height),
           },
           computedStyles: styles,
+          // The shared measurement (src/rules/contrast-measure.ts) resolves the
+          // effective background by compositing THROUGH ancestors. Without this
+          // chain every structural element fell back to its own
+          // `rgba(0, 0, 0, 0)` and was graded against an assumed white page —
+          // light text on a dark card read as a comfortable pass.
+          ...(() => {
+            const bgChain = collectStructuralBackgroundChain(htmlEl);
+            return {
+              backgroundChain: bgChain.chain,
+              ...(bgChain.image ? { backgroundImageBehind: true } : {}),
+            };
+          })(),
           interactive: {
             hasOnClick: false,
             hasHref: false,
@@ -299,6 +352,8 @@ export async function extractCssRulesAndMeta(
         fontsStatus,
       } as DocumentMeta,
       structuralElements,
+      sheetsSeen: sheets.length,
+      sheetsSkipped,
     };
-  });
+  }, [...CAPTURED_STYLE_KEYS]);
 }

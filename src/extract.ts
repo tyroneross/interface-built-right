@@ -8,6 +8,7 @@ import type { Viewport, EnhancedElement, ElementIssue, AuditResult } from './sch
 import { VIEWPORTS } from './schemas.js';
 import { viewportToConfig } from './devices.js';
 import { evaluateTargetSize } from './rules/target-sizing.js';
+import { CAPTURED_STYLE_KEYS } from './rules/style-read.js';
 
 /**
  * Lock file to prevent concurrent extractions
@@ -272,9 +273,31 @@ const INTERACTIVE_SELECTORS = [
  * Extract enhanced interactive elements with handler detection
  */
 export async function extractInteractiveElements(page: PageLike): Promise<EnhancedElement[]> {
-  return page.evaluate((selectors: string[]) => {
+  return page.evaluate(({ selectors, styleKeys }: { selectors: string[]; styleKeys: string[] }) => {
     const seen = new Set<Element>();
     const elements: EnhancedElement[] = [];
+
+    /**
+     * Capture exactly the properties `CAPTURED_STYLE_KEYS` declares — no more,
+     * and critically no LESS.
+     *
+     * This used to be a hand-written object literal of eight properties while
+     * rules read fifteen. `spacing-grid/off-grid` read paddingTop, and
+     * `calm-precision/gestalt-grouping` read border-width; neither was in the
+     * literal, so both read `undefined`, both treated it as "nothing to
+     * report", and both returned null for every element on every page they
+     * ever ran against. Deriving the capture from the same list the readers
+     * validate against is what makes that class of gap impossible rather than
+     * merely fixed once.
+     */
+    const captureStyles = (computed: CSSStyleDeclaration): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const key of styleKeys) {
+        const value = (computed as unknown as Record<string, string>)[key];
+        if (typeof value === 'string' && value !== '') out[key] = value;
+      }
+      return out;
+    };
 
     // Helper: Generate unique selector (arrow function to avoid __name bundling issue)
     const generateSelector = (el: HTMLElement): string => {
@@ -589,33 +612,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               width: Math.round(rect.width),
               height: Math.round(rect.height),
             },
-            computedStyles: {
-              cursor: computed.cursor,
-              color: computed.color,
-              backgroundColor: computed.backgroundColor,
-              // display/visibility/opacity: the touch-targets rule's
-              // isNonVisibleOrZeroArea guard (src/rules/touch-targets.ts)
-              // reads these three fields to exclude non-visible elements.
-              // Before this, they were never populated here — the guard's
-              // display/visibility/opacity branches were unreachable in
-              // production (only its bounds<=0 branch ever fired, which
-              // happens to zero out for display:none via
-              // getBoundingClientRect, but does NOT zero out for
-              // visibility:hidden or opacity:0 — those retain full layout
-              // bounds and were silently graded for touch-target size).
-              display: computed.display,
-              visibility: computed.visibility,
-              opacity: computed.opacity,
-              // WCAG's large-text thresholds are a SIZE question, so the
-              // contrast rule cannot answer it without these. Before they were
-              // captured, isLargeText parsed '' -> NaN -> false for every
-              // element on every scan, and a 32px bold heading at 3.03:1 was
-              // reported as failing the 4.5:1 normal-text requirement when the
-              // 3:1 large-text requirement is the one that applies. The rule
-              // was asserting a property it had never measured.
-              fontSize: computed.fontSize,
-              fontWeight: computed.fontWeight,
-            },
+            computedStyles: captureStyles(computed),
             ...(() => {
               const bgChain = collectBackgroundChain(htmlEl);
               return {
@@ -681,7 +678,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
     }
 
     return elements;
-  }, INTERACTIVE_SELECTORS);
+  }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
 }
 
 /**
@@ -875,9 +872,22 @@ export interface ContentElement {
  * untouched.
  */
 export async function extractContentElements(page: PageLike): Promise<ContentElement[]> {
-  return page.evaluate((selectors: string[]) => {
+  return page.evaluate(({ selectors, styleKeys }: { selectors: string[]; styleKeys: string[] }) => {
     const seen = new Set<Element>();
     const results: ContentElement[] = [];
+
+    // Same capture contract as the interactive lane. Both paths derive from
+    // CAPTURED_STYLE_KEYS so a rule reading a property gets it on EITHER
+    // surface, rather than working on buttons and silently no-opping on
+    // paragraphs (or the reverse).
+    const captureStyles = (computed: CSSStyleDeclaration): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const key of styleKeys) {
+        const value = (computed as unknown as Record<string, string>)[key];
+        if (typeof value === 'string' && value !== '') out[key] = value;
+      }
+      return out;
+    };
 
     // Local copy of extractInteractiveElements' generateSelector — each
     // page.evaluate() call ships its own closure across the CDP boundary,
@@ -999,18 +1009,7 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
               width: Math.round(rect.width),
               height: Math.round(rect.height),
             },
-            computedStyles: {
-              cursor: computed.cursor,
-              color: computed.color,
-              backgroundColor: computed.backgroundColor,
-              display: computed.display,
-              visibility: computed.visibility,
-              opacity: computed.opacity,
-              // See the interactive lane: WCAG large-text classification needs
-              // these, and headings are exactly where it matters.
-              fontSize: computed.fontSize,
-              fontWeight: computed.fontWeight,
-            },
+            computedStyles: captureStyles(computed),
             contentKind: kind,
             // Real attributes, not assumptions. The adapter used to synthesize
             // `role: null, ariaLabel: null` for every content element and call
@@ -1046,7 +1045,7 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
     }
 
     return results;
-  }, CONTENT_SELECTORS);
+  }, { selectors: CONTENT_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
 }
 
 /**

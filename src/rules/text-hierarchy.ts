@@ -49,6 +49,13 @@ export const textHierarchyRules: Rule[] = [
     name: 'Text Hierarchy: Title vs Description Size',
     description: 'Title-level elements must be visually larger than description-level elements',
     defaultSeverity: 'warn',
+    // Headings and paragraphs are CONTENT. Left on the default `interactive`
+    // surface this rule only ever saw buttons and links, `inferLevel` returned
+    // 'unknown' for every one of them, and line one returned null before any
+    // size was compared. It never graded a heading in its shipped life —
+    // proven by planted defect: an <h2> at 12px above a <p> at 20px produced
+    // no finding through the installed binary.
+    appliesTo: 'any',
     check: (element: EnhancedElement, context: RuleContext): Violation | null => {
       // Only fire on title elements (one violation at most per title, not per description)
       if (inferLevel(element) !== 'title') return null;

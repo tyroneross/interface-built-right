@@ -42,7 +42,7 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/core.js
+// node_modules/zod/v4/core/core.js
 // @__NO_SIDE_EFFECTS__
 function $constructor(name, initializer3, params) {
   function init(inst, def) {
@@ -102,7 +102,7 @@ function config(newConfig) {
 }
 var _a, NEVER, $brand, $ZodAsyncError, $ZodEncodeError, globalConfig;
 var init_core = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/core.js"() {
+  "node_modules/zod/v4/core/core.js"() {
     "use strict";
     NEVER = /* @__PURE__ */ Object.freeze({
       status: "aborted"
@@ -124,7 +124,7 @@ var init_core = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/util.js
+// node_modules/zod/v4/core/util.js
 var util_exports = {};
 __export(util_exports, {
   BIGINT_FORMAT_RANGES: () => BIGINT_FORMAT_RANGES,
@@ -735,7 +735,7 @@ function uint8ArrayToHex(bytes) {
 }
 var EVALUATING, captureStackTrace, allowsEval, getParsedType, propertyKeyTypes, primitiveTypes, NUMBER_FORMAT_RANGES, BIGINT_FORMAT_RANGES, Class;
 var init_util = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/util.js"() {
+  "node_modules/zod/v4/core/util.js"() {
     "use strict";
     init_core();
     EVALUATING = /* @__PURE__ */ Symbol("evaluating");
@@ -827,7 +827,7 @@ var init_util = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/errors.js
+// node_modules/zod/v4/core/errors.js
 function flattenError(error51, mapper = (issue2) => issue2.message) {
   const fieldErrors = {};
   const formErrors = [];
@@ -949,7 +949,7 @@ function prettifyError(error51) {
 }
 var initializer, $ZodError, $ZodRealError;
 var init_errors = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/errors.js"() {
+  "node_modules/zod/v4/core/errors.js"() {
     "use strict";
     init_core();
     init_util();
@@ -974,10 +974,10 @@ var init_errors = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/parse.js
+// node_modules/zod/v4/core/parse.js
 var _parse, parse, _parseAsync, parseAsync, _safeParse, safeParse, _safeParseAsync, safeParseAsync, _encode, encode, _decode, decode, _encodeAsync, encodeAsync, _decodeAsync, decodeAsync, _safeEncode, safeEncode, _safeDecode, safeDecode, _safeEncodeAsync, safeEncodeAsync, _safeDecodeAsync, safeDecodeAsync;
 var init_parse = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/parse.js"() {
+  "node_modules/zod/v4/core/parse.js"() {
     "use strict";
     init_core();
     init_errors();
@@ -1071,7 +1071,7 @@ var init_parse = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js
+// node_modules/zod/v4/core/regexes.js
 var regexes_exports = {};
 __export(regexes_exports, {
   base64: () => base64,
@@ -1163,7 +1163,7 @@ function fixedBase64url(length) {
 }
 var cuid, cuid2, ulid, xid, ksuid, nanoid, duration, extendedDuration, guid, uuid, uuid4, uuid6, uuid7, email, html5Email, rfc5322Email, unicodeEmail, idnEmail, browserEmail, _emoji, ipv4, ipv6, mac, cidrv4, cidrv6, base64, base64url, hostname, domain, httpProtocol, e164, dateSource, date, string, bigint, integer, number, boolean, _null, _undefined, lowercase, uppercase, hex, md5_hex, md5_base64, md5_base64url, sha1_hex, sha1_base64, sha1_base64url, sha256_hex, sha256_base64, sha256_base64url, sha384_hex, sha384_base64, sha384_base64url, sha512_hex, sha512_base64, sha512_base64url;
 var init_regexes = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/regexes.js"() {
+  "node_modules/zod/v4/core/regexes.js"() {
     "use strict";
     init_util();
     cuid = /^[cC][0-9a-z]{6,}$/;
@@ -1237,7 +1237,7 @@ var init_regexes = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/checks.js
+// node_modules/zod/v4/core/checks.js
 function handleCheckPropertyResult(result, payload, property) {
   if (result.issues.length) {
     payload.issues.push(...prefixIssues(property, result.issues));
@@ -1245,7 +1245,7 @@ function handleCheckPropertyResult(result, payload, property) {
 }
 var $ZodCheck, numericOriginMap, $ZodCheckLessThan, $ZodCheckGreaterThan, $ZodCheckMultipleOf, $ZodCheckNumberFormat, $ZodCheckBigIntFormat, $ZodCheckMaxSize, $ZodCheckMinSize, $ZodCheckSizeEquals, $ZodCheckMaxLength, $ZodCheckMinLength, $ZodCheckLengthEquals, $ZodCheckStringFormat, $ZodCheckRegex, $ZodCheckLowerCase, $ZodCheckUpperCase, $ZodCheckIncludes, $ZodCheckStartsWith, $ZodCheckEndsWith, $ZodCheckProperty, $ZodCheckMimeType, $ZodCheckOverwrite;
 var init_checks = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/checks.js"() {
+  "node_modules/zod/v4/core/checks.js"() {
     "use strict";
     init_core();
     init_regexes();
@@ -1794,10 +1794,10 @@ var init_checks = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/doc.js
+// node_modules/zod/v4/core/doc.js
 var Doc;
 var init_doc = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/doc.js"() {
+  "node_modules/zod/v4/core/doc.js"() {
     "use strict";
     Doc = class {
       constructor(args = []) {
@@ -1836,10 +1836,10 @@ var init_doc = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/versions.js
+// node_modules/zod/v4/core/versions.js
 var version;
 var init_versions = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/versions.js"() {
+  "node_modules/zod/v4/core/versions.js"() {
     "use strict";
     version = {
       major: 4,
@@ -1849,7 +1849,7 @@ var init_versions = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js
+// node_modules/zod/v4/core/schemas.js
 function isValidBase64(data) {
   if (data === "")
     return true;
@@ -2255,7 +2255,7 @@ function handleRefineResult(result, payload, input, inst) {
 }
 var $ZodType, $ZodString, $ZodStringFormat, $ZodGUID, $ZodUUID, $ZodEmail, $ZodURL, $ZodEmoji, $ZodNanoID, $ZodCUID, $ZodCUID2, $ZodULID, $ZodXID, $ZodKSUID, $ZodISODateTime, $ZodISODate, $ZodISOTime, $ZodISODuration, $ZodIPv4, $ZodIPv6, $ZodMAC, $ZodCIDRv4, $ZodCIDRv6, $ZodBase64, $ZodBase64URL, $ZodE164, $ZodJWT, $ZodCustomStringFormat, $ZodNumber, $ZodNumberFormat, $ZodBoolean, $ZodBigInt, $ZodBigIntFormat, $ZodSymbol, $ZodUndefined, $ZodNull, $ZodAny, $ZodUnknown, $ZodNever, $ZodVoid, $ZodDate, $ZodArray, $ZodObject, $ZodObjectJIT, $ZodUnion, $ZodXor, $ZodDiscriminatedUnion, $ZodIntersection, $ZodTuple, $ZodRecord, $ZodMap, $ZodSet, $ZodEnum, $ZodLiteral, $ZodFile, $ZodTransform, $ZodOptional, $ZodExactOptional, $ZodNullable, $ZodDefault, $ZodPrefault, $ZodNonOptional, $ZodSuccess, $ZodCatch, $ZodNaN, $ZodPipe, $ZodCodec, $ZodPreprocess, $ZodReadonly, $ZodTemplateLiteral, $ZodFunction, $ZodPromise, $ZodLazy, $ZodCustom;
 var init_schemas = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/schemas.js"() {
+  "node_modules/zod/v4/core/schemas.js"() {
     "use strict";
     init_checks();
     init_core();
@@ -3956,7 +3956,7 @@ var init_schemas = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js
+// node_modules/zod/v4/locales/ar.js
 function ar_default() {
   return {
     localeError: error()
@@ -3964,7 +3964,7 @@ function ar_default() {
 }
 var error;
 var init_ar = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ar.js"() {
+  "node_modules/zod/v4/locales/ar.js"() {
     "use strict";
     init_util();
     error = () => {
@@ -4070,7 +4070,7 @@ var init_ar = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/az.js
+// node_modules/zod/v4/locales/az.js
 function az_default() {
   return {
     localeError: error2()
@@ -4078,7 +4078,7 @@ function az_default() {
 }
 var error2;
 var init_az = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/az.js"() {
+  "node_modules/zod/v4/locales/az.js"() {
     "use strict";
     init_util();
     error2 = () => {
@@ -4183,7 +4183,7 @@ var init_az = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/be.js
+// node_modules/zod/v4/locales/be.js
 function getBelarusianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -4206,7 +4206,7 @@ function be_default() {
 }
 var error3;
 var init_be = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/be.js"() {
+  "node_modules/zod/v4/locales/be.js"() {
     "use strict";
     init_util();
     error3 = () => {
@@ -4347,7 +4347,7 @@ var init_be = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js
+// node_modules/zod/v4/locales/bg.js
 function bg_default() {
   return {
     localeError: error4()
@@ -4355,7 +4355,7 @@ function bg_default() {
 }
 var error4;
 var init_bg = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/bg.js"() {
+  "node_modules/zod/v4/locales/bg.js"() {
     "use strict";
     init_util();
     error4 = () => {
@@ -4475,7 +4475,7 @@ var init_bg = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js
+// node_modules/zod/v4/locales/ca.js
 function ca_default() {
   return {
     localeError: error5()
@@ -4483,7 +4483,7 @@ function ca_default() {
 }
 var error5;
 var init_ca = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ca.js"() {
+  "node_modules/zod/v4/locales/ca.js"() {
     "use strict";
     init_util();
     error5 = () => {
@@ -4591,7 +4591,7 @@ var init_ca = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js
+// node_modules/zod/v4/locales/cs.js
 function cs_default() {
   return {
     localeError: error6()
@@ -4599,7 +4599,7 @@ function cs_default() {
 }
 var error6;
 var init_cs = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/cs.js"() {
+  "node_modules/zod/v4/locales/cs.js"() {
     "use strict";
     init_util();
     error6 = () => {
@@ -4710,7 +4710,7 @@ var init_cs = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/da.js
+// node_modules/zod/v4/locales/da.js
 function da_default() {
   return {
     localeError: error7()
@@ -4718,7 +4718,7 @@ function da_default() {
 }
 var error7;
 var init_da = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/da.js"() {
+  "node_modules/zod/v4/locales/da.js"() {
     "use strict";
     init_util();
     error7 = () => {
@@ -4833,7 +4833,7 @@ var init_da = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/de.js
+// node_modules/zod/v4/locales/de.js
 function de_default() {
   return {
     localeError: error8()
@@ -4841,7 +4841,7 @@ function de_default() {
 }
 var error8;
 var init_de = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/de.js"() {
+  "node_modules/zod/v4/locales/de.js"() {
     "use strict";
     init_util();
     error8 = () => {
@@ -4949,7 +4949,7 @@ var init_de = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/el.js
+// node_modules/zod/v4/locales/el.js
 function el_default() {
   return {
     localeError: error9()
@@ -4957,7 +4957,7 @@ function el_default() {
 }
 var error9;
 var init_el = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/el.js"() {
+  "node_modules/zod/v4/locales/el.js"() {
     "use strict";
     init_util();
     error9 = () => {
@@ -5066,7 +5066,7 @@ var init_el = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/en.js
+// node_modules/zod/v4/locales/en.js
 function en_default() {
   return {
     localeError: error10()
@@ -5074,7 +5074,7 @@ function en_default() {
 }
 var error10;
 var init_en = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/en.js"() {
+  "node_modules/zod/v4/locales/en.js"() {
     "use strict";
     init_util();
     error10 = () => {
@@ -5186,7 +5186,7 @@ var init_en = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js
+// node_modules/zod/v4/locales/eo.js
 function eo_default() {
   return {
     localeError: error11()
@@ -5194,7 +5194,7 @@ function eo_default() {
 }
 var error11;
 var init_eo = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/eo.js"() {
+  "node_modules/zod/v4/locales/eo.js"() {
     "use strict";
     init_util();
     error11 = () => {
@@ -5303,7 +5303,7 @@ var init_eo = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/es.js
+// node_modules/zod/v4/locales/es.js
 function es_default() {
   return {
     localeError: error12()
@@ -5311,7 +5311,7 @@ function es_default() {
 }
 var error12;
 var init_es = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/es.js"() {
+  "node_modules/zod/v4/locales/es.js"() {
     "use strict";
     init_util();
     error12 = () => {
@@ -5443,7 +5443,7 @@ var init_es = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js
+// node_modules/zod/v4/locales/fa.js
 function fa_default() {
   return {
     localeError: error13()
@@ -5451,7 +5451,7 @@ function fa_default() {
 }
 var error13;
 var init_fa = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fa.js"() {
+  "node_modules/zod/v4/locales/fa.js"() {
     "use strict";
     init_util();
     error13 = () => {
@@ -5565,7 +5565,7 @@ var init_fa = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js
+// node_modules/zod/v4/locales/fi.js
 function fi_default() {
   return {
     localeError: error14()
@@ -5573,7 +5573,7 @@ function fi_default() {
 }
 var error14;
 var init_fi = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fi.js"() {
+  "node_modules/zod/v4/locales/fi.js"() {
     "use strict";
     init_util();
     error14 = () => {
@@ -5685,7 +5685,7 @@ var init_fi = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js
+// node_modules/zod/v4/locales/fr.js
 function fr_default() {
   return {
     localeError: error15()
@@ -5693,7 +5693,7 @@ function fr_default() {
 }
 var error15;
 var init_fr = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr.js"() {
+  "node_modules/zod/v4/locales/fr.js"() {
     "use strict";
     init_util();
     error15 = () => {
@@ -5818,7 +5818,7 @@ var init_fr = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js
+// node_modules/zod/v4/locales/fr-CA.js
 function fr_CA_default() {
   return {
     localeError: error16()
@@ -5826,7 +5826,7 @@ function fr_CA_default() {
 }
 var error16;
 var init_fr_CA = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/fr-CA.js"() {
+  "node_modules/zod/v4/locales/fr-CA.js"() {
     "use strict";
     init_util();
     error16 = () => {
@@ -5933,7 +5933,7 @@ var init_fr_CA = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/he.js
+// node_modules/zod/v4/locales/he.js
 function he_default() {
   return {
     localeError: error17()
@@ -5941,7 +5941,7 @@ function he_default() {
 }
 var error17;
 var init_he = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/he.js"() {
+  "node_modules/zod/v4/locales/he.js"() {
     "use strict";
     init_util();
     error17 = () => {
@@ -6135,7 +6135,7 @@ var init_he = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js
+// node_modules/zod/v4/locales/hr.js
 function hr_default() {
   return {
     localeError: error18()
@@ -6143,7 +6143,7 @@ function hr_default() {
 }
 var error18;
 var init_hr = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hr.js"() {
+  "node_modules/zod/v4/locales/hr.js"() {
     "use strict";
     init_util();
     error18 = () => {
@@ -6265,7 +6265,7 @@ var init_hr = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js
+// node_modules/zod/v4/locales/hu.js
 function hu_default() {
   return {
     localeError: error19()
@@ -6273,7 +6273,7 @@ function hu_default() {
 }
 var error19;
 var init_hu = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hu.js"() {
+  "node_modules/zod/v4/locales/hu.js"() {
     "use strict";
     init_util();
     error19 = () => {
@@ -6381,7 +6381,7 @@ var init_hu = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js
+// node_modules/zod/v4/locales/hy.js
 function getArmenianPlural(count, one, many) {
   return Math.abs(count) === 1 ? one : many;
 }
@@ -6399,7 +6399,7 @@ function hy_default() {
 }
 var error20;
 var init_hy = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/hy.js"() {
+  "node_modules/zod/v4/locales/hy.js"() {
     "use strict";
     init_util();
     error20 = () => {
@@ -6536,7 +6536,7 @@ var init_hy = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/id.js
+// node_modules/zod/v4/locales/id.js
 function id_default() {
   return {
     localeError: error21()
@@ -6544,7 +6544,7 @@ function id_default() {
 }
 var error21;
 var init_id = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/id.js"() {
+  "node_modules/zod/v4/locales/id.js"() {
     "use strict";
     init_util();
     error21 = () => {
@@ -6650,7 +6650,7 @@ var init_id = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/is.js
+// node_modules/zod/v4/locales/is.js
 function is_default() {
   return {
     localeError: error22()
@@ -6658,7 +6658,7 @@ function is_default() {
 }
 var error22;
 var init_is = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/is.js"() {
+  "node_modules/zod/v4/locales/is.js"() {
     "use strict";
     init_util();
     error22 = () => {
@@ -6767,7 +6767,7 @@ var init_is = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/it.js
+// node_modules/zod/v4/locales/it.js
 function it_default() {
   return {
     localeError: error23()
@@ -6775,7 +6775,7 @@ function it_default() {
 }
 var error23;
 var init_it = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/it.js"() {
+  "node_modules/zod/v4/locales/it.js"() {
     "use strict";
     init_util();
     error23 = () => {
@@ -6883,7 +6883,7 @@ var init_it = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js
+// node_modules/zod/v4/locales/ja.js
 function ja_default() {
   return {
     localeError: error24()
@@ -6891,7 +6891,7 @@ function ja_default() {
 }
 var error24;
 var init_ja = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ja.js"() {
+  "node_modules/zod/v4/locales/ja.js"() {
     "use strict";
     init_util();
     error24 = () => {
@@ -6998,7 +6998,7 @@ var init_ja = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js
+// node_modules/zod/v4/locales/ka.js
 function ka_default() {
   return {
     localeError: error25()
@@ -7006,7 +7006,7 @@ function ka_default() {
 }
 var error25;
 var init_ka = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ka.js"() {
+  "node_modules/zod/v4/locales/ka.js"() {
     "use strict";
     init_util();
     error25 = () => {
@@ -7118,7 +7118,7 @@ var init_ka = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/km.js
+// node_modules/zod/v4/locales/km.js
 function km_default() {
   return {
     localeError: error26()
@@ -7126,7 +7126,7 @@ function km_default() {
 }
 var error26;
 var init_km = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/km.js"() {
+  "node_modules/zod/v4/locales/km.js"() {
     "use strict";
     init_util();
     error26 = () => {
@@ -7236,18 +7236,18 @@ var init_km = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js
+// node_modules/zod/v4/locales/kh.js
 function kh_default() {
   return km_default();
 }
 var init_kh = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/kh.js"() {
+  "node_modules/zod/v4/locales/kh.js"() {
     "use strict";
     init_km();
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js
+// node_modules/zod/v4/locales/ko.js
 function ko_default() {
   return {
     localeError: error27()
@@ -7255,7 +7255,7 @@ function ko_default() {
 }
 var error27;
 var init_ko = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ko.js"() {
+  "node_modules/zod/v4/locales/ko.js"() {
     "use strict";
     init_util();
     error27 = () => {
@@ -7366,7 +7366,7 @@ var init_ko = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js
+// node_modules/zod/v4/locales/lt.js
 function getUnitTypeFromNumber(number4) {
   const abs = Math.abs(number4);
   const last = abs % 10;
@@ -7384,7 +7384,7 @@ function lt_default() {
 }
 var capitalizeFirstCharacter, error28;
 var init_lt = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/lt.js"() {
+  "node_modules/zod/v4/locales/lt.js"() {
     "use strict";
     init_util();
     capitalizeFirstCharacter = (text) => {
@@ -7577,7 +7577,7 @@ var init_lt = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js
+// node_modules/zod/v4/locales/mk.js
 function mk_default() {
   return {
     localeError: error29()
@@ -7585,7 +7585,7 @@ function mk_default() {
 }
 var error29;
 var init_mk = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/mk.js"() {
+  "node_modules/zod/v4/locales/mk.js"() {
     "use strict";
     init_util();
     error29 = () => {
@@ -7694,7 +7694,7 @@ var init_mk = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js
+// node_modules/zod/v4/locales/ms.js
 function ms_default() {
   return {
     localeError: error30()
@@ -7702,7 +7702,7 @@ function ms_default() {
 }
 var error30;
 var init_ms = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ms.js"() {
+  "node_modules/zod/v4/locales/ms.js"() {
     "use strict";
     init_util();
     error30 = () => {
@@ -7809,7 +7809,7 @@ var init_ms = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js
+// node_modules/zod/v4/locales/nl.js
 function nl_default() {
   return {
     localeError: error31()
@@ -7817,7 +7817,7 @@ function nl_default() {
 }
 var error31;
 var init_nl = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/nl.js"() {
+  "node_modules/zod/v4/locales/nl.js"() {
     "use strict";
     init_util();
     error31 = () => {
@@ -7927,7 +7927,7 @@ var init_nl = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/no.js
+// node_modules/zod/v4/locales/no.js
 function no_default() {
   return {
     localeError: error32()
@@ -7935,7 +7935,7 @@ function no_default() {
 }
 var error32;
 var init_no = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/no.js"() {
+  "node_modules/zod/v4/locales/no.js"() {
     "use strict";
     init_util();
     error32 = () => {
@@ -8043,7 +8043,7 @@ var init_no = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js
+// node_modules/zod/v4/locales/ota.js
 function ota_default() {
   return {
     localeError: error33()
@@ -8051,7 +8051,7 @@ function ota_default() {
 }
 var error33;
 var init_ota = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ota.js"() {
+  "node_modules/zod/v4/locales/ota.js"() {
     "use strict";
     init_util();
     error33 = () => {
@@ -8160,7 +8160,7 @@ var init_ota = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js
+// node_modules/zod/v4/locales/ps.js
 function ps_default() {
   return {
     localeError: error34()
@@ -8168,7 +8168,7 @@ function ps_default() {
 }
 var error34;
 var init_ps = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ps.js"() {
+  "node_modules/zod/v4/locales/ps.js"() {
     "use strict";
     init_util();
     error34 = () => {
@@ -8282,7 +8282,7 @@ var init_ps = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js
+// node_modules/zod/v4/locales/pl.js
 function pl_default() {
   return {
     localeError: error35()
@@ -8290,7 +8290,7 @@ function pl_default() {
 }
 var error35;
 var init_pl = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pl.js"() {
+  "node_modules/zod/v4/locales/pl.js"() {
     "use strict";
     init_util();
     error35 = () => {
@@ -8399,7 +8399,7 @@ var init_pl = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js
+// node_modules/zod/v4/locales/pt.js
 function pt_default() {
   return {
     localeError: error36()
@@ -8407,7 +8407,7 @@ function pt_default() {
 }
 var error36;
 var init_pt = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/pt.js"() {
+  "node_modules/zod/v4/locales/pt.js"() {
     "use strict";
     init_util();
     error36 = () => {
@@ -8515,7 +8515,7 @@ var init_pt = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js
+// node_modules/zod/v4/locales/ro.js
 function ro_default() {
   return {
     localeError: error37()
@@ -8523,7 +8523,7 @@ function ro_default() {
 }
 var error37;
 var init_ro = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ro.js"() {
+  "node_modules/zod/v4/locales/ro.js"() {
     "use strict";
     init_util();
     error37 = () => {
@@ -8642,7 +8642,7 @@ var init_ro = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js
+// node_modules/zod/v4/locales/ru.js
 function getRussianPlural(count, one, few, many) {
   const absCount = Math.abs(count);
   const lastDigit = absCount % 10;
@@ -8665,7 +8665,7 @@ function ru_default() {
 }
 var error38;
 var init_ru = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ru.js"() {
+  "node_modules/zod/v4/locales/ru.js"() {
     "use strict";
     init_util();
     error38 = () => {
@@ -8806,7 +8806,7 @@ var init_ru = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js
+// node_modules/zod/v4/locales/sl.js
 function sl_default() {
   return {
     localeError: error39()
@@ -8814,7 +8814,7 @@ function sl_default() {
 }
 var error39;
 var init_sl = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sl.js"() {
+  "node_modules/zod/v4/locales/sl.js"() {
     "use strict";
     init_util();
     error39 = () => {
@@ -8923,7 +8923,7 @@ var init_sl = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js
+// node_modules/zod/v4/locales/sv.js
 function sv_default() {
   return {
     localeError: error40()
@@ -8931,7 +8931,7 @@ function sv_default() {
 }
 var error40;
 var init_sv = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/sv.js"() {
+  "node_modules/zod/v4/locales/sv.js"() {
     "use strict";
     init_util();
     error40 = () => {
@@ -9041,7 +9041,7 @@ var init_sv = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js
+// node_modules/zod/v4/locales/ta.js
 function ta_default() {
   return {
     localeError: error41()
@@ -9049,7 +9049,7 @@ function ta_default() {
 }
 var error41;
 var init_ta = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ta.js"() {
+  "node_modules/zod/v4/locales/ta.js"() {
     "use strict";
     init_util();
     error41 = () => {
@@ -9159,7 +9159,7 @@ var init_ta = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/th.js
+// node_modules/zod/v4/locales/th.js
 function th_default() {
   return {
     localeError: error42()
@@ -9167,7 +9167,7 @@ function th_default() {
 }
 var error42;
 var init_th = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/th.js"() {
+  "node_modules/zod/v4/locales/th.js"() {
     "use strict";
     init_util();
     error42 = () => {
@@ -9277,7 +9277,7 @@ var init_th = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js
+// node_modules/zod/v4/locales/tr.js
 function tr_default() {
   return {
     localeError: error43()
@@ -9285,7 +9285,7 @@ function tr_default() {
 }
 var error43;
 var init_tr = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/tr.js"() {
+  "node_modules/zod/v4/locales/tr.js"() {
     "use strict";
     init_util();
     error43 = () => {
@@ -9390,7 +9390,7 @@ var init_tr = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js
+// node_modules/zod/v4/locales/uk.js
 function uk_default() {
   return {
     localeError: error44()
@@ -9398,7 +9398,7 @@ function uk_default() {
 }
 var error44;
 var init_uk = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uk.js"() {
+  "node_modules/zod/v4/locales/uk.js"() {
     "use strict";
     init_util();
     error44 = () => {
@@ -9506,18 +9506,18 @@ var init_uk = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js
+// node_modules/zod/v4/locales/ua.js
 function ua_default() {
   return uk_default();
 }
 var init_ua = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ua.js"() {
+  "node_modules/zod/v4/locales/ua.js"() {
     "use strict";
     init_uk();
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js
+// node_modules/zod/v4/locales/ur.js
 function ur_default() {
   return {
     localeError: error45()
@@ -9525,7 +9525,7 @@ function ur_default() {
 }
 var error45;
 var init_ur = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/ur.js"() {
+  "node_modules/zod/v4/locales/ur.js"() {
     "use strict";
     init_util();
     error45 = () => {
@@ -9635,7 +9635,7 @@ var init_ur = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js
+// node_modules/zod/v4/locales/uz.js
 function uz_default() {
   return {
     localeError: error46()
@@ -9643,7 +9643,7 @@ function uz_default() {
 }
 var error46;
 var init_uz = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/uz.js"() {
+  "node_modules/zod/v4/locales/uz.js"() {
     "use strict";
     init_util();
     error46 = () => {
@@ -9753,7 +9753,7 @@ var init_uz = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js
+// node_modules/zod/v4/locales/vi.js
 function vi_default() {
   return {
     localeError: error47()
@@ -9761,7 +9761,7 @@ function vi_default() {
 }
 var error47;
 var init_vi = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/vi.js"() {
+  "node_modules/zod/v4/locales/vi.js"() {
     "use strict";
     init_util();
     error47 = () => {
@@ -9869,7 +9869,7 @@ var init_vi = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js
+// node_modules/zod/v4/locales/zh-CN.js
 function zh_CN_default() {
   return {
     localeError: error48()
@@ -9877,7 +9877,7 @@ function zh_CN_default() {
 }
 var error48;
 var init_zh_CN = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-CN.js"() {
+  "node_modules/zod/v4/locales/zh-CN.js"() {
     "use strict";
     init_util();
     error48 = () => {
@@ -9986,7 +9986,7 @@ var init_zh_CN = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js
+// node_modules/zod/v4/locales/zh-TW.js
 function zh_TW_default() {
   return {
     localeError: error49()
@@ -9994,7 +9994,7 @@ function zh_TW_default() {
 }
 var error49;
 var init_zh_TW = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/zh-TW.js"() {
+  "node_modules/zod/v4/locales/zh-TW.js"() {
     "use strict";
     init_util();
     error49 = () => {
@@ -10101,7 +10101,7 @@ var init_zh_TW = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js
+// node_modules/zod/v4/locales/yo.js
 function yo_default() {
   return {
     localeError: error50()
@@ -10109,7 +10109,7 @@ function yo_default() {
 }
 var error50;
 var init_yo = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/yo.js"() {
+  "node_modules/zod/v4/locales/yo.js"() {
     "use strict";
     init_util();
     error50 = () => {
@@ -10216,7 +10216,7 @@ var init_yo = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/index.js
+// node_modules/zod/v4/locales/index.js
 var locales_exports = {};
 __export(locales_exports, {
   ar: () => ar_default,
@@ -10273,7 +10273,7 @@ __export(locales_exports, {
   zhTW: () => zh_TW_default
 });
 var init_locales = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/locales/index.js"() {
+  "node_modules/zod/v4/locales/index.js"() {
     "use strict";
     init_ar();
     init_az();
@@ -10330,13 +10330,13 @@ var init_locales = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/registries.js
+// node_modules/zod/v4/core/registries.js
 function registry() {
   return new $ZodRegistry();
 }
 var _a2, $output, $input, $ZodRegistry, globalRegistry;
 var init_registries = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/registries.js"() {
+  "node_modules/zod/v4/core/registries.js"() {
     "use strict";
     $output = /* @__PURE__ */ Symbol("ZodOutput");
     $input = /* @__PURE__ */ Symbol("ZodInput");
@@ -10385,7 +10385,7 @@ var init_registries = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/api.js
+// node_modules/zod/v4/core/api.js
 // @__NO_SIDE_EFFECTS__
 function _string(Class2, params) {
   return new Class2({
@@ -11418,7 +11418,7 @@ function _stringFormat(Class2, format, fnOrRegex, _params = {}) {
 }
 var TimePrecision;
 var init_api = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/api.js"() {
+  "node_modules/zod/v4/core/api.js"() {
     "use strict";
     init_checks();
     init_registries();
@@ -11434,7 +11434,7 @@ var init_api = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js
+// node_modules/zod/v4/core/to-json-schema.js
 function initializeContext(params) {
   let target = params?.target ?? "draft-2020-12";
   if (target === "draft-4")
@@ -11781,7 +11781,7 @@ function isTransforming(_schema, _ctx) {
 }
 var createToJSONSchemaMethod, createStandardJSONSchemaMethod;
 var init_to_json_schema = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/to-json-schema.js"() {
+  "node_modules/zod/v4/core/to-json-schema.js"() {
     "use strict";
     init_registries();
     createToJSONSchemaMethod = (schema, processors = {}) => (params) => {
@@ -11800,7 +11800,7 @@ var init_to_json_schema = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js
+// node_modules/zod/v4/core/json-schema-processors.js
 function toJSONSchema(input, params) {
   if ("_idmap" in input) {
     const registry2 = input;
@@ -11837,7 +11837,7 @@ function toJSONSchema(input, params) {
 }
 var formatMap, stringProcessor, numberProcessor, booleanProcessor, bigintProcessor, symbolProcessor, nullProcessor, undefinedProcessor, voidProcessor, neverProcessor, anyProcessor, unknownProcessor, dateProcessor, enumProcessor, literalProcessor, nanProcessor, templateLiteralProcessor, fileProcessor, successProcessor, customProcessor, functionProcessor, transformProcessor, mapProcessor, setProcessor, arrayProcessor, objectProcessor, unionProcessor, intersectionProcessor, tupleProcessor, recordProcessor, nullableProcessor, nonoptionalProcessor, defaultProcessor, prefaultProcessor, catchProcessor, pipeProcessor, readonlyProcessor, promiseProcessor, optionalProcessor, lazyProcessor, allProcessors;
 var init_json_schema_processors = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-processors.js"() {
+  "node_modules/zod/v4/core/json-schema-processors.js"() {
     "use strict";
     init_to_json_schema();
     init_util();
@@ -12352,10 +12352,10 @@ var init_json_schema_processors = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js
+// node_modules/zod/v4/core/json-schema-generator.js
 var JSONSchemaGenerator;
 var init_json_schema_generator = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema-generator.js"() {
+  "node_modules/zod/v4/core/json-schema-generator.js"() {
     "use strict";
     init_json_schema_processors();
     init_to_json_schema();
@@ -12435,15 +12435,15 @@ var init_json_schema_generator = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js
+// node_modules/zod/v4/core/json-schema.js
 var json_schema_exports = {};
 var init_json_schema = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/json-schema.js"() {
+  "node_modules/zod/v4/core/json-schema.js"() {
     "use strict";
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/index.js
+// node_modules/zod/v4/core/index.js
 var core_exports2 = {};
 __export(core_exports2, {
   $ZodAny: () => $ZodAny,
@@ -12722,7 +12722,7 @@ __export(core_exports2, {
   version: () => version
 });
 var init_core2 = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/core/index.js"() {
+  "node_modules/zod/v4/core/index.js"() {
     "use strict";
     init_core();
     init_parse();
@@ -12743,7 +12743,7 @@ var init_core2 = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js
+// node_modules/zod/v4/classic/checks.js
 var checks_exports2 = {};
 __export(checks_exports2, {
   endsWith: () => _endsWith,
@@ -12777,13 +12777,13 @@ __export(checks_exports2, {
   uppercase: () => _uppercase
 });
 var init_checks2 = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/checks.js"() {
+  "node_modules/zod/v4/classic/checks.js"() {
     "use strict";
     init_core2();
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js
+// node_modules/zod/v4/classic/iso.js
 var iso_exports = {};
 __export(iso_exports, {
   ZodISODate: () => ZodISODate,
@@ -12809,7 +12809,7 @@ function duration2(params) {
 }
 var ZodISODateTime, ZodISODate, ZodISOTime, ZodISODuration;
 var init_iso = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/iso.js"() {
+  "node_modules/zod/v4/classic/iso.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -12832,10 +12832,10 @@ var init_iso = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js
+// node_modules/zod/v4/classic/errors.js
 var initializer2, ZodError, ZodRealError;
 var init_errors2 = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/errors.js"() {
+  "node_modules/zod/v4/classic/errors.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -12881,10 +12881,10 @@ var init_errors2 = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js
+// node_modules/zod/v4/classic/parse.js
 var parse2, parseAsync2, safeParse2, safeParseAsync2, encode2, decode2, encodeAsync2, decodeAsync2, safeEncode2, safeDecode2, safeEncodeAsync2, safeDecodeAsync2;
 var init_parse2 = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/parse.js"() {
+  "node_modules/zod/v4/classic/parse.js"() {
     "use strict";
     init_core2();
     init_errors2();
@@ -12903,7 +12903,7 @@ var init_parse2 = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js
+// node_modules/zod/v4/classic/schemas.js
 var schemas_exports2 = {};
 __export(schemas_exports2, {
   ZodAny: () => ZodAny,
@@ -13587,7 +13587,7 @@ function preprocess(fn, schema) {
 }
 var _installedGroups, ZodType, _ZodString, ZodString, ZodStringFormat, ZodEmail, ZodGUID, ZodUUID, ZodURL, ZodEmoji, ZodNanoID, ZodCUID, ZodCUID2, ZodULID, ZodXID, ZodKSUID, ZodIPv4, ZodMAC, ZodIPv6, ZodCIDRv4, ZodCIDRv6, ZodBase64, ZodBase64URL, ZodE164, ZodJWT, ZodCustomStringFormat, ZodNumber, ZodNumberFormat, ZodBoolean, ZodBigInt, ZodBigIntFormat, ZodSymbol, ZodUndefined, ZodNull, ZodAny, ZodUnknown, ZodNever, ZodVoid, ZodDate, ZodArray, ZodObject, ZodUnion, ZodXor, ZodDiscriminatedUnion, ZodIntersection, ZodTuple, ZodRecord, ZodMap, ZodSet, ZodEnum, ZodLiteral, ZodFile, ZodTransform, ZodOptional, ZodExactOptional, ZodNullable, ZodDefault, ZodPrefault, ZodNonOptional, ZodSuccess, ZodCatch, ZodNaN, ZodPipe, ZodCodec, ZodPreprocess, ZodReadonly, ZodTemplateLiteral, ZodLazy, ZodPromise, ZodFunction, ZodCustom, describe2, meta2, stringbool;
 var init_schemas2 = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/schemas.js"() {
+  "node_modules/zod/v4/classic/schemas.js"() {
     "use strict";
     init_core2();
     init_core2();
@@ -14375,7 +14375,7 @@ var init_schemas2 = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js
+// node_modules/zod/v4/classic/compat.js
 function setErrorMap(map2) {
   config({
     customError: map2
@@ -14386,7 +14386,7 @@ function getErrorMap() {
 }
 var ZodIssueCode, ZodFirstPartyTypeKind;
 var init_compat = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/compat.js"() {
+  "node_modules/zod/v4/classic/compat.js"() {
     "use strict";
     init_core2();
     ZodIssueCode = {
@@ -14407,7 +14407,7 @@ var init_compat = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js
+// node_modules/zod/v4/classic/from-json-schema.js
 function detectVersion(schema, defaultTarget) {
   const $schema = schema.$schema;
   if ($schema === "https://json-schema.org/draft/2020-12/schema") {
@@ -14812,7 +14812,7 @@ function fromJSONSchema(schema, params) {
 }
 var z, RECOGNIZED_KEYS;
 var init_from_json_schema = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/from-json-schema.js"() {
+  "node_modules/zod/v4/classic/from-json-schema.js"() {
     "use strict";
     init_registries();
     init_checks2();
@@ -14897,7 +14897,7 @@ var init_from_json_schema = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js
+// node_modules/zod/v4/classic/coerce.js
 var coerce_exports = {};
 __export(coerce_exports, {
   bigint: () => bigint3,
@@ -14922,14 +14922,14 @@ function date4(params) {
   return _coercedDate(ZodDate, params);
 }
 var init_coerce = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/coerce.js"() {
+  "node_modules/zod/v4/classic/coerce.js"() {
     "use strict";
     init_core2();
     init_schemas2();
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/external.js
+// node_modules/zod/v4/classic/external.js
 var external_exports = {};
 __export(external_exports, {
   $brand: () => $brand,
@@ -15172,7 +15172,7 @@ __export(external_exports, {
   xor: () => xor
 });
 var init_external = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/v4/classic/external.js"() {
+  "node_modules/zod/v4/classic/external.js"() {
     "use strict";
     init_core2();
     init_schemas2();
@@ -15193,9 +15193,9 @@ var init_external = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/index.js
+// node_modules/zod/index.js
 var init_zod = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/zod/index.js"() {
+  "node_modules/zod/index.js"() {
     "use strict";
     init_external();
     init_external();
@@ -15604,9 +15604,10 @@ function validateExtendedTokens(elements, tokens, systemName) {
   return violations;
 }
 function calculateComplianceScore(totalChecked, violationCount) {
-  if (totalChecked === 0) return 100;
+  if (totalChecked <= 0) return null;
   const passing = totalChecked - violationCount;
-  return Math.round(passing / totalChecked * 100);
+  const pct = Math.round(passing / totalChecked * 100);
+  return Math.max(0, Math.min(100, pct));
 }
 var init_validator = __esm({
   "src/design-system/tokens/validator.ts"() {
@@ -15625,36 +15626,146 @@ var init_tokens2 = __esm({
   }
 });
 
+// src/rules/style-read.ts
+function isCapturedStyleKey(key) {
+  return CAPTURED_SET.has(key);
+}
+function readStyle(element, key) {
+  if (!isCapturedStyleKey(key)) return { status: "not-captured", key };
+  const styles = element.computedStyles;
+  if (!styles) return { status: "no-styles", key };
+  const value = styles[key];
+  if (value === void 0 || value === null || value === "") {
+    return { status: "absent", key };
+  }
+  return { status: "read", key, value };
+}
+function readStyles(element, keys) {
+  const values = {};
+  const unmeasured = [];
+  for (const key of keys) {
+    const r = readStyle(element, key);
+    if (r.status === "read") values[key] = r.value;
+    else if (r.status !== "absent") unmeasured.push(r);
+  }
+  return { values, unmeasured };
+}
+function unmeasuredStyleViolation(element, ruleId, ruleName, unmeasured) {
+  const notCaptured = unmeasured.filter((u) => u.status === "not-captured").map((u) => u.key);
+  const reason = notCaptured.length > 0 ? `no extractor captures ${notCaptured.join(", ")}` : "no computed styles were captured for this element";
+  return {
+    ruleId: `${ruleId}-unmeasurable`,
+    ruleName: `${ruleName} (not measurable)`,
+    severity: "warn",
+    message: `"${(element.text || element.selector || "").slice(0, 40)}" was NOT checked by ${ruleId}: ${reason}`,
+    element: element.selector,
+    bounds: element.bounds,
+    fix: notCaptured.length > 0 ? `Add ${notCaptured.join(", ")} to CAPTURED_STYLE_KEYS in src/rules/style-read.ts so the extractors capture it.` : "Re-run the scan. If it persists, the element was extracted without computed styles."
+  };
+}
+function parsePx2(value) {
+  const trimmed = value.trim();
+  if (!trimmed.endsWith("px")) return null;
+  const n = parseFloat(trimmed);
+  return isNaN(n) ? null : n;
+}
+function resolveBorderPresence(element) {
+  const { values, unmeasured } = readStyles(element, [...BORDER_WIDTH_KEYS, "borderStyle"]);
+  if (unmeasured.length > 0) return { status: "unmeasured", unmeasured };
+  const style = values.borderStyle ?? "";
+  const styleHidesBorder = style === "none" || style === "hidden";
+  const widths = BORDER_WIDTH_KEYS.map((k) => values[k] !== void 0 ? parsePx2(values[k]) : null).filter((n) => n !== null);
+  const hasBorder = !styleHidesBorder && widths.some((w) => w > 0);
+  return { status: "measured", hasBorder, widths };
+}
+var CAPTURED_STYLE_KEYS, CAPTURED_SET, BORDER_WIDTH_KEYS;
+var init_style_read = __esm({
+  "src/rules/style-read.ts"() {
+    "use strict";
+    CAPTURED_STYLE_KEYS = [
+      // Paint — the contrast lane (src/rules/contrast-measure.ts).
+      "color",
+      "backgroundColor",
+      // Presence — visibility guards across touch-targets and contrast.
+      "display",
+      "visibility",
+      "opacity",
+      "cursor",
+      // Type — WCAG large-text classification + the typography sensor + the
+      // design-system `lineHeights` validator, which read `line-height` and got
+      // `undefined` on every element because nobody captured it.
+      "fontSize",
+      "fontWeight",
+      "fontFamily",
+      "lineHeight",
+      // Border — gestalt grouping + the visual-pattern fingerprint.
+      "borderTopWidth",
+      "borderRightWidth",
+      "borderBottomWidth",
+      "borderLeftWidth",
+      "borderStyle",
+      "borderColor",
+      "borderRadius",
+      // Spacing — the 8pt-grid rule + the visual-pattern fingerprint.
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft",
+      "rowGap",
+      "columnGap"
+    ];
+    CAPTURED_SET = new Set(CAPTURED_STYLE_KEYS);
+    BORDER_WIDTH_KEYS = [
+      "borderTopWidth",
+      "borderRightWidth",
+      "borderBottomWidth",
+      "borderLeftWidth"
+    ];
+  }
+});
+
 // src/design-system/principles/gestalt.ts
 var gestaltRules;
 var init_gestalt = __esm({
   "src/design-system/principles/gestalt.ts"() {
     "use strict";
+    init_style_read();
     gestaltRules = [
       {
         id: "calm-precision/gestalt-grouping",
         name: "Gestalt: Border Grouping",
         description: "Related items should be grouped with a single border, not individually bordered",
         defaultSeverity: "error",
+        // List items are page CONTENT, not controls. Left on the default
+        // `interactive` surface this rule only ever saw buttons and links — an
+        // `<li>` never reached it even once the styles existed.
+        appliesTo: "any",
         check: (element, _context) => {
-          const style = element.computedStyles;
-          if (!style) return null;
-          const hasBorder = style.border && style.border !== "none" && style.border !== "0px";
-          const borderWidth = style["border-width"];
-          const hasBorderWidth = borderWidth && borderWidth !== "0px";
           const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
-          if ((hasBorder || hasBorderWidth) && isListItem) {
-            return {
-              ruleId: "calm-precision/gestalt-grouping",
-              ruleName: "Gestalt: Border Grouping",
-              severity: "error",
-              message: `List item "${(element.text || "").slice(0, 40)}" has individual border. Group related items with a single container border.`,
-              element: element.selector,
-              bounds: element.bounds,
-              fix: "Use single border around the group container with dividers between items, not individual item borders."
-            };
+          if (!isListItem) return null;
+          const border = resolveBorderPresence(element);
+          if (border.status === "unmeasured") {
+            return unmeasuredStyleViolation(
+              element,
+              "calm-precision/gestalt-grouping",
+              "Gestalt: Border Grouping",
+              border.unmeasured
+            );
           }
-          return null;
+          if (!border.hasBorder) return null;
+          return {
+            ruleId: "calm-precision/gestalt-grouping",
+            ruleName: "Gestalt: Border Grouping",
+            severity: "error",
+            message: `List item "${(element.text || "").slice(0, 40)}" has individual border (${border.widths.map((w) => `${w}px`).join(" ")}). Group related items with a single container border.`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Use single border around the group container with dividers between items, not individual item borders."
+          };
         }
       }
     ];
@@ -15770,35 +15881,79 @@ var init_hick = __esm({
 });
 
 // src/design-system/principles/content-chrome.ts
-var contentChromeRules;
+function isChrome(el) {
+  return CHROME_SELECTORS.test(el.tagName) || CHROME_SELECTORS.test(el.selector || "") || CHROME_SELECTORS.test(el.a11y?.role || "");
+}
+function unionAreaPx(rects, viewportWidth, viewportHeight) {
+  const CELL = 8;
+  const cols = Math.ceil(viewportWidth / CELL);
+  const rows = Math.ceil(viewportHeight / CELL);
+  const covered = new Uint8Array(cols * rows);
+  for (const r of rects) {
+    if (r.width <= 0 || r.height <= 0) continue;
+    const x0 = Math.max(0, Math.floor(r.x / CELL));
+    const y0 = Math.max(0, Math.floor(r.y / CELL));
+    const x1 = Math.min(cols, Math.ceil((r.x + r.width) / CELL));
+    const y1 = Math.min(rows, Math.ceil((r.y + r.height) / CELL));
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) covered[y * cols + x] = 1;
+    }
+  }
+  let cells = 0;
+  for (let i = 0; i < covered.length; i++) cells += covered[i];
+  return cells * CELL * CELL;
+}
+var CHROME_SELECTORS, CONTROL_TAGS, contentChromeRules;
 var init_content_chrome = __esm({
   "src/design-system/principles/content-chrome.ts"() {
     "use strict";
+    CHROME_SELECTORS = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
+    CONTROL_TAGS = /* @__PURE__ */ new Set([
+      "button",
+      "a",
+      "input",
+      "select",
+      "textarea",
+      "summary",
+      "details"
+    ]);
     contentChromeRules = [
       {
         id: "calm-precision/content-chrome-ratio",
         name: "Content >= Chrome",
         description: "Content area should be at least 70% of the viewport",
         defaultSeverity: "warn",
+        appliesTo: "any",
         check: (element, context) => {
           if (context.allElements[0]?.selector !== element.selector) return null;
           const viewportArea = context.viewportWidth * context.viewportHeight;
           if (viewportArea === 0) return null;
-          const chromeSelectors = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
-          let chromeArea = 0;
-          for (const el of context.allElements) {
-            const isChrome = chromeSelectors.test(el.tagName) || chromeSelectors.test(el.selector || "") || chromeSelectors.test(el.a11y?.role || "");
-            if (isChrome && el.bounds) {
-              chromeArea += el.bounds.width * el.bounds.height;
-            }
+          const chromeElements = context.allElements.filter((el) => isChrome(el) && el.bounds);
+          const sawNonControlElements = context.allElements.some(
+            (el) => !CONTROL_TAGS.has(el.tagName)
+          );
+          if (chromeElements.length === 0 && !sawNonControlElements) {
+            return {
+              ruleId: "calm-precision/content-chrome-ratio-unmeasurable",
+              ruleName: "Content >= Chrome (not measurable)",
+              severity: "warn",
+              message: "Chrome-to-content ratio was NOT checked: no nav, header, footer, sidebar, or toolbar element was found in the scanned population.",
+              fix: "If the page has landmarks, they were not extracted \u2014 re-run the scan. If it genuinely has none, this check does not apply."
+            };
           }
+          if (chromeElements.length === 0) return null;
+          const chromeArea = unionAreaPx(
+            chromeElements.map((el) => el.bounds),
+            context.viewportWidth,
+            context.viewportHeight
+          );
           const chromePercent = chromeArea / viewportArea * 100;
           if (chromePercent > 30) {
             return {
               ruleId: "calm-precision/content-chrome-ratio",
               ruleName: "Content >= Chrome",
               severity: "warn",
-              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport. Content should be >= 70%.`,
+              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport (${chromeElements.length} chrome element(s) measured). Content should be >= 70%.`,
               fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
             };
           }
@@ -15820,10 +15975,12 @@ var init_cognitive_load = __esm({
         name: "Cognitive Load: Element Count",
         description: "Visual groups should have 5-7 items max to stay within working memory limits",
         defaultSeverity: "warn",
+        appliesTo: "any",
         check: (element, context) => {
           if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
           if (!element.bounds) return null;
           const { x, y, width, height } = element.bounds;
+          if (width <= 0 || height <= 0) return null;
           const children = context.allElements.filter((el) => {
             if (el.selector === element.selector) return false;
             if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
@@ -15951,19 +16108,39 @@ async function runDesignSystemCheck(elements, context, projectDir) {
     }
   }
   const tokenViolations = config2.tokens ? validateExtendedTokens(elements, config2.tokens, config2.name) : [];
-  const tokenCategories = Object.keys(config2.tokens).filter(
+  const declaredCategories = Object.keys(config2.tokens ?? {}).filter(
     (k) => config2.tokens[k] !== void 0
-  ).length;
-  const totalChecked = elements.length * Math.max(tokenCategories, 1);
-  const complianceScore = calculateComplianceScore(totalChecked, tokenViolations.length);
+  );
+  const categoriesWithoutValidator = declaredCategories.filter(
+    (k) => !VALIDATED_TOKEN_CATEGORIES.has(k)
+  );
+  const evaluableElements = elements.filter((el) => !!el.computedStyles);
+  const elementsWithViolations = new Set(tokenViolations.map((v) => v.element)).size;
+  const validatedCategoriesDeclared = declaredCategories.filter(
+    (k) => VALIDATED_TOKEN_CATEGORIES.has(k)
+  );
+  const complianceScore = validatedCategoriesDeclared.length === 0 ? null : calculateComplianceScore(evaluableElements.length, elementsWithViolations);
   return {
     configName: config2.name,
     principleViolations,
     tokenViolations,
     customViolations,
-    complianceScore
+    complianceScore,
+    coverage: {
+      elementsConsidered: elements.length,
+      elementsEvaluated: evaluableElements.length,
+      elementsSkippedNoStyles: elements.length - evaluableElements.length,
+      declaredCategories,
+      /** Declared AND backed by a validator — the categories actually checked. */
+      validatedCategoriesDeclared,
+      // Declared in config, silently checked by nothing. These used to INFLATE
+      // the score; now they are named so the reader can delete them or ask for
+      // a validator.
+      categoriesWithoutValidator
+    }
   };
 }
+var VALIDATED_TOKEN_CATEGORIES;
 var init_design_system = __esm({
   "src/design-system/index.ts"() {
     "use strict";
@@ -15971,6 +16148,14 @@ var init_design_system = __esm({
     init_tokens2();
     init_calm_precision();
     init_config();
+    VALIDATED_TOKEN_CATEGORIES = /* @__PURE__ */ new Set([
+      "colors",
+      "spacing",
+      "fontSizes",
+      "touchTargets",
+      "cornerRadius",
+      "typography"
+    ]);
   }
 });
 
@@ -17962,7 +18147,7 @@ var init_actionability = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pixelmatch/index.js
+// node_modules/pixelmatch/index.js
 function pixelmatch(img1, img2, output, width, height, options = {}) {
   const {
     threshold = 0.1,
@@ -18145,14 +18330,14 @@ function drawGrayPixel(img, i, alpha, output) {
   drawPixel(output, i, val, val, val);
 }
 var init_pixelmatch = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pixelmatch/index.js"() {
+  "node_modules/pixelmatch/index.js"() {
     "use strict";
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js
+// node_modules/pngjs/lib/chunkstream.js
 var require_chunkstream = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
+  "node_modules/pngjs/lib/chunkstream.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -18288,9 +18473,9 @@ var require_chunkstream = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js
+// node_modules/pngjs/lib/interlace.js
 var require_interlace = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/interlace.js"(exports2) {
+  "node_modules/pngjs/lib/interlace.js"(exports2) {
     "use strict";
     var imagePasses = [
       {
@@ -18371,9 +18556,9 @@ var require_interlace = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js
+// node_modules/pngjs/lib/paeth-predictor.js
 var require_paeth_predictor = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
+  "node_modules/pngjs/lib/paeth-predictor.js"(exports2, module2) {
     "use strict";
     module2.exports = function paethPredictor(left, above, upLeft) {
       let paeth = left + above - upLeft;
@@ -18391,9 +18576,9 @@ var require_paeth_predictor = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js
+// node_modules/pngjs/lib/filter-parse.js
 var require_filter_parse = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
+  "node_modules/pngjs/lib/filter-parse.js"(exports2, module2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var paethPredictor = require_paeth_predictor();
@@ -18532,9 +18717,9 @@ var require_filter_parse = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js
+// node_modules/pngjs/lib/filter-parse-async.js
 var require_filter_parse_async = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
+  "node_modules/pngjs/lib/filter-parse-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var ChunkStream = require_chunkstream();
@@ -18558,9 +18743,9 @@ var require_filter_parse_async = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/constants.js
+// node_modules/pngjs/lib/constants.js
 var require_constants = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/constants.js"(exports2, module2) {
+  "node_modules/pngjs/lib/constants.js"(exports2, module2) {
     "use strict";
     module2.exports = {
       PNG_SIGNATURE: [137, 80, 78, 71, 13, 10, 26, 10],
@@ -18593,9 +18778,9 @@ var require_constants = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/crc.js
+// node_modules/pngjs/lib/crc.js
 var require_crc = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/crc.js"(exports2, module2) {
+  "node_modules/pngjs/lib/crc.js"(exports2, module2) {
     "use strict";
     var crcTable = [];
     (function() {
@@ -18633,9 +18818,9 @@ var require_crc = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser.js
+// node_modules/pngjs/lib/parser.js
 var require_parser = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser.js"(exports2, module2) {
+  "node_modules/pngjs/lib/parser.js"(exports2, module2) {
     "use strict";
     var constants = require_constants();
     var CrcCalculator = require_crc();
@@ -18854,9 +19039,9 @@ var require_parser = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js
+// node_modules/pngjs/lib/bitmapper.js
 var require_bitmapper = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitmapper.js"(exports2) {
+  "node_modules/pngjs/lib/bitmapper.js"(exports2) {
     "use strict";
     var interlaceUtils = require_interlace();
     var pixelBppMapper = [
@@ -19102,9 +19287,9 @@ var require_bitmapper = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js
+// node_modules/pngjs/lib/format-normaliser.js
 var require_format_normaliser = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
+  "node_modules/pngjs/lib/format-normaliser.js"(exports2, module2) {
     "use strict";
     function dePalette(indata, outdata, width, height, palette) {
       let pxPos = 0;
@@ -19183,9 +19368,9 @@ var require_format_normaliser = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js
+// node_modules/pngjs/lib/parser-async.js
 var require_parser_async = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
+  "node_modules/pngjs/lib/parser-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var zlib = require("zlib");
@@ -19313,9 +19498,9 @@ var require_parser_async = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js
+// node_modules/pngjs/lib/bitpacker.js
 var require_bitpacker = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
+  "node_modules/pngjs/lib/bitpacker.js"(exports2, module2) {
     "use strict";
     var constants = require_constants();
     module2.exports = function(dataIn, width, height, options) {
@@ -19463,9 +19648,9 @@ var require_bitpacker = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js
+// node_modules/pngjs/lib/filter-pack.js
 var require_filter_pack = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
+  "node_modules/pngjs/lib/filter-pack.js"(exports2, module2) {
     "use strict";
     var paethPredictor = require_paeth_predictor();
     function filterNone(pxData, pxPos, byteWidth, rawData, rawPos) {
@@ -19605,9 +19790,9 @@ var require_filter_pack = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer.js
+// node_modules/pngjs/lib/packer.js
 var require_packer = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer.js"(exports2, module2) {
+  "node_modules/pngjs/lib/packer.js"(exports2, module2) {
     "use strict";
     var constants = require_constants();
     var CrcStream = require_crc();
@@ -19705,9 +19890,9 @@ var require_packer = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js
+// node_modules/pngjs/lib/packer-async.js
 var require_packer_async = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
+  "node_modules/pngjs/lib/packer-async.js"(exports2, module2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -19747,9 +19932,9 @@ var require_packer_async = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js
+// node_modules/pngjs/lib/sync-inflate.js
 var require_sync_inflate = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
+  "node_modules/pngjs/lib/sync-inflate.js"(exports2, module2) {
     "use strict";
     var assert2 = require("assert").ok;
     var zlib = require("zlib");
@@ -19884,9 +20069,9 @@ var require_sync_inflate = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js
+// node_modules/pngjs/lib/sync-reader.js
 var require_sync_reader = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
+  "node_modules/pngjs/lib/sync-reader.js"(exports2, module2) {
     "use strict";
     var SyncReader = module2.exports = function(buffer2) {
       this._buffer = buffer2;
@@ -19922,9 +20107,9 @@ var require_sync_reader = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js
+// node_modules/pngjs/lib/filter-parse-sync.js
 var require_filter_parse_sync = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
+  "node_modules/pngjs/lib/filter-parse-sync.js"(exports2) {
     "use strict";
     var SyncReader = require_sync_reader();
     var Filter = require_filter_parse();
@@ -19946,9 +20131,9 @@ var require_filter_parse_sync = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js
+// node_modules/pngjs/lib/parser-sync.js
 var require_parser_sync = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
+  "node_modules/pngjs/lib/parser-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -20041,9 +20226,9 @@ var require_parser_sync = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js
+// node_modules/pngjs/lib/packer-sync.js
 var require_packer_sync = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
+  "node_modules/pngjs/lib/packer-sync.js"(exports2, module2) {
     "use strict";
     var hasSyncZlib = true;
     var zlib = require("zlib");
@@ -20086,9 +20271,9 @@ var require_packer_sync = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js
+// node_modules/pngjs/lib/png-sync.js
 var require_png_sync = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/png-sync.js"(exports2) {
+  "node_modules/pngjs/lib/png-sync.js"(exports2) {
     "use strict";
     var parse3 = require_parser_sync();
     var pack = require_packer_sync();
@@ -20101,9 +20286,9 @@ var require_png_sync = __commonJS({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/png.js
+// node_modules/pngjs/lib/png.js
 var require_png = __commonJS({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/pngjs/lib/png.js"(exports2) {
+  "node_modules/pngjs/lib/png.js"(exports2) {
     "use strict";
     var util = require("util");
     var Stream = require("stream");
@@ -23137,7 +23322,26 @@ var init_schemas3 = __esm({
         message: external_exports.string()
       })),
       customViolations: external_exports.array(DesignSystemViolationSchema),
-      complianceScore: external_exports.number().min(0).max(100)
+      /**
+       * Percentage of EVALUATED elements carrying no token violation, or `null`
+       * when nothing was evaluable.
+       *
+       * `null` is load-bearing: the previous version returned 100 for a scan that
+       * checked nothing, so a reader could not tell perfect compliance from no
+       * measurement. It also declared `.min(0)` here while the runtime produced
+       * -58 — this schema types the result, it does not validate it, so the
+       * constraint caught nothing.
+       */
+      complianceScore: external_exports.number().min(0).max(100).nullable(),
+      /** What the score was computed over. Absent on results predating coverage. */
+      coverage: external_exports.object({
+        elementsConsidered: external_exports.number(),
+        elementsEvaluated: external_exports.number(),
+        elementsSkippedNoStyles: external_exports.number(),
+        declaredCategories: external_exports.array(external_exports.string()),
+        validatedCategoriesDeclared: external_exports.array(external_exports.string()),
+        categoriesWithoutValidator: external_exports.array(external_exports.string())
+      }).optional()
     });
   }
 });
@@ -23292,9 +23496,17 @@ var init_target_sizing = __esm({
 
 // src/extract.ts
 async function extractInteractiveElements(page) {
-  return page.evaluate((selectors) => {
+  return page.evaluate(({ selectors, styleKeys }) => {
     const seen = /* @__PURE__ */ new Set();
     const elements = [];
+    const captureStyles = (computed) => {
+      const out = {};
+      for (const key of styleKeys) {
+        const value = computed[key];
+        if (typeof value === "string" && value !== "") out[key] = value;
+      }
+      return out;
+    };
     const generateSelector = (el) => {
       if (el.id) return `#${el.id}`;
       const path = [];
@@ -23498,33 +23710,7 @@ async function extractInteractiveElements(page) {
               width: Math.round(rect.width),
               height: Math.round(rect.height)
             },
-            computedStyles: {
-              cursor: computed.cursor,
-              color: computed.color,
-              backgroundColor: computed.backgroundColor,
-              // display/visibility/opacity: the touch-targets rule's
-              // isNonVisibleOrZeroArea guard (src/rules/touch-targets.ts)
-              // reads these three fields to exclude non-visible elements.
-              // Before this, they were never populated here — the guard's
-              // display/visibility/opacity branches were unreachable in
-              // production (only its bounds<=0 branch ever fired, which
-              // happens to zero out for display:none via
-              // getBoundingClientRect, but does NOT zero out for
-              // visibility:hidden or opacity:0 — those retain full layout
-              // bounds and were silently graded for touch-target size).
-              display: computed.display,
-              visibility: computed.visibility,
-              opacity: computed.opacity,
-              // WCAG's large-text thresholds are a SIZE question, so the
-              // contrast rule cannot answer it without these. Before they were
-              // captured, isLargeText parsed '' -> NaN -> false for every
-              // element on every scan, and a 32px bold heading at 3.03:1 was
-              // reported as failing the 4.5:1 normal-text requirement when the
-              // 3:1 large-text requirement is the one that applies. The rule
-              // was asserting a property it had never measured.
-              fontSize: computed.fontSize,
-              fontWeight: computed.fontWeight
-            },
+            computedStyles: captureStyles(computed),
             ...(() => {
               const bgChain = collectBackgroundChain(htmlEl);
               return {
@@ -23582,7 +23768,7 @@ async function extractInteractiveElements(page) {
       }
     }
     return elements;
-  }, INTERACTIVE_SELECTORS);
+  }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
 }
 function analyzeElements(elements, isMobile = false) {
   const issues = [];
@@ -23646,9 +23832,17 @@ function analyzeElements(elements, isMobile = false) {
   };
 }
 async function extractContentElements(page) {
-  return page.evaluate((selectors) => {
+  return page.evaluate(({ selectors, styleKeys }) => {
     const seen = /* @__PURE__ */ new Set();
     const results = [];
+    const captureStyles = (computed) => {
+      const out = {};
+      for (const key of styleKeys) {
+        const value = computed[key];
+        if (typeof value === "string" && value !== "") out[key] = value;
+      }
+      return out;
+    };
     const generateSelector = (el) => {
       if (el.id) return `#${el.id}`;
       const path = [];
@@ -23736,18 +23930,7 @@ async function extractContentElements(page) {
               width: Math.round(rect.width),
               height: Math.round(rect.height)
             },
-            computedStyles: {
-              cursor: computed.cursor,
-              color: computed.color,
-              backgroundColor: computed.backgroundColor,
-              display: computed.display,
-              visibility: computed.visibility,
-              opacity: computed.opacity,
-              // See the interactive lane: WCAG large-text classification needs
-              // these, and headings are exactly where it matters.
-              fontSize: computed.fontSize,
-              fontWeight: computed.fontWeight
-            },
+            computedStyles: captureStyles(computed),
             contentKind: kind,
             // Real attributes, not assumptions. The adapter used to synthesize
             // `role: null, ariaLabel: null` for every content element and call
@@ -23777,7 +23960,7 @@ async function extractContentElements(page) {
       }
     }
     return results;
-  }, CONTENT_SELECTORS);
+  }, { selectors: CONTENT_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
 }
 async function extractPageMetadata(page) {
   return page.evaluate(() => {
@@ -23823,6 +24006,7 @@ var init_extract2 = __esm({
     init_schemas3();
     init_devices();
     init_target_sizing();
+    init_style_read();
     INTERACTIVE_SELECTORS = [
       "button",
       "a[href]",
@@ -24591,7 +24775,21 @@ async function detectErrorState(page) {
   const errors = [];
   const checks = await page.evaluate(() => {
     const doc = document;
-    const text = doc.body?.innerText || "";
+    const textParts = [];
+    if (doc.body) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const parent = node.parentElement;
+        const excluded = parent?.closest("style, script, template, noscript");
+        const style = parent ? window.getComputedStyle(parent) : null;
+        if (!excluded && style?.display !== "none" && style?.visibility !== "hidden" && style?.opacity !== "0") {
+          textParts.push(node.textContent || "");
+        }
+        node = walker.nextNode();
+      }
+    }
+    const text = textParts.join(" ");
     const validationErrors = doc.querySelectorAll(
       '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
     );
@@ -24600,7 +24798,7 @@ async function detectErrorState(page) {
     );
     const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
     const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
-    const serverText = text.match(/500|server error|something went wrong|internal error/i);
+    const serverText = text.match(/\b(?:http(?:\s+status)?|status|error)\s*(?:code\s*)?500\b|server error|something went wrong|internal error/i);
     const toastErrors = doc.querySelectorAll(
       '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
     );
@@ -26605,7 +26803,7 @@ var init_sensors = __esm({
 
 // src/sensors/css-extract.ts
 async function extractCssRulesAndMeta(page) {
-  return page.evaluate(() => {
+  return page.evaluate((styleKeys) => {
     function declarationsFromStyle(style) {
       const out = {};
       for (let i = 0; i < style.length; i++) {
@@ -26686,11 +26884,13 @@ async function extractCssRulesAndMeta(page) {
     }
     const sheets = Array.from(document.styleSheets);
     const allRules2 = [];
+    let sheetsSkipped = 0;
     for (const sheet of sheets) {
       let rules;
       try {
         rules = sheet.cssRules;
       } catch {
+        sheetsSkipped++;
         continue;
       }
       const sourceUrl = sheet.href ?? void 0;
@@ -26753,6 +26953,21 @@ async function extractCssRulesAndMeta(page) {
       return path.join(" > ").slice(0, 200);
     }
     const seenStructural = /* @__PURE__ */ new Set();
+    const collectStructuralBackgroundChain = (start) => {
+      const chain = [];
+      let image = false;
+      let node = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        chain.push(cs.backgroundColor || "");
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== "none") image = true;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
     const structuralElements = [];
     for (const sel of STRUCTURAL_SELECTORS) {
       let found;
@@ -26770,16 +26985,12 @@ async function extractCssRulesAndMeta(page) {
         const text = (htmlEl.textContent || "").trim().slice(0, 100) || "";
         const tagLower = htmlEl.tagName.toLowerCase();
         const isTextBearing2 = /^h[1-6]$/.test(tagLower) || tagLower === "p" || tagLower === "span" || tagLower === "li";
-        const styles = {
-          color: computed.color,
-          backgroundColor: computed.backgroundColor
-        };
-        if (isTextBearing2) {
-          styles.fontFamily = computed.fontFamily;
-          styles.fontSize = computed.fontSize.replace(/px$/, "");
-          styles.fontWeight = computed.fontWeight;
-          styles.lineHeight = computed.lineHeight;
+        const styles = {};
+        for (const key of styleKeys) {
+          const value = computed[key];
+          if (typeof value === "string" && value !== "") styles[key] = value;
         }
+        void isTextBearing2;
         const ariaLevel = htmlEl.getAttribute("aria-level");
         structuralElements.push({
           selector: buildStructuralSelector(htmlEl),
@@ -26794,6 +27005,18 @@ async function extractCssRulesAndMeta(page) {
             height: Math.round(rect.height)
           },
           computedStyles: styles,
+          // The shared measurement (src/rules/contrast-measure.ts) resolves the
+          // effective background by compositing THROUGH ancestors. Without this
+          // chain every structural element fell back to its own
+          // `rgba(0, 0, 0, 0)` and was graded against an assumed white page —
+          // light text on a dark card read as a comfortable pass.
+          ...(() => {
+            const bgChain = collectStructuralBackgroundChain(htmlEl);
+            return {
+              backgroundChain: bgChain.chain,
+              ...bgChain.image ? { backgroundImageBehind: true } : {}
+            };
+          })(),
           interactive: {
             hasOnClick: false,
             hasHref: false,
@@ -26819,13 +27042,16 @@ async function extractCssRulesAndMeta(page) {
         rootFontSizePx: Number.isFinite(rootFontSize) ? rootFontSize : 16,
         fontsStatus
       },
-      structuralElements
+      structuralElements,
+      sheetsSeen: sheets.length,
+      sheetsSkipped
     };
-  });
+  }, [...CAPTURED_STYLE_KEYS]);
 }
 var init_css_extract = __esm({
   "src/sensors/css-extract.ts"() {
     "use strict";
+    init_style_read();
   }
 });
 
@@ -26993,6 +27219,13 @@ var init_text_hierarchy = __esm({
         name: "Text Hierarchy: Title vs Description Size",
         description: "Title-level elements must be visually larger than description-level elements",
         defaultSeverity: "warn",
+        // Headings and paragraphs are CONTENT. Left on the default `interactive`
+        // surface this rule only ever saw buttons and links, `inferLevel` returned
+        // 'unknown' for every one of them, and line one returned null before any
+        // size was compared. It never graded a heading in its shipped life —
+        // proven by planted defect: an <h2> at 12px above a <p> at 20px produced
+        // no finding through the installed binary.
+        appliesTo: "any",
         check: (element, context) => {
           if (inferLevel(element) !== "title") return null;
           const titleSize = parseFontSize(element);
@@ -27128,36 +27361,32 @@ var init_handler_integrity = __esm({
 });
 
 // src/rules/spacing-grid.ts
-function parsePxValue(value) {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "auto" || trimmed === "normal" || trimmed === "initial" || trimmed === "inherit") {
-    return null;
-  }
-  if (trimmed.endsWith("%")) return null;
-  if (trimmed.endsWith("em") || trimmed.endsWith("rem") || trimmed.endsWith("vw") || trimmed.endsWith("vh")) {
-    return null;
-  }
-  if (!trimmed.endsWith("px")) return null;
-  const n = parseFloat(trimmed);
-  return isNaN(n) ? null : n;
-}
 function isOnGrid(px2) {
   if (px2 === 0) return true;
   return Math.round(px2) % 4 === 0;
 }
-function parseSpacingShorthand(value) {
-  const parts = value.trim().split(/\s+/);
-  const results = [];
-  for (const part of parts) {
-    const px2 = parsePxValue(part);
-    if (px2 !== null) results.push(px2);
+function offGridFor(element) {
+  const offGrid = [];
+  const unmeasured = [];
+  for (const prop of SPACING_PROPERTIES) {
+    const read = readStyle(element, prop);
+    if (read.status === "not-captured" || read.status === "no-styles") {
+      unmeasured.push(read);
+      continue;
+    }
+    if (read.status === "absent") continue;
+    const px2 = parsePx2(read.value);
+    if (px2 === null) continue;
+    if (!Number.isInteger(px2)) continue;
+    if (!isOnGrid(px2)) offGrid.push(`${prop}: ${read.value}`);
   }
-  return results;
+  return { offGrid, unmeasured };
 }
 var SPACING_PROPERTIES, spacingGridRules;
 var init_spacing_grid = __esm({
   "src/rules/spacing-grid.ts"() {
     "use strict";
+    init_style_read();
     SPACING_PROPERTIES = [
       "paddingTop",
       "paddingRight",
@@ -27167,10 +27396,6 @@ var init_spacing_grid = __esm({
       "marginRight",
       "marginBottom",
       "marginLeft",
-      // Shorthand forms that may appear in computedStyles
-      "padding",
-      "margin",
-      "gap",
       "rowGap",
       "columnGap"
     ];
@@ -27180,39 +27405,45 @@ var init_spacing_grid = __esm({
         name: "Spacing Grid: Off 8pt Grid",
         description: "Padding and margin values should be multiples of 4px (half 8pt grid)",
         defaultSeverity: "warn",
-        check: (element, _context) => {
-          const style = element.computedStyles;
-          if (!style) return null;
-          const offGridValues = [];
-          for (const prop of SPACING_PROPERTIES) {
-            const raw = style[prop];
-            if (!raw) continue;
-            const isShorthand = prop === "padding" || prop === "margin";
-            if (isShorthand) {
-              const values = parseSpacingShorthand(raw);
-              for (const v of values) {
-                if (!isOnGrid(v)) {
-                  offGridValues.push({ property: prop, value: raw });
-                  break;
-                }
-              }
-            } else {
-              const px2 = parsePxValue(raw);
-              if (px2 !== null && !isOnGrid(px2)) {
-                offGridValues.push({ property: prop, value: raw });
-              }
+        // Spacing belongs to any box, not just a control. Body copy and headings
+        // carry the margins that set a page's rhythm, and on the default
+        // `interactive` surface this rule never saw one.
+        appliesTo: "any",
+        check: (element, context) => {
+          if (context.allElements[0]?.selector !== element.selector) return null;
+          const byValue = /* @__PURE__ */ new Map();
+          let measured = 0;
+          let unmeasurable = 0;
+          for (const el of context.allElements) {
+            const { offGrid, unmeasured } = offGridFor(el);
+            if (unmeasured.length === SPACING_PROPERTIES.length) {
+              unmeasurable++;
+              continue;
             }
+            measured++;
+            if (offGrid.length === 0) continue;
+            const key = offGrid.join(", ");
+            const seen = byValue.get(key) ?? [];
+            if (seen.length < 3) seen.push(el.selector);
+            byValue.set(key, seen);
           }
-          if (offGridValues.length === 0) return null;
-          const detail = offGridValues.map((v) => `${v.property}: ${v.value}`).join(", ");
-          const label2 = element.text?.slice(0, 30) || element.selector;
+          if (measured === 0 && unmeasurable > 0) {
+            return {
+              ruleId: "spacing-grid/off-grid-unmeasurable",
+              ruleName: "Spacing Grid: Off 8pt Grid (not measurable)",
+              severity: "warn",
+              message: `Spacing was NOT checked on any of ${unmeasurable} elements: no computed spacing properties were captured.`,
+              fix: "Confirm paddingTop/marginTop/rowGap and friends are in CAPTURED_STYLE_KEYS (src/rules/style-read.ts)."
+            };
+          }
+          if (byValue.size === 0) return null;
+          const groups = [...byValue.entries()].sort((a, b) => b[1].length - a[1].length);
+          const detail = groups.slice(0, 5).map(([value, selectors]) => `${value} (e.g. ${selectors.join(", ")})`).join(" | ");
           return {
             ruleId: "spacing-grid/off-grid",
             ruleName: "Spacing Grid: Off 8pt Grid",
             severity: "warn",
-            message: `"${label2}" has off-grid spacing: ${detail}`,
-            element: element.selector,
-            bounds: element.bounds,
+            message: `${groups.length} distinct off-grid spacing value set(s) across ${measured} measured elements: ${detail}`,
             fix: "Use spacing values that are multiples of 4px (e.g., 4, 8, 12, 16, 20, 24, 32px)"
           };
         }
@@ -28480,12 +28711,13 @@ async function scan(url2, options = {}) {
       viewport: resolvedViewport,
       ...cssExtract ? { cssRules: cssExtract.cssRules, documentMeta: cssExtract.documentMeta } : {}
     });
+    const structuralElements = cssExtract?.structuralElements ?? [];
     const ruleContext = {
       isMobile: resolvedViewport.width < 768,
       viewportWidth: resolvedViewport.width,
       viewportHeight: resolvedViewport.height,
       url: url2,
-      allElements: elements.all
+      allElements: [...elements.all, ...structuralElements]
     };
     const ruleEngine = runAllRules(elements.all, ruleContext);
     const resolvedRules = await resolveRulesConfig(options.projectDir ?? process.cwd(), rulePresets);
@@ -28520,10 +28752,21 @@ async function scan(url2, options = {}) {
       }
     }
     const contentAsElements = gradesContent ? contentElementsToEnhanced(contentElements) : [];
+    const containerElements = gradesContent ? structuralElements.filter((el) => CONTAINER_TAGS.has(el.tagName)) : [];
+    ruleEngine.push(
+      ...runAllRules([...contentAsElements, ...containerElements], ruleContext, { surface: "content" })
+    );
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
       const presetViolations = [
         ...runRules(elements.all, ruleContext, resolvedRules.config, { surface: "interactive" }),
-        ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" })
+        ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" }),
+        // Containers and landmarks. CONTENT_SELECTORS covers text carriers
+        // (h1-h6, p, li, td...) and deliberately excludes wrappers, so a
+        // <nav>/<section>/<div> was iterated by NO pass and the container
+        // rules could not fire even once the styles existed. Filtered to the
+        // tags the content pass does not already carry, so nothing is graded
+        // twice.
+        ...runRules(containerElements, ruleContext, resolvedRules.config, { surface: "content" })
       ];
       for (const v of presetViolations) {
         issues.push({
@@ -28661,6 +28904,7 @@ function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAna
   return collector.getIssues();
 }
 async function applyDesignSystemCheck(elements, issues, viewport, url2, outputDir) {
+  let designSystemConfigError;
   const designSystem = await runDesignSystemCheck(
     elements,
     {
@@ -28671,7 +28915,18 @@ async function applyDesignSystemCheck(elements, issues, viewport, url2, outputDi
       allElements: elements
     },
     outputDir
-  ).catch(() => void 0);
+  ).catch((err) => {
+    designSystemConfigError = err instanceof Error ? err.message : String(err);
+    return void 0;
+  });
+  if (designSystemConfigError) {
+    issues.push({
+      category: "design-system",
+      severity: "error",
+      description: `[design-system-config-failed] Design system checks did NOT run: ${designSystemConfigError}`,
+      fix: "Fix .ibr/design-system.json (malformed JSON, or a field that fails the schema). Until then no principle or token check is being applied."
+    });
+  }
   if (designSystem) {
     for (const v of designSystem.principleViolations) {
       issues.push({
@@ -28800,7 +29055,7 @@ function getFixSuggestion(type) {
 function isIntentNoise(intent, confidence) {
   return intent === "unknown" && confidence < 0.3;
 }
-var IssueCollector;
+var CONTAINER_TAGS, IssueCollector;
 var init_scan = __esm({
   "src/scan.ts"() {
     "use strict";
@@ -28821,6 +29076,15 @@ var init_scan = __esm({
     init_engine();
     init_content_adapter();
     init_contrast_measure();
+    CONTAINER_TAGS = /* @__PURE__ */ new Set([
+      "header",
+      "nav",
+      "main",
+      "aside",
+      "footer",
+      "section",
+      "form"
+    ]);
     IssueCollector = class {
       issues = [];
       add(issue2) {
@@ -28888,16 +29152,16 @@ var init_scan = __esm({
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js
+// node_modules/nanoid/url-alphabet/index.js
 var urlAlphabet;
 var init_url_alphabet = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/nanoid/url-alphabet/index.js"() {
+  "node_modules/nanoid/url-alphabet/index.js"() {
     "use strict";
     urlAlphabet = "useandom-26T198340PX75pxJACKVERYMINDBUSHWOLF_GQZbfghjklqvwyzrict";
   }
 });
 
-// ../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/nanoid/index.js
+// node_modules/nanoid/index.js
 function fillPool(bytes) {
   if (bytes < 0) throw new RangeError("Wrong ID size");
   try {
@@ -28925,7 +29189,7 @@ function nanoid3(size = 21) {
 }
 var import_node_crypto, POOL_SIZE_MULTIPLIER, pool, poolOffset;
 var init_nanoid = __esm({
-  "../../../../../../../Users/tyroneross/dev/git-folder/interface-built-right/node_modules/nanoid/index.js"() {
+  "node_modules/nanoid/index.js"() {
     "use strict";
     import_node_crypto = require("crypto");
     init_url_alphabet();
@@ -33613,6 +33877,26 @@ function buildLayoutOverflowProbe(options = {}) {
     return t.length > 80 ? t.slice(0, 80) : t;
   }
 
+  // A closed disclosure can retain child geometry while its zero-height
+  // overflow:hidden body paints none of that subtree. Rect intersections alone
+  // would report those hidden descendants as collisions with later content.
+  function isPainted(el, rect) {
+    var cur = el.parentElement;
+    while (cur) {
+      var cs;
+      try { cs = getComputedStyle(cur); } catch (e) { cur = cur.parentElement; continue; }
+      var clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
+      var clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
+      if (clipsX || clipsY) {
+        var parentRect = cur.getBoundingClientRect();
+        if (clipsX && (rect.right <= parentRect.left || rect.left >= parentRect.right)) return false;
+        if (clipsY && (rect.bottom <= parentRect.top || rect.top >= parentRect.bottom)) return false;
+      }
+      cur = cur.parentElement;
+    }
+    return true;
+  }
+
   function walk(el, parentIndex, depth) {
     if (out.length >= MAX) return;
     var cs;
@@ -33646,6 +33930,7 @@ function buildLayoutOverflowProbe(options = {}) {
       maxWidth: cs.maxWidth,
       boxSizing: cs.boxSizing,
       hasTransform: cs.transform !== 'none' && cs.transform !== '',
+      painted: isPainted(el, r),
       inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim()
     });
 
@@ -33671,6 +33956,14 @@ function hasBoxMetrics(node) {
 }
 function isInFlow(node) {
   return (node.position === "static" || node.position === "relative") && !node.hasTransform;
+}
+function hasOutOfFlowAncestor(node, byIndex) {
+  let parent = node.parent === null ? void 0 : byIndex.get(node.parent);
+  while (parent) {
+    if (parent.position === "fixed" || parent.position === "sticky" || parent.hasTransform) return true;
+    parent = parent.parent === null ? void 0 : byIndex.get(parent.parent);
+  }
+  return false;
 }
 function short(text, max = 40) {
   return text.length > max ? `${text.slice(0, max)}\u2026` : text;
@@ -33740,6 +34033,7 @@ function analyzeLayoutOverflow(nodes, options = {}) {
   const overflowingBoxes = /* @__PURE__ */ new Set();
   const EPSILON_PX = 0.5;
   for (const node of nodes) {
+    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
     if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
       overflowingBoxes.add(`${node.index}:vertical`);
@@ -33749,6 +34043,7 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   for (const node of nodes) {
+    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
     if (isVisibleOverflow(node.overflowY)) {
       const spill = node.scrollHeight - node.clientHeight;
@@ -33788,6 +34083,7 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   for (const node of nodes) {
+    if (!node.painted) continue;
     if (node.parent === null) continue;
     if (!isInFlow(node)) continue;
     const parent = byIndex.get(node.parent);
@@ -33838,7 +34134,7 @@ function analyzeLayoutOverflow(nodes, options = {}) {
     }
   }
   const textNodes = nodes.filter(
-    (n) => n.ownText.length > 0 && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n)
+    (n) => n.ownText.length > 0 && n.painted && n.rect.width > 0 && n.rect.height > 0 && isInFlow(n) && !hasOutOfFlowAncestor(n, byIndex)
   ).sort((a, b) => a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x);
   const ancestorsOf = buildAncestorSets(nodes, byIndex);
   for (let i = 0; i < textNodes.length; i++) {
@@ -34499,7 +34795,7 @@ function isLargeText(fontSizePx, fontWeight) {
 function aaThreshold(large) {
   return large ? 3 : 4.5;
 }
-function parsePx2(value) {
+function parsePx3(value) {
   if (!value) return null;
   const n = Number.parseFloat(value);
   return Number.isFinite(n) ? n : null;
@@ -34750,7 +35046,7 @@ function finalizeMeasurements(raw) {
   return raw.map((el) => {
     const effective = resolveEffectiveBackground2(el.backgroundChain);
     const fg = parseCssColor(el.colorNorm) ?? parseCssColor(el.colorRaw);
-    const fontSizePx = parsePx2(el.typography.fontSize) ?? Number.NaN;
+    const fontSizePx = parsePx3(el.typography.fontSize) ?? Number.NaN;
     const weight = parseFontWeight(el.typography.fontWeight);
     const large = isLargeText(fontSizePx, weight);
     const threshold = aaThreshold(large);
@@ -34960,7 +35256,7 @@ __export(live_exports, {
   measureLive: () => measureLive,
   parseCssColor: () => parseCssColor,
   parseFontWeight: () => parseFontWeight,
-  parsePx: () => parsePx2,
+  parsePx: () => parsePx3,
   relativeLuminance: () => relativeLuminance4,
   resolveEffectiveBackground: () => resolveEffectiveBackground2,
   resolveLiveWsEndpoint: () => resolveLiveWsEndpoint,

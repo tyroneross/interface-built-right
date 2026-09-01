@@ -55,20 +55,63 @@ describe('Calm Precision Principles', () => {
   describe('Gestalt: Border Grouping', () => {
     const rule = gestaltRules[0];
 
+    // Fixture shape matters here. This used to pass `{ border: '1px solid black' }`
+    // — the CSS shorthand — which `getComputedStyle` NEVER returns for
+    // border-width and which no extractor ever captured. The test passed
+    // against a rule that could not fire on a real page, because the fixture
+    // was richer than production. Longhands are what Chrome actually computes.
     it('flags list items with borders', () => {
       const el = mockElement({
         tagName: 'li',
-        computedStyles: { border: '1px solid black' },
+        computedStyles: {
+          borderTopWidth: '1px',
+          borderRightWidth: '1px',
+          borderBottomWidth: '1px',
+          borderLeftWidth: '1px',
+          borderStyle: 'solid',
+        },
       });
       const result = rule.check(el, mockContext());
       expect(result).not.toBeNull();
       expect(result!.ruleId).toBe('calm-precision/gestalt-grouping');
     });
 
+    // `border-style: none` paints nothing whatever the declared width says.
+    // Without this arm, capturing `border` (which computes to
+    // "0px none rgb(0,0,0)" on EVERY element) would have flipped the rule from
+    // reporting nothing to reporting everything.
+    it('does not flag a declared width that border-style hides', () => {
+      const el = mockElement({
+        tagName: 'li',
+        computedStyles: { borderTopWidth: '3px', borderStyle: 'none' },
+      });
+      expect(rule.check(el, mockContext())).toBeNull();
+    });
+
+    // The defect this rule shipped with: it read properties nobody captured and
+    // returned null, so "no border" and "could not see the border" were the
+    // same answer. Silence is the failure mode — it must now SAY it could not
+    // measure. An element with computedStyles absent entirely is that case.
+    it('reports that it could not measure rather than passing silently', () => {
+      const el = mockElement({ tagName: 'li' });
+      delete (el as { computedStyles?: unknown }).computedStyles;
+      const result = rule.check(el, mockContext());
+      expect(result).not.toBeNull();
+      expect(result!.ruleId).toBe('calm-precision/gestalt-grouping-unmeasurable');
+      expect(result!.message).toContain('NOT checked');
+    });
+
     it('passes for list items without borders', () => {
       const el = mockElement({
         tagName: 'li',
-        computedStyles: { border: 'none' },
+        // What Chrome computes for an unbordered element.
+        computedStyles: {
+          borderTopWidth: '0px',
+          borderRightWidth: '0px',
+          borderBottomWidth: '0px',
+          borderLeftWidth: '0px',
+          borderStyle: 'none',
+        },
       });
       expect(rule.check(el, mockContext())).toBeNull();
     });

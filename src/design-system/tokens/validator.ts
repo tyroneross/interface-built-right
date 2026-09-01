@@ -109,11 +109,35 @@ export function validateExtendedTokens(
 }
 
 /**
- * Calculate compliance score (0-100).
- * Percentage of checked properties that match tokens.
+ * Percentage of evaluated units that carried no violation, or `null` when
+ * nothing was evaluated.
+ *
+ * TWO DEFECTS LIVED IN THE PREVIOUS VERSION, both proven by planted config
+ * against the installed binary:
+ *
+ *   1. `if (totalChecked === 0) return 100` — a scan that checked NOTHING
+ *      reported PERFECT COMPLIANCE. A config declaring no tokens
+ *      (`{"version":1,"name":"x"}`) scored 100 on a page full of violations.
+ *      "Nothing was measured" and "everything passed" produced the identical
+ *      number, which is the false-clean class this whole sweep is about.
+ *      It now returns `null`, which a consumer must handle rather than read
+ *      as a pass.
+ *   2. The result was UNBOUNDED BELOW. Its caller passed a fabricated
+ *      denominator that violations could exceed, and a real scan produced
+ *      **-58** — a percentage that cannot be a percentage. Clamped now, but
+ *      the clamp is the seatbelt: the caller was also fixed to count real
+ *      units instead of inventing them.
+ *
+ * The old test asserted `calculateComplianceScore(0, 0) === 100`. It passed
+ * against the defect because it was written from the implementation rather
+ * than from what the number is supposed to mean.
  */
-export function calculateComplianceScore(totalChecked: number, violationCount: number): number {
-  if (totalChecked === 0) return 100;
+export function calculateComplianceScore(
+  totalChecked: number,
+  violationCount: number,
+): number | null {
+  if (totalChecked <= 0) return null;
   const passing = totalChecked - violationCount;
-  return Math.round((passing / totalChecked) * 100);
+  const pct = Math.round((passing / totalChecked) * 100);
+  return Math.max(0, Math.min(100, pct));
 }

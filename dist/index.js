@@ -513,7 +513,26 @@ var init_schemas = __esm({
         message: zod.z.string()
       })),
       customViolations: zod.z.array(exports.DesignSystemViolationSchema),
-      complianceScore: zod.z.number().min(0).max(100)
+      /**
+       * Percentage of EVALUATED elements carrying no token violation, or `null`
+       * when nothing was evaluable.
+       *
+       * `null` is load-bearing: the previous version returned 100 for a scan that
+       * checked nothing, so a reader could not tell perfect compliance from no
+       * measurement. It also declared `.min(0)` here while the runtime produced
+       * -58 — this schema types the result, it does not validate it, so the
+       * constraint caught nothing.
+       */
+      complianceScore: zod.z.number().min(0).max(100).nullable(),
+      /** What the score was computed over. Absent on results predating coverage. */
+      coverage: zod.z.object({
+        elementsConsidered: zod.z.number(),
+        elementsEvaluated: zod.z.number(),
+        elementsSkippedNoStyles: zod.z.number(),
+        declaredCategories: zod.z.array(zod.z.string()),
+        validatedCategoriesDeclared: zod.z.array(zod.z.string()),
+        categoriesWithoutValidator: zod.z.array(zod.z.string())
+      }).optional()
     });
   }
 });
@@ -5549,7 +5568,21 @@ async function detectErrorState(page) {
   const errors = [];
   const checks = await page.evaluate(() => {
     const doc = document;
-    const text = doc.body?.innerText || "";
+    const textParts = [];
+    if (doc.body) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const parent = node.parentElement;
+        const excluded = parent?.closest("style, script, template, noscript");
+        const style = parent ? window.getComputedStyle(parent) : null;
+        if (!excluded && style?.display !== "none" && style?.visibility !== "hidden" && style?.opacity !== "0") {
+          textParts.push(node.textContent || "");
+        }
+        node = walker.nextNode();
+      }
+    }
+    const text = textParts.join(" ");
     const validationErrors = doc.querySelectorAll(
       '[class*="error"]:not([class*="error-boundary"]), [class*="invalid"], [aria-invalid="true"], .field-error, .form-error, .validation-error'
     );
@@ -5558,7 +5591,7 @@ async function detectErrorState(page) {
     );
     const permissionText = text.match(/access denied|forbidden|unauthorized|not allowed/i);
     const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
-    const serverText = text.match(/500|server error|something went wrong|internal error/i);
+    const serverText = text.match(/\b(?:http(?:\s+status)?|status|error)\s*(?:code\s*)?500\b|server error|something went wrong|internal error/i);
     const toastErrors = doc.querySelectorAll(
       '[class*="toast"][class*="error"], [class*="notification"][class*="error"], [role="alert"][class*="error"], [class*="snackbar"][class*="error"]'
     );
@@ -7753,11 +7786,120 @@ var init_target_sizing = __esm({
   }
 });
 
+// src/rules/style-read.ts
+function isCapturedStyleKey(key) {
+  return CAPTURED_SET.has(key);
+}
+function readStyle(element, key) {
+  if (!isCapturedStyleKey(key)) return { status: "not-captured", key };
+  const styles = element.computedStyles;
+  if (!styles) return { status: "no-styles", key };
+  const value = styles[key];
+  if (value === void 0 || value === null || value === "") {
+    return { status: "absent", key };
+  }
+  return { status: "read", key, value };
+}
+function readStyles(element, keys) {
+  const values = {};
+  const unmeasured = [];
+  for (const key of keys) {
+    const r = readStyle(element, key);
+    if (r.status === "read") values[key] = r.value;
+    else if (r.status !== "absent") unmeasured.push(r);
+  }
+  return { values, unmeasured };
+}
+function unmeasuredStyleViolation(element, ruleId, ruleName, unmeasured) {
+  const notCaptured = unmeasured.filter((u) => u.status === "not-captured").map((u) => u.key);
+  const reason = notCaptured.length > 0 ? `no extractor captures ${notCaptured.join(", ")}` : "no computed styles were captured for this element";
+  return {
+    ruleId: `${ruleId}-unmeasurable`,
+    ruleName: `${ruleName} (not measurable)`,
+    severity: "warn",
+    message: `"${(element.text || element.selector || "").slice(0, 40)}" was NOT checked by ${ruleId}: ${reason}`,
+    element: element.selector,
+    bounds: element.bounds,
+    fix: notCaptured.length > 0 ? `Add ${notCaptured.join(", ")} to CAPTURED_STYLE_KEYS in src/rules/style-read.ts so the extractors capture it.` : "Re-run the scan. If it persists, the element was extracted without computed styles."
+  };
+}
+function parsePx(value) {
+  const trimmed = value.trim();
+  if (!trimmed.endsWith("px")) return null;
+  const n = parseFloat(trimmed);
+  return isNaN(n) ? null : n;
+}
+function resolveBorderPresence(element) {
+  const { values, unmeasured } = readStyles(element, [...BORDER_WIDTH_KEYS, "borderStyle"]);
+  if (unmeasured.length > 0) return { status: "unmeasured", unmeasured };
+  const style = values.borderStyle ?? "";
+  const styleHidesBorder = style === "none" || style === "hidden";
+  const widths = BORDER_WIDTH_KEYS.map((k) => values[k] !== void 0 ? parsePx(values[k]) : null).filter((n) => n !== null);
+  const hasBorder = !styleHidesBorder && widths.some((w) => w > 0);
+  return { status: "measured", hasBorder, widths };
+}
+var CAPTURED_STYLE_KEYS, CAPTURED_SET, BORDER_WIDTH_KEYS;
+var init_style_read = __esm({
+  "src/rules/style-read.ts"() {
+    CAPTURED_STYLE_KEYS = [
+      // Paint — the contrast lane (src/rules/contrast-measure.ts).
+      "color",
+      "backgroundColor",
+      // Presence — visibility guards across touch-targets and contrast.
+      "display",
+      "visibility",
+      "opacity",
+      "cursor",
+      // Type — WCAG large-text classification + the typography sensor + the
+      // design-system `lineHeights` validator, which read `line-height` and got
+      // `undefined` on every element because nobody captured it.
+      "fontSize",
+      "fontWeight",
+      "fontFamily",
+      "lineHeight",
+      // Border — gestalt grouping + the visual-pattern fingerprint.
+      "borderTopWidth",
+      "borderRightWidth",
+      "borderBottomWidth",
+      "borderLeftWidth",
+      "borderStyle",
+      "borderColor",
+      "borderRadius",
+      // Spacing — the 8pt-grid rule + the visual-pattern fingerprint.
+      "paddingTop",
+      "paddingRight",
+      "paddingBottom",
+      "paddingLeft",
+      "marginTop",
+      "marginRight",
+      "marginBottom",
+      "marginLeft",
+      "rowGap",
+      "columnGap"
+    ];
+    CAPTURED_SET = new Set(CAPTURED_STYLE_KEYS);
+    BORDER_WIDTH_KEYS = [
+      "borderTopWidth",
+      "borderRightWidth",
+      "borderBottomWidth",
+      "borderLeftWidth"
+    ];
+  }
+});
+
 // src/extract.ts
 async function extractInteractiveElements(page) {
-  return page.evaluate((selectors) => {
+  return page.evaluate(({ selectors, styleKeys }) => {
     const seen = /* @__PURE__ */ new Set();
     const elements = [];
+    const captureStyles = (computed) => {
+      const out = {};
+      for (const key of styleKeys) {
+        const value = computed[key];
+        if (typeof value === "string" && value !== "") out[key] = value;
+      }
+      return out;
+    };
     const generateSelector = (el) => {
       if (el.id) return `#${el.id}`;
       const path2 = [];
@@ -7961,33 +8103,7 @@ async function extractInteractiveElements(page) {
               width: Math.round(rect.width),
               height: Math.round(rect.height)
             },
-            computedStyles: {
-              cursor: computed.cursor,
-              color: computed.color,
-              backgroundColor: computed.backgroundColor,
-              // display/visibility/opacity: the touch-targets rule's
-              // isNonVisibleOrZeroArea guard (src/rules/touch-targets.ts)
-              // reads these three fields to exclude non-visible elements.
-              // Before this, they were never populated here — the guard's
-              // display/visibility/opacity branches were unreachable in
-              // production (only its bounds<=0 branch ever fired, which
-              // happens to zero out for display:none via
-              // getBoundingClientRect, but does NOT zero out for
-              // visibility:hidden or opacity:0 — those retain full layout
-              // bounds and were silently graded for touch-target size).
-              display: computed.display,
-              visibility: computed.visibility,
-              opacity: computed.opacity,
-              // WCAG's large-text thresholds are a SIZE question, so the
-              // contrast rule cannot answer it without these. Before they were
-              // captured, isLargeText parsed '' -> NaN -> false for every
-              // element on every scan, and a 32px bold heading at 3.03:1 was
-              // reported as failing the 4.5:1 normal-text requirement when the
-              // 3:1 large-text requirement is the one that applies. The rule
-              // was asserting a property it had never measured.
-              fontSize: computed.fontSize,
-              fontWeight: computed.fontWeight
-            },
+            computedStyles: captureStyles(computed),
             ...(() => {
               const bgChain = collectBackgroundChain(htmlEl);
               return {
@@ -8045,7 +8161,7 @@ async function extractInteractiveElements(page) {
       }
     }
     return elements;
-  }, INTERACTIVE_SELECTORS);
+  }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
 }
 function analyzeElements(elements, isMobile = false) {
   const issues = [];
@@ -8109,9 +8225,17 @@ function analyzeElements(elements, isMobile = false) {
   };
 }
 async function extractContentElements(page) {
-  return page.evaluate((selectors) => {
+  return page.evaluate(({ selectors, styleKeys }) => {
     const seen = /* @__PURE__ */ new Set();
     const results = [];
+    const captureStyles = (computed) => {
+      const out = {};
+      for (const key of styleKeys) {
+        const value = computed[key];
+        if (typeof value === "string" && value !== "") out[key] = value;
+      }
+      return out;
+    };
     const generateSelector = (el) => {
       if (el.id) return `#${el.id}`;
       const path2 = [];
@@ -8199,18 +8323,7 @@ async function extractContentElements(page) {
               width: Math.round(rect.width),
               height: Math.round(rect.height)
             },
-            computedStyles: {
-              cursor: computed.cursor,
-              color: computed.color,
-              backgroundColor: computed.backgroundColor,
-              display: computed.display,
-              visibility: computed.visibility,
-              opacity: computed.opacity,
-              // See the interactive lane: WCAG large-text classification needs
-              // these, and headings are exactly where it matters.
-              fontSize: computed.fontSize,
-              fontWeight: computed.fontWeight
-            },
+            computedStyles: captureStyles(computed),
             contentKind: kind,
             // Real attributes, not assumptions. The adapter used to synthesize
             // `role: null, ariaLabel: null` for every content element and call
@@ -8240,7 +8353,7 @@ async function extractContentElements(page) {
       }
     }
     return results;
-  }, CONTENT_SELECTORS);
+  }, { selectors: CONTENT_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
 }
 async function extractPageMetadata(page) {
   return page.evaluate(() => {
@@ -8285,6 +8398,7 @@ var init_extract2 = __esm({
     init_schemas();
     init_devices();
     init_target_sizing();
+    init_style_read();
     INTERACTIVE_SELECTORS = [
       "button",
       "a[href]",
@@ -8540,7 +8654,7 @@ function normalizeColor(color) {
   }
   return color.toLowerCase();
 }
-function parsePx(value) {
+function parsePx2(value) {
   if (!value) return null;
   const match = value.match(/^([\d.]+)px$/);
   return match ? parseFloat(match[1]) : null;
@@ -8598,7 +8712,7 @@ var init_tokens = __esm({
         for (const element of elements) {
           const selector = element.selector || element.tagName || "unknown";
           if (!element.computedStyles) continue;
-          const fontSize = parsePx(getStyle(element.computedStyles, "font-size"));
+          const fontSize = parsePx2(getStyle(element.computedStyles, "font-size"));
           if (fontSize === null) continue;
           if (!tokenValues.includes(fontSize)) {
             violations.push({
@@ -8666,7 +8780,7 @@ var init_tokens = __esm({
         for (const element of elements) {
           const selector = element.selector || element.tagName || "unknown";
           if (!element.computedStyles) continue;
-          const borderRadius = parsePx(getStyle(element.computedStyles, "border-radius"));
+          const borderRadius = parsePx2(getStyle(element.computedStyles, "border-radius"));
           if (borderRadius === null || borderRadius === 0) continue;
           if (!tokenValues.includes(borderRadius)) {
             violations.push({
@@ -8693,7 +8807,7 @@ var init_tokens = __esm({
           if (!element.computedStyles) continue;
           for (const prop of ["gap", "padding", "margin"]) {
             const raw = element.computedStyles[prop];
-            const value = parsePx(raw);
+            const value = parsePx2(raw);
             if (value === null || value === 0) continue;
             if (!tokenValues.includes(value)) {
               violations.push({
@@ -8753,9 +8867,9 @@ function validateLineHeights(elements, lineHeights) {
     const lh = getStyle(style, "line-height");
     if (!lh || lh === "normal") continue;
     let value;
-    const pxVal = parsePx(lh);
+    const pxVal = parsePx2(lh);
     if (pxVal !== null) {
-      const fontSize = parsePx(getStyle(style, "font-size"));
+      const fontSize = parsePx2(getStyle(style, "font-size"));
       if (fontSize && fontSize > 0) {
         value = Math.round(pxVal / fontSize * 100) / 100;
       } else {
@@ -8792,9 +8906,10 @@ function validateExtendedTokens(elements, tokens, systemName) {
   return violations;
 }
 function calculateComplianceScore(totalChecked, violationCount) {
-  if (totalChecked === 0) return 100;
+  if (totalChecked <= 0) return null;
   const passing = totalChecked - violationCount;
-  return Math.round(passing / totalChecked * 100);
+  const pct = Math.round(passing / totalChecked * 100);
+  return Math.max(0, Math.min(100, pct));
 }
 var init_validator = __esm({
   "src/design-system/tokens/validator.ts"() {
@@ -8815,31 +8930,39 @@ var init_tokens2 = __esm({
 var gestaltRules;
 var init_gestalt = __esm({
   "src/design-system/principles/gestalt.ts"() {
+    init_style_read();
     gestaltRules = [
       {
         id: "calm-precision/gestalt-grouping",
         name: "Gestalt: Border Grouping",
         description: "Related items should be grouped with a single border, not individually bordered",
         defaultSeverity: "error",
+        // List items are page CONTENT, not controls. Left on the default
+        // `interactive` surface this rule only ever saw buttons and links — an
+        // `<li>` never reached it even once the styles existed.
+        appliesTo: "any",
         check: (element, _context) => {
-          const style = element.computedStyles;
-          if (!style) return null;
-          const hasBorder = style.border && style.border !== "none" && style.border !== "0px";
-          const borderWidth = style["border-width"];
-          const hasBorderWidth = borderWidth && borderWidth !== "0px";
           const isListItem = element.tagName === "li" || element.selector?.includes("item") && !element.selector?.includes("item-");
-          if ((hasBorder || hasBorderWidth) && isListItem) {
-            return {
-              ruleId: "calm-precision/gestalt-grouping",
-              ruleName: "Gestalt: Border Grouping",
-              severity: "error",
-              message: `List item "${(element.text || "").slice(0, 40)}" has individual border. Group related items with a single container border.`,
-              element: element.selector,
-              bounds: element.bounds,
-              fix: "Use single border around the group container with dividers between items, not individual item borders."
-            };
+          if (!isListItem) return null;
+          const border = resolveBorderPresence(element);
+          if (border.status === "unmeasured") {
+            return unmeasuredStyleViolation(
+              element,
+              "calm-precision/gestalt-grouping",
+              "Gestalt: Border Grouping",
+              border.unmeasured
+            );
           }
-          return null;
+          if (!border.hasBorder) return null;
+          return {
+            ruleId: "calm-precision/gestalt-grouping",
+            ruleName: "Gestalt: Border Grouping",
+            severity: "error",
+            message: `List item "${(element.text || "").slice(0, 40)}" has individual border (${border.widths.map((w) => `${w}px`).join(" ")}). Group related items with a single container border.`,
+            element: element.selector,
+            bounds: element.bounds,
+            fix: "Use single border around the group container with dividers between items, not individual item borders."
+          };
         }
       }
     ];
@@ -8952,34 +9075,78 @@ var init_hick = __esm({
 });
 
 // src/design-system/principles/content-chrome.ts
-var contentChromeRules;
+function isChrome(el) {
+  return CHROME_SELECTORS.test(el.tagName) || CHROME_SELECTORS.test(el.selector || "") || CHROME_SELECTORS.test(el.a11y?.role || "");
+}
+function unionAreaPx(rects, viewportWidth, viewportHeight) {
+  const CELL = 8;
+  const cols = Math.ceil(viewportWidth / CELL);
+  const rows = Math.ceil(viewportHeight / CELL);
+  const covered = new Uint8Array(cols * rows);
+  for (const r of rects) {
+    if (r.width <= 0 || r.height <= 0) continue;
+    const x0 = Math.max(0, Math.floor(r.x / CELL));
+    const y0 = Math.max(0, Math.floor(r.y / CELL));
+    const x1 = Math.min(cols, Math.ceil((r.x + r.width) / CELL));
+    const y1 = Math.min(rows, Math.ceil((r.y + r.height) / CELL));
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) covered[y * cols + x] = 1;
+    }
+  }
+  let cells = 0;
+  for (let i = 0; i < covered.length; i++) cells += covered[i];
+  return cells * CELL * CELL;
+}
+var CHROME_SELECTORS, CONTROL_TAGS, contentChromeRules;
 var init_content_chrome = __esm({
   "src/design-system/principles/content-chrome.ts"() {
+    CHROME_SELECTORS = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
+    CONTROL_TAGS = /* @__PURE__ */ new Set([
+      "button",
+      "a",
+      "input",
+      "select",
+      "textarea",
+      "summary",
+      "details"
+    ]);
     contentChromeRules = [
       {
         id: "calm-precision/content-chrome-ratio",
         name: "Content >= Chrome",
         description: "Content area should be at least 70% of the viewport",
         defaultSeverity: "warn",
+        appliesTo: "any",
         check: (element, context) => {
           if (context.allElements[0]?.selector !== element.selector) return null;
           const viewportArea = context.viewportWidth * context.viewportHeight;
           if (viewportArea === 0) return null;
-          const chromeSelectors = /\b(nav|header|footer|sidebar|toolbar|menu|breadcrumb|tabs)\b/i;
-          let chromeArea = 0;
-          for (const el of context.allElements) {
-            const isChrome = chromeSelectors.test(el.tagName) || chromeSelectors.test(el.selector || "") || chromeSelectors.test(el.a11y?.role || "");
-            if (isChrome && el.bounds) {
-              chromeArea += el.bounds.width * el.bounds.height;
-            }
+          const chromeElements = context.allElements.filter((el) => isChrome(el) && el.bounds);
+          const sawNonControlElements = context.allElements.some(
+            (el) => !CONTROL_TAGS.has(el.tagName)
+          );
+          if (chromeElements.length === 0 && !sawNonControlElements) {
+            return {
+              ruleId: "calm-precision/content-chrome-ratio-unmeasurable",
+              ruleName: "Content >= Chrome (not measurable)",
+              severity: "warn",
+              message: "Chrome-to-content ratio was NOT checked: no nav, header, footer, sidebar, or toolbar element was found in the scanned population.",
+              fix: "If the page has landmarks, they were not extracted \u2014 re-run the scan. If it genuinely has none, this check does not apply."
+            };
           }
+          if (chromeElements.length === 0) return null;
+          const chromeArea = unionAreaPx(
+            chromeElements.map((el) => el.bounds),
+            context.viewportWidth,
+            context.viewportHeight
+          );
           const chromePercent = chromeArea / viewportArea * 100;
           if (chromePercent > 30) {
             return {
               ruleId: "calm-precision/content-chrome-ratio",
               ruleName: "Content >= Chrome",
               severity: "warn",
-              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport. Content should be >= 70%.`,
+              message: `Chrome elements occupy ~${Math.round(chromePercent)}% of viewport (${chromeElements.length} chrome element(s) measured). Content should be >= 70%.`,
               fix: "Reduce navigation/toolbar/sidebar chrome. Consider collapsible panels or minimized navigation."
             };
           }
@@ -9000,10 +9167,12 @@ var init_cognitive_load = __esm({
         name: "Cognitive Load: Element Count",
         description: "Visual groups should have 5-7 items max to stay within working memory limits",
         defaultSeverity: "warn",
+        appliesTo: "any",
         check: (element, context) => {
           if (element.interactive?.hasOnClick || element.interactive?.hasHref) return null;
           if (!element.bounds) return null;
           const { x, y, width, height } = element.bounds;
+          if (width <= 0 || height <= 0) return null;
           const children = context.allElements.filter((el) => {
             if (el.selector === element.selector) return false;
             if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
@@ -9131,25 +9300,53 @@ async function runDesignSystemCheck(elements, context, projectDir) {
     }
   }
   const tokenViolations = config.tokens ? validateExtendedTokens(elements, config.tokens, config.name) : [];
-  const tokenCategories = Object.keys(config.tokens).filter(
+  const declaredCategories = Object.keys(config.tokens ?? {}).filter(
     (k) => config.tokens[k] !== void 0
-  ).length;
-  const totalChecked = elements.length * Math.max(tokenCategories, 1);
-  const complianceScore = calculateComplianceScore(totalChecked, tokenViolations.length);
+  );
+  const categoriesWithoutValidator = declaredCategories.filter(
+    (k) => !VALIDATED_TOKEN_CATEGORIES.has(k)
+  );
+  const evaluableElements = elements.filter((el) => !!el.computedStyles);
+  const elementsWithViolations = new Set(tokenViolations.map((v) => v.element)).size;
+  const validatedCategoriesDeclared = declaredCategories.filter(
+    (k) => VALIDATED_TOKEN_CATEGORIES.has(k)
+  );
+  const complianceScore = validatedCategoriesDeclared.length === 0 ? null : calculateComplianceScore(evaluableElements.length, elementsWithViolations);
   return {
     configName: config.name,
     principleViolations,
     tokenViolations,
     customViolations,
-    complianceScore
+    complianceScore,
+    coverage: {
+      elementsConsidered: elements.length,
+      elementsEvaluated: evaluableElements.length,
+      elementsSkippedNoStyles: elements.length - evaluableElements.length,
+      declaredCategories,
+      /** Declared AND backed by a validator — the categories actually checked. */
+      validatedCategoriesDeclared,
+      // Declared in config, silently checked by nothing. These used to INFLATE
+      // the score; now they are named so the reader can delete them or ask for
+      // a validator.
+      categoriesWithoutValidator
+    }
   };
 }
+var VALIDATED_TOKEN_CATEGORIES;
 var init_design_system = __esm({
   "src/design-system/index.ts"() {
     init_config();
     init_tokens2();
     init_calm_precision();
     init_config();
+    VALIDATED_TOKEN_CATEGORIES = /* @__PURE__ */ new Set([
+      "colors",
+      "spacing",
+      "fontSizes",
+      "touchTargets",
+      "cornerRadius",
+      "typography"
+    ]);
   }
 });
 
@@ -10487,7 +10684,7 @@ var init_sensors = __esm({
 
 // src/sensors/css-extract.ts
 async function extractCssRulesAndMeta(page) {
-  return page.evaluate(() => {
+  return page.evaluate((styleKeys) => {
     function declarationsFromStyle(style) {
       const out = {};
       for (let i = 0; i < style.length; i++) {
@@ -10568,11 +10765,13 @@ async function extractCssRulesAndMeta(page) {
     }
     const sheets = Array.from(document.styleSheets);
     const allRules2 = [];
+    let sheetsSkipped = 0;
     for (const sheet of sheets) {
       let rules;
       try {
         rules = sheet.cssRules;
       } catch {
+        sheetsSkipped++;
         continue;
       }
       const sourceUrl = sheet.href ?? void 0;
@@ -10635,6 +10834,21 @@ async function extractCssRulesAndMeta(page) {
       return path2.join(" > ").slice(0, 200);
     }
     const seenStructural = /* @__PURE__ */ new Set();
+    const collectStructuralBackgroundChain = (start) => {
+      const chain = [];
+      let image = false;
+      let node = start;
+      let depth = 0;
+      while (node && depth < 64) {
+        const cs = window.getComputedStyle(node);
+        chain.push(cs.backgroundColor || "");
+        const bgImage = cs.backgroundImage;
+        if (bgImage && bgImage !== "none") image = true;
+        node = node.parentElement;
+        depth++;
+      }
+      return { chain, image };
+    };
     const structuralElements = [];
     for (const sel of STRUCTURAL_SELECTORS) {
       let found;
@@ -10651,16 +10865,10 @@ async function extractCssRulesAndMeta(page) {
         const computed = window.getComputedStyle(htmlEl);
         const text = (htmlEl.textContent || "").trim().slice(0, 100) || "";
         const tagLower = htmlEl.tagName.toLowerCase();
-        const isTextBearing2 = /^h[1-6]$/.test(tagLower) || tagLower === "p" || tagLower === "span" || tagLower === "li";
-        const styles = {
-          color: computed.color,
-          backgroundColor: computed.backgroundColor
-        };
-        if (isTextBearing2) {
-          styles.fontFamily = computed.fontFamily;
-          styles.fontSize = computed.fontSize.replace(/px$/, "");
-          styles.fontWeight = computed.fontWeight;
-          styles.lineHeight = computed.lineHeight;
+        const styles = {};
+        for (const key of styleKeys) {
+          const value = computed[key];
+          if (typeof value === "string" && value !== "") styles[key] = value;
         }
         const ariaLevel = htmlEl.getAttribute("aria-level");
         structuralElements.push({
@@ -10676,6 +10884,18 @@ async function extractCssRulesAndMeta(page) {
             height: Math.round(rect.height)
           },
           computedStyles: styles,
+          // The shared measurement (src/rules/contrast-measure.ts) resolves the
+          // effective background by compositing THROUGH ancestors. Without this
+          // chain every structural element fell back to its own
+          // `rgba(0, 0, 0, 0)` and was graded against an assumed white page —
+          // light text on a dark card read as a comfortable pass.
+          ...(() => {
+            const bgChain = collectStructuralBackgroundChain(htmlEl);
+            return {
+              backgroundChain: bgChain.chain,
+              ...bgChain.image ? { backgroundImageBehind: true } : {}
+            };
+          })(),
           interactive: {
             hasOnClick: false,
             hasHref: false,
@@ -10701,12 +10921,15 @@ async function extractCssRulesAndMeta(page) {
         rootFontSizePx: Number.isFinite(rootFontSize) ? rootFontSize : 16,
         fontsStatus
       },
-      structuralElements
+      structuralElements,
+      sheetsSeen: sheets.length,
+      sheetsSkipped
     };
-  });
+  }, [...CAPTURED_STYLE_KEYS]);
 }
 var init_css_extract = __esm({
   "src/sensors/css-extract.ts"() {
+    init_style_read();
   }
 });
 
@@ -10870,6 +11093,13 @@ var init_text_hierarchy = __esm({
         name: "Text Hierarchy: Title vs Description Size",
         description: "Title-level elements must be visually larger than description-level elements",
         defaultSeverity: "warn",
+        // Headings and paragraphs are CONTENT. Left on the default `interactive`
+        // surface this rule only ever saw buttons and links, `inferLevel` returned
+        // 'unknown' for every one of them, and line one returned null before any
+        // size was compared. It never graded a heading in its shipped life —
+        // proven by planted defect: an <h2> at 12px above a <p> at 20px produced
+        // no finding through the installed binary.
+        appliesTo: "any",
         check: (element, context) => {
           if (inferLevel(element) !== "title") return null;
           const titleSize = parseFontSize(element);
@@ -11004,35 +11234,31 @@ var init_handler_integrity = __esm({
 });
 
 // src/rules/spacing-grid.ts
-function parsePxValue(value) {
-  const trimmed = value.trim();
-  if (!trimmed || trimmed === "auto" || trimmed === "normal" || trimmed === "initial" || trimmed === "inherit") {
-    return null;
-  }
-  if (trimmed.endsWith("%")) return null;
-  if (trimmed.endsWith("em") || trimmed.endsWith("rem") || trimmed.endsWith("vw") || trimmed.endsWith("vh")) {
-    return null;
-  }
-  if (!trimmed.endsWith("px")) return null;
-  const n = parseFloat(trimmed);
-  return isNaN(n) ? null : n;
-}
 function isOnGrid(px) {
   if (px === 0) return true;
   return Math.round(px) % 4 === 0;
 }
-function parseSpacingShorthand(value) {
-  const parts = value.trim().split(/\s+/);
-  const results = [];
-  for (const part of parts) {
-    const px = parsePxValue(part);
-    if (px !== null) results.push(px);
+function offGridFor(element) {
+  const offGrid = [];
+  const unmeasured = [];
+  for (const prop of SPACING_PROPERTIES) {
+    const read = readStyle(element, prop);
+    if (read.status === "not-captured" || read.status === "no-styles") {
+      unmeasured.push(read);
+      continue;
+    }
+    if (read.status === "absent") continue;
+    const px = parsePx(read.value);
+    if (px === null) continue;
+    if (!Number.isInteger(px)) continue;
+    if (!isOnGrid(px)) offGrid.push(`${prop}: ${read.value}`);
   }
-  return results;
+  return { offGrid, unmeasured };
 }
 var SPACING_PROPERTIES, spacingGridRules;
 var init_spacing_grid = __esm({
   "src/rules/spacing-grid.ts"() {
+    init_style_read();
     SPACING_PROPERTIES = [
       "paddingTop",
       "paddingRight",
@@ -11042,10 +11268,6 @@ var init_spacing_grid = __esm({
       "marginRight",
       "marginBottom",
       "marginLeft",
-      // Shorthand forms that may appear in computedStyles
-      "padding",
-      "margin",
-      "gap",
       "rowGap",
       "columnGap"
     ];
@@ -11055,39 +11277,45 @@ var init_spacing_grid = __esm({
         name: "Spacing Grid: Off 8pt Grid",
         description: "Padding and margin values should be multiples of 4px (half 8pt grid)",
         defaultSeverity: "warn",
-        check: (element, _context) => {
-          const style = element.computedStyles;
-          if (!style) return null;
-          const offGridValues = [];
-          for (const prop of SPACING_PROPERTIES) {
-            const raw = style[prop];
-            if (!raw) continue;
-            const isShorthand = prop === "padding" || prop === "margin";
-            if (isShorthand) {
-              const values = parseSpacingShorthand(raw);
-              for (const v of values) {
-                if (!isOnGrid(v)) {
-                  offGridValues.push({ property: prop, value: raw });
-                  break;
-                }
-              }
-            } else {
-              const px = parsePxValue(raw);
-              if (px !== null && !isOnGrid(px)) {
-                offGridValues.push({ property: prop, value: raw });
-              }
+        // Spacing belongs to any box, not just a control. Body copy and headings
+        // carry the margins that set a page's rhythm, and on the default
+        // `interactive` surface this rule never saw one.
+        appliesTo: "any",
+        check: (element, context) => {
+          if (context.allElements[0]?.selector !== element.selector) return null;
+          const byValue = /* @__PURE__ */ new Map();
+          let measured = 0;
+          let unmeasurable = 0;
+          for (const el of context.allElements) {
+            const { offGrid, unmeasured } = offGridFor(el);
+            if (unmeasured.length === SPACING_PROPERTIES.length) {
+              unmeasurable++;
+              continue;
             }
+            measured++;
+            if (offGrid.length === 0) continue;
+            const key = offGrid.join(", ");
+            const seen = byValue.get(key) ?? [];
+            if (seen.length < 3) seen.push(el.selector);
+            byValue.set(key, seen);
           }
-          if (offGridValues.length === 0) return null;
-          const detail = offGridValues.map((v) => `${v.property}: ${v.value}`).join(", ");
-          const label = element.text?.slice(0, 30) || element.selector;
+          if (measured === 0 && unmeasurable > 0) {
+            return {
+              ruleId: "spacing-grid/off-grid-unmeasurable",
+              ruleName: "Spacing Grid: Off 8pt Grid (not measurable)",
+              severity: "warn",
+              message: `Spacing was NOT checked on any of ${unmeasurable} elements: no computed spacing properties were captured.`,
+              fix: "Confirm paddingTop/marginTop/rowGap and friends are in CAPTURED_STYLE_KEYS (src/rules/style-read.ts)."
+            };
+          }
+          if (byValue.size === 0) return null;
+          const groups = [...byValue.entries()].sort((a, b) => b[1].length - a[1].length);
+          const detail = groups.slice(0, 5).map(([value, selectors]) => `${value} (e.g. ${selectors.join(", ")})`).join(" | ");
           return {
             ruleId: "spacing-grid/off-grid",
             ruleName: "Spacing Grid: Off 8pt Grid",
             severity: "warn",
-            message: `"${label}" has off-grid spacing: ${detail}`,
-            element: element.selector,
-            bounds: element.bounds,
+            message: `${groups.length} distinct off-grid spacing value set(s) across ${measured} measured elements: ${detail}`,
             fix: "Use spacing values that are multiples of 4px (e.g., 4, 8, 12, 16, 20, 24, 32px)"
           };
         }
@@ -12341,12 +12569,13 @@ async function scan(url, options = {}) {
       viewport: resolvedViewport,
       ...cssExtract ? { cssRules: cssExtract.cssRules, documentMeta: cssExtract.documentMeta } : {}
     });
+    const structuralElements = cssExtract?.structuralElements ?? [];
     const ruleContext = {
       isMobile: resolvedViewport.width < 768,
       viewportWidth: resolvedViewport.width,
       viewportHeight: resolvedViewport.height,
       url,
-      allElements: elements.all
+      allElements: [...elements.all, ...structuralElements]
     };
     const ruleEngine = runAllRules(elements.all, ruleContext);
     const resolvedRules = await resolveRulesConfig(options.projectDir ?? process.cwd(), rulePresets);
@@ -12381,10 +12610,21 @@ async function scan(url, options = {}) {
       }
     }
     const contentAsElements = gradesContent ? contentElementsToEnhanced(contentElements) : [];
+    const containerElements = gradesContent ? structuralElements.filter((el) => CONTAINER_TAGS.has(el.tagName)) : [];
+    ruleEngine.push(
+      ...runAllRules([...contentAsElements, ...containerElements], ruleContext, { surface: "content" })
+    );
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
       const presetViolations = [
         ...runRules(elements.all, ruleContext, resolvedRules.config, { surface: "interactive" }),
-        ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" })
+        ...runRules(contentAsElements, ruleContext, resolvedRules.config, { surface: "content" }),
+        // Containers and landmarks. CONTENT_SELECTORS covers text carriers
+        // (h1-h6, p, li, td...) and deliberately excludes wrappers, so a
+        // <nav>/<section>/<div> was iterated by NO pass and the container
+        // rules could not fire even once the styles existed. Filtered to the
+        // tags the content pass does not already carry, so nothing is graded
+        // twice.
+        ...runRules(containerElements, ruleContext, resolvedRules.config, { surface: "content" })
       ];
       for (const v of presetViolations) {
         issues.push({
@@ -12522,6 +12762,7 @@ function aggregateIssues(audit, interactivity, semantic, consoleErrors, themeAna
   return collector.getIssues();
 }
 async function applyDesignSystemCheck(elements, issues, viewport, url, outputDir) {
+  let designSystemConfigError;
   const designSystem = await runDesignSystemCheck(
     elements,
     {
@@ -12532,7 +12773,18 @@ async function applyDesignSystemCheck(elements, issues, viewport, url, outputDir
       allElements: elements
     },
     outputDir
-  ).catch(() => void 0);
+  ).catch((err) => {
+    designSystemConfigError = err instanceof Error ? err.message : String(err);
+    return void 0;
+  });
+  if (designSystemConfigError) {
+    issues.push({
+      category: "design-system",
+      severity: "error",
+      description: `[design-system-config-failed] Design system checks did NOT run: ${designSystemConfigError}`,
+      fix: "Fix .ibr/design-system.json (malformed JSON, or a field that fails the schema). Until then no principle or token check is being applied."
+    });
+  }
   if (designSystem) {
     for (const v of designSystem.principleViolations) {
       issues.push({
@@ -12789,7 +13041,7 @@ function formatScanResult(result) {
   lines.push("\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550");
   return lines.join("\n");
 }
-var IssueCollector;
+var CONTAINER_TAGS, IssueCollector;
 var init_scan = __esm({
   "src/scan.ts"() {
     init_driver();
@@ -12809,6 +13061,15 @@ var init_scan = __esm({
     init_engine();
     init_content_adapter();
     init_contrast_measure();
+    CONTAINER_TAGS = /* @__PURE__ */ new Set([
+      "header",
+      "nav",
+      "main",
+      "aside",
+      "footer",
+      "section",
+      "form"
+    ]);
     IssueCollector = class {
       issues = [];
       add(issue) {
