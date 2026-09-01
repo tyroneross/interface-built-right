@@ -213,3 +213,73 @@ describe('stale browser-server manifest', () => {
       .toBe('live_keepme');
   });
 });
+
+describe('a live-but-unresponsive browser is not a dead one', () => {
+  let outputDir: string;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    outputDir = await mkdtemp(join(tmpdir(), 'ibr-busy-browser-'));
+    await mkdir(join(outputDir, 'sessions', 'live_test'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(outputDir, { recursive: true, force: true });
+  });
+
+  it('keeps the manifest when an attach times out against a running browser', async () => {
+    // Deleting the manifest here would strand a live Chrome with nothing on
+    // disk pointing at it, so `session:close all` could never reclaim it.
+    const blackhole = await startBlackhole();
+    try {
+      await plantManifest(outputDir, {
+        pid: process.pid,
+        chromePid: process.pid,
+        cdpUrl: `http://127.0.0.1:${blackhole.port}`,
+      });
+
+      const driver = await connectToBrowserServer(outputDir);
+      expect(driver).toBeNull();
+      expect(existsSync(join(outputDir, 'browser-server.json'))).toBe(true);
+    } finally {
+      await blackhole.stop();
+    }
+  }, 30000);
+
+  it('says the browser could not be attached, not that the session is missing', async () => {
+    const blackhole = await startBlackhole();
+    try {
+      await writeFile(
+        join(outputDir, 'sessions', 'live_test', 'live-session.json'),
+        JSON.stringify({
+          id: 'live_test',
+          url: 'https://example.com/',
+          targetId: 'target-existing',
+          strategyKey: 'chrome:local',
+          name: '/',
+          viewport: { name: 'desktop', width: 1440, height: 900, deviceScaleFactor: 1, mobile: false },
+          createdAt: new Date().toISOString(),
+          pageIndex: 0,
+          actions: [],
+        }),
+      );
+      await plantManifest(outputDir, {
+        pid: process.pid,
+        chromePid: process.pid,
+        cdpUrl: `http://127.0.0.1:${blackhole.port}`,
+      });
+
+      const started = Date.now();
+      await expect(PersistentSession.get(outputDir, 'live_test'))
+        .rejects.toThrow(/exists on disk but its browser could not be attached/);
+      expect(Date.now() - started).toBeLessThan(20000);
+    } finally {
+      await blackhole.stop();
+    }
+  }, 40000);
+
+  it('still returns null for a session id that genuinely has no record', async () => {
+    await plantManifest(outputDir, { pid: process.pid });
+    expect(await PersistentSession.get(outputDir, 'live_nope')).toBeNull();
+  });
+});

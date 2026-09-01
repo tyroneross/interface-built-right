@@ -122,6 +122,8 @@ export interface BrowserServerOptions extends BrowserConnectionOptions {
   debug?: boolean;     // Visible + slowMo + devtools
   isolated?: boolean;  // Use isolated profile (default: true)
   lowMemory?: boolean; // Reduce memory usage for lower-powered machines
+  /** Reports each spawn stage, so a slow start is visible rather than silent. */
+  onProgress?: (step: string) => void;
 }
 
 const SERVER_STATE_FILE = 'browser-server.json';
@@ -394,6 +396,7 @@ export async function startBrowserServer(
     cdpUrl: options.cdpUrl,
     wsEndpoint: options.wsEndpoint,
     chromePath: options.chromePath,
+    onProgress: options.onProgress,
   });
   const mode = driver.browserMode;
   const cdpUrl = driver.cdpUrl ?? undefined;
@@ -458,7 +461,13 @@ export async function connectToBrowserServer(outputDir: string, targetId?: strin
     // failed. Record why so the caller can print a cause instead of a bare
     // "no browser server running".
     lastConnectFailure = error instanceof Error ? error.message : String(error);
-    await cleanupServerState(outputDir);
+    // Only reap when the browser is genuinely gone. An attach that timed out
+    // against a LIVE Chrome is a failed measurement, not proof of death —
+    // deleting the manifest there strands a running browser with nothing on
+    // disk pointing at it, so `session:close all` can no longer find it.
+    if (!state.chromePid || !pidAlive(state.chromePid)) {
+      await cleanupServerState(outputDir);
+    }
     return null;
   }
 }
@@ -476,7 +485,18 @@ export function lastBrowserServerFailure(): string | null {
 /**
  * Stop the browser server
  */
+/**
+ * Why the last `stopBrowserServer` returned false after finding a manifest.
+ * Null when there was simply nothing to stop.
+ */
+let lastStopFailure: string | null = null;
+
+export function lastBrowserServerStopFailure(): string | null {
+  return lastStopFailure;
+}
+
 export async function stopBrowserServer(outputDir: string): Promise<boolean> {
+  lastStopFailure = null;
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
 
   if (!existsSync(stateFile)) {
@@ -514,8 +534,11 @@ export async function stopBrowserServer(outputDir: string): Promise<boolean> {
     // await rm(profileDir, { recursive: true, force: true });
 
     return true;
-  } catch {
-    // CDP connect failed — Chrome may be zombie. Kill by stored PID
+  } catch (error) {
+    // CDP connect failed or timed out — Chrome may be a zombie. The user asked
+    // to stop it, so escalating to SIGKILL is the right call here (unlike the
+    // read-only liveness check, which must never kill on a failed probe).
+    lastStopFailure = error instanceof Error ? error.message : String(error);
     try {
       const content = await readFile(stateFile, 'utf-8');
       const state = JSON.parse(content);
@@ -681,7 +704,18 @@ export class PersistentSession {
     // navigation: reads, captures, and scans must not request the URL again.
     const driver = await connectToBrowserServer(outputDir, state.targetId);
     if (!driver) {
-      return null;
+      // `null` here means "no such session", and the record on disk proves
+      // otherwise. Reporting a live record as missing sends the reader to check
+      // the session id when the browser is the thing that failed — the same
+      // failed-measurement-as-fact mistake this whole change is about.
+      const why = lastBrowserServerFailure();
+      throw new Error(
+        `Session ${sessionId} exists on disk but its browser could not be attached.\n`
+        + (why ? `Reason: ${why}\n` : '')
+        + 'The browser server is gone or unresponsive. Close it and start again:\n'
+        + '  npx ibr session:close all\n'
+        + '  npx ibr session:start <url>',
+      );
     }
 
     const page = new CompatPage(driver);

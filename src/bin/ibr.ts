@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
 import { ensureToolchainPath } from '../native/toolchain-env.js';
 import { EngineDriver } from '../engine/driver.js';
 
@@ -1765,6 +1765,74 @@ flowCmd.command('login <url>')
 // The first session:start launches a headless browser server that persists
 // until session:close all is called.
 
+/**
+ * Start the browser server in a background process and return, bounded.
+ *
+ * Re-runs this same argv with `--detach` stripped, detached and with its output
+ * on a log file, then polls for the manifest until a deadline. Waiting is what
+ * makes this useful: returning before the server is up would just move the
+ * failure to the caller's next command.
+ */
+async function startDetachedServer(
+  outputDir: string,
+  argv: string[],
+  expectSession: boolean,
+): Promise<void> {
+  const { spawn } = await import('child_process');
+  const { mkdir, open } = await import('fs/promises');
+  const { isServerRunning, listActiveSessions } = await import('../browser-server.js');
+
+  await mkdir(outputDir, { recursive: true });
+  // The manifest is written BEFORE the session is created, so "server is up" is
+  // not "the session you asked for exists". Waiting on the manifest alone would
+  // hand back a session id that is not there yet.
+  const preexisting = new Set(await listActiveSessions(outputDir).catch(() => [] as string[]));
+  const logPath = join(outputDir, 'browser-server.log');
+  const logFile = await open(logPath, 'a');
+
+  // argv[0]=node, argv[1]=ibr.js. Drop --detach so the child takes the normal
+  // foreground path and becomes the process that holds the browser.
+  const args = argv.slice(1).filter((a) => a !== '--detach');
+  const child = spawn(process.execPath, args, {
+    detached: true,
+    stdio: ['ignore', logFile.fd, logFile.fd],
+    cwd: process.cwd(),
+  });
+  child.unref();
+  await logFile.close();
+
+  console.log(`Starting browser server in the background (pid ${child.pid ?? 'unknown'})...`);
+  console.log(`Log: ${logPath}`);
+
+  const timeoutMs = Number(process.env.IBR_DETACH_TIMEOUT_MS) || 60_000;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isServerRunning(outputDir)) {
+      const fresh = (await listActiveSessions(outputDir).catch(() => [] as string[]))
+        .filter((id) => !preexisting.has(id));
+      if (!expectSession || fresh.length > 0) {
+        console.log('');
+        console.log('Browser server running in the background.');
+        for (const id of fresh) console.log(`Session started: ${id}`);
+        console.log('List sessions with: npx ibr session:list');
+        console.log('Stop it with:       npx ibr session:close all');
+        return;
+      }
+    }
+    if (child.exitCode !== null) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+
+  // Never leave the caller guessing: name the deadline and where the child's
+  // own output went.
+  const tail = await readFile(logPath, 'utf-8').then((t) => t.slice(-1500)).catch(() => '');
+  throw new Error(
+    `Browser server did not come up within ${timeoutMs}ms (background pid `
+    + `${child.pid ?? 'unknown'}, exit ${child.exitCode ?? 'still running'}).\n`
+    + `Its output is in ${logPath}.${tail ? `\nLast lines:\n${tail}` : ''}`,
+  );
+}
+
 // Session start command - create interactive session with persistent browser
 program
   .command('session:start [url]')
@@ -1776,6 +1844,7 @@ program
   .option('--debug', 'Visible browser + slow motion + devtools')
   .option('--low-memory', 'Reduce memory usage for lower-powered machines (4GB RAM)')
   .option('--auto-capture', 'Auto-capture screenshot + scan after every interaction')
+  .option('--detach', 'Run the browser server in the background and return immediately')
   .option(
     '-d, --device <name>',
     `Canonical device profile (overrides global --viewport). One of: ${DEVICE_NAMES.join(', ')}`,
@@ -1788,6 +1857,7 @@ program
     debug?: boolean;
     lowMemory?: boolean;
     autoCapture?: boolean;
+    detach?: boolean;
     device?: string;
   }) => {
     try {
@@ -1795,6 +1865,7 @@ program
         startBrowserServer,
         isServerRunning,
         PersistentSession,
+        cleanupServerState,
       } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
@@ -1821,16 +1892,31 @@ program
       // Check if browser server is already running
       const serverRunning = await isServerRunning(outputDir);
 
+      // `--detach` re-runs this same command in a background process and waits,
+      // bounded, for the manifest to appear. The parent ibr process is
+      // load-bearing — it owns the Chrome child and reaps it on exit — so the
+      // server cannot simply be "started and forgotten"; something has to hold
+      // it. Detaching moves that holder off the caller's terminal.
+      if (!serverRunning && options.detach) {
+        await startDetachedServer(outputDir, process.argv, Boolean(resolvedUrl));
+        return;
+      }
+
       if (!serverRunning) {
         // First session - launch browser server and keep process alive
         const modeLabel = options.lowMemory ? ' (low-memory mode)' : '';
         console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
 
+        // Report each spawn step. A spawn that is merely slow and one that is
+        // wedged look identical from outside; printing the stage it reached is
+        // the difference between "waiting on the debugger on port 61234" and
+        // silence.
         const { driver, ownsBrowser } = await startBrowserServer(outputDir, {
           headless,
           debug: options.debug,
           isolated: true,  // Prevents conflicts with Playwright MCP
           lowMemory: options.lowMemory,
+          onProgress: (step) => console.log(`  ${step}`),
           ...getBrowserConnectionOptions(),
         });
 
@@ -1871,7 +1957,20 @@ program
           return;
         }
 
+        // This command BLOCKS from here until interrupted. It is a foreground
+        // daemon, not a hang — but through a pipe, with no TTY to press Ctrl+C
+        // on and output that a harness only renders at exit, the two are
+        // indistinguishable. That ambiguity cost a full debugging session on
+        // 2026-09-01, where a healthy server that came up in seconds was read
+        // as an indefinite hang. So say it plainly, and say it louder when
+        // nobody is watching a terminal.
         console.log('Browser server running. Press Ctrl+C to stop.');
+        if (!process.stdout.isTTY) {
+          console.log('');
+          console.log('NOTE: this process now blocks until it is killed. That is intended —');
+          console.log('it owns the browser and reaps it on exit. Nothing further will print.');
+          console.log('For a command that returns, re-run with --detach.');
+        }
 
         // Keep process alive until cleanup signal. Handlers cover:
         //  - SIGINT/SIGTERM/SIGHUP: graceful async close (Ctrl+C, kill,
@@ -1886,6 +1985,11 @@ program
             cleanedUp = true;
             console.log('\nShutting down browser server...');
             try { await driver.close(); } catch { /* best effort */ }
+            // Remove the manifest we wrote. Without this every terminated
+            // server left a browser-server.json naming a dead pid and a dead
+            // port — the exact on-disk state that made the next session:start
+            // look broken.
+            try { await cleanupServerState(outputDir); } catch { /* best effort */ }
             resolve();
           };
           const syncReap = () => {
@@ -1894,6 +1998,8 @@ program
             if (pid) {
               try { process.kill(pid, 'SIGTERM'); } catch { /* already dead */ }
             }
+            // 'exit' handlers must be synchronous, so unlink synchronously.
+            try { unlinkSync(join(outputDir, 'browser-server.json')); } catch { /* best effort */ }
           };
           process.on('SIGINT', cleanup);
           process.on('SIGTERM', cleanup);
@@ -1937,10 +2043,14 @@ program
 
 // Helper for session commands that need to connect
 async function getSession(outputDir: string, sessionId: string) {
-  const { PersistentSession, isServerRunning } = await import('../browser-server.js');
+  const { PersistentSession, inspectBrowserServer } = await import('../browser-server.js');
 
-  if (!(await isServerRunning(outputDir))) {
+  const inspection = await inspectBrowserServer(outputDir);
+  if (inspection.status !== 'alive' && inspection.status !== 'unreachable') {
     console.error('No browser server running.');
+    // Name the stale pid and endpoint. "Not running" alone sends the reader
+    // looking for a missing server when the real state is a dead one on disk.
+    console.error(`Reason: ${inspection.reason}`);
     console.log('');
     console.log('Start one with:');
     console.log('  npx ibr session:start <url>');
@@ -2372,14 +2482,16 @@ program
   .description('List all active interactive sessions')
   .action(async () => {
     try {
-      const { isServerRunning, listActiveSessions } = await import('../browser-server.js');
+      const { inspectBrowserServer, listActiveSessions } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
 
-      const serverRunning = await isServerRunning(outputDir);
+      const inspection = await inspectBrowserServer(outputDir);
+      const serverRunning = inspection.status === 'alive' || inspection.status === 'unreachable';
       const sessions = await listActiveSessions(outputDir);
 
-      console.log(`Browser server: ${serverRunning ? 'running' : 'not running'}`);
+      console.log(`Browser server: ${serverRunning ? 'running' : 'NOT RUNNING'}`);
+      console.log(`  ${inspection.reason}`);
       console.log('');
 
       if (sessions.length === 0) {
@@ -2390,9 +2502,17 @@ program
         return;
       }
 
-      console.log('Sessions:');
+      // A session id is a directory on disk, not a live tab. Ids outlive the
+      // browser routinely, so listing them next to a dead server invites the
+      // reader to treat the wrong line as liveness.
+      console.log(serverRunning ? 'Sessions:' : 'Session records (NOT live — the browser server is gone):');
       for (const id of sessions) {
         console.log(`  ${id}`);
+      }
+      if (!serverRunning) {
+        console.log('');
+        console.log('These ids are on-disk records only. Only the "Browser server" line above');
+        console.log('reports liveness. Start a new server with: npx ibr session:start <url>');
       }
     } catch (error) {
       console.error('Error:', error instanceof Error ? error.message : error);
@@ -2445,7 +2565,7 @@ program
   .option('--wait-timeout <ms>', 'Max wait time for pending operations (default: 30000)', '30000')
   .action(async (sessionId: string, options: { force?: boolean; waitTimeout: string }) => {
     try {
-      const { stopBrowserServer, PersistentSession, isServerRunning } = await import('../browser-server.js');
+      const { stopBrowserServer, lastBrowserServerStopFailure, PersistentSession, isServerRunning } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
 
@@ -2484,7 +2604,13 @@ program
         if (stopped) {
           console.log('Browser server stopped. All sessions closed.');
         } else {
-          console.log('No browser server running.');
+          // "No browser server running" is wrong when we just SIGKILLed one.
+          const why = lastBrowserServerStopFailure();
+          console.log(
+            why
+              ? `Browser server did not shut down cleanly; killed it and removed the manifest.\nReason: ${why}`
+              : 'No browser server running.',
+          );
         }
         return;
       }
