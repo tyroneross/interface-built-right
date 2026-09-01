@@ -5944,6 +5944,18 @@ interface ScanResult {
         source: 'opt-out' | 'flag' | 'config' | 'default';
         /** Headings/paragraphs/captions/quotes fed through the text rules. */
         gradedContentElements: number;
+        /**
+         * The tag names the content pass actually looked at. A raw count cannot
+         * say what it covered; this can. Inline wrappers (span, div) are absent by
+         * design, so text colored on a nested <span> inside a graded <p> is graded
+         * at the <p>'s color — a real gap, stated rather than assumed.
+         */
+        gradedTags?: string[];
+        /**
+         * Present when content extraction THREW. Body copy and headings were not
+         * graded at all, which is a coverage hole rather than a clean page.
+         */
+        contentExtractionFailed?: string;
     };
     /**
      * Text-contrast measurement accounting. Present only when a contrast rule was

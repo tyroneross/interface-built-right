@@ -9,6 +9,7 @@ import {
   extractInteractiveElements,
   analyzeElements,
   extractContentElements,
+  CONTENT_ELEMENT_TAGS,
   extractPageMetadata,
   type ContentElement,
   type PageMetadata,
@@ -117,6 +118,18 @@ export interface ScanResult {
     source: 'opt-out' | 'flag' | 'config' | 'default';
     /** Headings/paragraphs/captions/quotes fed through the text rules. */
     gradedContentElements: number;
+    /**
+     * The tag names the content pass actually looked at. A raw count cannot
+     * say what it covered; this can. Inline wrappers (span, div) are absent by
+     * design, so text colored on a nested <span> inside a graded <p> is graded
+     * at the <p>'s color — a real gap, stated rather than assumed.
+     */
+    gradedTags?: string[];
+    /**
+     * Present when content extraction THREW. Body copy and headings were not
+     * graded at all, which is a coverage hole rather than a clean page.
+     */
+    contentExtractionFailed?: string;
   };
 
   /**
@@ -658,6 +671,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     let contentResult: { elements: ContentElement[] } | undefined;
     let metadataResult: PageMetadata | undefined;
     let contentElements: ContentElement[] = [];
+    let contentExtractionFailed: string | undefined;
     if (options.content || gradesContent) {
       try {
         const [extractedContent, pageMetadata] = await Promise.all([
@@ -672,10 +686,24 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
           contentResult = { elements: extractedContent };
           metadataResult = pageMetadata;
         }
-      } catch {
+      } catch (err) {
         contentElements = [];
         contentResult = undefined;
         metadataResult = undefined;
+        // Say so. Swallowing this produced output byte-identical in shape to a
+        // page that genuinely has no headings or paragraphs: same PASS verdict,
+        // same rule list, no body copy graded, nothing to tell them apart.
+        // This whole commit exists because a coverage hole looked like a clean
+        // page. `scan-obsidian` already sets the precedent — it grades PARTIAL
+        // and names the defect class it can no longer see when its base CSS
+        // will not load.
+        contentExtractionFailed = err instanceof Error ? err.message : String(err);
+        issues.push({
+          category: 'structure' as const,
+          severity: 'warning' as const,
+          description: `[content-extraction-failed] Body copy and headings were NOT contrast-graded: ${contentExtractionFailed}`,
+          fix: 'Re-run the scan. If it persists, the page navigated or detached mid-scan.',
+        });
       }
     }
 
@@ -747,6 +775,12 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
         presets: resolvedRules.presets,
         source: resolvedRules.source,
         gradedContentElements: contentAsElements.length,
+        // A count with no denominator is the same ambiguity this commit set out
+        // to remove: "42 measured" reads as coverage without saying coverage OF
+        // WHAT. Naming the tags makes the gap (span, div, and other inline
+        // wrappers are not graded on their own) legible instead of assumed.
+        ...(gradesContent ? { gradedTags: [...CONTENT_ELEMENT_TAGS] } : {}),
+        ...(contentExtractionFailed ? { contentExtractionFailed } : {}),
       },
       ...(contrastCoverage ? { contrastCoverage } : {}),
       summaries,
@@ -1183,20 +1217,33 @@ export function formatScanResult(result: ScanResult): string {
         ? `  Rules:              ${presets.join(', ')} (${source})`
         : `  Rules:              \x1b[33mnone — no preset rules ran (${source})\x1b[0m`,
     );
-    if (gradedContentElements > 0) {
-      lines.push(`  Content graded:     ${gradedContentElements} headings/paragraphs`);
+    // Printed whenever a content rule was active, including at ZERO. Hiding the
+    // line at zero made "extraction failed" and "this page has no body copy"
+    // render identically — the exact ambiguity this work exists to remove.
+    if (result.rulesApplied.gradedTags) {
+      lines.push(`  Content graded:     ${gradedContentElements} (${result.rulesApplied.gradedTags.join(', ')})`);
+    }
+    if (result.rulesApplied.contentExtractionFailed) {
+      lines.push(`  \x1b[33m!\x1b[0m Content extraction FAILED — no body copy or headings were graded.`);
     }
     const cc = result.contrastCoverage;
     if (cc) {
-      lines.push(`  Text measured:      ${cc.measured + cc.assumedWhiteBackground}`);
+      // "Text graded", not "Text measured": the JSON field `measured` excludes
+      // assumedWhiteBackground while this line includes it, and one word
+      // meaning two numbers across the two surfaces a reader consumes is how a
+      // coverage claim gets misread.
+      lines.push(`  Text graded:        ${cc.measured + cc.assumedWhiteBackground}`);
       if (cc.assumedWhiteBackground > 0) {
-        lines.push(`    of which assumed white page background: ${cc.assumedWhiteBackground}`);
+        lines.push(`    measured against a real background: ${cc.measured}; against assumed white: ${cc.assumedWhiteBackground}`);
       }
       if (cc.unmeasurable > 0) {
-        lines.push(`  \x1b[33mNot measurable:     ${cc.unmeasurable} (color format could not be decoded)\x1b[0m`);
+        lines.push(`  \x1b[33mNot measurable:     ${cc.unmeasurable} (color could not be decoded)\x1b[0m`);
+      }
+      if (cc.noStyles > 0) {
+        lines.push(`  \x1b[33mNo styles captured: ${cc.noStyles}\x1b[0m`);
       }
       if (cc.measured + cc.assumedWhiteBackground === 0) {
-        lines.push('  \x1b[33m!\x1b[0m No text was measured — a clean contrast result here means nothing.');
+        lines.push('  \x1b[33m!\x1b[0m No text was graded — a clean contrast result here means nothing.');
       }
     }
     lines.push('');

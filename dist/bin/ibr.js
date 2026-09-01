@@ -29359,6 +29359,7 @@ var init_target_sizing = __esm({
 // src/extract.ts
 var extract_exports = {};
 __export(extract_exports, {
+  CONTENT_ELEMENT_TAGS: () => CONTENT_ELEMENT_TAGS,
   analyzeElements: () => analyzeElements,
   closeBrowser: () => closeBrowser2,
   extractContentElements: () => extractContentElements,
@@ -29608,7 +29609,15 @@ async function extractInteractiveElements(page) {
         chain.push(bg);
         const bgImage = cs.backgroundImage;
         if (bgImage && bgImage !== "none") image = true;
-        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        const modernAlpha = bg.match(/\/\s*([0-9.]+%?)\s*\)$/);
+        const legacyAlpha = bg.match(/^rgba\([^)]*,\s*([0-9.]+)\s*\)$/i);
+        let alpha = 1;
+        if (modernAlpha) {
+          alpha = modernAlpha[1].endsWith("%") ? parseFloat(modernAlpha[1]) / 100 : parseFloat(modernAlpha[1]);
+        } else if (legacyAlpha) {
+          alpha = parseFloat(legacyAlpha[1]);
+        }
+        const opaque = bg !== "" && bg !== "transparent" && !isNaN(alpha) && alpha >= 1;
         if (opaque) break;
         node = node.parentElement;
         depth++;
@@ -29654,7 +29663,16 @@ async function extractInteractiveElements(page) {
               // bounds and were silently graded for touch-target size).
               display: computed.display,
               visibility: computed.visibility,
-              opacity: computed.opacity
+              opacity: computed.opacity,
+              // WCAG's large-text thresholds are a SIZE question, so the
+              // contrast rule cannot answer it without these. Before they were
+              // captured, isLargeText parsed '' -> NaN -> false for every
+              // element on every scan, and a 32px bold heading at 3.03:1 was
+              // reported as failing the 4.5:1 normal-text requirement when the
+              // 3:1 large-text requirement is the one that applies. The rule
+              // was asserting a property it had never measured.
+              fontSize: computed.fontSize,
+              fontWeight: computed.fontWeight
             },
             ...(() => {
               const bgChain = collectBackgroundChain(htmlEl);
@@ -29822,7 +29840,15 @@ async function extractContentElements(page) {
         chain.push(bg);
         const bgImage = cs.backgroundImage;
         if (bgImage && bgImage !== "none") image = true;
-        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        const modernAlpha = bg.match(/\/\s*([0-9.]+%?)\s*\)$/);
+        const legacyAlpha = bg.match(/^rgba\([^)]*,\s*([0-9.]+)\s*\)$/i);
+        let alpha = 1;
+        if (modernAlpha) {
+          alpha = modernAlpha[1].endsWith("%") ? parseFloat(modernAlpha[1]) / 100 : parseFloat(modernAlpha[1]);
+        } else if (legacyAlpha) {
+          alpha = parseFloat(legacyAlpha[1]);
+        }
+        const opaque = bg !== "" && bg !== "transparent" && !isNaN(alpha) && alpha >= 1;
         if (opaque) break;
         node = node.parentElement;
         depth++;
@@ -29865,7 +29891,11 @@ async function extractContentElements(page) {
               backgroundColor: computed.backgroundColor,
               display: computed.display,
               visibility: computed.visibility,
-              opacity: computed.opacity
+              opacity: computed.opacity,
+              // See the interactive lane: WCAG large-text classification needs
+              // these, and headings are exactly where it matters.
+              fontSize: computed.fontSize,
+              fontWeight: computed.fontWeight
             },
             contentKind: kind
           };
@@ -30063,7 +30093,7 @@ function getReferenceSessionPaths(outputDir, sessionId) {
     diff: (0, import_path13.join)(root, "diff.png")
   };
 }
-var import_promises14, import_fs6, import_path13, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, CONTENT_SELECTORS;
+var import_promises14, import_fs6, import_path13, LOCK_FILE, LOCK_TIMEOUT_MS, EXTRACTION_TIMEOUT_MS, DEFAULT_SELECTORS, CSS_PROPERTIES_TO_EXTRACT, driver2, INTERACTIVE_SELECTORS, CONTENT_SELECTORS, CONTENT_ELEMENT_TAGS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
@@ -30173,8 +30203,17 @@ var init_extract2 = __esm({
       "p",
       "img",
       "figcaption",
-      "blockquote"
+      "blockquote",
+      "li",
+      "td",
+      "th",
+      "dd",
+      "dt",
+      "label",
+      "caption",
+      "summary"
     ];
+    CONTENT_ELEMENT_TAGS = CONTENT_SELECTORS;
   }
 });
 
@@ -32564,7 +32603,8 @@ function measureElementContrast(element) {
     return { status: "unmeasurable", raw: fg.raw, text };
   }
   if (fg.kind === "none") {
-    return { status: "invisible", reason: fg.reason };
+    const notPainted = fg.reason === "transparent" || fg.reason === "alpha-0";
+    return notPainted ? { status: "invisible", reason: fg.reason } : { status: "unmeasurable", raw: style.color ?? `(${fg.reason})`, text };
   }
   const chain = element.backgroundChain && element.backgroundChain.length > 0 ? element.backgroundChain : [style.backgroundColor ?? ""];
   const bg = resolveEffectiveBackground(chain);
@@ -34103,15 +34143,26 @@ var init_engine = __esm({
 });
 
 // src/rules/content-adapter.ts
+var content_adapter_exports = {};
+__export(content_adapter_exports, {
+  contentElementToEnhanced: () => contentElementToEnhanced,
+  contentElementsToEnhanced: () => contentElementsToEnhanced
+});
 function contentElementToEnhanced(content) {
   return {
     selector: content.selector,
     tagName: content.tagName,
     id: content.id,
     className: content.className,
-    // <img> carries no text; alt is its readable content and is what a
-    // text-oriented rule should see if one ever grades images.
-    text: content.text ?? content.alt,
+    // Deliberately NOT `content.text ?? content.alt`. Alt text is never
+    // PAINTED, so handing it to a contrast rule invents a measurement: an
+    // <img alt="Company logo"> on a dark card was reported as
+    // '"Company logo" contrast ratio 1.13:1 fails WCAG 2.1 AA' with a fix
+    // instruction that would change nothing on screen — and, now that the
+    // verdict is computed from `issues`, could push a page off PASS. An image
+    // takes the 'no-text' arm instead. If alt text ever needs grading it wants
+    // its own rule with `appliesTo: 'text'`, not a painted-contrast rule.
+    text: content.contentKind === "image" ? void 0 : content.text,
     bounds: content.bounds,
     computedStyles: content.computedStyles,
     backgroundChain: content.backgroundChain,
@@ -34333,6 +34384,7 @@ async function scan(url2, options = {}) {
     let contentResult;
     let metadataResult;
     let contentElements = [];
+    let contentExtractionFailed;
     if (options.content || gradesContent) {
       try {
         const [extractedContent, pageMetadata] = await Promise.all([
@@ -34344,10 +34396,17 @@ async function scan(url2, options = {}) {
           contentResult = { elements: extractedContent };
           metadataResult = pageMetadata;
         }
-      } catch {
+      } catch (err) {
         contentElements = [];
         contentResult = void 0;
         metadataResult = void 0;
+        contentExtractionFailed = err instanceof Error ? err.message : String(err);
+        issues.push({
+          category: "structure",
+          severity: "warning",
+          description: `[content-extraction-failed] Body copy and headings were NOT contrast-graded: ${contentExtractionFailed}`,
+          fix: "Re-run the scan. If it persists, the page navigated or detached mid-scan."
+        });
       }
     }
     const contentAsElements = gradesContent ? contentElementsToEnhanced(contentElements) : [];
@@ -34393,7 +34452,13 @@ async function scan(url2, options = {}) {
       rulesApplied: {
         presets: resolvedRules.presets,
         source: resolvedRules.source,
-        gradedContentElements: contentAsElements.length
+        gradedContentElements: contentAsElements.length,
+        // A count with no denominator is the same ambiguity this commit set out
+        // to remove: "42 measured" reads as coverage without saying coverage OF
+        // WHAT. Naming the tags makes the gap (span, div, and other inline
+        // wrappers are not graded on their own) legible instead of assumed.
+        ...gradesContent ? { gradedTags: [...CONTENT_ELEMENT_TAGS] } : {},
+        ...contentExtractionFailed ? { contentExtractionFailed } : {}
       },
       ...contrastCoverage ? { contrastCoverage } : {},
       summaries,
@@ -34664,20 +34729,26 @@ function formatScanResult(result) {
     lines.push(
       presets2.length > 0 ? `  Rules:              ${presets2.join(", ")} (${source})` : `  Rules:              \x1B[33mnone \u2014 no preset rules ran (${source})\x1B[0m`
     );
-    if (gradedContentElements > 0) {
-      lines.push(`  Content graded:     ${gradedContentElements} headings/paragraphs`);
+    if (result.rulesApplied.gradedTags) {
+      lines.push(`  Content graded:     ${gradedContentElements} (${result.rulesApplied.gradedTags.join(", ")})`);
+    }
+    if (result.rulesApplied.contentExtractionFailed) {
+      lines.push(`  \x1B[33m!\x1B[0m Content extraction FAILED \u2014 no body copy or headings were graded.`);
     }
     const cc = result.contrastCoverage;
     if (cc) {
-      lines.push(`  Text measured:      ${cc.measured + cc.assumedWhiteBackground}`);
+      lines.push(`  Text graded:        ${cc.measured + cc.assumedWhiteBackground}`);
       if (cc.assumedWhiteBackground > 0) {
-        lines.push(`    of which assumed white page background: ${cc.assumedWhiteBackground}`);
+        lines.push(`    measured against a real background: ${cc.measured}; against assumed white: ${cc.assumedWhiteBackground}`);
       }
       if (cc.unmeasurable > 0) {
-        lines.push(`  \x1B[33mNot measurable:     ${cc.unmeasurable} (color format could not be decoded)\x1B[0m`);
+        lines.push(`  \x1B[33mNot measurable:     ${cc.unmeasurable} (color could not be decoded)\x1B[0m`);
+      }
+      if (cc.noStyles > 0) {
+        lines.push(`  \x1B[33mNo styles captured: ${cc.noStyles}\x1B[0m`);
       }
       if (cc.measured + cc.assumedWhiteBackground === 0) {
-        lines.push("  \x1B[33m!\x1B[0m No text was measured \u2014 a clean contrast result here means nothing.");
+        lines.push("  \x1B[33m!\x1B[0m No text was graded \u2014 a clean contrast result here means nothing.");
       }
     }
     lines.push("");
@@ -35103,14 +35174,17 @@ __export(extract_exports2, {
   ensureExtractor: () => ensureExtractor,
   extractNativeElements: () => extractNativeElements,
   isExtractorAvailable: () => isExtractorAvailable,
-  mapToEnhancedElements: () => mapToEnhancedElements
+  mapToEnhancedElements: () => mapToEnhancedElements,
+  resolveSwiftSourceDir: () => resolveSwiftSourceDir
 });
-function resolveSwiftSourceDir() {
+function resolveSwiftSourceDir(runtimeModuleDir = moduleDir) {
   const candidates = [
     // TypeScript source execution: src/native/extract.ts
-    (0, import_path18.join)(moduleDir, "swift", "ibr-ax-extract"),
+    (0, import_path18.join)(runtimeModuleDir, "swift", "ibr-ax-extract"),
     // Bundled package execution: dist/index.{js,mjs}
-    (0, import_path18.join)(moduleDir, "..", "src", "native", "swift", "ibr-ax-extract")
+    (0, import_path18.join)(runtimeModuleDir, "..", "src", "native", "swift", "ibr-ax-extract"),
+    // Packaged CLI execution: dist/bin/ibr.js
+    (0, import_path18.join)(runtimeModuleDir, "..", "..", "src", "native", "swift", "ibr-ax-extract")
   ];
   return candidates.find((candidate) => (0, import_fs10.existsSync)((0, import_path18.join)(candidate, "Package.swift"))) ?? candidates[0];
 }
@@ -35122,6 +35196,11 @@ async function ensureExtractor() {
   }
   if ((0, import_fs10.existsSync)(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
+  }
+  if (!(0, import_fs10.existsSync)(SWIFT_PACKAGE_PATH)) {
+    throw new Error(
+      `Bundled Swift extractor source not found at ${SWIFT_SOURCE_DIR}. Rebuild or reinstall IBR so src/native/swift/ibr-ax-extract is included.`
+    );
   }
   await (0, import_promises18.mkdir)(EXTRACTOR_DIR, { recursive: true });
   try {
@@ -35422,9 +35501,17 @@ function sleep(ms) {
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const enhanced = [];
+  const systemWindowControlSubroles = /* @__PURE__ */ new Set([
+    "AXCloseButton",
+    "AXMinimizeButton",
+    "AXFullScreenButton"
+  ]);
   function flatten2(elements, path3, depth) {
     const roleCounts = {};
     for (const el of elements) {
+      if (el.subrole && systemWindowControlSubroles.has(el.subrole)) {
+        continue;
+      }
       const roleCount = roleCounts[el.role] || 0;
       roleCounts[el.role] = roleCount + 1;
       const currentPath = path3 ? `${path3} > ${el.role}[${roleCount}]` : `${el.role}[${roleCount}]`;
@@ -56266,15 +56353,27 @@ program2.command("audit [url]").description("Full audit: functional checks + vis
     await page.goto(resolvedUrl, { waitUntil: "networkidle", timeout: 3e4 });
     await page.waitForTimeout(1e3);
     const elements = await extractInteractiveElements2(page);
+    const { extractContentElements: extractContentElements2 } = await Promise.resolve().then(() => (init_extract2(), extract_exports));
+    const { contentElementsToEnhanced: contentElementsToEnhanced2 } = await Promise.resolve().then(() => (init_content_adapter(), content_adapter_exports));
+    let contentAsElements = [];
+    try {
+      contentAsElements = contentElementsToEnhanced2(await extractContentElements2(page));
+    } catch (err) {
+      console.log(`! Content extraction failed \u2014 body copy and headings were NOT graded: ${err instanceof Error ? err.message : err}`);
+    }
     const isMobile = viewport.width < 768;
-    const violations = runRules2(elements, {
+    const ruleCtx = {
       isMobile,
       viewportWidth: viewport.width,
       viewportHeight: viewport.height,
       url: resolvedUrl,
       allElements: elements
-    }, rulesConfig);
-    const result = createAuditResult2(resolvedUrl, elements, violations);
+    };
+    const violations = [
+      ...runRules2(elements, ruleCtx, rulesConfig, { surface: "interactive" }),
+      ...runRules2(contentAsElements, ruleCtx, rulesConfig, { surface: "content" })
+    ];
+    const result = createAuditResult2(resolvedUrl, [...elements, ...contentAsElements], violations);
     const runVisual = options.full || options.visual || options.baseline || !options.semantic && !options.checkApis;
     const runSemantic = options.full || options.semantic || !options.visual && !options.baseline && !options.checkApis;
     let visualResult = null;

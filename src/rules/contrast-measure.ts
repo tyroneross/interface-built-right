@@ -117,9 +117,18 @@ export function measureElementContrast(element: EnhancedElement): ContrastMeasur
     return { status: 'unmeasurable', raw: fg.raw, text };
   }
   if (fg.kind === 'none') {
-    // `color: transparent` / alpha 0 — the text is not painted. Grading it
-    // against anything would invent a number.
-    return { status: 'invisible', reason: fg.reason };
+    // Split the reasons apart. `transparent` / `alpha-0` mean the text is
+    // genuinely not painted, so there is nothing to grade. Every other reason
+    // ('empty', 'inherit', 'unset', 'currentcolor') means WE COULD NOT READ THE
+    // COLOR — a measurement gap. Filing a gap as a legitimate skip is the same
+    // mistake as reporting a page clean because nothing was measured on it.
+    // Chrome always resolves computed `color`, so this is only reachable via
+    // the fallback callers below (hand-built fixtures, older cached scans) —
+    // which is exactly where a silent gap would go unnoticed.
+    const notPainted = fg.reason === 'transparent' || fg.reason === 'alpha-0';
+    return notPainted
+      ? { status: 'invisible', reason: fg.reason }
+      : { status: 'unmeasurable', raw: style.color ?? `(${fg.reason})`, text };
   }
 
   // Prefer the captured ancestor chain. Fall back to the element's own

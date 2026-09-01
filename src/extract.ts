@@ -531,8 +531,28 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
         chain.push(bg);
         const bgImage = cs.backgroundImage;
         if (bgImage && bgImage !== 'none') image = true;
-        // rgb(...) is opaque by definition; rgba(...) is opaque only at alpha 1.
-        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        // Opacity by ALPHA, not by function name. The previous test was
+        // `/^rgb\(/` plus a trailing `, 1)`, on the premise that Chrome always
+        // serializes background-color as rgb()/rgba(). That premise is false
+        // for CSS Color 4 spaces: getComputedStyle returns `oklch(...)`,
+        // `lab(...)`, `color(srgb ...)` verbatim, so an OPAQUE oklch card read
+        // as transparent and the walk climbed past it to <html>. The composite
+        // in resolveEffectiveBackground still stopped at the right layer, so
+        // the ratio was unharmed — but every ancestor above the real background
+        // kept contributing to `image`, which stamped a reliable measurement
+        // with "a background-image paints behind this text". A caveat on a
+        // sound number is still a wrong statement.
+        const modernAlpha = bg.match(/\/\s*([0-9.]+%?)\s*\)$/);
+        const legacyAlpha = bg.match(/^rgba\([^)]*,\s*([0-9.]+)\s*\)$/i);
+        let alpha = 1;
+        if (modernAlpha) {
+          alpha = modernAlpha[1].endsWith('%')
+            ? parseFloat(modernAlpha[1]) / 100
+            : parseFloat(modernAlpha[1]);
+        } else if (legacyAlpha) {
+          alpha = parseFloat(legacyAlpha[1]);
+        }
+        const opaque = bg !== '' && bg !== 'transparent' && !isNaN(alpha) && alpha >= 1;
         if (opaque) break;
         node = node.parentElement;
         depth++;
@@ -586,6 +606,15 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               display: computed.display,
               visibility: computed.visibility,
               opacity: computed.opacity,
+              // WCAG's large-text thresholds are a SIZE question, so the
+              // contrast rule cannot answer it without these. Before they were
+              // captured, isLargeText parsed '' -> NaN -> false for every
+              // element on every scan, and a 32px bold heading at 3.03:1 was
+              // reported as failing the 4.5:1 normal-text requirement when the
+              // 3:1 large-text requirement is the one that applies. The rule
+              // was asserting a property it had never measured.
+              fontSize: computed.fontSize,
+              fontWeight: computed.fontWeight,
             },
             ...(() => {
               const bgChain = collectBackgroundChain(htmlEl);
@@ -753,6 +782,22 @@ export function analyzeElements(elements: EnhancedElement[], isMobile = false): 
  * (analyzeElements above / src/rules/target-sizing.ts) that consume that
  * array. Opt-in via ScanOptions.content — see scan.ts.
  */
+/**
+ * Which non-interactive elements count as page CONTENT.
+ *
+ * List items, table cells, and labels are ordinary body copy in essentially
+ * every app UI, so a set limited to h1-h6/p/blockquote graded a plausible
+ * non-zero number of elements while missing most of a real page's text. IBR is
+ * an advisory instrument read by a human — a missed unreadable table cell costs
+ * a user who cannot read it, a redundant finding costs a few seconds of triage.
+ * Widen toward recall.
+ *
+ * `span`/`div` are deliberately absent: they wrap almost everything, so
+ * including them would grade the same words many times over at many different
+ * inherited colors. That is a real coverage gap for a light-gray <span> inside
+ * a dark <p> — see `rulesApplied.gradedTags`, which reports the scope actually
+ * graded rather than leaving the reader to assume it was everything.
+ */
 const CONTENT_SELECTORS = [
   'h1',
   'h2',
@@ -764,7 +809,18 @@ const CONTENT_SELECTORS = [
   'img',
   'figcaption',
   'blockquote',
+  'li',
+  'td',
+  'th',
+  'dd',
+  'dt',
+  'label',
+  'caption',
+  'summary',
 ];
+
+/** Exported so a scan can report the scope it actually graded, not just a count. */
+export const CONTENT_ELEMENT_TAGS: readonly string[] = CONTENT_SELECTORS;
 
 /**
  * A content (non-interactive) element with real geometry and a subset of
@@ -872,7 +928,28 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
         chain.push(bg);
         const bgImage = cs.backgroundImage;
         if (bgImage && bgImage !== 'none') image = true;
-        const opaque = /^rgb\(/i.test(bg) || /,\s*1\s*\)$/.test(bg);
+        // Opacity by ALPHA, not by function name. The previous test was
+        // `/^rgb\(/` plus a trailing `, 1)`, on the premise that Chrome always
+        // serializes background-color as rgb()/rgba(). That premise is false
+        // for CSS Color 4 spaces: getComputedStyle returns `oklch(...)`,
+        // `lab(...)`, `color(srgb ...)` verbatim, so an OPAQUE oklch card read
+        // as transparent and the walk climbed past it to <html>. The composite
+        // in resolveEffectiveBackground still stopped at the right layer, so
+        // the ratio was unharmed — but every ancestor above the real background
+        // kept contributing to `image`, which stamped a reliable measurement
+        // with "a background-image paints behind this text". A caveat on a
+        // sound number is still a wrong statement.
+        const modernAlpha = bg.match(/\/\s*([0-9.]+%?)\s*\)$/);
+        const legacyAlpha = bg.match(/^rgba\([^)]*,\s*([0-9.]+)\s*\)$/i);
+        let alpha = 1;
+        if (modernAlpha) {
+          alpha = modernAlpha[1].endsWith('%')
+            ? parseFloat(modernAlpha[1]) / 100
+            : parseFloat(modernAlpha[1]);
+        } else if (legacyAlpha) {
+          alpha = parseFloat(legacyAlpha[1]);
+        }
+        const opaque = bg !== '' && bg !== 'transparent' && !isNaN(alpha) && alpha >= 1;
         if (opaque) break;
         node = node.parentElement;
         depth++;
@@ -924,6 +1001,10 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
               display: computed.display,
               visibility: computed.visibility,
               opacity: computed.opacity,
+              // See the interactive lane: WCAG large-text classification needs
+              // these, and headings are exactly where it matters.
+              fontSize: computed.fontSize,
+              fontWeight: computed.fontWeight,
             },
             contentKind: kind,
           };

@@ -58,6 +58,23 @@ const ROUTES: Record<string, string> = {
 <a href="/x">Go</a>
 </body></html>`,
 
+  // Audit findings f1/f3/f5. `h2#big` is 32px bold at 3.03:1 — it PASSES WCAG
+  // AA large text (3:1) and must not be reported. `img` alt text is never
+  // painted and must not be contrast-graded. `li`/`td` are ordinary body copy.
+  '/size-and-scope': `<!doctype html>
+<html><head><meta charset="utf-8"><title>size</title><style>
+  body { background:#ffffff; color:#111111; font-family: system-ui; }
+  h2#big { font-size:32px; font-weight:700; color:#949494; }
+  li#dim { color:#cfcfcf; }
+  td#dimcell { color:#cfcfcf; }
+  figure#card { background:#111111; }
+</style></head><body>
+<h2 id="big">Big bold hero heading</h2>
+<ul><li id="dim">Low contrast list item</li></ul>
+<table><tr><td id="dimcell">Low contrast table cell</td></tr></table>
+<figure id="card"><img id="logo" alt="Company logo" src="/none.png" width="40" height="40"></figure>
+</body></html>`,
+
   // No background declared ANYWHERE up the tree. The browser paints its white
   // canvas; the scan must assume white, grade the text, and say that it assumed.
   '/no-background': `<!doctype html>
@@ -221,6 +238,44 @@ describe('scan default rules — planted-defect regression', () => {
     const aa = findings(result, 'wcag-aa-contrast');
     expect(aa.length).toBeGreaterThan(0);
     expect(aa[0].description).toContain('assumed white page background');
+  }, 60_000);
+
+  // AUDIT f1 — isLargeText read fontSize/fontWeight that extract.ts never
+  // captured, so parseFloat('') -> NaN -> false for EVERY element and every
+  // heading was graded against the 4.5:1 normal-text bar. Routing headings into
+  // this rule for the first time made a latent misclassification load-bearing.
+  it('applies the WCAG large-text threshold instead of assuming normal text', async () => {
+    const result = await scan(`${baseUrl}/size-and-scope`, { projectDir });
+
+    // 32px bold #949494 on white is 3.03:1 — passes AA large text (3:1).
+    const aa = findings(result, 'wcag-aa-contrast');
+    expect(aa.some((i) => i.description.includes('Big bold hero heading'))).toBe(false);
+  }, 60_000);
+
+  // AUDIT f3 — alt text is never painted, so grading it invents a measurement
+  // and (now that the verdict comes from `issues`) can push a page off PASS.
+  it('does not contrast-grade image alt text', async () => {
+    const result = await scan(`${baseUrl}/size-and-scope`, { projectDir });
+
+    const graded = result.issues.map((i) => i.description).join(' ');
+    expect(graded).not.toContain('Company logo');
+  }, 60_000);
+
+  // AUDIT f5 — list items and table cells are ordinary body copy.
+  it('grades text in list items and table cells', async () => {
+    const result = await scan(`${baseUrl}/size-and-scope`, { projectDir });
+
+    const aa = findings(result, 'wcag-aa-contrast');
+    expect(aa.some((i) => i.description.includes('Low contrast list item'))).toBe(true);
+    expect(aa.some((i) => i.description.includes('Low contrast table cell'))).toBe(true);
+  }, 60_000);
+
+  // AUDIT f5/f8 — a count with no denominator is the same ambiguity as a
+  // finding count with no measurement count. The scan must name what it graded.
+  it('reports the scope it graded, not just a count', async () => {
+    const result = await scan(`${baseUrl}/planted`, { projectDir });
+
+    expect(result.rulesApplied?.gradedTags).toEqual(expect.arrayContaining(['p', 'h1', 'li', 'td']));
   }, 60_000);
 
   // The escape hatch, kept honest: opting out must SAY it ran nothing rather

@@ -596,21 +596,43 @@ program
       // Wait for React/Vue/Angular hydration
       await page.waitForTimeout(1000);
 
-      // Extract elements
+      // Extract elements. CONTENT (headings, paragraphs, list items, table
+      // cells) is extracted alongside the interactive set for the same reason
+      // `ibr scan` does it: a contrast rule that only ever sees controls grades
+      // none of a page's body copy. Naming wcag-contrast in the banner above
+      // while grading zero paragraphs would claim coverage this command does
+      // not have.
       const elements = await extractInteractiveElements(page);
+      const { extractContentElements } = await import('../extract.js');
+      const { contentElementsToEnhanced } = await import('../rules/content-adapter.js');
+
+      let contentAsElements: typeof elements = [];
+      try {
+        contentAsElements = contentElementsToEnhanced(await extractContentElements(page));
+      } catch (err) {
+        // Same contract as scan(): a coverage hole must SAY it is one.
+        console.log(`! Content extraction failed — body copy and headings were NOT graded: ${err instanceof Error ? err.message : err}`);
+      }
 
       // Run rules
       const isMobile = viewport.width < 768;
-      const violations = runRules(elements, {
+      const ruleCtx = {
         isMobile,
         viewportWidth: viewport.width,
         viewportHeight: viewport.height,
         url: resolvedUrl,
         allElements: elements,
-      }, rulesConfig);
+      };
+      // Two passes, same split as scan(): only rules declaring
+      // `appliesTo: 'any' | 'text'` run on content, so a paragraph is never
+      // graded as an undersized tap target.
+      const violations = [
+        ...runRules(elements, ruleCtx, rulesConfig, { surface: 'interactive' }),
+        ...runRules(contentAsElements, ruleCtx, rulesConfig, { surface: 'content' }),
+      ];
 
       // Create result
-      const result = createAuditResult(resolvedUrl, elements, violations);
+      const result = createAuditResult(resolvedUrl, [...elements, ...contentAsElements], violations);
 
       // Determine which checks to run (default: all if --full or no specific flags)
       const runVisual = options.full || options.visual || options.baseline || (!options.semantic && !options.checkApis);

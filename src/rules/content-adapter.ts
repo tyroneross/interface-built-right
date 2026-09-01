@@ -27,9 +27,15 @@ export function contentElementToEnhanced(content: ContentElement): EnhancedEleme
     tagName: content.tagName,
     id: content.id,
     className: content.className,
-    // <img> carries no text; alt is its readable content and is what a
-    // text-oriented rule should see if one ever grades images.
-    text: content.text ?? content.alt,
+    // Deliberately NOT `content.text ?? content.alt`. Alt text is never
+    // PAINTED, so handing it to a contrast rule invents a measurement: an
+    // <img alt="Company logo"> on a dark card was reported as
+    // '"Company logo" contrast ratio 1.13:1 fails WCAG 2.1 AA' with a fix
+    // instruction that would change nothing on screen — and, now that the
+    // verdict is computed from `issues`, could push a page off PASS. An image
+    // takes the 'no-text' arm instead. If alt text ever needs grading it wants
+    // its own rule with `appliesTo: 'text'`, not a painted-contrast rule.
+    text: content.contentKind === 'image' ? undefined : content.text,
     bounds: content.bounds,
     computedStyles: content.computedStyles,
     backgroundChain: content.backgroundChain,
