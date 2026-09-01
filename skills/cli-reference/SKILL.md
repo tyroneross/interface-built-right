@@ -157,6 +157,13 @@ Session ids are directories on disk and outlive the browser. Only the
 `Browser server:` line reports liveness — when the server is gone, `session:list`
 labels the ids as records and says why it decided that.
 
+Persistent CLI and MCP sessions close after one hour without an IBR command.
+Each session read or action refreshes that timer. Set `IBR_SESSION_IDLE_MS` to a
+different number of milliseconds, or set it to `0` to disable idle cleanup.
+Before each local browser launch, IBR also terminates orphaned Chrome main
+processes that carry an IBR-owned profile and CDP port; ordinary Chrome is never
+selected by that reaper.
+
 
 ### Session workflow example:
 ```bash

@@ -1,5 +1,22 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { sessions, closeAllSessions, sweepIdleSessions, touchSession, __test_setSession } from './sessions.js'
+import { afterEach, describe, it, expect, beforeEach } from 'vitest'
+import { handleToolCall } from './tools.js'
+import {
+  DEFAULT_SESSION_IDLE_MS,
+  sessions,
+  closeAllSessions,
+  configuredSessionIdleMs,
+  sweepIdleSessions,
+  touchSession,
+  __test_setSession,
+} from './sessions.js'
+
+const originalIdleMs = process.env.IBR_SESSION_IDLE_MS
+
+afterEach(async () => {
+  await closeAllSessions()
+  if (originalIdleMs === undefined) delete process.env.IBR_SESSION_IDLE_MS
+  else process.env.IBR_SESSION_IDLE_MS = originalIdleMs
+})
 
 describe('closeAllSessions', () => {
   beforeEach(() => sessions.clear())
@@ -61,8 +78,41 @@ describe('sweepIdleSessions', () => {
     expect(sessions.has('busy')).toBe(true)
   })
 
+  it('a session-addressed tool call refreshes activity before dispatch', async () => {
+    __test_setSession('active-read', {
+      driver: { observe: async () => [] },
+      type: 'chrome',
+      url: 'http://x',
+      createdAt: Date.now() - 600_000,
+    })
+
+    await handleToolCall('session_read', { sessionId: 'active-read', what: 'observe' })
+
+    await expect(sweepIdleSessions(30_000)).resolves.toEqual([])
+    expect(sessions.has('active-read')).toBe(true)
+  })
+
   it('a never-touched session falls back to createdAt rather than being immortal', async () => {
     __test_setSession('never', { driver: { close: async () => {} }, type: 'chrome', createdAt: Date.now() - 600_000 })
     await expect(sweepIdleSessions(30_000)).resolves.toEqual(['never'])
+  })
+})
+
+describe('configuredSessionIdleMs', () => {
+  it('defaults to one hour', () => {
+    delete process.env.IBR_SESSION_IDLE_MS
+    expect(configuredSessionIdleMs()).toBe(DEFAULT_SESSION_IDLE_MS)
+  })
+
+  it('accepts an override and explicit zero disables idle cleanup', () => {
+    process.env.IBR_SESSION_IDLE_MS = '120000'
+    expect(configuredSessionIdleMs()).toBe(120000)
+    process.env.IBR_SESSION_IDLE_MS = '0'
+    expect(configuredSessionIdleMs()).toBe(0)
+  })
+
+  it('falls back to the default for invalid values', () => {
+    process.env.IBR_SESSION_IDLE_MS = 'not-a-number'
+    expect(configuredSessionIdleMs()).toBe(DEFAULT_SESSION_IDLE_MS)
   })
 })

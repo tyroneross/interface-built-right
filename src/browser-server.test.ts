@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
+import { mkdtemp, mkdir, rm, utimes, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -39,7 +39,7 @@ vi.mock('./engine/compat.js', () => ({
   },
 }));
 
-import { PersistentSession } from './browser-server.js';
+import { browserServerLastActivityAt, PersistentSession } from './browser-server.js';
 
 describe('PersistentSession safe reattachment', () => {
   let outputDir: string;
@@ -96,6 +96,16 @@ describe('PersistentSession safe reattachment', () => {
     );
     expect(driverState.goto).not.toHaveBeenCalled();
     expect(session?.hardWall?.kind).toBe('authentication');
+  });
+
+  it('refreshes the browser-server activity heartbeat after reconnecting', async () => {
+    const manifest = join(outputDir, 'browser-server.json');
+    const old = new Date('2020-01-01T00:00:00Z');
+    await utimes(manifest, old, old);
+
+    await PersistentSession.get(outputDir, 'live_test');
+
+    expect(await browserServerLastActivityAt(outputDir)).toBeGreaterThan(old.getTime());
   });
 
   it('blocks an identical URL and strategy before connecting or navigating again', async () => {

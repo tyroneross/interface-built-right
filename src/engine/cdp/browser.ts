@@ -140,6 +140,117 @@ export function resolveBrowserConnectionOptions(
 /** Age below which an unreferenced profile is left alone, in ms. */
 const PROFILE_REAP_GRACE_MS = 60 * 60 * 1000
 
+export interface IbrChromeProcess {
+  pid: number
+  ppid: number
+  profileDir: string
+  command: string
+}
+
+export interface IbrChromeReapResult {
+  reaped: number[]
+  preserved: number[]
+}
+
+function processTable(): string {
+  return execFileSync('ps', ['-axo', 'pid=,ppid=,command='], {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  })
+}
+
+function userDataDirFromCommand(command: string): string | null {
+  const match = command.match(/--user-data-dir=(?:"([^"]+)"|'([^']+)'|(\S+))/)
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null
+}
+
+function isIbrProfile(profileDir: string): boolean {
+  return profileDir.startsWith(`${tmpdir()}/ibr-chrome-`)
+    || profileDir === join(homedir(), '.ibr', 'chromium-profile')
+    || profileDir === '.ibr/browser-profile'
+    || profileDir.endsWith('/.ibr/browser-profile')
+}
+
+/**
+ * Parse only IBR-owned Chrome MAIN processes from a `ps` table.
+ *
+ * Chrome helpers inherit `--user-data-dir`, but also carry `--type=...`; the
+ * main process does not. Reaping only the main process lets Chrome shut down
+ * its own helper tree and avoids counting one browser as a dozen sessions.
+ */
+export function parseIbrChromeProcesses(psOutput: string): IbrChromeProcess[] {
+  const processes: IbrChromeProcess[] = []
+  for (const line of psOutput.split('\n')) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/)
+    if (!match) continue
+    const command = match[3]
+    if (!command.includes('--remote-debugging-port=') || command.includes('--type=')) continue
+    const profileDir = userDataDirFromCommand(command)
+    if (!profileDir || !isIbrProfile(profileDir)) continue
+    processes.push({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      profileDir,
+      command,
+    })
+  }
+  return processes
+}
+
+/**
+ * Terminate orphaned IBR Chrome processes and preserve everything else.
+ *
+ * A process is orphaned only after macOS/Linux reparents it to pid 1. Age or a
+ * failed CDP probe is not enough: a live browser can be quiet or temporarily
+ * busy. The ownership boundary is equally strict — the command must carry an
+ * IBR profile and a CDP port, so the user's normal Chrome is never selected.
+ */
+export function reapOrphanedIbrChromeProcesses(options: {
+  psOutput?: string
+  kill?: (pid: number, signal: NodeJS.Signals) => void
+} = {}): IbrChromeReapResult {
+  let processes: IbrChromeProcess[]
+  try {
+    processes = parseIbrChromeProcesses(options.psOutput ?? processTable())
+  } catch {
+    return { reaped: [], preserved: [] }
+  }
+
+  const kill = options.kill ?? ((pid, signal) => process.kill(pid, signal))
+  const result: IbrChromeReapResult = { reaped: [], preserved: [] }
+  for (const entry of processes) {
+    if (entry.ppid !== 1) {
+      result.preserved.push(entry.pid)
+      continue
+    }
+    try {
+      kill(entry.pid, 'SIGTERM')
+      result.reaped.push(entry.pid)
+    } catch {
+      // The process may have exited between `ps` and the signal.
+    }
+  }
+  return result
+}
+
+export interface SingletonLockEvidence {
+  targetHost: string
+  targetPid: number
+  currentHost: string
+  lockAgeMs: number
+  profileInUse: boolean
+  targetPidAlive: boolean
+}
+
+/** Pure decision seam for stale-lock regression tests. */
+export function shouldReclaimSingletonLock(evidence: SingletonLockEvidence): boolean {
+  if (evidence.profileInUse) return false
+  if (evidence.targetHost === evidence.currentHost) return !evidence.targetPidAlive
+  // A hostname change makes the embedded pid meaningless. Require an old lock
+  // plus direct evidence that no local Chrome uses the profile before removal.
+  return evidence.lockAgeMs >= PROFILE_REAP_GRACE_MS
+}
+
 /**
  * Chrome writes `SingletonLock` as a symlink to `<hostname>-<pid>`. A crash
  * leaves the link with a pid that no longer exists.
@@ -150,7 +261,7 @@ const PROFILE_REAP_GRACE_MS = 60 * 60 * 1000
  * uncertain case keeps the lock, because wrongly reclaiming a LIVE profile
  * makes two Chromes fight over it.
  */
-function reclaimStaleSingletonLock(lockPath: string): boolean {
+function reclaimStaleSingletonLock(lockPath: string, profileDir: string): boolean {
   let target: string
   try {
     target = readlinkSync(lockPath)
@@ -162,14 +273,38 @@ function reclaimStaleSingletonLock(lockPath: string): boolean {
   const host = target.slice(0, sep)
   const pid = Number(target.slice(sep + 1))
   if (!Number.isInteger(pid) || pid <= 0) return false
-  // A pid is only meaningful on the host that wrote it.
-  if (host !== hostname()) return false
+  let psOutput: string
   try {
-    process.kill(pid, 0)
-    return false // holder is alive
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'EPERM') return false // alive, other user
+    psOutput = processTable()
+  } catch {
+    return false
   }
+
+  const profileInUse = psOutput.split('\n').some((line) => userDataDirFromCommand(line) === profileDir)
+  let targetPidAlive = false
+  if (host === hostname()) {
+    try {
+      process.kill(pid, 0)
+      targetPidAlive = true
+    } catch (err) {
+      targetPidAlive = (err as NodeJS.ErrnoException).code === 'EPERM'
+    }
+  }
+  let lockAgeMs: number
+  try {
+    lockAgeMs = Date.now() - lstatSync(lockPath).mtimeMs
+  } catch {
+    return false
+  }
+  if (!shouldReclaimSingletonLock({
+    targetHost: host,
+    targetPid: pid,
+    currentHost: hostname(),
+    lockAgeMs,
+    profileInUse,
+    targetPidAlive,
+  })) return false
+
   try {
     unlinkSync(lockPath)
     return true
@@ -256,6 +391,10 @@ export class BrowserManager {
     progress('selecting debugging port')
     this._port = options.port ?? await findFreePort()
     progress(`debugging port ${this._port}`)
+    // Reap first so an orphan cannot make its stale SingletonLock look live
+    // and force this launch into another throwaway profile.
+    progress('reaping orphaned browsers')
+    reapOrphanedIbrChromeProcesses()
     let userDataDir = options.userDataDir ?? join(homedir(), '.ibr', 'chromium-profile')
 
     // Chrome creates `SingletonLock` as a SYMLINK whose target is `<hostname>-<pid>`.
@@ -276,7 +415,7 @@ export class BrowserManager {
       // is gone on this host, the lock is a crash leftover and the shared
       // profile is free — reclaim it. Only a genuinely live holder (real
       // concurrency) justifies a throwaway profile.
-      if (reclaimStaleSingletonLock(lockPath)) {
+      if (reclaimStaleSingletonLock(lockPath, userDataDir)) {
         // Shared profile reclaimed; keep using it.
       } else {
         userDataDir = mkdtempSync(join(tmpdir(), 'ibr-chrome-'))
@@ -339,11 +478,19 @@ export class BrowserManager {
     })
     progress(`spawned chrome pid ${this.process.pid ?? 'unknown'}`)
 
-    const wsUrl = await this.waitForDebugger(progress)
-    progress('debugger answered')
-    this._cdpUrl = `http://127.0.0.1:${this._port}`
-    this._wsEndpoint = wsUrl
-    return wsUrl
+    try {
+      const wsUrl = await this.waitForDebugger(progress)
+      progress('debugger answered')
+      this._cdpUrl = `http://127.0.0.1:${this._port}`
+      this._wsEndpoint = wsUrl
+      return wsUrl
+    } catch (error) {
+      // A failed launch still owns the child it spawned. Clean it here instead
+      // of relying on every caller to remember `close()` after a rejected
+      // promise; otherwise debugger timeouts strand live headless Chromes.
+      await this.close()
+      throw error
+    }
   }
 
   /**
@@ -419,21 +566,22 @@ export class BrowserManager {
     const proc = this.process
     this.process = null
 
-    // Wait for process to exit, with SIGKILL escalation
-    await new Promise<void>((resolve) => {
-      const killTimer = setTimeout(() => {
-        // Escalate to SIGKILL after 3 seconds
-        try { proc.kill('SIGKILL') } catch { /* already dead */ }
-        resolve()
-      }, 3000)
+    if (!this._exit) {
+      // Wait for process to exit, with SIGKILL escalation.
+      await new Promise<void>((resolve) => {
+        const killTimer = setTimeout(() => {
+          try { proc.kill('SIGKILL') } catch { /* already dead */ }
+          resolve()
+        }, 3000)
 
-      proc.once('close', () => {
-        clearTimeout(killTimer)
-        resolve()
+        proc.once('close', () => {
+          clearTimeout(killTimer)
+          resolve()
+        })
+
+        proc.kill('SIGTERM')
       })
-
-      proc.kill('SIGTERM')
-    })
+    }
 
     // The profile only existed for this browser; Chrome has exited, so nothing
     // else can be reading it. Without this the directory outlives every run.

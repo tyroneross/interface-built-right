@@ -378,7 +378,13 @@ IBR_BROWSER_MODE=connect
 IBR_CDP_URL=http://127.0.0.1:9222
 IBR_WS_ENDPOINT=ws://127.0.0.1:9222/devtools/browser/<id>
 IBR_CHROME_PATH=/path/to/chrome
+IBR_SESSION_IDLE_MS=3600000  # persistent-session idle reaper; default 1 hour, 0 disables
 ```
+
+IBR closes one-shot browsers when their command finishes, closes persistent
+sessions after one hour without an IBR session command, and reaps orphaned
+IBR-owned Chrome processes before the next local launch. The reaper requires an
+IBR profile plus a CDP port and never targets the user's normal Chrome profile.
 
 `--headed` is now the preferred flag for a visible browser window. `--sandbox` remains as a deprecated alias for backwards compatibility.
 
@@ -794,6 +800,7 @@ await driver.navigate('https://example.com')
 | Chrome not found | Install Google Chrome, or pass `chromePath` option |
 | Auth state expired | `npx ibr login <url>` |
 | Session not found | `npx ibr list` to see available sessions |
+| Many headless Chrome processes | Run `npx ibr session:close all`; IBR also reaps orphaned IBR-profile processes before its next launch |
 | `--viewport mobile` renders desktop (pre-1.1.0) | Upgrade to >= 1.1.0; mobile presets now set the CDP mobile flag + UA + touch |
 | `Unknown --device "..."` | Run `npx ibr scan --help` to see the canonical device list, or add a profile to `src/devices.ts` |
 

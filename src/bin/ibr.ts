@@ -39,6 +39,7 @@ import type { Viewport } from '../schemas.js';
 import { registerNativeSessionCommands } from './native-session-cli.js';
 import { mergeCliConfig } from './cli-config.js';
 import { formatUserActionRequired } from '../session-hard-wall.js';
+import { configuredSessionIdleMs } from '../session-idle.js';
 
 function readPackageVersion(): string {
   try {
@@ -1866,6 +1867,7 @@ program
         isServerRunning,
         PersistentSession,
         cleanupServerState,
+        browserServerLastActivityAt,
       } = await import('../browser-server.js');
       const globalOpts = program.opts();
       const outputDir = globalOpts.output || './.ibr';
@@ -1980,9 +1982,11 @@ program
         //  - 'uncaughtException': log + sync reap + propagate exit
         await new Promise<void>((resolve) => {
           let cleanedUp = false;
+          let idleTimer: ReturnType<typeof setInterval> | undefined;
           const cleanup = async () => {
             if (cleanedUp) return;
             cleanedUp = true;
+            if (idleTimer) clearInterval(idleTimer);
             console.log('\nShutting down browser server...');
             try { await driver.close(); } catch { /* best effort */ }
             // Remove the manifest we wrote. Without this every terminated
@@ -2001,6 +2005,18 @@ program
             // 'exit' handlers must be synchronous, so unlink synchronously.
             try { unlinkSync(join(outputDir, 'browser-server.json')); } catch { /* best effort */ }
           };
+
+          const idleMs = configuredSessionIdleMs();
+          if (idleMs > 0) {
+            idleTimer = setInterval(() => {
+              void browserServerLastActivityAt(outputDir).then((lastActivityAt) => {
+                if (!cleanedUp && lastActivityAt !== null && Date.now() - lastActivityAt >= idleMs) {
+                  console.log(`\nClosing browser server after ${idleMs}ms without IBR session activity.`);
+                  void cleanup();
+                }
+              }).catch(() => { /* activity tracking is best effort */ });
+            }, Math.min(idleMs, 60_000));
+          }
           process.on('SIGINT', cleanup);
           process.on('SIGTERM', cleanup);
           process.on('SIGHUP', cleanup);

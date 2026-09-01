@@ -8,7 +8,8 @@
 
 import { createInterface } from "readline";
 import { TOOLS, handleToolCall, closeMcpBrowserPool } from "./tools.js";
-import { configuredSessionIdleMs, sweepIdleSessions } from "./sessions.js";
+import { configuredSessionIdleMs } from "../session-idle.js";
+import { sweepIdleSessions } from "./sessions.js";
 import { ensureToolchainPath } from "../native/toolchain-env.js";
 
 // Repair PATH before any native tool spawns swift/xcrun/osascript. A GUI/MCP
@@ -84,15 +85,13 @@ if (IDLE_TIMEOUT_MS > 0) {
   idleWatchdog.unref();
 }
 
-// --- Session idle sweep (implemented always, disabled by default) ---
+// --- Session idle sweep ---
 // Closes SESSIONS that have gone untouched for IBR_SESSION_IDLE_MS. Distinct
 // from L4 above: L4 exits the whole server, this one only releases idle
 // browsers and leaves the server serving.
 //
-// Default 0 (disabled), on the same reasoning L4 documents — from in here a
-// leaked session and a live-but-quiet one look identical, and closing a browser
-// out from under someone mid-task is worse than leaking it. shutdownPool()
-// remains the guarantee; this only bounds accumulation during a long run.
+// Default: one hour. Every session-addressed tool call refreshes its timestamp,
+// so active sessions stay alive. Set IBR_SESSION_IDLE_MS=0 to disable.
 const SESSION_IDLE_MS = configuredSessionIdleMs();
 if (SESSION_IDLE_MS > 0) {
   const sweep = setInterval(() => {

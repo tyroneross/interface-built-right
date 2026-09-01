@@ -15,6 +15,8 @@
 /** Kind of surface a session drives. */
 export type SessionType = 'chrome' | 'safari' | 'macos' | 'simulator';
 
+export { DEFAULT_SESSION_IDLE_MS, configuredSessionIdleMs } from '../session-idle.js';
+
 /**
  * One live session. Web sessions carry a driver; native (macos/simulator)
  * sessions carry no driver and are addressed by pid / device instead.
@@ -101,12 +103,10 @@ export function touchSession(id: string): void {
 /**
  * Close sessions with no activity for `maxIdleMs`.
  *
- * DEFAULT-OFF, deliberately, matching `mcp-lifecycle/SPEC.md` L4 and its
- * reasoning: from inside the server a leaked session and a live-but-quiet one
- * are indistinguishable. A user can legitimately hold a session open for an
- * hour while working elsewhere, and closing it out from under them is worse
- * than leaking it. So the mechanism is always implemented and never fires
- * unless `IBR_SESSION_IDLE_MS` is set to a positive value.
+ * The default is one hour. Every session-addressed tool call refreshes the
+ * activity timestamp, so the sweeper distinguishes an actively used session
+ * from one that was started and abandoned. Set `IBR_SESSION_IDLE_MS=0` to keep
+ * sessions indefinitely, or provide another positive threshold.
  *
  * This complements, and does not replace, `closeAllSessions()`: that one runs
  * at shutdown and is the guarantee; this one bounds accumulation DURING a
@@ -138,10 +138,4 @@ export async function sweepIdleSessions(maxIdleMs: number): Promise<string[]> {
     }
   }));
   return expired.map(([id]) => id);
-}
-
-/** Configured idle threshold in ms. 0 (the default) disables the sweep. */
-export function configuredSessionIdleMs(): number {
-  const raw = Number(process.env.IBR_SESSION_IDLE_MS ?? 0);
-  return Number.isFinite(raw) && raw > 0 ? raw : 0;
 }

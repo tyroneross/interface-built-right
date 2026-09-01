@@ -27,6 +27,14 @@ increment before it is cut into a release.
 
 ### Fixed
 
+- **IBR-owned Chrome processes no longer accumulate after interrupted runs.**
+  Local launches now reap orphaned IBR-profile Chrome main processes, old
+  `SingletonLock` files recover after a Mac hostname change when no Chrome uses
+  the profile, and persistent CLI/MCP sessions close after one idle hour by
+  default. `IBR_SESSION_IDLE_MS` changes the threshold; `0` disables it. The
+  ownership check requires an IBR profile plus a CDP port and excludes Chrome
+  helpers and the user's normal Chrome profile.
+
 - **Contrast is measured on text over a transparent background.** The rule bailed
   on any non-`rgb` background, and `transparent` / alpha-0 parse to "no color" —
   so on a real page, where text computes `background-color: rgba(0, 0, 0, 0)`,

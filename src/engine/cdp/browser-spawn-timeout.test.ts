@@ -76,6 +76,7 @@ describe('BrowserManager.launch spawn bounds', () => {
     // loaded CI machine while still failing loudly on "never".
     expect(elapsed).toBeLessThan(20000);
     expect(elapsed).toBeGreaterThanOrEqual(2500);
+    expect(manager.running).toBe(false);
 
     await manager.close();
   }, 40000);
@@ -102,6 +103,7 @@ describe('BrowserManager.launch spawn bounds', () => {
     expect(message).toContain(String(manager.port));
     expect(message).toMatch(/probes over \d+ms/);
     expect(message).toContain('/json/version');
+    expect(manager.running).toBe(false);
 
     await manager.close();
   }, 40000);
@@ -129,6 +131,7 @@ describe('BrowserManager.launch spawn bounds', () => {
     expect(message).toContain('ProcessSingleton');
     // Must not burn the full spawn budget waiting on a dead child.
     expect(Date.now() - started).toBeLessThan(2500);
+    expect(manager.running).toBe(false);
 
     await manager.close();
   }, 30000);

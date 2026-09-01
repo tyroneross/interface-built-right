@@ -1,6 +1,6 @@
 import { EngineDriver } from './engine/driver.js';
 import { CompatPage } from './engine/compat.js';
-import { writeFile, readFile, unlink, mkdir, readdir } from 'fs/promises';
+import { writeFile, readFile, unlink, mkdir, readdir, stat, utimes } from 'fs/promises';
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { nanoid } from 'nanoid';
@@ -138,6 +138,27 @@ function getPaths(outputDir: string) {
     profileDir: join(outputDir, ISOLATED_PROFILE_DIR),
     sessionsDir: join(outputDir, 'sessions'),
   };
+}
+
+/** Refresh the browser-server heartbeat after a successful IBR reconnect. */
+async function touchBrowserServerActivity(outputDir: string): Promise<void> {
+  const { stateFile } = getPaths(outputDir);
+  const now = new Date();
+  try {
+    await utimes(stateFile, now, now);
+  } catch {
+    // The owning process may be closing concurrently; activity tracking is
+    // advisory and must never turn a successful browser command into a failure.
+  }
+}
+
+/** Last confirmed CLI activity, represented by the manifest modification time. */
+export async function browserServerLastActivityAt(outputDir: string): Promise<number | null> {
+  try {
+    return (await stat(getPaths(outputDir).stateFile)).mtimeMs;
+  } catch {
+    return null;
+  }
 }
 
 /** Session records read at once. Bounds open file descriptors, not the search. */
@@ -478,6 +499,7 @@ export async function connectToBrowserServer(outputDir: string, targetId?: strin
       WS_CONNECT_TIMEOUT_MS,
       `CDP attach to browser server at ${state.cdpUrl ?? wsUrl}`,
     );
+    await touchBrowserServerActivity(outputDir);
     lastConnectFailure = null;
     return driver;
   } catch (error) {

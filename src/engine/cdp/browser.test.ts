@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { tmpdir } from 'node:os'
 
-import { resolveBrowserConnectionOptions } from './browser.js'
+import {
+  parseIbrChromeProcesses,
+  reapOrphanedIbrChromeProcesses,
+  resolveBrowserConnectionOptions,
+  shouldReclaimSingletonLock,
+} from './browser.js'
 
 describe('resolveBrowserConnectionOptions', () => {
   it('defaults to local mode when no connect hints are present', () => {
@@ -77,5 +83,62 @@ describe('resolveBrowserConnectionOptions', () => {
     expect(resolved.mode).toBe('local')
     expect(resolved.cdpUrl).toBe('http://127.0.0.1:9222')
     expect(resolved.wsEndpoint).toBe('ws://127.0.0.1:9222/devtools/browser/test')
+  })
+})
+
+describe('IBR Chrome process ownership', () => {
+  const tempProfile = `${tmpdir()}/ibr-chrome-Ab12Cd`
+  const psOutput = [
+    ` 101   1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=50001 --user-data-dir=${tempProfile} --headless=new`,
+    ` 102 101 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Helper.app/Contents/MacOS/Google Chrome Helper --type=renderer --remote-debugging-port=50001 --user-data-dir=${tempProfile}`,
+    ' 201 999 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=50002 --user-data-dir="/Users/test/project/.ibr/browser-profile" --headless=new',
+    ' 301   1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --profile-directory=Default',
+  ].join('\n')
+
+  it('identifies IBR main processes without treating helpers or normal Chrome as sessions', () => {
+    expect(parseIbrChromeProcesses(psOutput)).toEqual([
+      expect.objectContaining({ pid: 101, ppid: 1, profileDir: tempProfile }),
+      expect.objectContaining({ pid: 201, ppid: 999, profileDir: '/Users/test/project/.ibr/browser-profile' }),
+    ])
+  })
+
+  it('reaps only orphaned IBR main processes', () => {
+    const killed: Array<[number, NodeJS.Signals]> = []
+    const result = reapOrphanedIbrChromeProcesses({
+      psOutput,
+      kill: (pid, signal) => killed.push([pid, signal]),
+    })
+
+    expect(result).toEqual({ reaped: [101], preserved: [201] })
+    expect(killed).toEqual([[101, 'SIGTERM']])
+  })
+})
+
+describe('Chrome SingletonLock reclamation', () => {
+  const base = {
+    targetHost: 'old-host.local',
+    targetPid: 123,
+    currentHost: 'new-host.local',
+    lockAgeMs: 2 * 60 * 60 * 1000,
+    profileInUse: false,
+    targetPidAlive: false,
+  }
+
+  it('reclaims an old unused lock after the machine hostname changes', () => {
+    expect(shouldReclaimSingletonLock(base)).toBe(true)
+  })
+
+  it('preserves a foreign-host lock during the grace period', () => {
+    expect(shouldReclaimSingletonLock({ ...base, lockAgeMs: 30_000 })).toBe(false)
+  })
+
+  it('preserves any lock whose profile is in use', () => {
+    expect(shouldReclaimSingletonLock({ ...base, profileInUse: true })).toBe(false)
+  })
+
+  it('preserves a same-host live owner and reclaims a dead one immediately', () => {
+    const sameHost = { ...base, targetHost: base.currentHost, lockAgeMs: 0 }
+    expect(shouldReclaimSingletonLock({ ...sameHost, targetPidAlive: true })).toBe(false)
+    expect(shouldReclaimSingletonLock({ ...sameHost, targetPidAlive: false })).toBe(true)
   })
 })

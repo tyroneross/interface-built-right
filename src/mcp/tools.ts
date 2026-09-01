@@ -74,7 +74,7 @@ import {
 } from '../session-hard-wall.js';
 // Shared session registry (extracted at Wave 0 / C0). Import direction is
 // one-way: tools.ts (web) → sessions.ts / native-tools.ts, never the reverse.
-import { sessions, closeAllSessions } from './sessions.js';
+import { sessions, closeAllSessions, touchSession } from './sessions.js';
 export { __test_setSession } from './sessions.js';
 // Native MCP tools (defs + handlers + frozen web→native delegation functions),
 // physically split out of this file at Wave 0 (ADR-03). Single aggregation import.
@@ -1535,6 +1535,11 @@ export async function handleToolCall(
   args: Record<string, unknown>
 ): Promise<McpResponse> {
   try {
+    // Any tool call addressed to a live session counts as activity. Keeping
+    // this at the dispatch boundary covers web and native reads/actions plus
+    // session-backed scan/ask calls without duplicating touches in each case.
+    if (typeof args.sessionId === 'string') touchSession(args.sessionId)
+
     switch (name) {
       case "scan":
         return await handleScan(args);
