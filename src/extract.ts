@@ -851,6 +851,11 @@ export interface ContentElement {
   backgroundChain?: string[];
   /** Some layer in `backgroundChain` paints a background-image the color math cannot see. */
   backgroundImageBehind?: boolean;
+  /** Real ARIA attributes read from the DOM — absent means absent, not unread. */
+  role?: string | null;
+  ariaLabel?: string | null;
+  ariaDescribedBy?: string | null;
+  ariaHidden?: boolean;
   /** Only set for h1-h6. */
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
@@ -1007,6 +1012,16 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
               fontWeight: computed.fontWeight,
             },
             contentKind: kind,
+            // Real attributes, not assumptions. The adapter used to synthesize
+            // `role: null, ariaLabel: null` for every content element and call
+            // that "the definition of a non-interactive element" — but
+            // <h2 aria-label="..."> and <p role="note"> are ordinary, and a
+            // future text-surface a11y rule would have silently concluded "no
+            // accessible name" for an element that has one.
+            role: htmlEl.getAttribute('role'),
+            ariaLabel: htmlEl.getAttribute('aria-label'),
+            ariaDescribedBy: htmlEl.getAttribute('aria-describedby'),
+            ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || undefined,
           };
 
           const bgChain = collectBackgroundChain(htmlEl);

@@ -10,8 +10,10 @@
  * "a paragraph is not a control" statement to a single file.
  *
  * The synthesized `interactive` block says exactly that: no handler, no href,
- * not focusable (`tabIndex: -1`). Nothing here is a guess about the DOM — it is
- * the definition of a non-interactive element. The surface filter in
+ * not focusable (`tabIndex: -1`). That block IS definitional. The `a11y` block
+ * is not, and is therefore read from the DOM rather than assumed — hardcoding
+ * it to nulls made "this element has no accessible name" indistinguishable from
+ * "nobody looked". The surface filter in
  * `runRules` (see `RunRulesOptions.surface`) is what actually keeps
  * touch-target and handler-integrity rules away from these elements; this shape
  * is the second line of defence, not the first.
@@ -49,10 +51,15 @@ export function contentElementToEnhanced(content: ContentElement): EnhancedEleme
       tabIndex: -1,
       cursor: content.computedStyles.cursor ?? 'auto',
     },
+    // Read from the DOM, not invented. `role: null, ariaLabel: null` used to be
+    // hardcoded here and described as definitional — it was not: an <h2
+    // aria-label="..."> or <p role="note"> is ordinary markup, and no rule
+    // reading these fields could have told "absent" from "never captured".
     a11y: {
-      role: null,
-      ariaLabel: null,
-      ariaDescribedBy: null,
+      role: content.role ?? null,
+      ariaLabel: content.ariaLabel ?? null,
+      ariaDescribedBy: content.ariaDescribedBy ?? null,
+      ...(content.ariaHidden ? { ariaHidden: true } : {}),
     },
   };
 }

@@ -1,5 +1,6 @@
 import type { EnhancedElement } from '../schemas.js';
 import type { Rule, RuleContext } from './types.js';
+import { ruleAppliesTo } from './types.js';
 import { wcagContrastRules } from './wcag-contrast.js';
 import { touchTargetRules } from './touch-targets.js';
 import { textHierarchyRules } from './text-hierarchy.js';
@@ -54,11 +55,17 @@ export interface RuleEngineResult {
 export function runAllRules(
   elements: EnhancedElement[],
   context: RuleContext,
+  options: { surface?: 'interactive' | 'content' } = {},
 ): RuleEngineResult[] {
   const results: RuleEngineResult[] = [];
+  // Same guard runRules applies. Without it this exported function ran EVERY
+  // rule against whatever it was handed, so a consumer passing content elements
+  // got paragraphs graded as undersized tap targets. It was safe only because
+  // its one in-tree caller happens to pass interactive elements.
+  const applicable = allRules.filter((rule) => ruleAppliesTo(rule, options.surface ?? 'interactive'));
 
   for (const element of elements) {
-    for (const rule of allRules) {
+    for (const rule of applicable) {
       const violation = rule.check(element, context);
       if (!violation) continue;
 

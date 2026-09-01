@@ -152,6 +152,14 @@ export interface ContrastReport {
   pass: number;
   fail: number;
   passAAA: number;
+  /**
+   * Text this sensor could NOT grade because a color in the stack would not
+   * decode. Reported rather than skipped: `totalChecked: 0` with no companion
+   * number reads as "clean page" when it means "measured nothing".
+   */
+  notMeasured?: number;
+  /** Graded against an assumed white canvas — no opaque background in the ancestor chain. */
+  assumedBackground?: number;
   failing: ContrastReportEntry[];  // Only failures listed
   minRatio?: ContrastReportEntry;
   byTone?: {

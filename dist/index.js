@@ -6206,11 +6206,11 @@ function parseColor(color) {
   return named[color.toLowerCase()] ?? null;
 }
 function relativeLuminance(r, g, b) {
-  const linearize3 = (c) => {
+  const linearize2 = (c) => {
     const s = c / 255;
     return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
   };
-  return 0.2126 * linearize3(r) + 0.7152 * linearize3(g) + 0.0722 * linearize3(b);
+  return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
 }
 async function analyzeThemeConsistency(page) {
   const data = await page.evaluate(() => {
@@ -6254,8 +6254,8 @@ async function analyzeThemeConsistency(page) {
   const pageBackground = { color: data.pageBg, luminance: pageLuminance };
   const contentCards = data.cards.map((c) => {
     const parsed = parseColor(c.color);
-    const luminance2 = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
-    return { selector: c.selector, color: c.color, luminance: luminance2 };
+    const luminance = parsed ? relativeLuminance(parsed.r, parsed.g, parsed.b) : 0.5;
+    return { selector: c.selector, color: c.color, luminance };
   });
   let themeMismatch = false;
   let mismatchDetails;
@@ -8211,7 +8211,17 @@ async function extractContentElements(page) {
               fontSize: computed.fontSize,
               fontWeight: computed.fontWeight
             },
-            contentKind: kind
+            contentKind: kind,
+            // Real attributes, not assumptions. The adapter used to synthesize
+            // `role: null, ariaLabel: null` for every content element and call
+            // that "the definition of a non-interactive element" — but
+            // <h2 aria-label="..."> and <p role="note"> are ordinary, and a
+            // future text-surface a11y rule would have silently concluded "no
+            // accessible name" for an element that has one.
+            role: htmlEl.getAttribute("role"),
+            ariaLabel: htmlEl.getAttribute("aria-label"),
+            ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
+            ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || void 0
           };
           const bgChain = collectBackgroundChain(htmlEl);
           entry.backgroundChain = bgChain.chain;
@@ -9332,81 +9342,301 @@ var init_interaction_map = __esm({
   }
 });
 
-// src/sensors/contrast-report.ts
+// src/rules/color-parse.ts
+function linearToSrgb(c) {
+  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
+  return clamp255(v * 255);
+}
+function oklabToLinearSrgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
+  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
+  ];
+}
+function labToLinearSrgb(L, a, bb) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
+  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
+  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
+  return [
+    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
+    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
+    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
+  ];
+}
+function num(tok, pctBasis = 1) {
+  const t = tok.trim();
+  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
+  return parseFloat(t);
+}
+function splitArgs(body) {
+  const [main, alphaPart] = body.split("/");
+  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
+  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
+  return { parts, alpha };
+}
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = (h % 360 + 360) % 360 / 60;
+  const x = c * (1 - Math.abs(hp % 2 - 1));
+  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+  const m = l - c / 2;
+  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
+}
 function parseColor2(color) {
-  if (!color || color === "transparent" || color === "initial" || color === "inherit" || color === "unset") {
-    return null;
+  const raw = (color ?? "").trim();
+  if (!raw) return { kind: "none", reason: "empty" };
+  const lower = raw.toLowerCase();
+  if (lower === "transparent") return { kind: "none", reason: "transparent" };
+  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
+    return { kind: "none", reason: lower };
   }
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== void 0 ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
+  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
+  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
+  if (hex) {
+    const h = hex[1];
+    const exp = (i) => parseInt(h[i] + h[i], 16);
+    const pair = (i) => parseInt(h.slice(i, i + 2), 16);
+    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
+    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
+    if (h.length === 6) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: 1 };
+    if (h.length === 8) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: pair(6) / 255 };
+    return { kind: "unsupported", raw };
   }
-  const hex6 = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6) {
-    const n = parseInt(hex6[1], 16);
-    return [n >> 16 & 255, n >> 8 & 255, n & 255];
+  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
+  if (!fn) return { kind: "unsupported", raw };
+  const [, name, body] = fn;
+  const { parts, alpha } = splitArgs(body);
+  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
+  try {
+    switch (name) {
+      case "rgb":
+      case "rgba": {
+        const rgb = [
+          clamp255(num(parts[0], 255)),
+          clamp255(num(parts[1], 255)),
+          clamp255(num(parts[2], 255))
+        ];
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
+      }
+      case "hsl":
+      case "hsla": {
+        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
+        if (a === 0) return { kind: "none", reason: "alpha-0" };
+        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
+      }
+      case "oklch":
+      case "lch": {
+        const L = num(parts[0], name === "oklch" ? 1 : 100);
+        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
+        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
+        const a = C * Math.cos(H), b = C * Math.sin(H);
+        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "oklab":
+      case "lab": {
+        const L = num(parts[0], name === "oklab" ? 1 : 100);
+        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
+        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
+        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
+        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
+      }
+      case "color": {
+        const space = parts[0];
+        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
+          return { kind: "unsupported", raw };
+        }
+        const ch = parts.slice(1, 4).map((p) => num(p, 1));
+        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
+        return { kind: "rgb", rgb, alpha };
+      }
+      default:
+        return { kind: "unsupported", raw };
+    }
+  } catch {
+    return { kind: "unsupported", raw };
   }
-  const hex3 = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3) {
-    return [
-      parseInt(hex3[1][0], 16) * 17,
-      parseInt(hex3[1][1], 16) * 17,
-      parseInt(hex3[1][2], 16) * 17
-    ];
-  }
-  return null;
 }
-function linearize(c) {
-  const n = c / 255;
-  return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4);
+function flatten(fg, bg) {
+  if (fg.kind !== "rgb") return null;
+  if (fg.alpha >= 1) return fg.rgb;
+  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
 }
-function luminance([r, g, b]) {
+function resolveEffectiveBackground(chain) {
+  const layers = [];
+  for (const raw of chain) {
+    const parsed = parseColor2(raw);
+    if (parsed.kind === "unsupported") {
+      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
+    }
+    if (parsed.kind === "none") continue;
+    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
+    if (parsed.alpha >= 1) break;
+  }
+  const bottom = layers[layers.length - 1];
+  const resolved = bottom !== void 0 && bottom.alpha >= 1;
+  let acc = resolved ? bottom.rgb : CANVAS_BASE;
+  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
+    const layer = layers[i];
+    acc = layer.rgb.map(
+      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
+    );
+  }
+  return { rgb: acc, resolved };
+}
+var NAMED, clamp255, CANVAS_BASE;
+var init_color_parse = __esm({
+  "src/rules/color-parse.ts"() {
+    NAMED = {
+      black: [0, 0, 0],
+      white: [255, 255, 255],
+      red: [255, 0, 0],
+      green: [0, 128, 0],
+      blue: [0, 0, 255],
+      gray: [128, 128, 128],
+      grey: [128, 128, 128],
+      silver: [192, 192, 192],
+      maroon: [128, 0, 0],
+      olive: [128, 128, 0],
+      lime: [0, 255, 0],
+      aqua: [0, 255, 255],
+      cyan: [0, 255, 255],
+      teal: [0, 128, 128],
+      navy: [0, 0, 128],
+      fuchsia: [255, 0, 255],
+      magenta: [255, 0, 255],
+      purple: [128, 0, 128],
+      yellow: [255, 255, 0],
+      orange: [255, 165, 0]
+    };
+    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
+    CANVAS_BASE = [255, 255, 255];
+  }
+});
+
+// src/rules/contrast-measure.ts
+function linearize(channel) {
+  const c = channel / 255;
+  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+function relativeLuminance2(r, g, b) {
   return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
 }
 function contrastRatio(fg, bg) {
-  const l1 = luminance(fg);
-  const l2 = luminance(bg);
+  const l1 = relativeLuminance2(...fg);
+  const l2 = relativeLuminance2(...bg);
   const lighter = Math.max(l1, l2);
   const darker = Math.min(l1, l2);
   return (lighter + 0.05) / (darker + 0.05);
 }
-function isLargeText(styles) {
+function classifyTextSize(styles) {
   const fontSize = parseFloat(styles.fontSize ?? "");
-  if (isNaN(fontSize)) return false;
-  const fw = styles.fontWeight ?? "400";
-  const isBold = fw === "bold" || parseInt(fw, 10) >= 700;
-  return fontSize >= 18 || isBold && fontSize >= 14;
+  if (isNaN(fontSize)) return { large: false, assumed: true };
+  const fontWeightStr = styles.fontWeight ?? "";
+  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
+  return { large: fontSize >= 24 || isBold && fontSize >= 18.66, assumed: false };
 }
+function measureElementContrast(element) {
+  const style = element.computedStyles;
+  if (!style) return { status: "no-styles" };
+  const text = (element.text ?? "").trim();
+  if (text.length === 0) return { status: "no-text" };
+  const opacity = parseFloat(style.opacity ?? "1");
+  const opacityKnown = !isNaN(opacity);
+  if (style.visibility === "hidden" || opacityKnown && opacity <= 0) {
+    return { status: "invisible", reason: style.visibility === "hidden" ? "visibility-hidden" : "opacity-0" };
+  }
+  const fg = parseColor2(style.color ?? "");
+  if (fg.kind === "unsupported") {
+    return { status: "unmeasurable", raw: fg.raw, text };
+  }
+  if (fg.kind === "none") {
+    const notPainted = fg.reason === "transparent" || fg.reason === "alpha-0";
+    return notPainted ? { status: "invisible", reason: fg.reason } : { status: "unmeasurable", raw: style.color ?? `(${fg.reason})`, text };
+  }
+  const chain = element.backgroundChain && element.backgroundChain.length > 0 ? element.backgroundChain : [style.backgroundColor ?? ""];
+  const bg = resolveEffectiveBackground(chain);
+  if (bg.unsupported !== void 0) {
+    return { status: "unmeasurable", raw: bg.unsupported, text };
+  }
+  const effectiveFg = opacityKnown && opacity < 1 ? { ...fg, alpha: fg.alpha * opacity } : fg;
+  const fgRgb = flatten(effectiveFg, bg.rgb);
+  if (!fgRgb) return { status: "invisible", reason: "foreground did not composite" };
+  const size = classifyTextSize(style);
+  return {
+    status: "measured",
+    ratio: contrastRatio(fgRgb, bg.rgb),
+    large: size.large,
+    sizeAssumed: size.assumed,
+    foreground: fgRgb,
+    background: bg.rgb,
+    opacityApplied: opacityKnown && opacity < 1,
+    backgroundResolved: bg.resolved,
+    backgroundImageBehind: element.backgroundImageBehind === true,
+    text,
+    fgRaw: style.color ?? "",
+    bgRaw: `rgb(${bg.rgb.join(", ")})`
+  };
+}
+function confidenceNote(m) {
+  const notes = [];
+  if (!m.backgroundResolved) {
+    notes.push("measured against an assumed white page background \u2014 no opaque background found in the ancestor chain");
+  }
+  if (m.backgroundImageBehind) {
+    notes.push("a background-image paints behind this text; only the color layers were sampled");
+  }
+  if (m.sizeAssumed) {
+    notes.push("font size could not be read, so the normal-text threshold was assumed \u2014 a large-text element may be graded too strictly");
+  }
+  if (m.opacityApplied) {
+    notes.push("element opacity was folded into the text color");
+  }
+  return notes.length > 0 ? ` [${notes.join("; ")}]` : "";
+}
+var init_contrast_measure = __esm({
+  "src/rules/contrast-measure.ts"() {
+    init_color_parse();
+  }
+});
+
+// src/sensors/contrast-report.ts
 function collectContrastReport(ctx) {
   let pass = 0;
   let fail = 0;
   let passAAA = 0;
+  let notMeasured = 0;
+  let assumedBackground = 0;
   const failing = [];
   let minRatio;
   let lightOnDark = 0;
   let darkOnLight = 0;
   for (const el of ctx.elements) {
-    const text = (el.text ?? "").trim();
-    if (!text) continue;
-    const styles = el.computedStyles;
-    if (!styles) continue;
-    const fg = parseColor2(styles.color ?? "");
-    const bg = parseColor2(styles.backgroundColor ?? "");
-    if (!fg || !bg) continue;
-    const large = isLargeText(styles);
-    const ratio = contrastRatio(fg, bg);
-    const aaThreshold = large ? 3 : 4.5;
-    const aaaThreshold = large ? 4.5 : 7;
+    const m = measureElementContrast(el);
+    if (m.status === "unmeasurable") {
+      notMeasured++;
+      continue;
+    }
+    if (m.status !== "measured") continue;
+    if (!m.backgroundResolved) assumedBackground++;
+    const styles = el.computedStyles ?? {};
+    const aaThreshold = m.large ? 3 : 4.5;
+    const aaaThreshold = m.large ? 4.5 : 7;
     const fontSize = parseFloat(styles.fontSize ?? "16") || 16;
+    const ratio = m.ratio;
     const entry = {
       selector: el.selector,
-      text: text.slice(0, 60),
+      text: m.text.slice(0, 60),
       ratio: Number(ratio.toFixed(2)),
       pass: ratio >= aaaThreshold ? "AAA" : ratio >= aaThreshold ? "AA" : "FAIL",
       fontSize,
-      largeText: large
+      largeText: m.large
     };
     if (ratio >= aaThreshold) {
       pass++;
@@ -9416,8 +9646,8 @@ function collectContrastReport(ctx) {
     }
     if (ratio >= aaaThreshold) passAAA++;
     if (!minRatio || ratio < minRatio.ratio) minRatio = entry;
-    const fgAvg = (fg[0] + fg[1] + fg[2]) / 3;
-    const bgAvg = (bg[0] + bg[1] + bg[2]) / 3;
+    const fgAvg = m.foreground[0] + m.foreground[1] + m.foreground[2];
+    const bgAvg = m.background[0] + m.background[1] + m.background[2];
     if (fgAvg > bgAvg) lightOnDark++;
     else darkOnLight++;
   }
@@ -9426,6 +9656,8 @@ function collectContrastReport(ctx) {
     pass,
     fail,
     passAAA,
+    notMeasured,
+    assumedBackground,
     failing,
     minRatio,
     byTone: { lightOnDark, darkOnLight }
@@ -9433,6 +9665,7 @@ function collectContrastReport(ctx) {
 }
 var init_contrast_report = __esm({
   "src/sensors/contrast-report.ts"() {
+    init_contrast_measure();
   }
 });
 
@@ -10477,251 +10710,13 @@ var init_css_extract = __esm({
   }
 });
 
-// src/rules/color-parse.ts
-function linearToSrgb(c) {
-  const v = c <= 31308e-7 ? 12.92 * c : 1.055 * Math.pow(Math.max(0, c), 1 / 2.4) - 0.055;
-  return clamp255(v * 255);
+// src/rules/types.ts
+function ruleAppliesTo(rule, surface) {
+  const applies = rule.appliesTo ?? "interactive";
+  return surface === "interactive" ? applies === "interactive" || applies === "any" : applies === "text" || applies === "any";
 }
-function oklabToLinearSrgb(L, a, b) {
-  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-  const s_ = L - 0.0894841775 * a - 1.291485548 * b;
-  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
-  return [
-    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
-    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
-    -0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s
-  ];
-}
-function labToLinearSrgb(L, a, bb) {
-  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - bb / 200;
-  const f = (t) => t ** 3 > 8856e-6 ? t ** 3 : (116 * t - 16) / 903.3;
-  const X = 0.96422 * f(fx), Y = 1 * f(fy), Z = 0.82521 * f(fz);
-  return [
-    3.1338561 * X - 1.6168667 * Y - 0.4906146 * Z,
-    -0.9787684 * X + 1.9161415 * Y + 0.033454 * Z,
-    0.0719453 * X - 0.2289914 * Y + 1.4052427 * Z
-  ];
-}
-function num(tok, pctBasis = 1) {
-  const t = tok.trim();
-  if (t.endsWith("%")) return parseFloat(t) / 100 * pctBasis;
-  return parseFloat(t);
-}
-function splitArgs(body) {
-  const [main, alphaPart] = body.split("/");
-  const parts = main.trim().split(/[\s,]+/).filter(Boolean);
-  const alpha = alphaPart !== void 0 ? num(alphaPart, 1) : 1;
-  return { parts, alpha };
-}
-function hslToRgb(h, s, l) {
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const hp = (h % 360 + 360) % 360 / 60;
-  const x = c * (1 - Math.abs(hp % 2 - 1));
-  const [r1, g1, b1] = hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] : hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
-  const m = l - c / 2;
-  return [clamp255((r1 + m) * 255), clamp255((g1 + m) * 255), clamp255((b1 + m) * 255)];
-}
-function parseColor3(color) {
-  const raw = (color ?? "").trim();
-  if (!raw) return { kind: "none", reason: "empty" };
-  const lower = raw.toLowerCase();
-  if (lower === "transparent") return { kind: "none", reason: "transparent" };
-  if (["initial", "inherit", "unset", "revert", "currentcolor", "none", "auto"].includes(lower)) {
-    return { kind: "none", reason: lower };
-  }
-  if (NAMED[lower]) return { kind: "rgb", rgb: NAMED[lower], alpha: 1 };
-  const hex = lower.match(/^#([0-9a-f]{3,8})$/);
-  if (hex) {
-    const h = hex[1];
-    const exp = (i) => parseInt(h[i] + h[i], 16);
-    const pair = (i) => parseInt(h.slice(i, i + 2), 16);
-    if (h.length === 3) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: 1 };
-    if (h.length === 4) return { kind: "rgb", rgb: [exp(0), exp(1), exp(2)], alpha: exp(3) / 255 };
-    if (h.length === 6) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: 1 };
-    if (h.length === 8) return { kind: "rgb", rgb: [pair(0), pair(2), pair(4)], alpha: pair(6) / 255 };
-    return { kind: "unsupported", raw };
-  }
-  const fn = lower.match(/^([a-z]+)\(([^)]*)\)$/);
-  if (!fn) return { kind: "unsupported", raw };
-  const [, name, body] = fn;
-  const { parts, alpha } = splitArgs(body);
-  if (alpha === 0) return { kind: "none", reason: "alpha-0" };
-  try {
-    switch (name) {
-      case "rgb":
-      case "rgba": {
-        const rgb = [
-          clamp255(num(parts[0], 255)),
-          clamp255(num(parts[1], 255)),
-          clamp255(num(parts[2], 255))
-        ];
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        return a === 0 ? { kind: "none", reason: "alpha-0" } : { kind: "rgb", rgb, alpha: a };
-      }
-      case "hsl":
-      case "hsla": {
-        const a = parts[3] !== void 0 ? num(parts[3]) : alpha;
-        if (a === 0) return { kind: "none", reason: "alpha-0" };
-        return { kind: "rgb", rgb: hslToRgb(parseFloat(parts[0]), num(parts[1], 1), num(parts[2], 1)), alpha: a };
-      }
-      case "oklch":
-      case "lch": {
-        const L = num(parts[0], name === "oklch" ? 1 : 100);
-        const C = num(parts[1], name === "oklch" ? 0.4 : 150);
-        const H = (parseFloat(parts[2]) || 0) * (Math.PI / 180);
-        const a = C * Math.cos(H), b = C * Math.sin(H);
-        const lin = name === "oklch" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "oklab":
-      case "lab": {
-        const L = num(parts[0], name === "oklab" ? 1 : 100);
-        const a = num(parts[1], name === "oklab" ? 0.4 : 125);
-        const b = num(parts[2], name === "oklab" ? 0.4 : 125);
-        const lin = name === "oklab" ? oklabToLinearSrgb(L, a, b) : labToLinearSrgb(L, a, b);
-        return { kind: "rgb", rgb: lin.map(linearToSrgb), alpha };
-      }
-      case "color": {
-        const space = parts[0];
-        if (space !== "srgb" && space !== "srgb-linear" && space !== "display-p3") {
-          return { kind: "unsupported", raw };
-        }
-        const ch = parts.slice(1, 4).map((p) => num(p, 1));
-        const rgb = space === "srgb-linear" ? ch.map(linearToSrgb) : ch.map((v) => clamp255(v * 255));
-        return { kind: "rgb", rgb, alpha };
-      }
-      default:
-        return { kind: "unsupported", raw };
-    }
-  } catch {
-    return { kind: "unsupported", raw };
-  }
-}
-function flatten(fg, bg) {
-  if (fg.kind !== "rgb") return null;
-  if (fg.alpha >= 1) return fg.rgb;
-  return fg.rgb.map((c, i) => clamp255(c * fg.alpha + bg[i] * (1 - fg.alpha)));
-}
-function resolveEffectiveBackground(chain) {
-  const layers = [];
-  for (const raw of chain) {
-    const parsed = parseColor3(raw);
-    if (parsed.kind === "unsupported") {
-      return { rgb: CANVAS_BASE, resolved: false, unsupported: parsed.raw };
-    }
-    if (parsed.kind === "none") continue;
-    layers.push({ rgb: parsed.rgb, alpha: parsed.alpha });
-    if (parsed.alpha >= 1) break;
-  }
-  const bottom = layers[layers.length - 1];
-  const resolved = bottom !== void 0 && bottom.alpha >= 1;
-  let acc = resolved ? bottom.rgb : CANVAS_BASE;
-  for (let i = resolved ? layers.length - 2 : layers.length - 1; i >= 0; i--) {
-    const layer = layers[i];
-    acc = layer.rgb.map(
-      (c, ch) => clamp255(c * layer.alpha + acc[ch] * (1 - layer.alpha))
-    );
-  }
-  return { rgb: acc, resolved };
-}
-var NAMED, clamp255, CANVAS_BASE;
-var init_color_parse = __esm({
-  "src/rules/color-parse.ts"() {
-    NAMED = {
-      black: [0, 0, 0],
-      white: [255, 255, 255],
-      red: [255, 0, 0],
-      green: [0, 128, 0],
-      blue: [0, 0, 255],
-      gray: [128, 128, 128],
-      grey: [128, 128, 128],
-      silver: [192, 192, 192],
-      maroon: [128, 0, 0],
-      olive: [128, 128, 0],
-      lime: [0, 255, 0],
-      aqua: [0, 255, 255],
-      cyan: [0, 255, 255],
-      teal: [0, 128, 128],
-      navy: [0, 0, 128],
-      fuchsia: [255, 0, 255],
-      magenta: [255, 0, 255],
-      purple: [128, 0, 128],
-      yellow: [255, 255, 0],
-      orange: [255, 165, 0]
-    };
-    clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
-    CANVAS_BASE = [255, 255, 255];
-  }
-});
-
-// src/rules/contrast-measure.ts
-function linearize2(channel) {
-  const c = channel / 255;
-  return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
-}
-function relativeLuminance2(r, g, b) {
-  return 0.2126 * linearize2(r) + 0.7152 * linearize2(g) + 0.0722 * linearize2(b);
-}
-function contrastRatio2(fg, bg) {
-  const l1 = relativeLuminance2(...fg);
-  const l2 = relativeLuminance2(...bg);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-function isLargeText2(styles) {
-  const fontSizeStr = styles.fontSize ?? "";
-  const fontWeightStr = styles.fontWeight ?? "";
-  const fontSize = parseFloat(fontSizeStr);
-  if (isNaN(fontSize)) return false;
-  const isBold = fontWeightStr === "bold" || parseInt(fontWeightStr, 10) >= 700;
-  return fontSize >= 24 || isBold && fontSize >= 18.66;
-}
-function measureElementContrast(element) {
-  const style = element.computedStyles;
-  if (!style) return { status: "no-styles" };
-  const text = (element.text ?? "").trim();
-  if (text.length === 0) return { status: "no-text" };
-  const fg = parseColor3(style.color ?? "");
-  if (fg.kind === "unsupported") {
-    return { status: "unmeasurable", raw: fg.raw, text };
-  }
-  if (fg.kind === "none") {
-    const notPainted = fg.reason === "transparent" || fg.reason === "alpha-0";
-    return notPainted ? { status: "invisible", reason: fg.reason } : { status: "unmeasurable", raw: style.color ?? `(${fg.reason})`, text };
-  }
-  const chain = element.backgroundChain && element.backgroundChain.length > 0 ? element.backgroundChain : [style.backgroundColor ?? ""];
-  const bg = resolveEffectiveBackground(chain);
-  if (bg.unsupported !== void 0) {
-    return { status: "unmeasurable", raw: bg.unsupported, text };
-  }
-  const fgRgb = flatten(fg, bg.rgb);
-  if (!fgRgb) return { status: "invisible", reason: "foreground did not composite" };
-  return {
-    status: "measured",
-    ratio: contrastRatio2(fgRgb, bg.rgb),
-    large: isLargeText2(style),
-    backgroundResolved: bg.resolved,
-    backgroundImageBehind: element.backgroundImageBehind === true,
-    text,
-    fgRaw: style.color ?? "",
-    bgRaw: `rgb(${bg.rgb.join(", ")})`
-  };
-}
-function confidenceNote(m) {
-  const notes = [];
-  if (!m.backgroundResolved) {
-    notes.push("measured against an assumed white page background \u2014 no opaque background found in the ancestor chain");
-  }
-  if (m.backgroundImageBehind) {
-    notes.push("a background-image paints behind this text; only the color layers were sampled");
-  }
-  return notes.length > 0 ? ` [${notes.join("; ")}]` : "";
-}
-var init_contrast_measure = __esm({
-  "src/rules/contrast-measure.ts"() {
-    init_color_parse();
+var init_types2 = __esm({
+  "src/rules/types.ts"() {
   }
 });
 
@@ -11217,10 +11212,11 @@ var init_breadcrumbs = __esm({
 });
 
 // src/rules/index.ts
-function runAllRules(elements, context) {
+function runAllRules(elements, context, options = {}) {
   const results = [];
+  const applicable = allRules.filter((rule) => ruleAppliesTo(rule, options.surface ?? "interactive"));
   for (const element of elements) {
-    for (const rule of allRules) {
+    for (const rule of applicable) {
       const violation = rule.check(element, context);
       if (!violation) continue;
       const severity = violation.severity === "error" ? "error" : "warning";
@@ -11245,6 +11241,7 @@ function runAllRules(elements, context) {
 var allRules;
 var init_rules = __esm({
   "src/rules/index.ts"() {
+    init_types2();
     init_wcag_contrast();
     init_touch_targets();
     init_text_hierarchy();
@@ -11297,7 +11294,7 @@ function elementLabel(el) {
 function resolveRole(el) {
   return el.a11y?.role ?? el.tagName ?? "unknown";
 }
-function parseColor4(color) {
+function parseColor3(color) {
   if (!color || color === "transparent" || color === "none") return null;
   const rgbMatch = color.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
   if (rgbMatch) {
@@ -11343,7 +11340,7 @@ function relativeLuminance3(r, g, b) {
   };
   return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
 }
-function contrastRatio3(l1, l2) {
+function contrastRatio2(l1, l2) {
   const lighter = Math.max(l1, l2);
   const darker = Math.min(l1, l2);
   return (lighter + 0.05) / (darker + 0.05);
@@ -11506,14 +11503,14 @@ function buildContrastReport(elements) {
     }
   }
   return Array.from(pairMap.values()).map(({ fg, bg, elements: els }) => {
-    const fgRgb = parseColor4(fg);
-    const bgRgb = parseColor4(bg);
+    const fgRgb = parseColor3(fg);
+    const bgRgb = parseColor3(bg);
     let status = "unknown";
     let ratio = 0;
     if (fgRgb && bgRgb) {
       const fgL = relativeLuminance3(fgRgb.r, fgRgb.g, fgRgb.b);
       const bgL = relativeLuminance3(bgRgb.r, bgRgb.g, bgRgb.b);
-      ratio = contrastRatio3(fgL, bgL);
+      ratio = contrastRatio2(fgL, bgL);
       status = ratio >= 4.5 ? "pass" : "fail";
     }
     const sampleElements = els.slice(0, 3).map(elementLabel).filter(Boolean);
@@ -12088,10 +12085,6 @@ function configHasContentRules(config) {
     return applies === "any" || applies === "text";
   });
 }
-function ruleAppliesTo(rule, surface) {
-  const applies = rule.appliesTo ?? "interactive";
-  return surface === "interactive" ? applies === "interactive" || applies === "any" : applies === "text" || applies === "any";
-}
 function runRules(elements, context, config, options = {}) {
   const { rules, settings } = mergeRuleSettings(config.extends ?? [], config.rules);
   const surface = options.surface ?? "interactive";
@@ -12121,6 +12114,7 @@ var init_engine = __esm({
     init_minimal();
     init_touch_targets2();
     init_wcag_contrast2();
+    init_types2();
     presets = /* @__PURE__ */ new Map();
     for (const preset of [
       minimalPreset,
@@ -12164,10 +12158,15 @@ function contentElementToEnhanced(content) {
       tabIndex: -1,
       cursor: content.computedStyles.cursor ?? "auto"
     },
+    // Read from the DOM, not invented. `role: null, ariaLabel: null` used to be
+    // hardcoded here and described as definitional — it was not: an <h2
+    // aria-label="..."> or <p role="note"> is ordinary markup, and no rule
+    // reading these fields could have told "absent" from "never captured".
     a11y: {
-      role: null,
-      ariaLabel: null,
-      ariaDescribedBy: null
+      role: content.role ?? null,
+      ariaLabel: content.ariaLabel ?? null,
+      ariaDescribedBy: content.ariaDescribedBy ?? null,
+      ...content.ariaHidden ? { ariaHidden: true } : {}
     }
   };
 }

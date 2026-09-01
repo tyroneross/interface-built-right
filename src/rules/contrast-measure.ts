@@ -44,19 +44,24 @@ function contrastRatio(fg: [number, number, number], bg: [number, number, number
 }
 
 /**
- * Classify text as "large" per WCAG 2.1:
- * - >= 18px normal weight
- * - >= 14px bold (fontWeight >= 700)
+ * Classify text as "large" per WCAG 2.1.
+ *
+ * The spec is in POINTS: 18pt normal, or 14pt bold. At the CSS reference of
+ * 1pt = 1.333px that is 24px and 18.66px. This comment previously stated the
+ * point numbers as pixel numbers (18px / 14px) — the exact confusion the code
+ * below was corrected for — inside the file that is supposed to be the single
+ * source of truth. The comment now matches the executable line.
  */
-function isLargeText(styles: Record<string, string>): boolean {
-  const fontSizeStr = styles.fontSize ?? '';
+function classifyTextSize(styles: Record<string, string>): { large: boolean; assumed: boolean } {
+  const fontSize = parseFloat(styles.fontSize ?? '');
+  // An unreadable font size is an ASSUMPTION, not a measurement. Returning a
+  // bare `false` is how the threshold silently defaulted to 4.5:1 for every
+  // element for as long as extract.ts captured no font metrics at all.
+  if (isNaN(fontSize)) return { large: false, assumed: true };
+
   const fontWeightStr = styles.fontWeight ?? '';
-
-  const fontSize = parseFloat(fontSizeStr);
-  if (isNaN(fontSize)) return false;
-
   const isBold = fontWeightStr === 'bold' || parseInt(fontWeightStr, 10) >= 700;
-  return fontSize >= 24 || (isBold && fontSize >= 18.66);
+  return { large: fontSize >= 24 || (isBold && fontSize >= 18.66), assumed: false };
 }
 
 // ============================================
@@ -85,6 +90,14 @@ export type ContrastMeasurement =
       status: 'measured';
       ratio: number;
       large: boolean;
+      /** true when font size could not be read, so the normal-text threshold was ASSUMED. */
+      sizeAssumed: boolean;
+      /** Foreground composited over the effective background — what the eye sees. */
+      foreground: [number, number, number];
+      /** The effective background the ratio was computed against. */
+      background: [number, number, number];
+      /** Element `opacity` < 1 was folded into the foreground alpha. */
+      opacityApplied: boolean;
       /** false = no opaque background existed in the ancestor chain; white was assumed. */
       backgroundResolved: boolean;
       /** A gradient or image paints behind this text; only the color layers were sampled. */
@@ -111,6 +124,25 @@ export function measureElementContrast(element: EnhancedElement): ContrastMeasur
 
   const text = (element.text ?? '').trim();
   if (text.length === 0) return { status: 'no-text' };
+
+  // `opacity` and `visibility` were captured on both extraction paths and then
+  // never consulted, in two opposite-but-both-wrong directions.
+  //
+  // FALSE CLAIM: opacity-0 and visibility-hidden text keeps its full layout
+  // box (only `display:none` collapses the rect, which is all the extractors
+  // reject), so it was graded and reported — while the `invisible` status right
+  // above claims to cover exactly this case.
+  //
+  // FALSE NEGATIVE, and the costlier one: `opacity: 0.6` is a very common
+  // muted-text pattern. Grading it at full strength reports a HIGHER ratio than
+  // a reader sees, so genuine failures pass silently. That is the same
+  // false-clean class this module exists to eliminate, with the datum already
+  // in hand.
+  const opacity = parseFloat(style.opacity ?? '1');
+  const opacityKnown = !isNaN(opacity);
+  if (style.visibility === 'hidden' || (opacityKnown && opacity <= 0)) {
+    return { status: 'invisible', reason: style.visibility === 'hidden' ? 'visibility-hidden' : 'opacity-0' };
+  }
 
   const fg = parseColor(style.color ?? '');
   if (fg.kind === 'unsupported') {
@@ -143,13 +175,29 @@ export function measureElementContrast(element: EnhancedElement): ContrastMeasur
     return { status: 'unmeasurable', raw: bg.unsupported, text };
   }
 
-  const fgRgb = flatten(fg, bg.rgb);
+  // Fold element opacity into the foreground alpha. This is exact in the common
+  // case — a text element with a transparent background, faded over an opaque
+  // ancestor. When the element paints its OWN opaque background, that
+  // background fades with the text and this slightly understates the ratio;
+  // `opacityApplied` marks the finding so the number is not read as exact.
+  // ANCESTOR opacity is a known gap: a faded wrapper is not represented here.
+  const effectiveFg = opacityKnown && opacity < 1
+    ? { ...fg, alpha: fg.alpha * opacity }
+    : fg;
+
+  const fgRgb = flatten(effectiveFg, bg.rgb);
   if (!fgRgb) return { status: 'invisible', reason: 'foreground did not composite' };
+
+  const size = classifyTextSize(style);
 
   return {
     status: 'measured',
     ratio: contrastRatio(fgRgb, bg.rgb),
-    large: isLargeText(style),
+    large: size.large,
+    sizeAssumed: size.assumed,
+    foreground: fgRgb,
+    background: bg.rgb,
+    opacityApplied: opacityKnown && opacity < 1,
     backgroundResolved: bg.resolved,
     backgroundImageBehind: element.backgroundImageBehind === true,
     text,
@@ -166,6 +214,12 @@ export function confidenceNote(m: Extract<ContrastMeasurement, { status: 'measur
   }
   if (m.backgroundImageBehind) {
     notes.push('a background-image paints behind this text; only the color layers were sampled');
+  }
+  if (m.sizeAssumed) {
+    notes.push('font size could not be read, so the normal-text threshold was assumed — a large-text element may be graded too strictly');
+  }
+  if (m.opacityApplied) {
+    notes.push('element opacity was folded into the text color');
   }
   return notes.length > 0 ? ` [${notes.join('; ')}]` : '';
 }

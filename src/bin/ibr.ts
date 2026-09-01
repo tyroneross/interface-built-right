@@ -977,7 +977,7 @@ program
  * Keeps library API (scan()) unchanged — trimming happens in the CLI layer.
  *
  * full    — default, no change
- * summary — omits elements.all and interactivity.detailedResults; keeps sensors, verdict, issues, console, semantic intent/state (~60% token reduction)
+ * summary — omits elements.all and interactivity.detailedResults; keeps sensors, verdict, issues, rulesApplied, contrastCoverage, console, semantic intent/state (~60% token reduction)
  * raw     — omits sensors; keeps everything else
  */
 function applyOutputMode(result: import('../scan.js').ScanResult, mode: string): Partial<import('../scan.js').ScanResult> {
@@ -990,6 +990,14 @@ function applyOutputMode(result: import('../scan.js').ScanResult, mode: string):
       summary: result.summary,
       issues: result.issues,
       sensors: result.sensors,
+      // Summary mode kept `sensors` while dropping BOTH of these. The one mode
+      // designed for token-constrained model consumption was therefore the one
+      // mode that showed contrast numbers with no way to tell "clean page" from
+      // "measured nothing" — the exact ambiguity these fields exist to close.
+      // They are two small objects; the ~60% reduction comes from dropping
+      // elements.all, not from these.
+      rulesApplied: result.rulesApplied,
+      contrastCoverage: result.contrastCoverage,
       console: result.console,
       semantic: result.semantic ? {
         pageIntent: (result.semantic as unknown as Record<string, unknown>).pageIntent,

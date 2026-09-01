@@ -1,95 +1,65 @@
 import type { SensorContext, ContrastReport, ContrastReportEntry } from './types.js';
+import { measureElementContrast } from '../rules/contrast-measure.js';
 
-// ── Inline WCAG helpers (the preset versions are private to the rules engine) ──
-
-type RGB = [number, number, number];
-
-function parseColor(color: string): RGB | null {
-  if (!color || color === 'transparent' || color === 'initial' || color === 'inherit' || color === 'unset') {
-    return null;
-  }
-  const rgbaMatch = color.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*([\d.]+))?\s*\)$/);
-  if (rgbaMatch) {
-    const alpha = rgbaMatch[4] !== undefined ? parseFloat(rgbaMatch[4]) : 1;
-    if (alpha === 0) return null;
-    return [parseInt(rgbaMatch[1], 10), parseInt(rgbaMatch[2], 10), parseInt(rgbaMatch[3], 10)];
-  }
-  const hex6 = color.match(/^#([0-9a-fA-F]{6})$/);
-  if (hex6) {
-    const n = parseInt(hex6[1], 16);
-    return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
-  }
-  const hex3 = color.match(/^#([0-9a-fA-F]{3})$/);
-  if (hex3) {
-    return [
-      parseInt(hex3[1][0], 16) * 17,
-      parseInt(hex3[1][1], 16) * 17,
-      parseInt(hex3[1][2], 16) * 17,
-    ];
-  }
-  return null;
-}
-
-function linearize(c: number): number {
-  const n = c / 255;
-  return n <= 0.04045 ? n / 12.92 : Math.pow((n + 0.055) / 1.055, 2.4);
-}
-
-function luminance([r, g, b]: RGB): number {
-  return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
-}
-
-function contrastRatio(fg: RGB, bg: RGB): number {
-  const l1 = luminance(fg);
-  const l2 = luminance(bg);
-  const lighter = Math.max(l1, l2);
-  const darker = Math.min(l1, l2);
-  return (lighter + 0.05) / (darker + 0.05);
-}
-
-function isLargeText(styles: Record<string, string>): boolean {
-  const fontSize = parseFloat(styles.fontSize ?? '');
-  if (isNaN(fontSize)) return false;
-  const fw = styles.fontWeight ?? '400';
-  const isBold = fw === 'bold' || parseInt(fw, 10) >= 700;
-  return fontSize >= 18 || (isBold && fontSize >= 14);
-}
-
-// ── Sensor ──────────────────────────────────────────────────────────────────
+/*
+ * THIS FILE USED TO BE THE THIRD CONTRAST IMPLEMENTATION.
+ *
+ * It carried its own parseColor / linearize / luminance / contrastRatio /
+ * isLargeText, and reproduced the exact defect the rule lanes were fixed for:
+ * it read only `styles.backgroundColor` with no ancestor chain, and
+ * `if (!fg || !bg) continue` skipped every element whose background computed to
+ * `rgba(0, 0, 0, 0)` — which is nearly all text on a real page. Its
+ * `totalChecked` therefore reported ~0 while looking like a completed audit.
+ * It also still used the superseded large-text thresholds (18px / 14px bold
+ * instead of 24px / 18.66px), so the two lanes disagreed about which
+ * requirement applied even when both did measure.
+ *
+ * That mattered more than a third copy normally would: `--output summary`
+ * KEEPS `sensors` while dropping `issues`-side detail, so the token-cheap mode
+ * surfaced this lane's false-clean accounting to models and humans alike.
+ *
+ * It now calls the one `measureElementContrast` in ../rules/contrast-measure.ts.
+ * Do not reintroduce local color math here.
+ */
 
 export function collectContrastReport(ctx: SensorContext): ContrastReport {
   let pass = 0;
   let fail = 0;
   let passAAA = 0;
+  let notMeasured = 0;
+  let assumedBackground = 0;
   const failing: ContrastReportEntry[] = [];
   let minRatio: ContrastReportEntry | undefined;
   let lightOnDark = 0;
   let darkOnLight = 0;
 
   for (const el of ctx.elements) {
-    const text = (el.text ?? '').trim();
-    if (!text) continue;
+    const m = measureElementContrast(el);
 
-    const styles = el.computedStyles;
-    if (!styles) continue;
+    // A color we could not decode is a MEASUREMENT GAP, not a skip. Counting it
+    // separately is what lets a reader tell "this page is clean" apart from
+    // "this sensor could not look at this page".
+    if (m.status === 'unmeasurable') {
+      notMeasured++;
+      continue;
+    }
+    if (m.status !== 'measured') continue;
 
-    const fg = parseColor(styles.color ?? '');
-    const bg = parseColor(styles.backgroundColor ?? '');
-    if (!fg || !bg) continue;
+    if (!m.backgroundResolved) assumedBackground++;
 
-    const large = isLargeText(styles);
-    const ratio = contrastRatio(fg, bg);
-    const aaThreshold = large ? 3 : 4.5;
-    const aaaThreshold = large ? 4.5 : 7;
+    const styles = el.computedStyles ?? {};
+    const aaThreshold = m.large ? 3 : 4.5;
+    const aaaThreshold = m.large ? 4.5 : 7;
     const fontSize = parseFloat(styles.fontSize ?? '16') || 16;
+    const ratio = m.ratio;
 
     const entry: ContrastReportEntry = {
       selector: el.selector,
-      text: text.slice(0, 60),
+      text: m.text.slice(0, 60),
       ratio: Number(ratio.toFixed(2)),
       pass: ratio >= aaaThreshold ? 'AAA' : ratio >= aaThreshold ? 'AA' : 'FAIL',
       fontSize,
-      largeText: large,
+      largeText: m.large,
     };
 
     if (ratio >= aaThreshold) {
@@ -102,9 +72,9 @@ export function collectContrastReport(ctx: SensorContext): ContrastReport {
 
     if (!minRatio || ratio < minRatio.ratio) minRatio = entry;
 
-    // Tone: average channel brightness to classify fg vs bg
-    const fgAvg = (fg[0] + fg[1] + fg[2]) / 3;
-    const bgAvg = (bg[0] + bg[1] + bg[2]) / 3;
+    // Tone: compare the text against the background actually behind it.
+    const fgAvg = m.foreground[0] + m.foreground[1] + m.foreground[2];
+    const bgAvg = m.background[0] + m.background[1] + m.background[2];
     if (fgAvg > bgAvg) lightOnDark++; else darkOnLight++;
   }
 
@@ -113,6 +83,8 @@ export function collectContrastReport(ctx: SensorContext): ContrastReport {
     pass,
     fail,
     passAAA,
+    notMeasured,
+    assumedBackground,
     failing,
     minRatio,
     byTone: { lightOnDark, darkOnLight },

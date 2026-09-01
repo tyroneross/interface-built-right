@@ -75,6 +75,20 @@ const ROUTES: Record<string, string> = {
 <figure id="card"><img id="logo" alt="Company logo" src="/none.png" width="40" height="40"></figure>
 </body></html>`,
 
+  // Second-audit findings f3 (opacity) and f11 (aria).
+  '/opacity-and-aria': `<!doctype html>
+<html><head><meta charset="utf-8"><title>opacity</title><style>
+  body { background:#ffffff; color:#111111; font-family: system-ui; }
+  p#muted   { color:#000000; opacity:0.25; }
+  p#gone    { color:#cccccc; opacity:0; }
+  p#hidden  { color:#cccccc; visibility:hidden; }
+</style></head><body>
+<p id="muted">Muted body text faded by opacity</p>
+<p id="gone">Fully transparent paragraph</p>
+<p id="hidden">Visibility hidden paragraph</p>
+<h2 aria-label="Real accessible name" role="note">Heading with aria</h2>
+</body></html>`,
+
   // No background declared ANYWHERE up the tree. The browser paints its white
   // canvas; the scan must assume white, grade the text, and say that it assumed.
   '/no-background': `<!doctype html>
@@ -277,6 +291,80 @@ describe('scan default rules — planted-defect regression', () => {
 
     expect(result.rulesApplied?.gradedTags).toEqual(expect.arrayContaining(['p', 'h1', 'li', 'td']));
   }, 60_000);
+
+  // AUDIT f3 — opacity was captured on both extraction paths and never used.
+  // `opacity: 0.25` black text on white is ~2.4:1, not the 21:1 it was graded
+  // at, so a real failure passed silently.
+  it('folds element opacity into the measured contrast', async () => {
+    const result = await scan(`${baseUrl}/opacity-and-aria`, { projectDir });
+
+    const aa = findings(result, 'wcag-aa-contrast');
+    const muted = aa.find((i) => i.description.includes('Muted body text'));
+    expect(muted).toBeDefined();
+    expect(muted!.description).toContain('element opacity was folded into the text color');
+  }, 60_000);
+
+  // AUDIT f3 — the 'invisible' status claimed to cover unpainted text while
+  // opacity-0 and visibility-hidden text kept full layout bounds and was graded.
+  it('treats opacity-0 and visibility-hidden text as unpainted', async () => {
+    const result = await scan(`${baseUrl}/opacity-and-aria`, { projectDir });
+
+    const graded = result.issues.map((i) => i.description).join(' ');
+    expect(graded).not.toContain('Fully transparent paragraph');
+    expect(graded).not.toContain('Visibility hidden paragraph');
+    expect(result.contrastCoverage!.invisibleText).toBeGreaterThanOrEqual(2);
+  }, 60_000);
+
+  // AUDIT f2 — a third contrast implementation lived in the sensor lane with
+  // the identical transparent-background bail and the superseded 18px/14px
+  // thresholds. `--output summary` keeps `sensors`, so that lane's false-clean
+  // accounting was what token-constrained consumers actually saw.
+  it('measures transparent backgrounds in the sensor lane too', async () => {
+    const result = await scan(`${baseUrl}/planted`, { projectDir });
+
+    expect(result.sensors?.contrast.totalChecked).toBeGreaterThan(0);
+    const failing = (result.sensors?.contrast.failing ?? []).map((f) => f.selector).join(' ');
+    expect(failing).toContain('transp');
+  }, 60_000);
+
+  // AUDIT f5 — runAllRules is a public export and had NO surface filter, so it
+  // ran every rule against whatever it was handed. It was safe only because its
+  // one in-tree caller happens to pass interactive elements.
+  //
+  // Note on what this can and cannot prove: with today's rule set the
+  // touch-target and handler rules each carry their own interactivity guard, so
+  // a paragraph reaches no violation either way — a test asserting "no
+  // touch-target finding on a paragraph" passes with the filter REMOVED and is
+  // therefore worthless. This asserts the filter itself instead: an
+  // interactive-only rule must be absent on the content surface and present on
+  // the interactive one, for the same element.
+  it('excludes interactive-only rules from the content surface in runAllRules', async () => {
+    const { runAllRules } = await import('./rules/index.js');
+    const { contentElementsToEnhanced } = await import('./rules/content-adapter.js');
+
+    const [element] = contentElementsToEnhanced([{
+      selector: 'p#dim', tagName: 'p', text: 'Low contrast paragraph',
+      bounds: { x: 0, y: 0, width: 200, height: 20 },
+      computedStyles: {
+        color: 'rgb(204,204,204)', backgroundColor: 'rgb(255,255,255)',
+        fontSize: '12px', fontWeight: '400',
+        display: 'block', visibility: 'visible', opacity: '1',
+      },
+      contentKind: 'paragraph',
+    }]);
+
+    const ctx = {
+      isMobile: false, viewportWidth: 1920, viewportHeight: 1080,
+      url: 'http://example.test', allElements: [element],
+    };
+
+    // wcag/contrast declares no appliesTo, so it defaults to 'interactive'.
+    const asInteractive = runAllRules([element], ctx, { surface: 'interactive' });
+    const asContent = runAllRules([element], ctx, { surface: 'content' });
+
+    expect(asInteractive.some((r) => r.rule === 'wcag/contrast')).toBe(true);
+    expect(asContent.some((r) => r.rule === 'wcag/contrast')).toBe(false);
+  });
 
   // The escape hatch, kept honest: opting out must SAY it ran nothing rather
   // than look like a clean page.

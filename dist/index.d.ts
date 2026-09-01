@@ -5467,6 +5467,11 @@ interface ContentElement {
     backgroundChain?: string[];
     /** Some layer in `backgroundChain` paints a background-image the color math cannot see. */
     backgroundImageBehind?: boolean;
+    /** Real ARIA attributes read from the DOM — absent means absent, not unread. */
+    role?: string | null;
+    ariaLabel?: string | null;
+    ariaDescribedBy?: string | null;
+    ariaHidden?: boolean;
     /** Only set for h1-h6. */
     headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
     contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
@@ -5603,6 +5608,14 @@ interface ContrastReport {
     pass: number;
     fail: number;
     passAAA: number;
+    /**
+     * Text this sensor could NOT grade because a color in the stack would not
+     * decode. Reported rather than skipped: `totalChecked: 0` with no companion
+     * number reads as "clean page" when it means "measured nothing".
+     */
+    notMeasured?: number;
+    /** Graded against an assumed white canvas — no opaque background in the ancestor chain. */
+    assumedBackground?: number;
     failing: ContrastReportEntry$1[];
     minRatio?: ContrastReportEntry$1;
     byTone?: {
@@ -5784,7 +5797,9 @@ interface RuleEngineResult {
  * Run all deterministic rules against a set of elements.
  * Returns a flat list of RuleEngineResult — one entry per violation.
  */
-declare function runAllRules(elements: EnhancedElement[], context: RuleContext): RuleEngineResult[];
+declare function runAllRules(elements: EnhancedElement[], context: RuleContext, options?: {
+    surface?: 'interactive' | 'content';
+}): RuleEngineResult[];
 
 /**
  * Scan Summarization Layer

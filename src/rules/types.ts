@@ -24,6 +24,23 @@ export interface RuleContext {
  */
 export type RuleSurface = 'interactive' | 'text' | 'any';
 
+/**
+ * Does this rule run on the surface being scanned?
+ *
+ * Lives in types.ts rather than in either engine so BOTH rule runners share one
+ * definition. `runRules` filtered correctly while `runAllRules` had no filter at
+ * all and was safe only because its one in-tree caller happened to pass
+ * interactive elements — and it is a public export, so a consumer passing
+ * content got body copy graded as an undersized tap target. Call-site
+ * discipline is not a guard.
+ */
+export function ruleAppliesTo(rule: Rule, surface: 'interactive' | 'content'): boolean {
+  const applies = rule.appliesTo ?? 'interactive';
+  return surface === 'interactive'
+    ? applies === 'interactive' || applies === 'any'
+    : applies === 'text' || applies === 'any';
+}
+
 /** A rule that can evaluate one scanned element. */
 export interface Rule {
   id: string;

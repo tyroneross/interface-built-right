@@ -6,6 +6,7 @@ import { minimalPreset } from './presets/minimal.js';
 import { touchTargetsPreset } from './presets/touch-targets.js';
 import { wcagContrastPreset } from './presets/wcag-contrast.js';
 import type { Rule, RuleContext, RulePreset } from './types.js';
+import { ruleAppliesTo } from './types.js';
 export type { Rule, RuleContext, RulePreset } from './types.js';
 import type {
   EnhancedElement,
@@ -228,14 +229,6 @@ export interface RunRulesOptions {
   surface?: 'interactive' | 'content';
 }
 
-/** Does this rule run on the surface being scanned? */
-function ruleAppliesTo(rule: Rule, surface: 'interactive' | 'content'): boolean {
-  const applies = rule.appliesTo ?? 'interactive';
-  return surface === 'interactive'
-    ? applies === 'interactive' || applies === 'any'
-    : applies === 'text' || applies === 'any';
-}
-
 /**
  * Run rules against elements
  */
@@ -294,7 +287,14 @@ export function createAuditResult(
     summary: {
       errors,
       warnings,
-      passed: elements.length - errors - warnings,
+      // Elements with NO violation against them. This was
+      // `elements.length - errors - warnings`, which counts violations rather
+      // than elements: one element tripping three rules subtracted three, and
+      // with several presets now active by default the figure could go
+      // negative. A count that can be negative was never measuring elements.
+      passed: elements.filter(
+        (el) => !violations.some((v) => v.element === el.selector),
+      ).length,
     },
   };
 }

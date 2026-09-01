@@ -7,6 +7,62 @@ increment before it is cut into a release.
 
 ## Unreleased
 
+### Changed (BREAKING for exit-code consumers)
+
+- **`ibr scan` now runs accessibility rules by default.** `touch-targets`,
+  `wcag-contrast`, and `calm-precision` run with no flag. Previously the preset
+  engine ran ONLY when `--rules` was passed, and no `.ibr/rules.json` means an
+  empty config, so a bare `ibr scan <url>` checked no contrast and no touch
+  targets and still printed a verdict. Precedence is `--rules` > `.ibr/rules.json`
+  > the built-in defaults; `--rules none` (or `--no-rules`) restores the previous
+  behavior. `ibr audit` falls back to the same three presets instead of `minimal`.
+
+  **Exit-code impact.** Preset violations now land in `issues`, and the verdict
+  is computed after they are aggregated (it was computed before, so a scan could
+  print a contrast ERROR and still report `PASS`). Three errors is `FAIL`, and
+  the CLI exits 1 on `FAIL`. A previously green `ibr scan` in a script or CI step
+  can now exit 1. That is the intended behavior — the old exit 0 was reporting on
+  checks that never ran — but it is a real break for anything gating on the exit
+  code. Pin the old behavior with `--rules none` if you need to stage the change.
+
+### Fixed
+
+- **Contrast is measured on text over a transparent background.** The rule bailed
+  on any non-`rgb` background, and `transparent` / alpha-0 parse to "no color" —
+  so on a real page, where text computes `background-color: rgba(0, 0, 0, 0)`,
+  it silently measured nothing and reported zero findings. The effective
+  background is now composited through the ancestor chain; with no opaque
+  ancestor, white is assumed, the ratio is still reported, and the finding says
+  it assumed.
+
+- **Body copy and headings are contrast-graded.** Only interactive elements
+  reached the rule engine; headings and paragraphs were extracted afterwards
+  under an opt-in flag. Content now runs through a text-only rule surface, so
+  touch-target and handler rules still never see a paragraph. List items, table
+  cells, labels, and captions are included.
+
+- **One contrast implementation, not three.** `wcag/contrast` (always-on,
+  `ScanResult.ruleEngine`), the `wcag-contrast` preset pair
+  (`ScanResult.issues`), and the `sensors.contrast` report each carried their own
+  color math and their own version of the same transparent-background bail. All
+  three now share `measureElementContrast`.
+
+- **WCAG large-text thresholds actually apply.** `isLargeText` read `fontSize`
+  and `fontWeight`, which neither extractor captured, so every element on every
+  scan was graded against the 4.5:1 normal-text bar. A 32px bold heading at
+  3.03:1 passes AA large text and was reported as a failure.
+
+- **Element opacity is honored.** `opacity` was captured and never used, so
+  `opacity: 0.6` muted text was graded at full strength (real failures passed
+  silently) while `opacity: 0` and `visibility: hidden` text was graded and
+  reported despite being unpainted.
+
+- **Coverage is reported, not implied.** `ScanResult.rulesApplied` names the
+  presets that ran and the tags graded; `ScanResult.contrastCoverage` reports how
+  much text was measured, assumed-white, or undecodable. `--output summary` now
+  keeps both. Zero findings and zero measurements are no longer
+  indistinguishable.
+
 ### Added
 
 - **General breadcrumb auditing in every web scan.** IBR now recognizes
