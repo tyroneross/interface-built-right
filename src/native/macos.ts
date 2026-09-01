@@ -193,11 +193,23 @@ export function mapMacOSToEnhancedElements(
   parentPath = ''
 ): EnhancedElement[] {
   const enhanced: EnhancedElement[] = [];
+  // AppKit owns these traffic-light controls. They are intentionally 16pt and
+  // expose their meaning through AXSubrole rather than an app-provided label,
+  // so grading them as application content creates false accessibility and
+  // target-size failures.
+  const systemWindowControlSubroles = new Set([
+    'AXCloseButton',
+    'AXMinimizeButton',
+    'AXFullScreenButton',
+  ]);
 
   function flatten(elements: MacOSAXElement[], path: string, depth: number): void {
     const roleCounts: Record<string, number> = {};
 
     for (const el of elements) {
+      if (el.subrole && systemWindowControlSubroles.has(el.subrole)) {
+        continue;
+      }
       // Build unique path-based selector
       const roleCount = roleCounts[el.role] || 0;
       roleCounts[el.role] = roleCount + 1;

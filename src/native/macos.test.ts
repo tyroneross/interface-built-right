@@ -10,7 +10,8 @@ vi.mock('./extract.js', () => ({
   ensureExtractor: vi.fn().mockResolvedValue('/mock/path/ibr-ax-extract'),
 }));
 
-import { extractMacOSElements } from './macos.js';
+import { extractMacOSElements, mapMacOSToEnhancedElements } from './macos.js';
+import type { MacOSAXElement } from './types.js';
 
 const execFileMock = vi.mocked(execFile);
 
@@ -91,5 +92,37 @@ describe('extractMacOSElements', () => {
     expect(result.window.title).toBe('Recovered');
     expect(result.elements[0].title).toBe('Recovered Button');
     expect(execFileMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('mapMacOSToEnhancedElements', () => {
+  function button(subrole: string | null, title: string | null): MacOSAXElement {
+    return {
+      role: 'AXButton',
+      subrole,
+      title,
+      description: null,
+      identifier: null,
+      value: null,
+      enabled: true,
+      focused: false,
+      actions: ['AXPress'],
+      position: { x: 10, y: 10 },
+      size: { width: 16, height: 16 },
+      children: [],
+      path: [0],
+    };
+  }
+
+  it('excludes system-owned traffic-light controls from app audits', () => {
+    const mapped = mapMacOSToEnhancedElements([
+      button('AXCloseButton', null),
+      button('AXMinimizeButton', null),
+      button('AXFullScreenButton', null),
+      button(null, 'Save'),
+    ]);
+
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0].text).toBe('Save');
   });
 });

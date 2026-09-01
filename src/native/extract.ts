@@ -14,12 +14,14 @@ const execFileAsync = promisify(execFile);
 const EXTRACTOR_DIR = join(process.cwd(), '.ibr', 'bin');
 const EXTRACTOR_PATH = join(EXTRACTOR_DIR, 'ibr-ax-extract');
 
-function resolveSwiftSourceDir(): string {
+export function resolveSwiftSourceDir(runtimeModuleDir: string = moduleDir): string {
   const candidates = [
     // TypeScript source execution: src/native/extract.ts
-    join(moduleDir, 'swift', 'ibr-ax-extract'),
+    join(runtimeModuleDir, 'swift', 'ibr-ax-extract'),
     // Bundled package execution: dist/index.{js,mjs}
-    join(moduleDir, '..', 'src', 'native', 'swift', 'ibr-ax-extract'),
+    join(runtimeModuleDir, '..', 'src', 'native', 'swift', 'ibr-ax-extract'),
+    // Packaged CLI execution: dist/bin/ibr.js
+    join(runtimeModuleDir, '..', '..', 'src', 'native', 'swift', 'ibr-ax-extract'),
   ];
 
   return candidates.find(candidate => existsSync(join(candidate, 'Package.swift'))) ?? candidates[0];
@@ -47,6 +49,13 @@ export async function ensureExtractor(): Promise<string> {
 
   if (existsSync(EXTRACTOR_PATH) && isFileFresh(EXTRACTOR_PATH)) {
     return EXTRACTOR_PATH;
+  }
+
+  if (!existsSync(SWIFT_PACKAGE_PATH)) {
+    throw new Error(
+      `Bundled Swift extractor source not found at ${SWIFT_SOURCE_DIR}. ` +
+      'Rebuild or reinstall IBR so src/native/swift/ibr-ax-extract is included.'
+    );
   }
 
   await mkdir(EXTRACTOR_DIR, { recursive: true });
