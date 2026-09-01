@@ -98,6 +98,12 @@ export type ContrastMeasurement =
       background: [number, number, number];
       /** Element `opacity` < 1 was folded into the foreground alpha. */
       opacityApplied: boolean;
+      /**
+       * An ANCESTOR's `opacity` < 1 was folded in. Reported separately from
+       * `opacityApplied` because the two have different fixes: one is a
+       * property of this element, the other of a wrapper somewhere above it.
+       */
+      ancestorOpacityApplied: boolean;
       /** false = no opaque background existed in the ancestor chain; white was assumed. */
       backgroundResolved: boolean;
       /** A gradient or image paints behind this text; only the color layers were sampled. */
@@ -175,15 +181,27 @@ export function measureElementContrast(element: EnhancedElement): ContrastMeasur
     return { status: 'unmeasurable', raw: bg.unsupported, text };
   }
 
-  // Fold element opacity into the foreground alpha. This is exact in the common
-  // case — a text element with a transparent background, faded over an opaque
-  // ancestor. When the element paints its OWN opaque background, that
-  // background fades with the text and this slightly understates the ratio;
+  // Fold opacity into the foreground alpha — the element's own, AND every
+  // ancestor's.
+  //
+  // ANCESTOR OPACITY WAS THE LAST DECLARED GAP HERE, and it was a
+  // false-negative gap: `<div style="opacity:.3"><p style="color:#767676">` on
+  // white renders at about 1.3:1, and this reported 4.54:1 — a comfortable AA
+  // pass for text a reader can barely see. Declaring a gap is better than
+  // hiding one, but measuring it is better still, and the chain walk in
+  // extract.ts already visits every ancestor.
+  //
+  // Exact in the common case — text with a transparent background, faded over
+  // an opaque ancestor. When the element paints its OWN opaque background that
+  // background fades with the text, so this slightly understates the ratio;
   // `opacityApplied` marks the finding so the number is not read as exact.
-  // ANCESTOR opacity is a known gap: a faded wrapper is not represented here.
-  const effectiveFg = opacityKnown && opacity < 1
-    ? { ...fg, alpha: fg.alpha * opacity }
-    : fg;
+  const ancestorOpacity = element.ancestorOpacity;
+  const ancestorFade = typeof ancestorOpacity === 'number' && ancestorOpacity > 0 && ancestorOpacity < 1
+    ? ancestorOpacity
+    : 1;
+  const ownFade = opacityKnown && opacity < 1 ? opacity : 1;
+  const totalFade = ownFade * ancestorFade;
+  const effectiveFg = totalFade < 1 ? { ...fg, alpha: fg.alpha * totalFade } : fg;
 
   const fgRgb = flatten(effectiveFg, bg.rgb);
   if (!fgRgb) return { status: 'invisible', reason: 'foreground did not composite' };
@@ -197,7 +215,8 @@ export function measureElementContrast(element: EnhancedElement): ContrastMeasur
     sizeAssumed: size.assumed,
     foreground: fgRgb,
     background: bg.rgb,
-    opacityApplied: opacityKnown && opacity < 1,
+    opacityApplied: ownFade < 1,
+    ancestorOpacityApplied: ancestorFade < 1,
     backgroundResolved: bg.resolved,
     backgroundImageBehind: element.backgroundImageBehind === true,
     text,
@@ -220,6 +239,11 @@ export function confidenceNote(m: Extract<ContrastMeasurement, { status: 'measur
   }
   if (m.opacityApplied) {
     notes.push('element opacity was folded into the text color');
+  }
+  if (m.ancestorOpacityApplied) {
+    // Named separately because the fix lives somewhere else: an ancestor is
+    // fading this text, and nothing about this element explains the number.
+    notes.push('ancestor opacity was folded into the text color — a wrapper above this element is fading it');
   }
   return notes.length > 0 ? ` [${notes.join('; ')}]` : '';
 }

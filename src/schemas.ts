@@ -415,6 +415,13 @@ export const EnhancedElementSchema = z.object({
    * color layers and reported — labelled, never dropped.
    */
   backgroundImageBehind: z.boolean().optional(),
+  /**
+   * Product of every ANCESTOR's `opacity`, when anything above this element
+   * fades. `opacity` on a wrapper fades the whole subtree, so the text renders
+   * lighter than its own computed colour — measured now rather than assumed
+   * away, which was the last declared gap in the contrast lane.
+   */
+  ancestorOpacity: z.number().optional(),
 
   // Interactivity
   interactive: InteractiveStateSchema,

@@ -51,6 +51,27 @@ const ROUTES: Record<string, string> = {
    * unmeasurable: 0` throughout — complete coverage of a subset, worded
    * identically to complete coverage of the page.
    */
+  /**
+   * Ancestor opacity — the OTHER gap the previous audit declared and left open.
+   *
+   * #767676 on white is 4.54:1, a comfortable AA pass. Inside a wrapper at
+   * opacity .30 the reader sees roughly 1.3:1. The measurement folded in the
+   * element's OWN opacity and ignored every ancestor's, so it reported the
+   * unfaded number: a false NEGATIVE on text that is genuinely unreadable.
+   *
+   * The paragraph declares its own opaque background ON PURPOSE. The background
+   * chain walk stops at the first opaque layer, so a fix that rides on that
+   * walk's exit never reaches the faded wrapper — which is exactly how the
+   * first attempt at this measured nothing on this very fixture.
+   */
+  '/ancestor-opacity': `<!doctype html>
+<html><head><meta charset="utf-8"><title>ancestor</title></head><body style="background:#ffffff">
+<div id="fade" style="opacity:0.30">
+  <p id="faded" style="color:#767676;background:#ffffff;font-size:14px">Ancestor opacity faded body copy</p>
+</div>
+<p id="unfaded" style="color:#767676;background:#ffffff;font-size:14px">Unfaded body copy at the same colour</p>
+</body></html>`,
+
   '/inline-and-hidden': `<!doctype html>
 <html><head><meta charset="utf-8"><title>inline</title><style>
   body { background:#ffffff; font-family: system-ui; }
@@ -477,5 +498,25 @@ describe('scan default rules — planted-defect regression', () => {
     // The colour is carried so the reader can see it is the SAME failing colour
     // that was reported elsewhere on the page.
     expect(samples.some((x) => x.color === 'rgb(161, 161, 170)')).toBe(true);
+  }, 60_000);
+
+  // The last gap the previous audit DECLARED rather than closed. Declaring a
+  // gap beats hiding one; measuring it beats both.
+  it('folds ANCESTOR opacity into the measured contrast, not just the element own', async () => {
+    const result = await scan(`${baseUrl}/ancestor-opacity`, { projectDir });
+
+    const aa = findings(result, 'wcag-aa-contrast');
+    const faded = aa.find((f) => (f.element ?? '').includes('faded'));
+    expect(faded, 'text inside an opacity:.3 wrapper renders at ~1.3:1 and must fail AA').toBeDefined();
+    expect(faded!.description).toContain('ancestor opacity');
+  }, 60_000);
+
+  // The guard against over-correcting: identical colour, no faded ancestor, and
+  // 4.54:1 is a genuine AA pass that must stay quiet.
+  it('leaves the same colour alone when no ancestor fades it', async () => {
+    const result = await scan(`${baseUrl}/ancestor-opacity`, { projectDir });
+
+    const aa = findings(result, 'wcag-aa-contrast');
+    expect(aa.some((f) => (f.element ?? '').includes('unfaded'))).toBe(false);
   }, 60_000);
 });

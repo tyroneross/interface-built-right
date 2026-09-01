@@ -351,6 +351,13 @@ var init_schemas = __esm({
        * color layers and reported — labelled, never dropped.
        */
       backgroundImageBehind: zod.z.boolean().optional(),
+      /**
+       * Product of every ANCESTOR's `opacity`, when anything above this element
+       * fades. `opacity` on a wrapper fades the whole subtree, so the text renders
+       * lighter than its own computed colour — measured now rather than assumed
+       * away, which was the last declared gap in the contrast lane.
+       */
+      ancestorOpacity: zod.z.number().optional(),
       // Interactivity
       interactive: exports.InteractiveStateSchema,
       // True when the element is descendant of a <form>. A `<button>` inside a
@@ -8059,14 +8066,20 @@ async function extractInteractiveElements(page) {
     const collectBackgroundChain = (start) => {
       const chain = [];
       let image = false;
+      let ancestorOpacity = 1;
+      let bgResolved = false;
       let node = start;
       let depth = 0;
       while (node && depth < 64) {
         const cs = window.getComputedStyle(node);
-        const bg = cs.backgroundColor || "";
-        chain.push(bg);
+        if (node !== start) {
+          const o = parseFloat(cs.opacity ?? "1");
+          if (!isNaN(o) && o < 1) ancestorOpacity *= o;
+        }
+        const bg = bgResolved ? "" : cs.backgroundColor || "";
+        if (!bgResolved) chain.push(bg);
         const bgImage = cs.backgroundImage;
-        if (bgImage && bgImage !== "none") image = true;
+        if (!bgResolved && bgImage && bgImage !== "none") image = true;
         const modernAlpha = bg.match(/\/\s*([0-9.]+%?)\s*\)$/);
         const legacyAlpha = bg.match(/^rgba\([^)]*,\s*([0-9.]+)\s*\)$/i);
         let alpha = 1;
@@ -8076,11 +8089,11 @@ async function extractInteractiveElements(page) {
           alpha = parseFloat(legacyAlpha[1]);
         }
         const opaque = bg !== "" && bg !== "transparent" && !isNaN(alpha) && alpha >= 1;
-        if (opaque) break;
+        if (opaque) bgResolved = true;
         node = node.parentElement;
         depth++;
       }
-      return { chain, image };
+      return { chain, image, ancestorOpacity };
     };
     for (const selector of selectors) {
       try {
@@ -8110,7 +8123,8 @@ async function extractInteractiveElements(page) {
               const bgChain = collectBackgroundChain(htmlEl);
               return {
                 backgroundChain: bgChain.chain,
-                ...bgChain.image ? { backgroundImageBehind: true } : {}
+                ...bgChain.image ? { backgroundImageBehind: true } : {},
+                ...bgChain.ancestorOpacity < 1 ? { ancestorOpacity: bgChain.ancestorOpacity } : {}
               };
             })(),
             interactive: {
@@ -8272,14 +8286,20 @@ async function extractContentElements(page) {
     const collectBackgroundChain = (start) => {
       const chain = [];
       let image = false;
+      let ancestorOpacity = 1;
+      let bgResolved = false;
       let node = start;
       let depth = 0;
       while (node && depth < 64) {
         const cs = window.getComputedStyle(node);
-        const bg = cs.backgroundColor || "";
-        chain.push(bg);
+        if (node !== start) {
+          const o = parseFloat(cs.opacity ?? "1");
+          if (!isNaN(o) && o < 1) ancestorOpacity *= o;
+        }
+        const bg = bgResolved ? "" : cs.backgroundColor || "";
+        if (!bgResolved) chain.push(bg);
         const bgImage = cs.backgroundImage;
-        if (bgImage && bgImage !== "none") image = true;
+        if (!bgResolved && bgImage && bgImage !== "none") image = true;
         const modernAlpha = bg.match(/\/\s*([0-9.]+%?)\s*\)$/);
         const legacyAlpha = bg.match(/^rgba\([^)]*,\s*([0-9.]+)\s*\)$/i);
         let alpha = 1;
@@ -8289,11 +8309,11 @@ async function extractContentElements(page) {
           alpha = parseFloat(legacyAlpha[1]);
         }
         const opaque = bg !== "" && bg !== "transparent" && !isNaN(alpha) && alpha >= 1;
-        if (opaque) break;
+        if (opaque) bgResolved = true;
         node = node.parentElement;
         depth++;
       }
-      return { chain, image };
+      return { chain, image, ancestorOpacity };
     };
     const kindFor = (tag) => {
       if (/^h[1-6]$/.test(tag)) return "heading";
@@ -8341,6 +8361,7 @@ async function extractContentElements(page) {
           const bgChain = collectBackgroundChain(htmlEl);
           entry.backgroundChain = bgChain.chain;
           if (bgChain.image) entry.backgroundImageBehind = true;
+          if (bgChain.ancestorOpacity < 1) entry.ancestorOpacity = bgChain.ancestorOpacity;
           if (kind === "heading") {
             entry.headingLevel = Number(tag[1]);
           }
@@ -8398,6 +8419,7 @@ async function extractContentElements(page) {
           const bgChain = collectBackgroundChain(htmlEl);
           entry.backgroundChain = bgChain.chain;
           if (bgChain.image) entry.backgroundImageBehind = true;
+          if (bgChain.ancestorOpacity < 1) entry.ancestorOpacity = bgChain.ancestorOpacity;
           results.push(entry);
         });
       } catch {
@@ -9960,7 +9982,11 @@ function measureElementContrast(element) {
   if (bg.unsupported !== void 0) {
     return { status: "unmeasurable", raw: bg.unsupported, text };
   }
-  const effectiveFg = opacityKnown && opacity < 1 ? { ...fg, alpha: fg.alpha * opacity } : fg;
+  const ancestorOpacity = element.ancestorOpacity;
+  const ancestorFade = typeof ancestorOpacity === "number" && ancestorOpacity > 0 && ancestorOpacity < 1 ? ancestorOpacity : 1;
+  const ownFade = opacityKnown && opacity < 1 ? opacity : 1;
+  const totalFade = ownFade * ancestorFade;
+  const effectiveFg = totalFade < 1 ? { ...fg, alpha: fg.alpha * totalFade } : fg;
   const fgRgb = flatten(effectiveFg, bg.rgb);
   if (!fgRgb) return { status: "invisible", reason: "foreground did not composite" };
   const size = classifyTextSize(style);
@@ -9971,7 +9997,8 @@ function measureElementContrast(element) {
     sizeAssumed: size.assumed,
     foreground: fgRgb,
     background: bg.rgb,
-    opacityApplied: opacityKnown && opacity < 1,
+    opacityApplied: ownFade < 1,
+    ancestorOpacityApplied: ancestorFade < 1,
     backgroundResolved: bg.resolved,
     backgroundImageBehind: element.backgroundImageBehind === true,
     text,
@@ -9992,6 +10019,9 @@ function confidenceNote(m) {
   }
   if (m.opacityApplied) {
     notes.push("element opacity was folded into the text color");
+  }
+  if (m.ancestorOpacityApplied) {
+    notes.push("ancestor opacity was folded into the text color \u2014 a wrapper above this element is fading it");
   }
   return notes.length > 0 ? ` [${notes.join("; ")}]` : "";
 }
@@ -12612,6 +12642,7 @@ function contentElementToEnhanced(content) {
     computedStyles: content.computedStyles,
     backgroundChain: content.backgroundChain,
     backgroundImageBehind: content.backgroundImageBehind,
+    ancestorOpacity: content.ancestorOpacity,
     interactive: {
       hasOnClick: false,
       hasHref: false,

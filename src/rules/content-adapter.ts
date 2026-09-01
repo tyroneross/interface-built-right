@@ -42,6 +42,7 @@ export function contentElementToEnhanced(content: ContentElement): EnhancedEleme
     computedStyles: content.computedStyles,
     backgroundChain: content.backgroundChain,
     backgroundImageBehind: content.backgroundImageBehind,
+    ancestorOpacity: content.ancestorOpacity,
     interactive: {
       hasOnClick: false,
       hasHref: false,

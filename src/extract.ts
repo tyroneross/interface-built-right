@@ -543,17 +543,44 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
     // "opaque" is a cheap string test — no color parsing needed in-page.
     // Compositing and the white-canvas fallback happen in
     // src/rules/color-parse.ts (resolveEffectiveBackground), not here.
-    const collectBackgroundChain = (start: HTMLElement): { chain: string[]; image: boolean } => {
+    const collectBackgroundChain = (
+      start: HTMLElement,
+    ): { chain: string[]; image: boolean; ancestorOpacity: number } => {
       const chain: string[] = [];
       let image = false;
+      // Product of every ANCESTOR's opacity. `opacity` on a wrapper fades the
+      // whole subtree, so text inside it renders lighter than its own computed
+      // colour — and this was the last declared gap in the contrast lane: the
+      // element's own opacity was folded in, an ancestor's was not, so a
+      // 4.54:1 measurement was reported for text a reader sees at ~1.3:1.
+      // The walk already visits every ancestor; it simply was not looking at
+      // this property.
+      let ancestorOpacity = 1;
+      let bgResolved = false;
       let node: HTMLElement | null = start;
       let depth = 0;
       while (node && depth < 64) {
         const cs = window.getComputedStyle(node);
-        const bg = cs.backgroundColor || '';
-        chain.push(bg);
+        // The element's OWN opacity is handled separately in
+        // contrast-measure.ts; only ancestors accumulate here.
+        //
+        // Accumulated on EVERY ancestor, including those above the first opaque
+        // background. The background walk stops at the first opaque layer
+        // because nothing behind it is visible — but `opacity` does not work
+        // that way: a faded wrapper fades its whole subtree no matter what
+        // backgrounds sit inside it. Folding opacity into the background walk's
+        // early exit is why the first version of this measured nothing on the
+        // very fixture built for it: `<div style="opacity:.3"><p
+        // style="background:#fff">` breaks the chain at depth 0, before the
+        // wrapper is ever visited.
+        if (node !== start) {
+          const o = parseFloat(cs.opacity ?? '1');
+          if (!isNaN(o) && o < 1) ancestorOpacity *= o;
+        }
+        const bg = bgResolved ? '' : (cs.backgroundColor || '');
+        if (!bgResolved) chain.push(bg);
         const bgImage = cs.backgroundImage;
-        if (bgImage && bgImage !== 'none') image = true;
+        if (!bgResolved && bgImage && bgImage !== 'none') image = true;
         // Opacity by ALPHA, not by function name. The previous test was
         // `/^rgb\(/` plus a trailing `, 1)`, on the premise that Chrome always
         // serializes background-color as rgb()/rgba(). That premise is false
@@ -576,11 +603,13 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
           alpha = parseFloat(legacyAlpha[1]);
         }
         const opaque = bg !== '' && bg !== 'transparent' && !isNaN(alpha) && alpha >= 1;
-        if (opaque) break;
+        // The BACKGROUND question is answered; the OPACITY question is not, so
+        // the walk continues with background collection switched off.
+        if (opaque) bgResolved = true;
         node = node.parentElement;
         depth++;
       }
-      return { chain, image };
+      return { chain, image, ancestorOpacity };
     };
 
     // Process each selector
@@ -618,6 +647,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               return {
                 backgroundChain: bgChain.chain,
                 ...(bgChain.image ? { backgroundImageBehind: true } : {}),
+                ...(bgChain.ancestorOpacity < 1 ? { ancestorOpacity: bgChain.ancestorOpacity } : {}),
               };
             })(),
             interactive: {
@@ -886,6 +916,8 @@ export interface ContentElement {
   /** Only set for h1-h6. */
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
   contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote' | 'inline';
+  /** Product of every ancestor's `opacity`. Absent when nothing above fades. */
+  ancestorOpacity?: number;
   /** <img> only. */
   alt?: string;
   /** <img> only. */
@@ -962,17 +994,44 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
     // Same walk as the interactive path's collectBackgroundChain — each
     // page.evaluate() ships its own closure across CDP, so there is no runtime
     // module to share it from. Keep the two in sync.
-    const collectBackgroundChain = (start: HTMLElement): { chain: string[]; image: boolean } => {
+    const collectBackgroundChain = (
+      start: HTMLElement,
+    ): { chain: string[]; image: boolean; ancestorOpacity: number } => {
       const chain: string[] = [];
       let image = false;
+      // Product of every ANCESTOR's opacity. `opacity` on a wrapper fades the
+      // whole subtree, so text inside it renders lighter than its own computed
+      // colour — and this was the last declared gap in the contrast lane: the
+      // element's own opacity was folded in, an ancestor's was not, so a
+      // 4.54:1 measurement was reported for text a reader sees at ~1.3:1.
+      // The walk already visits every ancestor; it simply was not looking at
+      // this property.
+      let ancestorOpacity = 1;
+      let bgResolved = false;
       let node: HTMLElement | null = start;
       let depth = 0;
       while (node && depth < 64) {
         const cs = window.getComputedStyle(node);
-        const bg = cs.backgroundColor || '';
-        chain.push(bg);
+        // The element's OWN opacity is handled separately in
+        // contrast-measure.ts; only ancestors accumulate here.
+        //
+        // Accumulated on EVERY ancestor, including those above the first opaque
+        // background. The background walk stops at the first opaque layer
+        // because nothing behind it is visible — but `opacity` does not work
+        // that way: a faded wrapper fades its whole subtree no matter what
+        // backgrounds sit inside it. Folding opacity into the background walk's
+        // early exit is why the first version of this measured nothing on the
+        // very fixture built for it: `<div style="opacity:.3"><p
+        // style="background:#fff">` breaks the chain at depth 0, before the
+        // wrapper is ever visited.
+        if (node !== start) {
+          const o = parseFloat(cs.opacity ?? '1');
+          if (!isNaN(o) && o < 1) ancestorOpacity *= o;
+        }
+        const bg = bgResolved ? '' : (cs.backgroundColor || '');
+        if (!bgResolved) chain.push(bg);
         const bgImage = cs.backgroundImage;
-        if (bgImage && bgImage !== 'none') image = true;
+        if (!bgResolved && bgImage && bgImage !== 'none') image = true;
         // Opacity by ALPHA, not by function name. The previous test was
         // `/^rgb\(/` plus a trailing `, 1)`, on the premise that Chrome always
         // serializes background-color as rgb()/rgba(). That premise is false
@@ -995,11 +1054,13 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
           alpha = parseFloat(legacyAlpha[1]);
         }
         const opaque = bg !== '' && bg !== 'transparent' && !isNaN(alpha) && alpha >= 1;
-        if (opaque) break;
+        // The BACKGROUND question is answered; the OPACITY question is not, so
+        // the walk continues with background collection switched off.
+        if (opaque) bgResolved = true;
         node = node.parentElement;
         depth++;
       }
-      return { chain, image };
+      return { chain, image, ancestorOpacity };
     };
 
     const kindFor = (tag: string): ContentElement['contentKind'] => {
@@ -1056,6 +1117,7 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
           const bgChain = collectBackgroundChain(htmlEl);
           entry.backgroundChain = bgChain.chain;
           if (bgChain.image) entry.backgroundImageBehind = true;
+          if (bgChain.ancestorOpacity < 1) entry.ancestorOpacity = bgChain.ancestorOpacity;
 
           if (kind === 'heading') {
             entry.headingLevel = Number(tag[1]) as ContentElement['headingLevel'];
@@ -1135,6 +1197,7 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
           const bgChain = collectBackgroundChain(htmlEl);
           entry.backgroundChain = bgChain.chain;
           if (bgChain.image) entry.backgroundImageBehind = true;
+          if (bgChain.ancestorOpacity < 1) entry.ancestorOpacity = bgChain.ancestorOpacity;
 
           results.push(entry);
         });

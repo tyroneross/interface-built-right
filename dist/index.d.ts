@@ -1648,6 +1648,7 @@ declare const EnhancedElementSchema: z.ZodObject<{
     computedStyles: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodString>>;
     backgroundChain: z.ZodOptional<z.ZodArray<z.ZodString>>;
     backgroundImageBehind: z.ZodOptional<z.ZodBoolean>;
+    ancestorOpacity: z.ZodOptional<z.ZodNumber>;
     interactive: z.ZodObject<{
         hasOnClick: z.ZodBoolean;
         hasHref: z.ZodBoolean;
@@ -5484,6 +5485,8 @@ interface ContentElement {
     /** Only set for h1-h6. */
     headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
     contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote' | 'inline';
+    /** Product of every ancestor's `opacity`. Absent when nothing above fades. */
+    ancestorOpacity?: number;
     /** <img> only. */
     alt?: string;
     /** <img> only. */
