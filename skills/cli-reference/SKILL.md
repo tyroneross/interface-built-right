@@ -106,8 +106,21 @@ npx ibr clean --older-than 7d
 
 For multi-step flows (forms, login, navigation). Browser persists across commands.
 
+**The first `session:start` BLOCKS.** It becomes the process that owns the
+browser and reaps it on exit, so it runs in the foreground until you interrupt
+it. That is intended, but from a script or an agent — no TTY, output rendered
+only at exit — it is indistinguishable from a hang. Use `--detach` for any
+non-interactive caller: it runs the server in the background and returns once
+the session exists, printing the session id and a log path. Later
+`session:start` calls return immediately either way, because the server is
+already up.
+
 ```bash
-# Start session (browser stays open)
+# Start session in the background and RETURN (use this from scripts/agents)
+npx ibr session:start http://localhost:3000 --detach
+# Returns: live_abc123 ; log at .ibr/browser-server.log
+
+# Foreground: holds the terminal until Ctrl+C
 npx ibr session:start http://localhost:3000
 npx ibr session:start http://localhost:3000 --name "login-test"
 # Returns: live_abc123
@@ -135,11 +148,15 @@ npx ibr session:modal live_abc123                 # detect modals
 npx ibr session:modal live_abc123 --dismiss       # dismiss active modal
 
 # Manage
-npx ibr session:list                              # list active sessions
+npx ibr session:list                              # server liveness + session records
 npx ibr session:pending                           # pending operations
 npx ibr session:close live_abc123                 # close one session
 npx ibr session:close all                         # close all + stop browser
 ```
+Session ids are directories on disk and outlive the browser. Only the
+`Browser server:` line reports liveness — when the server is gone, `session:list`
+labels the ids as records and says why it decided that.
+
 
 ### Session workflow example:
 ```bash

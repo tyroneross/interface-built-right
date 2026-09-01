@@ -140,6 +140,23 @@ function getPaths(outputDir: string) {
   };
 }
 
+/** Session records read at once. Bounds open file descriptors, not the search. */
+const HARD_WALL_SCAN_CONCURRENCY = 64;
+
+/**
+ * Find a still-pending hard wall for this URL + strategy.
+ *
+ * Runs on every `session:start` BEFORE the browser is touched, and reads one
+ * file per session directory — and session directories are never pruned.
+ * Measured 2026-09-01 with the reads serialized: 2ms empty, 138ms at 290
+ * directories, 574ms at 1000, 2519ms at 5000. Not the reported hang (which was
+ * minutes), but a cost that grows with every session ever started.
+ *
+ * Batched reads keep the search set identical — every record is still examined
+ * — while removing the serial latency. Within a batch the winning match is
+ * whichever record resolves first; that only matters if two records carry the
+ * same attemptKey, in which case they describe the same wall anyway.
+ */
 async function findPendingHardWall(
   outputDir: string,
   requestedUrl: string,
@@ -150,16 +167,23 @@ async function findPendingHardWall(
 
   const attemptKey = sessionAttemptKey(requestedUrl, strategyKey);
   const entries = await readdir(sessionsDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith('live_')) continue;
-    const statePath = join(sessionsDir, entry.name, 'live-session.json');
-    if (!existsSync(statePath)) continue;
-    try {
-      const state = JSON.parse(await readFile(statePath, 'utf-8')) as Partial<SessionState>;
-      if (state.hardWall?.attemptKey === attemptKey) return state.hardWall;
-    } catch {
-      // A malformed unrelated session record must not block a new session.
-    }
+  const candidates = entries
+    .filter((e) => e.isDirectory() && e.name.startsWith('live_'))
+    .map((e) => join(sessionsDir, e.name, 'live-session.json'));
+
+  for (let i = 0; i < candidates.length; i += HARD_WALL_SCAN_CONCURRENCY) {
+    const batch = candidates.slice(i, i + HARD_WALL_SCAN_CONCURRENCY);
+    const walls = await Promise.all(batch.map(async (statePath) => {
+      try {
+        const state = JSON.parse(await readFile(statePath, 'utf-8')) as Partial<SessionState>;
+        return state.hardWall?.attemptKey === attemptKey ? state.hardWall : null;
+      } catch {
+        // A missing or malformed unrelated record must not block a new session.
+        return null;
+      }
+    }));
+    const hit = walls.find((w) => w);
+    if (hit) return hit;
   }
   return null;
 }

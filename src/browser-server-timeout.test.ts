@@ -283,3 +283,63 @@ describe('a live-but-unresponsive browser is not a dead one', () => {
     expect(await PersistentSession.get(outputDir, 'live_nope')).toBeNull();
   });
 });
+
+describe('hard-wall scan across accumulated session records', () => {
+  let outputDir: string;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    outputDir = await mkdtemp(join(tmpdir(), 'ibr-wall-scan-'));
+    await mkdir(join(outputDir, 'sessions'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(outputDir, { recursive: true, force: true });
+  });
+
+  it('still finds a pending wall buried past the first read batch', async () => {
+    // The scan reads in batches of 64. Planting the match at index 400 proves
+    // batching did not turn a full search into a first-page search.
+    const attemptKey = 'chrome:local::https://example.com/private';
+    for (let i = 0; i < 500; i++) {
+      const sd = join(outputDir, 'sessions', `live_bulk${i}`);
+      await mkdir(sd);
+      const isMatch = i === 400;
+      await writeFile(join(sd, 'live-session.json'), JSON.stringify({
+        id: `live_bulk${i}`,
+        url: 'https://example.com/private',
+        targetId: 't',
+        strategyKey: 'chrome:local',
+        name: '/',
+        viewport: {},
+        createdAt: new Date().toISOString(),
+        pageIndex: 0,
+        actions: [],
+        ...(isMatch
+          ? {
+              hardWall: {
+                kind: 'authentication',
+                requestedUrl: 'https://example.com/private',
+                currentUrl: 'https://example.com/login',
+                strategyKey: 'chrome:local',
+                attemptKey,
+                detectedAt: new Date().toISOString(),
+                prompt: 'Enter sign-in information manually.',
+              },
+            }
+          : {}),
+      }));
+    }
+    // A malformed record among them must not abort the scan.
+    const bad = join(outputDir, 'sessions', 'live_broken');
+    await mkdir(bad);
+    await writeFile(join(bad, 'live-session.json'), '{ not json');
+
+    await expect(
+      PersistentSession.create(outputDir, {
+        url: 'https://example.com/private',
+        strategyKey: 'chrome:local',
+      }),
+    ).rejects.toThrow(/manually|sign-in|Enter/i);
+  }, 60000);
+});
