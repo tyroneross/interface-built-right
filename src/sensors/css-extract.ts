@@ -216,6 +216,22 @@ export async function extractCssRulesAndMeta(
     ];
 
 
+    /**
+     * MUST stay byte-compatible with `generateSelector` in src/extract.ts.
+     *
+     * It was not, and the difference was one clause: extract.ts appends
+     * `:nth-of-type(n)` when a node has same-tag siblings, and this did not.
+     * The navigation sensor decides which links belong to which <nav> by
+     * testing whether the link's selector STARTS WITH the nav's selector — so
+     * on any page with two <nav> elements (a header nav and a footer nav, i.e.
+     * most sites) the link came back as
+     * `nav:nth-of-type(1) > ul > li > a` while the nav came back as plain
+     * `nav`, the prefix test failed, and every nav region reported
+     * `roots: [], depth: 0` while `totalLinks` reported the real count.
+     *
+     * Proven by planted defect: two sibling <nav> elements with two links each
+     * produced `roots: []` on all of them and `totalLinks: 5`.
+     */
     function buildStructuralSelector(el: Element): string {
       const path: string[] = [];
 
@@ -230,6 +246,17 @@ export async function extractCssRulesAndMeta(
           const c = cur.className.split(' ').filter((x: string) => x.trim() && !x.includes(':'))[0];
           if (c) s += `.${c}`;
         }
+
+        const parent: Element | null = cur.parentElement;
+        if (parent) {
+          const siblings: Element[] = Array.from(parent.children).filter(
+            (c) => (c as Element).tagName === cur.tagName,
+          ) as Element[];
+          if (siblings.length > 1) {
+            s += `:nth-of-type(${siblings.indexOf(cur as Element) + 1})`;
+          }
+        }
+
         path.unshift(s);
         cur = cur.parentElement;
       }

@@ -32,6 +32,39 @@ import { scan } from './scan.js';
  * silently skipped — the two links are the planted defect.
  */
 const ROUTES: Record<string, string> = {
+  /**
+   * Taken from a REAL page — mockups/10-ai-news-podcast-hifi-v1.html in
+   * ross-labs-astro — not invented. A persona panel found the defect by
+   * interacting with the page; a bare `ibr scan` reported nothing.
+   *
+   * `text-zinc-400` is rgb(161,161,170), which on white is 2.56:1 at 14px/400.
+   * That is a straight AA failure, not an AAA advisory. It hid in two shapes:
+   *
+   *   #arrow  — a differently-coloured span INSIDE an <a>. The grader saw the
+   *             anchor, graded it at the anchor's colour, and passed. Zero
+   *             elements carrying rgb(161,161,170) appeared anywhere in the
+   *             graded set, on a page where six of them are visible.
+   *   #hidden — the same colour behind a `hidden` tab panel. Real text a user
+   *             reaches by clicking, invisible to a rest-state scan.
+   *
+   * And `contrastCoverage` reported `candidates: 60, measured: 60,
+   * unmeasurable: 0` throughout — complete coverage of a subset, worded
+   * identically to complete coverage of the page.
+   */
+  '/inline-and-hidden': `<!doctype html>
+<html><head><meta charset="utf-8"><title>inline</title><style>
+  body { background:#ffffff; font-family: system-ui; }
+  .zinc400 { color: rgb(161, 161, 170); }
+  a.src { color:#18181b; font-size:14px; text-decoration:none; display:inline-block; }
+  strong.title { color:#18181b; font-weight:700; }
+</style></head><body>
+<a class="src" href="https://example.com/story"><span><strong class="title">AI inference gets a new tier</strong></span><span id="arrow" class="zinc400">GOTO</span></a>
+<p id="para" style="color:#18181b;font-size:14px">Body copy the reader can read <span id="inherits">inheriting the same colour</span>.</p>
+<div data-panel="trends" hidden>
+  <span id="hidden" class="zinc400" style="font-size:14px">Updated Aug 25</span>
+</div>
+</body></html>`,
+
   '/planted': `<!doctype html>
 <html><head><meta charset="utf-8"><title>planted</title><style>
   body { background: #ffffff; font-family: system-ui; }
@@ -375,5 +408,74 @@ describe('scan default rules — planted-defect regression', () => {
     expect(result.rulesApplied?.presets).toEqual([]);
     expect(findings(result, 'wcag-aa-contrast')).toHaveLength(0);
     expect(result.contrastCoverage).toBeUndefined();
+  }, 60_000);
+
+  // ── Coverage that can see its own blind spot ────────────────────────────
+  //
+  // Real page, real failure, found by a persona panel and missed by the tool.
+
+  it('grades a differently-coloured span inside a link, not just the link', async () => {
+    const result = await scan(`${baseUrl}/inline-and-hidden`, { projectDir });
+
+    const aa = findings(result, 'wcag-aa-contrast');
+    const arrow = aa.find((f) => (f.element ?? '').includes('arrow'));
+    expect(arrow, 'the 2.56:1 span inside the <a> must be reported').toBeDefined();
+    expect(arrow!.description).toContain('2.56:1');
+  }, 60_000);
+
+  // The anti-duplication property that justified excluding inline elements
+  // wholesale has to survive the narrower rule, or we have traded a false
+  // negative for a page of duplicate findings.
+  //
+  // MUTATION NOTE. The first version of this test asserted that `#inherits`
+  // was absent from `result.issues` and that `excluded.inlineSameColor > 0`.
+  // It PASSED with the same-colour skip deleted, so it proved nothing: an
+  // inheriting span at #18181b on white produces no finding whether it is
+  // graded or not, and `inlineSameColor` is counted by the DOM census, which
+  // is independent of what the extractor decided. Asserting on the GRADED SET
+  // is what actually pins the rule — it now fails when the skip is removed.
+  it('does not re-grade an inline span that merely inherits its parent colour', async () => {
+    const result = await scan(`${baseUrl}/inline-and-hidden`, {
+      projectDir,
+      content: true,
+    });
+
+    const graded = result.content?.elements ?? [];
+    expect(graded.length).toBeGreaterThan(0);
+
+    const selectors = graded.map((e) => e.selector).join(' | ');
+    // The differently-coloured span IS graded — that is the whole point.
+    expect(selectors).toContain('arrow');
+    // The inheriting span is NOT, or its words are graded twice at one colour.
+    expect(selectors).not.toContain('inherits');
+    expect(result.contrastCoverage?.excluded?.inlineSameColor).toBeGreaterThan(0);
+  }, 60_000);
+
+  // THE METRIC ITSELF. `candidates` was the size of the population the lane had
+  // already chosen, so text it declined to consider could not show up as a
+  // candidate, a skip, or a zero.
+  it('counts text it never considered, so full coverage cannot mean a subset', async () => {
+    const result = await scan(`${baseUrl}/inline-and-hidden`, { projectDir });
+
+    const ex = result.contrastCoverage?.excluded;
+    expect(ex, 'coverage must carry a DOM-sourced denominator').toBeDefined();
+    // Counted by walking the DOM, so it does not inherit the lane's blind spot.
+    expect(ex!.domTextElements).toBeGreaterThan(0);
+    // The `hidden` panel holds real text a user can reach by clicking.
+    expect(ex!.hiddenAtRest).toBeGreaterThan(0);
+    // Anything neither graded nor explained is an accounting defect, not a
+    // property of the page.
+    expect(ex!.unaccounted).toBe(0);
+  }, 60_000);
+
+  it('names the hidden text it declined to grade, rather than implying none exists', async () => {
+    const result = await scan(`${baseUrl}/inline-and-hidden`, { projectDir });
+
+    const samples = result.contrastCoverage?.excluded?.samples ?? [];
+    const hidden = samples.find((x) => x.reason === 'hidden-at-rest');
+    expect(hidden, 'a reader must be able to spot-check the exclusion').toBeDefined();
+    // The colour is carried so the reader can see it is the SAME failing colour
+    // that was reported elsewhere on the page.
+    expect(samples.some((x) => x.color === 'rgb(161, 161, 170)')).toBe(true);
   }, 60_000);
 });

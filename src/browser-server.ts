@@ -196,11 +196,42 @@ export async function isServerRunning(outputDir: string): Promise<boolean> {
     });
     return res.ok;
   } catch {
-    // Server unreachable — reap orphan Chrome (if state recoverable) + clean up
+    // A FETCH THAT THREW IS NOT PROOF CHROME IS DEAD.
+    //
+    // This block used to SIGKILL `state.chromePid` and delete the state file on
+    // any throw — including the `AbortSignal.timeout(2000)` above firing. A
+    // Chrome that is alive and merely BUSY (loading a heavy page, or being
+    // driven by another session) can miss a 2s deadline on /json/version, and
+    // `isServerRunning` is a read-only liveness CHECK called by ordinary
+    // commands like `session:list`. So checking whether the browser was running
+    // could destroy the browser, and a poll loop became repeated kill attempts.
+    // It cost two interaction passes on 2026-09-01.
+    //
+    // That is this sweep's pattern wearing different clothes: a failed
+    // MEASUREMENT ("could not reach Chrome in 2s") was recorded as a
+    // definitive FACT ("Chrome is gone") and then acted on destructively.
+    // `process.kill(pid, 0)` delivers no signal and answers the actual
+    // question, so ask it before reaping anything.
     try {
       const content = await readFile(stateFile, 'utf-8');
       const state = JSON.parse(content);
       if (state.chromePid) {
+        let chromeAlive = true;
+        try {
+          process.kill(state.chromePid, 0);
+        } catch {
+          chromeAlive = false;
+        }
+
+        if (chromeAlive) {
+          // Running, just not answering right now. Leave it alone and leave the
+          // state file intact — a wedged browser the user can close explicitly
+          // is strictly better than one this function killed out from under an
+          // active session.
+          return true;
+        }
+
+        // Genuinely gone. Reaping is now a no-op that documents intent.
         try { process.kill(state.chromePid, 'SIGKILL'); } catch { /* already dead */ }
       }
     } catch { /* state unreadable — best effort */ }

@@ -186,6 +186,15 @@ export async function runDesignSystemCheck(
     customViolations,
     complianceScore,
     coverage: {
+      /**
+       * The population this score was computed over.
+       *
+       * Named because the number is meaningless without it: the check was
+       * previously handed only the interactive element list, so a page-level
+       * "compliance score" graded buttons and links and nothing else. Naming
+       * the scope is what stops a subset score from being read as the page's.
+       */
+      scope: 'interactive + content + containers',
       elementsConsidered: elements.length,
       elementsEvaluated: evaluableElements.length,
       elementsSkippedNoStyles: elements.length - evaluableElements.length,

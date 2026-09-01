@@ -170,8 +170,23 @@
   line-height: 25px;
 }
 
+/*
+ * Was `var(--fx-accent)` (#5a6cb0), which on the #1e1e1e surface is 3.34:1 —
+ * a real AA failure at 13px. It went unreported until the contrast lane began
+ * grading inline elements on their own colour; before that the grader saw only
+ * the enclosing <button> and graded this text at the button's colour.
+ *
+ * Fixed rather than suppressed. This fixture exists to exercise LAYOUT
+ * OVERFLOW, and the sibling PARTIAL test is calibrated to stay under
+ * determineVerdict's 3-error FAIL threshold — an unrelated contrast defect in
+ * the fixture would silently re-tune that threshold and mask the rule under
+ * test. --fx-accent itself is unchanged: another test asserts var() resolves to
+ * its concrete rgb().
+ *
+ * #9aa8d8 on #1e1e1e is 7.12:1.
+ */
 .fx-task-meta {
-  color: var(--fx-accent);
+  color: #9aa8d8;
   font-size: 13px;
   line-height: 20px;
 }

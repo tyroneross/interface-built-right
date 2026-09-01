@@ -16127,6 +16127,15 @@ async function runDesignSystemCheck(elements, context, projectDir) {
     customViolations,
     complianceScore,
     coverage: {
+      /**
+       * The population this score was computed over.
+       *
+       * Named because the number is meaningless without it: the check was
+       * previously handed only the interactive element list, so a page-level
+       * "compliance score" graded buttons and links and nothing else. Naming
+       * the scope is what stops a subset score from being read as the page's.
+       */
+      scope: "interactive + content + containers",
       elementsConsidered: elements.length,
       elementsEvaluated: evaluableElements.length,
       elementsSkippedNoStyles: elements.length - evaluableElements.length,
@@ -23335,6 +23344,8 @@ var init_schemas3 = __esm({
       complianceScore: external_exports.number().min(0).max(100).nullable(),
       /** What the score was computed over. Absent on results predating coverage. */
       coverage: external_exports.object({
+        /** The population the score was computed over — a score without it is unreadable. */
+        scope: external_exports.string().optional(),
         elementsConsidered: external_exports.number(),
         elementsEvaluated: external_exports.number(),
         elementsSkippedNoStyles: external_exports.number(),
@@ -23832,7 +23843,7 @@ function analyzeElements(elements, isMobile = false) {
   };
 }
 async function extractContentElements(page) {
-  return page.evaluate(({ selectors, styleKeys }) => {
+  return page.evaluate(({ selectors, inlineSelectors, styleKeys }) => {
     const seen = /* @__PURE__ */ new Set();
     const results = [];
     const captureStyles = (computed) => {
@@ -23959,8 +23970,61 @@ async function extractContentElements(page) {
       } catch {
       }
     }
+    const ownText = (el) => {
+      let out = "";
+      el.childNodes.forEach((n) => {
+        if (n.nodeType === 3) out += n.nodeValue ?? "";
+      });
+      return out.trim();
+    };
+    for (const selector of inlineSelectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          const htmlEl = el;
+          const text = ownText(htmlEl);
+          if (text.length === 0) return;
+          const parent = htmlEl.parentElement;
+          if (!parent) return;
+          const computed = window.getComputedStyle(htmlEl);
+          const parentComputed = window.getComputedStyle(parent);
+          if (computed.color === parentComputed.color) return;
+          const rect = htmlEl.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+          seen.add(el);
+          const entry = {
+            selector: generateSelector(htmlEl),
+            tagName: htmlEl.tagName.toLowerCase(),
+            id: htmlEl.id || void 0,
+            className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
+            text: text.slice(0, 300),
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height)
+            },
+            computedStyles: captureStyles(computed),
+            contentKind: "inline",
+            role: htmlEl.getAttribute("role"),
+            ariaLabel: htmlEl.getAttribute("aria-label"),
+            ariaDescribedBy: htmlEl.getAttribute("aria-describedby"),
+            ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || void 0
+          };
+          const bgChain = collectBackgroundChain(htmlEl);
+          entry.backgroundChain = bgChain.chain;
+          if (bgChain.image) entry.backgroundImageBehind = true;
+          results.push(entry);
+        });
+      } catch {
+      }
+    }
     return results;
-  }, { selectors: CONTENT_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
+  }, {
+    selectors: CONTENT_SELECTORS,
+    inlineSelectors: INLINE_TEXT_SELECTORS,
+    styleKeys: [...CAPTURED_STYLE_KEYS]
+  });
 }
 async function extractPageMetadata(page) {
   return page.evaluate(() => {
@@ -23997,7 +24061,99 @@ async function extractPageMetadata(page) {
     };
   });
 }
-var INTERACTIVE_SELECTORS, CONTENT_SELECTORS, CONTENT_ELEMENT_TAGS;
+async function extractTextCensus(page) {
+  return page.evaluate(() => {
+    const census = {
+      domTextElements: 0,
+      hiddenAtRest: 0,
+      zeroArea: 0,
+      inlineSameColor: 0,
+      samples: []
+    };
+    const INLINE = /* @__PURE__ */ new Set([
+      "span",
+      "strong",
+      "b",
+      "em",
+      "i",
+      "small",
+      "code",
+      "abbr",
+      "time",
+      "mark",
+      "sub",
+      "sup",
+      "cite",
+      "q",
+      "kbd",
+      "samp",
+      "var",
+      "ins",
+      "del",
+      "s",
+      "u",
+      "a",
+      "label"
+    ]);
+    const shortSelector = (el) => {
+      const parts = [];
+      let cur = el;
+      let depth = 0;
+      while (cur && cur !== document.body && depth < 4) {
+        let s = cur.tagName.toLowerCase();
+        if (cur.id) {
+          parts.unshift(`#${cur.id}`);
+          break;
+        }
+        const cls = typeof cur.className === "string" ? cur.className.split(" ").filter((c) => c.trim() && !c.includes(":"))[0] : void 0;
+        if (cls) s += `.${cls}`;
+        parts.unshift(s);
+        cur = cur.parentElement;
+        depth++;
+      }
+      return parts.join(" > ").slice(0, 140);
+    };
+    const note = (el, reason, color, text) => {
+      if (census.samples.length < 20) {
+        census.samples.push({ selector: shortSelector(el), reason, color, text: text.slice(0, 40) });
+      }
+    };
+    document.querySelectorAll("*").forEach((el) => {
+      const htmlEl = el;
+      const tag = htmlEl.tagName.toLowerCase();
+      if (tag === "script" || tag === "style" || tag === "noscript" || tag === "template") return;
+      if (htmlEl.closest("head")) return;
+      let own = "";
+      htmlEl.childNodes.forEach((n) => {
+        if (n.nodeType === 3) own += n.nodeValue ?? "";
+      });
+      own = own.trim();
+      if (own.length === 0) return;
+      census.domTextElements++;
+      const computed = window.getComputedStyle(htmlEl);
+      const color = computed.color || "";
+      const inClosedDetails = !!htmlEl.closest("details:not([open])") && !htmlEl.closest("summary");
+      if (computed.display === "none" || computed.visibility === "hidden" || htmlEl.closest("[hidden]") !== null || inClosedDetails) {
+        census.hiddenAtRest++;
+        note(htmlEl, "hidden-at-rest", color, own);
+        return;
+      }
+      const rect = htmlEl.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        census.zeroArea++;
+        note(htmlEl, "zero-area", color, own);
+        return;
+      }
+      const parent = htmlEl.parentElement;
+      if (INLINE.has(tag) && parent && window.getComputedStyle(parent).color === color) {
+        census.inlineSameColor++;
+        return;
+      }
+    });
+    return census;
+  });
+}
+var INTERACTIVE_SELECTORS, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     "use strict";
@@ -24070,7 +24226,31 @@ var init_extract2 = __esm({
       "caption",
       "summary"
     ];
+    INLINE_TEXT_SELECTORS = [
+      "span",
+      "strong",
+      "b",
+      "em",
+      "i",
+      "small",
+      "code",
+      "abbr",
+      "time",
+      "mark",
+      "sub",
+      "sup",
+      "cite",
+      "q",
+      "kbd",
+      "samp",
+      "var",
+      "ins",
+      "del",
+      "s",
+      "u"
+    ];
     CONTENT_ELEMENT_TAGS = CONTENT_SELECTORS;
+    INLINE_TEXT_TAGS = INLINE_TEXT_SELECTORS;
   }
 });
 
@@ -25457,17 +25637,27 @@ var init_consistency = __esm({
 });
 
 // src/sensors/visual-patterns.ts
+function joinLonghands(s, keys) {
+  const parts = keys.map((k) => s[k]);
+  if (parts.every((p) => p === void 0)) return UNREAD;
+  return parts.map((p) => p ?? UNREAD).join(" ");
+}
 function styleFingerprint(el) {
   const s = el.computedStyles ?? {};
   return {
-    backgroundColor: s.backgroundColor ?? "",
-    color: s.color ?? "",
-    borderRadius: s.borderRadius ?? "",
-    padding: s.padding ?? "",
-    fontSize: s.fontSize ?? "",
-    fontWeight: s.fontWeight ?? "",
-    borderWidth: s.borderWidth ?? "",
-    borderColor: s.borderColor ?? ""
+    backgroundColor: s.backgroundColor ?? UNREAD,
+    color: s.color ?? UNREAD,
+    borderRadius: s.borderRadius ?? UNREAD,
+    padding: joinLonghands(s, ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]),
+    fontSize: s.fontSize ?? UNREAD,
+    fontWeight: s.fontWeight ?? UNREAD,
+    borderWidth: joinLonghands(s, [
+      "borderTopWidth",
+      "borderRightWidth",
+      "borderBottomWidth",
+      "borderLeftWidth"
+    ]),
+    borderColor: s.borderColor ?? UNREAD
   };
 }
 function fingerprintKey(fp) {
@@ -25526,9 +25716,11 @@ function collectVisualPatterns(ctx) {
   }
   return reports;
 }
+var UNREAD;
 var init_visual_patterns = __esm({
   "src/sensors/visual-patterns.ts"() {
     "use strict";
+    UNREAD = "(unread)";
   }
 });
 
@@ -26946,6 +27138,15 @@ async function extractCssRulesAndMeta(page) {
         if (typeof cur.className === "string" && cur.className.trim()) {
           const c = cur.className.split(" ").filter((x) => x.trim() && !x.includes(":"))[0];
           if (c) s += `.${c}`;
+        }
+        const parent = cur.parentElement;
+        if (parent) {
+          const siblings = Array.from(parent.children).filter(
+            (c) => c.tagName === cur.tagName
+          );
+          if (siblings.length > 1) {
+            s += `:nth-of-type(${siblings.indexOf(cur) + 1})`;
+          }
         }
         path.unshift(s);
         cur = cur.parentElement;
@@ -28689,13 +28890,6 @@ async function scan(url2, options = {}) {
     }
     const layoutCollisions = detectLayoutCollisions(elements.all);
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
-    const designSystem = await applyDesignSystemCheck(
-      elements.all,
-      issues,
-      resolvedViewport,
-      url2,
-      options.outputDir || process.cwd()
-    );
     let cssExtract;
     try {
       cssExtract = await extractCssRulesAndMeta(page);
@@ -28756,6 +28950,13 @@ async function scan(url2, options = {}) {
     ruleEngine.push(
       ...runAllRules([...contentAsElements, ...containerElements], ruleContext, { surface: "content" })
     );
+    const designSystem = await applyDesignSystemCheck(
+      [...elements.all, ...contentAsElements, ...containerElements],
+      issues,
+      resolvedViewport,
+      url2,
+      options.outputDir || process.cwd()
+    );
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
       const presetViolations = [
         ...runRules(elements.all, ruleContext, resolvedRules.config, { surface: "interactive" }),
@@ -28778,7 +28979,15 @@ async function scan(url2, options = {}) {
         });
       }
     }
-    const contrastCoverage = activeRuleIds.has("wcag-aa-contrast") || activeRuleIds.has("wcag-aaa-contrast") ? summarizeContrastCoverage([...elements.all, ...contentAsElements]) : void 0;
+    let textCensus;
+    if (activeRuleIds.has("wcag-aa-contrast") || activeRuleIds.has("wcag-aaa-contrast")) {
+      try {
+        textCensus = await extractTextCensus(page);
+      } catch {
+        textCensus = void 0;
+      }
+    }
+    const contrastCoverage = activeRuleIds.has("wcag-aa-contrast") || activeRuleIds.has("wcag-aaa-contrast") ? summarizeContrastCoverage([...elements.all, ...contentAsElements], textCensus) : void 0;
     const verdict = determineVerdict2(issues);
     const summary = generateSummary2(elements, interactivity, semantic, issues, consoleErrors);
     const summaries = summarizeScan(elements.all, url2);
@@ -28808,9 +29017,11 @@ async function scan(url2, options = {}) {
         gradedContentElements: contentAsElements.length,
         // A count with no denominator is the same ambiguity this commit set out
         // to remove: "42 measured" reads as coverage without saying coverage OF
-        // WHAT. Naming the tags makes the gap (span, div, and other inline
-        // wrappers are not graded on their own) legible instead of assumed.
+        // WHAT. Naming the tags makes the scope legible instead of assumed —
+        // and `contrastCoverage.excluded` now names what fell OUTSIDE it,
+        // counted from the DOM rather than from the graded set.
         ...gradesContent ? { gradedTags: [...CONTENT_ELEMENT_TAGS] } : {},
+        ...gradesContent ? { gradedInlineTags: [...INLINE_TEXT_TAGS] } : {},
         ...contentExtractionFailed ? { contentExtractionFailed } : {}
       },
       ...contrastCoverage ? { contrastCoverage } : {},
@@ -28957,7 +29168,7 @@ async function applyDesignSystemCheck(elements, issues, viewport, url2, outputDi
   }
   return designSystem;
 }
-function summarizeContrastCoverage(elements) {
+function summarizeContrastCoverage(elements, census) {
   const coverage = {
     candidates: elements.length,
     measured: 0,
@@ -28987,6 +29198,22 @@ function summarizeContrastCoverage(elements) {
         coverage.noStyles++;
         break;
     }
+  }
+  if (census) {
+    const graded = coverage.measured + coverage.assumedWhiteBackground + coverage.unmeasurable + coverage.invisibleText;
+    const explained = graded + census.hiddenAtRest + census.zeroArea + census.inlineSameColor;
+    coverage.excluded = {
+      domTextElements: census.domTextElements,
+      hiddenAtRest: census.hiddenAtRest,
+      zeroArea: census.zeroArea,
+      inlineSameColor: census.inlineSameColor,
+      // Never negative: the graded set can legitimately exceed the DOM census
+      // (an element may be reached by both the interactive and content lanes),
+      // and a negative "unaccounted" would be a worse lie than the one this
+      // block exists to remove.
+      unaccounted: Math.max(0, census.domTextElements - explained),
+      samples: census.samples
+    };
   }
   return coverage;
 }
@@ -29075,6 +29302,7 @@ var init_scan = __esm({
     init_summarize();
     init_engine();
     init_content_adapter();
+    init_extract2();
     init_contrast_measure();
     CONTAINER_TAGS = /* @__PURE__ */ new Set([
       "header",

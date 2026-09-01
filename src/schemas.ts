@@ -713,6 +713,8 @@ export const DesignSystemResultSchema = z.object({
   complianceScore: z.number().min(0).max(100).nullable(),
   /** What the score was computed over. Absent on results predating coverage. */
   coverage: z.object({
+    /** The population the score was computed over — a score without it is unreadable. */
+    scope: z.string().optional(),
     elementsConsidered: z.number(),
     elementsEvaluated: z.number(),
     elementsSkippedNoStyles: z.number(),

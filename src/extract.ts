@@ -816,8 +816,38 @@ const CONTENT_SELECTORS = [
   'summary',
 ];
 
+/**
+ * Inline text carriers, graded ONLY when they paint their own color.
+ *
+ * These were excluded wholesale, and the exclusion was documented as a known
+ * gap: "span/div are deliberately absent: they wrap almost everything, so
+ * including them would grade the same words many times over at many different
+ * inherited colors."
+ *
+ * The reasoning was right; the conclusion was too broad. A real page proved it:
+ * `<a ...><span>Title</span><span class="text-zinc-400">↗</span></a>` renders
+ * that arrow at rgb(161,161,170) on white — 2.56:1, a straight AA failure — and
+ * the grader saw only the parent <a> at the parent's color and passed it. Six
+ * such elements on one page, and `contrastCoverage` still reported 60 of 60
+ * measured with nothing unmeasurable.
+ *
+ * The narrow rule keeps the anti-duplication property that motivated the
+ * exclusion: an inline element is graded only when it carries its OWN direct
+ * text AND its computed color DIFFERS from its parent's. A span that merely
+ * inherits is already represented by its ancestor and is skipped, so no words
+ * are graded twice at the same color. Only the case the gap described — a
+ * differently-colored run of text inside a block — becomes visible.
+ */
+const INLINE_TEXT_SELECTORS = [
+  'span', 'strong', 'b', 'em', 'i', 'small', 'code', 'abbr', 'time', 'mark',
+  'sub', 'sup', 'cite', 'q', 'kbd', 'samp', 'var', 'ins', 'del', 's', 'u',
+];
+
 /** Exported so a scan can report the scope it actually graded, not just a count. */
 export const CONTENT_ELEMENT_TAGS: readonly string[] = CONTENT_SELECTORS;
+
+/** Exported alongside, so `gradedTags` can name the narrow inline rule too. */
+export const INLINE_TEXT_TAGS: readonly string[] = INLINE_TEXT_SELECTORS;
 
 /**
  * A content (non-interactive) element with real geometry and a subset of
@@ -855,7 +885,7 @@ export interface ContentElement {
   ariaHidden?: boolean;
   /** Only set for h1-h6. */
   headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
-  contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
+  contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote' | 'inline';
   /** <img> only. */
   alt?: string;
   /** <img> only. */
@@ -872,7 +902,7 @@ export interface ContentElement {
  * untouched.
  */
 export async function extractContentElements(page: PageLike): Promise<ContentElement[]> {
-  return page.evaluate(({ selectors, styleKeys }: { selectors: string[]; styleKeys: string[] }) => {
+  return page.evaluate(({ selectors, inlineSelectors, styleKeys }: { selectors: string[]; inlineSelectors: string[]; styleKeys: string[] }) => {
     const seen = new Set<Element>();
     const results: ContentElement[] = [];
 
@@ -1044,8 +1074,81 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
       }
     }
 
+    // ---- inline pass: own text, own colour ----
+    //
+    // Runs after the block pass so `seen` already holds every block element and
+    // an inline node cannot displace one.
+    const ownText = (el: HTMLElement): string => {
+      let out = '';
+      el.childNodes.forEach((n) => {
+        if (n.nodeType === 3) out += n.nodeValue ?? '';
+      });
+      return out.trim();
+    };
+
+    for (const selector of inlineSelectors) {
+      try {
+        document.querySelectorAll(selector).forEach((el) => {
+          if (seen.has(el)) return;
+          const htmlEl = el as HTMLElement;
+
+          // Must carry its OWN text. A wrapper whose text all lives in
+          // descendants is not a distinct run of colour.
+          const text = ownText(htmlEl);
+          if (text.length === 0) return;
+
+          const parent = htmlEl.parentElement;
+          if (!parent) return;
+
+          const computed = window.getComputedStyle(htmlEl);
+          const parentComputed = window.getComputedStyle(parent);
+          // Same colour as the parent means the ancestor already represents
+          // these words at this colour. Grading it again would be the
+          // duplicate-reporting the wholesale exclusion was protecting against.
+          if (computed.color === parentComputed.color) return;
+
+          const rect = htmlEl.getBoundingClientRect();
+          if (rect.width <= 0 || rect.height <= 0) return;
+
+          seen.add(el);
+
+          const entry: ContentElement = {
+            selector: generateSelector(htmlEl),
+            tagName: htmlEl.tagName.toLowerCase(),
+            id: htmlEl.id || undefined,
+            className: typeof htmlEl.className === 'string' ? htmlEl.className : undefined,
+            text: text.slice(0, 300),
+            bounds: {
+              x: Math.round(rect.x),
+              y: Math.round(rect.y),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            },
+            computedStyles: captureStyles(computed),
+            contentKind: 'inline',
+            role: htmlEl.getAttribute('role'),
+            ariaLabel: htmlEl.getAttribute('aria-label'),
+            ariaDescribedBy: htmlEl.getAttribute('aria-describedby'),
+            ariaHidden: !!htmlEl.closest?.('[aria-hidden="true"]') || undefined,
+          };
+
+          const bgChain = collectBackgroundChain(htmlEl);
+          entry.backgroundChain = bgChain.chain;
+          if (bgChain.image) entry.backgroundImageBehind = true;
+
+          results.push(entry);
+        });
+      } catch {
+        // Skip invalid selectors — matches the block pass.
+      }
+    }
+
     return results;
-  }, { selectors: CONTENT_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
+  }, {
+    selectors: CONTENT_SELECTORS,
+    inlineSelectors: INLINE_TEXT_SELECTORS,
+    styleKeys: [...CAPTURED_STYLE_KEYS],
+  });
 }
 
 /**
@@ -1307,4 +1410,136 @@ export function getReferenceSessionPaths(outputDir: string, sessionId: string) {
     current: join(root, 'current.png'),
     diff: join(root, 'diff.png'),
   };
+}
+
+/**
+ * An INDEPENDENT census of text on the page.
+ *
+ * WHY IT IS SEPARATE FROM THE GRADING LANE. `contrastCoverage` reported
+ * `candidates: 60, measured: 60, unmeasurable: 0` on a real page carrying six
+ * visible AA contrast failures — because `candidates` was
+ * `gradedElements.length`. The lane counted the population it had already
+ * chosen, so text it declined to consider never appeared as a candidate, a
+ * skip, or a zero. "60 of 60 measured" read as complete coverage of the page
+ * when it was complete coverage of a subset the reader could not see.
+ *
+ * That is the same defect the whole sweep is about, one level up: zero findings
+ * used to look clean, and now full coverage looks complete. A coverage number
+ * sourced from the thing it is measuring cannot show its own blind spot.
+ *
+ * This walks the DOM instead and counts text WHERE IT IS, so the difference
+ * between what exists and what was graded becomes a number rather than an
+ * assumption.
+ */
+export interface TextCensus {
+  /** Every element carrying its own direct, non-whitespace text. */
+  domTextElements: number;
+  /** Not rendered in the page's REST state: [hidden], display:none, a closed <details>. */
+  hiddenAtRest: number;
+  /** Rendered but with a collapsed box. */
+  zeroArea: number;
+  /**
+   * Inline element with its own text painted in the SAME colour as its parent.
+   * Its ancestor already represents these words at this colour, so skipping it
+   * is deliberate rather than a gap.
+   */
+  inlineSameColor: number;
+  /** A few excluded elements, named, so a reader can spot-check the exclusion. */
+  samples: Array<{ selector: string; reason: string; color: string; text: string }>;
+}
+
+/**
+ * Count text-bearing elements in the DOM, and why each would not be graded.
+ */
+export async function extractTextCensus(page: PageLike): Promise<TextCensus> {
+  return page.evaluate(() => {
+    const census = {
+      domTextElements: 0,
+      hiddenAtRest: 0,
+      zeroArea: 0,
+      inlineSameColor: 0,
+      samples: [] as Array<{ selector: string; reason: string; color: string; text: string }>,
+    };
+
+    const INLINE = new Set([
+      'span', 'strong', 'b', 'em', 'i', 'small', 'code', 'abbr', 'time', 'mark',
+      'sub', 'sup', 'cite', 'q', 'kbd', 'samp', 'var', 'ins', 'del', 's', 'u', 'a', 'label',
+    ]);
+
+    const shortSelector = (el: Element): string => {
+      const parts: string[] = [];
+      let cur: Element | null = el;
+      let depth = 0;
+      while (cur && cur !== document.body && depth < 4) {
+        let s = cur.tagName.toLowerCase();
+        if (cur.id) { parts.unshift(`#${cur.id}`); break; }
+        const cls = typeof cur.className === 'string'
+          ? cur.className.split(' ').filter((c) => c.trim() && !c.includes(':'))[0]
+          : undefined;
+        if (cls) s += `.${cls}`;
+        parts.unshift(s);
+        cur = cur.parentElement;
+        depth++;
+      }
+      return parts.join(' > ').slice(0, 140);
+    };
+
+    const note = (el: Element, reason: string, color: string, text: string) => {
+      if (census.samples.length < 20) {
+        census.samples.push({ selector: shortSelector(el), reason, color, text: text.slice(0, 40) });
+      }
+    };
+
+    document.querySelectorAll('*').forEach((el) => {
+      const htmlEl = el as HTMLElement;
+      const tag = htmlEl.tagName.toLowerCase();
+      if (tag === 'script' || tag === 'style' || tag === 'noscript' || tag === 'template') return;
+      // <head> content is metadata, not text a reader sees. Counting <title>
+      // as "hidden at rest" would pad the denominator with something no
+      // contrast rule should ever grade.
+      if (htmlEl.closest('head')) return;
+
+      let own = '';
+      htmlEl.childNodes.forEach((n) => {
+        if (n.nodeType === 3) own += n.nodeValue ?? '';
+      });
+      own = own.trim();
+      if (own.length === 0) return;
+
+      census.domTextElements++;
+
+      const computed = window.getComputedStyle(htmlEl);
+      const color = computed.color || '';
+
+      // Rest-state visibility. A tab panel, a closed disclosure, or a
+      // `hidden` attribute all mean the text is real and a reader can reach
+      // it — a scan of the rest state simply never sees it.
+      const inClosedDetails = !!htmlEl.closest('details:not([open])') && !htmlEl.closest('summary');
+      if (
+        computed.display === 'none' ||
+        computed.visibility === 'hidden' ||
+        htmlEl.closest('[hidden]') !== null ||
+        inClosedDetails
+      ) {
+        census.hiddenAtRest++;
+        note(htmlEl, 'hidden-at-rest', color, own);
+        return;
+      }
+
+      const rect = htmlEl.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) {
+        census.zeroArea++;
+        note(htmlEl, 'zero-area', color, own);
+        return;
+      }
+
+      const parent = htmlEl.parentElement;
+      if (INLINE.has(tag) && parent && window.getComputedStyle(parent).color === color) {
+        census.inlineSameColor++;
+        return;
+      }
+    });
+
+    return census;
+  });
 }

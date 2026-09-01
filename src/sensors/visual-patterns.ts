@@ -4,18 +4,47 @@ import type { SensorContext, VisualPatternReport, VisualPatternGroup } from './t
 /**
  * Build a style fingerprint from an element's key visual properties.
  * Elements with matching fingerprints = same visual pattern.
+ *
+ * FOUR OF THESE EIGHT DIMENSIONS WERE PERMANENTLY THE EMPTY STRING. The
+ * extractors captured eight computed properties and none of them was
+ * borderRadius, padding, borderWidth, or borderColor — so a sensor whose whole
+ * job is spotting inconsistent component styling was blind to the three
+ * properties that most often distinguish one button variant from another.
+ *
+ * Proven by planted defect: two buttons identical except for `border-radius`
+ * (2px vs 999px) and `padding` (4px 8px vs 20px 40px) were reported as ONE
+ * consistent pattern with `count: 2`.
+ *
+ * `CAPTURED_STYLE_KEYS` now covers them, with two shape corrections:
+ *   - `padding` and `borderWidth` are read as LONGHANDS. getComputedStyle
+ *     resolves the longhands reliably; the shorthands are the thing that was
+ *     never there. Reading `s.padding` after widening the capture list would
+ *     have left this dimension blank while looking fixed.
+ *   - a missing value is recorded as `(unread)` rather than `''`, so two
+ *     elements neither of which could be measured do not fingerprint as
+ *     identical and get counted as a deliberate shared pattern.
  */
+const UNREAD = '(unread)';
+
+function joinLonghands(s: Record<string, string>, keys: readonly string[]): string {
+  const parts = keys.map((k) => s[k]);
+  if (parts.every((p) => p === undefined)) return UNREAD;
+  return parts.map((p) => p ?? UNREAD).join(' ');
+}
+
 function styleFingerprint(el: EnhancedElement): Record<string, string> {
   const s = el.computedStyles ?? {};
   return {
-    backgroundColor: s.backgroundColor ?? '',
-    color: s.color ?? '',
-    borderRadius: s.borderRadius ?? '',
-    padding: s.padding ?? '',
-    fontSize: s.fontSize ?? '',
-    fontWeight: s.fontWeight ?? '',
-    borderWidth: s.borderWidth ?? '',
-    borderColor: s.borderColor ?? '',
+    backgroundColor: s.backgroundColor ?? UNREAD,
+    color: s.color ?? UNREAD,
+    borderRadius: s.borderRadius ?? UNREAD,
+    padding: joinLonghands(s, ['paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft']),
+    fontSize: s.fontSize ?? UNREAD,
+    fontWeight: s.fontWeight ?? UNREAD,
+    borderWidth: joinLonghands(s, [
+      'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth',
+    ]),
+    borderColor: s.borderColor ?? UNREAD,
   };
 }
 

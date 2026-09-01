@@ -2129,6 +2129,7 @@ declare const DesignSystemResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
     complianceScore: z.ZodNullable<z.ZodNumber>;
     coverage: z.ZodOptional<z.ZodObject<{
+        scope: z.ZodOptional<z.ZodString>;
         elementsConsidered: z.ZodNumber;
         elementsEvaluated: z.ZodNumber;
         elementsSkippedNoStyles: z.ZodNumber;
@@ -5482,7 +5483,7 @@ interface ContentElement {
     ariaHidden?: boolean;
     /** Only set for h1-h6. */
     headingLevel?: 1 | 2 | 3 | 4 | 5 | 6;
-    contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote';
+    contentKind: 'heading' | 'paragraph' | 'image' | 'caption' | 'quote' | 'inline';
     /** <img> only. */
     alt?: string;
     /** <img> only. */
@@ -5968,12 +5969,22 @@ interface ScanResult {
         /** Headings/paragraphs/captions/quotes fed through the text rules. */
         gradedContentElements: number;
         /**
-         * The tag names the content pass actually looked at. A raw count cannot
-         * say what it covered; this can. Inline wrappers (span, div) are absent by
-         * design, so text colored on a nested <span> inside a graded <p> is graded
-         * at the <p>'s color — a real gap, stated rather than assumed.
+         * The block tag names the content pass looked at. A raw count cannot say
+         * what it covered; this can.
          */
         gradedTags?: string[];
+        /**
+         * Inline tags graded on their OWN colour, under the narrow rule described
+         * in `INLINE_TEXT_SELECTORS` (src/extract.ts): own direct text, and a
+         * computed colour that DIFFERS from the parent's.
+         *
+         * This field's predecessor comment claimed "inline wrappers (span, div)
+         * are absent by design", and that exclusion hid a real AA failure — a
+         * `text-zinc-400` arrow at 2.56:1 inside an `<a>`, graded at the anchor's
+         * colour and passed. `<div>` remains ungraded: it is a block wrapper, and
+         * its text is reached through the block pass.
+         */
+        gradedInlineTags?: string[];
         /**
          * Present when content extraction THREW. Body copy and headings were not
          * graded at all, which is a coverage hole rather than a clean page.
@@ -6133,6 +6144,52 @@ interface ContrastCoverage {
     noText: number;
     /** No computed styles were captured (extraction gap, not a page problem). */
     noStyles: number;
+    /**
+     * Text the grading lane never CONSIDERED, counted independently from the DOM.
+     *
+     * WITHOUT THIS BLOCK THE WHOLE COVERAGE NUMBER IS CIRCULAR. `candidates` is
+     * the size of the population the lane already chose, so text the lane
+     * declined to look at could not appear as a candidate, a skip, or a zero. A
+     * real page carrying six visible AA failures reported
+     * `candidates: 60, measured: 60, unmeasurable: 0` — complete coverage of a
+     * subset, indistinguishable from complete coverage of the page.
+     *
+     * `domTextElements` is counted by walking the DOM (see `extractTextCensus`),
+     * so it does not inherit the lane's blind spot. Absent when the census could
+     * not run, which is itself distinguishable from a census reporting zero.
+     */
+    excluded?: {
+        /** Elements in the DOM carrying their own direct text. The honest denominator. */
+        domTextElements: number;
+        /**
+         * Real, reachable text that the page does not render at rest — behind a
+         * tab, a closed <details>, or a `hidden` attribute. A scan of the rest
+         * state cannot see it. OUT OF SCOPE for a static scan, and stated here
+         * rather than left implied.
+         */
+        hiddenAtRest: number;
+        /** Rendered with a collapsed box. */
+        zeroArea: number;
+        /**
+         * Inline text painted in the same colour as its parent. Deliberately
+         * skipped — the ancestor already represents these words at this colour, so
+         * grading them again would report the same text twice.
+         */
+        inlineSameColor: number;
+        /**
+         * Counted in the DOM, not excluded for any reason above, and still not
+         * graded. A non-zero value here is an UNEXPLAINED gap and should be
+         * treated as a defect in this accounting, not as a property of the page.
+         */
+        unaccounted: number;
+        /** Named examples of excluded text, so the exclusion can be spot-checked. */
+        samples: Array<{
+            selector: string;
+            reason: string;
+            color: string;
+            text: string;
+        }>;
+    };
 }
 /**
  * Format scan result for console output

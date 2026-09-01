@@ -10,6 +10,7 @@ import {
   analyzeElements,
   extractContentElements,
   CONTENT_ELEMENT_TAGS,
+  INLINE_TEXT_TAGS,
   extractPageMetadata,
   type ContentElement,
   type PageMetadata,
@@ -28,6 +29,7 @@ import { runAllRules, type RuleEngineResult } from './rules/index.js';
 import { summarizeScan, type ScanSummary } from './summarize.js';
 import { runRules, resolveRulesConfig, configHasContentRules, getActiveRules } from './rules/engine.js';
 import { contentElementsToEnhanced } from './rules/content-adapter.js';
+import { extractTextCensus, type TextCensus } from './extract.js';
 import { measureElementContrast } from './rules/contrast-measure.js';
 import type { RuleContext as PresetRuleContext } from './rules/types.js';
 
@@ -130,12 +132,22 @@ export interface ScanResult {
     /** Headings/paragraphs/captions/quotes fed through the text rules. */
     gradedContentElements: number;
     /**
-     * The tag names the content pass actually looked at. A raw count cannot
-     * say what it covered; this can. Inline wrappers (span, div) are absent by
-     * design, so text colored on a nested <span> inside a graded <p> is graded
-     * at the <p>'s color — a real gap, stated rather than assumed.
+     * The block tag names the content pass looked at. A raw count cannot say
+     * what it covered; this can.
      */
     gradedTags?: string[];
+    /**
+     * Inline tags graded on their OWN colour, under the narrow rule described
+     * in `INLINE_TEXT_SELECTORS` (src/extract.ts): own direct text, and a
+     * computed colour that DIFFERS from the parent's.
+     *
+     * This field's predecessor comment claimed "inline wrappers (span, div)
+     * are absent by design", and that exclusion hid a real AA failure — a
+     * `text-zinc-400` arrow at 2.56:1 inside an `<a>`, graded at the anchor's
+     * colour and passed. `<div>` remains ungraded: it is a block wrapper, and
+     * its text is reached through the block pass.
+     */
+    gradedInlineTags?: string[];
     /**
      * Present when content extraction THREW. Body copy and headings were not
      * graded at all, which is a coverage hole rather than a clean page.
@@ -617,15 +629,6 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // Aggregate issues
     const issues = aggregateIssues(elements.audit, interactivity, semantic, consoleErrors, themeAnalysis);
 
-    // Run design system check and inject violations into issues
-    const designSystem = await applyDesignSystemCheck(
-      elements.all,
-      issues,
-      resolvedViewport,
-      url,
-      options.outputDir || process.cwd()
-    );
-
     // Extract live CSS rules + document meta for the typography, breakpoints,
     // motion, hierarchy, and interaction-states sensors. Best-effort — on
     // failure (e.g. browser detach), sensors degrade to empty results.
@@ -768,6 +771,25 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       ...runAllRules([...contentAsElements, ...containerElements], ruleContext, { surface: 'content' }),
     );
 
+    // Run design system check and inject violations into issues.
+    //
+    // MOVED HERE, AND WIDENED. It used to run right after `aggregateIssues`,
+    // which is before content extraction — so it could only be handed
+    // `elements.all`, the interactive list. Every token check (colours, font
+    // sizes, spacing, corner radius) therefore graded buttons and links and
+    // NOTHING ELSE, while `complianceScore` was published as the page's score.
+    // Body copy — where most off-system colour and type lives — was outside
+    // the denominator, so the score counted only what the checker had chosen
+    // to look at. That is the same circularity `contrastCoverage.excluded`
+    // exists to remove, one lane over.
+    const designSystem = await applyDesignSystemCheck(
+      [...elements.all, ...contentAsElements, ...containerElements],
+      issues,
+      resolvedViewport,
+      url,
+      options.outputDir || process.cwd()
+    );
+
     if (resolvedRules.presets.length > 0 || Object.keys(resolvedRules.config.rules ?? {}).length > 0) {
       const presetViolations = [
         ...runRules(elements.all, ruleContext as PresetRuleContext, resolvedRules.config, { surface: 'interactive' }),
@@ -795,8 +817,20 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // How much text was actually GRADED. Zero findings and zero measurements
     // are different outcomes and used to be indistinguishable — that ambiguity
     // is what let a contrast rule that measured nothing read as a clean page.
+    // Count text WHERE IT IS, independently of the population the rules were
+    // handed. Best-effort: a failed census leaves `excluded` absent, which is
+    // distinguishable from a census that ran and found nothing excluded.
+    let textCensus: TextCensus | undefined;
+    if (activeRuleIds.has('wcag-aa-contrast') || activeRuleIds.has('wcag-aaa-contrast')) {
+      try {
+        textCensus = await extractTextCensus(page);
+      } catch {
+        textCensus = undefined;
+      }
+    }
+
     const contrastCoverage = activeRuleIds.has('wcag-aa-contrast') || activeRuleIds.has('wcag-aaa-contrast')
-      ? summarizeContrastCoverage([...elements.all, ...contentAsElements])
+      ? summarizeContrastCoverage([...elements.all, ...contentAsElements], textCensus)
       : undefined;
 
     // Verdict is computed HERE, after every violation has been aggregated into
@@ -840,9 +874,11 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
         gradedContentElements: contentAsElements.length,
         // A count with no denominator is the same ambiguity this commit set out
         // to remove: "42 measured" reads as coverage without saying coverage OF
-        // WHAT. Naming the tags makes the gap (span, div, and other inline
-        // wrappers are not graded on their own) legible instead of assumed.
+        // WHAT. Naming the tags makes the scope legible instead of assumed —
+        // and `contrastCoverage.excluded` now names what fell OUTSIDE it,
+        // counted from the DOM rather than from the graded set.
         ...(gradesContent ? { gradedTags: [...CONTENT_ELEMENT_TAGS] } : {}),
+        ...(gradesContent ? { gradedInlineTags: [...INLINE_TEXT_TAGS] } : {}),
         ...(contentExtractionFailed ? { contentExtractionFailed } : {}),
       },
       ...(contrastCoverage ? { contrastCoverage } : {}),
@@ -1082,6 +1118,47 @@ export interface ContrastCoverage {
   noText: number;
   /** No computed styles were captured (extraction gap, not a page problem). */
   noStyles: number;
+  /**
+   * Text the grading lane never CONSIDERED, counted independently from the DOM.
+   *
+   * WITHOUT THIS BLOCK THE WHOLE COVERAGE NUMBER IS CIRCULAR. `candidates` is
+   * the size of the population the lane already chose, so text the lane
+   * declined to look at could not appear as a candidate, a skip, or a zero. A
+   * real page carrying six visible AA failures reported
+   * `candidates: 60, measured: 60, unmeasurable: 0` — complete coverage of a
+   * subset, indistinguishable from complete coverage of the page.
+   *
+   * `domTextElements` is counted by walking the DOM (see `extractTextCensus`),
+   * so it does not inherit the lane's blind spot. Absent when the census could
+   * not run, which is itself distinguishable from a census reporting zero.
+   */
+  excluded?: {
+    /** Elements in the DOM carrying their own direct text. The honest denominator. */
+    domTextElements: number;
+    /**
+     * Real, reachable text that the page does not render at rest — behind a
+     * tab, a closed <details>, or a `hidden` attribute. A scan of the rest
+     * state cannot see it. OUT OF SCOPE for a static scan, and stated here
+     * rather than left implied.
+     */
+    hiddenAtRest: number;
+    /** Rendered with a collapsed box. */
+    zeroArea: number;
+    /**
+     * Inline text painted in the same colour as its parent. Deliberately
+     * skipped — the ancestor already represents these words at this colour, so
+     * grading them again would report the same text twice.
+     */
+    inlineSameColor: number;
+    /**
+     * Counted in the DOM, not excluded for any reason above, and still not
+     * graded. A non-zero value here is an UNEXPLAINED gap and should be
+     * treated as a defect in this accounting, not as a property of the page.
+     */
+    unaccounted: number;
+    /** Named examples of excluded text, so the exclusion can be spot-checked. */
+    samples: Array<{ selector: string; reason: string; color: string; text: string }>;
+  };
 }
 
 /**
@@ -1091,7 +1168,10 @@ export interface ContrastCoverage {
  * cannot drift from the grading — a second implementation here would be able
  * to claim coverage the rules never had.
  */
-export function summarizeContrastCoverage(elements: EnhancedElement[]): ContrastCoverage {
+export function summarizeContrastCoverage(
+  elements: EnhancedElement[],
+  census?: TextCensus,
+): ContrastCoverage {
   const coverage: ContrastCoverage = {
     candidates: elements.length,
     measured: 0,
@@ -1122,6 +1202,24 @@ export function summarizeContrastCoverage(elements: EnhancedElement[]): Contrast
         coverage.noStyles++;
         break;
     }
+  }
+
+  if (census) {
+    const graded = coverage.measured + coverage.assumedWhiteBackground
+      + coverage.unmeasurable + coverage.invisibleText;
+    const explained = graded + census.hiddenAtRest + census.zeroArea + census.inlineSameColor;
+    coverage.excluded = {
+      domTextElements: census.domTextElements,
+      hiddenAtRest: census.hiddenAtRest,
+      zeroArea: census.zeroArea,
+      inlineSameColor: census.inlineSameColor,
+      // Never negative: the graded set can legitimately exceed the DOM census
+      // (an element may be reached by both the interactive and content lanes),
+      // and a negative "unaccounted" would be a worse lie than the one this
+      // block exists to remove.
+      unaccounted: Math.max(0, census.domTextElements - explained),
+      samples: census.samples,
+    };
   }
 
   return coverage;
@@ -1327,6 +1425,25 @@ export function formatScanResult(result: ScanResult): string {
       }
       if (cc.measured + cc.assumedWhiteBackground === 0) {
         lines.push('  \x1b[33m!\x1b[0m No text was graded — a clean contrast result here means nothing.');
+      }
+      // The number a reader most needs and least expects: how much text on the
+      // page was never a candidate. Without it, "80 graded" reads as the whole
+      // page even when the page holds 87 text elements.
+      const ex = cc.excluded;
+      if (ex) {
+        const notGraded = ex.hiddenAtRest + ex.zeroArea + ex.inlineSameColor + ex.unaccounted;
+        lines.push(`  Text in the DOM:    ${ex.domTextElements}`);
+        if (notGraded > 0) {
+          const parts: string[] = [];
+          if (ex.hiddenAtRest > 0) parts.push(`${ex.hiddenAtRest} hidden at rest (behind a tab, closed <details>, or [hidden])`);
+          if (ex.zeroArea > 0) parts.push(`${ex.zeroArea} zero-area`);
+          if (ex.inlineSameColor > 0) parts.push(`${ex.inlineSameColor} inline, same colour as parent`);
+          if (ex.unaccounted > 0) parts.push(`\x1b[33m${ex.unaccounted} UNACCOUNTED\x1b[0m`);
+          lines.push(`  \x1b[33mNot graded:         ${parts.join('; ')}\x1b[0m`);
+        }
+        if (ex.hiddenAtRest > 0) {
+          lines.push('    Hidden text is out of scope for a rest-state scan — open the disclosure and re-scan to grade it.');
+        }
       }
     }
     lines.push('');
