@@ -12688,6 +12688,9 @@ var init_touch_targets2 = __esm({
 });
 
 // src/rules/presets/wcag-contrast.ts
+function isInactiveComponent(element) {
+  return element.interactive?.isDisabled === true;
+}
 function unmeasurableViolation(element, m, level) {
   return {
     ruleId: `wcag-${level}-contrast-unmeasurable`,
@@ -12712,6 +12715,7 @@ var init_wcag_contrast2 = __esm({
       // reader, so this rule grades TEXT anywhere — not just controls.
       appliesTo: "any",
       check(element, _context) {
+        if (isInactiveComponent(element)) return null;
         const m = measureElementContrast(element);
         if (m.status === "unmeasurable") return unmeasurableViolation(element, m, "aa");
         if (m.status !== "measured") return null;
@@ -12735,6 +12739,7 @@ var init_wcag_contrast2 = __esm({
       defaultSeverity: "warn",
       appliesTo: "any",
       check(element, _context) {
+        if (isInactiveComponent(element)) return null;
         const m = measureElementContrast(element);
         if (m.status === "unmeasurable") return unmeasurableViolation(element, m, "aaa");
         if (m.status !== "measured") return null;
