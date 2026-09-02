@@ -68,7 +68,7 @@ export function ImageModal({ imageUrl, label, isOpen, onClose }: ImageModalProps
 
       {/* Hint */}
       <div className="absolute bottom-4 left-0 right-0 text-center">
-        <span className="rounded-lg bg-[rgba(255,255,255,0.06)] px-3 py-1.5 text-xs text-[#5a5a72]">
+        <span className="rounded-lg bg-[rgba(255,255,255,0.06)] px-3 py-1.5 text-xs text-[var(--text-muted)]">
           Press ESC or click outside to close
         </span>
       </div>

@@ -27,7 +27,7 @@ export default function ViewTabs({ value, onChange }: ViewTabsProps) {
             px-1.5 pb-1 min-h-[24px] text-[13px] font-medium border-b-2 transition-colors duration-200
             ${value === tab.mode
               ? 'text-[#818cf8] border-[#818cf8]'
-              : 'text-[#5a5a72] border-transparent hover:text-[#9d9db5]'
+              : 'text-[var(--text-muted)] border-transparent hover:text-[#9d9db5]'
             }
           `}
         >

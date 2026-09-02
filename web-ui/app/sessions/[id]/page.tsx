@@ -54,7 +54,7 @@ export default function SessionDetailPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
-        <p className="text-[#5a5a72]">Loading session...</p>
+        <p className="text-[var(--text-muted)]">Loading session...</p>
       </div>
     );
   }
@@ -78,11 +78,11 @@ export default function SessionDetailPage() {
         <div>
           <h2 className="text-lg font-medium text-[#f0f0f5]">{session.name}</h2>
           <p className="text-[13px] text-[#9d9db5]">{session.url}</p>
-          <p className="text-[11px] text-[#5a5a72]">
+          <p className="text-[11px] text-[var(--text-muted)]">
             {session.viewport.name} ({session.viewport.width}x{session.viewport.height})
           </p>
         </div>
-        <a href="/dashboard" className="text-[13px] text-[#5a5a72] hover:text-[#9d9db5]">
+        <a href="/dashboard" className="text-[13px] text-[var(--text-muted)] hover:text-[#9d9db5]">
           Back to sessions
         </a>
       </div>
@@ -91,7 +91,7 @@ export default function SessionDetailPage() {
       {session.comparison && (
         <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.025)] p-4 flex items-center justify-between">
           <div>
-            <span className={`text-[13px] font-medium ${verdictColors[session.analysis?.verdict || ''] || 'text-[#5a5a72]'}`}>
+            <span className={`text-[13px] font-medium ${verdictColors[session.analysis?.verdict || ''] || 'text-[var(--text-muted)]'}`}>
               {session.analysis?.verdict || 'PENDING'}
             </span>
             {session.analysis?.summary && (
@@ -102,7 +102,7 @@ export default function SessionDetailPage() {
             <p className="text-xl font-medium text-[#818cf8]">
               {session.comparison.diffPercent.toFixed(1)}%
             </p>
-            <p className="text-[11px] text-[#5a5a72]">
+            <p className="text-[11px] text-[var(--text-muted)]">
               {session.comparison.diffPixels.toLocaleString()} px changed
             </p>
           </div>
@@ -118,7 +118,7 @@ export default function SessionDetailPage() {
             className={`pb-1 text-[13px] font-medium border-b-2 transition-colors duration-200 ${
               viewMode === mode
                 ? 'text-[#818cf8] border-[#818cf8]'
-                : 'text-[#5a5a72] border-transparent hover:text-[#9d9db5]'
+                : 'text-[var(--text-muted)] border-transparent hover:text-[#9d9db5]'
             }`}
           >
             {mode === 'split' ? 'Split' : mode === 'overlay' ? 'Overlay' : 'Diff'}
@@ -131,11 +131,11 @@ export default function SessionDetailPage() {
         {viewMode === 'split' && (
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <span className="text-[11px] text-[#5a5a72] uppercase mb-2 block">Baseline</span>
+              <span className="text-[11px] text-[var(--text-muted)] uppercase mb-2 block">Baseline</span>
               <img src={`${imagePath}/baseline`} alt="Baseline" className="w-full rounded-lg border border-[rgba(255,255,255,0.06)]" />
             </div>
             <div>
-              <span className="text-[11px] text-[#5a5a72] uppercase mb-2 block">Current</span>
+              <span className="text-[11px] text-[var(--text-muted)] uppercase mb-2 block">Current</span>
               <img src={`${imagePath}/current`} alt="Current" className="w-full rounded-lg border border-[rgba(255,255,255,0.06)]" />
             </div>
           </div>
@@ -143,13 +143,13 @@ export default function SessionDetailPage() {
         {viewMode === 'overlay' && (
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <span className="text-[11px] text-[#5a5a72]">Opacity</span>
+              <span className="text-[11px] text-[var(--text-muted)]">Opacity</span>
               <input
                 type="range" min="0" max="100" value={overlayOpacity}
                 onChange={(e) => setOverlayOpacity(Number(e.target.value))}
                 className="flex-1 h-1 appearance-none rounded-full bg-[rgba(255,255,255,0.06)] [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[#818cf8] [&::-webkit-slider-thumb]:cursor-pointer"
               />
-              <span className="text-[11px] text-[#5a5a72] w-8 text-right">{overlayOpacity}%</span>
+              <span className="text-[11px] text-[var(--text-muted)] w-8 text-right">{overlayOpacity}%</span>
             </div>
             <div className="relative">
               <img src={`${imagePath}/baseline`} alt="Baseline" className="w-full rounded-lg border border-[rgba(255,255,255,0.06)]" />
@@ -159,7 +159,7 @@ export default function SessionDetailPage() {
         )}
         {viewMode === 'diff' && (
           <div>
-            <span className="text-[11px] text-[#5a5a72] uppercase mb-2 block">Diff (red = changed)</span>
+            <span className="text-[11px] text-[var(--text-muted)] uppercase mb-2 block">Diff (red = changed)</span>
             <img src={`${imagePath}/diff`} alt="Diff" className="w-full rounded-lg border border-[rgba(255,255,255,0.06)] bg-[#0a0a1a]" />
           </div>
         )}
@@ -199,7 +199,7 @@ function FeedbackPanel({ sessionId }: { sessionId: string }) {
     <div className="rounded-xl border border-[rgba(255,255,255,0.06)] bg-[rgba(255,255,255,0.025)] p-5 space-y-4">
       <div>
         <h3 className="text-[15px] font-medium text-[#f0f0f5]">Feedback for Claude</h3>
-        <p className="text-[13px] text-[#5a5a72] mt-1">
+        <p className="text-[13px] text-[var(--text-muted)] mt-1">
           Write instructions and Claude will read them automatically.
         </p>
       </div>

@@ -124,7 +124,7 @@ export default function WorkflowsPage() {
       ) : sorted.length === 0 ? (
         <div className="rounded-xl border border-[rgba(255,255,255,0.06)] p-12 text-center">
           <p className="text-[15px] text-[#9d9db5] mb-1">No workflows yet</p>
-          <p className="text-[13px] text-[#5a5a72]">
+          <p className="text-[13px] text-[var(--text-muted)]">
             Run a scan or use <code className="text-[#818cf8]">npx ibr check</code> to start
           </p>
         </div>
@@ -150,14 +150,14 @@ export default function WorkflowsPage() {
               ) : w.status === 'failed' ? (
                 <span className="w-2 h-2 rounded-full bg-[#fb7185] shrink-0" />
               ) : (
-                <span className="w-2 h-2 rounded-full bg-[#5a5a72] shrink-0" />
+                <span className="w-2 h-2 rounded-full bg-[var(--text-muted)] shrink-0" />
               )}
 
               <span className="text-[13px] font-medium text-[#f0f0f5] truncate min-w-0 shrink">
                 {w.name || w.id}
               </span>
 
-              <span className="text-[11px] text-[#5a5a72] truncate min-w-0 flex-1">
+              <span className="text-[11px] text-[var(--text-muted)] truncate min-w-0 flex-1">
                 {w.url}
               </span>
 
@@ -167,7 +167,7 @@ export default function WorkflowsPage() {
                 </span>
               ) : w.verdict ? (
                 <>
-                  <span className={`text-[11px] font-medium shrink-0 ${verdictColors[w.verdict] || 'text-[#5a5a72]'}`}>
+                  <span className={`text-[11px] font-medium shrink-0 ${verdictColors[w.verdict] || 'text-[var(--text-muted)]'}`}>
                     {verdictLabels[w.verdict] || w.verdict}
                   </span>
                   {w.diffPercent !== undefined && (
@@ -178,7 +178,7 @@ export default function WorkflowsPage() {
                 </>
               ) : null}
 
-              <span className="text-[11px] text-[#5a5a72] shrink-0 w-16 text-right">
+              <span className="text-[11px] text-[var(--text-muted)] shrink-0 w-16 text-right">
                 {formatTime(w.startedAt)}
               </span>
             </div>
@@ -206,13 +206,13 @@ export default function WorkflowsPage() {
                       ? 'text-[#fbbf24]'
                       : scanResult.result.verdict === 'FAIL'
                         ? 'text-[#fb7185]'
-                        : 'text-[#5a5a72]'
+                        : 'text-[var(--text-muted)]'
                 }`}
               >
                 {scanResult.result.verdict}
               </span>
             )}
-            <span className="text-[11px] text-[#5a5a72] truncate">{scanResult.url}</span>
+            <span className="text-[11px] text-[var(--text-muted)] truncate">{scanResult.url}</span>
           </div>
           <ScanSummary
             sensors={scanResult.result?.sensors}

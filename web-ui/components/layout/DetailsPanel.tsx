@@ -32,9 +32,9 @@ const verdictColors: Record<VerdictStatus, string> = {
   expected: 'text-[#818cf8]',
   changed: 'text-[#fbbf24]',
   broken: 'text-[#fb7185]',
-  pending: 'text-[#5a5a72]',
+  pending: 'text-[var(--text-muted)]',
   active: 'text-[#818cf8]',
-  closed: 'text-[#5a5a72]',
+  closed: 'text-[var(--text-muted)]',
 };
 
 const verdictLabels: Record<VerdictStatus, string> = {
@@ -90,7 +90,7 @@ export function DetailsPanel({
             </svg>
           </div>
           <p className="text-[15px] font-medium text-[#f0f0f5] mb-1">No session selected</p>
-          <p className="text-[13px] text-[#5a5a72]">Create a new one</p>
+          <p className="text-[13px] text-[var(--text-muted)]">Create a new one</p>
         </div>
       </aside>
     );
@@ -185,7 +185,7 @@ export function DetailsPanel({
             className={`self-end px-3 h-8 rounded-lg text-[12px] font-medium transition-all duration-200 ${
               feedback.trim()
                 ? 'text-white bg-gradient-to-br from-[#818cf8] to-[#6366f1] hover:shadow-[0_4px_20px_rgba(99,102,241,0.4)]'
-                : 'text-[#5a5a72] bg-[rgba(255,255,255,0.03)] opacity-60 cursor-not-allowed'
+                : 'text-[var(--text-muted)] bg-[rgba(255,255,255,0.03)] opacity-60 cursor-not-allowed'
             }`}
           >
             Send

@@ -24,9 +24,9 @@ const statusDotColors: Record<SessionStatus, string> = {
   match: 'bg-[#34d399]',
   changed: 'bg-[#fbbf24]',
   broken: 'bg-[#fb7185]',
-  pending: 'bg-[#5a5a72]',
+  pending: 'bg-[var(--text-muted)]',
   active: 'bg-[#818cf8]',
-  closed: 'bg-[#5a5a72]',
+  closed: 'bg-[var(--text-muted)]',
 };
 
 export function LibraryPanel({
@@ -72,7 +72,7 @@ export function LibraryPanel({
         <div className="rounded-xl border border-[rgba(255,255,255,0.06)] overflow-hidden">
           {sessions.length === 0 ? (
             <div className="px-4 py-8 text-center">
-              <p className="text-[13px] text-[#5a5a72]">No sessions found</p>
+              <p className="text-[13px] text-[var(--text-muted)]">No sessions found</p>
             </div>
           ) : (
             sessions.map((session, i) => (
@@ -98,7 +98,7 @@ export function LibraryPanel({
                   </span>
                 </div>
                 {/* Diff percentage */}
-                <span className="text-[11px] text-[#5a5a72] shrink-0">
+                <span className="text-[11px] text-[var(--text-muted)] shrink-0">
                   {session.metadata}
                 </span>
               </div>

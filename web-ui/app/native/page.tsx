@@ -94,7 +94,7 @@ export default function NativeTestingPage() {
         <div className="flex-1 overflow-y-auto p-3">
           {devices.length === 0 && !loadingDevices ? (
             <div className="text-center py-8">
-              <p className="text-[13px] text-[#5a5a72] mb-3">No devices loaded</p>
+              <p className="text-[13px] text-[var(--text-muted)] mb-3">No devices loaded</p>
               <Button variant="glass" size="sm" onClick={loadDevices}>
                 Load Devices
               </Button>
@@ -108,7 +108,7 @@ export default function NativeTestingPage() {
               {Object.entries(grouped).map(([platform, devs]) => (
                 <div key={platform}>
                   {/* Platform label */}
-                  <div className="px-3 py-1.5 text-[11px] font-medium text-[#5a5a72] uppercase">
+                  <div className="px-3 py-1.5 text-[11px] font-medium text-[var(--text-muted)] uppercase">
                     {platform}
                   </div>
                   {devs.map((d) => (
@@ -126,14 +126,14 @@ export default function NativeTestingPage() {
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          d.status === 'booted' ? 'bg-[#34d399]' : 'bg-[#5a5a72]'
+                          d.status === 'booted' ? 'bg-[#34d399]' : 'bg-[var(--text-muted)]'
                         }`}
                       />
                       <div className="flex-1 min-w-0">
                         <span className="text-[13px] text-[#f0f0f5] truncate block">
                           {d.name}
                         </span>
-                        <span className="text-[11px] text-[#5a5a72]">{d.osVersion}</span>
+                        <span className="text-[11px] text-[var(--text-muted)]">{d.osVersion}</span>
                       </div>
                     </div>
                   ))}
@@ -167,14 +167,14 @@ export default function NativeTestingPage() {
 
         {!scanResult && !scanning && (
           <div className="flex flex-col items-center justify-center h-full">
-            <p className="text-[15px] text-[#5a5a72]">Select a device and scan</p>
+            <p className="text-[15px] text-[var(--text-muted)]">Select a device and scan</p>
           </div>
         )}
 
         {scanning && (
           <div className="flex flex-col items-center justify-center h-full">
             <div className="animate-shimmer h-4 w-32 rounded mb-2" />
-            <p className="text-[13px] text-[#5a5a72]">Scanning device...</p>
+            <p className="text-[13px] text-[var(--text-muted)]">Scanning device...</p>
           </div>
         )}
 
@@ -217,7 +217,7 @@ export default function NativeTestingPage() {
                         {issue.description}
                       </span>
                       <svg
-                        className={`w-4 h-4 text-[#5a5a72] shrink-0 ml-auto transition-transform duration-200 ${
+                        className={`w-4 h-4 text-[var(--text-muted)] shrink-0 ml-auto transition-transform duration-200 ${
                           expandedIssueId === issue.id ? 'rotate-180' : ''
                         }`}
                         fill="none"
@@ -236,7 +236,7 @@ export default function NativeTestingPage() {
                           {/* Computed styles */}
                           {issue.details.styles && (
                             <div>
-                              <p className="text-[11px] font-medium text-[#5a5a72] uppercase mb-2">
+                              <p className="text-[11px] font-medium text-[var(--text-muted)] uppercase mb-2">
                                 Computed CSS
                               </p>
                               <div className="space-y-1">
@@ -253,7 +253,7 @@ export default function NativeTestingPage() {
                           {/* Accessibility */}
                           {issue.details.a11y && (
                             <div>
-                              <p className="text-[11px] font-medium text-[#5a5a72] uppercase mb-2">
+                              <p className="text-[11px] font-medium text-[var(--text-muted)] uppercase mb-2">
                                 Accessibility
                               </p>
                               <div className="space-y-1">
@@ -292,7 +292,7 @@ export default function NativeTestingPage() {
 
                         {/* Bounds */}
                         {issue.details.bounds && (
-                          <div className="mt-2 text-[11px] text-[#5a5a72]">
+                          <div className="mt-2 text-[11px] text-[var(--text-muted)]">
                             Bounds: {issue.details.bounds.x},{issue.details.bounds.y} {issue.details.bounds.w}x{issue.details.bounds.h}
                           </div>
                         )}

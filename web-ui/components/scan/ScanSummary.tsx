@@ -45,7 +45,7 @@ function DesignSystemBlock({ ds }: { ds: DesignSystemResult }) {
     <section className="rounded-xl border border-[rgba(255,255,255,0.06)] overflow-hidden">
       <header className="flex items-baseline gap-3 px-4 py-3 border-b border-[rgba(255,255,255,0.04)]">
         <h3 className="text-[13px] font-medium text-[#f0f0f5]">Design System</h3>
-        <span className="text-[11px] text-[#5a5a72]">{ds.configName}</span>
+        <span className="text-[11px] text-[var(--text-muted)]">{ds.configName}</span>
         <span className="ml-auto text-[13px] font-medium text-[#818cf8]">
           {ds.complianceScore}% compliance
         </span>
@@ -76,7 +76,7 @@ function DesignSystemBlock({ ds }: { ds: DesignSystemResult }) {
               </span>
               <span className="text-[12px] text-[#9d9db5] truncate">{v.message}</span>
               {v.element && (
-                <code className="text-[10px] text-[#5a5a72] truncate ml-auto max-w-[40%]">
+                <code className="text-[10px] text-[var(--text-muted)] truncate ml-auto max-w-[40%]">
                   {v.element}
                 </code>
               )}
@@ -101,7 +101,7 @@ function DesignSystemBlock({ ds }: { ds: DesignSystemResult }) {
                 expected <code className="text-[#34d399]">{String(v.expected)}</code>, got{' '}
                 <code className="text-[#fb7185]">{String(v.actual)}</code>
               </span>
-              <code className="text-[10px] text-[#5a5a72] truncate ml-auto max-w-[40%]">
+              <code className="text-[10px] text-[var(--text-muted)] truncate ml-auto max-w-[40%]">
                 {v.element}
               </code>
             </>
@@ -139,7 +139,7 @@ function SensorsBlock({ sensors }: { sensors: SensorReport }) {
     <section className="rounded-xl border border-[rgba(255,255,255,0.06)] overflow-hidden">
       <header className="flex items-baseline gap-3 px-4 py-3 border-b border-[rgba(255,255,255,0.04)]">
         <h3 className="text-[13px] font-medium text-[#f0f0f5]">Sensors</h3>
-        <span className="text-[11px] text-[#5a5a72]">v1.2.0 scan output</span>
+        <span className="text-[11px] text-[var(--text-muted)]">v1.2.0 scan output</span>
       </header>
 
       {sensors.oneLiners.length > 0 && (
@@ -240,7 +240,7 @@ function SensorsBlock({ sensors }: { sensors: SensorReport }) {
               <div className="text-[11px] text-[#fbbf24] mt-1">font loading pending</div>
             )}
             {sensors.typography.data_unavailable && (
-              <div className="text-[11px] text-[#5a5a72] mt-1">data unavailable</div>
+              <div className="text-[11px] text-[var(--text-muted)] mt-1">data unavailable</div>
             )}
           </Cell>
         )}
@@ -332,7 +332,7 @@ function SensorsBlock({ sensors }: { sensors: SensorReport }) {
 function Cell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="bg-[#13131d] px-4 py-3">
-      <div className="text-[11px] uppercase tracking-wider text-[#5a5a72] mb-1">{label}</div>
+      <div className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] mb-1">{label}</div>
       {children}
     </div>
   );
@@ -370,7 +370,7 @@ function ViolationList<T extends DesignSystemViolation | DesignSystemTokenViolat
   const top = items.slice(0, 10);
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wider text-[#5a5a72] px-4 pt-3 pb-2">
+      <div className="text-[11px] uppercase tracking-wider text-[var(--text-muted)] px-4 pt-3 pb-2">
         {title}
       </div>
       <div>
@@ -386,7 +386,7 @@ function ViolationList<T extends DesignSystemViolation | DesignSystemTokenViolat
         ))}
       </div>
       {items.length > top.length && (
-        <div className="px-4 py-2 text-[11px] text-[#5a5a72] border-t border-[rgba(255,255,255,0.04)]">
+        <div className="px-4 py-2 text-[11px] text-[var(--text-muted)] border-t border-[rgba(255,255,255,0.04)]">
           + {items.length - top.length} more
         </div>
       )}

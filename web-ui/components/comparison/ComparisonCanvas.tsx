@@ -47,7 +47,7 @@ export default function ComparisonCanvas({
     <div className="flex flex-1 flex-col gap-3 overflow-hidden p-4">
       {/* Canvas header */}
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-[#5a5a72]">
+        <span className="text-[11px] text-[var(--text-muted)]">
           Comparing baseline vs current
         </span>
         <ViewTabs value={viewMode} onChange={onViewModeChange} />

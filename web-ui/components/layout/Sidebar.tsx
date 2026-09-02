@@ -69,7 +69,7 @@ function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
         relative flex items-center justify-center w-10 h-10 rounded-lg transition-colors duration-200
         ${isActive
           ? 'bg-[rgba(129,140,248,0.12)] text-[#f0f0f5]'
-          : 'text-[#5a5a72] hover:text-[#9d9db5] hover:bg-[rgba(255,255,255,0.025)]'
+          : 'text-[var(--text-muted)] hover:text-[#9d9db5] hover:bg-[rgba(255,255,255,0.025)]'
         }
       `}
       aria-label={item.label}

@@ -188,7 +188,7 @@ export default function DashboardPage() {
           </svg>
         </div>
         <p className="mb-1 text-[15px] font-medium text-[#f0f0f5]">Failed to load sessions</p>
-        <p className="mb-4 text-[13px] text-[#5a5a72]">{error}</p>
+        <p className="mb-4 text-[13px] text-[var(--text-muted)]">{error}</p>
         <Button variant="primary" onClick={() => refetch()}>Retry</Button>
       </div>
     );
@@ -242,7 +242,7 @@ export default function DashboardPage() {
               <p className="mb-1 text-[15px] font-medium text-[#f0f0f5]">
                 {loading ? 'Loading sessions...' : 'No session selected'}
               </p>
-              <p className="mb-4 text-[13px] text-[#5a5a72]">
+              <p className="mb-4 text-[13px] text-[var(--text-muted)]">
                 {loading
                   ? 'Please wait'
                   : sessions.length === 0

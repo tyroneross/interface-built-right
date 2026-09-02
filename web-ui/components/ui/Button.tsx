@@ -40,7 +40,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         'text-white border-none',
         'bg-gradient-to-br from-[#818cf8] to-[#6366f1]',
         'hover:shadow-[0_4px_20px_rgba(99,102,241,0.4)] hover:-translate-y-px',
-        'disabled:text-[#5a5a72] disabled:from-[rgba(255,255,255,0.03)] disabled:to-[rgba(255,255,255,0.03)] disabled:shadow-none disabled:translate-y-0',
+        'disabled:text-[var(--text-muted)] disabled:from-[rgba(255,255,255,0.03)] disabled:to-[rgba(255,255,255,0.03)] disabled:shadow-none disabled:translate-y-0',
       ].join(' '),
       glass: [
         // Opaque dark surface (visually equivalent to the prior translucent
@@ -49,17 +49,17 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         'text-[#c4c4d4] bg-[#15151f]',
         'border border-[rgba(255,255,255,0.06)]',
         'hover:bg-[#1c1c28] hover:text-[#f0f0f5]',
-        'disabled:text-[#5a5a72] disabled:bg-[#101018]',
+        'disabled:text-[var(--text-muted)] disabled:bg-[#101018]',
       ].join(' '),
       ghost: [
-        'text-[#5a5a72] bg-transparent border-none',
+        'text-[var(--text-muted)] bg-transparent border-none',
         'hover:text-[#9d9db5] hover:bg-[rgba(255,255,255,0.025)]',
         'disabled:text-[#3a3a4a]',
       ].join(' '),
       destructive: [
         'text-[#fb7185] bg-transparent border-none',
         'hover:bg-[rgba(251,113,133,0.08)]',
-        'disabled:text-[#5a5a72]',
+        'disabled:text-[var(--text-muted)]',
       ].join(' '),
     };
 

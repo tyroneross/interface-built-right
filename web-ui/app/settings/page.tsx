@@ -186,7 +186,7 @@ export default function SettingsPage() {
                     px-3 h-8 rounded-lg text-[12px] font-medium transition-colors duration-200
                     ${active
                       ? 'bg-[rgba(129,140,248,0.12)] text-[#818cf8]'
-                      : 'bg-[rgba(255,255,255,0.03)] text-[#5a5a72] hover:text-[#9d9db5]'
+                      : 'bg-[rgba(255,255,255,0.03)] text-[var(--text-muted)] hover:text-[#9d9db5]'
                     }
                   `}
                 >
@@ -216,7 +216,7 @@ export default function SettingsPage() {
         </Field>
         {designSystem.enabled && (
           <div className="pt-2 border-t border-[rgba(255,255,255,0.04)]">
-            <p className="text-[11px] text-[#5a5a72] uppercase font-medium mb-3">Principles</p>
+            <p className="text-[11px] text-[var(--text-muted)] uppercase font-medium mb-3">Principles</p>
             <div className="space-y-3">
               {(Object.entries(designSystem.principles) as [string, boolean][]).map(([key, val]) => (
                 <Field key={key} label={key.replace(/([A-Z])/g, ' $1').toLowerCase()}>

@@ -13,17 +13,40 @@
   --surface-input: rgba(255, 255, 255, 0.03);
   --surface-active: rgba(129, 140, 248, 0.12);
 
-  /* Text */
+  /* Text
+   *
+   * --text-muted was #5a5a72 and failed WCAG AA everywhere it was used: 3.01:1
+   * on --bg-base, 2.90:1 on --surface-glass, 2.65:1 on --surface-active, all
+   * against a 4.5:1 floor. It was the single token behind every AA contrast
+   * error an IBR scan of this dashboard reported.
+   *
+   * The replacement is derived, not picked. Hue and saturation are held exactly,
+   * so the muted grey-violet reads the same; only lightness moves, and only as
+   * far as the measurement requires. L 0.400 -> 0.591 puts the worst surface
+   * (--surface-active) at 5.30:1.
+   *
+   * It is deliberately NOT the 4.50:1 minimum. Solving to the bare floor gives
+   * #7e7e99, which clears it by 0.00 — so the next tweak to any surface silently
+   * reopens the defect. The 0.8 of headroom is what makes this durable rather
+   * than momentarily green.
+   *
+   * Reproduce or re-derive after any palette change:
+   *   python3 scripts/derive_text_contrast.py --token '#5a5a72' \
+   *     --base '#060611' --overlay 'rgba(255,255,255,0.025)' \
+   *     --overlay 'rgba(255,255,255,0.05)' --overlay 'rgba(255,255,255,0.03)' \
+   *     --overlay 'rgba(129,140,248,0.12)'
+   */
   --text-primary: #f0f0f5;
   --text-secondary: #9d9db5;
-  --text-muted: #5a5a72;
+  --text-muted: #8a8aa3;
 
   /* Status */
   --status-match: #34d399;
   --status-changed: #fbbf24;
   --status-broken: #fb7185;
   --status-active: #818cf8;
-  --status-pending: #5a5a72;
+  /* Same derivation as --text-muted; it carried the identical failing value. */
+  --status-pending: #8a8aa3;
 
   /* Accent */
   --accent-indigo: #818cf8;

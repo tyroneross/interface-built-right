@@ -73,7 +73,7 @@ export default function DesignSystemPage() {
           value={url}
           onChange={e => setUrl(e.target.value)}
           placeholder="http://localhost:3000"
-          className="flex-1 rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)] px-3 py-2 text-[13px] text-[#f0f0f5] placeholder:text-[#5a5a72] focus:outline-none focus:border-[rgba(255,255,255,0.18)]"
+          className="flex-1 rounded-lg bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.06)] px-3 py-2 text-[13px] text-[#f0f0f5] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[rgba(255,255,255,0.18)]"
           onKeyDown={e => {
             if (e.key === 'Enter') handleValidate();
           }}
@@ -101,30 +101,30 @@ export default function DesignSystemPage() {
               {ds.tokenViolations.length !== 1 ? 's' : ''}
             </p>
             {scannedUrl && (
-              <p className="text-[11px] text-[#5a5a72] mt-1 truncate max-w-full">
+              <p className="text-[11px] text-[var(--text-muted)] mt-1 truncate max-w-full">
                 {scannedUrl}
               </p>
             )}
           </>
         ) : result && !ds ? (
           <>
-            <p className="text-5xl font-bold text-[#5a5a72] mb-2" style={{ fontSize: '48px' }}>
+            <p className="text-5xl font-bold text-[var(--text-muted)] mb-2" style={{ fontSize: '48px' }}>
               n/a
             </p>
             <p className="text-[13px] text-[#9d9db5]">
               No design system configured for this scan.
             </p>
-            <p className="text-[11px] text-[#5a5a72] mt-1">
+            <p className="text-[11px] text-[var(--text-muted)] mt-1">
               Add <code className="text-[#818cf8]">.ibr/design-system.json</code> at the project
               root and re-run.
             </p>
           </>
         ) : (
           <>
-            <p className="text-5xl font-bold text-[#5a5a72] mb-2" style={{ fontSize: '48px' }}>
+            <p className="text-5xl font-bold text-[var(--text-muted)] mb-2" style={{ fontSize: '48px' }}>
               --
             </p>
-            <p className="text-[13px] text-[#5a5a72]">
+            <p className="text-[13px] text-[var(--text-muted)]">
               Enter a URL and click Validate to scan
             </p>
           </>
@@ -148,7 +148,7 @@ export default function DesignSystemPage() {
       {/* Timestamp */}
       {lastValidated && (
         <div className="flex items-center justify-center">
-          <span className="text-[11px] text-[#5a5a72]">
+          <span className="text-[11px] text-[var(--text-muted)]">
             Last validated: {formatRelativeTime(lastValidated)}
           </span>
         </div>

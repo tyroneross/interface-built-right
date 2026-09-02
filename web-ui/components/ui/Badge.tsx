@@ -17,7 +17,7 @@ const variantClasses: Record<BadgeVariant, string> = {
   changed: 'text-[#fbbf24]',
   broken: 'text-[#fb7185]',
   active: 'text-[#818cf8]',
-  pending: 'text-[#5a5a72]',
+  pending: 'text-[var(--text-muted)]',
   expected: 'text-[#818cf8]',
 };
 
