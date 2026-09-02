@@ -2160,6 +2160,12 @@ interface BrowserOptions extends BrowserConnectionOptions {
      * Default: false
      */
     normalize?: boolean;
+    /**
+     * Called with each spawn step ('finding chrome', 'spawned pid 123', ...).
+     * A spawn that fails silently is unusable; this makes every stage visible
+     * without turning on a debugger.
+     */
+    onProgress?: (step: string) => void;
 }
 
 interface BrowserLaunchOptions {
@@ -2731,7 +2737,19 @@ declare class CdpConnection {
     constructor(options?: {
         timeoutMs?: number;
     });
-    connect(wsUrl: string): Promise<void>;
+    /**
+     * Open the CDP WebSocket, bounded by `timeoutMs`.
+     *
+     * `new WebSocket()` fires 'open' or 'error' — and NEITHER when the peer
+     * completes the TCP handshake then goes silent, which is exactly what a
+     * recycled ephemeral port looks like. Without the timer below this call
+     * never settles: measured still pending at 25s on 2026-09-01. On timeout we
+     * also close the half-open socket, or the process keeps a live handle and
+     * cannot exit.
+     */
+    connect(wsUrl: string, options?: {
+        timeoutMs?: number;
+    }): Promise<void>;
     send<T = unknown>(method: string, params?: Record<string, unknown>, sessionId?: string): Promise<T>;
     on(method: string, handler: EventHandler): void;
     off(method: string, handler: EventHandler): void;
@@ -4196,6 +4214,23 @@ declare class CompatLocator {
         delay?: number;
         timeout?: number;
     }): Promise<void>;
+    /**
+     * Choose an option in a <select>, returning the values that ended up selected.
+     *
+     * A native select cannot be driven by click: its option list is painted by the
+     * OS rather than the page, so there is no option node in the DOM to click. The
+     * value is set directly and input+change are dispatched, matching `fill`, so
+     * React and other frameworks observe the change through their normal path.
+     */
+    selectOption(spec: {
+        value?: string;
+        label?: string;
+        index?: number;
+    }, _options?: {
+        timeout?: number;
+    }): Promise<string[]>;
+    /** Every option on the target select, as "value (label)", for error messages. */
+    listOptions(): Promise<string[]>;
     waitFor(options?: {
         state?: string;
         timeout?: number;
@@ -4718,7 +4753,7 @@ declare function findOrphanEndpoints(apiCalls: ApiCall[], apiRoutes: ApiRoute[])
 /**
  * Pending operation types
  */
-type OperationType = 'screenshot' | 'type' | 'click' | 'navigate' | 'evaluate' | 'fill' | 'hover' | 'wait';
+type OperationType = 'screenshot' | 'type' | 'select' | 'click' | 'navigate' | 'evaluate' | 'fill' | 'hover' | 'wait';
 /**
  * A pending operation that's currently running
  */
@@ -7156,6 +7191,7 @@ declare function notImplementedOutcome(capability: string): ActionOutcome;
  */
 /** Kind of surface a session drives. */
 type SessionType = 'chrome' | 'safari' | 'macos' | 'simulator';
+
 /**
  * One live session. Web sessions carry a driver; native (macos/simulator)
  * sessions carry no driver and are addressed by pid / device instead.

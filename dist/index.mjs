@@ -619,10 +619,57 @@ var init_devices = __esm({
   }
 });
 
+// src/engine/net-timeout.ts
+function envMs(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+async function fetchWithTimeout(url, options = {}) {
+  const { timeoutMs = CDP_PROBE_TIMEOUT_MS, waitingOn = url, ...init } = options;
+  const started = Date.now();
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    if (isAbort(err)) {
+      throw new ConnectTimeoutError(waitingOn, timeoutMs, Date.now() - started);
+    }
+    throw err;
+  }
+}
+function isAbort(err) {
+  const name = err?.name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+var CDP_PROBE_TIMEOUT_MS, WS_CONNECT_TIMEOUT_MS, BROWSER_SPAWN_TIMEOUT_MS, ConnectTimeoutError;
+var init_net_timeout = __esm({
+  "src/engine/net-timeout.ts"() {
+    CDP_PROBE_TIMEOUT_MS = envMs("IBR_CDP_PROBE_TIMEOUT_MS", 3e3);
+    WS_CONNECT_TIMEOUT_MS = envMs("IBR_WS_CONNECT_TIMEOUT_MS", 1e4);
+    BROWSER_SPAWN_TIMEOUT_MS = envMs("IBR_BROWSER_SPAWN_TIMEOUT_MS", 3e4);
+    ConnectTimeoutError = class extends Error {
+      constructor(waitingOn, timeoutMs, elapsedMs = timeoutMs) {
+        super(
+          `Timed out after ${elapsedMs}ms waiting on ${waitingOn} (limit ${timeoutMs}ms). The endpoint accepted the connection or was unreachable but never answered.`
+        );
+        this.waitingOn = waitingOn;
+        this.timeoutMs = timeoutMs;
+        this.elapsedMs = elapsedMs;
+        this.name = "ConnectTimeoutError";
+      }
+      waitingOn;
+      timeoutMs;
+      elapsedMs;
+    };
+  }
+});
+
 // src/engine/cdp/connection.ts
 var DEFAULT_TIMEOUT_MS, CdpConnection;
 var init_connection = __esm({
   "src/engine/cdp/connection.ts"() {
+    init_net_timeout();
     DEFAULT_TIMEOUT_MS = 3e4;
     CdpConnection = class {
       ws = null;
@@ -633,13 +680,39 @@ var init_connection = __esm({
       constructor(options) {
         this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       }
-      async connect(wsUrl) {
+      /**
+       * Open the CDP WebSocket, bounded by `timeoutMs`.
+       *
+       * `new WebSocket()` fires 'open' or 'error' — and NEITHER when the peer
+       * completes the TCP handshake then goes silent, which is exactly what a
+       * recycled ephemeral port looks like. Without the timer below this call
+       * never settles: measured still pending at 25s on 2026-09-01. On timeout we
+       * also close the half-open socket, or the process keeps a live handle and
+       * cannot exit.
+       */
+      async connect(wsUrl, options) {
+        const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS;
+        const started = Date.now();
         return new Promise((resolve3, reject) => {
           const ws = new WebSocket(wsUrl);
           let settled = false;
+          const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            try {
+              ws.close();
+            } catch {
+            }
+            reject(new ConnectTimeoutError(
+              `CDP WebSocket open ${wsUrl}`,
+              timeoutMs,
+              Date.now() - started
+            ));
+          }, timeoutMs);
           const onOpen = () => {
             if (settled) return;
             settled = true;
+            clearTimeout(timer);
             this.ws = ws;
             ws.addEventListener("message", (event) => this.handleMessage(event));
             ws.addEventListener("close", () => this.handleClose());
@@ -649,6 +722,7 @@ var init_connection = __esm({
           const onError = () => {
             if (settled) return;
             settled = true;
+            clearTimeout(timer);
             reject(new Error(`WebSocket connection failed: ${wsUrl}`));
           };
           ws.addEventListener("open", onOpen);
@@ -771,7 +845,10 @@ function checkPortFree(port) {
   });
 }
 async function resolveWsEndpoint(cdpUrl) {
-  const res = await fetch(`${cdpUrl}/json/version`);
+  const res = await fetchWithTimeout(`${cdpUrl}/json/version`, {
+    timeoutMs: CDP_PROBE_TIMEOUT_MS,
+    waitingOn: `CDP version probe ${cdpUrl}/json/version`
+  });
   if (!res.ok) {
     throw new Error(`CDP endpoint did not respond: ${cdpUrl}`);
   }
@@ -793,7 +870,65 @@ function resolveBrowserConnectionOptions(options = {}, env = process.env) {
     chromePath: options.chromePath || env.IBR_CHROME_PATH
   };
 }
-function reclaimStaleSingletonLock(lockPath) {
+function processTable() {
+  return execFileSync("ps", ["-axo", "pid=,ppid=,command="], {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024
+  });
+}
+function userDataDirFromCommand(command) {
+  const match = command.match(/--user-data-dir=(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+function isIbrProfile(profileDir) {
+  return profileDir.startsWith(`${tmpdir()}/ibr-chrome-`) || profileDir === join(homedir(), ".ibr", "chromium-profile") || profileDir === ".ibr/browser-profile" || profileDir.endsWith("/.ibr/browser-profile");
+}
+function parseIbrChromeProcesses(psOutput) {
+  const processes = [];
+  for (const line of psOutput.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+    if (!match) continue;
+    const command = match[3];
+    if (!command.includes("--remote-debugging-port=") || command.includes("--type=")) continue;
+    const profileDir = userDataDirFromCommand(command);
+    if (!profileDir || !isIbrProfile(profileDir)) continue;
+    processes.push({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      profileDir,
+      command
+    });
+  }
+  return processes;
+}
+function reapOrphanedIbrChromeProcesses(options = {}) {
+  let processes;
+  try {
+    processes = parseIbrChromeProcesses(options.psOutput ?? processTable());
+  } catch {
+    return { reaped: [], preserved: [] };
+  }
+  const kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
+  const result = { reaped: [], preserved: [] };
+  for (const entry of processes) {
+    if (entry.ppid !== 1) {
+      result.preserved.push(entry.pid);
+      continue;
+    }
+    try {
+      kill(entry.pid, "SIGTERM");
+      result.reaped.push(entry.pid);
+    } catch {
+    }
+  }
+  return result;
+}
+function shouldReclaimSingletonLock(evidence) {
+  if (evidence.profileInUse) return false;
+  if (evidence.targetHost === evidence.currentHost) return !evidence.targetPidAlive;
+  return evidence.lockAgeMs >= PROFILE_REAP_GRACE_MS;
+}
+function reclaimStaleSingletonLock(lockPath, profileDir) {
   let target;
   try {
     target = readlinkSync(lockPath);
@@ -805,13 +940,35 @@ function reclaimStaleSingletonLock(lockPath) {
   const host = target.slice(0, sep);
   const pid = Number(target.slice(sep + 1));
   if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (host !== hostname()) return false;
+  let psOutput;
   try {
-    process.kill(pid, 0);
+    psOutput = processTable();
+  } catch {
     return false;
-  } catch (err) {
-    if (err.code === "EPERM") return false;
   }
+  const profileInUse = psOutput.split("\n").some((line) => userDataDirFromCommand(line) === profileDir);
+  let targetPidAlive = false;
+  if (host === hostname()) {
+    try {
+      process.kill(pid, 0);
+      targetPidAlive = true;
+    } catch (err) {
+      targetPidAlive = err.code === "EPERM";
+    }
+  }
+  let lockAgeMs;
+  try {
+    lockAgeMs = Date.now() - lstatSync(lockPath).mtimeMs;
+  } catch {
+    return false;
+  }
+  if (!shouldReclaimSingletonLock({
+    targetHost: host,
+    currentHost: hostname(),
+    lockAgeMs,
+    profileInUse,
+    targetPidAlive
+  })) return false;
   try {
     unlinkSync(lockPath);
     return true;
@@ -850,6 +1007,7 @@ function reapOrphanedProfiles() {
 var CHROME_PATHS, PROFILE_REAP_GRACE_MS, BrowserManager;
 var init_browser = __esm({
   "src/engine/cdp/browser.ts"() {
+    init_net_timeout();
     CHROME_PATHS = [
       // macOS
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -872,6 +1030,10 @@ var init_browser = __esm({
       _wsEndpoint = null;
       /** Set only when this browser owns a throwaway profile it must delete on close. */
       _ephemeralProfileDir = null;
+      /** Tail of Chrome's stderr, so a spawn failure can say why Chrome refused. */
+      _stderrTail = "";
+      /** Set once the child exits, so waitForDebugger stops polling a dead process. */
+      _exit = null;
       async launch(options = {}) {
         const connection = resolveBrowserConnectionOptions(options);
         this._mode = connection.mode;
@@ -884,26 +1046,34 @@ var init_browser = __esm({
             return connection.wsEndpoint;
           }
           if (connection.cdpUrl) {
-            const wsUrl2 = await resolveWsEndpoint(connection.cdpUrl);
-            this._wsEndpoint = wsUrl2;
-            return wsUrl2;
+            const wsUrl = await resolveWsEndpoint(connection.cdpUrl);
+            this._wsEndpoint = wsUrl;
+            return wsUrl;
           }
           throw new Error(
             "Connect mode requires a CDP endpoint.\nProvide --cdp-url http://127.0.0.1:9222 or --ws-endpoint ws://...\nYou can also set IBR_CDP_URL or IBR_WS_ENDPOINT."
           );
         }
+        const progress = options.onProgress ?? (() => {
+        });
         const headless = options.headless ?? true;
+        progress("selecting debugging port");
         this._port = options.port ?? await findFreePort();
+        progress(`debugging port ${this._port}`);
+        progress("reaping orphaned browsers");
+        reapOrphanedIbrChromeProcesses();
         let userDataDir = options.userDataDir ?? join(homedir(), ".ibr", "chromium-profile");
         const lockPath = join(userDataDir, "SingletonLock");
         const lockStat = lstatSync(lockPath, { throwIfNoEntry: false });
         if (lockStat) {
-          if (reclaimStaleSingletonLock(lockPath)) ; else {
+          if (reclaimStaleSingletonLock(lockPath, userDataDir)) ; else {
             userDataDir = mkdtempSync(join(tmpdir(), "ibr-chrome-"));
             this._ephemeralProfileDir = userDataDir;
           }
         }
+        progress("reaping orphaned profiles");
         reapOrphanedProfiles();
+        progress("locating chrome binary");
         const chromePath = connection.chromePath ?? findChrome();
         if (!chromePath) {
           throw new Error(
@@ -927,50 +1097,108 @@ Checked: ${CHROME_PATHS.join(", ")}`
           args.push("--disable-lcd-text");
           args.push("--force-device-scale-factor=1");
         }
+        progress(`spawning ${chromePath} (profile ${userDataDir})`);
+        this._stderrTail = "";
+        this._exit = null;
         this.process = spawn(chromePath, args, { stdio: "pipe" });
         this.process.on("error", (err) => {
           console.error(`Chrome process error: ${err.message}`);
         });
-        const wsUrl = await this.waitForDebugger();
-        this._cdpUrl = `http://127.0.0.1:${this._port}`;
-        this._wsEndpoint = wsUrl;
-        return wsUrl;
-      }
-      async waitForDebugger() {
-        const maxAttempts = 50;
-        for (let i = 0; i < maxAttempts; i++) {
-          try {
-            const res = await fetch(`http://127.0.0.1:${this._port}/json/version`);
-            const data = await res.json();
-            return data.webSocketDebuggerUrl;
-          } catch {
-            await new Promise((r) => setTimeout(r, 100));
-          }
+        this.process.stderr?.on("data", (chunk) => {
+          this._stderrTail = (this._stderrTail + chunk.toString()).slice(-2e3);
+        });
+        this.process.on("exit", (code, signal) => {
+          this._exit = { code, signal };
+        });
+        progress(`spawned chrome pid ${this.process.pid ?? "unknown"}`);
+        try {
+          const wsUrl = await this.waitForDebugger(progress);
+          progress("debugger answered");
+          this._cdpUrl = `http://127.0.0.1:${this._port}`;
+          this._wsEndpoint = wsUrl;
+          return wsUrl;
+        } catch (error) {
+          await this.close();
+          throw error;
         }
-        throw new Error(
-          `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?
-If you are running inside a sandbox, retry with connect mode:
-  --browser-mode connect --cdp-url http://127.0.0.1:9222`
+      }
+      /**
+       * Poll the freshly spawned Chrome until its debugger answers.
+       *
+       * This used to be `for (i < 50) { await fetch(...) }` with a comment claiming
+       * "5 seconds at 100ms intervals". It was not 5 seconds and it was not
+       * bounded: `fetch()` has no default deadline, so ONE attempt against a port
+       * that is listening but silent blocks the whole loop forever. That is the
+       * shape of the reported hang — no output, no error, no timeout of its own.
+       *
+       * Now: a wall-clock deadline governs the loop, each probe carries its own
+       * short timeout, and an exited child ends the wait immediately instead of
+       * polling a process that is never coming back.
+       */
+      async waitForDebugger(onProgress = () => {
+      }, timeoutMs = BROWSER_SPAWN_TIMEOUT_MS) {
+        const url = `http://127.0.0.1:${this._port}/json/version`;
+        const started = Date.now();
+        const deadline = started + timeoutMs;
+        let attempts = 0;
+        let lastError = "no response yet";
+        while (Date.now() < deadline) {
+          if (this._exit) {
+            throw new Error(
+              `Chrome exited before its debugger came up (code ${this._exit.code}, signal ${this._exit.signal}) after ${Date.now() - started}ms on port ${this._port}.${this.stderrHint()}`
+            );
+          }
+          attempts++;
+          try {
+            const remaining = deadline - Date.now();
+            const res = await fetchWithTimeout(url, {
+              timeoutMs: Math.max(250, Math.min(CDP_PROBE_TIMEOUT_MS, remaining)),
+              waitingOn: `Chrome debugger ${url}`
+            });
+            const data = await res.json();
+            if (data.webSocketDebuggerUrl) return data.webSocketDebuggerUrl;
+            lastError = "endpoint answered without a webSocketDebuggerUrl";
+          } catch (err) {
+            lastError = err instanceof Error ? err.message : String(err);
+            if (attempts === 1 || attempts % 10 === 0) {
+              onProgress(`waiting for debugger on port ${this._port} (attempt ${attempts}: ${lastError})`);
+            }
+          }
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        const elapsed = Date.now() - started;
+        throw new ConnectTimeoutError(
+          `Chrome debugger ${url} \u2014 ${attempts} probes over ${elapsed}ms, last: ${lastError}.` + this.stderrHint() + "\nIs another process holding this port? If you are running inside a sandbox, retry with connect mode:\n  --browser-mode connect --cdp-url http://127.0.0.1:9222",
+          timeoutMs,
+          elapsed
         );
+      }
+      stderrHint() {
+        const tail = this._stderrTail.trim();
+        return tail ? `
+Chrome stderr (tail):
+${tail}` : "";
       }
       async close() {
         if (this._mode !== "local" || !this.process) return;
         const proc = this.process;
         this.process = null;
-        await new Promise((resolve3) => {
-          const killTimer = setTimeout(() => {
-            try {
-              proc.kill("SIGKILL");
-            } catch {
-            }
-            resolve3();
-          }, 3e3);
-          proc.once("close", () => {
-            clearTimeout(killTimer);
-            resolve3();
+        if (!this._exit) {
+          await new Promise((resolve3) => {
+            const killTimer = setTimeout(() => {
+              try {
+                proc.kill("SIGKILL");
+              } catch {
+              }
+              resolve3();
+            }, 3e3);
+            proc.once("close", () => {
+              clearTimeout(killTimer);
+              resolve3();
+            });
+            proc.kill("SIGTERM");
           });
-          proc.kill("SIGTERM");
-        });
+        }
         if (this._ephemeralProfileDir) {
           try {
             rmSync(this._ephemeralProfileDir, { recursive: true, force: true });
@@ -3363,13 +3591,18 @@ var init_driver = __esm({
       unsubscribeDialogClosed = null;
       // ─── Lifecycle ──────────────────────────────────────────
       async launch(options = {}) {
+        const progress = options.onProgress ?? (() => {
+        });
         const wsUrl = await this.browser.launch(options);
+        progress("opening CDP websocket");
         await this.conn.connect(wsUrl);
+        progress("CDP websocket open");
         this.target = new TargetDomain(this.conn);
         this.launched = true;
         this.targetId = await this.target.createPage("about:blank");
         this.ownsTarget = true;
         this.sessionId = await this.target.attach(this.targetId);
+        progress("page target attached");
         this._page = new PageDomain(this.conn, this.sessionId);
         this.ax = new AccessibilityDomain(this.conn, this.sessionId);
         this.dom = new DomDomain(this.conn, this.sessionId);
@@ -3380,6 +3613,7 @@ var init_driver = __esm({
         this.emulation = new EmulationDomain(this.conn, this.sessionId);
         this.network = new NetworkDomain(this.conn, this.sessionId);
         this.console = new ConsoleDomain(this.conn, this.sessionId);
+        progress("enabling CDP domains");
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
@@ -4747,6 +4981,56 @@ var init_compat = __esm({
             [this.selector, char]
           );
         }
+      }
+      /**
+       * Choose an option in a <select>, returning the values that ended up selected.
+       *
+       * A native select cannot be driven by click: its option list is painted by the
+       * OS rather than the page, so there is no option node in the DOM to click. The
+       * value is set directly and input+change are dispatched, matching `fill`, so
+       * React and other frameworks observe the change through their normal path.
+       */
+      async selectOption(spec, _options) {
+        await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout });
+        const result = await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, spec) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        if (el.tagName.toLowerCase() !== 'select') {
+          throw new Error('Not a <select>: ' + sel + ' is <' + el.tagName.toLowerCase() + '>');
+        }
+        const opts = Array.from(el.options);
+        let match = -1;
+        if (typeof spec.index === 'number') {
+          match = spec.index;
+        } else if (spec.value !== undefined) {
+          match = opts.findIndex((o) => o.value === spec.value);
+        } else if (spec.label !== undefined) {
+          // Exact label first, then trimmed text, so a caller can pass what they see.
+          match = opts.findIndex((o) => o.label === spec.label);
+          if (match === -1) match = opts.findIndex((o) => o.text.trim() === String(spec.label).trim());
+        }
+        if (match < 0 || match >= opts.length) return [];
+        el.selectedIndex = match;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return [el.value];
+      }`,
+          [this.selector, spec]
+        );
+        return Array.isArray(result) ? result : [];
+      }
+      /** Every option on the target select, as "value (label)", for error messages. */
+      async listOptions() {
+        const result = await this.driver.runtimeDomain.callFunctionOn(
+          `(sel) => {
+        const el = document.querySelector(sel);
+        if (!el || el.tagName.toLowerCase() !== 'select') return [];
+        return Array.from(el.options).map((o) => o.value + ' (' + o.text.trim() + ')');
+      }`,
+          [this.selector]
+        );
+        return Array.isArray(result) ? result : [];
       }
       async waitFor(options) {
         const timeout = options?.timeout ?? 3e4;

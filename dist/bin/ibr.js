@@ -42,11 +42,76 @@ var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__ge
   mod
 ));
 
+// src/engine/net-timeout.ts
+function envMs(name, fallback) {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+async function fetchWithTimeout(url2, options = {}) {
+  const { timeoutMs = CDP_PROBE_TIMEOUT_MS, waitingOn = url2, ...init } = options;
+  const started = Date.now();
+  try {
+    return await fetch(url2, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  } catch (err) {
+    if (isAbort(err)) {
+      throw new ConnectTimeoutError(waitingOn, timeoutMs, Date.now() - started);
+    }
+    throw err;
+  }
+}
+async function withTimeout(promise2, timeoutMs, waitingOn) {
+  const started = Date.now();
+  let timer;
+  try {
+    return await Promise.race([
+      promise2,
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new ConnectTimeoutError(waitingOn, timeoutMs, Date.now() - started)),
+          timeoutMs
+        );
+      })
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+function isAbort(err) {
+  const name = err?.name;
+  return name === "AbortError" || name === "TimeoutError";
+}
+var CDP_PROBE_TIMEOUT_MS, WS_CONNECT_TIMEOUT_MS, BROWSER_SPAWN_TIMEOUT_MS, ConnectTimeoutError;
+var init_net_timeout = __esm({
+  "src/engine/net-timeout.ts"() {
+    "use strict";
+    CDP_PROBE_TIMEOUT_MS = envMs("IBR_CDP_PROBE_TIMEOUT_MS", 3e3);
+    WS_CONNECT_TIMEOUT_MS = envMs("IBR_WS_CONNECT_TIMEOUT_MS", 1e4);
+    BROWSER_SPAWN_TIMEOUT_MS = envMs("IBR_BROWSER_SPAWN_TIMEOUT_MS", 3e4);
+    ConnectTimeoutError = class extends Error {
+      constructor(waitingOn, timeoutMs, elapsedMs = timeoutMs) {
+        super(
+          `Timed out after ${elapsedMs}ms waiting on ${waitingOn} (limit ${timeoutMs}ms). The endpoint accepted the connection or was unreachable but never answered.`
+        );
+        this.waitingOn = waitingOn;
+        this.timeoutMs = timeoutMs;
+        this.elapsedMs = elapsedMs;
+        this.name = "ConnectTimeoutError";
+      }
+      waitingOn;
+      timeoutMs;
+      elapsedMs;
+    };
+  }
+});
+
 // src/engine/cdp/connection.ts
 var DEFAULT_TIMEOUT_MS, CdpConnection;
 var init_connection = __esm({
   "src/engine/cdp/connection.ts"() {
     "use strict";
+    init_net_timeout();
     DEFAULT_TIMEOUT_MS = 3e4;
     CdpConnection = class {
       ws = null;
@@ -57,13 +122,39 @@ var init_connection = __esm({
       constructor(options) {
         this.timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
       }
-      async connect(wsUrl) {
+      /**
+       * Open the CDP WebSocket, bounded by `timeoutMs`.
+       *
+       * `new WebSocket()` fires 'open' or 'error' — and NEITHER when the peer
+       * completes the TCP handshake then goes silent, which is exactly what a
+       * recycled ephemeral port looks like. Without the timer below this call
+       * never settles: measured still pending at 25s on 2026-09-01. On timeout we
+       * also close the half-open socket, or the process keeps a live handle and
+       * cannot exit.
+       */
+      async connect(wsUrl, options) {
+        const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS;
+        const started = Date.now();
         return new Promise((resolve6, reject) => {
           const ws = new WebSocket(wsUrl);
           let settled = false;
+          const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            try {
+              ws.close();
+            } catch {
+            }
+            reject(new ConnectTimeoutError(
+              `CDP WebSocket open ${wsUrl}`,
+              timeoutMs,
+              Date.now() - started
+            ));
+          }, timeoutMs);
           const onOpen = () => {
             if (settled) return;
             settled = true;
+            clearTimeout(timer);
             this.ws = ws;
             ws.addEventListener("message", (event) => this.handleMessage(event));
             ws.addEventListener("close", () => this.handleClose());
@@ -73,6 +164,7 @@ var init_connection = __esm({
           const onError = () => {
             if (settled) return;
             settled = true;
+            clearTimeout(timer);
             reject(new Error(`WebSocket connection failed: ${wsUrl}`));
           };
           ws.addEventListener("open", onOpen);
@@ -197,7 +289,10 @@ function checkPortFree(port) {
   });
 }
 async function resolveWsEndpoint(cdpUrl) {
-  const res = await fetch(`${cdpUrl}/json/version`);
+  const res = await fetchWithTimeout(`${cdpUrl}/json/version`, {
+    timeoutMs: CDP_PROBE_TIMEOUT_MS,
+    waitingOn: `CDP version probe ${cdpUrl}/json/version`
+  });
   if (!res.ok) {
     throw new Error(`CDP endpoint did not respond: ${cdpUrl}`);
   }
@@ -219,7 +314,65 @@ function resolveBrowserConnectionOptions(options = {}, env = process.env) {
     chromePath: options.chromePath || env.IBR_CHROME_PATH
   };
 }
-function reclaimStaleSingletonLock(lockPath) {
+function processTable() {
+  return (0, import_node_child_process2.execFileSync)("ps", ["-axo", "pid=,ppid=,command="], {
+    encoding: "utf8",
+    maxBuffer: 8 * 1024 * 1024
+  });
+}
+function userDataDirFromCommand(command) {
+  const match = command.match(/--user-data-dir=(?:"([^"]+)"|'([^']+)'|(\S+))/);
+  return match?.[1] ?? match?.[2] ?? match?.[3] ?? null;
+}
+function isIbrProfile(profileDir) {
+  return profileDir.startsWith(`${(0, import_node_os.tmpdir)()}/ibr-chrome-`) || profileDir === (0, import_node_path2.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile") || profileDir === ".ibr/browser-profile" || profileDir.endsWith("/.ibr/browser-profile");
+}
+function parseIbrChromeProcesses(psOutput) {
+  const processes = [];
+  for (const line of psOutput.split("\n")) {
+    const match = line.match(/^\s*(\d+)\s+(\d+)\s+(.+)$/);
+    if (!match) continue;
+    const command = match[3];
+    if (!command.includes("--remote-debugging-port=") || command.includes("--type=")) continue;
+    const profileDir = userDataDirFromCommand(command);
+    if (!profileDir || !isIbrProfile(profileDir)) continue;
+    processes.push({
+      pid: Number(match[1]),
+      ppid: Number(match[2]),
+      profileDir,
+      command
+    });
+  }
+  return processes;
+}
+function reapOrphanedIbrChromeProcesses(options = {}) {
+  let processes;
+  try {
+    processes = parseIbrChromeProcesses(options.psOutput ?? processTable());
+  } catch {
+    return { reaped: [], preserved: [] };
+  }
+  const kill = options.kill ?? ((pid, signal) => process.kill(pid, signal));
+  const result = { reaped: [], preserved: [] };
+  for (const entry of processes) {
+    if (entry.ppid !== 1) {
+      result.preserved.push(entry.pid);
+      continue;
+    }
+    try {
+      kill(entry.pid, "SIGTERM");
+      result.reaped.push(entry.pid);
+    } catch {
+    }
+  }
+  return result;
+}
+function shouldReclaimSingletonLock(evidence) {
+  if (evidence.profileInUse) return false;
+  if (evidence.targetHost === evidence.currentHost) return !evidence.targetPidAlive;
+  return evidence.lockAgeMs >= PROFILE_REAP_GRACE_MS;
+}
+function reclaimStaleSingletonLock(lockPath, profileDir) {
   let target;
   try {
     target = (0, import_node_fs2.readlinkSync)(lockPath);
@@ -231,13 +384,36 @@ function reclaimStaleSingletonLock(lockPath) {
   const host = target.slice(0, sep);
   const pid = Number(target.slice(sep + 1));
   if (!Number.isInteger(pid) || pid <= 0) return false;
-  if (host !== (0, import_node_os.hostname)()) return false;
+  let psOutput;
   try {
-    process.kill(pid, 0);
+    psOutput = processTable();
+  } catch {
     return false;
-  } catch (err) {
-    if (err.code === "EPERM") return false;
   }
+  const profileInUse = psOutput.split("\n").some((line) => userDataDirFromCommand(line) === profileDir);
+  let targetPidAlive = false;
+  if (host === (0, import_node_os.hostname)()) {
+    try {
+      process.kill(pid, 0);
+      targetPidAlive = true;
+    } catch (err) {
+      targetPidAlive = err.code === "EPERM";
+    }
+  }
+  let lockAgeMs;
+  try {
+    lockAgeMs = Date.now() - (0, import_node_fs2.lstatSync)(lockPath).mtimeMs;
+  } catch {
+    return false;
+  }
+  if (!shouldReclaimSingletonLock({
+    targetHost: host,
+    targetPid: pid,
+    currentHost: (0, import_node_os.hostname)(),
+    lockAgeMs,
+    profileInUse,
+    targetPidAlive
+  })) return false;
   try {
     (0, import_node_fs2.unlinkSync)(lockPath);
     return true;
@@ -283,6 +459,7 @@ var init_browser = __esm({
     import_node_net = require("net");
     import_node_os = require("os");
     import_node_path2 = require("path");
+    init_net_timeout();
     CHROME_PATHS = [
       // macOS
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
@@ -305,6 +482,10 @@ var init_browser = __esm({
       _wsEndpoint = null;
       /** Set only when this browser owns a throwaway profile it must delete on close. */
       _ephemeralProfileDir = null;
+      /** Tail of Chrome's stderr, so a spawn failure can say why Chrome refused. */
+      _stderrTail = "";
+      /** Set once the child exits, so waitForDebugger stops polling a dead process. */
+      _exit = null;
       async launch(options = {}) {
         const connection = resolveBrowserConnectionOptions(options);
         this._mode = connection.mode;
@@ -317,27 +498,35 @@ var init_browser = __esm({
             return connection.wsEndpoint;
           }
           if (connection.cdpUrl) {
-            const wsUrl2 = await resolveWsEndpoint(connection.cdpUrl);
-            this._wsEndpoint = wsUrl2;
-            return wsUrl2;
+            const wsUrl = await resolveWsEndpoint(connection.cdpUrl);
+            this._wsEndpoint = wsUrl;
+            return wsUrl;
           }
           throw new Error(
             "Connect mode requires a CDP endpoint.\nProvide --cdp-url http://127.0.0.1:9222 or --ws-endpoint ws://...\nYou can also set IBR_CDP_URL or IBR_WS_ENDPOINT."
           );
         }
+        const progress = options.onProgress ?? (() => {
+        });
         const headless = options.headless ?? true;
+        progress("selecting debugging port");
         this._port = options.port ?? await findFreePort();
+        progress(`debugging port ${this._port}`);
+        progress("reaping orphaned browsers");
+        reapOrphanedIbrChromeProcesses();
         let userDataDir = options.userDataDir ?? (0, import_node_path2.join)((0, import_node_os.homedir)(), ".ibr", "chromium-profile");
         const lockPath = (0, import_node_path2.join)(userDataDir, "SingletonLock");
         const lockStat = (0, import_node_fs2.lstatSync)(lockPath, { throwIfNoEntry: false });
         if (lockStat) {
-          if (reclaimStaleSingletonLock(lockPath)) {
+          if (reclaimStaleSingletonLock(lockPath, userDataDir)) {
           } else {
             userDataDir = (0, import_node_fs2.mkdtempSync)((0, import_node_path2.join)((0, import_node_os.tmpdir)(), "ibr-chrome-"));
             this._ephemeralProfileDir = userDataDir;
           }
         }
+        progress("reaping orphaned profiles");
         reapOrphanedProfiles();
+        progress("locating chrome binary");
         const chromePath = connection.chromePath ?? findChrome();
         if (!chromePath) {
           throw new Error(
@@ -361,50 +550,108 @@ Checked: ${CHROME_PATHS.join(", ")}`
           args.push("--disable-lcd-text");
           args.push("--force-device-scale-factor=1");
         }
+        progress(`spawning ${chromePath} (profile ${userDataDir})`);
+        this._stderrTail = "";
+        this._exit = null;
         this.process = (0, import_node_child_process2.spawn)(chromePath, args, { stdio: "pipe" });
         this.process.on("error", (err) => {
           console.error(`Chrome process error: ${err.message}`);
         });
-        const wsUrl = await this.waitForDebugger();
-        this._cdpUrl = `http://127.0.0.1:${this._port}`;
-        this._wsEndpoint = wsUrl;
-        return wsUrl;
-      }
-      async waitForDebugger() {
-        const maxAttempts = 50;
-        for (let i = 0; i < maxAttempts; i++) {
-          try {
-            const res = await fetch(`http://127.0.0.1:${this._port}/json/version`);
-            const data = await res.json();
-            return data.webSocketDebuggerUrl;
-          } catch {
-            await new Promise((r) => setTimeout(r, 100));
-          }
+        this.process.stderr?.on("data", (chunk) => {
+          this._stderrTail = (this._stderrTail + chunk.toString()).slice(-2e3);
+        });
+        this.process.on("exit", (code, signal) => {
+          this._exit = { code, signal };
+        });
+        progress(`spawned chrome pid ${this.process.pid ?? "unknown"}`);
+        try {
+          const wsUrl = await this.waitForDebugger(progress);
+          progress("debugger answered");
+          this._cdpUrl = `http://127.0.0.1:${this._port}`;
+          this._wsEndpoint = wsUrl;
+          return wsUrl;
+        } catch (error51) {
+          await this.close();
+          throw error51;
         }
-        throw new Error(
-          `Chrome debugger did not respond within 5s on port ${this._port}. Is another Chrome instance using this port?
-If you are running inside a sandbox, retry with connect mode:
-  --browser-mode connect --cdp-url http://127.0.0.1:9222`
+      }
+      /**
+       * Poll the freshly spawned Chrome until its debugger answers.
+       *
+       * This used to be `for (i < 50) { await fetch(...) }` with a comment claiming
+       * "5 seconds at 100ms intervals". It was not 5 seconds and it was not
+       * bounded: `fetch()` has no default deadline, so ONE attempt against a port
+       * that is listening but silent blocks the whole loop forever. That is the
+       * shape of the reported hang — no output, no error, no timeout of its own.
+       *
+       * Now: a wall-clock deadline governs the loop, each probe carries its own
+       * short timeout, and an exited child ends the wait immediately instead of
+       * polling a process that is never coming back.
+       */
+      async waitForDebugger(onProgress = () => {
+      }, timeoutMs = BROWSER_SPAWN_TIMEOUT_MS) {
+        const url2 = `http://127.0.0.1:${this._port}/json/version`;
+        const started = Date.now();
+        const deadline = started + timeoutMs;
+        let attempts = 0;
+        let lastError = "no response yet";
+        while (Date.now() < deadline) {
+          if (this._exit) {
+            throw new Error(
+              `Chrome exited before its debugger came up (code ${this._exit.code}, signal ${this._exit.signal}) after ${Date.now() - started}ms on port ${this._port}.${this.stderrHint()}`
+            );
+          }
+          attempts++;
+          try {
+            const remaining = deadline - Date.now();
+            const res = await fetchWithTimeout(url2, {
+              timeoutMs: Math.max(250, Math.min(CDP_PROBE_TIMEOUT_MS, remaining)),
+              waitingOn: `Chrome debugger ${url2}`
+            });
+            const data = await res.json();
+            if (data.webSocketDebuggerUrl) return data.webSocketDebuggerUrl;
+            lastError = "endpoint answered without a webSocketDebuggerUrl";
+          } catch (err) {
+            lastError = err instanceof Error ? err.message : String(err);
+            if (attempts === 1 || attempts % 10 === 0) {
+              onProgress(`waiting for debugger on port ${this._port} (attempt ${attempts}: ${lastError})`);
+            }
+          }
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        const elapsed = Date.now() - started;
+        throw new ConnectTimeoutError(
+          `Chrome debugger ${url2} \u2014 ${attempts} probes over ${elapsed}ms, last: ${lastError}.` + this.stderrHint() + "\nIs another process holding this port? If you are running inside a sandbox, retry with connect mode:\n  --browser-mode connect --cdp-url http://127.0.0.1:9222",
+          timeoutMs,
+          elapsed
         );
+      }
+      stderrHint() {
+        const tail = this._stderrTail.trim();
+        return tail ? `
+Chrome stderr (tail):
+${tail}` : "";
       }
       async close() {
         if (this._mode !== "local" || !this.process) return;
         const proc = this.process;
         this.process = null;
-        await new Promise((resolve6) => {
-          const killTimer = setTimeout(() => {
-            try {
-              proc.kill("SIGKILL");
-            } catch {
-            }
-            resolve6();
-          }, 3e3);
-          proc.once("close", () => {
-            clearTimeout(killTimer);
-            resolve6();
+        if (!this._exit) {
+          await new Promise((resolve6) => {
+            const killTimer = setTimeout(() => {
+              try {
+                proc.kill("SIGKILL");
+              } catch {
+              }
+              resolve6();
+            }, 3e3);
+            proc.once("close", () => {
+              clearTimeout(killTimer);
+              resolve6();
+            });
+            proc.kill("SIGTERM");
           });
-          proc.kill("SIGTERM");
-        });
+        }
         if (this._ephemeralProfileDir) {
           try {
             (0, import_node_fs2.rmSync)(this._ephemeralProfileDir, { recursive: true, force: true });
@@ -5150,13 +5397,18 @@ var init_driver = __esm({
       unsubscribeDialogClosed = null;
       // ─── Lifecycle ──────────────────────────────────────────
       async launch(options = {}) {
+        const progress = options.onProgress ?? (() => {
+        });
         const wsUrl = await this.browser.launch(options);
+        progress("opening CDP websocket");
         await this.conn.connect(wsUrl);
+        progress("CDP websocket open");
         this.target = new TargetDomain(this.conn);
         this.launched = true;
         this.targetId = await this.target.createPage("about:blank");
         this.ownsTarget = true;
         this.sessionId = await this.target.attach(this.targetId);
+        progress("page target attached");
         this._page = new PageDomain(this.conn, this.sessionId);
         this.ax = new AccessibilityDomain(this.conn, this.sessionId);
         this.dom = new DomDomain(this.conn, this.sessionId);
@@ -5167,6 +5419,7 @@ var init_driver = __esm({
         this.emulation = new EmulationDomain(this.conn, this.sessionId);
         this.network = new NetworkDomain(this.conn, this.sessionId);
         this.console = new ConsoleDomain(this.conn, this.sessionId);
+        progress("enabling CDP domains");
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
@@ -6550,6 +6803,56 @@ var init_compat = __esm({
             [this.selector, char]
           );
         }
+      }
+      /**
+       * Choose an option in a <select>, returning the values that ended up selected.
+       *
+       * A native select cannot be driven by click: its option list is painted by the
+       * OS rather than the page, so there is no option node in the DOM to click. The
+       * value is set directly and input+change are dispatched, matching `fill`, so
+       * React and other frameworks observe the change through their normal path.
+       */
+      async selectOption(spec, _options) {
+        await waitForSelectorActionable(this.driver, this.selector, { timeout: _options?.timeout });
+        const result = await this.driver.runtimeDomain.callFunctionOn(
+          `(sel, spec) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error('Not found: ' + sel);
+        if (el.tagName.toLowerCase() !== 'select') {
+          throw new Error('Not a <select>: ' + sel + ' is <' + el.tagName.toLowerCase() + '>');
+        }
+        const opts = Array.from(el.options);
+        let match = -1;
+        if (typeof spec.index === 'number') {
+          match = spec.index;
+        } else if (spec.value !== undefined) {
+          match = opts.findIndex((o) => o.value === spec.value);
+        } else if (spec.label !== undefined) {
+          // Exact label first, then trimmed text, so a caller can pass what they see.
+          match = opts.findIndex((o) => o.label === spec.label);
+          if (match === -1) match = opts.findIndex((o) => o.text.trim() === String(spec.label).trim());
+        }
+        if (match < 0 || match >= opts.length) return [];
+        el.selectedIndex = match;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return [el.value];
+      }`,
+          [this.selector, spec]
+        );
+        return Array.isArray(result) ? result : [];
+      }
+      /** Every option on the target select, as "value (label)", for error messages. */
+      async listOptions() {
+        const result = await this.driver.runtimeDomain.callFunctionOn(
+          `(sel) => {
+        const el = document.querySelector(sel);
+        if (!el || el.tagName.toLowerCase() !== 'select') return [];
+        return Array.from(el.options).map((o) => o.value + ' (' + o.text.trim() + ')');
+      }`,
+          [this.selector]
+        );
+        return Array.isArray(result) ? result : [];
       }
       async waitFor(options) {
         const timeout = options?.timeout ?? 3e4;
@@ -27164,8 +27467,8 @@ async function discoverApiRoutes(projectDir) {
 }
 async function fileExists(filePath) {
   try {
-    const stat5 = await fs2.stat(filePath);
-    return stat5.isFile();
+    const stat6 = await fs2.stat(filePath);
+    return stat6.isFile();
   } catch {
     return false;
   }
@@ -27336,8 +27639,8 @@ function extractHttpMethods(content) {
 }
 async function directoryExists(dir) {
   try {
-    const stat5 = await fs2.stat(dir);
-    return stat5.isDirectory();
+    const stat6 = await fs2.stat(dir);
+    return stat6.isDirectory();
   } catch {
     return false;
   }
@@ -38242,6 +38545,21 @@ var init_action_outcome = __esm({
   }
 });
 
+// src/session-idle.ts
+function configuredSessionIdleMs(env = process.env) {
+  const configured = env.IBR_SESSION_IDLE_MS;
+  if (configured === void 0 || configured.trim() === "") return DEFAULT_SESSION_IDLE_MS;
+  const raw = Number(configured);
+  return Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_SESSION_IDLE_MS;
+}
+var DEFAULT_SESSION_IDLE_MS;
+var init_session_idle = __esm({
+  "src/session-idle.ts"() {
+    "use strict";
+    DEFAULT_SESSION_IDLE_MS = 60 * 60 * 1e3;
+  }
+});
+
 // src/mcp/sessions.ts
 function __test_setSession(id, entry) {
   if (entry === null) {
@@ -38262,10 +38580,14 @@ async function closeAllSessions() {
   }));
   return entries.length;
 }
+function touchSession(id) {
+  if (sessions.has(id)) lastTouched.set(id, Date.now());
+}
 var sessions, lastTouched;
 var init_sessions = __esm({
   "src/mcp/sessions.ts"() {
     "use strict";
+    init_session_idle();
     sessions = /* @__PURE__ */ new Map();
     lastTouched = /* @__PURE__ */ new Map();
   }
@@ -41143,10 +41465,12 @@ var init_session_hard_wall = __esm({
 });
 
 // src/engine/safari/webdriver.ts
-var WebDriverClient;
+var WEBDRIVER_TIMEOUT_MS, WebDriverClient;
 var init_webdriver = __esm({
   "src/engine/safari/webdriver.ts"() {
     "use strict";
+    init_net_timeout();
+    WEBDRIVER_TIMEOUT_MS = 6e4;
     WebDriverClient = class {
       baseUrl;
       sessionId = null;
@@ -41155,10 +41479,12 @@ var init_webdriver = __esm({
       }
       // ─── Internal HTTP helpers ───────────────────────────────
       async post(path3, body) {
-        const res = await fetch(`${this.baseUrl}${path3}`, {
+        const res = await fetchWithTimeout(`${this.baseUrl}${path3}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
+          timeoutMs: WEBDRIVER_TIMEOUT_MS,
+          waitingOn: `WebDriver POST ${this.baseUrl}${path3}`
         });
         if (!res.ok) {
           const text = await res.text().catch(() => "(no body)");
@@ -41168,7 +41494,10 @@ var init_webdriver = __esm({
         return json2.value;
       }
       async get(path3) {
-        const res = await fetch(`${this.baseUrl}${path3}`);
+        const res = await fetchWithTimeout(`${this.baseUrl}${path3}`, {
+          timeoutMs: WEBDRIVER_TIMEOUT_MS,
+          waitingOn: `WebDriver GET ${this.baseUrl}${path3}`
+        });
         if (!res.ok) {
           const text = await res.text().catch(() => "(no body)");
           throw new Error(`WebDriver GET ${path3} failed: HTTP ${res.status} \u2014 ${text}`);
@@ -41177,7 +41506,11 @@ var init_webdriver = __esm({
         return json2.value;
       }
       async delete(path3) {
-        const res = await fetch(`${this.baseUrl}${path3}`, { method: "DELETE" });
+        const res = await fetchWithTimeout(`${this.baseUrl}${path3}`, {
+          method: "DELETE",
+          timeoutMs: WEBDRIVER_TIMEOUT_MS,
+          waitingOn: `WebDriver DELETE ${this.baseUrl}${path3}`
+        });
         if (!res.ok) {
           const text = await res.text().catch(() => "(no body)");
           throw new Error(`WebDriver DELETE ${path3} failed: HTTP ${res.status} \u2014 ${text}`);
@@ -41303,6 +41636,7 @@ var init_session2 = __esm({
     "use strict";
     import_child_process14 = require("child_process");
     import_util14 = require("util");
+    init_net_timeout();
     execFileAsync12 = (0, import_util14.promisify)(import_child_process14.execFile);
     PORT_RANGE_START = 9500;
     PORT_RANGE_END = 9599;
@@ -41371,7 +41705,10 @@ var init_session2 = __esm({
         const url2 = `http://localhost:${this.port}/status`;
         while (Date.now() < deadline) {
           try {
-            const res = await fetch(url2);
+            const res = await fetchWithTimeout(url2, {
+              timeoutMs: CDP_PROBE_TIMEOUT_MS,
+              waitingOn: `safaridriver status ${url2}`
+            });
             if (res.ok) return;
           } catch {
           }
@@ -43763,8 +44100,13 @@ var browser_server_exports = {};
 __export(browser_server_exports, {
   PersistentSession: () => PersistentSession,
   UserActionRequiredError: () => UserActionRequiredError,
+  browserServerLastActivityAt: () => browserServerLastActivityAt,
+  cleanupServerState: () => cleanupServerState,
   connectToBrowserServer: () => connectToBrowserServer,
+  inspectBrowserServer: () => inspectBrowserServer,
   isServerRunning: () => isServerRunning,
+  lastBrowserServerFailure: () => lastBrowserServerFailure,
+  lastBrowserServerStopFailure: () => lastBrowserServerStopFailure,
   listActiveSessions: () => listActiveSessions,
   startBrowserServer: () => startBrowserServer,
   stopBrowserServer: () => stopBrowserServer
@@ -43776,76 +44118,128 @@ function getPaths(outputDir) {
     sessionsDir: (0, import_path28.join)(outputDir, "sessions")
   };
 }
+async function touchBrowserServerActivity(outputDir) {
+  const { stateFile } = getPaths(outputDir);
+  const now = /* @__PURE__ */ new Date();
+  try {
+    await (0, import_promises24.utimes)(stateFile, now, now);
+  } catch {
+  }
+}
+async function browserServerLastActivityAt(outputDir) {
+  try {
+    return (await (0, import_promises24.stat)(getPaths(outputDir).stateFile)).mtimeMs;
+  } catch {
+    return null;
+  }
+}
 async function findPendingHardWall(outputDir, requestedUrl, strategyKey) {
   const { sessionsDir } = getPaths(outputDir);
   if (!(0, import_fs17.existsSync)(sessionsDir)) return null;
   const attemptKey = sessionAttemptKey(requestedUrl, strategyKey);
   const entries = await (0, import_promises24.readdir)(sessionsDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !entry.name.startsWith("live_")) continue;
-    const statePath = (0, import_path28.join)(sessionsDir, entry.name, "live-session.json");
-    if (!(0, import_fs17.existsSync)(statePath)) continue;
-    try {
-      const state = JSON.parse(await (0, import_promises24.readFile)(statePath, "utf-8"));
-      if (state.hardWall?.attemptKey === attemptKey) return state.hardWall;
-    } catch {
-    }
+  const candidates = entries.filter((e) => e.isDirectory() && e.name.startsWith("live_")).map((e) => (0, import_path28.join)(sessionsDir, e.name, "live-session.json"));
+  for (let i = 0; i < candidates.length; i += HARD_WALL_SCAN_CONCURRENCY) {
+    const batch = candidates.slice(i, i + HARD_WALL_SCAN_CONCURRENCY);
+    const walls = await Promise.all(batch.map(async (statePath) => {
+      try {
+        const state = JSON.parse(await (0, import_promises24.readFile)(statePath, "utf-8"));
+        return state.hardWall?.attemptKey === attemptKey ? state.hardWall : null;
+      } catch {
+        return null;
+      }
+    }));
+    const hit = walls.find((w) => w);
+    if (hit) return hit;
   }
   return null;
 }
-async function isServerRunning(outputDir) {
+async function inspectBrowserServer(outputDir) {
   const { stateFile } = getPaths(outputDir);
   if (!(0, import_fs17.existsSync)(stateFile)) {
-    return false;
+    return { status: "no-manifest", reason: "No browser-server.json on disk.", state: null };
   }
+  let state;
   try {
-    const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
-    const state = JSON.parse(content);
-    if (state.pid && state.pid !== process.pid) {
-      try {
-        process.kill(state.pid, 0);
-      } catch {
-        if (state.chromePid) {
-          try {
-            process.kill(state.chromePid, "SIGKILL");
-          } catch {
-          }
-        }
-        await cleanupServerState(outputDir);
-        return false;
-      }
-    }
-    if (!state.cdpUrl) {
-      return Boolean(state.wsEndpoint);
-    }
-    const res = await fetch(`${state.cdpUrl}/json/version`, {
-      signal: AbortSignal.timeout(2e3)
-    });
-    return res.ok;
+    state = JSON.parse(await (0, import_promises24.readFile)(stateFile, "utf-8"));
   } catch {
-    try {
-      const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
-      const state = JSON.parse(content);
-      if (state.chromePid) {
-        let chromeAlive = true;
-        try {
-          process.kill(state.chromePid, 0);
-        } catch {
-          chromeAlive = false;
-        }
-        if (chromeAlive) {
-          return true;
-        }
-        try {
-          process.kill(state.chromePid, "SIGKILL");
-        } catch {
-        }
+    await cleanupServerState(outputDir);
+    return {
+      status: "stale",
+      reason: "browser-server.json was unreadable or malformed; removed it.",
+      state: null
+    };
+  }
+  if (state.pid && state.pid !== process.pid && !pidAlive(state.pid)) {
+    if (state.chromePid) {
+      try {
+        process.kill(state.chromePid, "SIGKILL");
+      } catch {
       }
-    } catch {
     }
     await cleanupServerState(outputDir);
-    return false;
+    return {
+      status: "stale",
+      reason: `Owning ibr process pid ${state.pid} is dead, so the browser it launched is orphaned. Reaped chrome pid ${state.chromePid ?? "unknown"} and removed the manifest.`,
+      state
+    };
   }
+  if (!state.cdpUrl) {
+    return state.wsEndpoint ? { status: "alive", reason: `Manifest carries a ws endpoint and pid ${state.pid} is alive.`, state } : (await cleanupServerState(outputDir), {
+      status: "stale",
+      reason: "Manifest has neither a CDP URL nor a ws endpoint; removed it.",
+      state
+    });
+  }
+  const probeUrl = `${state.cdpUrl}/json/version`;
+  try {
+    const res = await fetchWithTimeout(probeUrl, {
+      timeoutMs: CDP_PROBE_TIMEOUT_MS,
+      waitingOn: `CDP version probe ${probeUrl}`
+    });
+    if (res.ok) {
+      return { status: "alive", reason: `${probeUrl} answered ${res.status}.`, state };
+    }
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    if (state.chromePid && pidAlive(state.chromePid)) {
+      return {
+        status: "unreachable",
+        reason: `Chrome pid ${state.chromePid} is alive but ${probeUrl} did not answer: ${detail}. Leaving it running \u2014 close it explicitly with: npx ibr session:close all`,
+        state
+      };
+    }
+    if (state.chromePid) {
+      try {
+        process.kill(state.chromePid, "SIGKILL");
+      } catch {
+      }
+    }
+    await cleanupServerState(outputDir);
+    return {
+      status: "stale",
+      reason: `Chrome pid ${state.chromePid ?? "unknown"} is gone and ${probeUrl} did not answer: ${detail}. Removed the manifest.`,
+      state
+    };
+  }
+  await cleanupServerState(outputDir);
+  return {
+    status: "stale",
+    reason: `${probeUrl} responded with a non-OK status; removed the manifest.`,
+    state
+  };
+}
+function pidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === "EPERM";
+  }
+}
+async function isServerRunning(outputDir) {
+  const { status } = await inspectBrowserServer(outputDir);
+  return status === "alive" || status === "unreachable";
 }
 async function cleanupServerState(outputDir) {
   const { stateFile } = getPaths(outputDir);
@@ -43855,7 +44249,10 @@ async function cleanupServerState(outputDir) {
   }
 }
 async function resolveWsEndpoint2(cdpUrl) {
-  const res = await fetch(`${cdpUrl}/json/version`);
+  const res = await fetchWithTimeout(`${cdpUrl}/json/version`, {
+    timeoutMs: CDP_PROBE_TIMEOUT_MS,
+    waitingOn: `CDP version probe ${cdpUrl}/json/version`
+  });
   const data = await res.json();
   return data.webSocketDebuggerUrl;
 }
@@ -43905,7 +44302,8 @@ async function startBrowserServer(outputDir, options = {}) {
     mode: options.mode,
     cdpUrl: options.cdpUrl,
     wsEndpoint: options.wsEndpoint,
-    chromePath: options.chromePath
+    chromePath: options.chromePath,
+    onProgress: options.onProgress
   });
   const mode = driver3.browserMode;
   const cdpUrl = driver3.cdpUrl ?? void 0;
@@ -43930,28 +44328,39 @@ async function startBrowserServer(outputDir, options = {}) {
   return { driver: driver3, wsEndpoint, ownsBrowser };
 }
 async function connectToBrowserServer(outputDir, targetId) {
-  const { stateFile } = getPaths(outputDir);
-  if (!(0, import_fs17.existsSync)(stateFile)) {
+  const inspection = await inspectBrowserServer(outputDir);
+  if (inspection.status === "no-manifest" || inspection.status === "stale" || !inspection.state) {
+    lastConnectFailure = inspection.reason;
     return null;
   }
+  const state = inspection.state;
   try {
-    const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
-    const state = JSON.parse(content);
-    let wsUrl;
-    if (state.cdpUrl) {
-      wsUrl = await resolveWsEndpoint2(state.cdpUrl);
-    } else {
-      wsUrl = state.wsEndpoint;
-    }
+    const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
     const driver3 = new EngineDriver();
-    await driver3.connectExisting(wsUrl, targetId);
+    await withTimeout(
+      driver3.connectExisting(wsUrl, targetId),
+      WS_CONNECT_TIMEOUT_MS,
+      `CDP attach to browser server at ${state.cdpUrl ?? wsUrl}`
+    );
+    await touchBrowserServerActivity(outputDir);
+    lastConnectFailure = null;
     return driver3;
   } catch (error51) {
-    await cleanupServerState(outputDir);
+    lastConnectFailure = error51 instanceof Error ? error51.message : String(error51);
+    if (!state.chromePid || !pidAlive(state.chromePid)) {
+      await cleanupServerState(outputDir);
+    }
     return null;
   }
 }
+function lastBrowserServerFailure() {
+  return lastConnectFailure;
+}
+function lastBrowserServerStopFailure() {
+  return lastStopFailure;
+}
 async function stopBrowserServer(outputDir) {
+  lastStopFailure = null;
   const { stateFile, profileDir: _profileDir } = getPaths(outputDir);
   if (!(0, import_fs17.existsSync)(stateFile)) {
     return false;
@@ -43961,15 +44370,20 @@ async function stopBrowserServer(outputDir) {
     const state = JSON.parse(content);
     const wsUrl = state.cdpUrl ? await resolveWsEndpoint2(state.cdpUrl) : state.wsEndpoint;
     const driver3 = new EngineDriver();
-    await driver3.connectExisting(wsUrl);
+    await withTimeout(
+      driver3.connectExisting(wsUrl),
+      WS_CONNECT_TIMEOUT_MS,
+      `CDP attach to shut down browser server at ${state.cdpUrl ?? wsUrl}`
+    );
     if (state.ownsBrowser) {
-      await driver3.close();
+      await withTimeout(driver3.close(), WS_CONNECT_TIMEOUT_MS, "browser shutdown");
     } else {
-      await driver3.disconnect();
+      await withTimeout(driver3.disconnect(), WS_CONNECT_TIMEOUT_MS, "browser detach");
     }
     await (0, import_promises24.unlink)(stateFile);
     return true;
-  } catch {
+  } catch (error51) {
+    lastStopFailure = error51 instanceof Error ? error51.message : String(error51);
     try {
       const content = await (0, import_promises24.readFile)(stateFile, "utf-8");
       const state = JSON.parse(content);
@@ -44000,7 +44414,7 @@ async function listActiveSessions(outputDir) {
   }
   return liveSessions;
 }
-var import_promises24, import_fs17, import_path28, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, PersistentSession;
+var import_promises24, import_fs17, import_path28, UserActionRequiredError, SERVER_STATE_FILE, ISOLATED_PROFILE_DIR, HARD_WALL_SCAN_CONCURRENCY, lastConnectFailure, lastStopFailure, PersistentSession;
 var init_browser_server = __esm({
   "src/browser-server.ts"() {
     "use strict";
@@ -44012,6 +44426,7 @@ var init_browser_server = __esm({
     init_nanoid();
     init_schemas3();
     init_devices();
+    init_net_timeout();
     init_extract2();
     init_scan();
     init_interactivity();
@@ -44027,6 +44442,9 @@ var init_browser_server = __esm({
     };
     SERVER_STATE_FILE = "browser-server.json";
     ISOLATED_PROFILE_DIR = "browser-profile";
+    HARD_WALL_SCAN_CONCURRENCY = 64;
+    lastConnectFailure = null;
+    lastStopFailure = null;
     PersistentSession = class _PersistentSession {
       driver;
       page;
@@ -44058,8 +44476,10 @@ var init_browser_server = __esm({
         }
         const driver3 = await connectToBrowserServer(outputDir);
         if (!driver3) {
+          const why = lastBrowserServerFailure();
           throw new Error(
-            "No browser server running.\nStart one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
+            "No browser server running.\n" + (why ? `Reason: ${why}
+` : "") + "Start one with: npx ibr session:start <url>\nThe first session:start launches the server and keeps it alive."
           );
         }
         const sessionId = `live_${nanoid3(10)}`;
@@ -44131,7 +44551,12 @@ var init_browser_server = __esm({
         }
         const driver3 = await connectToBrowserServer(outputDir, state.targetId);
         if (!driver3) {
-          return null;
+          const why = lastBrowserServerFailure();
+          throw new Error(
+            `Session ${sessionId} exists on disk but its browser could not be attached.
+` + (why ? `Reason: ${why}
+` : "") + "The browser server is gone or unresponsive. Close it and start again:\n  npx ibr session:close all\n  npx ibr session:start <url>"
+          );
         }
         const page = new CompatPage(driver3);
         await driver3.emulationDomain.applyDeviceProfile(viewportToConfig(state.viewport));
@@ -44215,6 +44640,64 @@ var init_browser_server = __esm({
             type: "click",
             timestamp: (/* @__PURE__ */ new Date()).toISOString(),
             params: { selector },
+            success: false,
+            error: error51 instanceof Error ? error51.message : String(error51),
+            duration: Date.now() - start
+          });
+          throw error51;
+        }
+      }
+      /**
+       * Choose an option in a <select>.
+       *
+       * A native select cannot be driven by click: its option list is painted by the
+       * OS rather than the page, so there is no option node in the DOM to click. That
+       * is why click and press both fail on one and this command exists.
+       *
+       * `by` picks the matching strategy. Default 'auto' tries value then label,
+       * because a caller usually knows what the option SAYS, not what its value
+       * attribute is.
+       */
+      async select(selector, option, options) {
+        const start = Date.now();
+        const timeout = options?.timeout || 5e3;
+        const by = options?.by || "auto";
+        try {
+          const locator = this.page.locator(selector).filter({ visible: true }).first();
+          let chosen = [];
+          if (by === "index") {
+            const index = Number.parseInt(option, 10);
+            if (!Number.isInteger(index)) throw new Error(`--by index needs a number, got "${option}"`);
+            chosen = await locator.selectOption({ index }, { timeout });
+          } else if (by === "value") {
+            chosen = await locator.selectOption({ value: option }, { timeout });
+          } else if (by === "label") {
+            chosen = await locator.selectOption({ label: option }, { timeout });
+          } else {
+            chosen = await locator.selectOption({ value: option }, { timeout });
+            if (chosen.length === 0) {
+              chosen = await locator.selectOption({ label: option }, { timeout });
+            }
+          }
+          if (chosen.length === 0) {
+            const available = await locator.listOptions();
+            throw new Error(
+              `No option matched "${option}" on ${selector}. Available: ${available.join(", ") || "(none)"}`
+            );
+          }
+          await this.recordAction({
+            type: "select",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { selector, option, by },
+            success: true,
+            duration: Date.now() - start
+          });
+          return chosen;
+        } catch (error51) {
+          await this.recordAction({
+            type: "select",
+            timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+            params: { selector, option, by },
             success: false,
             error: error51 instanceof Error ? error51.message : String(error51),
             duration: Date.now() - start
@@ -45981,13 +46464,13 @@ function findSwiftFiles(dir, rootDir) {
     for (const entry of entries) {
       if (SKIP_DIRS.has(entry)) continue;
       const fullPath = (0, import_path31.join)(currentDir, entry);
-      let stat5;
+      let stat6;
       try {
-        stat5 = (0, import_fs20.statSync)(fullPath);
+        stat6 = (0, import_fs20.statSync)(fullPath);
       } catch {
         continue;
       }
-      if (stat5.isDirectory()) {
+      if (stat6.isDirectory()) {
         walk(fullPath);
       } else if (entry.endsWith(".swift")) {
         results.push((0, import_path31.relative)(rootDir, fullPath));
@@ -49853,6 +50336,7 @@ async function closeMcpBrowserPool() {
 }
 async function handleToolCall(name, args) {
   try {
+    if (typeof args.sessionId === "string") touchSession(args.sessionId);
     switch (name) {
       case "scan":
         return await handleScan(args);
@@ -56641,6 +57125,7 @@ function mergeCliConfig(config2, options) {
 
 // src/bin/ibr.ts
 init_session_hard_wall();
+init_session_idle();
 ensureToolchainPath();
 function readPackageVersion() {
   try {
@@ -57751,7 +58236,50 @@ flowCmd.command("login <url>").description("Execute login flow").requiredOption(
     process.exit(1);
   }
 });
-program2.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--auto-capture", "Auto-capture screenshot + scan after every interaction").option(
+async function startDetachedServer(outputDir, argv, expectSession) {
+  const { spawn: spawn4 } = await import("child_process");
+  const { mkdir: mkdir28, open } = await import("fs/promises");
+  const { isServerRunning: isServerRunning2, listActiveSessions: listActiveSessions2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+  await mkdir28(outputDir, { recursive: true });
+  const preexisting = new Set(await listActiveSessions2(outputDir).catch(() => []));
+  const logPath = (0, import_path39.join)(outputDir, "browser-server.log");
+  const logFile = await open(logPath, "a");
+  const args = argv.slice(1).filter((a) => a !== "--detach");
+  const child = spawn4(process.execPath, args, {
+    detached: true,
+    stdio: ["ignore", logFile.fd, logFile.fd],
+    cwd: process.cwd()
+  });
+  child.unref();
+  await logFile.close();
+  console.log(`Starting browser server in the background (pid ${child.pid ?? "unknown"})...`);
+  console.log(`Log: ${logPath}`);
+  const timeoutMs = Number(process.env.IBR_DETACH_TIMEOUT_MS) || 6e4;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isServerRunning2(outputDir)) {
+      const fresh = (await listActiveSessions2(outputDir).catch(() => [])).filter((id) => !preexisting.has(id));
+      if (!expectSession || fresh.length > 0) {
+        console.log("");
+        console.log("Browser server running in the background.");
+        for (const id of fresh) console.log(`Session started: ${id}`);
+        console.log("List sessions with: npx ibr session:list");
+        console.log("Stop it with:       npx ibr session:close all");
+        return;
+      }
+    }
+    if (child.exitCode !== null) break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const tail = await (0, import_promises34.readFile)(logPath, "utf-8").then((t) => t.slice(-1500)).catch(() => "");
+  throw new Error(
+    `Browser server did not come up within ${timeoutMs}ms (background pid ${child.pid ?? "unknown"}, exit ${child.exitCode ?? "still running"}).
+Its output is in ${logPath}.${tail ? `
+Last lines:
+${tail}` : ""}`
+  );
+}
+program2.command("session:start [url]").description("Start an interactive browser session (browser persists across commands)").option("-n, --name <name>", "Session name").option("-w, --wait-for <selector>", "Wait for selector before considering page ready").option("--headed", "Show visible browser window (default: headless)").option("--sandbox", "Deprecated alias for --headed").option("--debug", "Visible browser + slow motion + devtools").option("--low-memory", "Reduce memory usage for lower-powered machines (4GB RAM)").option("--auto-capture", "Auto-capture screenshot + scan after every interaction").option("--detach", "Run the browser server in the background and return immediately").option(
   "-d, --device <name>",
   `Canonical device profile (overrides global --viewport). One of: ${DEVICE_NAMES.join(", ")}`
 ).action(async (url2, options) => {
@@ -57759,7 +58287,9 @@ program2.command("session:start [url]").description("Start an interactive browse
     const {
       startBrowserServer: startBrowserServer2,
       isServerRunning: isServerRunning2,
-      PersistentSession: PersistentSession2
+      PersistentSession: PersistentSession2,
+      cleanupServerState: cleanupServerState2,
+      browserServerLastActivityAt: browserServerLastActivityAt2
     } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
     const globalOpts = program2.opts();
     const outputDir = globalOpts.output || "./.ibr";
@@ -57780,6 +58310,10 @@ program2.command("session:start [url]").description("Start an interactive browse
       VIEWPORTS.desktop
     );
     const serverRunning = await isServerRunning2(outputDir);
+    if (!serverRunning && options.detach) {
+      await startDetachedServer(outputDir, process.argv, Boolean(resolvedUrl));
+      return;
+    }
     if (!serverRunning) {
       const modeLabel = options.lowMemory ? " (low-memory mode)" : "";
       console.log(headless ? `Starting headless browser server${modeLabel}...` : `Starting visible browser server${modeLabel}...`);
@@ -57789,6 +58323,7 @@ program2.command("session:start [url]").description("Start an interactive browse
         isolated: true,
         // Prevents conflicts with Playwright MCP
         lowMemory: options.lowMemory,
+        onProgress: (step) => console.log(`  ${step}`),
         ...getBrowserConnectionOptions()
       });
       const session = await PersistentSession2.create(outputDir, {
@@ -57826,14 +58361,26 @@ program2.command("session:start [url]").description("Start an interactive browse
         return;
       }
       console.log("Browser server running. Press Ctrl+C to stop.");
+      if (!process.stdout.isTTY) {
+        console.log("");
+        console.log("NOTE: this process now blocks until it is killed. That is intended \u2014");
+        console.log("it owns the browser and reaps it on exit. Nothing further will print.");
+        console.log("For a command that returns, re-run with --detach.");
+      }
       await new Promise((resolve6) => {
         let cleanedUp = false;
+        let idleTimer;
         const cleanup = async () => {
           if (cleanedUp) return;
           cleanedUp = true;
+          if (idleTimer) clearInterval(idleTimer);
           console.log("\nShutting down browser server...");
           try {
             await driver3.close();
+          } catch {
+          }
+          try {
+            await cleanupServerState2(outputDir);
           } catch {
           }
           resolve6();
@@ -57847,7 +58394,24 @@ program2.command("session:start [url]").description("Start an interactive browse
             } catch {
             }
           }
+          try {
+            (0, import_fs24.unlinkSync)((0, import_path39.join)(outputDir, "browser-server.json"));
+          } catch {
+          }
         };
+        const idleMs = configuredSessionIdleMs();
+        if (idleMs > 0) {
+          idleTimer = setInterval(() => {
+            void browserServerLastActivityAt2(outputDir).then((lastActivityAt) => {
+              if (!cleanedUp && lastActivityAt !== null && Date.now() - lastActivityAt >= idleMs) {
+                console.log(`
+Closing browser server after ${idleMs}ms without IBR session activity.`);
+                void cleanup();
+              }
+            }).catch(() => {
+            });
+          }, Math.min(idleMs, 6e4));
+        }
         process.on("SIGINT", cleanup);
         process.on("SIGTERM", cleanup);
         process.on("SIGHUP", cleanup);
@@ -57885,9 +58449,11 @@ program2.command("session:start [url]").description("Start an interactive browse
   }
 });
 async function getSession2(outputDir, sessionId) {
-  const { PersistentSession: PersistentSession2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
-  if (!await isServerRunning2(outputDir)) {
+  const { PersistentSession: PersistentSession2, inspectBrowserServer: inspectBrowserServer2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+  const inspection = await inspectBrowserServer2(outputDir);
+  if (inspection.status !== "alive" && inspection.status !== "unreachable") {
     console.error("No browser server running.");
+    console.error(`Reason: ${inspection.reason}`);
     console.log("");
     console.log("Start one with:");
     console.log("  npx ibr session:start <url>");
@@ -57940,6 +58506,40 @@ program2.command("session:click <sessionId> <selector>").description("Click an e
       console.log("     - Hidden by CSS (display:none, visibility:hidden)");
       console.log("     - Off-screen or zero-sized");
       console.log('     Use session:html --selector "' + selector + '" to inspect');
+    } else {
+      console.log("Tip: Session is still active. Use session:html to inspect the DOM.");
+    }
+  } finally {
+    await completeOperation(outputDir, opId);
+  }
+});
+program2.command("session:select <sessionId> <selector> <option>").description("Choose an option in a <select> (native selects cannot be clicked)").option("--by <strategy>", "Match by: auto, value, label, or index", "auto").action(async (sessionId, selector, option, options) => {
+  const globalOpts = program2.opts();
+  const outputDir = globalOpts.output || "./.ibr";
+  const opId = await registerOperation(outputDir, {
+    type: "select",
+    sessionId,
+    command: `session:select ${sessionId} "${selector}" "${option}"`
+  });
+  try {
+    const by = options.by;
+    if (!["auto", "value", "label", "index"].includes(by)) {
+      throw new Error(`--by must be auto, value, label, or index (got "${options.by}")`);
+    }
+    const session = await getSession2(outputDir, sessionId);
+    setActiveSession(session);
+    const chosen = await session.select(selector, option, { by });
+    console.log(`Selected: ${chosen.join(", ")} in: ${selector}`);
+  } catch (error51) {
+    const msg = error51 instanceof Error ? error51.message : String(error51);
+    console.error("Error:", msg);
+    console.log("");
+    if (msg.includes("Not a <select>")) {
+      console.log("Tip: session:select only drives native <select> elements.");
+      console.log("     For a custom dropdown, session:click the trigger then the option.");
+    } else if (msg.includes("No option matched")) {
+      console.log("Tip: the available options are listed above. Match is by value then");
+      console.log("     visible label; use --by label or --by index to be explicit.");
     } else {
       console.log("Tip: Session is still active. Use session:html to inspect the DOM.");
     }
@@ -58181,12 +58781,14 @@ program2.command("session:navigate <sessionId> <url>").description("Navigate to 
 });
 program2.command("session:list").description("List all active interactive sessions").action(async () => {
   try {
-    const { isServerRunning: isServerRunning2, listActiveSessions: listActiveSessions2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+    const { inspectBrowserServer: inspectBrowserServer2, listActiveSessions: listActiveSessions2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
     const globalOpts = program2.opts();
     const outputDir = globalOpts.output || "./.ibr";
-    const serverRunning = await isServerRunning2(outputDir);
+    const inspection = await inspectBrowserServer2(outputDir);
+    const serverRunning = inspection.status === "alive" || inspection.status === "unreachable";
     const sessions2 = await listActiveSessions2(outputDir);
-    console.log(`Browser server: ${serverRunning ? "running" : "not running"}`);
+    console.log(`Browser server: ${serverRunning ? "running" : "NOT RUNNING"}`);
+    console.log(`  ${inspection.reason}`);
     console.log("");
     if (sessions2.length === 0) {
       console.log("No sessions found.");
@@ -58195,9 +58797,14 @@ program2.command("session:list").description("List all active interactive sessio
       console.log("  npx ibr session:start <url>");
       return;
     }
-    console.log("Sessions:");
+    console.log(serverRunning ? "Sessions:" : "Session records (NOT live \u2014 the browser server is gone):");
     for (const id of sessions2) {
       console.log(`  ${id}`);
+    }
+    if (!serverRunning) {
+      console.log("");
+      console.log('These ids are on-disk records only. Only the "Browser server" line above');
+      console.log("reports liveness. Start a new server with: npx ibr session:start <url>");
     }
   } catch (error51) {
     console.error("Error:", error51 instanceof Error ? error51.message : error51);
@@ -58233,7 +58840,7 @@ program2.command("session:pending").description("List pending operations (useful
 });
 program2.command("session:close <sessionId>").description('Close a session (use "all" to stop browser server)').option("--force", "Skip waiting for pending operations").option("--wait-timeout <ms>", "Max wait time for pending operations (default: 30000)", "30000").action(async (sessionId, options) => {
   try {
-    const { stopBrowserServer: stopBrowserServer2, PersistentSession: PersistentSession2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
+    const { stopBrowserServer: stopBrowserServer2, lastBrowserServerStopFailure: lastBrowserServerStopFailure2, PersistentSession: PersistentSession2, isServerRunning: isServerRunning2 } = await Promise.resolve().then(() => (init_browser_server(), browser_server_exports));
     const globalOpts = program2.opts();
     const outputDir = globalOpts.output || "./.ibr";
     if (sessionId === "all") {
@@ -58264,7 +58871,11 @@ program2.command("session:close <sessionId>").description('Close a session (use 
       if (stopped) {
         console.log("Browser server stopped. All sessions closed.");
       } else {
-        console.log("No browser server running.");
+        const why = lastBrowserServerStopFailure2();
+        console.log(
+          why ? `Browser server did not shut down cleanly; killed it and removed the manifest.
+Reason: ${why}` : "No browser server running."
+        );
       }
       return;
     }
