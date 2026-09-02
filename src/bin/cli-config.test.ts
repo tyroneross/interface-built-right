@@ -1,7 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { mergeCliConfig } from './cli-config.js';
+import {
+  mergeCliConfig,
+  normalizeFileConfig,
+  resolveViewportName,
+  VIEWPORT_NAMES,
+} from './cli-config.js';
 import { VIEWPORTS } from '../schemas.js';
 
 // ---------------------------------------------------------------------------
@@ -123,5 +128,72 @@ describe('ibr.ts CLI wiring guards', () => {
     // real global flag with the standard fallback — the wiring -o flows through.
     const hits = auditBody.match(/const outputDir = globalOpts\.output \|\| '\.\/\.ibr';/g) ?? [];
     expect(hits.length).toBe(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: the config file documents `"viewport": "desktop"` (a preset
+// NAME) and `ibr init` writes exactly that, but ConfigSchema.viewport is a
+// Viewport OBJECT. loadConfig() handed the raw JSON straight to the schema, so
+// every command routed through createIBR died on the tool's own documented
+// config: `expected object, received string`. Passing `-v desktop` masked it,
+// because the CLI merge replaced the string with the object.
+// ---------------------------------------------------------------------------
+describe('normalizeFileConfig — the documented .ibrrc.json shape', () => {
+  it('resolves a viewport preset NAME to the Viewport object the schema wants', () => {
+    expect(normalizeFileConfig({ viewport: 'desktop' }).viewport).toEqual(VIEWPORTS.desktop);
+    expect(normalizeFileConfig({ viewport: 'mobile' }).viewport).toEqual(VIEWPORTS.mobile);
+  });
+
+  it('leaves an already-object viewport alone (hand-written configs keep working)', () => {
+    expect(normalizeFileConfig({ viewport: VIEWPORTS.tablet }).viewport).toEqual(VIEWPORTS.tablet);
+  });
+
+  it('resolves preset names inside the `viewports` array too', () => {
+    expect(normalizeFileConfig({ viewports: ['mobile', VIEWPORTS.desktop] }).viewports).toEqual([
+      VIEWPORTS.mobile,
+      VIEWPORTS.desktop,
+    ]);
+  });
+
+  it('names the valid presets when the config file has a typo', () => {
+    expect(() => normalizeFileConfig({ viewport: 'desktopp' })).toThrow(/Unknown viewport "desktopp"/);
+    expect(() => normalizeFileConfig({ viewport: 'desktopp' })).toThrow(/desktop, desktop-lg/);
+  });
+
+  it('passes every other key through untouched', () => {
+    const raw = { baseUrl: 'http://localhost:3000', outputDir: './.ibr', threshold: 1, fullPage: true };
+    expect(normalizeFileConfig(raw)).toEqual(raw);
+  });
+
+  it('tolerates a non-object config body instead of crashing', () => {
+    expect(normalizeFileConfig(null)).toEqual({});
+    expect(normalizeFileConfig('desktop')).toEqual({});
+    expect(normalizeFileConfig([1, 2])).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sibling silent-failure: `VIEWPORTS[name as keyof typeof VIEWPORTS]` yields
+// undefined for a typo, which spreads as "not provided", so ConfigSchema's
+// .default(desktop) rendered `-v mobil` at 1920x1080. A wrong viewport is
+// invisible in the output — every measurement is self-consistent, just taken
+// at the wrong width.
+// ---------------------------------------------------------------------------
+describe('resolveViewportName', () => {
+  it('resolves every documented preset name', () => {
+    for (const name of VIEWPORT_NAMES) {
+      expect(resolveViewportName(name).name).toBe(name);
+    }
+  });
+
+  it('throws on a typo rather than silently falling back to desktop', () => {
+    expect(() => resolveViewportName('mobil')).toThrow(/Unknown viewport "mobil"/);
+  });
+
+  it('an unknown -v is rejected by the merge, not silently downgraded', () => {
+    expect(() => mergeCliConfig({ viewport: VIEWPORTS.tablet }, { viewport: 'mobil' })).toThrow(
+      /Unknown viewport/,
+    );
   });
 });

@@ -37,7 +37,7 @@ import {
 } from '../devices.js';
 import type { Viewport } from '../schemas.js';
 import { registerNativeSessionCommands } from './native-session-cli.js';
-import { mergeCliConfig } from './cli-config.js';
+import { mergeCliConfig, normalizeFileConfig } from './cli-config.js';
 import { formatUserActionRequired } from '../session-hard-wall.js';
 import { configuredSessionIdleMs } from '../session-idle.js';
 
@@ -213,15 +213,26 @@ program.hook('preAction', () => {
   if (browserOpts.chromePath) process.env.IBR_CHROME_PATH = browserOpts.chromePath;
 });
 
-// Load config from .ibrrc.json if it exists
+// Load config from .ibrrc.json if it exists.
+//
+// The file is NORMALIZED before it reaches ConfigSchema: it documents
+// `"viewport": "desktop"` (a preset name) while the schema wants a Viewport
+// object. See normalizeFileConfig for the full account.
+//
+// A malformed file warns instead of failing silently. The previous bare
+// `catch {}` meant a JSON typo produced an empty config, and the run then
+// failed somewhere unrelated — with baseUrl "missing" rather than "your
+// config file has a trailing comma on line 4".
 async function loadConfig(): Promise<Partial<Config>> {
   const configPath = join(process.cwd(), '.ibrrc.json');
   if (existsSync(configPath)) {
     try {
       const content = await readFile(configPath, 'utf-8');
-      return JSON.parse(content);
-    } catch {
-      // Ignore config errors
+      return normalizeFileConfig(JSON.parse(content));
+    } catch (error) {
+      console.warn(
+        `Warning: ignoring ${configPath} — ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
   return {};

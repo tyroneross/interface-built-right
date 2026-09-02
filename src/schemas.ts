@@ -117,7 +117,15 @@ export const VerdictPolicyOverrideSchema = z.object({
  * Main configuration for InterfaceBuiltRight
  */
 export const ConfigSchema = z.object({
-  baseUrl: z.string().url('Must be a valid URL'),
+  /**
+   * Optional. Only needed to expand a RELATIVE path (`ibr start /pricing`).
+   * It was required, which meant every session-management command — `ibr list`,
+   * `ibr status`, `ibr check`, `ibr scan-check` — died with a Zod dump in any
+   * directory without an `.ibrrc.json`, despite never using a URL. The error
+   * now fires at the one call site that actually needs it (resolveUrl), naming
+   * the fix.
+   */
+  baseUrl: z.string().url('Must be a valid URL').optional(),
   outputDir: z.string().default('./.ibr'),
   viewport: ViewportSchema.default(VIEWPORTS.desktop),
   viewports: z.array(ViewportSchema).optional(), // Multi-viewport support

@@ -707,6 +707,16 @@ export class InterfaceBuiltRight {
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
+    // baseUrl is optional so URL-less commands (list/status/check) work with no
+    // config file. A relative path is the one case that genuinely needs it, so
+    // the demand is made here, in words, instead of as a schema-level Zod dump
+    // on every command.
+    if (!this.config.baseUrl) {
+      throw new Error(
+        `Cannot resolve the relative path "${path}": no baseUrl is set. ` +
+          'Pass a full URL, add "baseUrl" to .ibrrc.json (run `ibr init`), or use -b/--base-url.',
+      );
+    }
     return `${this.config.baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
   }
 
