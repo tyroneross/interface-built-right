@@ -180,3 +180,73 @@ describe('wcag-aaa-contrast rule', () => {
     expect(wcagAAARule.check(el, ctx)).toBeNull();
   });
 });
+
+// ─── Inactive components (WCAG 1.4.3 / 1.4.11 exemption) ────────────────────
+
+describe('inactive user interface components are exempt', () => {
+  // WCAG 2.1 SC 1.4.3: "Text or images of text that are part of an inactive
+  // user interface component ... have no contrast requirement." 1.4.11 carries
+  // the same carve-out.
+  // https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html
+  //
+  // The real case this came from: IBR's own dashboard has a disabled Send
+  // button styled `text-[#5a5a72] bg-[rgba(255,255,255,0.03)] opacity-60`,
+  // which IBR graded at 1.76:1 and reported as an AA error. It is a false
+  // positive — and one no text colour could have satisfied, because the
+  // opacity compresses both layers toward each other.
+
+  const HOPELESS_FG = 'rgb(90, 90, 114)';
+  const HOPELESS_BG = 'rgb(80, 80, 100)';
+
+  function disabled(via: 'native' | 'aria') {
+    const el = makeTextElement('Send', HOPELESS_FG, HOPELESS_BG);
+    el.interactive.isDisabled = true;
+    el.tagName = 'button';
+    el.selector = 'button';
+    if (via === 'aria') el.a11y = { ...el.a11y, role: 'button' };
+    return el;
+  }
+
+  it('would fail AA when enabled — the control case that proves the gate bites', () => {
+    const enabled = makeTextElement('Send', HOPELESS_FG, HOPELESS_BG);
+    enabled.tagName = 'button';
+    // Identical colours, only isDisabled differs. If this assertion ever goes
+    // null the exemption is no longer the thing suppressing the finding, and
+    // the tests below would pass for the wrong reason.
+    expect(wcagAARule.check(enabled, ctx)).not.toBeNull();
+  });
+
+  it('returns null for a natively disabled control that would otherwise fail AA', () => {
+    expect(wcagAARule.check(disabled('native'), ctx)).toBeNull();
+  });
+
+  it('returns null for the same control under AAA', () => {
+    expect(wcagAAARule.check(disabled('native'), ctx)).toBeNull();
+  });
+
+  it('exempts aria-disabled the same as native disabled', () => {
+    // interactivity.ts sets isDisabled from `disabled` OR aria-disabled="true",
+    // so a div-based control that announces itself disabled is exempt on the
+    // same terms as a <button>.
+    expect(wcagAARule.check(disabled('aria'), ctx)).toBeNull();
+  });
+
+  it('does not exempt an enabled control that merely looks muted', () => {
+    // The exemption keys on operability, never on appearance. Low-contrast text
+    // a user is still expected to read and act on stays a finding.
+    const muted = makeTextElement('Save', HOPELESS_FG, HOPELESS_BG);
+    muted.tagName = 'button';
+    muted.interactive.isDisabled = false;
+    muted.interactive.hasOnClick = true;
+    expect(wcagAARule.check(muted, ctx)).not.toBeNull();
+  });
+
+  it('exempts before measuring, so it cannot surface as unmeasurable either', () => {
+    // An exempt element with an undecodable colour must stay silent rather than
+    // reporting "could not decode" — the element was never in scope.
+    const el = makeTextElement('Send', 'color-mix(in srgb, red, blue)', HOPELESS_BG);
+    el.interactive.isDisabled = true;
+    expect(wcagAARule.check(el, ctx)).toBeNull();
+    expect(wcagAAARule.check(el, ctx)).toBeNull();
+  });
+});

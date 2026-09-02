@@ -14,6 +14,38 @@ import { measureElementContrast, confidenceNote, type ContrastMeasurement } from
  * or produces a finding that says what was NOT measured.
  */
 
+/*
+ * WCAG 2.1 exempts inactive components from contrast entirely. SC 1.4.3
+ * Contrast (Minimum): "Text or images of text that are part of an inactive user
+ * interface component ... have no contrast requirement." SC 1.4.11 Non-text
+ * Contrast carries the same carve-out. An inactive component is one that is
+ * "visible but not currently operable" — the canonical example in the spec is a
+ * submit button that stays disabled until the form is complete.
+ *   https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html
+ *
+ * Grading them anyway is not conservatism, it is a false positive, and a false
+ * positive in an accessibility checker is expensive twice over: it costs the
+ * reader time, and it teaches them to skim past this rule's output — which is
+ * how a REAL contrast failure gets scrolled past later.
+ *
+ * This is also the shape of the wider defect. 4.5:1 is not a property of text;
+ * it is a property of text that a person is expected to read and act on. A rule
+ * that applies the number without asking whether the element is operable has
+ * hard-coded the threshold and dropped the relationship that gives it meaning.
+ *
+ * `isDisabled` is set from BOTH the native `disabled` property and
+ * `aria-disabled="true"` (see interactivity.ts), so a div-based control that
+ * announces itself disabled is exempt on the same terms as a <button>.
+ *
+ * SCOPE, stated rather than implied: this exempts an element that is ITSELF
+ * disabled. Text in a child element of a disabled control is not yet exempt,
+ * because a rule receives one element and has no parent link here. That gap is
+ * filed, not forgotten.
+ */
+function isInactiveComponent(element: EnhancedElement): boolean {
+  return element.interactive?.isDisabled === true;
+}
+
 function unmeasurableViolation(
   element: EnhancedElement,
   m: Extract<ContrastMeasurement, { status: 'unmeasurable' }>,
@@ -43,6 +75,10 @@ const wcagAAContrastRule: Rule = {
   // reader, so this rule grades TEXT anywhere — not just controls.
   appliesTo: 'any',
   check(element: EnhancedElement, _context: RuleContext): Violation | null {
+    // WCAG 1.4.3 / 1.4.11 exempt inactive components. Checked BEFORE measuring,
+    // so an exempt element cannot surface as an "unmeasurable" finding either.
+    if (isInactiveComponent(element)) return null;
+
     const m = measureElementContrast(element);
 
     // An undecodable color is NOT the same as no color. Returning null for both
@@ -72,6 +108,10 @@ const wcagAAAContrastRule: Rule = {
   defaultSeverity: 'warn',
   appliesTo: 'any',
   check(element: EnhancedElement, _context: RuleContext): Violation | null {
+    // WCAG 1.4.3 / 1.4.11 exempt inactive components. Checked BEFORE measuring,
+    // so an exempt element cannot surface as an "unmeasurable" finding either.
+    if (isInactiveComponent(element)) return null;
+
     const m = measureElementContrast(element);
 
     if (m.status === 'unmeasurable') return unmeasurableViolation(element, m, 'aaa');
