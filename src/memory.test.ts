@@ -1,9 +1,24 @@
 /**
  * Memory system end-to-end tests
  * Tests the full lifecycle: add → list → query → learn → promote → rules → remove
+ *
+ * FILE-WIDE TIMEOUT. These are end-to-end by design: each one writes into a real
+ * mkdtemp directory rather than a mock, so the assertions are worth something.
+ * That also means their cost is disk, not CPU, and disk is exactly what gets
+ * slow when the rest of the suite is running beside them. "summary stays
+ * compact with many preferences" performs 60 sequential awaited writes; it
+ * measured 5.3s and 5.6s against the 5s default and failed both times, while
+ * passing whenever the machine was quiet.
+ *
+ * That shape — a test that fails only under load and names a different victim
+ * each run — is a budget defect, not a logic defect. Left alone it teaches the
+ * reader to re-run until green, which is how a real regression gets waved
+ * through. The same defect was fixed in engine/session-tools.test.ts; this is
+ * the second file with it, so the pattern is worth recognising rather than
+ * patching one test at a time.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -25,6 +40,10 @@ import {
   formatMemorySummary,
   formatPreference,
 } from './memory.js';
+
+// 30s: ~6x the 5.6s worst observation above, which is headroom for a loaded CI
+// box rather than a number tuned to squeak past today's machine.
+vi.setConfig({ testTimeout: 30_000 });
 import type { Session, EnhancedElement } from './schemas.js';
 
 let testDir: string;
