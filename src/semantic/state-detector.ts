@@ -323,7 +323,26 @@ export async function detectErrorState(page: Page): Promise<ErrorState> {
 
   const checks = await page.evaluate(() => {
     const doc = document;
-    const text = doc.body?.innerText || '';
+    // `innerText` on <body> includes inline CSS and script text in this
+    // browser bridge. Evidence harnesses commonly inline CSS, where values
+    // such as `max-width: 500px` otherwise produce a false server-error
+    // finding. Walk only rendered text nodes instead of cloning/mutating the
+    // audited DOM, excluding non-user-visible containers and hidden content.
+    const textParts: string[] = [];
+    if (doc.body) {
+      const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+      let node = walker.nextNode();
+      while (node) {
+        const parent = node.parentElement;
+        const excluded = parent?.closest('style, script, template, noscript');
+        const style = parent ? window.getComputedStyle(parent) : null;
+        if (!excluded && style?.display !== 'none' && style?.visibility !== 'hidden' && style?.opacity !== '0') {
+          textParts.push(node.textContent || '');
+        }
+        node = walker.nextNode();
+      }
+    }
+    const text = textParts.join(' ');
 
     // Validation errors
     const validationErrors = doc.querySelectorAll(
@@ -344,8 +363,10 @@ export async function detectErrorState(page: Page): Promise<ErrorState> {
     // 404 errors
     const notFoundText = text.match(/not found|404|page doesn't exist|no longer available/i);
 
-    // Server errors
-    const serverText = text.match(/500|server error|something went wrong|internal error/i);
+    // Server errors. A bare `500` appears in legitimate task text, amounts,
+    // and CSS values (for example `2.37500%` or `500px`), so require an HTTP
+    // or status-code context before treating it as an outage signal.
+    const serverText = text.match(/\b(?:http(?:\s+status)?|status|error)\s*(?:code\s*)?500\b|server error|something went wrong|internal error/i);
 
     // Toast/notification errors
     const toastErrors = doc.querySelectorAll(
