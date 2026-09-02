@@ -2,9 +2,25 @@
  * Tests for Phase 1 additions:
  * - Session store (session_start / session_close lifecycle)
  * - Chrome SingletonLock conflict detection (branch logic)
+ *
+ * FILE-WIDE TIMEOUT. Every test here calls `vi.resetModules()` in beforeEach
+ * and then re-imports `../mcp/tools.js`, so each one pays a full cold module
+ * init rather than sharing a warm one. That cost is inherent to the isolation
+ * these tests want, but it does not fit the 5s default: under any machine load
+ * a test spends most of its budget in module init and times out before its
+ * assertion runs. The symptom was a file that failed intermittently and named
+ * a DIFFERENT test each run (`session_close`, then eight schema tests, then
+ * `session_close` again) — the tell that the budget, not the logic, was wrong.
+ * A gate that convicts a different innocent test each run certifies nothing,
+ * so the budget is set once here from measurement instead of per-test guesses.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+// Measured on a warm dev Mac: module init dominates, and `xcrun simctl list
+// devices` alone costs 13.3s. 30s covers the slowest non-simctl test with
+// headroom; the one simctl test overrides this with its own larger budget.
+vi.setConfig({ testTimeout: 30_000 })
 
 async function callTool(name: string, args: Record<string, unknown>) {
   const { handleToolCall } = await import('../mcp/tools.js')
@@ -160,15 +176,21 @@ describe('session_start — missing target param validation', () => {
     expect(text).toContain('session_start (macos) failed')
   })
 
-  // macOS-native: needs `xcrun simctl`, which is cold and slow on CI macOS
-  // runners (well over the 5s default), so allow 20s. Run only on darwin.
+  // macOS-native: needs `xcrun simctl`, which is cold and slow. The 20s this
+  // carried was a guess and it under-measured: `xcrun simctl list devices`
+  // alone timed at 13.3s on a warm dev Mac, and the whole path measured 22.8s,
+  // so the budget expired mid-call and the suite went red on a passing test.
+  // 60s is that measurement plus headroom for a colder CI runner. Raising a
+  // budget is not weakening a gate — the assertion below is unchanged; the
+  // only thing that moved is how long we let a slow OS binary answer.
+  // Run only on darwin.
   it.runIf(process.platform === 'darwin')('returns error when simulator name not found', async () => {
     const result = await callTool('session_start', { simulator: 'NonExistentDevice99999XYZ' })
     expect(result.isError).toBe(true)
     const text = (result.content[0] as { text: string }).text
     // May fail with xcrun error or "Simulator not found"
     expect(text).toMatch(/session_start \(simulator\) failed|Simulator not found/)
-  }, 20000)
+  }, 60000)
 })
 
 describe('session_action — native/simulator sessions return guidance', () => {
