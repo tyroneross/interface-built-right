@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { join } from 'node:path';
-import { scanObsidian } from './scan.js';
+import { scanObsidian, isAppCssFidelityIssue } from './scan.js';
 import { generateHarness } from './harness.js';
 import { serveHarness } from './server.js';
 import { findObsidianAsar, resolveObsidianAppCss } from './app-css.js';
@@ -21,6 +21,17 @@ const FIXTURES = join(__dirname, 'fixtures');
 const BUNDLE = join(FIXTURES, 'fixture-plugin.js');
 const STYLES = join(FIXTURES, 'fixture-plugin.css');
 
+/**
+ * Is a real Obsidian install present on this machine?
+ *
+ * Obsidian's app.css is proprietary and never vendored, so assertions about
+ * what IT contributes to the cascade cannot run on a CI runner. Those are
+ * gated on this rather than left to fail: a test that can only pass on the
+ * author's laptop reds the pipeline forever and stops meaning anything.
+ * Declared here, above the first describe, so every suite can reach it.
+ */
+const localAsar = findObsidianAsar();
+
 const ITEMS = [
   // A deliberately long title: the checkbox-centring regression only reproduces
   // when the title WRAPS, making the row taller than one line. The precondition
@@ -37,8 +48,19 @@ const base = {
   viewState: { title: 'Fixture', items: ITEMS },
 };
 
+/**
+ * Genuine harness/mount failures.
+ *
+ * The base-CSS fidelity advisory also carries `category: 'structure'`, and it
+ * fires on any machine without Obsidian installed — i.e. every CI runner. It
+ * is an environment report, not a mount failure, so it is excluded here. Not
+ * excluding it made these tests pass locally and fail on macos-14 forever:
+ * `toEqual([])` saw the advisory, and `[0]` indexed it instead of the mount
+ * error. A test whose verdict depends on what is installed on the machine
+ * certifies nothing.
+ */
 function harnessIssues(issues: { category: string; description: string }[]) {
-  return issues.filter((i) => i.category === 'structure');
+  return issues.filter((i) => i.category === 'structure' && !isAppCssFidelityIssue(i));
 }
 
 describe('scanObsidian — live Chrome', () => {
@@ -102,8 +124,14 @@ describe('scanObsidian — live Chrome', () => {
     for (const button of tinyButtons) {
       expect(button.bounds.width).toBeLessThan(44);
       expect(button.bounds.height).toBeLessThan(44);
-      // Proof the base stylesheet is actually applied: 20px declared, wider rendered.
-      expect(button.bounds.width, 'app.css padding widened the declared 20px').toBeGreaterThan(20);
+      // Proof the base stylesheet is actually applied: 20px declared, wider
+      // rendered. Only meaningful where Obsidian's app.css is loadable — the
+      // padding doing the widening is Obsidian's, not the fixture's. The
+      // undersized-target detection above is the user-facing behaviour and
+      // runs everywhere, including CI.
+      if (localAsar) {
+        expect(button.bounds.width, 'app.css padding widened the declared 20px').toBeGreaterThan(20);
+      }
     }
 
     const tiny = result.issues.filter((i) => /"x" touch target is \d+x\d+px \(min: 44px\)/.test(i.description));
@@ -240,7 +268,6 @@ const overflowBase = {
   viewState: { rows: OVERFLOW_ROWS },
 };
 
-const localAsar = findObsidianAsar();
 if (!localAsar) {
   console.warn('[obsidian.integration] SKIPPING base-CSS fidelity tests: no local Obsidian install.');
 }

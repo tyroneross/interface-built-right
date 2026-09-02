@@ -234,6 +234,24 @@ export function resolveHarnessAppCss(
 }
 
 /**
+ * Opening words of the base-CSS fidelity advisory, and the predicate that
+ * recognises it.
+ *
+ * The advisory is an ENVIRONMENT report, not a defect in the scanned plugin:
+ * it fires wherever Obsidian is not installed, which is every CI runner. It
+ * shares `category: 'structure'` with genuine mount failures, so any caller
+ * that reads "a structure issue exists" as "the mount failed" — including this
+ * module's own integration tests, which indexed `structureIssues[0]` — grades
+ * a healthy scan red on a machine without Obsidian. Exported so callers can
+ * exclude it by identity instead of re-typing the paragraph.
+ */
+export const APP_CSS_FIDELITY_PREFIX = 'Base-CSS fidelity is OFF';
+
+export function isAppCssFidelityIssue(issue: Pick<ScanIssue, 'description'>): boolean {
+  return issue.description.startsWith(APP_CSS_FIDELITY_PREFIX);
+}
+
+/**
  * The warning that stops a low-fidelity scan from passing itself off as a
  * high-fidelity one.
  *
@@ -247,8 +265,8 @@ export function deriveAppCssIssues(meta: ObsidianScanResult['harness']['appCss']
   if (meta.loaded) return [];
   const why =
     meta.reason === 'disabled'
-      ? 'Base-CSS fidelity is OFF because the caller passed obsidian_css=false.'
-      : "Base-CSS fidelity is OFF: no local Obsidian install was found, so Obsidian's app.css could not be loaded.";
+      ? `${APP_CSS_FIDELITY_PREFIX} because the caller passed obsidian_css=false.`
+      : `${APP_CSS_FIDELITY_PREFIX}: no local Obsidian install was found, so Obsidian's app.css could not be loaded.`;
   return [
     {
       category: 'structure',
