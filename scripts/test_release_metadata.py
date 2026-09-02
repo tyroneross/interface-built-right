@@ -52,7 +52,14 @@ class ReleaseMetadataTests(unittest.TestCase):
 
     def test_universal_tool_metadata_matches_package(self) -> None:
         contents = UNIVERSAL_TOOLS.read_text(encoding="utf-8")
-        match = re.search(r'^  version:\s*"?([^"\s]+)"?\s*$', contents, re.MULTILINE)
+        # A trailing `# x-release-please-version` marker is REQUIRED here: it is
+        # how release-please's `generic` updater finds the line to bump. The old
+        # `$`-anchored pattern rejected it, so the annotation and this check were
+        # mutually exclusive. This check exists to catch version DRIFT across
+        # shipped surfaces, not to police comments.
+        match = re.search(
+            r'^  version:\s*"?([^"\s#]+)"?\s*(?:#.*)?$', contents, re.MULTILINE
+        )
         self.assertIsNotNone(match, "universal/tools.yaml meta.version is missing")
         self.assertEqual(match.group(1), self.package_version)
 

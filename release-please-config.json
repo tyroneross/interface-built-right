@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "node",
+  "include-v-in-tag": true,
+  "packages": {
+    ".": {
+      "package-name": "@tyroneross/interface-built-right",
+      "changelog-path": "CHANGELOG.md",
+      "last-release-sha": "d30f242d586f70c7c59783bbf9a1f9833ae29b70",
+      "extra-files": [
+        { "type": "json", "path": ".claude-plugin/marketplace.json", "jsonpath": "$.metadata.version" },
+        { "type": "generic", "path": "universal/tools.yaml" }
+      ]
+    }
+  }
+}
