@@ -91,6 +91,8 @@ export interface LayoutOverflowNode {
   maxWidth: string;
   boxSizing: string;
   hasTransform: boolean;
+  /** False when an ancestor with overflow:hidden/clip fully hides this box. */
+  painted: boolean;
   /**
    * Resolved value of Obsidian's `--input-height` custom property at this
    * element, e.g. `"30px"`. Empty when the property is undefined — which is
@@ -255,6 +257,26 @@ export function buildLayoutOverflowProbe(options: LayoutOverflowProbeOptions = {
     return t.length > 80 ? t.slice(0, 80) : t;
   }
 
+  // A closed disclosure can retain child geometry while its zero-height
+  // overflow:hidden body paints none of that subtree. Rect intersections alone
+  // would report those hidden descendants as collisions with later content.
+  function isPainted(el, rect) {
+    var cur = el.parentElement;
+    while (cur) {
+      var cs;
+      try { cs = getComputedStyle(cur); } catch (e) { cur = cur.parentElement; continue; }
+      var clipsX = cs.overflowX === 'hidden' || cs.overflowX === 'clip';
+      var clipsY = cs.overflowY === 'hidden' || cs.overflowY === 'clip';
+      if (clipsX || clipsY) {
+        var parentRect = cur.getBoundingClientRect();
+        if (clipsX && (rect.right <= parentRect.left || rect.left >= parentRect.right)) return false;
+        if (clipsY && (rect.bottom <= parentRect.top || rect.top >= parentRect.bottom)) return false;
+      }
+      cur = cur.parentElement;
+    }
+    return true;
+  }
+
   function walk(el, parentIndex, depth) {
     if (out.length >= MAX) return;
     var cs;
@@ -288,6 +310,7 @@ export function buildLayoutOverflowProbe(options: LayoutOverflowProbeOptions = {
       maxWidth: cs.maxWidth,
       boxSizing: cs.boxSizing,
       hasTransform: cs.transform !== 'none' && cs.transform !== '',
+      painted: isPainted(el, r),
       inputHeightVar: (cs.getPropertyValue('--input-height') || '').trim()
     });
 
@@ -324,6 +347,16 @@ function hasBoxMetrics(node: LayoutOverflowNode): boolean {
 /** Out-of-flow boxes are POSITIONED where they are — not a layout accident. */
 function isInFlow(node: LayoutOverflowNode): boolean {
   return (node.position === 'static' || node.position === 'relative') && !node.hasTransform;
+}
+
+/** A static child of a sticky/fixed header is still visually out of flow. */
+function hasOutOfFlowAncestor(node: LayoutOverflowNode, byIndex: Map<number, LayoutOverflowNode>): boolean {
+  let parent = node.parent === null ? undefined : byIndex.get(node.parent);
+  while (parent) {
+    if (parent.position === 'fixed' || parent.position === 'sticky' || parent.hasTransform) return true;
+    parent = parent.parent === null ? undefined : byIndex.get(parent.parent);
+  }
+  return false;
 }
 
 function short(text: string, max = 40): string {
@@ -463,6 +496,7 @@ export function analyzeLayoutOverflow(
   const overflowingBoxes = new Set<string>();
   const EPSILON_PX = 0.5;
   for (const node of nodes) {
+    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
     if (isVisibleOverflow(node.overflowY) && node.scrollHeight - node.clientHeight > EPSILON_PX) {
       overflowingBoxes.add(`${node.index}:vertical`);
@@ -479,6 +513,7 @@ export function analyzeLayoutOverflow(
   // --- Pass 1: self-overflow -------------------------------------------------
   // The box is too small for its own content and will not clip it.
   for (const node of nodes) {
+    if (!node.painted) continue;
     if (!hasBoxMetrics(node)) continue;
 
     if (isVisibleOverflow(node.overflowY)) {
@@ -530,6 +565,7 @@ export function analyzeLayoutOverflow(
   // A child's rect extends past its parent's border box. Suppressed when the
   // parent already reported self-overflow on the same axis — same defect.
   for (const node of nodes) {
+    if (!node.painted) continue;
     if (node.parent === null) continue;
     if (!isInFlow(node)) continue;
     const parent = byIndex.get(node.parent);
@@ -599,9 +635,11 @@ export function analyzeLayoutOverflow(
     .filter(
       (n) =>
         n.ownText.length > 0 &&
+        n.painted &&
         n.rect.width > 0 &&
         n.rect.height > 0 &&
-        isInFlow(n),
+        isInFlow(n) &&
+        !hasOutOfFlowAncestor(n, byIndex),
     )
     .sort((a, b) => (a.rect.y !== b.rect.y ? a.rect.y - b.rect.y : a.rect.x - b.rect.x));
 

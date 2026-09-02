@@ -55,6 +55,7 @@ function node(partial: Partial<LayoutOverflowNode> & Pick<LayoutOverflowNode, 'i
     maxWidth: 'none',
     boxSizing: 'border-box',
     hasTransform: false,
+    painted: true,
     inputHeightVar: '30px',
     ...partial,
     rect,
@@ -343,6 +344,17 @@ describe('container-escape', () => {
     expect(
       button.filter((f) => f.kind === 'container-escape' && f.otherSelector?.includes('button')),
     ).toHaveLength(0);
+  });
+});
+
+describe('painted geometry', () => {
+  it('ignores a descendant fully hidden by a collapsed overflow container', () => {
+    const nodes: LayoutOverflowNode[] = [
+      node({ index: 0, selector: 'div#root', tagName: 'DIV', rect: { x: 0, y: 0, width: 300, height: 100 } }),
+      node({ index: 1, parent: 0, depth: 1, selector: 'div#hidden', tagName: 'DIV', ownText: 'hidden', painted: false, rect: { x: 0, y: 0, width: 300, height: 60 } }),
+      node({ index: 2, parent: 0, depth: 1, selector: 'p#visible', tagName: 'P', ownText: 'visible', rect: { x: 0, y: 0, width: 300, height: 60 } }),
+    ];
+    expect(analyzeLayoutOverflow(nodes)).toEqual([]);
   });
 });
 
