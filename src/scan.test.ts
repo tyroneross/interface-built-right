@@ -359,66 +359,6 @@ describe('formatScanResult', () => {
 // ScanResult type structure validation
 // ---------------------------------------------------------------------------
 
-describe('ScanResult structure', () => {
-  it('has all required fields', () => {
-    const result = makeScanResult();
-
-    expect(result).toHaveProperty('url');
-    expect(result).toHaveProperty('route');
-    expect(result).toHaveProperty('timestamp');
-    expect(result).toHaveProperty('viewport');
-    expect(result).toHaveProperty('elements');
-    expect(result).toHaveProperty('elements.all');
-    expect(result).toHaveProperty('elements.audit');
-    expect(result).toHaveProperty('interactivity');
-    expect(result).toHaveProperty('semantic');
-    expect(result).toHaveProperty('console');
-    expect(result).toHaveProperty('console.errors');
-    expect(result).toHaveProperty('console.warnings');
-    expect(result).toHaveProperty('verdict');
-    expect(result).toHaveProperty('issues');
-    expect(result).toHaveProperty('summary');
-  });
-
-  it('verdict is one of PASS, ISSUES, FAIL', () => {
-    expect(['PASS', 'ISSUES', 'FAIL']).toContain(makeScanResult({ verdict: 'PASS' }).verdict);
-    expect(['PASS', 'ISSUES', 'FAIL']).toContain(makeScanResult({ verdict: 'ISSUES' }).verdict);
-    expect(['PASS', 'ISSUES', 'FAIL']).toContain(makeScanResult({ verdict: 'FAIL' }).verdict);
-  });
-
-  it('issues have required fields', () => {
-    const issue = makeIssue({
-      category: 'accessibility',
-      severity: 'error',
-      description: 'Missing label',
-      element: 'button.save',
-      fix: 'Add aria-label',
-    });
-
-    expect(issue.category).toBe('accessibility');
-    expect(issue.severity).toBe('error');
-    expect(issue.description).toBe('Missing label');
-    expect(issue.element).toBe('button.save');
-    expect(issue.fix).toBe('Add aria-label');
-  });
-
-  it('issue categories are valid', () => {
-    const validCategories = ['interactivity', 'accessibility', 'semantic', 'console', 'structure'];
-    for (const cat of validCategories) {
-      const issue = makeIssue({ category: cat as ScanIssue['category'] });
-      expect(validCategories).toContain(issue.category);
-    }
-  });
-
-  it('issue severities are valid', () => {
-    const validSeverities = ['error', 'warning', 'info'];
-    for (const sev of validSeverities) {
-      const issue = makeIssue({ severity: sev as ScanIssue['severity'] });
-      expect(validSeverities).toContain(issue.severity);
-    }
-  });
-});
-
 // ---------------------------------------------------------------------------
 // R3: intent-noise gate — suppress "unknown (0%)" line in scan output
 // ---------------------------------------------------------------------------

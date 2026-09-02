@@ -98,9 +98,12 @@ describe('session CRUD', () => {
     expect(retrieved).toBeNull();
   });
 
-  it('returns false when deleting non-existent session', async () => {
+  it('deleting a non-existent session succeeds rather than throwing', async () => {
+    // Title corrected: it read "returns false" while asserting true. The
+    // behaviour is right (rm --force does not error on a missing path); the
+    // title stated the opposite contract to anyone scanning test names.
     const result = await deleteSession(tmpDir, 'sess_fake');
-    expect(result).toBe(true); // rm with force: true doesn't error
+    expect(result).toBe(true);
   });
 
   it('lists sessions sorted newest first', async () => {

@@ -59,61 +59,6 @@ describe('session store', () => {
 // ─── Chrome SingletonLock Conflict ───────────────────────────────────────────
 // Tests the branch logic directly without mocking ESM modules (not supported in Vitest ESM mode).
 
-describe('Chrome SingletonLock conflict detection — branch logic', () => {
-  const { homedir } = require('os')
-  const { join } = require('path')
-  const { existsSync } = require('fs')
-
-  it('calls mkdtempSync when SingletonLock exists in default profile', () => {
-    const defaultDir = join(homedir(), '.ibr', 'chromium-profile')
-    const lockPath = join(defaultDir, 'SingletonLock')
-
-    let resolvedDir = defaultDir
-    let mkdtempCalled = false
-
-    // Simulate the branch from browser.ts launch()
-    const lockExists = existsSync(lockPath)
-    if (lockExists) {
-      // In real code this calls mkdtempSync — here we just track the call
-      mkdtempCalled = true
-      resolvedDir = '/tmp/ibr-chrome-test'
-    }
-
-    // Whether or not the lock actually exists on this machine,
-    // the branch is correctly conditional.
-    if (lockExists) {
-      expect(mkdtempCalled).toBe(true)
-      expect(resolvedDir).toBe('/tmp/ibr-chrome-test')
-    } else {
-      expect(mkdtempCalled).toBe(false)
-      expect(resolvedDir).toBe(defaultDir)
-    }
-  })
-
-  it('skips SingletonLock check when userDataDir is explicitly set', () => {
-    const options = { userDataDir: '/custom/profile' }
-    let mkdtempCalled = false
-
-    // Simulate `if (!options.userDataDir)` guard
-    if (!options.userDataDir) {
-      mkdtempCalled = true
-    }
-
-    expect(mkdtempCalled).toBe(false)
-  })
-
-  it('performs SingletonLock check when userDataDir is not set', () => {
-    const options: { userDataDir?: string } = {}
-    let lockCheckPerformed = false
-
-    if (!options.userDataDir) {
-      lockCheckPerformed = true
-    }
-
-    expect(lockCheckPerformed).toBe(true)
-  })
-})
-
 // ─── TOOLS array includes session tools ──────────────────────────────────────
 
 describe('TOOLS array completeness', () => {
