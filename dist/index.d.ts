@@ -917,7 +917,7 @@ declare const VerdictPolicyOverrideSchema: z.ZodObject<{
  * Main configuration for InterfaceBuiltRight
  */
 declare const ConfigSchema: z.ZodObject<{
-    baseUrl: z.ZodString;
+    baseUrl: z.ZodOptional<z.ZodString>;
     outputDir: z.ZodDefault<z.ZodString>;
     viewport: z.ZodDefault<z.ZodObject<{
         name: z.ZodString;

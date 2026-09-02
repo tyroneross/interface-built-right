@@ -22297,7 +22297,15 @@ var init_schemas3 = __esm({
       allowedDiffPercent: ThresholdOverrideSchema.optional()
     });
     ConfigSchema = external_exports.object({
-      baseUrl: external_exports.string().url("Must be a valid URL"),
+      /**
+       * Optional. Only needed to expand a RELATIVE path (`ibr start /pricing`).
+       * It was required, which meant every session-management command — `ibr list`,
+       * `ibr status`, `ibr check`, `ibr scan-check` — died with a Zod dump in any
+       * directory without an `.ibrrc.json`, despite never using a URL. The error
+       * now fires at the one call site that actually needs it (resolveUrl), naming
+       * the fix.
+       */
+      baseUrl: external_exports.string().url("Must be a valid URL").optional(),
       outputDir: external_exports.string().default("./.ibr"),
       viewport: ViewportSchema.default(VIEWPORTS.desktop),
       viewports: external_exports.array(ViewportSchema).optional(),
@@ -41218,6 +41226,11 @@ var init_index = __esm({
         if (path3.startsWith("http://") || path3.startsWith("https://")) {
           return path3;
         }
+        if (!this.config.baseUrl) {
+          throw new Error(
+            `Cannot resolve the relative path "${path3}": no baseUrl is set. Pass a full URL, add "baseUrl" to .ibrrc.json (run \`ibr init\`), or use -b/--base-url.`
+          );
+        }
         return `${this.config.baseUrl}${path3.startsWith("/") ? path3 : `/${path3}`}`;
       }
       /**
@@ -43875,7 +43888,7 @@ function resolveHarnessAppCss(obsidianCss, resolver = resolveObsidianAppCss) {
 }
 function deriveAppCssIssues(meta3) {
   if (meta3.loaded) return [];
-  const why = meta3.reason === "disabled" ? "Base-CSS fidelity is OFF because the caller passed obsidian_css=false." : "Base-CSS fidelity is OFF: no local Obsidian install was found, so Obsidian's app.css could not be loaded.";
+  const why = meta3.reason === "disabled" ? `${APP_CSS_FIDELITY_PREFIX} because the caller passed obsidian_css=false.` : `${APP_CSS_FIDELITY_PREFIX}: no local Obsidian install was found, so Obsidian's app.css could not be loaded.`;
   return [
     {
       category: "structure",
@@ -44034,7 +44047,7 @@ function formatObsidianScanResult(result) {
   }
   return lines.join("\n");
 }
-var import_node_fs6, import_node_path5, import_node_os3, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE;
+var import_node_fs6, import_node_path5, import_node_os3, MOBILE_WIDTH_CEILING, HARNESS_ERROR_PREFIXES, MOUNT_SELECTOR, DEFAULT_MOUNT_TIMEOUT_MS, LAYOUT_OVERFLOW_PROBE, APP_CSS_FIDELITY_PREFIX;
 var init_scan3 = __esm({
   "src/obsidian/scan.ts"() {
     "use strict";
@@ -44052,6 +44065,7 @@ var init_scan3 = __esm({
     MOUNT_SELECTOR = "[data-ibr-mount]";
     DEFAULT_MOUNT_TIMEOUT_MS = 1e4;
     LAYOUT_OVERFLOW_PROBE = "obsidianLayoutOverflow";
+    APP_CSS_FIDELITY_PREFIX = "Base-CSS fidelity is OFF";
   }
 });
 
@@ -57108,12 +57122,35 @@ function registerNativeSessionCommands(program3) {
 
 // src/bin/cli-config.ts
 init_schemas3();
+var VIEWPORT_NAMES = Object.keys(VIEWPORTS);
+function isViewportName(name) {
+  return Object.prototype.hasOwnProperty.call(VIEWPORTS, name);
+}
+function resolveViewportName(name) {
+  if (isViewportName(name)) return VIEWPORTS[name];
+  throw new Error(
+    `Unknown viewport "${name}". Available viewports: ${VIEWPORT_NAMES.join(", ")}`
+  );
+}
+function normalizeFileConfig(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const config2 = { ...raw };
+  if (typeof config2.viewport === "string") {
+    config2.viewport = resolveViewportName(config2.viewport);
+  }
+  if (Array.isArray(config2.viewports)) {
+    config2.viewports = config2.viewports.map(
+      (v) => typeof v === "string" ? resolveViewportName(v) : v
+    );
+  }
+  return config2;
+}
 function mergeCliConfig(config2, options) {
   return {
     ...config2,
     ...options.baseUrl ? { baseUrl: String(options.baseUrl) } : {},
     ...options.output ? { outputDir: String(options.output) } : {},
-    ...options.viewport ? { viewport: VIEWPORTS[options.viewport] } : {},
+    ...options.viewport ? { viewport: resolveViewportName(String(options.viewport)) } : {},
     ...options.threshold !== void 0 ? { threshold: Number(options.threshold) } : {},
     ...options.fullPage !== void 0 ? { fullPage: Boolean(options.fullPage) } : {},
     ...options.browserMode ? { browserMode: String(options.browserMode) } : {},
@@ -57241,8 +57278,11 @@ async function loadConfig() {
   if ((0, import_fs24.existsSync)(configPath)) {
     try {
       const content = await (0, import_promises34.readFile)(configPath, "utf-8");
-      return JSON.parse(content);
-    } catch {
+      return normalizeFileConfig(JSON.parse(content));
+    } catch (error51) {
+      console.warn(
+        `Warning: ignoring ${configPath} \u2014 ${error51 instanceof Error ? error51.message : String(error51)}`
+      );
     }
   }
   return {};

@@ -120,7 +120,15 @@ var init_schemas = __esm({
       allowedDiffPercent: exports.ThresholdOverrideSchema.optional()
     });
     exports.ConfigSchema = zod.z.object({
-      baseUrl: zod.z.string().url("Must be a valid URL"),
+      /**
+       * Optional. Only needed to expand a RELATIVE path (`ibr start /pricing`).
+       * It was required, which meant every session-management command — `ibr list`,
+       * `ibr status`, `ibr check`, `ibr scan-check` — died with a Zod dump in any
+       * directory without an `.ibrrc.json`, despite never using a URL. The error
+       * now fires at the one call site that actually needs it (resolveUrl), naming
+       * the fix.
+       */
+      baseUrl: zod.z.string().url("Must be a valid URL").optional(),
       outputDir: zod.z.string().default("./.ibr"),
       viewport: exports.ViewportSchema.default(exports.VIEWPORTS.desktop),
       viewports: zod.z.array(exports.ViewportSchema).optional(),
@@ -21618,6 +21626,11 @@ var InterfaceBuiltRight = class {
   resolveUrl(path2) {
     if (path2.startsWith("http://") || path2.startsWith("https://")) {
       return path2;
+    }
+    if (!this.config.baseUrl) {
+      throw new Error(
+        `Cannot resolve the relative path "${path2}": no baseUrl is set. Pass a full URL, add "baseUrl" to .ibrrc.json (run \`ibr init\`), or use -b/--base-url.`
+      );
     }
     return `${this.config.baseUrl}${path2.startsWith("/") ? path2 : `/${path2}`}`;
   }
