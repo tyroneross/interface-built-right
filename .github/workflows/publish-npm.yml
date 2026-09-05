@@ -96,6 +96,18 @@ jobs:
         run: npm run build
 
       - name: Run test suite
+        # UNIT-ONLY, matching ci.yml's ubuntu job. The browser-integration and
+        # macOS-native tests are gated by ci.yml's `integration + native
+        # (macos-14)` job — they cannot pass here, because this runner is
+        # ubuntu and `scanObsidian — live Chrome` needs a real Obsidian install.
+        #
+        # This is not a weakened gate: without IBR_UNIT_ONLY this step silently
+        # duplicated the macOS job on the wrong OS. It passed until 2026-07-17,
+        # when `src/obsidian/obsidian.integration.test.ts` landed (1c43a5b) and
+        # made the duplication fatal — which is why v1.4.0 published on
+        # 2026-06-08 and v1.5.0 could not.
+        env:
+          IBR_UNIT_ONLY: "1"
         run: npm test -- --run
 
       - name: Validate release surfaces and package exports
