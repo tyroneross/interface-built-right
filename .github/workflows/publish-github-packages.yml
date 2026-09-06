@@ -53,6 +53,13 @@ jobs:
         run: npm run build
 
       - name: Run test suite
+        # UNIT-ONLY, matching ci.yml's ubuntu job — same reason as
+        # publish-npm.yml. This runner is ubuntu, so the real-Chrome CDP tests
+        # (src/engine/compat.test.ts) and the Obsidian live-Chrome integration
+        # tests cannot pass here; ci.yml's `integration + native (macos-14)` job
+        # is what grades them.
+        env:
+          IBR_UNIT_ONLY: "1"
         run: npm test -- --run
 
       - name: Validate release surfaces and package exports

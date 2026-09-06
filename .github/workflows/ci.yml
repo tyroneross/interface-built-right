@@ -54,6 +54,25 @@ jobs:
       - name: Verify committed dist matches the build
         run: node scripts/check-dist-freshness.mjs
 
+      - name: Guard — every ubuntu workflow that runs npm test must set IBR_UNIT_ONLY
+        # The browser-CDP and macOS-native tests only pass on the macos-14 job.
+        # A publish workflow that runs `npm test` on ubuntu WITHOUT
+        # IBR_UNIT_ONLY silently duplicates that job on the wrong OS and blocks
+        # the release. That is not hypothetical: it stalled npm at 1.4.0 from
+        # 2026-07-17 (when the Obsidian live-Chrome test landed) until
+        # 2026-09-05, across both publish workflows.
+        run: |
+          fail=0
+          for f in .github/workflows/*.yml; do
+            grep -q 'npm test' "$f" || continue
+            grep -q 'runs-on: ubuntu' "$f" || continue
+            if ! grep -q 'IBR_UNIT_ONLY' "$f"; then
+              echo "::error file=$f::runs npm test on ubuntu without IBR_UNIT_ONLY — browser/native tests cannot pass here"
+              fail=1
+            fi
+          done
+          exit $fail
+
       - name: Run unit test suite
         run: npm test -- --run
 
