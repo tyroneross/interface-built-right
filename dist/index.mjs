@@ -14811,19 +14811,19 @@ async function scanNative(options = {}) {
     "menubaritem",
     "nav"
   ]);
-  let iosGuestUnreachable = false;
+  let guestAXUnreachable = false;
   let extractionError;
   if (isExtractorAvailable()) {
     try {
       const nativeElements = await extractNativeElements(device);
       const allMapped = mapToEnhancedElements(nativeElements);
-      const filtered = device.platform === "ios" ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase())) : allMapped;
+      const filtered = allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || "").toLowerCase()));
       elements = filtered;
-      if (device.platform === "ios" && allMapped.length > 0 && filtered.length === 0) {
-        iosGuestUnreachable = true;
+      if (allMapped.length > 0 && filtered.length === 0) {
+        guestAXUnreachable = true;
       }
       audit = analyzeElements(elements, true);
-      extractionSucceeded = !iosGuestUnreachable;
+      extractionSucceeded = !guestAXUnreachable;
     } catch (err) {
       extractionError = err instanceof Error ? err.message : String(err);
     }
@@ -14854,11 +14854,11 @@ async function scanNative(options = {}) {
       fix: "Grant Accessibility permission to the terminal running ibr (System Settings > Privacy & Security > Accessibility), confirm the app is running, and re-run. Screenshot-only output cannot be read as a clean scan."
     });
   }
-  if (iosGuestUnreachable) {
+  if (guestAXUnreachable) {
     issues.push({
       category: "structure",
       severity: "error",
-      description: "iOS guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2)."
+      description: `${device.platform} guest accessibility tree is unreachable from this process. native:scan can only see Simulator.app chrome on Xcode 12+. Use a screenshot-driven workflow, or install IDB and route through \`idb accessibility info\` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2).`
     });
   }
   const designSystem = options.outputDir ? await applyDesignSystemCheck(
@@ -20603,17 +20603,40 @@ var SIMULATOR_CHROME_LABELS = /* @__PURE__ */ new Set([
   "volume up",
   "volume down"
 ]);
-function detectSimulatorChromeOnly(topLevelLabels) {
-  if (topLevelLabels.length === 0) {
+var HOST_CHROME_ROLES = /* @__PURE__ */ new Set([
+  "AXApplication",
+  "AXMenuBar",
+  "AXMenuBarItem",
+  "AXMenu",
+  "AXMenuItem"
+]);
+function detectSimulatorChromeOnly(input) {
+  if (input.length === 0) {
     return {
+      reason: "empty",
       hint: "Simulator returned no AX elements. Boot a device and foreground an app: xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>"
     };
   }
-  const normalized = topLevelLabels.map((l) => l.trim().toLowerCase()).filter((l) => l.length > 0);
+  const isCensus = typeof input[0] !== "string";
+  if (isCensus) {
+    const census = input;
+    const allHostChrome = census.every(
+      (c) => c.role != null && HOST_CHROME_ROLES.has(c.role)
+    );
+    if (allHostChrome) {
+      return {
+        reason: "host-chrome",
+        hint: 'Guest accessibility tree is unreachable from this process \u2014 only Simulator.app host chrome (application / menu bar) was returned. No app accessibility data was captured, so this result is NOT evidence about the app under test (neither "empty" nor "clean"). Use a screenshot-driven workflow, or install IDB and route through `idb accessibility info`.'
+      };
+    }
+  }
+  const labels = isCensus ? input.map((c) => c.label ?? "") : input;
+  const normalized = labels.map((l) => l.trim().toLowerCase()).filter((l) => l.length > 0);
   if (normalized.length === 0) return null;
   const chromeCount = normalized.filter((l) => SIMULATOR_CHROME_LABELS.has(l)).length;
   if (chromeCount / normalized.length >= 0.8) {
     return {
+      reason: "sim-toolbar",
       hint: "Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>"
     };
   }
@@ -20809,7 +20832,7 @@ var NativeSessionController = class {
       const candidates = flattenSimulatorElements(extraction.elements);
       const interactive = candidates.filter((candidate) => candidate.actions.length > 0);
       const chromeCheck = detectSimulatorChromeOnly(
-        candidates.slice(0, 10).map((c) => c.label ?? "")
+        candidates.map((c) => ({ role: c.role, label: c.label ?? "" }))
       );
       if (chromeCheck) {
         return errorResult(chromeCheck.hint);
@@ -20900,7 +20923,7 @@ var NativeSessionController = class {
       const { elements, device } = extraction;
       const flattened = flattenSimulatorElements(elements);
       const chromeCheck = detectSimulatorChromeOnly(
-        flattened.slice(0, 10).map((c) => c.label ?? "")
+        flattened.map((c) => ({ role: c.role, label: c.label ?? "" }))
       );
       if (chromeCheck) return errorResult(chromeCheck.hint);
       const resolution = resolveSimulatorElement(elements, request.target ?? "", request.role ? { role: request.role } : {});
