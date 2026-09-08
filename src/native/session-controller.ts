@@ -367,9 +367,11 @@ export class NativeSessionController {
       const candidates = flattenSimulatorElements(extraction.elements);
       const interactive = candidates.filter(candidate => candidate.actions.length > 0);
 
-      // f4: same chrome-only check runSimulatorSessionAction uses.
+      // f4/D2: same chrome-only check runSimulatorSessionAction uses. Census
+      // the FULL candidate list (role + label), not just the first 10 — host
+      // chrome menu items can sit anywhere in a 50+ element tree.
       const chromeCheck = detectSimulatorChromeOnly(
-        candidates.slice(0, 10).map((c) => c.label ?? ''),
+        candidates.map((c) => ({ role: c.role, label: c.label ?? '' })),
       );
       if (chromeCheck) {
         return errorResult(chromeCheck.hint);
@@ -478,10 +480,11 @@ export class NativeSessionController {
       if (extraction.kind !== 'simulator') return errorResult('native session action (simulator) failed: unexpected extraction kind.');
       const { elements, device } = extraction;
 
-      // R4: pure-chrome tree → one-line "foreground the app" hint.
+      // R4/D2: pure-chrome tree → one-line hint. Census the FULL candidate
+      // list (role + label), not just the first 10 — see readSimulator.
       const flattened = flattenSimulatorElements(elements);
       const chromeCheck = detectSimulatorChromeOnly(
-        flattened.slice(0, 10).map((c) => c.label ?? ''),
+        flattened.map((c) => ({ role: c.role, label: c.label ?? '' })),
       );
       if (chromeCheck) return errorResult(chromeCheck.hint);
 

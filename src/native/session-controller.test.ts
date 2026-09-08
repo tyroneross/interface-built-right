@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import type { MacOSAXElement, MacOSWindowInfo } from './types.js';
+import type { MacOSAXElement, MacOSWindowInfo, NativeElement, SimulatorDevice } from './types.js';
 import type { NativeActionResult } from './actions.js';
 import {
   NativeSessionController,
@@ -104,6 +104,29 @@ function macEntry(): SessionEntry {
   return { driver: null, type: 'macos', app: 'Fake', pid: 4242, createdAt: Date.now() };
 }
 
+function simEntry(): SessionEntry {
+  return {
+    driver: null, type: 'simulator', device: { udid: 'ABCD-1234', name: 'Apple Watch Series 10 (46mm)' },
+    createdAt: Date.now(),
+  };
+}
+
+function simDevice(overrides: Partial<SimulatorDevice> = {}): SimulatorDevice {
+  return {
+    udid: 'ABCD-1234', name: 'Apple Watch Series 10 (46mm)', state: 'Booted',
+    runtime: 'com.apple.CoreSimulator.SimRuntime.watchOS-26-2', platform: 'watchos',
+    isAvailable: true, ...overrides,
+  };
+}
+
+function simElement(overrides: Partial<NativeElement> & { path?: number[] } = {}): NativeElement {
+  return {
+    identifier: '', label: 'Simulator', role: 'AXApplication', traits: [],
+    frame: { x: 0, y: 0, width: 0, height: 0 }, isEnabled: true, value: null,
+    children: [], ...overrides,
+  };
+}
+
 function make(backend: NativeBackend) {
   return new NativeSessionController({ store: new Map(), backend });
 }
@@ -180,6 +203,43 @@ describe('NativeSessionController.readMacOS', () => {
     expect(p.totalElements).toBe(1);
     expect(p.interactiveElements).toBe(1);
     expect(p.elements[0].label).toBe('Save');
+  });
+});
+
+describe('NativeSessionController.readSimulator — D1/D2 host-chrome census', () => {
+  it('a pure host-chrome extraction (AXApplication/AXMenuBar/AXMenuBarItem) returns isError, not a clean 0-element observe', async () => {
+    const backend = new FakeBackend();
+    // The exact observed shape: 20x AXApplication "Simulator", 21x AXMenuBar
+    // "_NS:1311", 9x AXMenuBarItem menu names — 50 elements, zero app content.
+    const hostChromeElements: NativeElement[] = [
+      ...Array.from({ length: 3 }, () => simElement({ role: 'AXApplication', label: 'Simulator' })),
+      ...Array.from({ length: 3 }, () => simElement({ role: 'AXMenuBar', label: '_NS:1311' })),
+      ...['Apple', 'File', 'Edit', 'Device'].map((name) => simElement({ role: 'AXMenuBarItem', label: name })),
+    ];
+    backend.extractResult = { kind: 'simulator', elements: hostChromeElements, device: simDevice() };
+
+    const res = await make(backend).readSimulator(simEntry(), 'observe', 50);
+    expect(res.kind).toBe('text');
+    expect(res.kind === 'text' && res.isError).toBe(true);
+    const text = res.kind === 'text' ? res.text : '';
+    expect(text).toMatch(/guest accessibility tree is unreachable/i);
+  });
+
+  it('real app content (AXButton/AXStaticText) alongside an AXApplication root reads clean', async () => {
+    const backend = new FakeBackend();
+    const appElements: NativeElement[] = [
+      simElement({ role: 'AXApplication', label: 'Pomodoro' }),
+      simElement({ role: 'AXButton', label: 'Start', traits: ['button'] }),
+      simElement({ role: 'AXStaticText', label: 'Pomodoro' }),
+    ];
+    backend.extractResult = { kind: 'simulator', elements: appElements, device: simDevice() };
+
+    const res = await make(backend).readSimulator(simEntry(), 'observe', 50);
+    expect(res.kind).toBe('text');
+    expect(res.kind === 'text' && res.isError).not.toBe(true);
+    const p = JSON.parse(res.kind === 'text' ? res.text : '{}');
+    expect(p.totalElements).toBe(3);
+    expect(p.interactiveElements).toBe(1);
   });
 });
 

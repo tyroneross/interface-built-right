@@ -81,10 +81,11 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
   };
   let extractionSucceeded = false;
 
-  // On modern Xcode (12+), iOS guest accessibility is no longer bridged into
-  // the macOS host process — only Simulator.app's chrome is visible. Filter
-  // out the chrome roles below so verdicts don't rate menu bar items as SUT
-  // content. The native AX→tagName mapping yields these for host chrome:
+  // On modern Xcode (12+), the guest (iOS or watchOS) accessibility tree is
+  // no longer bridged into the macOS host process — only Simulator.app's
+  // chrome is visible. Filter out the chrome roles below so verdicts don't
+  // rate menu bar items as SUT content. The native AX→tagName mapping yields
+  // these for host chrome:
   //   AXApplication → application
   //   AXMenuBar / AXMenu → nav
   //   AXMenuBarItem / AXMenuItem → menubaritem / li
@@ -94,7 +95,7 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
     'nav',
   ]);
 
-  let iosGuestUnreachable = false;
+  let guestAXUnreachable = false;
   /** Why element extraction produced nothing. Absent when it succeeded. */
   let extractionError: string | undefined;
 
@@ -102,20 +103,20 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
     try {
       const nativeElements = await extractNativeElements(device);
       const allMapped = mapToEnhancedElements(nativeElements);
-      // Drop host-chrome roles for iOS targets. On macOS targets the same
-      // filter is a no-op because the AX root is the app itself, not the host.
-      const filtered =
-        device.platform === 'ios'
-          ? allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || '').toLowerCase()))
-          : allMapped;
+      // Drop host-chrome roles for every simulator target (iOS and watchOS —
+      // `device.platform` on this path is never 'macos'; that's the separate
+      // scanMacOS() function below, where the AX root is the app itself, not
+      // the host, so this filter never applies there).
+      const filtered = allMapped.filter((e) => !HOST_CHROME_TAGS.has((e.tagName || '').toLowerCase()));
       elements = filtered;
       // If we got results from the AX query but everything was host chrome,
-      // the iOS guest tree is unreachable from this process. Surface it.
-      if (device.platform === 'ios' && allMapped.length > 0 && filtered.length === 0) {
-        iosGuestUnreachable = true;
+      // the guest (iOS/watchOS) accessibility tree is unreachable from this
+      // process. Surface it.
+      if (allMapped.length > 0 && filtered.length === 0) {
+        guestAXUnreachable = true;
       }
       audit = analyzeElements(elements, true); // Always treat as mobile-sized targets
-      extractionSucceeded = !iosGuestUnreachable;
+      extractionSucceeded = !guestAXUnreachable;
     } catch (err) {
       // NOT a graceful fallback — a SILENT one, which is what this was.
       //
@@ -129,7 +130,7 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
       // The only trace was a substring in the free-text summary
       // ('screenshot-only mode'), which nothing can test against. This file
       // already demonstrates the right shape 30 lines down, where
-      // `iosGuestUnreachable` pushes an explicit error naming the cause and the
+      // `guestAXUnreachable` pushes an explicit error naming the cause and the
       // alternative — it just was not applied here.
       extractionError = err instanceof Error ? err.message : String(err);
     }
@@ -182,14 +183,15 @@ export async function scanNative(options: NativeScanOptions = {}): Promise<Nativ
     });
   }
 
-  // Honest signal: iOS guest accessibility tree is not reachable from the
-  // macOS host process on modern Xcode. The scan returned host chrome only.
-  if (iosGuestUnreachable) {
+  // Honest signal: the guest (iOS or watchOS) accessibility tree is not
+  // reachable from the macOS host process on modern Xcode. The scan
+  // returned host chrome only.
+  if (guestAXUnreachable) {
     issues.push({
       category: 'structure',
       severity: 'error',
       description:
-        'iOS guest accessibility tree is unreachable from this process. ' +
+        `${device.platform} guest accessibility tree is unreachable from this process. ` +
         'native:scan can only see Simulator.app chrome on Xcode 12+. ' +
         'Use a screenshot-driven workflow, or install IDB and route through ' +
         '`idb accessibility info` (planned: XCUITest bundle, see NATIVE_SUPPORT_PROPOSAL.md Phase 2).',

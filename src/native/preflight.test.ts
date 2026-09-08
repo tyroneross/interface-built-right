@@ -212,6 +212,56 @@ describe('R4: detectSimulatorChromeOnly', () => {
     ]);
     expect(out).not.toBeNull();
   });
+
+  it('every existing string[] case reports the reason discriminant it should', () => {
+    // D1 adds `reason` to the return type; existing behavior (hint text,
+    // null-ness) must be unchanged, and the new field must be sane.
+    expect(preflight.detectSimulatorChromeOnly([])!.reason).toBe('empty');
+    expect(
+      preflight.detectSimulatorChromeOnly(['Home', 'Save Screen', 'Rotate', 'Rotate Left', 'Lock'])!.reason,
+    ).toBe('sim-toolbar');
+    expect(preflight.detectSimulatorChromeOnly(['Sign in', 'Email', 'Password', 'Continue', 'Home'])).toBeNull();
+  });
+
+  // D1: role-aware census form — the observed watchOS host-chrome shape
+  // (AXApplication "Simulator" + AXMenuBar "_NS:1311" + AXMenuBarItem menu
+  // names) carries none of the SIMULATOR_CHROME_LABELS toolbar labels, so the
+  // label-only rule cannot see it. Only a role census can.
+  it('flags the observed host-chrome shape (AXApplication/AXMenuBar/AXMenuBarItem) via role census', () => {
+    const out = preflight.detectSimulatorChromeOnly([
+      { role: 'AXApplication', label: 'Simulator' },
+      { role: 'AXMenuBar', label: '_NS:1311' },
+      { role: 'AXMenuBarItem', label: 'Apple' },
+      { role: 'AXMenuBarItem', label: 'File' },
+      { role: 'AXMenuBarItem', label: 'Edit' },
+      { role: 'AXMenuBarItem', label: 'Device' },
+    ]);
+    expect(out).not.toBeNull();
+    expect(out!.reason).toBe('host-chrome');
+    expect(out!.hint).toMatch(/guest accessibility tree is unreachable/i);
+    expect(out!.hint).toMatch(/not evidence about the app/i);
+  });
+
+  it('does not flag host-chrome when real app content is mixed in with an AXApplication root', () => {
+    const out = preflight.detectSimulatorChromeOnly([
+      { role: 'AXApplication', label: 'Pomodoro' },
+      { role: 'AXButton', label: 'Start' },
+      { role: 'AXStaticText', label: 'Pomodoro' },
+    ]);
+    expect(out).toBeNull();
+  });
+
+  it('census form still falls through to the label-based sim-toolbar rule when roles are not all host-chrome', () => {
+    const out = preflight.detectSimulatorChromeOnly([
+      { role: 'AXButton', label: 'Home' },
+      { role: 'AXButton', label: 'Save Screen' },
+      { role: 'AXButton', label: 'Rotate' },
+      { role: 'AXButton', label: 'Rotate Left' },
+      { role: 'AXButton', label: 'Lock' },
+    ]);
+    expect(out).not.toBeNull();
+    expect(out!.reason).toBe('sim-toolbar');
+  });
 });
 
 describe('R5: classifyExtractorError', () => {

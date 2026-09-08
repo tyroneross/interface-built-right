@@ -165,19 +165,29 @@ export async function simulatorNativePreflight(options?: {
 }
 
 /**
- * R4 helper: detect when the extracted AX tree is dominated by Simulator.app
- * chrome (toolbar buttons "Home" / "Save Screen" / "Rotate" / "Screenshot")
- * rather than the embedded iOS app. The Swift R4 fix descends past chrome
- * server-side, but if the chrome heuristic misses (e.g. simulator window
- * shape changes in a future Xcode), this check surfaces a one-line
- * "no app foregrounded" hint so the agent can boot/launch the app.
+ * R4/D1 helper: detect when the extracted AX tree does not represent the
+ * embedded iOS/watchOS app under test. Two distinct failure shapes land here:
  *
- * Returns null when the tree looks like an app; a hint message when it
- * looks like pure chrome.
+ *   1. Simulator toolbar chrome ("Home" / "Save Screen" / "Rotate" /
+ *      "Screenshot") — the app is not foregrounded (Springboard idle, app
+ *      not launched). Detected by label, since these are UI labels with no
+ *      distinguishing AX role.
+ *   2. Host-process chrome (`AXApplication` "Simulator", `AXMenuBar`,
+ *      `AXMenuBarItem`, `AXMenu`, `AXMenuItem`) — the guest accessibility
+ *      tree is not bridged into the macOS host process at all (Xcode 12+).
+ *      This is not "no app foregrounded"; it is "this process cannot see
+ *      app content, full stop." Detected by AX role, when role information
+ *      is available to the caller.
  *
- * `topLevelLabels` is the array of root-level element labels (the array
- * returned by `flattenSimulatorElements(elements).slice(0, 10)` or
- * whatever surfaces first to the model).
+ * Returns null when the tree looks like real app content; a hint + reason
+ * when it looks like chrome of either kind.
+ *
+ * Accepts either the legacy `readonly string[]` of labels (role-blind, only
+ * the label-based toolbar-chrome rule applies) or a
+ * `readonly { role?: string | null; label?: string | null }[]` census of the
+ * FULL candidate list (not just the first N — host-chrome menu items can sit
+ * anywhere in a 50+ element tree), which additionally enables the
+ * role-based host-chrome rule.
  */
 const SIMULATOR_CHROME_LABELS = new Set([
   'home',
@@ -194,17 +204,74 @@ const SIMULATOR_CHROME_LABELS = new Set([
   'volume down',
 ]);
 
+/**
+ * macOS host-process AX roles. When every element in the extracted tree
+ * carries one of these roles, the tree is Simulator.app's own application /
+ * menu bar structure — not the guest app's accessibility tree. Mirrors
+ * `HOST_CHROME_TAGS` in scan.ts (there expressed as mapped tag names).
+ */
+const HOST_CHROME_ROLES = new Set([
+  'AXApplication',
+  'AXMenuBar',
+  'AXMenuBarItem',
+  'AXMenu',
+  'AXMenuItem',
+]);
+
+export interface SimulatorElementCensusEntry {
+  role?: string | null;
+  label?: string | null;
+}
+
 export function detectSimulatorChromeOnly(
   topLevelLabels: readonly string[],
-): { hint: string } | null {
-  if (topLevelLabels.length === 0) {
+): { hint: string; reason: 'empty' | 'host-chrome' | 'sim-toolbar' } | null;
+export function detectSimulatorChromeOnly(
+  candidates: readonly SimulatorElementCensusEntry[],
+): { hint: string; reason: 'empty' | 'host-chrome' | 'sim-toolbar' } | null;
+export function detectSimulatorChromeOnly(
+  input: readonly string[] | readonly SimulatorElementCensusEntry[],
+): { hint: string; reason: 'empty' | 'host-chrome' | 'sim-toolbar' } | null {
+  if (input.length === 0) {
     return {
+      reason: 'empty',
       hint:
         'Simulator returned no AX elements. Boot a device and foreground an app: ' +
         'xcrun simctl boot <udid> && xcrun simctl launch booted <bundle-id>',
     };
   }
-  const normalized = topLevelLabels
+
+  const isCensus = typeof input[0] !== 'string';
+
+  if (isCensus) {
+    const census = input as readonly SimulatorElementCensusEntry[];
+    // 100%, not a percentage threshold: a real app tree can legitimately
+    // include an AXApplication root among genuine app content, so anything
+    // less than "every single element is host chrome" is not conclusive.
+    // Mirrors the conservative rule scan.ts:114 already uses
+    // (`allMapped.length > 0 && filtered.length === 0`).
+    const allHostChrome = census.every(
+      (c) => c.role != null && HOST_CHROME_ROLES.has(c.role),
+    );
+    if (allHostChrome) {
+      return {
+        reason: 'host-chrome',
+        hint:
+          'Guest accessibility tree is unreachable from this process — only ' +
+          'Simulator.app host chrome (application / menu bar) was returned. ' +
+          'No app accessibility data was captured, so this result is NOT ' +
+          'evidence about the app under test (neither "empty" nor "clean"). ' +
+          'Use a screenshot-driven workflow, or install IDB and route through ' +
+          '`idb accessibility info`.',
+      };
+    }
+  }
+
+  const labels: readonly string[] = isCensus
+    ? (input as readonly SimulatorElementCensusEntry[]).map((c) => c.label ?? '')
+    : (input as readonly string[]);
+
+  const normalized = labels
     .map((l) => l.trim().toLowerCase())
     .filter((l) => l.length > 0);
   if (normalized.length === 0) return null;
@@ -213,6 +280,7 @@ export function detectSimulatorChromeOnly(
   // not foregrounded (Springboard idle, app not launched).
   if (chromeCount / normalized.length >= 0.8) {
     return {
+      reason: 'sim-toolbar',
       hint:
         'Extracted AX tree appears to be Simulator chrome (Home / Save Screen / Rotate). ' +
         'Foreground the iOS app under test: xcrun simctl launch booted <bundle-id>',
