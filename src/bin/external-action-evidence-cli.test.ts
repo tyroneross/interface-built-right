@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, truncateSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
@@ -114,6 +114,22 @@ describe('handleEvidenceRecord', () => {
 });
 
 describe('evidence input readers', () => {
+  it('round-trips local-sensitive input through the real CLI dependencies', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ibr-evidence-cli-'));
+    sandboxes.push(root);
+    const input = join(root, 'input.json');
+    const outputDir = join(root, 'receipts');
+    writeFileSync(input, JSON.stringify(validInput));
+
+    const result = await handleEvidenceRecord({ input, privacy: 'local-sensitive', outputDir });
+    expect(result.exitCode).toBe(0);
+    const receiptPath = result.json.path as string;
+    const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+    expect(receipt.privacy.mode).toBe('local-sensitive');
+    expect(receipt.before.state).toBe('before');
+    expect(receipt.before.stateDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
   it('reads a real file', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ibr-evidence-cli-'));
     sandboxes.push(root);

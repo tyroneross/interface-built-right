@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   createExternalActionReceipt,
+  ExternalActionReceiptSchema,
   MAX_EXTERNAL_ACTION_ARTIFACT_BYTES,
   publishExternalActionReceipt,
   recordExternalActionEvidence,
@@ -133,11 +134,16 @@ describe('createExternalActionReceipt', () => {
     expect(receipt.surface.windowTitle).toBe('Private Project — Ambient');
     expect(receipt.action.target?.label).toBe('Secret customer header');
     expect(receipt.before.state).toContain('Private Project');
+    expect(receipt.before.stateDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(receipt.before.artifacts?.[0].path).toBe(screenshot);
     expect(receipt.before.artifacts?.[0].pathDisposition).toBe('retained');
     expect(receipt.validation.observedDetail).toContain('280 points');
     expect(receipt.privacy.transformedFields).not.toContain('before.state');
     expect(receipt.privacy.transformedFields).not.toContain('after.state');
+
+    expect(ExternalActionReceiptSchema.safeParse(receipt).success).toBe(true);
+    const path = await writeExternalActionReceipt(receipt, { outputDir: join(root, 'receipts') });
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual(receipt);
   });
 
   it('reports artifact path retention only when a path is retained', async () => {

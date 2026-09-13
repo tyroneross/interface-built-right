@@ -26666,6 +26666,9 @@ async function publishExternalActionReceipt(temporary, destination, payload, ope
 function fieldDigest(key, field, value) {
   return `hmac-sha256:${(0, import_crypto2.createHmac)("sha256", key).update(`ibr.external-action.v1\0${field}\0${value}`).digest("hex")}`;
 }
+function contentDigest(value) {
+  return `sha256:${(0, import_crypto2.createHash)("sha256").update(value).digest("hex")}`;
+}
 function isWithinRoot(root, candidate) {
   const offset = (0, import_path9.relative)(root, candidate);
   return offset !== "" && !offset.startsWith(`..${import_path9.sep}`) && offset !== ".." && !(0, import_path9.isAbsolute)(offset);
@@ -26753,7 +26756,7 @@ async function normalizeArtifact(artifact, retainPath, location, artifactPolicy)
 async function normalizeObservation(observation, field, mode, key, transformed, artifactPolicy) {
   const retain = mode === "local-sensitive";
   if (observation.state !== void 0 && !retain) transformed.add(`${field}.state`);
-  const stateDigest = observation.stateDigest ?? fieldDigest(key, "observation.state", observation.state);
+  const stateDigest = observation.stateDigest ?? (retain ? contentDigest(observation.state) : fieldDigest(key, "observation.state", observation.state));
   const artifacts = observation.artifacts ? await Promise.all(observation.artifacts.map(async (artifact, index) => {
     if (artifact.path && !retain) transformed.add(`${field}.artifacts[${index}].path`);
     return normalizeArtifact(artifact, retain, `${field}.artifacts[${index}]`, artifactPolicy);

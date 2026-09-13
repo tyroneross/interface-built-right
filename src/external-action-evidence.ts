@@ -363,6 +363,10 @@ function fieldDigest(key: string | Buffer, field: string, value: string): string
   return `hmac-sha256:${createHmac('sha256', key).update(`ibr.external-action.v1\0${field}\0${value}`).digest('hex')}`;
 }
 
+function contentDigest(value: string): string {
+  return `sha256:${createHash('sha256').update(value).digest('hex')}`;
+}
+
 class ArtifactPolicyError extends Error {}
 class ArtifactSizeLimitError extends Error {}
 
@@ -493,7 +497,11 @@ async function normalizeObservation(
 ): Promise<ExternalActionObservationReceipt> {
   const retain = mode === 'local-sensitive';
   if (observation.state !== undefined && !retain) transformed.add(`${field}.state`);
-  const stateDigest = observation.stateDigest ?? fieldDigest(key, 'observation.state', observation.state as string);
+  const stateDigest = observation.stateDigest ?? (
+    retain
+      ? contentDigest(observation.state as string)
+      : fieldDigest(key, 'observation.state', observation.state as string)
+  );
   const artifacts = observation.artifacts
     ? await Promise.all(observation.artifacts.map(async (artifact, index) => {
         if (artifact.path && !retain) transformed.add(`${field}.artifacts[${index}].path`);
