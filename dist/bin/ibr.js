@@ -26654,19 +26654,32 @@ async function artifactDigest(path3) {
     bytes: data.byteLength
   };
 }
-function assertChronology(input) {
+function chronologyIssues(input) {
   const startedAt = Date.parse(input.action.startedAt);
   const completedAt = Date.parse(input.action.completedAt);
   const beforeAt = Date.parse(input.before.capturedAt);
   const afterAt = Date.parse(input.after.capturedAt);
-  if (completedAt < startedAt) throw new Error("action.completedAt must be at or after action.startedAt");
-  if (beforeAt > startedAt) throw new Error("before.capturedAt must be at or before action.startedAt");
-  if (afterAt < completedAt) throw new Error("after.capturedAt must be at or after action.completedAt");
+  const issues = [];
+  if (completedAt < startedAt) issues.push("action.completedAt must be at or after action.startedAt");
+  if (beforeAt > startedAt) issues.push("before.capturedAt must be at or before action.startedAt");
+  if (afterAt < completedAt) issues.push("after.capturedAt must be at or after action.completedAt");
+  return issues;
 }
-async function normalizeArtifact(artifact, retainPath) {
-  const measured = artifact.path ? await artifactDigest(artifact.path) : void 0;
+function assertChronology(input) {
+  const [issue2] = chronologyIssues(input);
+  if (issue2) throw new Error(issue2);
+}
+async function normalizeArtifact(artifact, retainPath, location) {
+  let measured;
+  try {
+    measured = artifact.path ? await artifactDigest(artifact.path) : void 0;
+  } catch (error51) {
+    if (retainPath) throw error51;
+    throw new Error(`unable to read artifact at ${location}`);
+  }
   if (artifact.sha256 && measured && artifact.sha256 !== measured.sha256) {
-    throw new Error(`artifact digest mismatch for ${(0, import_path9.basename)(artifact.path)}`);
+    const target = retainPath ? (0, import_path9.basename)(artifact.path) : location;
+    throw new Error(`artifact digest mismatch for ${target}`);
   }
   return {
     kind: artifact.kind,
@@ -26677,11 +26690,11 @@ async function normalizeArtifact(artifact, retainPath) {
 }
 async function normalizeObservation(observation, field, mode, key, transformed) {
   const retain = mode === "local-sensitive";
-  if (observation.state !== void 0) transformed.add(`${field}.state`);
+  if (observation.state !== void 0 && !retain) transformed.add(`${field}.state`);
   const stateDigest = observation.stateDigest ?? fieldDigest(key, "observation.state", observation.state);
   const artifacts = observation.artifacts ? await Promise.all(observation.artifacts.map(async (artifact, index) => {
     if (artifact.path && !retain) transformed.add(`${field}.artifacts[${index}].path`);
-    return normalizeArtifact(artifact, retain);
+    return normalizeArtifact(artifact, retain, `${field}.artifacts[${index}]`);
   })) : void 0;
   return {
     capturedAt: observation.capturedAt,
@@ -26696,13 +26709,7 @@ async function normalizeObservation(observation, field, mode, key, transformed) 
 async function createExternalActionReceipt(rawInput, options = {}) {
   const input = ExternalActionEvidenceInputSchema.parse(rawInput);
   assertChronology(input);
-  const optionsSchema = external_exports.object({
-    privacyMode: external_exports.enum(["metadata-only", "local-sensitive"]).optional(),
-    digestKey: external_exports.union([external_exports.string().min(1), external_exports.instanceof(Buffer)]).optional(),
-    receiptId: external_exports.string().regex(RECEIPT_ID).optional(),
-    createdAt: timestamp.optional()
-  }).strict();
-  const parsedOptions = optionsSchema.parse(options);
+  const parsedOptions = createOptionsSchema.parse(options);
   const mode = parsedOptions.privacyMode ?? "metadata-only";
   const key = parsedOptions.digestKey ?? (0, import_crypto2.randomBytes)(32);
   const transformed = /* @__PURE__ */ new Set();
@@ -26776,7 +26783,8 @@ async function createExternalActionReceipt(rawInput, options = {}) {
 }
 async function writeExternalActionReceipt(receipt, options = {}) {
   const validated = ExternalActionReceiptSchema.parse(receipt);
-  const outputDir = options.outputDir ?? (0, import_path9.join)(process.cwd(), ".ibr", "evidence");
+  const parsedOptions = writeOptionsSchema.parse(options);
+  const outputDir = parsedOptions.outputDir ?? (0, import_path9.join)(process.cwd(), ".ibr", "evidence");
   await (0, import_promises10.mkdir)(outputDir, { recursive: true });
   const destination = (0, import_path9.join)(outputDir, `${validated.receiptId}.json`);
   const temporary = (0, import_path9.join)(outputDir, `.${validated.receiptId}.${(0, import_crypto2.randomUUID)()}.tmp`);
@@ -26800,7 +26808,7 @@ async function recordExternalActionEvidence(input, createOptions = {}, writeOpti
   const path3 = await writeExternalActionReceipt(receipt, writeOptions);
   return { receipt, path: path3 };
 }
-var import_crypto2, import_promises10, import_path9, MAX_TEXT, SHA256, FIELD_DIGEST, SAFE_CODE, SAFE_TOKEN, RECEIPT_ID, boundedText, timestamp, boundsSchema, artifactSchema, observationSchema, targetSchema, ExternalActionEvidenceInputSchema, artifactReceiptSchema, observationReceiptSchema, surfaceReceiptSchema, ExternalActionReceiptSchema;
+var import_crypto2, import_promises10, import_path9, MAX_TEXT, SHA256, FIELD_DIGEST, SAFE_CODE, SAFE_TOKEN, RECEIPT_ID, TRANSFORMED_FIELD, boundedText, timestamp, boundsSchema, artifactSchema, observationSchema, targetSchema, ExternalActionEvidenceInputSchema, artifactReceiptSchema, observationReceiptSchema, surfaceReceiptSchema, ExternalActionReceiptSchema, createOptionsSchema, writeOptionsSchema;
 var init_external_action_evidence = __esm({
   "src/external-action-evidence.ts"() {
     "use strict";
@@ -26814,6 +26822,7 @@ var init_external_action_evidence = __esm({
     SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
     SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
     RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
+    TRANSFORMED_FIELD = /^(surface\.(targetId|url|windowTitle)|action\.target\.label|validation\.(expectedDetail|observedDetail)|(before|after)\.state|(before|after)\.artifacts\[[0-9]\]\.path)$/;
     boundedText = external_exports.string().min(1).max(MAX_TEXT);
     timestamp = external_exports.string().datetime({ offset: true });
     boundsSchema = external_exports.object({
@@ -26959,10 +26968,13 @@ var init_external_action_evidence = __esm({
         mode: external_exports.enum(["metadata-only", "local-sensitive"]),
         fieldDigestAlgorithm: external_exports.literal("hmac-sha256-ephemeral-key"),
         artifactDigestAlgorithm: external_exports.literal("sha256"),
-        transformedFields: external_exports.array(external_exports.string().min(1).max(256)).max(64),
+        transformedFields: external_exports.array(external_exports.string().regex(TRANSFORMED_FIELD)).max(64),
         artifactPathsRetained: external_exports.boolean()
       }).strict()
     }).strict().superRefine((receipt, context) => {
+      for (const message of chronologyIssues(receipt)) {
+        context.addIssue({ code: "custom", message });
+      }
       const duration3 = Date.parse(receipt.action.completedAt) - Date.parse(receipt.action.startedAt);
       if (receipt.action.durationMs !== duration3) {
         context.addIssue({ code: "custom", message: "action.durationMs does not match action timestamps" });
@@ -26987,7 +26999,23 @@ var init_external_action_evidence = __esm({
           context.addIssue({ code: "custom", message: "metadata-only receipt cannot retain artifact paths" });
         }
       }
+      const hasArtifactPath = [
+        ...receipt.before.artifacts ?? [],
+        ...receipt.after.artifacts ?? []
+      ].some((artifact) => artifact.path !== void 0);
+      if (receipt.privacy.artifactPathsRetained !== hasArtifactPath) {
+        context.addIssue({ code: "custom", message: "privacy.artifactPathsRetained does not match retained artifact paths" });
+      }
     });
+    createOptionsSchema = external_exports.object({
+      privacyMode: external_exports.enum(["metadata-only", "local-sensitive"]).optional(),
+      digestKey: external_exports.union([external_exports.string().min(1), external_exports.instanceof(Buffer)]).optional(),
+      receiptId: external_exports.string().regex(RECEIPT_ID).optional(),
+      createdAt: timestamp.optional()
+    }).strict();
+    writeOptionsSchema = external_exports.object({
+      outputDir: boundedText.optional()
+    }).strict();
   }
 });
 

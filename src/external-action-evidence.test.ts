@@ -131,6 +131,8 @@ describe('createExternalActionReceipt', () => {
     expect(receipt.before.state).toContain('Private Project');
     expect(receipt.before.artifacts?.[0].path).toBe(screenshot);
     expect(receipt.validation.observedDetail).toContain('280 points');
+    expect(receipt.privacy.transformedFields).not.toContain('before.state');
+    expect(receipt.privacy.transformedFields).not.toContain('after.state');
   });
 
   it('reports artifact path retention only when a path is retained', async () => {
@@ -187,11 +189,31 @@ describe('createExternalActionReceipt', () => {
 
   it('rejects a supplied artifact digest that does not match the local file', async () => {
     const root = sandbox();
-    const screenshot = join(root, 'screen.png');
+    const screenshot = join(root, 'secret-customer-screen.png');
     writeFileSync(screenshot, 'pixels');
     const input = inputFor('codex', 'sidecar', screenshot);
     input.before.artifacts = [{ kind: 'screenshot', path: screenshot, sha256: `sha256:${'0'.repeat(64)}` }];
-    await expect(createExternalActionReceipt(input, deterministic)).rejects.toThrow(/digest mismatch/);
+    try {
+      await createExternalActionReceipt(input, deterministic);
+      throw new Error('expected digest mismatch');
+    } catch (error) {
+      expect(String(error)).toContain('digest mismatch');
+      expect(String(error)).not.toContain('secret-customer-screen.png');
+    }
+  });
+
+  it('does not expose a missing artifact path in metadata-only errors', async () => {
+    const root = sandbox();
+    const missing = join(root, 'secret-client-missing.png');
+    const input = inputFor('codex', 'sidecar', missing);
+    try {
+      await createExternalActionReceipt(input, deterministic);
+      throw new Error('expected missing artifact failure');
+    } catch (error) {
+      expect(String(error)).toContain('before.artifacts[0]');
+      expect(String(error)).not.toContain('secret-client-missing.png');
+      expect(String(error)).not.toContain(root);
+    }
   });
 });
 
@@ -214,6 +236,19 @@ describe('receipt persistence', () => {
     const receipt = await createExternalActionReceipt(inputFor('codex', 'sidecar'), deterministic);
     const invalid = { ...receipt, surface: { kind: 'web' as const } };
     await expect(writeExternalActionReceipt(invalid, { outputDir: root })).rejects.toThrow(/targetId or url evidence/);
+  });
+
+  it('rejects forged receipt chronology and invalid writer options', async () => {
+    const root = sandbox();
+    const receipt = await createExternalActionReceipt(inputFor('codex', 'sidecar'), deterministic);
+    const forged = {
+      ...receipt,
+      before: { ...receipt.before, capturedAt: '2026-09-13T19:00:01.100Z' },
+    };
+    await expect(writeExternalActionReceipt(forged, { outputDir: root })).rejects.toThrow(/before.capturedAt/);
+    await expect(writeExternalActionReceipt(receipt, {
+      outputDir: 42 as unknown as string,
+    })).rejects.toThrow();
   });
 
   it('composes and writes through the one-call operational API', async () => {

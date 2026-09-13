@@ -9,6 +9,7 @@ const FIELD_DIGEST = /^hmac-sha256:[a-f0-9]{64}$/;
 const SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
 const RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
+const TRANSFORMED_FIELD = /^(surface\.(targetId|url|windowTitle)|action\.target\.label|validation\.(expectedDetail|observedDetail)|(before|after)\.state|(before|after)\.artifacts\[[0-9]\]\.path)$/;
 
 const boundedText = z.string().min(1).max(MAX_TEXT);
 const timestamp = z.string().datetime({ offset: true });
@@ -181,10 +182,13 @@ export const ExternalActionReceiptSchema = z.object({
     mode: z.enum(['metadata-only', 'local-sensitive']),
     fieldDigestAlgorithm: z.literal('hmac-sha256-ephemeral-key'),
     artifactDigestAlgorithm: z.literal('sha256'),
-    transformedFields: z.array(z.string().min(1).max(256)).max(64),
+    transformedFields: z.array(z.string().regex(TRANSFORMED_FIELD)).max(64),
     artifactPathsRetained: z.boolean(),
   }).strict(),
 }).strict().superRefine((receipt, context) => {
+  for (const message of chronologyIssues(receipt)) {
+    context.addIssue({ code: 'custom', message });
+  }
   const duration = Date.parse(receipt.action.completedAt) - Date.parse(receipt.action.startedAt);
   if (receipt.action.durationMs !== duration) {
     context.addIssue({ code: 'custom', message: 'action.durationMs does not match action timestamps' });
@@ -209,6 +213,13 @@ export const ExternalActionReceiptSchema = z.object({
       context.addIssue({ code: 'custom', message: 'metadata-only receipt cannot retain artifact paths' });
     }
   }
+  const hasArtifactPath = [
+    ...(receipt.before.artifacts ?? []),
+    ...(receipt.after.artifacts ?? []),
+  ].some(artifact => artifact.path !== undefined);
+  if (receipt.privacy.artifactPathsRetained !== hasArtifactPath) {
+    context.addIssue({ code: 'custom', message: 'privacy.artifactPathsRetained does not match retained artifact paths' });
+  }
 });
 
 export type ExternalActionArtifactReceipt = z.infer<typeof artifactReceiptSchema>;
@@ -232,6 +243,17 @@ export interface RecordedExternalActionReceipt {
   path: string;
 }
 
+const createOptionsSchema = z.object({
+  privacyMode: z.enum(['metadata-only', 'local-sensitive']).optional(),
+  digestKey: z.union([z.string().min(1), z.instanceof(Buffer)]).optional(),
+  receiptId: z.string().regex(RECEIPT_ID).optional(),
+  createdAt: timestamp.optional(),
+}).strict();
+
+const writeOptionsSchema = z.object({
+  outputDir: boundedText.optional(),
+}).strict();
+
 function fieldDigest(key: string | Buffer, field: string, value: string): string {
   return `hmac-sha256:${createHmac('sha256', key).update(`ibr.external-action.v1\0${field}\0${value}`).digest('hex')}`;
 }
@@ -244,23 +266,40 @@ async function artifactDigest(path: string): Promise<{ sha256: string; bytes: nu
   };
 }
 
-function assertChronology(input: ExternalActionEvidenceInput): void {
+type ChronologicalEvidence = Pick<ExternalActionEvidenceInput, 'action' | 'before' | 'after'>;
+
+function chronologyIssues(input: ChronologicalEvidence): string[] {
   const startedAt = Date.parse(input.action.startedAt);
   const completedAt = Date.parse(input.action.completedAt);
   const beforeAt = Date.parse(input.before.capturedAt);
   const afterAt = Date.parse(input.after.capturedAt);
-  if (completedAt < startedAt) throw new Error('action.completedAt must be at or after action.startedAt');
-  if (beforeAt > startedAt) throw new Error('before.capturedAt must be at or before action.startedAt');
-  if (afterAt < completedAt) throw new Error('after.capturedAt must be at or after action.completedAt');
+  const issues: string[] = [];
+  if (completedAt < startedAt) issues.push('action.completedAt must be at or after action.startedAt');
+  if (beforeAt > startedAt) issues.push('before.capturedAt must be at or before action.startedAt');
+  if (afterAt < completedAt) issues.push('after.capturedAt must be at or after action.completedAt');
+  return issues;
+}
+
+function assertChronology(input: ChronologicalEvidence): void {
+  const [issue] = chronologyIssues(input);
+  if (issue) throw new Error(issue);
 }
 
 async function normalizeArtifact(
   artifact: NonNullable<ExternalActionEvidenceInput['before']['artifacts']>[number],
   retainPath: boolean,
+  location: string,
 ): Promise<ExternalActionArtifactReceipt> {
-  const measured = artifact.path ? await artifactDigest(artifact.path) : undefined;
+  let measured: Awaited<ReturnType<typeof artifactDigest>> | undefined;
+  try {
+    measured = artifact.path ? await artifactDigest(artifact.path) : undefined;
+  } catch (error) {
+    if (retainPath) throw error;
+    throw new Error(`unable to read artifact at ${location}`);
+  }
   if (artifact.sha256 && measured && artifact.sha256 !== measured.sha256) {
-    throw new Error(`artifact digest mismatch for ${basename(artifact.path as string)}`);
+    const target = retainPath ? basename(artifact.path as string) : location;
+    throw new Error(`artifact digest mismatch for ${target}`);
   }
   return {
     kind: artifact.kind,
@@ -278,12 +317,12 @@ async function normalizeObservation(
   transformed: Set<string>,
 ): Promise<ExternalActionObservationReceipt> {
   const retain = mode === 'local-sensitive';
-  if (observation.state !== undefined) transformed.add(`${field}.state`);
+  if (observation.state !== undefined && !retain) transformed.add(`${field}.state`);
   const stateDigest = observation.stateDigest ?? fieldDigest(key, 'observation.state', observation.state as string);
   const artifacts = observation.artifacts
     ? await Promise.all(observation.artifacts.map(async (artifact, index) => {
         if (artifact.path && !retain) transformed.add(`${field}.artifacts[${index}].path`);
-        return normalizeArtifact(artifact, retain);
+        return normalizeArtifact(artifact, retain, `${field}.artifacts[${index}]`);
       }))
     : undefined;
   return {
@@ -303,13 +342,7 @@ export async function createExternalActionReceipt(
 ): Promise<ExternalActionReceipt> {
   const input = ExternalActionEvidenceInputSchema.parse(rawInput);
   assertChronology(input);
-  const optionsSchema = z.object({
-    privacyMode: z.enum(['metadata-only', 'local-sensitive']).optional(),
-    digestKey: z.union([z.string().min(1), z.instanceof(Buffer)]).optional(),
-    receiptId: z.string().regex(RECEIPT_ID).optional(),
-    createdAt: timestamp.optional(),
-  }).strict();
-  const parsedOptions = optionsSchema.parse(options);
+  const parsedOptions = createOptionsSchema.parse(options);
   const mode = parsedOptions.privacyMode ?? 'metadata-only';
   const key = parsedOptions.digestKey ?? randomBytes(32);
   const transformed = new Set<string>();
@@ -393,7 +426,8 @@ export async function writeExternalActionReceipt(
   options: WriteExternalActionReceiptOptions = {},
 ): Promise<string> {
   const validated = ExternalActionReceiptSchema.parse(receipt);
-  const outputDir = options.outputDir ?? join(process.cwd(), '.ibr', 'evidence');
+  const parsedOptions = writeOptionsSchema.parse(options);
+  const outputDir = parsedOptions.outputDir ?? join(process.cwd(), '.ibr', 'evidence');
   await mkdir(outputDir, { recursive: true });
   const destination = join(outputDir, `${validated.receiptId}.json`);
   const temporary = join(outputDir, `.${validated.receiptId}.${randomUUID()}.tmp`);

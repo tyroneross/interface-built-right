@@ -37337,6 +37337,7 @@ var FIELD_DIGEST = /^hmac-sha256:[a-f0-9]{64}$/;
 var SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 var SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
 var RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
+var TRANSFORMED_FIELD = /^(surface\.(targetId|url|windowTitle)|action\.target\.label|validation\.(expectedDetail|observedDetail)|(before|after)\.state|(before|after)\.artifacts\[[0-9]\]\.path)$/;
 var boundedText = external_exports.string().min(1).max(MAX_TEXT);
 var timestamp = external_exports.string().datetime({ offset: true });
 var boundsSchema = external_exports.object({
@@ -37482,10 +37483,13 @@ var ExternalActionReceiptSchema = external_exports.object({
     mode: external_exports.enum(["metadata-only", "local-sensitive"]),
     fieldDigestAlgorithm: external_exports.literal("hmac-sha256-ephemeral-key"),
     artifactDigestAlgorithm: external_exports.literal("sha256"),
-    transformedFields: external_exports.array(external_exports.string().min(1).max(256)).max(64),
+    transformedFields: external_exports.array(external_exports.string().regex(TRANSFORMED_FIELD)).max(64),
     artifactPathsRetained: external_exports.boolean()
   }).strict()
 }).strict().superRefine((receipt, context) => {
+  for (const message of chronologyIssues(receipt)) {
+    context.addIssue({ code: "custom", message });
+  }
   const duration3 = Date.parse(receipt.action.completedAt) - Date.parse(receipt.action.startedAt);
   if (receipt.action.durationMs !== duration3) {
     context.addIssue({ code: "custom", message: "action.durationMs does not match action timestamps" });
@@ -37510,7 +37514,34 @@ var ExternalActionReceiptSchema = external_exports.object({
       context.addIssue({ code: "custom", message: "metadata-only receipt cannot retain artifact paths" });
     }
   }
+  const hasArtifactPath = [
+    ...receipt.before.artifacts ?? [],
+    ...receipt.after.artifacts ?? []
+  ].some((artifact) => artifact.path !== void 0);
+  if (receipt.privacy.artifactPathsRetained !== hasArtifactPath) {
+    context.addIssue({ code: "custom", message: "privacy.artifactPathsRetained does not match retained artifact paths" });
+  }
 });
+var createOptionsSchema = external_exports.object({
+  privacyMode: external_exports.enum(["metadata-only", "local-sensitive"]).optional(),
+  digestKey: external_exports.union([external_exports.string().min(1), external_exports.instanceof(Buffer)]).optional(),
+  receiptId: external_exports.string().regex(RECEIPT_ID).optional(),
+  createdAt: timestamp.optional()
+}).strict();
+var writeOptionsSchema = external_exports.object({
+  outputDir: boundedText.optional()
+}).strict();
+function chronologyIssues(input) {
+  const startedAt = Date.parse(input.action.startedAt);
+  const completedAt = Date.parse(input.action.completedAt);
+  const beforeAt = Date.parse(input.before.capturedAt);
+  const afterAt = Date.parse(input.after.capturedAt);
+  const issues = [];
+  if (completedAt < startedAt) issues.push("action.completedAt must be at or after action.startedAt");
+  if (beforeAt > startedAt) issues.push("before.capturedAt must be at or before action.startedAt");
+  if (afterAt < completedAt) issues.push("after.capturedAt must be at or after action.completedAt");
+  return issues;
+}
 
 // src/index.ts
 init_schemas3();
