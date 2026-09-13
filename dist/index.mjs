@@ -247,7 +247,24 @@ var init_schemas = __esm({
       // resolves inheritance from an ancestor's contenteditable, unlike a raw
       // getAttribute check). Natively interactive with no click handler of its
       // own; see summarize.ts's isLooksInteractive/buildInteractionMap.
-      isContentEditable: z.boolean().optional()
+      isContentEditable: z.boolean().optional(),
+      // Real addEventListener-backed detection (DevTools getEventListeners via
+      // CDP includeCommandLineAPI), not the static onclick/framework-prop sniff
+      // above. Added because page JS has no way to enumerate its own
+      // addEventListener listeners: a real scan reported 28 fake-interactive
+      // errors (e.g. #rail-designer, #start-btn) for buttons wired entirely with
+      // addEventListener, which detectHandlers() in extract.ts cannot see.
+      // hasOnClick is set true when either of these is true, so every existing
+      // consumer (rules, analyzeElements' NO_HANDLER audit) agrees with reality
+      // without per-consumer changes. Optional because enrichment only runs
+      // when the PageLike exposes evaluateWithCommandLineAPI (CompatPage today).
+      hasEventListener: z.boolean().optional(),
+      // A non-root ancestor (excluding document.body/documentElement/document/
+      // window) carries an activation listener that would fire for this element
+      // — event delegation. Root-level listeners are deliberately excluded: a
+      // document-level click listener (e.g. menu-dismissal) would otherwise
+      // "rescue" every dead control on the page.
+      hasDelegatedListener: z.boolean().optional()
     });
     A11yAttributesSchema = z.object({
       role: z.string().nullable(),
@@ -2076,6 +2093,32 @@ var init_runtime = __esm({
         if (result.exceptionDetails) {
           const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
           throw new Error(`Evaluation failed: ${msg}`);
+        }
+        return result.result.value;
+      }
+      /**
+       * Evaluate a JavaScript expression string in the page context with
+       * DevTools' `includeCommandLineAPI` flag set, exposing console-only
+       * helpers ($, $$, getEventListeners, etc.) to the evaluated expression.
+       *
+       * Needed for real listener detection: page JS has no way to enumerate
+       * addEventListener-registered handlers on itself (no public DOM API for
+       * it), but DevTools' `getEventListeners(node)` can — it is backed by
+       * `DOMDebugger.getEventListeners` and only reachable from an expression
+       * evaluated with this flag. A separate method (not a parameter on
+       * `evaluate()`) so the common path stays byte-for-byte unchanged and this
+       * capability is opt-in per call site.
+       */
+      async evaluateWithCommandLineAPI(expression) {
+        const result = await this.conn.send("Runtime.evaluate", {
+          expression,
+          returnByValue: true,
+          awaitPromise: true,
+          includeCommandLineAPI: true
+        }, this.sessionId);
+        if (result.exceptionDetails) {
+          const msg = result.exceptionDetails.exception?.description ?? result.exceptionDetails.text;
+          throw new Error(`Evaluation (commandLineAPI) failed: ${msg}`);
         }
         return result.result.value;
       }
@@ -4556,6 +4599,14 @@ var init_driver = __esm({
         }
         return this.runtime.evaluate(exprOrFn);
       }
+      /**
+       * Evaluate with DevTools' `includeCommandLineAPI` enabled — see
+       * RuntimeDomain.evaluateWithCommandLineAPI. Used for real listener
+       * detection (getEventListeners), not needed by ordinary callers.
+       */
+      async evaluateWithCommandLineAPI(expression) {
+        return this.runtime.evaluateWithCommandLineAPI(expression);
+      }
       // ─── DOM Queries ────────────────────────────────────────
       async querySelector(selector) {
         const doc = await this.dom.getDocument();
@@ -5084,6 +5135,16 @@ var init_compat = __esm({
           return this.driver.evaluate(fnOrExpr, ...args);
         }
         return this.driver.evaluate(fnOrExpr);
+      }
+      /**
+       * PageLike's optional command-line-API evaluate — see page-like.ts. Backed
+       * by IBR's own CDP engine (Runtime.evaluate with includeCommandLineAPI),
+       * so this is real here; other PageLike implementations (Playwright, a
+       * future WebKit driver) simply don't define this method and callers
+       * degrade to static handler detection.
+       */
+      async evaluateWithCommandLineAPI(expression) {
+        return this.driver.evaluateWithCommandLineAPI(expression);
       }
       async $(selector) {
         const nodeId = await this.driver.querySelector(selector);
@@ -8164,10 +8225,160 @@ var init_style_read = __esm({
 });
 
 // src/extract.ts
+async function enrichWithEventListeners(page, elements) {
+  const evaluateWithCommandLineAPI = page.evaluateWithCommandLineAPI?.bind(page);
+  if (!evaluateWithCommandLineAPI) return;
+  const NO_AUTHOR_HANDLER_TAGS = /* @__PURE__ */ new Set([
+    "input",
+    "select",
+    "textarea",
+    "summary",
+    "details",
+    "option",
+    "label"
+  ]);
+  const candidates = elements.filter(
+    (el) => !el.interactive.hasOnClick && !el.interactive.hasHref && !NO_AUTHOR_HANDLER_TAGS.has(el.tagName)
+  );
+  if (candidates.length === 0) return;
+  const selectors = [...new Set(candidates.map((el) => el.selector))];
+  const expression = `
+    (function () {
+      const selectors = ${JSON.stringify(selectors)};
+      const activationTypes = ${JSON.stringify(ACTIVATION_EVENT_TYPES)};
+      const hasActivationListener = (node) => {
+        let listeners;
+        try {
+          listeners = getEventListeners(node);
+        } catch (e) {
+          return false;
+        }
+        if (!listeners) return false;
+        return activationTypes.some((type) => Array.isArray(listeners[type]) && listeners[type].length > 0);
+      };
+      const hasClickListener = (node) => {
+        let listeners;
+        try {
+          listeners = getEventListeners(node);
+        } catch (e) {
+          return false;
+        }
+        return !!(listeners && Array.isArray(listeners.click) && listeners.click.length > 0);
+      };
+      // Ancestor chains overlap heavily across candidates (siblings under the
+      // same list/table share most of their parent chain), and
+      // getEventListeners() is a real CDP round-trip cost, not a cheap
+      // in-page read -- memoize per node for this one evaluate() call.
+      const clickListenerCache = new Map();
+      const hasClickListenerCached = (node) => {
+        if (clickListenerCache.has(node)) return clickListenerCache.get(node);
+        const result = hasClickListener(node);
+        clickListenerCache.set(node, result);
+        return result;
+      };
+      // React stores an element's fiber props on an own key prefixed
+      // __reactProps$ (the suffix is a per-render random id). Returns that
+      // props object, or undefined if the node carries no such key --used to
+      // credit delegation from an ancestor whose props hold a function
+      // onClick/onSubmit, since React itself never attaches a native DOM
+      // listener for those (see file header comment above).
+      const reactPropsOf = (node) => {
+        const keys = Object.keys(node);
+        const key = keys.find((k) => k.startsWith('__reactProps$'));
+        return key ? node[key] : undefined;
+      };
+      const hasReactPropsOnClick = (node) => {
+        const props = reactPropsOf(node);
+        return !!(props && typeof props.onClick === 'function');
+      };
+      const hasReactPropsOnSubmit = (node) => {
+        const props = reactPropsOf(node);
+        return !!(props && typeof props.onSubmit === 'function');
+      };
+      // The framework MOUNT POINT (__reactContainer$* is React's own marker
+      // for the container element it was told to render into;
+      // _reactRootContainer is the same for older React;  __vue_app__ is
+      // Vue's). React 17+ attaches its one delegated click listener here --
+      // below document.body, so the ancestor walk reaches it -- and that
+      // listener is React's internal dispatch plumbing, not an
+      // author-written delegation pattern for whatever happens to render
+      // under it. The walk must stop at (and never credit) this node.
+      const isFrameworkRoot = (node) => {
+        const keys = Object.keys(node);
+        return keys.some((k) => k.startsWith('__reactContainer$')) ||
+          Object.prototype.hasOwnProperty.call(node, '_reactRootContainer') ||
+          Object.prototype.hasOwnProperty.call(node, '__vue_app__');
+      };
+      const hasSubmitListener = (node) => {
+        let listeners;
+        try {
+          listeners = getEventListeners(node);
+        } catch (e) {
+          return false;
+        }
+        return !!(listeners && Array.isArray(listeners.submit) && listeners.submit.length > 0);
+      };
+      const isSubmitButton = (el) => {
+        const tag = el.tagName;
+        const type = (el.getAttribute('type') || '').toLowerCase();
+        if (tag === 'BUTTON') return type === '' || type === 'submit';
+        if (tag === 'INPUT') return type === 'submit' || type === 'image';
+        return false;
+      };
+
+      const results = {};
+      for (const selector of selectors) {
+        let el;
+        try {
+          el = document.querySelector(selector);
+        } catch (e) {
+          continue;
+        }
+        if (!el) continue;
+
+        const hasEventListener = hasActivationListener(el);
+
+        let hasDelegatedListener = false;
+        let ancestor = el.parentElement;
+        while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
+          if (isFrameworkRoot(ancestor)) break;
+          if (hasClickListenerCached(ancestor) || hasReactPropsOnClick(ancestor)) {
+            hasDelegatedListener = true;
+            break;
+          }
+          ancestor = ancestor.parentElement;
+        }
+
+        if (!hasDelegatedListener && isSubmitButton(el)) {
+          const form = el.closest ? el.closest('form') : null;
+          if (form && (hasSubmitListener(form) || hasReactPropsOnSubmit(form))) hasDelegatedListener = true;
+        }
+
+        results[selector] = { hasEventListener, hasDelegatedListener };
+      }
+      return results;
+    })()
+  `;
+  let raw;
+  try {
+    raw = await evaluateWithCommandLineAPI(expression);
+  } catch {
+    return;
+  }
+  if (!raw || typeof raw !== "object") return;
+  const results = raw;
+  for (const el of candidates) {
+    const result = results[el.selector];
+    if (!result) continue;
+    if (result.hasEventListener) el.interactive.hasEventListener = true;
+    if (result.hasDelegatedListener) el.interactive.hasDelegatedListener = true;
+    if (result.hasEventListener || result.hasDelegatedListener) el.interactive.hasOnClick = true;
+  }
+}
 async function extractInteractiveElements(page) {
-  return page.evaluate(({ selectors, styleKeys }) => {
+  const elements = await page.evaluate(({ selectors, styleKeys }) => {
     const seen = /* @__PURE__ */ new Set();
-    const elements = [];
+    const elements2 = [];
     const captureStyles = (computed) => {
       const out = {};
       for (const key of styleKeys) {
@@ -8373,7 +8584,7 @@ async function extractInteractiveElements(page) {
           const handlers = detectHandlers(htmlEl);
           const href = htmlEl.getAttribute("href");
           const hasValidHref = href !== null && href !== "#" && href !== "" && !href.startsWith("javascript:");
-          elements.push({
+          elements2.push({
             selector: generateSelector(htmlEl),
             tagName: htmlEl.tagName.toLowerCase(),
             id: htmlEl.id || void 0,
@@ -8443,8 +8654,10 @@ async function extractInteractiveElements(page) {
       } catch {
       }
     }
-    return elements;
+    return elements2;
   }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
+  await enrichWithEventListeners(page, elements);
+  return elements;
 }
 function analyzeElements(elements, isMobile = false) {
   const issues = [];
@@ -8826,7 +9039,7 @@ async function extractTextCensus(page) {
     return census;
   });
 }
-var INTERACTIVE_SELECTORS, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
+var INTERACTIVE_SELECTORS, ACTIVATION_EVENT_TYPES, CONTENT_SELECTORS, INLINE_TEXT_SELECTORS, CONTENT_ELEMENT_TAGS, INLINE_TEXT_TAGS;
 var init_extract2 = __esm({
   "src/extract.ts"() {
     init_driver();
@@ -8877,6 +9090,17 @@ var init_extract2 = __esm({
       "[aria-current]",
       "[onclick]",
       '[tabindex]:not([tabindex="-1"])'
+    ];
+    ACTIVATION_EVENT_TYPES = [
+      "click",
+      "mousedown",
+      "mouseup",
+      "pointerdown",
+      "pointerup",
+      "touchstart",
+      "touchend",
+      "keydown",
+      "keyup"
     ];
     CONTENT_SELECTORS = [
       "h1",
@@ -10973,9 +11197,26 @@ var init_hierarchy = __esm({
 });
 
 // src/sensors/interaction-states.ts
+function splitTopLevelCommas(selectorText) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of selectorText) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (ch === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  parts.push(current);
+  return parts.map((p) => p.trim()).filter(Boolean);
+}
 function parseStateSelectors(selectorText) {
   const out = [];
-  const parts = selectorText.split(",").map((p) => p.trim());
+  const parts = splitTopLevelCommas(selectorText);
   for (const part of parts) {
     STATE_RE.lastIndex = 0;
     const matches = [];
@@ -10993,6 +11234,35 @@ function parseStateSelectors(selectorText) {
   }
   return out;
 }
+function isFocusRemovalOnly(declarations) {
+  const props = Object.keys(declarations);
+  if (props.length === 0) return true;
+  const norm = (v) => (v ?? "").trim().toLowerCase();
+  const outlineColor = norm(declarations["outline-color"]);
+  const outlineShorthand = norm(declarations["outline"]);
+  const transparentOutline = outlineColor === "transparent" || outlineShorthand !== "" && outlineShorthand.includes("transparent");
+  return props.every((prop) => {
+    const value = norm(declarations[prop]);
+    switch (prop) {
+      case "outline":
+      case "outline-style":
+        return value === "none" || value === "initial" || transparentOutline;
+      case "outline-width":
+        return value === "0" || value === "0px" || value === "initial" || transparentOutline;
+      case "outline-color":
+        return value === "transparent" || value === "initial";
+      case "outline-offset":
+        return true;
+      case "box-shadow":
+        return value === "none";
+      case "cursor":
+      case "transition":
+        return true;
+      default:
+        return prop.startsWith("transition-");
+    }
+  });
+}
 function isHoverCapableMedia(conditionText) {
   return /\(\s*hover\s*:\s*hover\s*\)/i.test(conditionText);
 }
@@ -11008,22 +11278,10 @@ function walkRules2(rules, visit, ctx = { insideHoverMedia: false }) {
     }
   }
 }
-function interactiveBaseSelectors(ctx) {
-  const out = /* @__PURE__ */ new Set();
-  for (const el of ctx.elements) {
-    const tag = el.tagName.toLowerCase();
-    const role = el.a11y?.role ?? "";
-    const isInteractive2 = tag === "button" || tag === "a" || role === "button" || role === "link" || Boolean(el.interactive?.hasOnClick) || Boolean(el.interactive?.hasHref);
-    if (!isInteractive2) continue;
-    out.add(el.selector);
-    out.add(tag);
-    if (typeof el.className === "string") {
-      for (const cls of el.className.split(/\s+/)) {
-        if (cls && !cls.includes(":")) out.add(`.${cls}`);
-      }
-    }
-  }
-  return out;
+function isInteractiveElement(el) {
+  const tag = el.tagName.toLowerCase();
+  const role = el.a11y?.role ?? "";
+  return tag === "button" || tag === "a" || role === "button" || role === "link" || Boolean(el.interactive?.hasOnClick) || Boolean(el.interactive?.hasHref);
 }
 function collectInteractionStates(ctx) {
   const rules = ctx.cssRules ?? [];
@@ -11031,8 +11289,11 @@ function collectInteractionStates(ctx) {
     return { states: [], findings: [] };
   }
   const states = [];
+  const focusCoveredSelectors = /* @__PURE__ */ new Set();
+  const hasFocus = /* @__PURE__ */ new Map();
   walkRules2(rules, (style, walkCtx) => {
     const parsed = parseStateSelectors(style.selector);
+    const removalOnly = isFocusRemovalOnly(style.declarations);
     for (const { base, state } of parsed) {
       const entry = {
         selector: base,
@@ -11041,21 +11302,26 @@ function collectInteractionStates(ctx) {
         ...walkCtx.insideHoverMedia ? { conditional_hover: true } : {}
       };
       states.push(entry);
+      if ((state === "focus" || state === "focus-visible") && !removalOnly) {
+        hasFocus.set(base, true);
+      }
+    }
+    if (style.focusMatches && !removalOnly) {
+      for (const sel of style.focusMatches) focusCoveredSelectors.add(sel);
     }
   });
-  const interactiveBases = interactiveBaseSelectors(ctx);
-  const hasHover = /* @__PURE__ */ new Map();
-  const hasFocus = /* @__PURE__ */ new Map();
-  for (const s of states) {
-    if (s.state === "hover") hasHover.set(s.selector, true);
-    if (s.state === "focus" || s.state === "focus-visible") hasFocus.set(s.selector, true);
-  }
   const findings = [];
-  for (const sel of /* @__PURE__ */ new Set([...hasHover.keys(), ...interactiveBases])) {
-    if (!interactiveBases.has(sel)) continue;
-    if (!hasFocus.get(sel)) {
-      findings.push({ selector: sel, missing: "focus_indicator" });
-    }
+  const seen = /* @__PURE__ */ new Set();
+  for (const el of ctx.elements) {
+    if (!isInteractiveElement(el)) continue;
+    if (seen.has(el.selector)) continue;
+    const tag = el.tagName.toLowerCase();
+    const classes = typeof el.className === "string" ? el.className.split(/\s+/).filter((c) => c && !c.includes(":")) : [];
+    const legacyCovered = hasFocus.get(el.selector) === true || hasFocus.get(tag) === true || classes.some((c) => hasFocus.get(`.${c}`) === true);
+    const structurallyCovered = focusCoveredSelectors.has(el.selector);
+    if (legacyCovered || structurallyCovered) continue;
+    seen.add(el.selector);
+    findings.push({ selector: el.selector, missing: "focus_indicator" });
   }
   return { states, findings };
 }
@@ -11206,17 +11472,106 @@ async function extractCssRulesAndMeta(page) {
         const prop = style.item(i);
         if (!prop) continue;
         const value = style.getPropertyValue(prop);
-        if (value) out[prop] = value.trim();
+        if (value) {
+          out[prop] = value.trim();
+          continue;
+        }
+        const parts = prop.split("-");
+        if (parts.length >= 3) {
+          const dropMiddle = `${parts[0]}-${parts[parts.length - 1]}`;
+          if (!(dropMiddle in out)) {
+            const dropMiddleValue = style.getPropertyValue(dropMiddle);
+            if (dropMiddleValue) {
+              out[dropMiddle] = dropMiddleValue.trim();
+              continue;
+            }
+          }
+        }
+        for (let cut = parts.length - 1; cut >= 1; cut--) {
+          const candidate = parts.slice(0, cut).join("-");
+          if (candidate in out) break;
+          const candidateValue = style.getPropertyValue(candidate);
+          if (candidateValue) {
+            out[candidate] = candidateValue.trim();
+            break;
+          }
+        }
       }
       return out;
     }
+    const STATE_RE2 = /:(focus-visible|focus-within|hover|focus|active|disabled)\b/g;
+    const FOCUS_PSEUDO_RE = /:focus-visible\b|:focus(?!-within)\b/;
+    const EMPTY_FUNCTIONAL_PSEUDO_RE = /:(not|is|where|has)\(\s*\)/g;
+    function splitTopLevelCommas2(selectorText) {
+      const parts = [];
+      let depth = 0;
+      let current = "";
+      for (const ch of selectorText) {
+        if (ch === "(") depth++;
+        else if (ch === ")") depth = Math.max(0, depth - 1);
+        if (ch === "," && depth === 0) {
+          parts.push(current);
+          current = "";
+        } else {
+          current += ch;
+        }
+      }
+      parts.push(current);
+      return parts.map((p) => p.trim()).filter(Boolean);
+    }
+    const structuralSelectorCache = /* @__PURE__ */ new Map();
+    function cachedStructuralSelector(el) {
+      const cached = structuralSelectorCache.get(el);
+      if (cached !== void 0) return cached;
+      const built = buildStructuralSelector(el);
+      structuralSelectorCache.set(el, built);
+      return built;
+    }
+    function stripStatePseudos(part) {
+      let stripped = part.replace(STATE_RE2, "");
+      stripped = stripped.replace(EMPTY_FUNCTIONAL_PSEUDO_RE, "");
+      stripped = stripped.trim();
+      if (/[>+~]\s*$/.test(stripped)) stripped += " *";
+      return stripped || "*";
+    }
+    function computeFocusMatches(selectorText) {
+      const matched = /* @__PURE__ */ new Set();
+      const parts = splitTopLevelCommas2(selectorText);
+      for (const part of parts) {
+        if (!FOCUS_PSEUDO_RE.test(part)) continue;
+        const stripped = stripStatePseudos(part);
+        let found;
+        try {
+          found = document.querySelectorAll(stripped);
+        } catch {
+          STATE_RE2.lastIndex = 0;
+          const m = STATE_RE2.exec(part);
+          if (!m) continue;
+          const base = part.slice(0, m.index).trim() || "*";
+          try {
+            found = document.querySelectorAll(base);
+          } catch {
+            continue;
+          }
+        }
+        for (let i = 0; i < found.length; i++) {
+          if (matched.size >= 1e3) break;
+          matched.add(cachedStructuralSelector(found[i]));
+        }
+        if (matched.size >= 1e3) break;
+      }
+      return Array.from(matched);
+    }
     function convertRule(rule, sourceUrl) {
       if (rule instanceof CSSStyleRule) {
+        const selector = rule.selectorText;
+        const focusMatches = FOCUS_PSEUDO_RE.test(selector) ? computeFocusMatches(selector) : void 0;
         return {
           kind: "style",
-          selector: rule.selectorText,
+          selector,
           declarations: declarationsFromStyle(rule.style),
-          ...sourceUrl ? { sourceUrl } : {}
+          ...sourceUrl ? { sourceUrl } : {},
+          ...focusMatches ? { focusMatches } : {}
         };
       }
       if (rule instanceof CSSMediaRule) {
@@ -11518,7 +11873,7 @@ var init_wcag_contrast = __esm({
 });
 
 // src/rules/touch-targets.ts
-function isInteractiveElement(element) {
+function isInteractiveElement2(element) {
   if (INTERACTIVE_TAGS.has(element.tagName.toLowerCase())) return true;
   const role = element.a11y?.role;
   if (role && INTERACTIVE_ROLES.has(role)) return true;
@@ -11538,7 +11893,7 @@ function minTargetSize(context, options) {
   return isMobile ? options?.mobileMinSize ?? 44 : options?.desktopMinSize ?? 24;
 }
 function isGradableTarget(element) {
-  return isInteractiveElement(element) && !isNonVisibleOrZeroArea(element);
+  return isInteractiveElement2(element) && !isNonVisibleOrZeroArea(element);
 }
 function tallyTouchTargetExemptions(elements, context, options) {
   return tallyTargetExemptions(elements.filter(isGradableTarget), minTargetSize(context, options));
@@ -11574,7 +11929,7 @@ var init_touch_targets = __esm({
         description: "Interactive elements must meet minimum touch target size (44x44px mobile, 24x24px desktop)",
         defaultSeverity: "warn",
         check: (element, context, options) => {
-          if (!isInteractiveElement(element)) return null;
+          if (!isInteractiveElement2(element)) return null;
           const isMobile = context.isMobile || context.viewportWidth < 768;
           const minSize = minTargetSize(context, options);
           if (isNonVisibleOrZeroArea(element)) return null;
@@ -11679,7 +12034,14 @@ function looksInteractive(element) {
   return false;
 }
 function hasAnyHandler(element) {
-  return !!(element.interactive.hasOnClick || element.interactive.hasHref || element.interactive.hasReactHandler || element.interactive.hasVueHandler || element.interactive.hasAngularHandler);
+  return !!(element.interactive.hasOnClick || element.interactive.hasHref || element.interactive.hasReactHandler || element.interactive.hasVueHandler || element.interactive.hasAngularHandler || // hasOnClick already folds these in (see extractInteractiveElements'
+  // enrichWithEventListeners), so these two are redundant with the first
+  // check today. Listed explicitly anyway: hasOnClick is a derived/mutable
+  // field and a future refactor that stops folding listener detection into
+  // it should not silently regress this rule back to the fake-interactive
+  // false positives these fields exist to fix (addEventListener-wired
+  // buttons like #rail-designer, #start-btn reported as having no handler).
+  element.interactive.hasEventListener || element.interactive.hasDelegatedListener);
 }
 function hasDisabledVisual(element) {
   const style = element.computedStyles;
@@ -11737,7 +12099,7 @@ var init_handler_integrity = __esm({
             message: `"${label.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
             element: element.selector,
             bounds: element.bounds,
-            fix: "Add an onClick handler, href, or remove interactive appearance"
+            fix: "Add a click handler (onClick, addEventListener, or a delegated ancestor listener), an href, or remove interactive appearance"
           };
         }
       },

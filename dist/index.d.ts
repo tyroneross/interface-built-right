@@ -60,6 +60,15 @@ interface PageLike {
         timeout?: number;
     }): Promise<any>;
     evaluate(fn: any, ...args: any[]): Promise<any>;
+    /**
+     * Optional: evaluate an expression string with DevTools' console-only APIs
+     * (getEventListeners, $, $$) exposed — CDP's `includeCommandLineAPI` flag.
+     * Only CompatPage (CDP engine) implements this; Playwright's Page and any
+     * other PageLike (e.g. a future Safari/WebKit driver) do not expose an
+     * equivalent, so callers must feature-detect with `typeof page.evaluateWithCommandLineAPI
+     * === 'function'` and degrade gracefully when it is absent.
+     */
+    evaluateWithCommandLineAPI?(expression: string): Promise<unknown>;
     $(selector: string): Promise<ElementHandleLike | null>;
     $$(selector: string): Promise<ElementHandleLike[]>;
     screenshot(options?: {
@@ -1582,6 +1591,8 @@ declare const InteractiveStateSchema: z.ZodObject<{
     hasVueHandler: z.ZodOptional<z.ZodBoolean>;
     hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
     isContentEditable: z.ZodOptional<z.ZodBoolean>;
+    hasEventListener: z.ZodOptional<z.ZodBoolean>;
+    hasDelegatedListener: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 /**
  * Accessibility attributes
@@ -1659,6 +1670,8 @@ declare const EnhancedElementSchema: z.ZodObject<{
         hasVueHandler: z.ZodOptional<z.ZodBoolean>;
         hasAngularHandler: z.ZodOptional<z.ZodBoolean>;
         isContentEditable: z.ZodOptional<z.ZodBoolean>;
+        hasEventListener: z.ZodOptional<z.ZodBoolean>;
+        hasDelegatedListener: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>;
     inForm: z.ZodOptional<z.ZodBoolean>;
     buttonType: z.ZodOptional<z.ZodNullable<z.ZodString>>;
@@ -3081,6 +3094,20 @@ declare class RuntimeDomain {
      */
     evaluate(expression: string): Promise<unknown>;
     /**
+     * Evaluate a JavaScript expression string in the page context with
+     * DevTools' `includeCommandLineAPI` flag set, exposing console-only
+     * helpers ($, $$, getEventListeners, etc.) to the evaluated expression.
+     *
+     * Needed for real listener detection: page JS has no way to enumerate
+     * addEventListener-registered handlers on itself (no public DOM API for
+     * it), but DevTools' `getEventListeners(node)` can — it is backed by
+     * `DOMDebugger.getEventListeners` and only reachable from an expression
+     * evaluated with this flag. A separate method (not a parameter on
+     * `evaluate()`) so the common path stays byte-for-byte unchanged and this
+     * capability is opt-in per call site.
+     */
+    evaluateWithCommandLineAPI(expression: string): Promise<unknown>;
+    /**
      * Call a function with structured arguments in the page context.
      * This is the CDP equivalent of Playwright's page.evaluate(fn, ...args).
      *
@@ -4056,6 +4083,12 @@ declare class EngineDriver implements BrowserDriver {
      * Equivalent to Playwright's page.evaluate(fn, ...args).
      */
     evaluate(fn: string, ...args: unknown[]): Promise<unknown>;
+    /**
+     * Evaluate with DevTools' `includeCommandLineAPI` enabled — see
+     * RuntimeDomain.evaluateWithCommandLineAPI. Used for real listener
+     * detection (getEventListeners), not needed by ordinary callers.
+     */
+    evaluateWithCommandLineAPI(expression: string): Promise<unknown>;
     querySelector(selector: string): Promise<number | null>;
     querySelectorAll(selector: string): Promise<number[]>;
     getOuterHTML(nodeId: number): Promise<string>;
@@ -4253,6 +4286,14 @@ declare class CompatPage {
         timeout?: number;
     }): Promise<void>;
     evaluate<T>(fnOrExpr: string | ((...args: unknown[]) => T), ...args: unknown[]): Promise<T>;
+    /**
+     * PageLike's optional command-line-API evaluate — see page-like.ts. Backed
+     * by IBR's own CDP engine (Runtime.evaluate with includeCommandLineAPI),
+     * so this is real here; other PageLike implementations (Playwright, a
+     * future WebKit driver) simply don't define this method and callers
+     * degrade to static handler detection.
+     */
+    evaluateWithCommandLineAPI(expression: string): Promise<unknown>;
     $(selector: string): Promise<CompatElementHandle | null>;
     $$(selector: string): Promise<CompatElementHandle[]>;
     screenshot(options?: {
