@@ -10,7 +10,7 @@ IBR remains the observer and verifier. The host computer-use system remains the 
 
 Low-entropy UI text must still be treated as sensitive before it enters a host log. IBR's default receipt prevents plaintext retention in the receipt; it does not control logging performed by the caller before ingestion.
 
-`local-sensitive` is explicit. It retains only the schema-defined descriptive fields and local artifact paths. Artifact contents still receive integrity digests; descriptive fields remain raw instead of being duplicated as digests. Use this mode only when local review needs the raw evidence and the consuming project's retention policy permits it.
+`local-sensitive` is explicit. It retains only the schema-defined descriptive fields and local artifact paths. Artifact contents still receive integrity digests. Target, window, action-label, and validation details remain raw instead of being duplicated as HMAC digests; observation state is retained alongside its comparison digest. Use this mode only when local review needs the raw evidence and the consuming project's retention policy permits it.
 
 Both modes reject unknown keys instead of silently storing an opaque host payload. A receipt contains no screenshot bytes, AX tree, DOM dump, model prompt, credential, or hidden model state.
 
