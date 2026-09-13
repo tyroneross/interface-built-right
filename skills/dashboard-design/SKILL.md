@@ -129,6 +129,26 @@ A stale snapshot that looks live is the failure this prevents.
 chart services. Inline everything; embed images as data URIs. An LLM handing a
 dashboard to someone else cannot assume their network.
 
+**DB601 — Ship a document, not a fragment.** The canonical file carries its own
+`<!doctype html>`, `<html>`, `<head>` and `<body>`. Authoring against a host that
+supplies that wrapper at publish time produces a file that renders inside that host
+and nowhere else — saved, mailed, or opened from `file://` it is not a valid
+document, and the hosted copy quietly becomes the only copy. Write the standalone
+file first and derive the hosted fragment from it, never the reverse.
+
+**DB602 — An agent must read it without a browser.** Embed the dataset as JSON in a
+`<script type="application/json">` fenced by a `NAME-BEGIN` / `NAME-END` comment
+pair, and put a header comment on the file saying how to parse it. A reader asked to
+recover the numbers otherwise has to scrape rendered DOM, which breaks on any layout
+change and is impossible without a browser. Agents are half the audience for a
+dashboard; a page only a human can read is half a deliverable.
+
+**DB603 — One unambiguous payload.** State the last-match rule beside the parsing
+example, or name the documentation's markers differently from the payload's. The
+header comment that explains the fence almost always repeats the marker names, and a
+first-match extractor then returns the documentation instead of the data — silently,
+as prose that parses as nothing.
+
 ## 5 · Visual and accessible floor
 
 Load `data-visualization` before adding any chart — the chart-worthiness gate applies:
@@ -164,9 +184,9 @@ though the page had passed.
 
 ### What is graded, and what is not
 
-Eight of these rules are decidable from the file alone, and only those are graded:
+Eleven of these rules are decidable from the file alone, and only those are graded:
 **DB402**, **DB403**, **DB401a**, **DB401b**, **DB501**, **DB502**, **DB503**,
-**DB507**. `dashboard_lint.py rules --json` is the single source of truth for their
+**DB507**, **DB601**, **DB602**, **DB603**. `dashboard_lint.py rules --json` is the single source of truth for their
 IDs and severities; cite IDs here rather than restating the rule, or the two copies
 drift.
 

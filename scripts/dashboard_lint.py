@@ -134,6 +134,27 @@ RULES: tuple[Rule, ...] = (
        "on whatever is behind it.",
        f"Raise min-height/min-width to {POINTER_FLOOR_PX}px, and to "
        f"{TOUCH_FLOOR_PX}px inside coarse-pointer and narrow-viewport media queries."),
+    _r("DB601", "not-a-standalone-document", "error",
+       "The file has no <!doctype>/<html>/<head>/<body>, so it is a fragment written "
+       "for a host that supplies the wrapper at publish time. It renders inside that "
+       "host and nowhere else: saved, mailed, or opened from file:// it is not a "
+       "valid document, and the hosted copy becomes the only copy.",
+       "Author the standalone document as the canonical file and derive the hosted "
+       "fragment from it, never the other way round."),
+    _r("DB602", "no-machine-readable-payload", "warn",
+       "An agent asked to read this page has to scrape rendered DOM to recover the "
+       "numbers behind it, which breaks on any layout change and is impossible "
+       "without a browser. A dashboard that only a human can read is half a "
+       "deliverable when agents are the other half of the audience.",
+       "Embed the dataset as JSON in a <script type=\"application/json\"> fenced by "
+       "a BEGIN/END comment pair, and state in a header comment how to parse it.",
+       heuristic=True),
+    _r("DB603", "ambiguous-payload-extraction", "warn",
+       "The payload fence appears more than once — usually because the header comment "
+       "documenting it repeats the marker names. A first-match extractor then reads "
+       "the documentation instead of the data and silently returns prose.",
+       "State the last-match rule beside the example, or give the documentation "
+       "different marker names than the payload."),
     _r("DB507", "fixed-width-overflow", "error",
        f"An explicit width wider than {NARROW_VIEWPORT_PX}px forces a horizontal "
        "scrollbar on the narrowest phone in common use, and a dashboard read sideways "
@@ -657,7 +678,80 @@ def check_overflow(doc: AL.Document) -> list[Finding]:
 # Driver
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# DB601-DB603 — the file stands alone, and an agent can read it without a browser
+# ---------------------------------------------------------------------------
+
+PAYLOAD_FENCE_RE = re.compile(
+    r"(?is)<!--\s*([A-Z][A-Z0-9_-]*?)-BEGIN\s*-->(.*?)<!--\s*\1-END\s*-->")
+JSON_SCRIPT_RE = re.compile(
+    r"""(?is)<script[^>]*type\s*=\s*["']application/(?:ld\+)?json["'][^>]*>(.*?)</script>""")
+LAST_MATCH_RE = re.compile(r"(?i)\blast\s+match\b")
+
+
+def check_standalone_document(doc: AL.Document) -> list[Finding]:
+    """DB601 — a fragment authored for a host wrapper is not a file."""
+    lowered = doc.source.lower()
+    missing = [t for t in ("<html", "<head", "<body") if t not in lowered]
+    if doc.has_doctype and not missing:
+        return []
+    absent = (["<!doctype html>"] if not doc.has_doctype else []) + [m + ">" for m in missing]
+    return [_f(doc, "DB601", 1,
+               "missing " + ", ".join(absent) + " — this is a host fragment, not a "
+               "document that opens on its own",
+               "found none of the document wrapper a browser needs from file://")]
+
+
+def _payload_blocks(doc: AL.Document) -> list[tuple[str, str]]:
+    return [(m.group(1), m.group(2)) for m in PAYLOAD_FENCE_RE.finditer(doc.source)]
+
+
+def check_machine_readable_payload(doc: AL.Document) -> list[Finding]:
+    """DB602/DB603 — the data an agent needs is in the file, and unambiguously so."""
+    out: list[Finding] = []
+    blocks = _payload_blocks(doc)
+    parsed_any = False
+    for _, body in blocks:
+        chunk = body.strip()
+        inner = JSON_SCRIPT_RE.search(chunk)
+        if inner:
+            chunk = inner.group(1).strip()
+        if not chunk:
+            continue
+        try:
+            if json.loads(chunk[chunk.index("{"):chunk.rindex("}") + 1]):
+                parsed_any = True
+        except (ValueError, json.JSONDecodeError):
+            continue
+    if not parsed_any:
+        for m in JSON_SCRIPT_RE.finditer(doc.source):
+            try:
+                if json.loads(m.group(1).strip()):
+                    parsed_any = True
+                    break
+            except (ValueError, json.JSONDecodeError):
+                continue
+    if not parsed_any:
+        body_line = next((e.line for e in doc.elements if e.tag == "body"), 1)
+        out.append(_f(doc, "DB602", body_line,
+                      "no embedded JSON payload — an agent must scrape rendered DOM "
+                      "to read this page",
+                      "looked for a BEGIN/END comment fence and for "
+                      '<script type="application/json">'))
+    names = [n for n, _ in blocks]
+    for name in sorted(set(n for n in names if names.count(n) > 1)):
+        if not LAST_MATCH_RE.search(doc.source):
+            line = doc.source[:doc.source.find(name)].count("\n") + 1
+            out.append(_f(doc, "DB603", line,
+                          f"{names.count(name)} '{name}' fences and no last-match rule "
+                          "stated — a first-match extractor reads the documentation",
+                          f"{name}-BEGIN appears {names.count(name)} times"))
+    return out
+
+
 CHECKS = (
+    check_standalone_document,
+    check_machine_readable_payload,
     check_freshness,
     check_external_requests,
     check_data_binding,

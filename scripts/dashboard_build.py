@@ -333,6 +333,20 @@ def render(spec: dict[str, Any]) -> str:
         body.append("  <script>")
         body.append(BINDING_JS.format(src_json=json.dumps(data_src)).rstrip())
         body.append("  </script>")
+    # DB602/DB603: the page carries its own data so an agent reads it as text
+    # instead of scraping rendered DOM. The fence name differs from any example
+    # in prose, and the header comment states the last-match rule.
+    # A literal "</script>" anywhere in the spec would close the tag early and let
+    # the rest of the value run as markup. Escaping the three characters that can
+    # start a tag keeps the JSON valid — parsers decode \u003c — and makes the
+    # breakout unrepresentable rather than merely unlikely.
+    payload = (json.dumps(spec, indent=1, ensure_ascii=False)
+               .replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026"))
+    body.append("<!--DASHBOARD-DATA-BEGIN-->")
+    body.append('<script type="application/json" id="dashboard-data">')
+    body.append(payload)
+    body.append("</script>")
+    body.append("<!--DASHBOARD-DATA-END-->")
     body.append("</body>")
     body.append("</html>")
 

@@ -65,6 +65,17 @@ class Scaffold(unittest.TestCase):
         self.assertIn("Snapshot as of", page)
         self.assertIn("<time datetime=", page)
 
+    def test_embedded_payload_cannot_break_out_of_its_script_tag(self):
+        # regression 2026-09-12: the DB602 payload embedded raw JSON, so a
+        # "</script>" in any spec value closed the tag and ran as markup.
+        page = B.render(B.new_spec("queue", "Ops </script><img src=x onerror=alert(1)>"))
+        self.assertNotIn("</script><img", page)
+        raw = re.findall(r"DASHBOARD-DATA-BEGIN-->(.*?)<!--DASHBOARD-DATA-END",
+                         page, re.S)[-1]
+        payload = json.loads(raw[raw.index("{"):raw.rindex("}") + 1])
+        self.assertEqual("Ops </script><img src=x onerror=alert(1)>", payload["title"],
+                         "escaping must survive a round trip, not mangle the value")
+
     def test_content_is_escaped(self):
         spec = B.new_spec("queue", 'Ops <script>alert(1)</script>')
         page = B.render(spec)

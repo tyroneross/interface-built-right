@@ -76,6 +76,21 @@ def _insert_head(page: str, markup: str) -> str:
 # Each mutation breaks exactly one rule. Keep them minimal: the smaller the edit,
 # the more precisely a cross-fire implicates the rule under test.
 MUTATIONS: dict[str, callable] = {
+    # DB601 — strip the document wrapper, leaving the fragment a host would supply.
+    "DB601": lambda p: re.sub(r"(?is)<!doctype html>|</?html[^>]*>|</?head[^>]*>|</?body[^>]*>",
+                              "", p),
+
+    # DB602 — remove the embedded payload, leaving only rendered DOM to scrape.
+    "DB602": lambda p: re.sub(
+        r"(?is)<!--DASHBOARD-DATA-BEGIN-->.*?<!--DASHBOARD-DATA-END-->", "", p),
+
+    # DB603 — a second fence of the same name ahead of the payload, the shape a
+    # header comment documenting the markers produces.
+    "DB603": lambda p: p.replace(
+        "<!--DASHBOARD-DATA-BEGIN-->",
+        "<!--DASHBOARD-DATA-BEGIN--> example <!--DASHBOARD-DATA-END-->\n"
+        "<!--DASHBOARD-DATA-BEGIN-->", 1),
+
     # DB402 — strip the only thing that dates the page.
     "DB402": lambda p: re.sub(r'\s*<p class="as-of">.*?</p>', "", p, flags=re.DOTALL),
 
