@@ -51,7 +51,16 @@ function hasAnyHandler(element: EnhancedElement): boolean {
     element.interactive.hasHref ||
     element.interactive.hasReactHandler ||
     element.interactive.hasVueHandler ||
-    element.interactive.hasAngularHandler
+    element.interactive.hasAngularHandler ||
+    // hasOnClick already folds these in (see extractInteractiveElements'
+    // enrichWithEventListeners), so these two are redundant with the first
+    // check today. Listed explicitly anyway: hasOnClick is a derived/mutable
+    // field and a future refactor that stops folding listener detection into
+    // it should not silently regress this rule back to the fake-interactive
+    // false positives these fields exist to fix (addEventListener-wired
+    // buttons like #rail-designer, #start-btn reported as having no handler).
+    element.interactive.hasEventListener ||
+    element.interactive.hasDelegatedListener
   );
 }
 
@@ -109,7 +118,7 @@ export const handlerIntegrityRules: Rule[] = [
         message: `"${label.slice(0, 40)}" looks interactive (role/tag/cursor) but has no handler`,
         element: element.selector,
         bounds: element.bounds,
-        fix: 'Add an onClick handler, href, or remove interactive appearance',
+        fix: 'Add a click handler (onClick, addEventListener, or a delegated ancestor listener), an href, or remove interactive appearance',
       };
     },
   },

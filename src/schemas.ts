@@ -311,6 +311,23 @@ export const InteractiveStateSchema = z.object({
   // getAttribute check). Natively interactive with no click handler of its
   // own; see summarize.ts's isLooksInteractive/buildInteractionMap.
   isContentEditable: z.boolean().optional(),
+  // Real addEventListener-backed detection (DevTools getEventListeners via
+  // CDP includeCommandLineAPI), not the static onclick/framework-prop sniff
+  // above. Added because page JS has no way to enumerate its own
+  // addEventListener listeners: a real scan reported 28 fake-interactive
+  // errors (e.g. #rail-designer, #start-btn) for buttons wired entirely with
+  // addEventListener, which detectHandlers() in extract.ts cannot see.
+  // hasOnClick is set true when either of these is true, so every existing
+  // consumer (rules, analyzeElements' NO_HANDLER audit) agrees with reality
+  // without per-consumer changes. Optional because enrichment only runs
+  // when the PageLike exposes evaluateWithCommandLineAPI (CompatPage today).
+  hasEventListener: z.boolean().optional(),
+  // A non-root ancestor (excluding document.body/documentElement/document/
+  // window) carries an activation listener that would fire for this element
+  // — event delegation. Root-level listeners are deliberately excluded: a
+  // document-level click listener (e.g. menu-dismissal) would otherwise
+  // "rescue" every dead control on the page.
+  hasDelegatedListener: z.boolean().optional(),
 });
 
 /**

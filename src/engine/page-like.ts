@@ -34,6 +34,15 @@ export interface LocatorLike {
 export interface PageLike {
   goto(url: string, options?: { waitUntil?: string; timeout?: number }): Promise<any>
   evaluate(fn: any, ...args: any[]): Promise<any>
+  /**
+   * Optional: evaluate an expression string with DevTools' console-only APIs
+   * (getEventListeners, $, $$) exposed — CDP's `includeCommandLineAPI` flag.
+   * Only CompatPage (CDP engine) implements this; Playwright's Page and any
+   * other PageLike (e.g. a future Safari/WebKit driver) do not expose an
+   * equivalent, so callers must feature-detect with `typeof page.evaluateWithCommandLineAPI
+   * === 'function'` and degrade gracefully when it is absent.
+   */
+  evaluateWithCommandLineAPI?(expression: string): Promise<unknown>
   $(selector: string): Promise<ElementHandleLike | null>
   $$(selector: string): Promise<ElementHandleLike[]>
   screenshot(options?: { path?: string; fullPage?: boolean; type?: string }): Promise<Buffer>

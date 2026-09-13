@@ -348,6 +348,17 @@ export class CompatPage {
     return this.driver.evaluate(fnOrExpr) as Promise<T>
   }
 
+  /**
+   * PageLike's optional command-line-API evaluate — see page-like.ts. Backed
+   * by IBR's own CDP engine (Runtime.evaluate with includeCommandLineAPI),
+   * so this is real here; other PageLike implementations (Playwright, a
+   * future WebKit driver) simply don't define this method and callers
+   * degrade to static handler detection.
+   */
+  async evaluateWithCommandLineAPI(expression: string): Promise<unknown> {
+    return this.driver.evaluateWithCommandLineAPI(expression)
+  }
+
   async $(selector: string): Promise<CompatElementHandle | null> {
     const nodeId = await this.driver.querySelector(selector)
     if (!nodeId) return null

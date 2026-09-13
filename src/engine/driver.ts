@@ -1541,6 +1541,15 @@ export class EngineDriver implements BrowserDriver {
     return this.runtime.evaluate(exprOrFn)
   }
 
+  /**
+   * Evaluate with DevTools' `includeCommandLineAPI` enabled — see
+   * RuntimeDomain.evaluateWithCommandLineAPI. Used for real listener
+   * detection (getEventListeners), not needed by ordinary callers.
+   */
+  async evaluateWithCommandLineAPI(expression: string): Promise<unknown> {
+    return this.runtime.evaluateWithCommandLineAPI(expression)
+  }
+
   // ─── DOM Queries ────────────────────────────────────────
 
   async querySelector(selector: string): Promise<number | null> {
