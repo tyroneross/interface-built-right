@@ -17259,7 +17259,8 @@ var artifactReceiptSchema = z.object({
   kind: artifactSchema.shape.kind,
   sha256: z.string().regex(SHA256),
   bytes: z.number().int().nonnegative().max(MAX_EXTERNAL_ACTION_ARTIFACT_BYTES).optional(),
-  path: boundedText.optional()
+  path: boundedText.optional(),
+  pathDisposition: z.enum(["not-supplied", "transformed", "retained"])
 }).strict();
 var observationReceiptSchema = z.object({
   capturedAt: timestamp,
@@ -17353,6 +17354,21 @@ var ExternalActionReceiptSchema = z.object({
       context.addIssue({ code: "custom", message: "metadata-only receipt cannot retain artifact paths" });
     }
   }
+  if (receipt.privacy.mode === "local-sensitive") {
+    const transformedDigests = [
+      receipt.surface.targetIdDigest,
+      receipt.surface.urlDigest,
+      receipt.surface.windowTitleDigest,
+      receipt.action.target?.labelDigest,
+      receipt.validation.expectedDetailDigest,
+      receipt.validation.observedDetailDigest,
+      receipt.before.stateDigest.startsWith("hmac-sha256:") ? receipt.before.stateDigest : void 0,
+      receipt.after.stateDigest.startsWith("hmac-sha256:") ? receipt.after.stateDigest : void 0
+    ];
+    if (transformedDigests.some((value) => value !== void 0)) {
+      context.addIssue({ code: "custom", message: "local-sensitive receipt contains a transformed sensitive field" });
+    }
+  }
   const hasArtifactPath = [
     ...receipt.before.artifacts ?? [],
     ...receipt.after.artifacts ?? []
@@ -17377,21 +17393,39 @@ var ExternalActionReceiptSchema = z.object({
     if (receipt.after.stateDigest.startsWith("hmac-sha256:")) expectedDigestTransforms.add("after.state");
     if (receipt.validation.expectedDetailDigest) expectedDigestTransforms.add("validation.expectedDetail");
     if (receipt.validation.observedDetailDigest) expectedDigestTransforms.add("validation.observedDetail");
+    for (const [observationName, observation] of [["before", receipt.before], ["after", receipt.after]]) {
+      for (const [index, artifact] of (observation.artifacts ?? []).entries()) {
+        const field = `${observationName}.artifacts[${index}].path`;
+        if (artifact.pathDisposition === "transformed") expectedDigestTransforms.add(field);
+        if (artifact.pathDisposition === "retained") {
+          context.addIssue({ code: "custom", message: `metadata-only receipt cannot retain artifact path provenance for ${field}` });
+        }
+        if (artifact.path !== void 0) {
+          context.addIssue({ code: "custom", message: `metadata-only receipt cannot retain artifact path for ${field}` });
+        }
+      }
+    }
     for (const field of expectedDigestTransforms) {
       if (!declaredTransforms.has(field)) {
         context.addIssue({ code: "custom", message: `privacy.transformedFields is missing ${field}` });
       }
     }
     for (const field of declaredTransforms) {
-      const artifactMatch = /^(before|after)\.artifacts\[([0-9])\]\.path$/.exec(field);
-      if (artifactMatch) {
-        const observation = artifactMatch[1] === "before" ? receipt.before : receipt.after;
-        const artifact = observation.artifacts?.[Number(artifactMatch[2])];
-        if (!artifact || artifact.path !== void 0) {
-          context.addIssue({ code: "custom", message: `privacy.transformedFields has no omitted artifact path for ${field}` });
-        }
-      } else if (!expectedDigestTransforms.has(field)) {
+      if (!expectedDigestTransforms.has(field)) {
         context.addIssue({ code: "custom", message: `privacy.transformedFields has no matching digest for ${field}` });
+      }
+    }
+  }
+  if (receipt.privacy.mode === "local-sensitive") {
+    for (const [observationName, observation] of [["before", receipt.before], ["after", receipt.after]]) {
+      for (const [index, artifact] of (observation.artifacts ?? []).entries()) {
+        const field = `${observationName}.artifacts[${index}].path`;
+        if (artifact.pathDisposition === "transformed") {
+          context.addIssue({ code: "custom", message: `local-sensitive receipt cannot claim transformed artifact path for ${field}` });
+        }
+        if (artifact.pathDisposition === "retained" !== (artifact.path !== void 0)) {
+          context.addIssue({ code: "custom", message: `artifact path provenance does not match retained path for ${field}` });
+        }
       }
     }
   }
@@ -17511,7 +17545,8 @@ async function normalizeArtifact(artifact, retainPath, location, artifactPolicy)
     kind: artifact.kind,
     sha256: measured?.sha256 ?? artifact.sha256,
     bytes: measured?.bytes ?? artifact.bytes,
-    ...retainPath && artifact.path ? { path: artifact.path } : {}
+    ...retainPath && artifact.path ? { path: artifact.path } : {},
+    pathDisposition: artifact.path ? retainPath ? "retained" : "transformed" : "not-supplied"
   };
 }
 async function normalizeObservation(observation, field, mode, key, transformed, artifactPolicy) {

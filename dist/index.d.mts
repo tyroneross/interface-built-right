@@ -4447,6 +4447,11 @@ declare const artifactReceiptSchema: z.ZodObject<{
     sha256: z.ZodString;
     bytes: z.ZodOptional<z.ZodNumber>;
     path: z.ZodOptional<z.ZodString>;
+    pathDisposition: z.ZodEnum<{
+        "not-supplied": "not-supplied";
+        transformed: "transformed";
+        retained: "retained";
+    }>;
 }, z.core.$strict>;
 declare const observationReceiptSchema: z.ZodObject<{
     capturedAt: z.ZodString;
@@ -4475,6 +4480,11 @@ declare const observationReceiptSchema: z.ZodObject<{
         sha256: z.ZodString;
         bytes: z.ZodOptional<z.ZodNumber>;
         path: z.ZodOptional<z.ZodString>;
+        pathDisposition: z.ZodEnum<{
+            "not-supplied": "not-supplied";
+            transformed: "transformed";
+            retained: "retained";
+        }>;
     }, z.core.$strict>>>;
 }, z.core.$strict>;
 declare const ExternalActionReceiptSchema: z.ZodObject<{
@@ -4548,6 +4558,11 @@ declare const ExternalActionReceiptSchema: z.ZodObject<{
             sha256: z.ZodString;
             bytes: z.ZodOptional<z.ZodNumber>;
             path: z.ZodOptional<z.ZodString>;
+            pathDisposition: z.ZodEnum<{
+                "not-supplied": "not-supplied";
+                transformed: "transformed";
+                retained: "retained";
+            }>;
         }, z.core.$strict>>>;
     }, z.core.$strict>;
     after: z.ZodObject<{
@@ -4577,6 +4592,11 @@ declare const ExternalActionReceiptSchema: z.ZodObject<{
             sha256: z.ZodString;
             bytes: z.ZodOptional<z.ZodNumber>;
             path: z.ZodOptional<z.ZodString>;
+            pathDisposition: z.ZodEnum<{
+                "not-supplied": "not-supplied";
+                transformed: "transformed";
+                retained: "retained";
+            }>;
         }, z.core.$strict>>>;
     }, z.core.$strict>;
     validation: z.ZodObject<{

@@ -94,6 +94,7 @@ describe('createExternalActionReceipt', () => {
     expect(receipt.before.stateDigest).toMatch(/^hmac-sha256:[a-f0-9]{64}$/);
     expect(receipt.before.artifacts?.[0].sha256).toMatch(/^sha256:[a-f0-9]{64}$/);
     expect(receipt.before.artifacts?.[0].bytes).toBe(6);
+    expect(receipt.before.artifacts?.[0].pathDisposition).toBe('transformed');
     expect(json).not.toContain('Private Project');
     expect(json).not.toContain('Secret customer header');
     expect(json).not.toContain(screenshot);
@@ -133,6 +134,7 @@ describe('createExternalActionReceipt', () => {
     expect(receipt.action.target?.label).toBe('Secret customer header');
     expect(receipt.before.state).toContain('Private Project');
     expect(receipt.before.artifacts?.[0].path).toBe(screenshot);
+    expect(receipt.before.artifacts?.[0].pathDisposition).toBe('retained');
     expect(receipt.validation.observedDetail).toContain('280 points');
     expect(receipt.privacy.transformedFields).not.toContain('before.state');
     expect(receipt.privacy.transformedFields).not.toContain('after.state');
@@ -317,7 +319,36 @@ describe('receipt persistence', () => {
         transformedFields: [...receipt.privacy.transformedFields, 'before.artifacts[0].path'],
       },
     };
-    await expect(writeExternalActionReceipt(invented, { outputDir: root })).rejects.toThrow(/no omitted artifact path/);
+    await expect(writeExternalActionReceipt(invented, { outputDir: root })).rejects.toThrow(/no matching digest/);
+  });
+
+  it('rejects invented artifact transforms and metadata receipts relabeled local-sensitive', async () => {
+    const root = sandbox();
+    const prehashed = inputFor('codex', 'sidecar');
+    prehashed.before.artifacts = [{ kind: 'screenshot', sha256: `sha256:${'a'.repeat(64)}`, bytes: 42 }];
+    const receipt = await createExternalActionReceipt(prehashed, deterministic);
+    expect(receipt.before.artifacts?.[0].pathDisposition).toBe('not-supplied');
+
+    const inventedArtifactTransform = {
+      ...receipt,
+      privacy: {
+        ...receipt.privacy,
+        transformedFields: [...receipt.privacy.transformedFields, 'before.artifacts[0].path'],
+      },
+    };
+    await expect(writeExternalActionReceipt(inventedArtifactTransform, { outputDir: root }))
+      .rejects.toThrow(/no matching digest/);
+
+    const relabeledLocalSensitive = {
+      ...receipt,
+      privacy: {
+        ...receipt.privacy,
+        mode: 'local-sensitive' as const,
+        transformedFields: [],
+      },
+    };
+    await expect(writeExternalActionReceipt(relabeledLocalSensitive, { outputDir: root }))
+      .rejects.toThrow(/transformed sensitive field/);
   });
 
   it('cleans temporary evidence after write failure', async () => {

@@ -69,7 +69,7 @@ An observation accepts exactly one of:
 - `state`: a description that IBR transforms into an HMAC digest; or
 - `stateDigest`: an existing `sha256:<64 lowercase hex>` digest produced by the observer.
 
-Artifacts accept a local `path`, an existing `sha256` digest, or both. A path is read only when `artifactRoot` (API) or `--artifact-root` (CLI) explicitly allowlists its containing tree. IBR resolves the real path, rejects symlinks and non-regular files, verifies the file did not change between inspection and open, and reads at most 64 MiB through a bounded streaming hash. Larger evidence should be reduced or hashed by the observer before ingestion.
+Artifacts accept a local `path`, an existing `sha256` digest, or both. A path is read only when `artifactRoot` (API) or `--artifact-root` (CLI) explicitly allowlists its containing tree. IBR resolves the real path, rejects symlinks and non-regular files, verifies the file did not change between inspection and open, and reads at most 64 MiB through a bounded streaming hash. Each receipt artifact records whether its path was not supplied, transformed, or retained so the transformation manifest can be revalidated at the persistence boundary. Larger evidence should be reduced or hashed by the observer before ingestion.
 
 ## Codex sidecar
 
