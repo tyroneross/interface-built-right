@@ -166,6 +166,10 @@ No subcommand for scan/audit/validate/compare-browsers, interaction testing (for
 
 All runtime data is written to `.ibr/` in the consuming project. Add `.ibr/` to `.gitignore`.
 
+### External computer-use evidence
+
+`ibr evidence:record <file|-> --json` and the exported `recordExternalActionEvidence` API ingest the same strict, host-neutral before/action/after envelope. Use them to augment Codex Computer Use as a sidecar or a Claude client-side computer-use handler without importing either host SDK. Metadata-only is the default; see `docs/external-action-evidence.md` for the schema, privacy boundary, and ordering contract.
+
 ### Artifact Lane (host-neutral)
 
 Single-file self-contained HTML pages — openable from `file://`, publishable through Claude's Artifact tool, checkable by any agent. Unlike the rest of IBR this lane needs no browser, no MCP server, and no Node: two stdlib-only Python 3 scripts, no network, no install.

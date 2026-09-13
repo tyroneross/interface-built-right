@@ -29,6 +29,10 @@ Check for:
 
 Use `scan_macos` for a running app and validate the accessibility tree, window structure, menu/action affordances, and keyboard-reachable controls.
 
+## External Computer Use
+
+When Codex Computer Use performs the action, keep it as the single action owner and use IBR as a sidecar observer/verifier. Submit a strict before/action/after JSON envelope with `ibr evidence:record <file|-> --json`. Metadata-only retention is the default; target labels, window titles, URLs, state descriptions, and validation details are digested, while raw artifact paths require `--privacy local-sensitive`. Correlate native evidence by PID or bundle ID. Do not run an IBR pointer action concurrently with Computer Use. Contract and examples: `docs/external-action-evidence.md`.
+
 ## Source Correlation
 
 When native scan output needs a code fix, use `bridge_to_source` to map runtime accessibility elements back to Swift source where possible.

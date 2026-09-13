@@ -6,21 +6,25 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repositoryRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const cjsEntrypoint = join(repositoryRoot, 'dist', 'index.js');
 const esmEntrypoint = join(repositoryRoot, 'dist', 'index.mjs');
+const swiftPackage = join(repositoryRoot, 'src', 'native', 'swift', 'ibr-ax-extract', 'Package.swift');
 
 for (const entrypoint of [cjsEntrypoint, esmEntrypoint]) {
   if (!existsSync(entrypoint)) {
     throw new Error(`Missing built package entrypoint: ${entrypoint}. Run npm run build first.`);
   }
 }
+if (!existsSync(swiftPackage)) {
+  throw new Error(`Missing bundled native extractor source: ${swiftPackage}`);
+}
 
 const checks = [
   {
     label: 'CommonJS export',
-    args: ['--input-type=commonjs', '--eval', `require(${JSON.stringify(cjsEntrypoint)});`],
+    args: ['--input-type=commonjs', '--eval', `const api=require(${JSON.stringify(cjsEntrypoint)}); if(typeof api.recordExternalActionEvidence!=="function"||typeof api.createExternalActionReceipt!=="function") process.exit(1);`],
   },
   {
     label: 'ES module export',
-    args: ['--input-type=module', '--eval', `await import(${JSON.stringify(pathToFileURL(esmEntrypoint).href)});`],
+    args: ['--input-type=module', '--eval', `const api=await import(${JSON.stringify(pathToFileURL(esmEntrypoint).href)}); if(typeof api.recordExternalActionEvidence!=="function"||typeof api.createExternalActionReceipt!=="function") process.exit(1);`],
   },
 ];
 
@@ -36,4 +40,4 @@ for (const check of checks) {
   }
 }
 
-console.log('Package export smoke tests passed (CommonJS and ES module).');
+console.log('Package export smoke tests passed (CommonJS, ES module, evidence API, native source).');

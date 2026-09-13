@@ -2,17 +2,17 @@ import { z } from 'zod';
 import { execFile, exec, spawn, execFileSync } from 'child_process';
 import { existsSync, readFileSync, statSync, writeFileSync, createReadStream, createWriteStream, lstatSync, mkdtempSync, rmSync, readlinkSync, unlinkSync, readdirSync } from 'fs';
 import * as fs from 'fs/promises';
-import { mkdir, readFile, writeFile, unlink, readdir, copyFile, chmod, rm, access, appendFile, stat } from 'fs/promises';
+import { mkdir, readFile, writeFile, unlink, readdir, copyFile, chmod, rm, access, open, link, appendFile, stat } from 'fs/promises';
 import { createServer } from 'net';
 import { homedir, tmpdir, userInfo, hostname } from 'os';
 import * as path from 'path';
-import { join, dirname } from 'path';
+import { join, dirname, basename } from 'path';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import { nanoid } from 'nanoid';
 import { promisify } from 'util';
 import { fileURLToPath, URL as URL$1 } from 'url';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID, createHmac, createHash } from 'crypto';
 
 var __defProp = Object.defineProperty;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -5973,7 +5973,7 @@ var init_state_detector = __esm({
 async function getSemanticOutput(page) {
   const url = page.url?.() ?? "";
   const title = await page.title();
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
   const [pageIntent, state] = await Promise.all([
     classifyPageIntent(page),
     detectPageState(page)
@@ -5994,7 +5994,7 @@ async function getSemanticOutput(page) {
     summary,
     url,
     title,
-    timestamp
+    timestamp: timestamp2
   };
 }
 async function detectAvailableActions(page, intent) {
@@ -7062,8 +7062,8 @@ async function testInteractivity(page) {
       });
     }
     const links = Array.from(document.querySelectorAll("a[href]"));
-    for (const link of links) {
-      const el = link;
+    for (const link2 of links) {
+      const el = link2;
       const href = el.getAttribute("href") || "";
       const isPlaceholder = href === "#" || href === "" || href === "javascript:void(0)";
       results.links.push({
@@ -7155,19 +7155,19 @@ async function testInteractivity(page) {
       });
     }
   }
-  for (const link of data.links) {
-    if (link.isPlaceholder && !link.hasHandler) {
+  for (const link2 of data.links) {
+    if (link2.isPlaceholder && !link2.hasHandler) {
       issues.push({
         type: "PLACEHOLDER_LINK",
-        element: link.selector,
+        element: link2.selector,
         severity: "error",
-        description: `Link "${link.text || link.selector}" has placeholder href without handler`
+        description: `Link "${link2.text || link2.selector}" has placeholder href without handler`
       });
     }
-    if (!link.a11y.ariaLabel && !link.text) {
+    if (!link2.a11y.ariaLabel && !link2.text) {
       issues.push({
         type: "MISSING_LABEL",
-        element: link.selector,
+        element: link2.selector,
         severity: "error",
         description: `Link has no accessible label (no text or aria-label)`
       });
@@ -7721,8 +7721,8 @@ async function rebuildSummary(outputDir) {
 async function archiveSummary(outputDir) {
   const summaryPath = getMemoryPath(outputDir, SUMMARY_FILE);
   if (!existsSync(summaryPath)) return;
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
-  const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp}.json`);
+  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+  const archivePath = getMemoryPath(outputDir, ARCHIVE_DIR, `summary_${timestamp2}.json`);
   try {
     await copyFile(summaryPath, archivePath);
   } catch {
@@ -10434,7 +10434,7 @@ function collectNavigationMap(ctx) {
     const byDepth = [];
     for (const nav of navElements) {
       const navLinks = links.filter(
-        (link) => isDescendantOf(link.selector, nav.selector)
+        (link2) => isDescendantOf(link2.selector, nav.selector)
       );
       const { roots, maxDepth } = buildTree(navLinks, nav.selector);
       flattenTree(roots, 0, byDepth);
@@ -10455,12 +10455,12 @@ function collectNavigationMap(ctx) {
     };
   }
   const flatRoots = [];
-  for (const link of links.slice(0, 60)) {
-    const label = linkLabel(link);
+  for (const link2 of links.slice(0, 60)) {
+    const label = linkLabel(link2);
     if (!label) continue;
     flatRoots.push({
       label,
-      selector: link.selector,
+      selector: link2.selector,
       depth: 0,
       children: []
     });
@@ -14395,7 +14395,7 @@ function buildNativeInteractivity(elements) {
       }
     }
     if (isLink) {
-      const link = {
+      const link2 = {
         selector: el.selector,
         tagName: el.tagName,
         text: el.text,
@@ -14413,7 +14413,7 @@ function buildNativeInteractivity(elements) {
         opensNewTab: false,
         isExternal: false
       };
-      links.push(link);
+      links.push(link2);
       if (!el.text && !el.a11y.ariaLabel) {
         issues.push({
           type: "MISSING_LABEL",
@@ -14787,8 +14787,8 @@ async function scanNative(options = {}) {
   const url = `simulator://${device.name}/${options.bundleId || "current"}`;
   let screenshotPath;
   if (screenshot) {
-    const timestamp = Date.now();
-    const ssPath = join(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const timestamp2 = Date.now();
+    const ssPath = join(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp2}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -16519,7 +16519,7 @@ async function searchFlow(page, options) {
   }
 }
 async function captureStepScreenshot(page, step, artifactDir, startTime) {
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
   const timing = Date.now() - startTime;
   const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
   const filename = `${stepNum}-${step}.png`;
@@ -16539,7 +16539,7 @@ async function captureStepScreenshot(page, step, artifactDir, startTime) {
     fullPage: false,
     type: "png"
   });
-  return { step, path: path2, timestamp, timing };
+  return { step, path: path2, timestamp: timestamp2, timing };
 }
 async function extractResultContent(page, resultsSelector) {
   return page.evaluate((selector) => {
@@ -17169,6 +17169,342 @@ function formatRetentionStatus(status) {
   }
   return lines.join("\n");
 }
+var MAX_TEXT = 4096;
+var SHA256 = /^sha256:[a-f0-9]{64}$/;
+var FIELD_DIGEST = /^hmac-sha256:[a-f0-9]{64}$/;
+var SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
+var SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
+var RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
+var boundedText = z.string().min(1).max(MAX_TEXT);
+var timestamp = z.string().datetime({ offset: true });
+var boundsSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().nonnegative(),
+  height: z.number().finite().nonnegative(),
+  unit: z.enum(["points", "pixels"])
+}).strict();
+var artifactSchema = z.object({
+  kind: z.enum(["screenshot", "ax-tree", "dom-snapshot", "console-log", "other"]),
+  path: boundedText.optional(),
+  sha256: z.string().regex(SHA256).optional(),
+  bytes: z.number().int().nonnegative().optional()
+}).strict().refine((value) => value.path !== void 0 || value.sha256 !== void 0, {
+  message: "artifact requires path or sha256"
+});
+var observationSchema = z.object({
+  capturedAt: timestamp,
+  state: boundedText.optional(),
+  stateDigest: z.string().regex(SHA256).optional(),
+  elementCount: z.number().int().nonnegative().optional(),
+  interactiveElementCount: z.number().int().nonnegative().optional(),
+  bounds: boundsSchema.optional(),
+  artifacts: z.array(artifactSchema).max(10).optional()
+}).strict().refine(
+  (value) => value.state === void 0 !== (value.stateDigest === void 0),
+  { message: "observation requires exactly one of state or stateDigest" }
+);
+var targetSchema = z.object({
+  role: z.string().regex(SAFE_TOKEN).max(128).optional(),
+  label: boundedText.optional(),
+  coordinates: z.object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    unit: z.enum(["points", "pixels"]),
+    scale: z.number().finite().positive().optional()
+  }).strict().optional()
+}).strict();
+var ExternalActionEvidenceInputSchema = z.object({
+  schemaVersion: z.literal(1),
+  correlationId: z.string().regex(SAFE_TOKEN),
+  host: z.object({
+    family: z.string().regex(SAFE_TOKEN).max(64),
+    executor: z.string().regex(SAFE_TOKEN).max(128),
+    version: z.string().regex(SAFE_TOKEN).max(128).optional()
+  }).strict(),
+  surface: z.object({
+    kind: z.enum(["native", "web"]),
+    pid: z.number().int().positive().optional(),
+    bundleId: z.string().regex(SAFE_TOKEN).optional(),
+    targetId: boundedText.optional(),
+    url: boundedText.optional(),
+    windowTitle: boundedText.optional()
+  }).strict().superRefine((surface, context) => {
+    if (surface.kind === "native" && surface.pid === void 0 && surface.bundleId === void 0) {
+      context.addIssue({ code: "custom", message: "native surface requires pid or bundleId" });
+    }
+    if (surface.kind === "web" && surface.targetId === void 0 && surface.url === void 0) {
+      context.addIssue({ code: "custom", message: "web surface requires targetId or url" });
+    }
+  }),
+  action: z.object({
+    kind: z.string().regex(SAFE_TOKEN).max(128),
+    target: targetSchema.optional(),
+    startedAt: timestamp,
+    completedAt: timestamp
+  }).strict(),
+  before: observationSchema,
+  after: observationSchema,
+  validation: z.object({
+    expectedCode: z.string().regex(SAFE_CODE),
+    observedCode: z.string().regex(SAFE_CODE),
+    passed: z.boolean(),
+    expectedDetail: boundedText.optional(),
+    observedDetail: boundedText.optional()
+  }).strict()
+}).strict();
+var artifactReceiptSchema = z.object({
+  kind: artifactSchema.shape.kind,
+  sha256: z.string().regex(SHA256),
+  bytes: z.number().int().nonnegative().optional(),
+  path: boundedText.optional()
+}).strict();
+var observationReceiptSchema = z.object({
+  capturedAt: timestamp,
+  stateDigest: z.union([z.string().regex(SHA256), z.string().regex(FIELD_DIGEST)]),
+  state: boundedText.optional(),
+  elementCount: z.number().int().nonnegative().optional(),
+  interactiveElementCount: z.number().int().nonnegative().optional(),
+  bounds: boundsSchema.optional(),
+  artifacts: z.array(artifactReceiptSchema).max(10).optional()
+}).strict();
+var surfaceReceiptSchema = z.object({
+  kind: z.enum(["native", "web"]),
+  pid: z.number().int().positive().optional(),
+  bundleId: z.string().regex(SAFE_TOKEN).optional(),
+  targetIdDigest: z.string().regex(FIELD_DIGEST).optional(),
+  urlDigest: z.string().regex(FIELD_DIGEST).optional(),
+  windowTitleDigest: z.string().regex(FIELD_DIGEST).optional(),
+  targetId: boundedText.optional(),
+  url: boundedText.optional(),
+  windowTitle: boundedText.optional()
+}).strict().superRefine((surface, context) => {
+  if (surface.kind === "native" && surface.pid === void 0 && surface.bundleId === void 0) {
+    context.addIssue({ code: "custom", message: "native surface requires pid or bundleId" });
+  }
+  if (surface.kind === "web" && surface.targetId === void 0 && surface.targetIdDigest === void 0 && surface.url === void 0 && surface.urlDigest === void 0) {
+    context.addIssue({ code: "custom", message: "web surface requires targetId or url evidence" });
+  }
+});
+var ExternalActionReceiptSchema = z.object({
+  schemaVersion: z.literal("ibr.external-action-receipt.v1"),
+  receiptId: z.string().regex(RECEIPT_ID),
+  createdAt: timestamp,
+  correlationId: z.string().regex(SAFE_TOKEN),
+  host: ExternalActionEvidenceInputSchema.shape.host,
+  surface: surfaceReceiptSchema,
+  action: z.object({
+    kind: z.string().regex(SAFE_TOKEN).max(128),
+    target: z.object({
+      role: z.string().regex(SAFE_TOKEN).max(128).optional(),
+      labelDigest: z.string().regex(FIELD_DIGEST).optional(),
+      label: boundedText.optional(),
+      coordinates: targetSchema.shape.coordinates.optional()
+    }).strict().optional(),
+    startedAt: timestamp,
+    completedAt: timestamp,
+    durationMs: z.number().int().nonnegative()
+  }).strict(),
+  before: observationReceiptSchema,
+  after: observationReceiptSchema,
+  validation: z.object({
+    expectedCode: z.string().regex(SAFE_CODE),
+    observedCode: z.string().regex(SAFE_CODE),
+    passed: z.boolean(),
+    expectedDetailDigest: z.string().regex(FIELD_DIGEST).optional(),
+    observedDetailDigest: z.string().regex(FIELD_DIGEST).optional(),
+    expectedDetail: boundedText.optional(),
+    observedDetail: boundedText.optional()
+  }).strict(),
+  privacy: z.object({
+    mode: z.enum(["metadata-only", "local-sensitive"]),
+    fieldDigestAlgorithm: z.literal("hmac-sha256-ephemeral-key"),
+    artifactDigestAlgorithm: z.literal("sha256"),
+    transformedFields: z.array(z.string().min(1).max(256)).max(64),
+    artifactPathsRetained: z.boolean()
+  }).strict()
+}).strict().superRefine((receipt, context) => {
+  const duration = Date.parse(receipt.action.completedAt) - Date.parse(receipt.action.startedAt);
+  if (receipt.action.durationMs !== duration) {
+    context.addIssue({ code: "custom", message: "action.durationMs does not match action timestamps" });
+  }
+  if (receipt.privacy.mode === "metadata-only") {
+    const rawFields = [
+      receipt.surface.targetId,
+      receipt.surface.url,
+      receipt.surface.windowTitle,
+      receipt.action.target?.label,
+      receipt.before.state,
+      receipt.after.state,
+      receipt.validation.expectedDetail,
+      receipt.validation.observedDetail,
+      ...(receipt.before.artifacts ?? []).map((artifact) => artifact.path),
+      ...(receipt.after.artifacts ?? []).map((artifact) => artifact.path)
+    ];
+    if (rawFields.some((value) => value !== void 0)) {
+      context.addIssue({ code: "custom", message: "metadata-only receipt contains a raw sensitive field" });
+    }
+    if (receipt.privacy.artifactPathsRetained) {
+      context.addIssue({ code: "custom", message: "metadata-only receipt cannot retain artifact paths" });
+    }
+  }
+});
+function fieldDigest(key, field, value) {
+  return `hmac-sha256:${createHmac("sha256", key).update(`ibr.external-action.v1\0${field}\0${value}`).digest("hex")}`;
+}
+async function artifactDigest(path2) {
+  const data = await readFile(path2);
+  return {
+    sha256: `sha256:${createHash("sha256").update(data).digest("hex")}`,
+    bytes: data.byteLength
+  };
+}
+function assertChronology(input) {
+  const startedAt = Date.parse(input.action.startedAt);
+  const completedAt = Date.parse(input.action.completedAt);
+  const beforeAt = Date.parse(input.before.capturedAt);
+  const afterAt = Date.parse(input.after.capturedAt);
+  if (completedAt < startedAt) throw new Error("action.completedAt must be at or after action.startedAt");
+  if (beforeAt > startedAt) throw new Error("before.capturedAt must be at or before action.startedAt");
+  if (afterAt < completedAt) throw new Error("after.capturedAt must be at or after action.completedAt");
+}
+async function normalizeArtifact(artifact, retainPath) {
+  const measured = artifact.path ? await artifactDigest(artifact.path) : void 0;
+  if (artifact.sha256 && measured && artifact.sha256 !== measured.sha256) {
+    throw new Error(`artifact digest mismatch for ${basename(artifact.path)}`);
+  }
+  return {
+    kind: artifact.kind,
+    sha256: measured?.sha256 ?? artifact.sha256,
+    bytes: measured?.bytes ?? artifact.bytes,
+    ...retainPath && artifact.path ? { path: artifact.path } : {}
+  };
+}
+async function normalizeObservation(observation, field, mode, key, transformed) {
+  const retain = mode === "local-sensitive";
+  if (observation.state !== void 0) transformed.add(`${field}.state`);
+  const stateDigest = observation.stateDigest ?? fieldDigest(key, "observation.state", observation.state);
+  const artifacts = observation.artifacts ? await Promise.all(observation.artifacts.map(async (artifact, index) => {
+    if (artifact.path && !retain) transformed.add(`${field}.artifacts[${index}].path`);
+    return normalizeArtifact(artifact, retain);
+  })) : void 0;
+  return {
+    capturedAt: observation.capturedAt,
+    stateDigest,
+    ...retain && observation.state !== void 0 ? { state: observation.state } : {},
+    elementCount: observation.elementCount,
+    interactiveElementCount: observation.interactiveElementCount,
+    bounds: observation.bounds,
+    artifacts
+  };
+}
+async function createExternalActionReceipt(rawInput, options = {}) {
+  const input = ExternalActionEvidenceInputSchema.parse(rawInput);
+  assertChronology(input);
+  const optionsSchema = z.object({
+    privacyMode: z.enum(["metadata-only", "local-sensitive"]).optional(),
+    digestKey: z.union([z.string().min(1), z.instanceof(Buffer)]).optional(),
+    receiptId: z.string().regex(RECEIPT_ID).optional(),
+    createdAt: timestamp.optional()
+  }).strict();
+  const parsedOptions = optionsSchema.parse(options);
+  const mode = parsedOptions.privacyMode ?? "metadata-only";
+  const key = parsedOptions.digestKey ?? randomBytes(32);
+  const transformed = /* @__PURE__ */ new Set();
+  const retain = mode === "local-sensitive";
+  const digestOrRetain = (field, value) => {
+    if (value === void 0) return {};
+    if (retain) return { raw: value };
+    transformed.add(field);
+    return { digest: fieldDigest(key, field, value) };
+  };
+  const targetId = digestOrRetain("surface.targetId", input.surface.targetId);
+  const url = digestOrRetain("surface.url", input.surface.url);
+  const windowTitle = digestOrRetain("surface.windowTitle", input.surface.windowTitle);
+  const targetLabel = digestOrRetain("action.target.label", input.action.target?.label);
+  const expectedDetail = digestOrRetain("validation.expectedDetail", input.validation.expectedDetail);
+  const observedDetail = digestOrRetain("validation.observedDetail", input.validation.observedDetail);
+  const startedAt = Date.parse(input.action.startedAt);
+  const completedAt = Date.parse(input.action.completedAt);
+  const artifactPathsRetained = retain && [
+    ...input.before.artifacts ?? [],
+    ...input.after.artifacts ?? []
+  ].some((artifact) => artifact.path !== void 0);
+  return {
+    schemaVersion: "ibr.external-action-receipt.v1",
+    receiptId: parsedOptions.receiptId ?? `ear_${randomUUID()}`,
+    createdAt: parsedOptions.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
+    correlationId: input.correlationId,
+    host: input.host,
+    surface: {
+      kind: input.surface.kind,
+      pid: input.surface.pid,
+      bundleId: input.surface.bundleId,
+      ...targetId.raw ? { targetId: targetId.raw } : {},
+      ...targetId.digest ? { targetIdDigest: targetId.digest } : {},
+      ...url.raw ? { url: url.raw } : {},
+      ...url.digest ? { urlDigest: url.digest } : {},
+      ...windowTitle.raw ? { windowTitle: windowTitle.raw } : {},
+      ...windowTitle.digest ? { windowTitleDigest: windowTitle.digest } : {}
+    },
+    action: {
+      kind: input.action.kind,
+      target: input.action.target ? {
+        role: input.action.target.role,
+        ...targetLabel.raw ? { label: targetLabel.raw } : {},
+        ...targetLabel.digest ? { labelDigest: targetLabel.digest } : {},
+        coordinates: input.action.target.coordinates
+      } : void 0,
+      startedAt: input.action.startedAt,
+      completedAt: input.action.completedAt,
+      durationMs: completedAt - startedAt
+    },
+    before: await normalizeObservation(input.before, "before", mode, key, transformed),
+    after: await normalizeObservation(input.after, "after", mode, key, transformed),
+    validation: {
+      expectedCode: input.validation.expectedCode,
+      observedCode: input.validation.observedCode,
+      passed: input.validation.passed,
+      ...expectedDetail.raw ? { expectedDetail: expectedDetail.raw } : {},
+      ...expectedDetail.digest ? { expectedDetailDigest: expectedDetail.digest } : {},
+      ...observedDetail.raw ? { observedDetail: observedDetail.raw } : {},
+      ...observedDetail.digest ? { observedDetailDigest: observedDetail.digest } : {}
+    },
+    privacy: {
+      mode,
+      fieldDigestAlgorithm: "hmac-sha256-ephemeral-key",
+      artifactDigestAlgorithm: "sha256",
+      transformedFields: [...transformed].sort(),
+      artifactPathsRetained
+    }
+  };
+}
+async function writeExternalActionReceipt(receipt, options = {}) {
+  const validated = ExternalActionReceiptSchema.parse(receipt);
+  const outputDir = options.outputDir ?? join(process.cwd(), ".ibr", "evidence");
+  await mkdir(outputDir, { recursive: true });
+  const destination = join(outputDir, `${validated.receiptId}.json`);
+  const temporary = join(outputDir, `.${validated.receiptId}.${randomUUID()}.tmp`);
+  const handle = await open(temporary, "wx", 384);
+  try {
+    await handle.writeFile(`${JSON.stringify(validated, null, 2)}
+`, "utf8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  try {
+    await link(temporary, destination);
+  } finally {
+    await unlink(temporary).catch(() => void 0);
+  }
+  return destination;
+}
+async function recordExternalActionEvidence(input, createOptions = {}, writeOptions = {}) {
+  const receipt = await createExternalActionReceipt(input, createOptions);
+  const path2 = await writeExternalActionReceipt(receipt, writeOptions);
+  return { receipt, path: path2 };
+}
 
 // src/index.ts
 init_schemas();
@@ -17228,10 +17564,10 @@ async function discoverPages(options) {
           }));
         });
         totalLinks += links.length;
-        for (const link of links) {
+        for (const link2 of links) {
           if (discovered.size >= maxPages) break;
           try {
-            const absoluteUrl = new URL$1(link.href, current.url);
+            const absoluteUrl = new URL$1(link2.href, current.url);
             const normalizedUrl = normalizeUrl(absoluteUrl.href);
             if (visited.has(normalizedUrl)) continue;
             if (!includeExternal && absoluteUrl.origin !== origin) continue;
@@ -17240,7 +17576,7 @@ async function discoverPages(options) {
             queue.push({
               url: absoluteUrl.href,
               depth: current.depth + 1,
-              linkText: link.text
+              linkText: link2.text
             });
           } catch {
           }
@@ -17356,16 +17692,16 @@ async function getNavigationLinks(url) {
     });
     await driver2.close();
     const pages = [];
-    for (const link of navLinks) {
+    for (const link2 of navLinks) {
       try {
-        const absoluteUrl = new URL$1(link.href, url);
+        const absoluteUrl = new URL$1(link2.href, url);
         if (absoluteUrl.origin !== origin) continue;
         if (shouldSkipUrl(absoluteUrl)) continue;
         pages.push({
           url: absoluteUrl.href,
           path: absoluteUrl.pathname,
-          title: link.text,
-          linkText: link.text,
+          title: link2.text,
+          linkText: link2.text,
           depth: 1
         });
       } catch {
@@ -17971,8 +18307,8 @@ async function testResponsive(url, options = {}) {
         minFontSize
       });
       if (captureScreenshots) {
-        const { mkdir: mkdir17 } = await import('fs/promises');
-        await mkdir17(outputDir, { recursive: true });
+        const { mkdir: mkdir18 } = await import('fs/promises');
+        await mkdir18(outputDir, { recursive: true });
         const screenshotPath = `${outputDir}/${viewportName}.png`;
         await page.screenshot({ path: screenshotPath, fullPage: true });
         result.screenshot = screenshotPath;
@@ -18698,9 +19034,9 @@ async function* askStream(url, question, options = {}) {
     viewportHeight = options.viewportMetrics?.height ?? 800;
   } else {
     if (typeof options.screenshot === "string" || options.screenshot === true) {
-      const { mkdir: mkdir17 } = await import('fs/promises');
+      const { mkdir: mkdir18 } = await import('fs/promises');
       const { dirname: dirname10 } = await import('path');
-      if (screenshotPath) await mkdir17(dirname10(screenshotPath), { recursive: true });
+      if (screenshotPath) await mkdir18(dirname10(screenshotPath), { recursive: true });
     }
     const result = await scan(url, {
       viewport: options.viewport ?? "desktop",
@@ -20258,8 +20594,8 @@ var RespawnBackend = class {
         };
       }
       await captureMacOSScreenshot(window2.windowId, outputPath);
-      const { readFile: readFile13 } = await import('fs/promises');
-      const buf2 = await readFile13(outputPath);
+      const { readFile: readFile14 } = await import('fs/promises');
+      const buf2 = await readFile14(outputPath);
       return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
     }
     const device = await findDevice(target.device.udid);
@@ -20273,8 +20609,8 @@ var RespawnBackend = class {
         error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
       };
     }
-    const { readFile: readFile12 } = await import('fs/promises');
-    const buf = await readFile12(capture.outputPath);
+    const { readFile: readFile13 } = await import('fs/promises');
+    const buf = await readFile13(capture.outputPath);
     return {
       kind: "simulator",
       base64: buf.toString("base64"),
@@ -20422,8 +20758,8 @@ var DaemonBackend = class {
           };
         }
         await captureMacOSScreenshot(window2.windowId, outputPath);
-        const { readFile: readFile12 } = await import('fs/promises');
-        const buf = await readFile12(outputPath);
+        const { readFile: readFile13 } = await import('fs/promises');
+        const buf = await readFile13(outputPath);
         return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
       },
       () => this.fallback.captureScreenshot(target, outputPath)
@@ -21281,10 +21617,10 @@ async function compare(options) {
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
   await mkdir(outputDir, { recursive: true });
-  const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || join(outputDir, `baseline-${timestamp}.png`);
-  const actualCurrentPath = currentPath || join(outputDir, `current-${timestamp}.png`);
-  const diffPath = join(outputDir, `diff-${timestamp}.png`);
+  const timestamp2 = Date.now();
+  const actualBaselinePath = baselinePath || join(outputDir, `baseline-${timestamp2}.png`);
+  const actualCurrentPath = currentPath || join(outputDir, `current-${timestamp2}.png`);
+  const diffPath = join(outputDir, `diff-${timestamp2}.png`);
   if (url && !baselinePath) {
     await captureScreenshot({
       url,
@@ -21782,6 +22118,6 @@ var IBRSession = class {
   }
 };
 
-export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BreadcrumbContextSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, TargetContextSchema, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { A11yAttributesSchema, ANDROID_CHROME_UA, AXDaemon, ActivePreferenceSchema, AnalysisSchema, AuditResultSchema, BoundsSchema, BreadcrumbContextSchema, BrowserPool, ChangedRegionSchema, CompactContextSchema, CompactionRequestSchema, CompactionResultSchema, ComparisonReportSchema, ComparisonResultSchema, ConfigSchema, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, DecisionEntrySchema, DecisionEntryWithChecksSchema, DecisionStateSchema, DecisionSummarySchema, DecisionTypeSchema, DesignChangeSchema, DesignCheckOperatorSchema, DesignCheckSchema, DesignSystemResultSchema, DesignSystemViolationSchema, ElementIssueSchema, EnhancedElementSchema, ExpectationOperatorSchema, ExpectationSchema, ExternalActionEvidenceInputSchema, ExternalActionReceiptSchema, IBRSession, InteractiveStateSchema, InterfaceBuiltRight, LANDMARK_SELECTORS, LandmarkElementSchema, LearnedExpectationSchema, MOBILE_SAFARI_UA, MemorySourceSchema, MemorySummarySchema, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, NativeSessionController, ObservationSchema, PERFORMANCE_THRESHOLDS, PreferenceCategorySchema, PreferenceSchema, ProvenancedThresholdSchema, ResolvedPathCache, RespawnBackend, RuleAuditResultSchema, RuleSettingSchema, RuleSeveritySchema, RulesConfigSchema, SIMULATOR_DRIVER_ENV, SessionQuerySchema, SessionSchema, SessionStatusSchema, TABLET_SAFARI_UA, TargetContextSchema, ThresholdBasisSchema, ThresholdOverrideSchema, VERDICT_POLICY_KEYS, VIEWPORTS, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, ViewportSchema, ViolationSchema, WEB_VERDICT_POLICY, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
 //# sourceMappingURL=index.mjs.map
 //# sourceMappingURL=index.mjs.map

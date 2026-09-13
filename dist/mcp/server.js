@@ -25387,7 +25387,7 @@ var init_state_detector = __esm({
 async function getSemanticOutput(page) {
   const url2 = page.url?.() ?? "";
   const title = await page.title();
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
   const [pageIntent, state] = await Promise.all([
     classifyPageIntent(page),
     detectPageState(page)
@@ -25408,7 +25408,7 @@ async function getSemanticOutput(page) {
     summary,
     url: url2,
     title,
-    timestamp
+    timestamp: timestamp2
   };
 }
 async function detectAvailableActions(page, intent) {
@@ -31922,8 +31922,8 @@ async function scanNative(options = {}) {
   const url2 = `simulator://${device.name}/${options.bundleId || "current"}`;
   let screenshotPath;
   if (screenshot) {
-    const timestamp = Date.now();
-    const ssPath = (0, import_path16.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp}.png`);
+    const timestamp2 = Date.now();
+    const ssPath = (0, import_path16.join)(outputDir, "native", `${device.udid.slice(0, 8)}-${timestamp2}.png`);
     const captureResult = await captureNativeScreenshot({
       device,
       outputPath: ssPath
@@ -36860,7 +36860,7 @@ async function searchFlow(page, options) {
   }
 }
 async function captureStepScreenshot(page, step, artifactDir, startTime) {
-  const timestamp = (/* @__PURE__ */ new Date()).toISOString();
+  const timestamp2 = (/* @__PURE__ */ new Date()).toISOString();
   const timing = Date.now() - startTime;
   const stepNum = { before: "01", "after-query": "02", loading: "03", results: "04" }[step];
   const filename = `${stepNum}-${step}.png`;
@@ -36880,7 +36880,7 @@ async function captureStepScreenshot(page, step, artifactDir, startTime) {
     fullPage: false,
     type: "png"
   });
-  return { step, path, timestamp, timing };
+  return { step, path, timestamp: timestamp2, timing };
 }
 async function extractResultContent(page, resultsSelector) {
   return page.evaluate((selector) => {
@@ -37328,6 +37328,189 @@ async function maybeAutoClean(outputDir) {
   }
   return enforceRetentionPolicy(outputDir, config2);
 }
+
+// src/external-action-evidence.ts
+init_zod();
+var MAX_TEXT = 4096;
+var SHA256 = /^sha256:[a-f0-9]{64}$/;
+var FIELD_DIGEST = /^hmac-sha256:[a-f0-9]{64}$/;
+var SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
+var SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
+var RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
+var boundedText = external_exports.string().min(1).max(MAX_TEXT);
+var timestamp = external_exports.string().datetime({ offset: true });
+var boundsSchema = external_exports.object({
+  x: external_exports.number().finite(),
+  y: external_exports.number().finite(),
+  width: external_exports.number().finite().nonnegative(),
+  height: external_exports.number().finite().nonnegative(),
+  unit: external_exports.enum(["points", "pixels"])
+}).strict();
+var artifactSchema = external_exports.object({
+  kind: external_exports.enum(["screenshot", "ax-tree", "dom-snapshot", "console-log", "other"]),
+  path: boundedText.optional(),
+  sha256: external_exports.string().regex(SHA256).optional(),
+  bytes: external_exports.number().int().nonnegative().optional()
+}).strict().refine((value) => value.path !== void 0 || value.sha256 !== void 0, {
+  message: "artifact requires path or sha256"
+});
+var observationSchema = external_exports.object({
+  capturedAt: timestamp,
+  state: boundedText.optional(),
+  stateDigest: external_exports.string().regex(SHA256).optional(),
+  elementCount: external_exports.number().int().nonnegative().optional(),
+  interactiveElementCount: external_exports.number().int().nonnegative().optional(),
+  bounds: boundsSchema.optional(),
+  artifacts: external_exports.array(artifactSchema).max(10).optional()
+}).strict().refine(
+  (value) => value.state === void 0 !== (value.stateDigest === void 0),
+  { message: "observation requires exactly one of state or stateDigest" }
+);
+var targetSchema = external_exports.object({
+  role: external_exports.string().regex(SAFE_TOKEN).max(128).optional(),
+  label: boundedText.optional(),
+  coordinates: external_exports.object({
+    x: external_exports.number().finite(),
+    y: external_exports.number().finite(),
+    unit: external_exports.enum(["points", "pixels"]),
+    scale: external_exports.number().finite().positive().optional()
+  }).strict().optional()
+}).strict();
+var ExternalActionEvidenceInputSchema = external_exports.object({
+  schemaVersion: external_exports.literal(1),
+  correlationId: external_exports.string().regex(SAFE_TOKEN),
+  host: external_exports.object({
+    family: external_exports.string().regex(SAFE_TOKEN).max(64),
+    executor: external_exports.string().regex(SAFE_TOKEN).max(128),
+    version: external_exports.string().regex(SAFE_TOKEN).max(128).optional()
+  }).strict(),
+  surface: external_exports.object({
+    kind: external_exports.enum(["native", "web"]),
+    pid: external_exports.number().int().positive().optional(),
+    bundleId: external_exports.string().regex(SAFE_TOKEN).optional(),
+    targetId: boundedText.optional(),
+    url: boundedText.optional(),
+    windowTitle: boundedText.optional()
+  }).strict().superRefine((surface, context) => {
+    if (surface.kind === "native" && surface.pid === void 0 && surface.bundleId === void 0) {
+      context.addIssue({ code: "custom", message: "native surface requires pid or bundleId" });
+    }
+    if (surface.kind === "web" && surface.targetId === void 0 && surface.url === void 0) {
+      context.addIssue({ code: "custom", message: "web surface requires targetId or url" });
+    }
+  }),
+  action: external_exports.object({
+    kind: external_exports.string().regex(SAFE_TOKEN).max(128),
+    target: targetSchema.optional(),
+    startedAt: timestamp,
+    completedAt: timestamp
+  }).strict(),
+  before: observationSchema,
+  after: observationSchema,
+  validation: external_exports.object({
+    expectedCode: external_exports.string().regex(SAFE_CODE),
+    observedCode: external_exports.string().regex(SAFE_CODE),
+    passed: external_exports.boolean(),
+    expectedDetail: boundedText.optional(),
+    observedDetail: boundedText.optional()
+  }).strict()
+}).strict();
+var artifactReceiptSchema = external_exports.object({
+  kind: artifactSchema.shape.kind,
+  sha256: external_exports.string().regex(SHA256),
+  bytes: external_exports.number().int().nonnegative().optional(),
+  path: boundedText.optional()
+}).strict();
+var observationReceiptSchema = external_exports.object({
+  capturedAt: timestamp,
+  stateDigest: external_exports.union([external_exports.string().regex(SHA256), external_exports.string().regex(FIELD_DIGEST)]),
+  state: boundedText.optional(),
+  elementCount: external_exports.number().int().nonnegative().optional(),
+  interactiveElementCount: external_exports.number().int().nonnegative().optional(),
+  bounds: boundsSchema.optional(),
+  artifacts: external_exports.array(artifactReceiptSchema).max(10).optional()
+}).strict();
+var surfaceReceiptSchema = external_exports.object({
+  kind: external_exports.enum(["native", "web"]),
+  pid: external_exports.number().int().positive().optional(),
+  bundleId: external_exports.string().regex(SAFE_TOKEN).optional(),
+  targetIdDigest: external_exports.string().regex(FIELD_DIGEST).optional(),
+  urlDigest: external_exports.string().regex(FIELD_DIGEST).optional(),
+  windowTitleDigest: external_exports.string().regex(FIELD_DIGEST).optional(),
+  targetId: boundedText.optional(),
+  url: boundedText.optional(),
+  windowTitle: boundedText.optional()
+}).strict().superRefine((surface, context) => {
+  if (surface.kind === "native" && surface.pid === void 0 && surface.bundleId === void 0) {
+    context.addIssue({ code: "custom", message: "native surface requires pid or bundleId" });
+  }
+  if (surface.kind === "web" && surface.targetId === void 0 && surface.targetIdDigest === void 0 && surface.url === void 0 && surface.urlDigest === void 0) {
+    context.addIssue({ code: "custom", message: "web surface requires targetId or url evidence" });
+  }
+});
+var ExternalActionReceiptSchema = external_exports.object({
+  schemaVersion: external_exports.literal("ibr.external-action-receipt.v1"),
+  receiptId: external_exports.string().regex(RECEIPT_ID),
+  createdAt: timestamp,
+  correlationId: external_exports.string().regex(SAFE_TOKEN),
+  host: ExternalActionEvidenceInputSchema.shape.host,
+  surface: surfaceReceiptSchema,
+  action: external_exports.object({
+    kind: external_exports.string().regex(SAFE_TOKEN).max(128),
+    target: external_exports.object({
+      role: external_exports.string().regex(SAFE_TOKEN).max(128).optional(),
+      labelDigest: external_exports.string().regex(FIELD_DIGEST).optional(),
+      label: boundedText.optional(),
+      coordinates: targetSchema.shape.coordinates.optional()
+    }).strict().optional(),
+    startedAt: timestamp,
+    completedAt: timestamp,
+    durationMs: external_exports.number().int().nonnegative()
+  }).strict(),
+  before: observationReceiptSchema,
+  after: observationReceiptSchema,
+  validation: external_exports.object({
+    expectedCode: external_exports.string().regex(SAFE_CODE),
+    observedCode: external_exports.string().regex(SAFE_CODE),
+    passed: external_exports.boolean(),
+    expectedDetailDigest: external_exports.string().regex(FIELD_DIGEST).optional(),
+    observedDetailDigest: external_exports.string().regex(FIELD_DIGEST).optional(),
+    expectedDetail: boundedText.optional(),
+    observedDetail: boundedText.optional()
+  }).strict(),
+  privacy: external_exports.object({
+    mode: external_exports.enum(["metadata-only", "local-sensitive"]),
+    fieldDigestAlgorithm: external_exports.literal("hmac-sha256-ephemeral-key"),
+    artifactDigestAlgorithm: external_exports.literal("sha256"),
+    transformedFields: external_exports.array(external_exports.string().min(1).max(256)).max(64),
+    artifactPathsRetained: external_exports.boolean()
+  }).strict()
+}).strict().superRefine((receipt, context) => {
+  const duration3 = Date.parse(receipt.action.completedAt) - Date.parse(receipt.action.startedAt);
+  if (receipt.action.durationMs !== duration3) {
+    context.addIssue({ code: "custom", message: "action.durationMs does not match action timestamps" });
+  }
+  if (receipt.privacy.mode === "metadata-only") {
+    const rawFields = [
+      receipt.surface.targetId,
+      receipt.surface.url,
+      receipt.surface.windowTitle,
+      receipt.action.target?.label,
+      receipt.before.state,
+      receipt.after.state,
+      receipt.validation.expectedDetail,
+      receipt.validation.observedDetail,
+      ...(receipt.before.artifacts ?? []).map((artifact) => artifact.path),
+      ...(receipt.after.artifacts ?? []).map((artifact) => artifact.path)
+    ];
+    if (rawFields.some((value) => value !== void 0)) {
+      context.addIssue({ code: "custom", message: "metadata-only receipt contains a raw sensitive field" });
+    }
+    if (receipt.privacy.artifactPathsRetained) {
+      context.addIssue({ code: "custom", message: "metadata-only receipt cannot retain artifact paths" });
+    }
+  }
+});
 
 // src/index.ts
 init_schemas3();
@@ -39863,10 +40046,10 @@ async function compare(options) {
   }
   const resolvedViewport = typeof viewport === "string" ? VIEWPORTS[viewport] || VIEWPORTS.desktop : viewport;
   await (0, import_promises17.mkdir)(outputDir, { recursive: true });
-  const timestamp = Date.now();
-  const actualBaselinePath = baselinePath || (0, import_path21.join)(outputDir, `baseline-${timestamp}.png`);
-  const actualCurrentPath = currentPath || (0, import_path21.join)(outputDir, `current-${timestamp}.png`);
-  const diffPath = (0, import_path21.join)(outputDir, `diff-${timestamp}.png`);
+  const timestamp2 = Date.now();
+  const actualBaselinePath = baselinePath || (0, import_path21.join)(outputDir, `baseline-${timestamp2}.png`);
+  const actualCurrentPath = currentPath || (0, import_path21.join)(outputDir, `current-${timestamp2}.png`);
+  const diffPath = (0, import_path21.join)(outputDir, `diff-${timestamp2}.png`);
   if (url2 && !baselinePath) {
     await captureScreenshot({
       url: url2,
@@ -43453,10 +43636,10 @@ async function handleScreenshot(args) {
   const saveAs = args.save_as;
   const isExternal = !url2.includes("localhost") && !url2.includes("127.0.0.1");
   const delay = args.delay ?? (isExternal ? 2e3 : 500);
-  const timestamp = Date.now();
+  const timestamp2 = Date.now();
   const screenshotsDir = (0, import_path23.join)(DEFAULT_OUTPUT_DIR2, "screenshots");
   (0, import_fs10.mkdirSync)(screenshotsDir, { recursive: true });
-  const tempPath = (0, import_path23.join)(screenshotsDir, `capture-${timestamp}.png`);
+  const tempPath = (0, import_path23.join)(screenshotsDir, `capture-${timestamp2}.png`);
   await captureScreenshot({
     url: url2,
     outputPath: tempPath,

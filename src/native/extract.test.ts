@@ -23,6 +23,17 @@ function makePackagedCLI(): { runtimeDir: string; swiftDir: string } {
   return { runtimeDir, swiftDir };
 }
 
+function makePackagedLibrary(): { runtimeDir: string; swiftDir: string } {
+  const root = mkdtempSync(join(tmpdir(), 'ibr-packaged-library-'));
+  sandboxes.push(root);
+  const runtimeDir = join(root, 'dist');
+  const swiftDir = join(root, 'src', 'native', 'swift', 'ibr-ax-extract');
+  mkdirSync(runtimeDir, { recursive: true });
+  mkdirSync(swiftDir, { recursive: true });
+  writeFileSync(join(swiftDir, 'Package.swift'), '// fixture');
+  return { runtimeDir, swiftDir };
+}
+
 describe('resolveSwiftSourceDir', () => {
   it('locates the bundled Swift package from the source module', () => {
     expect(isExtractorAvailable()).toBe(true);
@@ -30,6 +41,11 @@ describe('resolveSwiftSourceDir', () => {
 
   it('finds the bundled Swift package from dist/bin', () => {
     const fixture = makePackagedCLI();
+    expect(resolveSwiftSourceDir(fixture.runtimeDir)).toBe(fixture.swiftDir);
+  });
+
+  it('finds the bundled Swift package from the package-root dist entrypoint', () => {
+    const fixture = makePackagedLibrary();
     expect(resolveSwiftSourceDir(fixture.runtimeDir)).toBe(fixture.swiftDir);
   });
 });

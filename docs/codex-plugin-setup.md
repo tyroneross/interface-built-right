@@ -91,4 +91,5 @@ The primary Codex path is skills plus MCP tools:
 - Use `ui-ux-guidance` for the current IBR UI/UX rules: Calm Precision, web archetypes, target roles, imagegen gates, states, mobile, and data visualization.
 - Validate web UI with `validate`.
 - Validate simulator or macOS UI with `native`.
+- Record structured evidence after a host Computer Use action with `ibr evidence:record <file|-> --json`; see `docs/external-action-evidence.md`.
 - Use MCP tools such as `scan`, `snapshot`, `compare`, `observe`, `interact`, `flow_search`, `flow_form`, `native_scan`, and `scan_macos` for live evidence.

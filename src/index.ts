@@ -31,6 +31,25 @@ import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 import { maybeAutoClean } from './cleanup.js';
 
+export {
+  ExternalActionEvidenceInputSchema,
+  ExternalActionReceiptSchema,
+  createExternalActionReceipt,
+  writeExternalActionReceipt,
+  recordExternalActionEvidence,
+} from './external-action-evidence.js';
+export type {
+  ExternalActionEvidenceInput,
+  ExternalActionPrivacyMode,
+  ExternalActionArtifactKind,
+  ExternalActionReceipt,
+  ExternalActionArtifactReceipt,
+  ExternalActionObservationReceipt,
+  CreateExternalActionReceiptOptions,
+  WriteExternalActionReceiptOptions,
+  RecordedExternalActionReceipt,
+} from './external-action-evidence.js';
+
 // ============================================================================
 // STANDALONE PROGRAMMATIC API
 // These functions provide first-class programmatic comparison without

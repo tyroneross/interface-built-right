@@ -40,6 +40,7 @@ import { registerNativeSessionCommands } from './native-session-cli.js';
 import { mergeCliConfig, normalizeFileConfig } from './cli-config.js';
 import { formatUserActionRequired } from '../session-hard-wall.js';
 import { configuredSessionIdleMs } from '../session-idle.js';
+import { registerExternalActionEvidenceCommand } from './external-action-evidence-cli.js';
 
 function readPackageVersion(): string {
   try {
@@ -5458,5 +5459,6 @@ program
 // command bodies + the cross-process session store live in
 // src/bin/native-session-cli.ts / src/native/session-store.ts.
 registerNativeSessionCommands(program);
+registerExternalActionEvidenceCommand(program);
 
 program.parse();

@@ -39,6 +39,7 @@
     "agents",
     "assets",
     "commands",
+    "docs/external-action-evidence.md",
     "hooks",
     "mobile-ui/sim-driver/Package.swift",
     "mobile-ui/sim-driver/Sources",

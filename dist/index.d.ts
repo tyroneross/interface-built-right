@@ -4310,6 +4310,315 @@ declare class CompatPage {
     };
 }
 
+declare const artifactSchema: z.ZodObject<{
+    kind: z.ZodEnum<{
+        screenshot: "screenshot";
+        "ax-tree": "ax-tree";
+        "dom-snapshot": "dom-snapshot";
+        "console-log": "console-log";
+        other: "other";
+    }>;
+    path: z.ZodOptional<z.ZodString>;
+    sha256: z.ZodOptional<z.ZodString>;
+    bytes: z.ZodOptional<z.ZodNumber>;
+}, z.core.$strict>;
+/**
+ * Host-neutral envelope supplied by an external computer-use executor.
+ *
+ * The schema intentionally carries no Codex, Claude, MCP, or provider SDK
+ * types. A host adapter maps its private action result into this bounded JSON
+ * shape before IBR sees it.
+ */
+declare const ExternalActionEvidenceInputSchema: z.ZodObject<{
+    schemaVersion: z.ZodLiteral<1>;
+    correlationId: z.ZodString;
+    host: z.ZodObject<{
+        family: z.ZodString;
+        executor: z.ZodString;
+        version: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+    surface: z.ZodObject<{
+        kind: z.ZodEnum<{
+            web: "web";
+            native: "native";
+        }>;
+        pid: z.ZodOptional<z.ZodNumber>;
+        bundleId: z.ZodOptional<z.ZodString>;
+        targetId: z.ZodOptional<z.ZodString>;
+        url: z.ZodOptional<z.ZodString>;
+        windowTitle: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+    action: z.ZodObject<{
+        kind: z.ZodString;
+        target: z.ZodOptional<z.ZodObject<{
+            role: z.ZodOptional<z.ZodString>;
+            label: z.ZodOptional<z.ZodString>;
+            coordinates: z.ZodOptional<z.ZodObject<{
+                x: z.ZodNumber;
+                y: z.ZodNumber;
+                unit: z.ZodEnum<{
+                    points: "points";
+                    pixels: "pixels";
+                }>;
+                scale: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        startedAt: z.ZodString;
+        completedAt: z.ZodString;
+    }, z.core.$strict>;
+    before: z.ZodObject<{
+        capturedAt: z.ZodString;
+        state: z.ZodOptional<z.ZodString>;
+        stateDigest: z.ZodOptional<z.ZodString>;
+        elementCount: z.ZodOptional<z.ZodNumber>;
+        interactiveElementCount: z.ZodOptional<z.ZodNumber>;
+        bounds: z.ZodOptional<z.ZodObject<{
+            x: z.ZodNumber;
+            y: z.ZodNumber;
+            width: z.ZodNumber;
+            height: z.ZodNumber;
+            unit: z.ZodEnum<{
+                points: "points";
+                pixels: "pixels";
+            }>;
+        }, z.core.$strict>>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            kind: z.ZodEnum<{
+                screenshot: "screenshot";
+                "ax-tree": "ax-tree";
+                "dom-snapshot": "dom-snapshot";
+                "console-log": "console-log";
+                other: "other";
+            }>;
+            path: z.ZodOptional<z.ZodString>;
+            sha256: z.ZodOptional<z.ZodString>;
+            bytes: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>;
+    after: z.ZodObject<{
+        capturedAt: z.ZodString;
+        state: z.ZodOptional<z.ZodString>;
+        stateDigest: z.ZodOptional<z.ZodString>;
+        elementCount: z.ZodOptional<z.ZodNumber>;
+        interactiveElementCount: z.ZodOptional<z.ZodNumber>;
+        bounds: z.ZodOptional<z.ZodObject<{
+            x: z.ZodNumber;
+            y: z.ZodNumber;
+            width: z.ZodNumber;
+            height: z.ZodNumber;
+            unit: z.ZodEnum<{
+                points: "points";
+                pixels: "pixels";
+            }>;
+        }, z.core.$strict>>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            kind: z.ZodEnum<{
+                screenshot: "screenshot";
+                "ax-tree": "ax-tree";
+                "dom-snapshot": "dom-snapshot";
+                "console-log": "console-log";
+                other: "other";
+            }>;
+            path: z.ZodOptional<z.ZodString>;
+            sha256: z.ZodOptional<z.ZodString>;
+            bytes: z.ZodOptional<z.ZodNumber>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>;
+    validation: z.ZodObject<{
+        expectedCode: z.ZodString;
+        observedCode: z.ZodString;
+        passed: z.ZodBoolean;
+        expectedDetail: z.ZodOptional<z.ZodString>;
+        observedDetail: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+}, z.core.$strict>;
+type ExternalActionEvidenceInput = z.infer<typeof ExternalActionEvidenceInputSchema>;
+type ExternalActionPrivacyMode = 'metadata-only' | 'local-sensitive';
+type ExternalActionArtifactKind = z.infer<typeof artifactSchema>['kind'];
+declare const artifactReceiptSchema: z.ZodObject<{
+    kind: z.ZodEnum<{
+        screenshot: "screenshot";
+        "ax-tree": "ax-tree";
+        "dom-snapshot": "dom-snapshot";
+        "console-log": "console-log";
+        other: "other";
+    }>;
+    sha256: z.ZodString;
+    bytes: z.ZodOptional<z.ZodNumber>;
+    path: z.ZodOptional<z.ZodString>;
+}, z.core.$strict>;
+declare const observationReceiptSchema: z.ZodObject<{
+    capturedAt: z.ZodString;
+    stateDigest: z.ZodUnion<readonly [z.ZodString, z.ZodString]>;
+    state: z.ZodOptional<z.ZodString>;
+    elementCount: z.ZodOptional<z.ZodNumber>;
+    interactiveElementCount: z.ZodOptional<z.ZodNumber>;
+    bounds: z.ZodOptional<z.ZodObject<{
+        x: z.ZodNumber;
+        y: z.ZodNumber;
+        width: z.ZodNumber;
+        height: z.ZodNumber;
+        unit: z.ZodEnum<{
+            points: "points";
+            pixels: "pixels";
+        }>;
+    }, z.core.$strict>>;
+    artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+        kind: z.ZodEnum<{
+            screenshot: "screenshot";
+            "ax-tree": "ax-tree";
+            "dom-snapshot": "dom-snapshot";
+            "console-log": "console-log";
+            other: "other";
+        }>;
+        sha256: z.ZodString;
+        bytes: z.ZodOptional<z.ZodNumber>;
+        path: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>>;
+}, z.core.$strict>;
+declare const ExternalActionReceiptSchema: z.ZodObject<{
+    schemaVersion: z.ZodLiteral<"ibr.external-action-receipt.v1">;
+    receiptId: z.ZodString;
+    createdAt: z.ZodString;
+    correlationId: z.ZodString;
+    host: z.ZodObject<{
+        family: z.ZodString;
+        executor: z.ZodString;
+        version: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+    surface: z.ZodObject<{
+        kind: z.ZodEnum<{
+            web: "web";
+            native: "native";
+        }>;
+        pid: z.ZodOptional<z.ZodNumber>;
+        bundleId: z.ZodOptional<z.ZodString>;
+        targetIdDigest: z.ZodOptional<z.ZodString>;
+        urlDigest: z.ZodOptional<z.ZodString>;
+        windowTitleDigest: z.ZodOptional<z.ZodString>;
+        targetId: z.ZodOptional<z.ZodString>;
+        url: z.ZodOptional<z.ZodString>;
+        windowTitle: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+    action: z.ZodObject<{
+        kind: z.ZodString;
+        target: z.ZodOptional<z.ZodObject<{
+            role: z.ZodOptional<z.ZodString>;
+            labelDigest: z.ZodOptional<z.ZodString>;
+            label: z.ZodOptional<z.ZodString>;
+            coordinates: z.ZodOptional<z.ZodOptional<z.ZodObject<{
+                x: z.ZodNumber;
+                y: z.ZodNumber;
+                unit: z.ZodEnum<{
+                    points: "points";
+                    pixels: "pixels";
+                }>;
+                scale: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>>;
+        }, z.core.$strict>>;
+        startedAt: z.ZodString;
+        completedAt: z.ZodString;
+        durationMs: z.ZodNumber;
+    }, z.core.$strict>;
+    before: z.ZodObject<{
+        capturedAt: z.ZodString;
+        stateDigest: z.ZodUnion<readonly [z.ZodString, z.ZodString]>;
+        state: z.ZodOptional<z.ZodString>;
+        elementCount: z.ZodOptional<z.ZodNumber>;
+        interactiveElementCount: z.ZodOptional<z.ZodNumber>;
+        bounds: z.ZodOptional<z.ZodObject<{
+            x: z.ZodNumber;
+            y: z.ZodNumber;
+            width: z.ZodNumber;
+            height: z.ZodNumber;
+            unit: z.ZodEnum<{
+                points: "points";
+                pixels: "pixels";
+            }>;
+        }, z.core.$strict>>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            kind: z.ZodEnum<{
+                screenshot: "screenshot";
+                "ax-tree": "ax-tree";
+                "dom-snapshot": "dom-snapshot";
+                "console-log": "console-log";
+                other: "other";
+            }>;
+            sha256: z.ZodString;
+            bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>;
+    after: z.ZodObject<{
+        capturedAt: z.ZodString;
+        stateDigest: z.ZodUnion<readonly [z.ZodString, z.ZodString]>;
+        state: z.ZodOptional<z.ZodString>;
+        elementCount: z.ZodOptional<z.ZodNumber>;
+        interactiveElementCount: z.ZodOptional<z.ZodNumber>;
+        bounds: z.ZodOptional<z.ZodObject<{
+            x: z.ZodNumber;
+            y: z.ZodNumber;
+            width: z.ZodNumber;
+            height: z.ZodNumber;
+            unit: z.ZodEnum<{
+                points: "points";
+                pixels: "pixels";
+            }>;
+        }, z.core.$strict>>;
+        artifacts: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            kind: z.ZodEnum<{
+                screenshot: "screenshot";
+                "ax-tree": "ax-tree";
+                "dom-snapshot": "dom-snapshot";
+                "console-log": "console-log";
+                other: "other";
+            }>;
+            sha256: z.ZodString;
+            bytes: z.ZodOptional<z.ZodNumber>;
+            path: z.ZodOptional<z.ZodString>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>;
+    validation: z.ZodObject<{
+        expectedCode: z.ZodString;
+        observedCode: z.ZodString;
+        passed: z.ZodBoolean;
+        expectedDetailDigest: z.ZodOptional<z.ZodString>;
+        observedDetailDigest: z.ZodOptional<z.ZodString>;
+        expectedDetail: z.ZodOptional<z.ZodString>;
+        observedDetail: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>;
+    privacy: z.ZodObject<{
+        mode: z.ZodEnum<{
+            "metadata-only": "metadata-only";
+            "local-sensitive": "local-sensitive";
+        }>;
+        fieldDigestAlgorithm: z.ZodLiteral<"hmac-sha256-ephemeral-key">;
+        artifactDigestAlgorithm: z.ZodLiteral<"sha256">;
+        transformedFields: z.ZodArray<z.ZodString>;
+        artifactPathsRetained: z.ZodBoolean;
+    }, z.core.$strict>;
+}, z.core.$strict>;
+type ExternalActionArtifactReceipt = z.infer<typeof artifactReceiptSchema>;
+type ExternalActionObservationReceipt = z.infer<typeof observationReceiptSchema>;
+type ExternalActionReceipt = z.infer<typeof ExternalActionReceiptSchema>;
+interface CreateExternalActionReceiptOptions {
+    privacyMode?: ExternalActionPrivacyMode;
+    /** Test/embedding seam. Production callers should let IBR create a random key. */
+    digestKey?: string | Buffer;
+    receiptId?: string;
+    createdAt?: string;
+}
+interface WriteExternalActionReceiptOptions {
+    outputDir?: string;
+}
+interface RecordedExternalActionReceipt {
+    receipt: ExternalActionReceipt;
+    path: string;
+}
+declare function createExternalActionReceipt(rawInput: unknown, options?: CreateExternalActionReceiptOptions): Promise<ExternalActionReceipt>;
+declare function writeExternalActionReceipt(receipt: ExternalActionReceipt, options?: WriteExternalActionReceiptOptions): Promise<string>;
+declare function recordExternalActionEvidence(input: unknown, createOptions?: CreateExternalActionReceiptOptions, writeOptions?: WriteExternalActionReceiptOptions): Promise<RecordedExternalActionReceipt>;
+
 /**
  * BrowserPool — keeps a single warm EngineDriver alive across multiple scans
  * in the same process.
@@ -8254,4 +8563,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BreadcrumbContext, BreadcrumbContextSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type ProvenancedThreshold, ProvenancedThresholdSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TargetContext, TargetContextSchema, type TextIssue, type ThresholdBasis, ThresholdBasisSchema, type ThresholdOverride, ThresholdOverrideSchema, type TokenViolation, type TouchTargetIssue, VERDICT_POLICY_KEYS, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, type VerdictPolicy, type VerdictPolicyOverride, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, WEB_VERDICT_POLICY, type WebVitals, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BreadcrumbContext, BreadcrumbContextSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CreateExternalActionReceiptOptions, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExternalActionArtifactKind, type ExternalActionArtifactReceipt, type ExternalActionEvidenceInput, ExternalActionEvidenceInputSchema, type ExternalActionObservationReceipt, type ExternalActionPrivacyMode, type ExternalActionReceipt, ExternalActionReceiptSchema, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type ProvenancedThreshold, ProvenancedThresholdSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecordedExternalActionReceipt, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TargetContext, TargetContextSchema, type TextIssue, type ThresholdBasis, ThresholdBasisSchema, type ThresholdOverride, ThresholdOverrideSchema, type TokenViolation, type TouchTargetIssue, VERDICT_POLICY_KEYS, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, type VerdictPolicy, type VerdictPolicyOverride, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, WEB_VERDICT_POLICY, type WebVitals, type WriteExternalActionReceiptOptions, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
