@@ -101,8 +101,15 @@ export function makeStyleRule(
   selector: string,
   declarations: Record<string, string>,
   sourceUrl?: string,
+  focusMatches?: string[],
 ): ExtractedCSSRule {
-  return { kind: 'style', selector, declarations, ...(sourceUrl ? { sourceUrl } : {}) };
+  return {
+    kind: 'style',
+    selector,
+    declarations,
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(focusMatches ? { focusMatches } : {}),
+  };
 }
 
 /**

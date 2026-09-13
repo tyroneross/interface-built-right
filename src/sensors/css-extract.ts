@@ -77,19 +77,202 @@ export async function extractCssRulesAndMeta(
         const prop = style.item(i);
         if (!prop) continue;
         const value = style.getPropertyValue(prop);
-        if (value) out[prop] = value.trim();
+        if (value) {
+          out[prop] = value.trim();
+          continue;
+        }
+        // Chrome enumerates `style.item(i)` down to LONGHANDS even when the
+        // declaration was written as a shorthand, and when the shorthand's
+        // value contains an unresolved `var()` (a "pending-substitution
+        // value" in the CSSOM spec) every enumerated longhand reports "" from
+        // `getPropertyValue`, while the shorthand property itself still holds
+        // the raw text. Observed live: `.btn:focus-visible { outline: 2px
+        // solid var(--accent); outline-offset: 2px }` enumerated
+        // outline-color/-style/-width as "" and only outline-offset (no
+        // var()) survived — `.option:focus-visible` captured
+        // `{outline-offset: '2px'}` and `.option:hover` captured `{}`.
+        // Recover by walking hyphen-joined prefixes of the longhand's name
+        // from longest to shortest (border-top-width -> border-top ->
+        // border) and keeping the first prefix whose OWN getPropertyValue is
+        // non-empty. `out` doubles as the "already added" set — dict keys
+        // dedupe naturally, so a later longhand that resolves to an already-
+        // recovered shorthand is a no-op.
+        const parts = prop.split('-');
+        // A longhand with 3+ hyphen segments can have a "drop the middle"
+        // shorthand that no contiguous left-anchored prefix below would ever
+        // reach: `border-top-color` -> `border-color` (not `border-top`,
+        // which isn't a real property), `border-top-left-radius` ->
+        // `border-radius`. Tried FIRST so the more specific two-part
+        // shorthand wins over a coarser prefix (e.g. plain `border`) that
+        // would also happen to resolve.
+        if (parts.length >= 3) {
+          const dropMiddle = `${parts[0]}-${parts[parts.length - 1]}`;
+          if (!(dropMiddle in out)) {
+            const dropMiddleValue = style.getPropertyValue(dropMiddle);
+            if (dropMiddleValue) {
+              out[dropMiddle] = dropMiddleValue.trim();
+              continue;
+            }
+          }
+        }
+        for (let cut = parts.length - 1; cut >= 1; cut--) {
+          const candidate = parts.slice(0, cut).join('-');
+          if (candidate in out) break;
+          const candidateValue = style.getPropertyValue(candidate);
+          if (candidateValue) {
+            out[candidate] = candidateValue.trim();
+            break;
+          }
+        }
       }
       return out;
+    }
+
+    // Regex alternation matches left-to-right; longer alternatives MUST come
+    // first so ":focus-visible" matches "focus-visible" before ":focus".
+    // Mirrors STATE_RE in src/sensors/interaction-states.ts — kept as a
+    // separate copy because this closure ships across CDP via
+    // `page.evaluate()` and cannot import a runtime module.
+    const STATE_RE = /:(focus-visible|focus-within|hover|focus|active|disabled)\b/g;
+    // Matches ":focus" or ":focus-visible" but NOT ":focus-within" — a bare
+    // `\b` after "focus" also sits on the boundary inside "focus-within"
+    // (word char 's' -> non-word char '-'), so a naive `/:focus\b/` would
+    // false-positive on `:focus-within`.
+    const FOCUS_PSEUDO_RE = /:focus-visible\b|:focus(?!-within)\b/;
+
+    // Matches an empty functional pseudo left behind by STATE_RE stripping
+    // its only argument, e.g. `.btn:not(:disabled)` -> `.btn:not(:disabled)`
+    // minus the state token -> `.btn:not()`, which `querySelectorAll` throws
+    // on. `:not()`/`:is()`/`:where()`/`:has()` are all valid with zero
+    // meaningful arguments removed this way; stripping the whole empty shell
+    // is safe because an empty `:not()` matches nothing useful anyway once
+    // its only argument was a state pseudo.
+    const EMPTY_FUNCTIONAL_PSEUDO_RE = /:(not|is|where|has)\(\s*\)/g;
+
+    // Selector text can carry a comma INSIDE a functional pseudo's argument
+    // list (`:where(a, button)`, `:is(.a, .b)`) that is not a top-level
+    // selector-list separator. A naive `selectorText.split(',')` (both here
+    // and in the parseStateSelectors sibling in interaction-states.ts, which
+    // has this same class of gap for its own base-selector parsing) would
+    // shred `:where(a, button):focus-visible` into `:where(a` and
+    // ` button):focus-visible` — neither a selector `querySelectorAll` can
+    // parse. Track paren depth and only split where depth is 0.
+    function splitTopLevelCommas(selectorText: string): string[] {
+      const parts: string[] = [];
+      let depth = 0;
+      let current = '';
+      for (const ch of selectorText) {
+        if (ch === '(') depth++;
+        else if (ch === ')') depth = Math.max(0, depth - 1);
+        if (ch === ',' && depth === 0) {
+          parts.push(current);
+          current = '';
+        } else {
+          current += ch;
+        }
+      }
+      parts.push(current);
+      return parts.map((p) => p.trim()).filter(Boolean);
+    }
+
+    // `buildStructuralSelector` (declared below) walks the element's full
+    // ancestor chain on every call. `computeFocusMatches` can call it for
+    // the SAME element many times over — once per declared focus rule that
+    // matches it — so memoize per element for the lifetime of this one
+    // extraction call rather than re-walking the DOM each time.
+    const structuralSelectorCache = new Map<Element, string>();
+    function cachedStructuralSelector(el: Element): string {
+      const cached = structuralSelectorCache.get(el);
+      if (cached !== undefined) return cached;
+      const built = buildStructuralSelector(el);
+      structuralSelectorCache.set(el, built);
+      return built;
+    }
+
+    /**
+     * For a style rule whose `selectorText` declares a focus pseudo, resolve
+     * which LIVE elements it actually matches right now, so
+     * interaction-states.ts can ask "did a declared focus rule really cover
+     * this element" instead of comparing selector text (which breaks on
+     * compound selectors, combinators, and attribute selectors).
+     *
+     * For each comma-separated part that contains a focus pseudo, strip EVERY
+     * state pseudo token from the part (not just the base left of the first
+     * one) and query with what's left. Taking only the base left of the first
+     * state pseudo is wrong for descendant/combinator selectors: for
+     * `.card:hover .btn:focus-visible`, the base is `.card`, which matches
+     * the card element itself, not `.btn` — the button that actually carries
+     * the focus rule stays unmatched. Stripping every state pseudo instead
+     * yields `.card .btn`, which correctly resolves to the button.
+     *
+     * Stripping can leave behind a dangling combinator (`.a > :focus` strips
+     * to `.a >`, fixed up below by appending `*`) or an empty functional
+     * pseudo when the pseudo's only argument WAS a state pseudo
+     * (`.btn:not(:disabled)` strips to `.btn:not()`, cleaned up by
+     * `EMPTY_FUNCTIONAL_PSEUDO_RE` below to `.btn`). If the stripped
+     * selector still throws for some other reason, fall back to the old
+     * base-only resolution (everything left of the FIRST state pseudo),
+     * which is a strict subset of "elements the rule affects" for those
+     * cases.
+     */
+    function stripStatePseudos(part: string): string {
+      let stripped = part.replace(STATE_RE, '');
+      // Stripping a state pseudo can leave a functional pseudo with nothing
+      // inside it (`.btn:not(:disabled)` -> `.btn:not()`), which
+      // `querySelectorAll` rejects as invalid. Run AFTER the state-pseudo
+      // strip since that's what creates the empty shell.
+      stripped = stripped.replace(EMPTY_FUNCTIONAL_PSEUDO_RE, '');
+      stripped = stripped.trim();
+      // Pseudos attach to compounds, so a stripped selector can only dangle
+      // on a combinator when the compound following it was ENTIRELY a state
+      // pseudo (`.a > :focus` -> `.a >`), never on a bare trailing combinator
+      // from a non-pseudo compound.
+      if (/[>+~]\s*$/.test(stripped)) stripped += ' *';
+      return stripped || '*';
+    }
+
+    function computeFocusMatches(selectorText: string): string[] {
+      const matched = new Set<string>();
+      const parts = splitTopLevelCommas(selectorText);
+      for (const part of parts) {
+        if (!FOCUS_PSEUDO_RE.test(part)) continue;
+        const stripped = stripStatePseudos(part);
+        let found: NodeListOf<Element> | undefined;
+        try {
+          found = document.querySelectorAll(stripped);
+        } catch {
+          STATE_RE.lastIndex = 0;
+          const m = STATE_RE.exec(part);
+          if (!m) continue;
+          const base = part.slice(0, m.index).trim() || '*';
+          try {
+            found = document.querySelectorAll(base);
+          } catch {
+            continue;
+          }
+        }
+        for (let i = 0; i < found.length; i++) {
+          if (matched.size >= 1000) break;
+          matched.add(cachedStructuralSelector(found[i]!));
+        }
+        if (matched.size >= 1000) break;
+      }
+      return Array.from(matched);
     }
 
     function convertRule(rule: CSSRule, sourceUrl?: string): InlineExtractedRule | null {
       // CSSStyleRule
       if (rule instanceof CSSStyleRule) {
+        const selector = rule.selectorText;
+        const focusMatches = FOCUS_PSEUDO_RE.test(selector)
+          ? computeFocusMatches(selector)
+          : undefined;
         return {
           kind: 'style',
-          selector: rule.selectorText,
+          selector,
           declarations: declarationsFromStyle(rule.style),
           ...(sourceUrl ? { sourceUrl } : {}),
+          ...(focusMatches ? { focusMatches } : {}),
         };
       }
       // CSSMediaRule

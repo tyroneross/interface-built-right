@@ -19,6 +19,17 @@ export type ExtractedCSSRule =
       selector: string;             // raw selectorText
       declarations: Record<string, string>;
       sourceUrl?: string;           // owning stylesheet href
+      /**
+       * Structural selectors (see `buildStructuralSelector` in css-extract.ts)
+       * of every LIVE element this rule's `:focus`/`:focus-visible` comma-part(s)
+       * actually matched at scan time, via `document.querySelectorAll`. Only
+       * present on rules whose `selectorText` declares a focus pseudo. Lets
+       * interaction-states.ts ask "did a DECLARED focus rule really match this
+       * element" instead of string-comparing selector text, which breaks on
+       * compound/combinator/attribute selectors. Optional so static/fixture
+       * SensorContexts built without a live browser still typecheck.
+       */
+      focusMatches?: string[];
     }
   | {
       kind: 'media';
