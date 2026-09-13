@@ -1,8 +1,8 @@
 # External computer-use evidence
 
-IBR can record a structured before/action/after receipt for an action executed by another computer-use system. The contract is host-neutral: Codex can call the CLI as a sidecar, and a Claude computer-use client handler can call the package API around its action implementation.
+IBR can record a structured before/action/after receipt for observations and a verifier outcome supplied around an action executed by another computer-use system. The contract is host-neutral: Codex can call the CLI as a sidecar, and a Claude computer-use client handler can call the package API around its action implementation.
 
-IBR remains the observer and verifier. The host computer-use system remains the action authority. Do not let both systems drive the pointer or focus concurrently.
+IBR validates the envelope, applies its privacy policy, and records the supplied outcome; it does not independently prove that the caller's `passed` value or descriptive details are true. The host adapter owns observation and validation, while the host computer-use system remains the action authority. Do not let IBR and the host both drive the pointer or focus concurrently.
 
 ## Privacy boundary
 
@@ -69,7 +69,7 @@ An observation accepts exactly one of:
 - `state`: a description that IBR transforms into an HMAC digest; or
 - `stateDigest`: an existing `sha256:<64 lowercase hex>` digest produced by the observer.
 
-Artifacts accept a local `path`, an existing `sha256` digest, or both. When both are present, IBR reads the local file and rejects a mismatch.
+Artifacts accept a local `path`, an existing `sha256` digest, or both. A path is read only when `artifactRoot` (API) or `--artifact-root` (CLI) explicitly allowlists its containing tree. IBR resolves the real path, rejects symlinks and non-regular files, verifies the file did not change between inspection and open, and reads at most 64 MiB through a bounded streaming hash. Larger evidence should be reduced or hashed by the observer before ingestion.
 
 ## Codex sidecar
 
@@ -85,7 +85,7 @@ For a pipe that avoids an intermediate envelope file:
 generate_receipt_json | ibr evidence:record - --json
 ```
 
-The default destination is `.ibr/evidence/<receipt-id>.json`. IBR writes mode `0600`, fsyncs the temporary file, and publishes it with an exclusive same-directory link so a duplicate receipt ID cannot replace prior evidence.
+Add `--artifact-root /allowed/evidence/root` when the envelope contains a local artifact path; omit it for precomputed artifact digests or no artifacts. The default destination is `.ibr/evidence/<receipt-id>.json`. IBR writes mode `0600`, fsyncs the temporary file, and publishes it with an exclusive same-directory link so a duplicate receipt ID cannot replace prior evidence. A failed write, fsync, link, or temporary-file removal returns failure and triggers another cleanup attempt.
 
 Codex's Computer Use session/tab identifiers remain outside this contract. Map any useful identifier to the opaque `surface.targetId` field; metadata-only mode digests it.
 
@@ -118,6 +118,8 @@ const recorded = await recordExternalActionEvidence({
 
 Return the compact receipt or its local path to Claude. Do not return full screenshots, AX trees, DOM text, or other private source content unless a separate authorization and retention policy allows it.
 
+When `before` or `after` includes an artifact `path`, pass `{ artifactRoot: '/allowed/evidence/root' }` as the API's second argument.
+
 Claude Code does not need a built-in computer-use interception API for this contract. It can invoke the same CLI from Bash after an external executor acts.
 
 ## Action ordering
@@ -127,7 +129,7 @@ Claude Code does not need a built-in computer-use interception API for this cont
 3. Execute the host action.
 4. Wait for the target to settle.
 5. Capture the after observation.
-6. Validate the expected outcome.
+6. Have the host-side verifier validate the expected outcome.
 7. Record the IBR receipt.
 
 For Retina-native actions, label coordinates as `points` or `pixels` and provide `scale` when the executor's screenshot coordinate system differs from Accessibility geometry.

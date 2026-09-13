@@ -80,9 +80,9 @@ Use direct `pid` targeting when a sandboxed agent can learn the process ID from 
 
 ## External Computer-Use Receipts
 
-IBR can verify an action executed by a host computer-use system without importing that host's SDK. Use `ibr evidence:record <file|-> --json` for a Codex/Claude sidecar, or call `recordExternalActionEvidence` around a Claude client-side computer-use handler. The input is a strict before/action/after JSON envelope. Native surfaces require a PID or bundle ID; web surfaces require an opaque target ID or URL.
+IBR can validate and record a host verifier's evidence for an action without importing that host's SDK. Use `ibr evidence:record <file|-> --json` for a Codex/Claude sidecar, or call `recordExternalActionEvidence` around a Claude client-side computer-use handler. The input is a strict before/action/after JSON envelope. Native surfaces require a PID or bundle ID; web surfaces require an opaque target ID or URL.
 
-`metadata-only` is the default and digests descriptive UI fields with a per-receipt ephemeral HMAC key. Raw local evidence paths and descriptive fields require the explicit `local-sensitive` mode. IBR observes and validates; the external computer-use system remains the single action owner. Never let both drive focus or the pointer concurrently. See `docs/external-action-evidence.md` for the schema and both host examples.
+`metadata-only` is the default and digests descriptive UI fields with a per-receipt ephemeral HMAC key. Raw local evidence paths and descriptive fields require the explicit `local-sensitive` mode; any artifact path also requires an allowlisted `artifactRoot` or `--artifact-root` and must resolve to a regular file of at most 64 MiB. IBR validates and records the supplied verifier outcome; the external computer-use system remains the single action owner. Never let both drive focus or the pointer concurrently. See `docs/external-action-evidence.md` for the schema and both host examples.
 
 Responses for `keystroke`/`app`/`menuPath` carry the structured
 `{ success, validator: { expected, observed, passed }, provenance, evidence? }`

@@ -726,7 +726,7 @@ var init_connection = __esm({
       async connect(wsUrl, options) {
         const timeoutMs = options?.timeoutMs ?? WS_CONNECT_TIMEOUT_MS;
         const started = Date.now();
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const ws = new WebSocket(wsUrl);
           let settled = false;
           const timer = setTimeout(() => {
@@ -750,7 +750,7 @@ var init_connection = __esm({
             ws.addEventListener("message", (event) => this.handleMessage(event));
             ws.addEventListener("close", () => this.handleClose());
             ws.addEventListener("error", () => this.handleClose());
-            resolve3();
+            resolve4();
           };
           const onError = () => {
             if (settled) return;
@@ -767,7 +767,7 @@ var init_connection = __esm({
           throw new Error("Not connected");
         }
         const id = ++this.nextId;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const timer = setTimeout(() => {
             if (this.pending.has(id)) {
               this.pending.delete(id);
@@ -778,7 +778,7 @@ var init_connection = __esm({
             }
           }, this.timeoutMs);
           this.pending.set(id, {
-            resolve: resolve3,
+            resolve: resolve4,
             reject,
             timer
           });
@@ -806,14 +806,14 @@ var init_connection = __esm({
         }
         if ("id" in data && this.pending.has(data.id)) {
           const id = data.id;
-          const { resolve: resolve3, reject, timer } = this.pending.get(id);
+          const { resolve: resolve4, reject, timer } = this.pending.get(id);
           clearTimeout(timer);
           this.pending.delete(id);
           if (data.error) {
             const err = data.error;
             reject(new Error(`CDP error ${err.code}: ${err.message}`));
           } else {
-            resolve3(data.result);
+            resolve4(data.result);
           }
         } else if ("method" in data) {
           const handlers = this.eventHandlers.get(data.method);
@@ -861,20 +861,20 @@ async function findFreePort(maxAttempts = 10) {
     const isFree = await checkPortFree(port);
     if (isFree) return port;
   }
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const srv = net.createServer();
     srv.listen(0, () => {
       const port = srv.address().port;
-      srv.close(() => resolve3(port));
+      srv.close(() => resolve4(port));
     });
     srv.on("error", reject);
   });
 }
 function checkPortFree(port) {
-  return new Promise((resolve3) => {
+  return new Promise((resolve4) => {
     const srv = net.createServer();
-    srv.once("error", () => resolve3(false));
-    srv.listen(port, () => srv.close(() => resolve3(true)));
+    srv.once("error", () => resolve4(false));
+    srv.listen(port, () => srv.close(() => resolve4(true)));
   });
 }
 async function resolveWsEndpoint(cdpUrl) {
@@ -968,10 +968,10 @@ function reclaimStaleSingletonLock(lockPath, profileDir) {
   } catch {
     return false;
   }
-  const sep = target.lastIndexOf("-");
-  if (sep <= 0) return false;
-  const host = target.slice(0, sep);
-  const pid = Number(target.slice(sep + 1));
+  const sep2 = target.lastIndexOf("-");
+  if (sep2 <= 0) return false;
+  const host = target.slice(0, sep2);
+  const pid = Number(target.slice(sep2 + 1));
   if (!Number.isInteger(pid) || pid <= 0) return false;
   let psOutput;
   try {
@@ -1217,17 +1217,17 @@ ${tail}` : "";
         const proc = this.process;
         this.process = null;
         if (!this._exit) {
-          await new Promise((resolve3) => {
+          await new Promise((resolve4) => {
             const killTimer = setTimeout(() => {
               try {
                 proc.kill("SIGKILL");
               } catch {
               }
-              resolve3();
+              resolve4();
             }, 3e3);
             proc.once("close", () => {
               clearTimeout(killTimer);
-              resolve3();
+              resolve4();
             });
             proc.kill("SIGTERM");
           });
@@ -2454,12 +2454,12 @@ var init_network = __esm({
        */
       async waitForResponse(predicate, options = {}) {
         const timeout = options.timeout ?? 3e4;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const waiter = {
             predicate,
             resolve: (value) => {
               clearTimeout(timer);
-              resolve3(value);
+              resolve4(value);
             }
           };
           const timer = setTimeout(() => {
@@ -3858,8 +3858,8 @@ var init_driver = __esm({
             totalInteractive: interactive.length
           };
         }
-        const { resolve: resolve3 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
-        const result = resolve3({
+        const { resolve: resolve4 } = await Promise.resolve().then(() => (init_resolve(), resolve_exports));
+        const result = resolve4({
           intent: options.role ? `${name} ${options.role}` : name,
           elements: allElements,
           mode: "algorithmic"
@@ -4289,8 +4289,8 @@ var init_driver = __esm({
         if (this.pendingDialog) return void 0;
         let onDialog = () => {
         };
-        const dialogSignal = new Promise((resolve3) => {
-          onDialog = resolve3;
+        const dialogSignal = new Promise((resolve4) => {
+          onDialog = resolve4;
           this.dialogWaiters.add(onDialog);
         });
         try {
@@ -4336,10 +4336,10 @@ var init_driver = __esm({
        */
       async waitForDialog(timeout = 5e3) {
         if (this.pendingDialog) return this.pendingDialog;
-        return new Promise((resolve3, reject) => {
+        return new Promise((resolve4, reject) => {
           const onDialog = () => {
             clearTimeout(timer);
-            resolve3(this.pendingDialog);
+            resolve4(this.pendingDialog);
           };
           const timer = setTimeout(() => {
             this.dialogWaiters.delete(onDialog);
@@ -6847,7 +6847,7 @@ function rateMetric(value, thresholds) {
 }
 async function measureWebVitals(page) {
   const metrics = await page.evaluate(() => {
-    return new Promise((resolve3) => {
+    return new Promise((resolve4) => {
       const result = {
         LCP: null,
         FID: null,
@@ -6897,7 +6897,7 @@ async function measureWebVitals(page) {
         if (navEntry) {
           result.TTI = navEntry.domInteractive;
         }
-        resolve3(result);
+        resolve4(result);
       }, 3e3);
     });
   });
@@ -7356,11 +7356,11 @@ async function measureApiTiming(page, options = {}) {
   page.on("request", requestHandler);
   page.on("response", responseHandler);
   page.on("requestfailed", requestFailedHandler);
-  await new Promise((resolve3) => {
+  await new Promise((resolve4) => {
     const startWait = Date.now();
     const check = () => {
       if (requests.size === 0 || Date.now() - startWait > timeout) {
-        resolve3();
+        resolve4();
         return;
       }
       setTimeout(check, 100);
@@ -13807,7 +13807,7 @@ async function bootDevice(udid) {
     return;
   }
   await execFileAsync("xcrun", ["simctl", "boot", udid]);
-  await new Promise((resolve3) => setTimeout(resolve3, 2e3));
+  await new Promise((resolve4) => setTimeout(resolve4, 2e3));
 }
 function formatDevice(device) {
   const runtimeVersion = device.runtime.replace(/^.*SimRuntime\./, "").replace(/-/g, ".");
@@ -14303,7 +14303,7 @@ async function activateMacOSProcess(pid) {
   }
 }
 function sleep(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const enhanced = [];
@@ -15112,14 +15112,14 @@ __export(crop_exports, {
   cropPng: () => cropPng
 });
 function loadPng(path2) {
-  return new Promise((resolve3, reject) => {
+  return new Promise((resolve4, reject) => {
     const png = new pngjs.PNG();
-    fs$1.createReadStream(path2).pipe(png).on("parsed", () => resolve3(png)).on("error", reject);
+    fs$1.createReadStream(path2).pipe(png).on("parsed", () => resolve4(png)).on("error", reject);
   });
 }
 function writePng(png, path2) {
-  return new Promise((resolve3, reject) => {
-    png.pack().pipe(fs$1.createWriteStream(path2)).on("finish", resolve3).on("error", reject);
+  return new Promise((resolve4, reject) => {
+    png.pack().pipe(fs$1.createWriteStream(path2)).on("finish", resolve4).on("error", reject);
   });
 }
 function clamp(v, lo, hi) {
@@ -17201,6 +17201,7 @@ var SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 var SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
 var RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
 var TRANSFORMED_FIELD = /^(surface\.(targetId|url|windowTitle)|action\.target\.label|validation\.(expectedDetail|observedDetail)|(before|after)\.state|(before|after)\.artifacts\[[0-9]\]\.path)$/;
+var MAX_EXTERNAL_ACTION_ARTIFACT_BYTES = 64 * 1024 * 1024;
 var boundedText = zod.z.string().min(1).max(MAX_TEXT);
 var timestamp = zod.z.string().datetime({ offset: true });
 var boundsSchema = zod.z.object({
@@ -17214,7 +17215,7 @@ var artifactSchema = zod.z.object({
   kind: zod.z.enum(["screenshot", "ax-tree", "dom-snapshot", "console-log", "other"]),
   path: boundedText.optional(),
   sha256: zod.z.string().regex(SHA256).optional(),
-  bytes: zod.z.number().int().nonnegative().optional()
+  bytes: zod.z.number().int().nonnegative().max(MAX_EXTERNAL_ACTION_ARTIFACT_BYTES).optional()
 }).strict().refine((value) => value.path !== void 0 || value.sha256 !== void 0, {
   message: "artifact requires path or sha256"
 });
@@ -17282,7 +17283,7 @@ var ExternalActionEvidenceInputSchema = zod.z.object({
 var artifactReceiptSchema = zod.z.object({
   kind: artifactSchema.shape.kind,
   sha256: zod.z.string().regex(SHA256),
-  bytes: zod.z.number().int().nonnegative().optional(),
+  bytes: zod.z.number().int().nonnegative().max(MAX_EXTERNAL_ACTION_ARTIFACT_BYTES).optional(),
   path: boundedText.optional()
 }).strict();
 var observationReceiptSchema = zod.z.object({
@@ -17384,24 +17385,115 @@ var ExternalActionReceiptSchema = zod.z.object({
   if (receipt.privacy.artifactPathsRetained !== hasArtifactPath) {
     context.addIssue({ code: "custom", message: "privacy.artifactPathsRetained does not match retained artifact paths" });
   }
+  const declaredTransforms = new Set(receipt.privacy.transformedFields);
+  if (declaredTransforms.size !== receipt.privacy.transformedFields.length) {
+    context.addIssue({ code: "custom", message: "privacy.transformedFields cannot contain duplicates" });
+  }
+  if (receipt.privacy.mode === "local-sensitive" && declaredTransforms.size > 0) {
+    context.addIssue({ code: "custom", message: "local-sensitive receipt cannot claim transformed fields" });
+  }
+  if (receipt.privacy.mode === "metadata-only") {
+    const expectedDigestTransforms = /* @__PURE__ */ new Set();
+    if (receipt.surface.targetIdDigest) expectedDigestTransforms.add("surface.targetId");
+    if (receipt.surface.urlDigest) expectedDigestTransforms.add("surface.url");
+    if (receipt.surface.windowTitleDigest) expectedDigestTransforms.add("surface.windowTitle");
+    if (receipt.action.target?.labelDigest) expectedDigestTransforms.add("action.target.label");
+    if (receipt.before.stateDigest.startsWith("hmac-sha256:")) expectedDigestTransforms.add("before.state");
+    if (receipt.after.stateDigest.startsWith("hmac-sha256:")) expectedDigestTransforms.add("after.state");
+    if (receipt.validation.expectedDetailDigest) expectedDigestTransforms.add("validation.expectedDetail");
+    if (receipt.validation.observedDetailDigest) expectedDigestTransforms.add("validation.observedDetail");
+    for (const field of expectedDigestTransforms) {
+      if (!declaredTransforms.has(field)) {
+        context.addIssue({ code: "custom", message: `privacy.transformedFields is missing ${field}` });
+      }
+    }
+    for (const field of declaredTransforms) {
+      const artifactMatch = /^(before|after)\.artifacts\[([0-9])\]\.path$/.exec(field);
+      if (artifactMatch) {
+        const observation = artifactMatch[1] === "before" ? receipt.before : receipt.after;
+        const artifact = observation.artifacts?.[Number(artifactMatch[2])];
+        if (!artifact || artifact.path !== void 0) {
+          context.addIssue({ code: "custom", message: `privacy.transformedFields has no omitted artifact path for ${field}` });
+        }
+      } else if (!expectedDigestTransforms.has(field)) {
+        context.addIssue({ code: "custom", message: `privacy.transformedFields has no matching digest for ${field}` });
+      }
+    }
+  }
 });
 var createOptionsSchema = zod.z.object({
   privacyMode: zod.z.enum(["metadata-only", "local-sensitive"]).optional(),
-  digestKey: zod.z.union([zod.z.string().min(1), zod.z.instanceof(Buffer)]).optional(),
+  artifactRoot: boundedText.optional(),
   receiptId: zod.z.string().regex(RECEIPT_ID).optional(),
   createdAt: timestamp.optional()
 }).strict();
 var writeOptionsSchema = zod.z.object({
   outputDir: boundedText.optional()
 }).strict();
+function isNotFound(error) {
+  return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
+}
+async function publishExternalActionReceipt(temporary, destination, payload, operations) {
+  try {
+    await operations.writeTemporary(temporary, payload);
+    await operations.linkTemporary(temporary, destination);
+    await operations.removeTemporary(temporary);
+  } catch (error) {
+    try {
+      await operations.removeTemporary(temporary);
+    } catch (cleanupError) {
+      if (!isNotFound(cleanupError)) {
+        throw new AggregateError([error, cleanupError], "receipt publish failed and temporary evidence cleanup failed");
+      }
+    }
+    throw error;
+  }
+}
 function fieldDigest(key, field, value) {
   return `hmac-sha256:${crypto.createHmac("sha256", key).update(`ibr.external-action.v1\0${field}\0${value}`).digest("hex")}`;
 }
-async function artifactDigest(path2) {
-  const data = await fs.readFile(path2);
+var ArtifactPolicyError = class extends Error {
+};
+var ArtifactSizeLimitError = class extends Error {
+};
+function isWithinRoot(root, candidate) {
+  const offset = path.relative(root, candidate);
+  return offset !== "" && !offset.startsWith(`..${path.sep}`) && offset !== ".." && !path.isAbsolute(offset);
+}
+async function artifactDigest(path2, policy) {
+  const suppliedPath = path.resolve(path2);
+  if (!isWithinRoot(policy.lexicalRoot, suppliedPath)) throw new ArtifactPolicyError();
+  const beforeOpen = await fs.lstat(suppliedPath);
+  if (beforeOpen.isSymbolicLink() || !beforeOpen.isFile()) throw new ArtifactPolicyError();
+  const canonicalPath = await fs.realpath(suppliedPath);
+  if (!isWithinRoot(policy.canonicalRoot, canonicalPath)) throw new ArtifactPolicyError();
+  const handle = await fs.open(canonicalPath, fs$1.constants.O_RDONLY | fs$1.constants.O_NOFOLLOW);
+  const hash = crypto.createHash("sha256");
+  let bytes = 0;
+  try {
+    const afterOpen = await handle.stat();
+    if (!afterOpen.isFile() || afterOpen.dev !== beforeOpen.dev || afterOpen.ino !== beforeOpen.ino || afterOpen.size !== beforeOpen.size || afterOpen.mtimeMs !== beforeOpen.mtimeMs || afterOpen.ctimeMs !== beforeOpen.ctimeMs) {
+      throw new ArtifactPolicyError();
+    }
+    if (afterOpen.size > MAX_EXTERNAL_ACTION_ARTIFACT_BYTES) throw new ArtifactSizeLimitError();
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
+      if (bytesRead === 0) break;
+      bytes += bytesRead;
+      if (bytes > MAX_EXTERNAL_ACTION_ARTIFACT_BYTES) throw new ArtifactSizeLimitError();
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    const afterRead = await handle.stat();
+    if (afterRead.dev !== afterOpen.dev || afterRead.ino !== afterOpen.ino || afterRead.size !== afterOpen.size || afterRead.mtimeMs !== afterOpen.mtimeMs || afterRead.ctimeMs !== afterOpen.ctimeMs || bytes !== afterRead.size) {
+      throw new ArtifactPolicyError();
+    }
+  } finally {
+    await handle.close();
+  }
   return {
-    sha256: `sha256:${crypto.createHash("sha256").update(data).digest("hex")}`,
-    bytes: data.byteLength
+    sha256: `sha256:${hash.digest("hex")}`,
+    bytes
   };
 }
 function chronologyIssues(input) {
@@ -17419,11 +17511,20 @@ function assertChronology(input) {
   const [issue] = chronologyIssues(input);
   if (issue) throw new Error(issue);
 }
-async function normalizeArtifact(artifact, retainPath, location) {
+async function normalizeArtifact(artifact, retainPath, location, artifactPolicy) {
   let measured;
   try {
-    measured = artifact.path ? await artifactDigest(artifact.path) : void 0;
+    if (artifact.path && !artifactPolicy) throw new ArtifactPolicyError();
+    measured = artifact.path ? await artifactDigest(artifact.path, artifactPolicy) : void 0;
   } catch (error) {
+    if (error instanceof ArtifactSizeLimitError) {
+      const target = retainPath ? path.basename(artifact.path) : location;
+      throw new Error(`artifact exceeds ${MAX_EXTERNAL_ACTION_ARTIFACT_BYTES} bytes at ${target}`);
+    }
+    if (error instanceof ArtifactPolicyError) {
+      const target = retainPath && artifact.path ? path.basename(artifact.path) : location;
+      throw new Error(`artifact violates regular-file root policy at ${target}`);
+    }
     if (retainPath) throw error;
     throw new Error(`unable to read artifact at ${location}`);
   }
@@ -17438,13 +17539,13 @@ async function normalizeArtifact(artifact, retainPath, location) {
     ...retainPath && artifact.path ? { path: artifact.path } : {}
   };
 }
-async function normalizeObservation(observation, field, mode, key, transformed) {
+async function normalizeObservation(observation, field, mode, key, transformed, artifactPolicy) {
   const retain = mode === "local-sensitive";
   if (observation.state !== void 0 && !retain) transformed.add(`${field}.state`);
   const stateDigest = observation.stateDigest ?? fieldDigest(key, "observation.state", observation.state);
   const artifacts = observation.artifacts ? await Promise.all(observation.artifacts.map(async (artifact, index) => {
     if (artifact.path && !retain) transformed.add(`${field}.artifacts[${index}].path`);
-    return normalizeArtifact(artifact, retain, `${field}.artifacts[${index}]`);
+    return normalizeArtifact(artifact, retain, `${field}.artifacts[${index}]`, artifactPolicy);
   })) : void 0;
   return {
     capturedAt: observation.capturedAt,
@@ -17461,9 +17562,22 @@ async function createExternalActionReceipt(rawInput, options = {}) {
   assertChronology(input);
   const parsedOptions = createOptionsSchema.parse(options);
   const mode = parsedOptions.privacyMode ?? "metadata-only";
-  const key = parsedOptions.digestKey ?? crypto.randomBytes(32);
+  const key = crypto.randomBytes(32);
   const transformed = /* @__PURE__ */ new Set();
   const retain = mode === "local-sensitive";
+  const hasArtifactPath = [...input.before.artifacts ?? [], ...input.after.artifacts ?? []].some((artifact) => artifact.path !== void 0);
+  let artifactPolicy;
+  if (hasArtifactPath) {
+    if (!parsedOptions.artifactRoot) throw new Error("artifactRoot is required when an artifact path is supplied");
+    try {
+      const lexicalRoot = path.resolve(parsedOptions.artifactRoot);
+      const canonicalRoot = await fs.realpath(lexicalRoot);
+      if (!(await fs.lstat(canonicalRoot)).isDirectory()) throw new ArtifactPolicyError();
+      artifactPolicy = { lexicalRoot, canonicalRoot };
+    } catch {
+      throw new Error("artifactRoot must identify a readable directory");
+    }
+  }
   const digestOrRetain = (field, value) => {
     if (value === void 0) return {};
     if (retain) return { raw: value };
@@ -17511,8 +17625,8 @@ async function createExternalActionReceipt(rawInput, options = {}) {
       completedAt: input.action.completedAt,
       durationMs: completedAt - startedAt
     },
-    before: await normalizeObservation(input.before, "before", mode, key, transformed),
-    after: await normalizeObservation(input.after, "after", mode, key, transformed),
+    before: await normalizeObservation(input.before, "before", mode, key, transformed, artifactPolicy),
+    after: await normalizeObservation(input.after, "after", mode, key, transformed, artifactPolicy),
     validation: {
       expectedCode: input.validation.expectedCode,
       observedCode: input.validation.observedCode,
@@ -17538,19 +17652,25 @@ async function writeExternalActionReceipt(receipt, options = {}) {
   await fs.mkdir(outputDir, { recursive: true });
   const destination = path.join(outputDir, `${validated.receiptId}.json`);
   const temporary = path.join(outputDir, `.${validated.receiptId}.${crypto.randomUUID()}.tmp`);
-  const handle = await fs.open(temporary, "wx", 384);
-  try {
-    await handle.writeFile(`${JSON.stringify(validated, null, 2)}
-`, "utf8");
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await fs.link(temporary, destination);
-  } finally {
-    await fs.unlink(temporary).catch(() => void 0);
-  }
+  await publishExternalActionReceipt(
+    temporary,
+    destination,
+    `${JSON.stringify(validated, null, 2)}
+`,
+    {
+      writeTemporary: async (path2, payload) => {
+        const handle = await fs.open(path2, "wx", 384);
+        try {
+          await handle.writeFile(payload, "utf8");
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      },
+      linkTemporary: fs.link,
+      removeTemporary: fs.unlink
+    }
+  );
   return destination;
 }
 async function recordExternalActionEvidence(input, createOptions = {}, writeOptions = {}) {
@@ -18283,7 +18403,7 @@ async function waitForCompletion(outputDir, options = {}) {
     if (options.onProgress) {
       options.onProgress(pending.length);
     }
-    await new Promise((resolve3) => setTimeout(resolve3, pollInterval));
+    await new Promise((resolve4) => setTimeout(resolve4, pollInterval));
   }
   return false;
 }
@@ -19280,7 +19400,7 @@ var BrowserPool = class {
   async acquire() {
     if (this.closed) throw new Error("BrowserPool is closed");
     if (this.inUse) {
-      await new Promise((resolve3) => this.waiters.push(resolve3));
+      await new Promise((resolve4) => this.waiters.push(resolve4));
       if (this.closed) throw new Error("BrowserPool is closed");
     } else {
       this.inUse = true;
@@ -20013,12 +20133,12 @@ var AXDaemon = class {
     }
   }
   waitForReady() {
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const timer = setTimeout(() => {
         this.kill("daemon startup timed out");
         reject(new DaemonError("daemon startup timed out"));
       }, this.startTimeoutMs);
-      this.readyResolver = { resolve: resolve3, reject, timer };
+      this.readyResolver = { resolve: resolve4, reject, timer };
     });
   }
   readyResolver = null;
@@ -20080,13 +20200,13 @@ var AXDaemon = class {
     const child = this.child;
     if (!child) return Promise.reject(new DaemonError("daemon not started"));
     const id = this.nextId++;
-    return new Promise((resolve3, reject) => {
+    return new Promise((resolve4, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         this.kill(`daemon request ${id} timed out`);
         reject(new DaemonError(`daemon request timed out (op=${req.op})`));
       }, this.requestTimeoutMs);
-      this.pending.set(id, { resolve: resolve3, reject, timer });
+      this.pending.set(id, { resolve: resolve4, reject, timer });
       try {
         child.stdin.write(JSON.stringify({ id, ...req }) + "\n");
       } catch (err) {
@@ -20172,7 +20292,7 @@ function axSignature(extraction) {
   return `count=${countElements(extraction.elements)}`;
 }
 function sleep2(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function keystrokeSuccess(chord, method, before, after) {
   return {
@@ -20261,7 +20381,7 @@ var QUIT_TIMEOUT_MS = 6e3;
 var POLL_MS = 250;
 var BUNDLE_ID_RE = /^[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)+$/;
 function sleep3(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 async function pollUntil(check, timeoutMs) {
   const started = Date.now();
@@ -20529,7 +20649,7 @@ function axSignature2(extraction) {
   return `count=${countElements2(extraction.elements)}`;
 }
 function sleep4(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function menuLabel(menuPath) {
   return menuPath.join(" > ");
@@ -20647,8 +20767,8 @@ var RespawnBackend = class {
         };
       }
       await captureMacOSScreenshot(window2.windowId, outputPath);
-      const { readFile: readFile14 } = await import('fs/promises');
-      const buf2 = await readFile14(outputPath);
+      const { readFile: readFile13 } = await import('fs/promises');
+      const buf2 = await readFile13(outputPath);
       return { kind: "macos", base64: buf2.toString("base64"), window: window2, screenshotPath: outputPath };
     }
     const device = await findDevice(target.device.udid);
@@ -20662,8 +20782,8 @@ var RespawnBackend = class {
         error: `Simulator screenshot capture failed: ${capture.error || "unknown error"}`
       };
     }
-    const { readFile: readFile13 } = await import('fs/promises');
-    const buf = await readFile13(capture.outputPath);
+    const { readFile: readFile12 } = await import('fs/promises');
+    const buf = await readFile12(capture.outputPath);
     return {
       kind: "simulator",
       base64: buf.toString("base64"),
@@ -20811,8 +20931,8 @@ var DaemonBackend = class {
           };
         }
         await captureMacOSScreenshot(window2.windowId, outputPath);
-        const { readFile: readFile13 } = await import('fs/promises');
-        const buf = await readFile13(outputPath);
+        const { readFile: readFile12 } = await import('fs/promises');
+        const buf = await readFile12(outputPath);
         return { kind: "macos", base64: buf.toString("base64"), window: window2, screenshotPath: outputPath };
       },
       () => this.fallback.captureScreenshot(target, outputPath)
@@ -21574,7 +21694,7 @@ function safeFilePart(value) {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "native-session";
 }
 function sleep5(ms) {
-  return new Promise((resolve3) => setTimeout(resolve3, ms));
+  return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
 function formatNativeCandidate(candidate) {
   return {
@@ -22194,6 +22314,7 @@ exports.ExternalActionEvidenceInputSchema = ExternalActionEvidenceInputSchema;
 exports.ExternalActionReceiptSchema = ExternalActionReceiptSchema;
 exports.IBRSession = IBRSession;
 exports.InterfaceBuiltRight = InterfaceBuiltRight;
+exports.MAX_EXTERNAL_ACTION_ARTIFACT_BYTES = MAX_EXTERNAL_ACTION_ARTIFACT_BYTES;
 exports.NATIVE_REGIONS = NATIVE_REGIONS;
 exports.NATIVE_VERDICT_POLICY = NATIVE_VERDICT_POLICY;
 exports.NativeSessionController = NativeSessionController;

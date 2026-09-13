@@ -34,6 +34,7 @@ import { maybeAutoClean } from './cleanup.js';
 export {
   ExternalActionEvidenceInputSchema,
   ExternalActionReceiptSchema,
+  MAX_EXTERNAL_ACTION_ARTIFACT_BYTES,
   createExternalActionReceipt,
   writeExternalActionReceipt,
   recordExternalActionEvidence,

@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes, randomUUID } from 'crypto';
-import { link, mkdir, open, readFile, unlink } from 'fs/promises';
-import { basename, join } from 'path';
+import { constants } from 'fs';
+import { link, lstat, mkdir, open, realpath, unlink } from 'fs/promises';
+import { basename, isAbsolute, join, relative, resolve, sep } from 'path';
 import { z } from 'zod';
 
 const MAX_TEXT = 4096;
@@ -10,6 +11,7 @@ const SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 const SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
 const RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
 const TRANSFORMED_FIELD = /^(surface\.(targetId|url|windowTitle)|action\.target\.label|validation\.(expectedDetail|observedDetail)|(before|after)\.state|(before|after)\.artifacts\[[0-9]\]\.path)$/;
+export const MAX_EXTERNAL_ACTION_ARTIFACT_BYTES = 64 * 1024 * 1024;
 
 const boundedText = z.string().min(1).max(MAX_TEXT);
 const timestamp = z.string().datetime({ offset: true });
@@ -26,7 +28,7 @@ const artifactSchema = z.object({
   kind: z.enum(['screenshot', 'ax-tree', 'dom-snapshot', 'console-log', 'other']),
   path: boundedText.optional(),
   sha256: z.string().regex(SHA256).optional(),
-  bytes: z.number().int().nonnegative().optional(),
+  bytes: z.number().int().nonnegative().max(MAX_EXTERNAL_ACTION_ARTIFACT_BYTES).optional(),
 }).strict().refine(value => value.path !== undefined || value.sha256 !== undefined, {
   message: 'artifact requires path or sha256',
 });
@@ -109,7 +111,7 @@ export type ExternalActionArtifactKind = z.infer<typeof artifactSchema>['kind'];
 const artifactReceiptSchema = z.object({
   kind: artifactSchema.shape.kind,
   sha256: z.string().regex(SHA256),
-  bytes: z.number().int().nonnegative().optional(),
+  bytes: z.number().int().nonnegative().max(MAX_EXTERNAL_ACTION_ARTIFACT_BYTES).optional(),
   path: boundedText.optional(),
 }).strict();
 
@@ -220,6 +222,41 @@ export const ExternalActionReceiptSchema = z.object({
   if (receipt.privacy.artifactPathsRetained !== hasArtifactPath) {
     context.addIssue({ code: 'custom', message: 'privacy.artifactPathsRetained does not match retained artifact paths' });
   }
+  const declaredTransforms = new Set(receipt.privacy.transformedFields);
+  if (declaredTransforms.size !== receipt.privacy.transformedFields.length) {
+    context.addIssue({ code: 'custom', message: 'privacy.transformedFields cannot contain duplicates' });
+  }
+  if (receipt.privacy.mode === 'local-sensitive' && declaredTransforms.size > 0) {
+    context.addIssue({ code: 'custom', message: 'local-sensitive receipt cannot claim transformed fields' });
+  }
+  if (receipt.privacy.mode === 'metadata-only') {
+    const expectedDigestTransforms = new Set<string>();
+    if (receipt.surface.targetIdDigest) expectedDigestTransforms.add('surface.targetId');
+    if (receipt.surface.urlDigest) expectedDigestTransforms.add('surface.url');
+    if (receipt.surface.windowTitleDigest) expectedDigestTransforms.add('surface.windowTitle');
+    if (receipt.action.target?.labelDigest) expectedDigestTransforms.add('action.target.label');
+    if (receipt.before.stateDigest.startsWith('hmac-sha256:')) expectedDigestTransforms.add('before.state');
+    if (receipt.after.stateDigest.startsWith('hmac-sha256:')) expectedDigestTransforms.add('after.state');
+    if (receipt.validation.expectedDetailDigest) expectedDigestTransforms.add('validation.expectedDetail');
+    if (receipt.validation.observedDetailDigest) expectedDigestTransforms.add('validation.observedDetail');
+    for (const field of expectedDigestTransforms) {
+      if (!declaredTransforms.has(field)) {
+        context.addIssue({ code: 'custom', message: `privacy.transformedFields is missing ${field}` });
+      }
+    }
+    for (const field of declaredTransforms) {
+      const artifactMatch = /^(before|after)\.artifacts\[([0-9])\]\.path$/.exec(field);
+      if (artifactMatch) {
+        const observation = artifactMatch[1] === 'before' ? receipt.before : receipt.after;
+        const artifact = observation.artifacts?.[Number(artifactMatch[2])];
+        if (!artifact || artifact.path !== undefined) {
+          context.addIssue({ code: 'custom', message: `privacy.transformedFields has no omitted artifact path for ${field}` });
+        }
+      } else if (!expectedDigestTransforms.has(field)) {
+        context.addIssue({ code: 'custom', message: `privacy.transformedFields has no matching digest for ${field}` });
+      }
+    }
+  }
 });
 
 export type ExternalActionArtifactReceipt = z.infer<typeof artifactReceiptSchema>;
@@ -228,8 +265,8 @@ export type ExternalActionReceipt = z.infer<typeof ExternalActionReceiptSchema>;
 
 export interface CreateExternalActionReceiptOptions {
   privacyMode?: ExternalActionPrivacyMode;
-  /** Test/embedding seam. Production callers should let IBR create a random key. */
-  digestKey?: string | Buffer;
+  /** Required allowlisted root when an observation supplies a local artifact path. */
+  artifactRoot?: string;
   receiptId?: string;
   createdAt?: string;
 }
@@ -243,9 +280,16 @@ export interface RecordedExternalActionReceipt {
   path: string;
 }
 
+/** @internal Test seam; not exported from the package root. */
+export interface ExternalActionReceiptPublishOperations {
+  writeTemporary: (path: string, payload: string) => Promise<void>;
+  linkTemporary: (temporary: string, destination: string) => Promise<void>;
+  removeTemporary: (path: string) => Promise<void>;
+}
+
 const createOptionsSchema = z.object({
   privacyMode: z.enum(['metadata-only', 'local-sensitive']).optional(),
-  digestKey: z.union([z.string().min(1), z.instanceof(Buffer)]).optional(),
+  artifactRoot: boundedText.optional(),
   receiptId: z.string().regex(RECEIPT_ID).optional(),
   createdAt: timestamp.optional(),
 }).strict();
@@ -254,15 +298,98 @@ const writeOptionsSchema = z.object({
   outputDir: boundedText.optional(),
 }).strict();
 
+function isNotFound(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+/** @internal Test seam; production callers use writeExternalActionReceipt. */
+export async function publishExternalActionReceipt(
+  temporary: string,
+  destination: string,
+  payload: string,
+  operations: ExternalActionReceiptPublishOperations,
+): Promise<void> {
+  try {
+    await operations.writeTemporary(temporary, payload);
+    await operations.linkTemporary(temporary, destination);
+    await operations.removeTemporary(temporary);
+  } catch (error) {
+    try {
+      await operations.removeTemporary(temporary);
+    } catch (cleanupError) {
+      if (!isNotFound(cleanupError)) {
+        throw new AggregateError([error, cleanupError], 'receipt publish failed and temporary evidence cleanup failed');
+      }
+    }
+    throw error;
+  }
+}
+
 function fieldDigest(key: string | Buffer, field: string, value: string): string {
   return `hmac-sha256:${createHmac('sha256', key).update(`ibr.external-action.v1\0${field}\0${value}`).digest('hex')}`;
 }
 
-async function artifactDigest(path: string): Promise<{ sha256: string; bytes: number }> {
-  const data = await readFile(path);
+class ArtifactPolicyError extends Error {}
+class ArtifactSizeLimitError extends Error {}
+
+interface ArtifactReadPolicy {
+  lexicalRoot: string;
+  canonicalRoot: string;
+}
+
+function isWithinRoot(root: string, candidate: string): boolean {
+  const offset = relative(root, candidate);
+  return offset !== '' && !offset.startsWith(`..${sep}`) && offset !== '..' && !isAbsolute(offset);
+}
+
+async function artifactDigest(path: string, policy: ArtifactReadPolicy): Promise<{ sha256: string; bytes: number }> {
+  const suppliedPath = resolve(path);
+  if (!isWithinRoot(policy.lexicalRoot, suppliedPath)) throw new ArtifactPolicyError();
+  const beforeOpen = await lstat(suppliedPath);
+  if (beforeOpen.isSymbolicLink() || !beforeOpen.isFile()) throw new ArtifactPolicyError();
+  const canonicalPath = await realpath(suppliedPath);
+  if (!isWithinRoot(policy.canonicalRoot, canonicalPath)) throw new ArtifactPolicyError();
+  const handle = await open(canonicalPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  const hash = createHash('sha256');
+  let bytes = 0;
+  try {
+    const afterOpen = await handle.stat();
+    if (
+      !afterOpen.isFile()
+      || afterOpen.dev !== beforeOpen.dev
+      || afterOpen.ino !== beforeOpen.ino
+      || afterOpen.size !== beforeOpen.size
+      || afterOpen.mtimeMs !== beforeOpen.mtimeMs
+      || afterOpen.ctimeMs !== beforeOpen.ctimeMs
+    ) {
+      throw new ArtifactPolicyError();
+    }
+    if (afterOpen.size > MAX_EXTERNAL_ACTION_ARTIFACT_BYTES) throw new ArtifactSizeLimitError();
+    const buffer = Buffer.allocUnsafe(64 * 1024);
+    while (true) {
+      const { bytesRead } = await handle.read(buffer, 0, buffer.byteLength, null);
+      if (bytesRead === 0) break;
+      bytes += bytesRead;
+      if (bytes > MAX_EXTERNAL_ACTION_ARTIFACT_BYTES) throw new ArtifactSizeLimitError();
+      hash.update(buffer.subarray(0, bytesRead));
+    }
+    const afterRead = await handle.stat();
+    if (
+      afterRead.dev !== afterOpen.dev
+      || afterRead.ino !== afterOpen.ino
+      || afterRead.size !== afterOpen.size
+      || afterRead.mtimeMs !== afterOpen.mtimeMs
+      || afterRead.ctimeMs !== afterOpen.ctimeMs
+      || bytes !== afterRead.size
+    ) {
+      throw new ArtifactPolicyError();
+    }
+  } finally {
+    await handle.close();
+  }
   return {
-    sha256: `sha256:${createHash('sha256').update(data).digest('hex')}`,
-    bytes: data.byteLength,
+    sha256: `sha256:${hash.digest('hex')}`,
+    bytes,
   };
 }
 
@@ -289,11 +416,21 @@ async function normalizeArtifact(
   artifact: NonNullable<ExternalActionEvidenceInput['before']['artifacts']>[number],
   retainPath: boolean,
   location: string,
+  artifactPolicy: ArtifactReadPolicy | undefined,
 ): Promise<ExternalActionArtifactReceipt> {
   let measured: Awaited<ReturnType<typeof artifactDigest>> | undefined;
   try {
-    measured = artifact.path ? await artifactDigest(artifact.path) : undefined;
+    if (artifact.path && !artifactPolicy) throw new ArtifactPolicyError();
+    measured = artifact.path ? await artifactDigest(artifact.path, artifactPolicy as ArtifactReadPolicy) : undefined;
   } catch (error) {
+    if (error instanceof ArtifactSizeLimitError) {
+      const target = retainPath ? basename(artifact.path as string) : location;
+      throw new Error(`artifact exceeds ${MAX_EXTERNAL_ACTION_ARTIFACT_BYTES} bytes at ${target}`);
+    }
+    if (error instanceof ArtifactPolicyError) {
+      const target = retainPath && artifact.path ? basename(artifact.path) : location;
+      throw new Error(`artifact violates regular-file root policy at ${target}`);
+    }
     if (retainPath) throw error;
     throw new Error(`unable to read artifact at ${location}`);
   }
@@ -315,6 +452,7 @@ async function normalizeObservation(
   mode: ExternalActionPrivacyMode,
   key: string | Buffer,
   transformed: Set<string>,
+  artifactPolicy: ArtifactReadPolicy | undefined,
 ): Promise<ExternalActionObservationReceipt> {
   const retain = mode === 'local-sensitive';
   if (observation.state !== undefined && !retain) transformed.add(`${field}.state`);
@@ -322,7 +460,7 @@ async function normalizeObservation(
   const artifacts = observation.artifacts
     ? await Promise.all(observation.artifacts.map(async (artifact, index) => {
         if (artifact.path && !retain) transformed.add(`${field}.artifacts[${index}].path`);
-        return normalizeArtifact(artifact, retain, `${field}.artifacts[${index}]`);
+        return normalizeArtifact(artifact, retain, `${field}.artifacts[${index}]`, artifactPolicy);
       }))
     : undefined;
   return {
@@ -344,9 +482,23 @@ export async function createExternalActionReceipt(
   assertChronology(input);
   const parsedOptions = createOptionsSchema.parse(options);
   const mode = parsedOptions.privacyMode ?? 'metadata-only';
-  const key = parsedOptions.digestKey ?? randomBytes(32);
+  const key = randomBytes(32);
   const transformed = new Set<string>();
   const retain = mode === 'local-sensitive';
+  const hasArtifactPath = [...(input.before.artifacts ?? []), ...(input.after.artifacts ?? [])]
+    .some(artifact => artifact.path !== undefined);
+  let artifactPolicy: ArtifactReadPolicy | undefined;
+  if (hasArtifactPath) {
+    if (!parsedOptions.artifactRoot) throw new Error('artifactRoot is required when an artifact path is supplied');
+    try {
+      const lexicalRoot = resolve(parsedOptions.artifactRoot);
+      const canonicalRoot = await realpath(lexicalRoot);
+      if (!(await lstat(canonicalRoot)).isDirectory()) throw new ArtifactPolicyError();
+      artifactPolicy = { lexicalRoot, canonicalRoot };
+    } catch {
+      throw new Error('artifactRoot must identify a readable directory');
+    }
+  }
 
   const digestOrRetain = (
     field: string,
@@ -400,8 +552,8 @@ export async function createExternalActionReceipt(
       completedAt: input.action.completedAt,
       durationMs: completedAt - startedAt,
     },
-    before: await normalizeObservation(input.before, 'before', mode, key, transformed),
-    after: await normalizeObservation(input.after, 'after', mode, key, transformed),
+    before: await normalizeObservation(input.before, 'before', mode, key, transformed, artifactPolicy),
+    after: await normalizeObservation(input.after, 'after', mode, key, transformed, artifactPolicy),
     validation: {
       expectedCode: input.validation.expectedCode,
       observedCode: input.validation.observedCode,
@@ -431,18 +583,24 @@ export async function writeExternalActionReceipt(
   await mkdir(outputDir, { recursive: true });
   const destination = join(outputDir, `${validated.receiptId}.json`);
   const temporary = join(outputDir, `.${validated.receiptId}.${randomUUID()}.tmp`);
-  const handle = await open(temporary, 'wx', 0o600);
-  try {
-    await handle.writeFile(`${JSON.stringify(validated, null, 2)}\n`, 'utf8');
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await link(temporary, destination);
-  } finally {
-    await unlink(temporary).catch(() => undefined);
-  }
+  await publishExternalActionReceipt(
+    temporary,
+    destination,
+    `${JSON.stringify(validated, null, 2)}\n`,
+    {
+      writeTemporary: async (path, payload) => {
+        const handle = await open(path, 'wx', 0o600);
+        try {
+          await handle.writeFile(payload, 'utf8');
+          await handle.sync();
+        } finally {
+          await handle.close();
+        }
+      },
+      linkTemporary: link,
+      removeTemporary: unlink,
+    },
+  );
   return destination;
 }
 

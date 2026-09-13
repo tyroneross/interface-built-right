@@ -31,7 +31,7 @@ Use `scan_macos` for a running app and validate the accessibility tree, window s
 
 ## External Computer Use
 
-When Codex Computer Use performs the action, keep it as the single action owner and use IBR as a sidecar observer/verifier. Submit a strict before/action/after JSON envelope with `ibr evidence:record <file|-> --json`. Metadata-only retention is the default; target labels, window titles, URLs, state descriptions, and validation details are digested, while raw artifact paths require `--privacy local-sensitive`. Correlate native evidence by PID or bundle ID. Do not run an IBR pointer action concurrently with Computer Use. Contract and examples: `docs/external-action-evidence.md`.
+When Codex Computer Use performs the action, keep it as the single action owner and use IBR to validate and record the host observer's envelope. Submit strict before/action/after JSON with `ibr evidence:record <file|-> --json`. Metadata-only retention is the default; target labels, window titles, URLs, state descriptions, and validation details are digested, while raw artifact paths require `--privacy local-sensitive`. Any local artifact path also requires an allowlisted `--artifact-root`. Correlate native evidence by PID or bundle ID. Do not run an IBR pointer action concurrently with Computer Use. Contract and examples: `docs/external-action-evidence.md`.
 
 ## Source Correlation
 

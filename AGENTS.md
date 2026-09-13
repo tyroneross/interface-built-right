@@ -168,7 +168,7 @@ All runtime data is written to `.ibr/` in the consuming project. Add `.ibr/` to 
 
 ### External computer-use evidence
 
-`ibr evidence:record <file|-> --json` and the exported `recordExternalActionEvidence` API ingest the same strict, host-neutral before/action/after envelope. Use them to augment Codex Computer Use as a sidecar or a Claude client-side computer-use handler without importing either host SDK. Metadata-only is the default; see `docs/external-action-evidence.md` for the schema, privacy boundary, and ordering contract.
+`ibr evidence:record <file|-> --json` and the exported `recordExternalActionEvidence` API ingest the same strict, host-neutral before/action/after envelope. Use them to augment Codex Computer Use as a sidecar or a Claude client-side computer-use handler without importing either host SDK. Metadata-only is the default; local artifact paths require an explicit allowlisted root and a regular file of at most 64 MiB. See `docs/external-action-evidence.md` for the schema, privacy boundary, and ordering contract.
 
 ### Artifact Lane (host-neutral)
 

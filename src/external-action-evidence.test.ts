@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'fs';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   createExternalActionReceipt,
+  MAX_EXTERNAL_ACTION_ARTIFACT_BYTES,
+  publishExternalActionReceipt,
   recordExternalActionEvidence,
   writeExternalActionReceipt,
   type ExternalActionEvidenceInput,
@@ -67,7 +69,6 @@ function inputFor(family: string, executor: string, artifactPath?: string): Exte
 }
 
 const deterministic = {
-  digestKey: 'test-only-digest-key',
   receiptId: 'ear_00000000-0000-4000-8000-000000000001',
   createdAt: '2026-09-13T19:00:02.000Z',
 };
@@ -80,7 +81,7 @@ describe('createExternalActionReceipt', () => {
 
     const receipt = await createExternalActionReceipt(
       inputFor('codex', 'unified-computer-use', screenshot),
-      deterministic,
+      { ...deterministic, artifactRoot: root },
     );
     const json = JSON.stringify(receipt);
 
@@ -110,10 +111,12 @@ describe('createExternalActionReceipt', () => {
 
     expect(codex.host).toEqual({ family: 'codex', executor: 'unified-computer-use', version: 'test' });
     expect(claude.host).toEqual({ family: 'claude', executor: 'computer-use-client-handler', version: 'test' });
-    expect(codex.before).toEqual(claude.before);
-    expect(codex.after).toEqual(claude.after);
-    expect(codex.validation).toEqual(claude.validation);
-    expect(codex.action).toEqual(claude.action);
+    expect(codex.schemaVersion).toBe(claude.schemaVersion);
+    expect(codex.action.kind).toBe(claude.action.kind);
+    expect(codex.action.durationMs).toBe(claude.action.durationMs);
+    expect(codex.privacy).toEqual(claude.privacy);
+    expect(codex.before.stateDigest).toMatch(/^hmac-sha256:/);
+    expect(claude.before.stateDigest).toMatch(/^hmac-sha256:/);
   });
 
   it('retains schema-defined sensitive fields only after explicit opt-in', async () => {
@@ -122,7 +125,7 @@ describe('createExternalActionReceipt', () => {
     writeFileSync(screenshot, 'pixels');
     const receipt = await createExternalActionReceipt(
       inputFor('custom-host', 'custom-executor', screenshot),
-      { ...deterministic, privacyMode: 'local-sensitive' },
+      { ...deterministic, privacyMode: 'local-sensitive', artifactRoot: root },
     );
 
     expect(receipt.privacy.mode).toBe('local-sensitive');
@@ -147,7 +150,7 @@ describe('createExternalActionReceipt', () => {
     writeFileSync(screenshot, 'pixels');
     const withArtifact = await createExternalActionReceipt(
       inputFor('custom-host', 'custom-executor', screenshot),
-      { ...deterministic, privacyMode: 'local-sensitive' },
+      { ...deterministic, privacyMode: 'local-sensitive', artifactRoot: root },
     );
     expect(withArtifact.privacy.artifactPathsRetained).toBe(true);
   });
@@ -194,7 +197,7 @@ describe('createExternalActionReceipt', () => {
     const input = inputFor('codex', 'sidecar', screenshot);
     input.before.artifacts = [{ kind: 'screenshot', path: screenshot, sha256: `sha256:${'0'.repeat(64)}` }];
     try {
-      await createExternalActionReceipt(input, deterministic);
+      await createExternalActionReceipt(input, { ...deterministic, artifactRoot: root });
       throw new Error('expected digest mismatch');
     } catch (error) {
       expect(String(error)).toContain('digest mismatch');
@@ -207,13 +210,60 @@ describe('createExternalActionReceipt', () => {
     const missing = join(root, 'secret-client-missing.png');
     const input = inputFor('codex', 'sidecar', missing);
     try {
-      await createExternalActionReceipt(input, deterministic);
+      await createExternalActionReceipt(input, { ...deterministic, artifactRoot: root });
       throw new Error('expected missing artifact failure');
     } catch (error) {
       expect(String(error)).toContain('before.artifacts[0]');
       expect(String(error)).not.toContain('secret-client-missing.png');
       expect(String(error)).not.toContain(root);
     }
+  });
+
+  it('rejects oversized artifacts without loading or exposing their private path', async () => {
+    const root = sandbox();
+    const oversized = join(root, 'secret-oversized-customer-screen.png');
+    writeFileSync(oversized, '');
+    truncateSync(oversized, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES + 1);
+    const input = inputFor('codex', 'sidecar', oversized);
+    try {
+      await createExternalActionReceipt(input, { ...deterministic, artifactRoot: root });
+      throw new Error('expected oversized artifact failure');
+    } catch (error) {
+      expect(String(error)).toContain(`exceeds ${MAX_EXTERNAL_ACTION_ARTIFACT_BYTES} bytes`);
+      expect(String(error)).not.toContain('secret-oversized-customer-screen.png');
+      expect(String(error)).not.toContain(root);
+    }
+  });
+
+  it('requires an explicit root and rejects symlinks and non-regular files', async () => {
+    const root = sandbox();
+    const target = join(root, 'target.png');
+    const alias = join(root, 'private-alias.png');
+    writeFileSync(target, 'pixels');
+    symlinkSync(target, alias);
+
+    await expect(createExternalActionReceipt(
+      inputFor('codex', 'sidecar', target),
+      deterministic,
+    )).rejects.toThrow(/artifactRoot is required/);
+
+    await expect(createExternalActionReceipt(
+      inputFor('codex', 'sidecar', alias),
+      { ...deterministic, artifactRoot: root },
+    )).rejects.toThrow(/regular-file root policy at before.artifacts\[0\]/);
+
+    await expect(createExternalActionReceipt(
+      inputFor('codex', 'sidecar', '/dev/null'),
+      { ...deterministic, artifactRoot: '/dev' },
+    )).rejects.toThrow(/regular-file root policy at before.artifacts\[0\]/);
+
+    const outside = sandbox();
+    const outsideFile = join(outside, 'secret-outside-root.png');
+    writeFileSync(outsideFile, 'pixels');
+    await expect(createExternalActionReceipt(
+      inputFor('codex', 'sidecar', outsideFile),
+      { ...deterministic, artifactRoot: root },
+    )).rejects.toThrow(/regular-file root policy at before.artifacts\[0\]/);
   });
 });
 
@@ -249,6 +299,45 @@ describe('receipt persistence', () => {
     await expect(writeExternalActionReceipt(receipt, {
       outputDir: 42 as unknown as string,
     })).rejects.toThrow();
+  });
+
+  it('rejects forged transformation metadata at the persistence boundary', async () => {
+    const root = sandbox();
+    const receipt = await createExternalActionReceipt(inputFor('codex', 'sidecar'), deterministic);
+    const missing = {
+      ...receipt,
+      privacy: { ...receipt.privacy, transformedFields: [] },
+    };
+    await expect(writeExternalActionReceipt(missing, { outputDir: root })).rejects.toThrow(/missing surface.targetId/);
+
+    const invented = {
+      ...receipt,
+      privacy: {
+        ...receipt.privacy,
+        transformedFields: [...receipt.privacy.transformedFields, 'before.artifacts[0].path'],
+      },
+    };
+    await expect(writeExternalActionReceipt(invented, { outputDir: root })).rejects.toThrow(/no omitted artifact path/);
+  });
+
+  it('cleans temporary evidence after write failure', async () => {
+    const removeTemporary = vi.fn().mockResolvedValue(undefined);
+    await expect(publishExternalActionReceipt('/tmp/private.tmp', '/tmp/final.json', 'private', {
+      writeTemporary: vi.fn().mockRejectedValue(new Error('fsync failed')),
+      linkTemporary: vi.fn(),
+      removeTemporary,
+    })).rejects.toThrow(/fsync failed/);
+    expect(removeTemporary).toHaveBeenCalledWith('/tmp/private.tmp');
+  });
+
+  it('never reports success when temporary evidence removal fails', async () => {
+    const removeTemporary = vi.fn().mockRejectedValue(Object.assign(new Error('unlink denied'), { code: 'EACCES' }));
+    await expect(publishExternalActionReceipt('/tmp/private.tmp', '/tmp/final.json', 'private', {
+      writeTemporary: vi.fn().mockResolvedValue(undefined),
+      linkTemporary: vi.fn().mockResolvedValue(undefined),
+      removeTemporary,
+    })).rejects.toThrow(/cleanup failed/);
+    expect(removeTemporary).toHaveBeenCalledTimes(2);
   });
 
   it('composes and writes through the one-call operational API', async () => {

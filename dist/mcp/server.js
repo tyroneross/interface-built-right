@@ -37338,6 +37338,7 @@ var SAFE_CODE = /^[a-z0-9][a-z0-9._:-]{0,127}$/;
 var SAFE_TOKEN = /^[A-Za-z0-9][A-Za-z0-9._:+-]{0,255}$/;
 var RECEIPT_ID = /^ear_[A-Za-z0-9][A-Za-z0-9-]{0,127}$/;
 var TRANSFORMED_FIELD = /^(surface\.(targetId|url|windowTitle)|action\.target\.label|validation\.(expectedDetail|observedDetail)|(before|after)\.state|(before|after)\.artifacts\[[0-9]\]\.path)$/;
+var MAX_EXTERNAL_ACTION_ARTIFACT_BYTES = 64 * 1024 * 1024;
 var boundedText = external_exports.string().min(1).max(MAX_TEXT);
 var timestamp = external_exports.string().datetime({ offset: true });
 var boundsSchema = external_exports.object({
@@ -37351,7 +37352,7 @@ var artifactSchema = external_exports.object({
   kind: external_exports.enum(["screenshot", "ax-tree", "dom-snapshot", "console-log", "other"]),
   path: boundedText.optional(),
   sha256: external_exports.string().regex(SHA256).optional(),
-  bytes: external_exports.number().int().nonnegative().optional()
+  bytes: external_exports.number().int().nonnegative().max(MAX_EXTERNAL_ACTION_ARTIFACT_BYTES).optional()
 }).strict().refine((value) => value.path !== void 0 || value.sha256 !== void 0, {
   message: "artifact requires path or sha256"
 });
@@ -37419,7 +37420,7 @@ var ExternalActionEvidenceInputSchema = external_exports.object({
 var artifactReceiptSchema = external_exports.object({
   kind: artifactSchema.shape.kind,
   sha256: external_exports.string().regex(SHA256),
-  bytes: external_exports.number().int().nonnegative().optional(),
+  bytes: external_exports.number().int().nonnegative().max(MAX_EXTERNAL_ACTION_ARTIFACT_BYTES).optional(),
   path: boundedText.optional()
 }).strict();
 var observationReceiptSchema = external_exports.object({
@@ -37521,10 +37522,45 @@ var ExternalActionReceiptSchema = external_exports.object({
   if (receipt.privacy.artifactPathsRetained !== hasArtifactPath) {
     context.addIssue({ code: "custom", message: "privacy.artifactPathsRetained does not match retained artifact paths" });
   }
+  const declaredTransforms = new Set(receipt.privacy.transformedFields);
+  if (declaredTransforms.size !== receipt.privacy.transformedFields.length) {
+    context.addIssue({ code: "custom", message: "privacy.transformedFields cannot contain duplicates" });
+  }
+  if (receipt.privacy.mode === "local-sensitive" && declaredTransforms.size > 0) {
+    context.addIssue({ code: "custom", message: "local-sensitive receipt cannot claim transformed fields" });
+  }
+  if (receipt.privacy.mode === "metadata-only") {
+    const expectedDigestTransforms = /* @__PURE__ */ new Set();
+    if (receipt.surface.targetIdDigest) expectedDigestTransforms.add("surface.targetId");
+    if (receipt.surface.urlDigest) expectedDigestTransforms.add("surface.url");
+    if (receipt.surface.windowTitleDigest) expectedDigestTransforms.add("surface.windowTitle");
+    if (receipt.action.target?.labelDigest) expectedDigestTransforms.add("action.target.label");
+    if (receipt.before.stateDigest.startsWith("hmac-sha256:")) expectedDigestTransforms.add("before.state");
+    if (receipt.after.stateDigest.startsWith("hmac-sha256:")) expectedDigestTransforms.add("after.state");
+    if (receipt.validation.expectedDetailDigest) expectedDigestTransforms.add("validation.expectedDetail");
+    if (receipt.validation.observedDetailDigest) expectedDigestTransforms.add("validation.observedDetail");
+    for (const field of expectedDigestTransforms) {
+      if (!declaredTransforms.has(field)) {
+        context.addIssue({ code: "custom", message: `privacy.transformedFields is missing ${field}` });
+      }
+    }
+    for (const field of declaredTransforms) {
+      const artifactMatch = /^(before|after)\.artifacts\[([0-9])\]\.path$/.exec(field);
+      if (artifactMatch) {
+        const observation = artifactMatch[1] === "before" ? receipt.before : receipt.after;
+        const artifact = observation.artifacts?.[Number(artifactMatch[2])];
+        if (!artifact || artifact.path !== void 0) {
+          context.addIssue({ code: "custom", message: `privacy.transformedFields has no omitted artifact path for ${field}` });
+        }
+      } else if (!expectedDigestTransforms.has(field)) {
+        context.addIssue({ code: "custom", message: `privacy.transformedFields has no matching digest for ${field}` });
+      }
+    }
+  }
 });
 var createOptionsSchema = external_exports.object({
   privacyMode: external_exports.enum(["metadata-only", "local-sensitive"]).optional(),
-  digestKey: external_exports.union([external_exports.string().min(1), external_exports.instanceof(Buffer)]).optional(),
+  artifactRoot: boundedText.optional(),
   receiptId: external_exports.string().regex(RECEIPT_ID).optional(),
   createdAt: timestamp.optional()
 }).strict();

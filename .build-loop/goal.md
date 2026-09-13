@@ -1,24 +1,20 @@
-# Goal — IBR Driving Foundation (Increment 1)
+# Goal — reliable cross-host computer-use evidence
 
-## Goal
+## Desired outcome
 
-Land the three foundation epics (native depth, web robustness, native controller PRD) as spine-ready substrate toward "drive any surface, script-first, efficient." Parallel where the dependency graph allows; controller interface frozen before native fan-out.
+Codex and Claude can both submit a host-neutral external-action envelope to IBR and receive a durable, schema-versioned before/action/after receipt. IBR validates and records the host verifier's outcome without claiming independent truth, and installed plugin CLIs can find and compile the bundled macOS AX extractor.
 
-## Scoring Criteria
+## Acceptance criteria
 
-| # | Epic | Criterion | Method | Pass Condition | Evidence |
-|---|---|---|---|---|---|
-| 1 | 4 | Controller extraction is behavior-preserving | Tests + typecheck | `session-controller.ts` exists; MCP native tools delegate to it; existing native-session MCP tests pass WITHOUT weakened assertions | `src/native/session-controller.ts`, native-session-action.test.ts |
-| 2 | 4 | CLI parity + JSON replay | Run CLI | `ibr native:session:{start,read,action,close} --json` return structured results + non-zero exit on failed action/missing session/failed wait/invalid target | terminal repro |
-| 3 | 4 | Interface frozen before native fan-out | Plan/graph review | Controller public types committed as Wave 0; Epic 2 PRs consume, don't redefine | git history, plan waves |
-| 4 | 2 | Native efficiency: no per-action respawn | Runtime measure | A 5-step macOS flow spawns the extractor ≤ (daemon-startup + N-reads), NOT ≥10 full walks; resolved paths cached, invalidated on tree-signature change | before/after timing, daemon logs |
-| 5 | 2 | Drive any macOS app | Live drive | Keyboard synthesis (a shortcut/Tab/Escape) + app launch/switch/quit + menu traversal work on a real non-sim macOS app | demo transcript |
-| 6 | 3 | Per-action auto-wait + actionability | Live drive + test | click/type/fill wait for target to be present+visible+enabled+stable before acting; no fixed post-sleeps on the verified path | interaction test, code |
-| 7 | 3 | Network awareness real, not faked | Test | networkidle / waitForResponse reflect actual CDP Network events, not AX-stability or 500ms sleeps | test against fetch-driven page |
-| 8 | 3 | Two live bugs fixed | Mutation test | `pressKey('Meta+k')` synthesizes a real chord (opens palette), not literal chars; `flow_form`/`flow_login` honor `sessionId` (reuse session, no relaunch) | failing-then-passing test per bug |
-| 9 | all | Feedback loop tightened | Review | Verify-then-proceed is the default; failed actions return structured evidence (diff + alternatives + screenshot); focused-loop-builder applied | code review, envelope |
-| 10 | all | Gates green | Tooling | `npm test`, `npm run typecheck`, `npm run build`, `git diff --check` pass | terminal |
+1. The package exports one host-neutral receipt API with no Codex, Claude, MCP, or provider SDK types.
+2. `ibr evidence:record <file|-> --json` ingests the same strict envelope and writes an exclusive mode-`0600` receipt.
+3. Metadata-only mode retains no raw descriptive UI content or artifact paths and exposes only stable, non-sensitive CLI errors.
+4. Local artifact reads require an explicit allowlisted root, accept only unchanged regular files, stream a bounded maximum of 64 MiB, and clean temporary receipt evidence on every failure.
+5. Local-sensitive mode is explicit; receipt transformation metadata exactly matches the fields actually transformed.
+6. Tests simulate Codex sidecar and Claude client-handler inputs through the same contract.
+7. Packaged Codex and Claude layouts find the bundled Swift extractor under a stripped GUI-like PATH and scan a live native PID when host state permits.
+8. Source typecheck, lint, unit tests, build, package exports, release validation, installed-layout smoke, independent audit, and cross-vendor audit are dispositioned before local-main integration.
 
-## Verification posture
+## Verification boundary
 
-Native claims (criteria 4, 5) require **running app** evidence, not compile-green — per `feedback_verify_running_app_not_compile_green` and IBR's own native-UI verify policy. Bug fixes (criterion 8) require mutation proof (failing test first) — per `feedback_verify_test_validity_by_mutation`.
+The caller owns before/after observation and the `validation.passed` assertion. IBR validates schema, chronology, privacy, artifact integrity, and persistence behavior; the receipt does not independently attest that caller-supplied observations are true. Ambient PID proof is state-blocked when the running app exposes no Accessibility window, so a deterministic native app may prove extractor packaging without substituting for Ambient UI acceptance.
