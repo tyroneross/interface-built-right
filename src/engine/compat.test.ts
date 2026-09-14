@@ -369,13 +369,33 @@ describe('CompatPage / NetworkDomain — real network events (live Chrome fixtur
     await ensureLaunched()
     await driver.navigate(baseUrl, { waitFor: 'none' })
     // The fetch fires ~50ms after load and stays open for FETCH_DELAY_MS.
-    // A 150ms total budget is well short of that — a REAL wait must report
-    // timedOut:true here; a faked/AX-based wait would report idle instantly
-    // since the AX tree never changes on this page.
+    // The gap between load and that setTimeout is itself a real idle window
+    // >= idleMs (50ms), so starting the wait before the fetch is in flight
+    // would legitimately report idle and the test would pass for the wrong
+    // reason. Poll until the page confirms the fetch has started AND the
+    // NetworkDomain tracker has actually registered it (requestWillBeSent),
+    // then start the wait — only then is "times out while in flight" the
+    // thing actually being exercised.
+    const deadline = Date.now() + 5000
+    while (true) {
+      const fetchStarted = await driver.evaluate('window.__ibrNet.fetchStarted')
+      if (fetchStarted === true && driver.networkDomain.inflightCount > 0) break
+      if (Date.now() > deadline) {
+        throw new Error('timed out waiting for /slow-endpoint fetch to be confirmed in flight (page fetchStarted + NetworkDomain inflightCount > 0)')
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    // A 150ms total budget is well short of FETCH_DELAY_MS — a REAL wait
+    // must report timedOut:true here; a faked/AX-based wait would report
+    // idle instantly since the AX tree never changes on this page.
     const result = await driver.networkDomain.waitForNetworkIdle({
       idleMs: 50, maxInflight: 0, timeout: 150,
     })
     expect(result.timedOut).toBe(true)
+    // Proves the fetch was still in flight across the whole wait — the
+    // server holds it open for FETCH_DELAY_MS (400ms), well past the 150ms
+    // wait budget.
+    expect(await driver.evaluate('window.__ibrNet.fetchDone')).toBe(false)
   }, 15000)
 
   it('waitForLoadState("networkidle") resolves only after the real fetch completes', async () => {
