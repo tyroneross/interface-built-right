@@ -1,7 +1,7 @@
 {
   "name": "@tyroneross/interface-built-right",
   "version": "1.5.0",
-  "description": "End-to-end design tool for AI coding agents. Guided UI builds, iOS/macOS/web design guidance, Calm Precision principles, visual validation, interaction testing, mockup matching, cross-browser. Custom CDP engine.",
+  "description": "UI/UX design and building tool for AI coding agents. Plans and builds web, iOS, and macOS interfaces with platform guidance and Calm Precision patterns; auditing, validation, and iterative editing support the build.",
   "license": "Apache-2.0",
   "publishConfig": {
     "registry": "https://npm.pkg.github.com",

@@ -6,7 +6,7 @@
 npm install -g @tyroneross/interface-built-right
 ```
 
-Or use directly with npx:
+Or install the CLI directly with npx for supporting audits:
 ```bash
 npx ibr scan http://localhost:3000
 ```
@@ -15,7 +15,18 @@ npx ibr scan http://localhost:3000
 
 Add `.ibr/` to your project's `.gitignore`.
 
-## Core Commands
+## Primary Design and Build Workflow
+
+From a supported agent runtime, start with the outcome you want:
+
+```text
+/ibr:build dashboard header with navigation and user menu
+```
+
+IBR turns the request into a design contract, applies platform and component
+patterns during implementation, then validates and refines the rendered result.
+
+## Supporting Audit Commands
 
 ### Scan a page
 ```bash

@@ -42,7 +42,7 @@ Run this BEFORE making UI changes. The baseline captures the current state so yo
 
 | Goal | Command |
 |------|---------|
-| **Validate implementation matches user description** | `npx ibr scan <url> --json` (primary workflow) |
+| **Validate implementation matches user description** | `npx ibr scan <url> --json` (supporting audit workflow) |
 | **Check nothing broke after changes** | `npx ibr start` → changes → `npx ibr check` (this command) |
 
 ## Next Steps

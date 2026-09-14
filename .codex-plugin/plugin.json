@@ -1,6 +1,6 @@
 {
   "name": "ibr",
-  "description": "UI design planning and validation for Codex using IBR skills and MCP scans.",
+  "description": "UI/UX design and building for Codex, with auditing, validation, and iterative editing as supporting capabilities.",
   "author": {
     "name": "Tyrone Ross, Jr",
     "url": "https://github.com/tyroneross"
@@ -24,8 +24,8 @@
   "skills": "./.codex-plugin/skills",
   "interface": {
     "displayName": "Interface Built Right",
-    "shortDescription": "Plan, build, scan, and iterate UI work from Codex.",
-    "longDescription": "Interface Built Right gives Codex a UI design partner and validation toolchain. Use it to plan interface direction, route to web/iOS/macOS guidance, resolve Mockup Gallery targets, scan rendered pages, test interactions, compare snapshots, match visual targets, and inspect native simulator or macOS app surfaces.",
+    "shortDescription": "Design and build UI/UX; audit and refine the result.",
+    "longDescription": "Interface Built Right gives Codex a UI/UX design and building system. Use it to turn intent into a design contract, route to web, iOS, or macOS guidance, implement the interface, and then audit, validate, test, and refine the rendered result.",
     "developerName": "Ross Labs",
     "category": "Coding",
     "capabilities": [
@@ -37,7 +37,8 @@
     "privacyPolicyURL": "https://github.com/tyroneross/interface-built-right",
     "termsOfServiceURL": "https://github.com/tyroneross/interface-built-right",
     "defaultPrompt": [
-      "Plan this UI with IBR.",
+      "Design and build this UI with IBR.",
+      "Plan this UI/UX with IBR.",
       "Scan this UI with IBR.",
       "Validate this design intent."
     ],

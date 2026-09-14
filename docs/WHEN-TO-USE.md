@@ -1,31 +1,47 @@
-# When to Use IBR vs Playwright
+# When to Use IBR
 
-This guide helps you choose the right tool for your needs.
+Use IBR primarily to design and build UI/UX. Use its scans, audits, comparisons,
+and interaction tests to validate and refine that work. Use Playwright when you
+need a broad behavioral test suite rather than a design-and-build workflow.
 
 ## Quick Decision Matrix
 
-| Use Case | IBR Scan | Screenshot | Playwright |
-|----------|:--------:|:----------:|:----------:|
-| Verify exact CSS values | ✅ | | |
-| Handler detection (is button wired?) | ✅ | | |
-| Accessibility audit (ARIA, roles) | ✅ | | |
-| Console error detection | ✅ | | |
-| Regression baselines | ✅ | | |
-| Semantic page understanding | ✅ | | |
-| Visual coherence ("does it look right?") | | ✅ | |
-| Rendering bugs (clipping, z-index) | | ✅ | |
-| Canvas/SVG/WebGL content | | ✅ | |
-| Unexpected visual artifacts | | ✅ | |
-| E2E user journey tests | | | ✅ |
-| Performance testing | | | ✅ |
-| Cross-browser matrix | | | ✅ |
-| CI/CD test suites | | | ✅ |
+| Use Case | IBR Design/Build | IBR Audit | Screenshot | Playwright |
+|----------|:----------------:|:---------:|:----------:|:----------:|
+| Plan interface hierarchy, flows, and states | ✅ | | | |
+| Build web, iOS, or macOS UI from a design contract | ✅ | | | |
+| Apply platform and component patterns | ✅ | | | |
+| Verify exact CSS values | | ✅ | | |
+| Handler detection (is button wired?) | | ✅ | | |
+| Accessibility audit (ARIA, roles) | | ✅ | | |
+| Console error detection | | ✅ | | |
+| Regression baselines | | ✅ | | |
+| Semantic page understanding | | ✅ | | |
+| Visual coherence ("does it look right?") | | | ✅ | |
+| Rendering bugs (clipping, z-index) | | | ✅ | |
+| E2E user journey tests | | | | ✅ |
+| Performance testing | | | | ✅ |
+| Cross-browser matrix | | | | ✅ |
 
-**Rule of thumb**: IBR scan for **precise property verification**, screenshots for **holistic visual checks**, Playwright for **behavior + coverage**. Best results combine scan + screenshot.
+**Rule of thumb**: use IBR to decide and build the interface. Use IBR audits plus screenshots to improve the rendered result. Use Playwright for broad behavior and test coverage.
 
 ## When to Use IBR
 
-### 1. Design Validation (Primary Use Case)
+### 1. UI/UX Design and Building (Primary Use Case)
+
+Turn a product or interface goal into a design contract, implementation plan,
+and working UI. IBR selects the platform and product archetype, defines
+hierarchy, flows, states, interaction behavior, and visual rules, then applies
+that contract during implementation.
+
+```text
+/ibr:build account-settings
+```
+
+Use this path for a new component, page, flow, dashboard, redesign, or complete
+app interface.
+
+### 2. Design Auditing and Iterative Editing (Supporting Use Case)
 
 Verify that your UI implementation matches what the user described. IBR scans return structured data — exact CSS values, handler detection, accessibility attributes — not pixels.
 
@@ -39,7 +55,7 @@ npx ibr scan http://localhost:3000/page --json
 # - computedStyles.fontSize on buttons → should be 16px
 ```
 
-### 2. AI-Assisted Development
+### 3. AI-Assisted Development
 
 Get semantic understanding of pages for AI-driven workflows.
 
@@ -53,7 +69,7 @@ console.log(understanding.pageIntent);  // 'auth'
 console.log(understanding.availableActions);  // ['fill email', 'fill password', 'submit']
 ```
 
-### 3. Regression Verification
+### 4. Regression Verification
 
 After making changes, verify nothing else broke:
 
@@ -63,7 +79,7 @@ npx ibr start http://localhost:3000/dashboard --name "before-change"
 npx ibr check
 ```
 
-### 4. Built-in Flow Automation
+### 5. Built-in Flow Automation
 
 Common patterns without writing custom selectors.
 
@@ -77,7 +93,7 @@ const result = await session.flow.login({
 });
 ```
 
-### 5. Claude Code Plugin Integration
+### 6. Claude Code Plugin Integration
 
 Design validation directly in your AI coding workflow.
 
@@ -130,14 +146,15 @@ Measure Core Web Vitals and performance metrics.
 
 ## Using Both Together
 
-IBR and Playwright complement each other. Use IBR for design validation and semantic understanding, Playwright for behavioral tests.
+IBR and Playwright complement each other. Use IBR for UI/UX design, building,
+and design-focused refinement. Use Playwright for broad behavioral tests.
 
 ### Recommended Workflow
 
 ```
-1. Development Phase
-   └── Use IBR for design validation
-       Build UI → npx ibr scan <url> --json → verify against description
+1. Design and Development Phase
+   └── Use IBR to plan and build the interface
+       Design contract → build UI → npx ibr scan <url> --json → refine
 
 2. Pre-Commit
    └── Run IBR regression check on changed routes
@@ -184,14 +201,16 @@ test('dashboard shows user data', async ({ page }) => {
 
 | Aspect | IBR | Playwright |
 |--------|-----|------------|
-| **Primary Use** | Design validation | Behavioral testing |
+| **Primary Use** | UI/UX design and building | Behavioral testing |
 | **Output** | Structured data, diffs, verdicts | Test results, traces |
 | **AI Integration** | Built-in semantic layer | Manual integration |
 | **Data Type** | Computed CSS, handlers, a11y, bounds | Pixel screenshots, DOM |
 | **Learning Curve** | Low (simple API) | Medium (full framework) |
-| **Best For** | Verifying UI matches intent | Comprehensive test coverage |
+| **Best For** | Designing, building, and refining UI/UX | Comprehensive test coverage |
 
 Choose IBR when you need:
+- Design and build a new interface or redesign
+- Translate intent into hierarchy, flows, states, and component patterns
 - Validate UI matches what user described
 - Structured CSS/layout data (not pixels)
 - Handler detection and accessibility audit

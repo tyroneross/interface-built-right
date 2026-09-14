@@ -7,8 +7,8 @@
 <h1 align="center">Interface Built Right</h1>
 
 <p align="center">
-  End-to-end design tool for AI coding agents.<br>
-  Design, build, and validate interfaces — iOS, macOS, and web. Guided builds, deterministic rules, sensor-driven scans.
+  UI/UX design and building tool for AI coding agents.<br>
+  Plan, design, and build interfaces for iOS, macOS, and web. Audit, validate, and refine them with deterministic evidence.
 </p>
 
 <p align="center">
@@ -19,7 +19,9 @@
 
 ---
 
-IBR is an end-to-end design tool for AI coding agents. It guides UI builds with Design Director planning, web and iOS archetype routing, Calm Precision principles, and platform-specific best practices. Built-in visual validation scans live pages, runs interaction assertions, matches mockups, and verifies design intent — Chrome and Safari.
+IBR primarily helps AI coding agents design and build UI/UX. It turns user intent into an implementation-ready design contract, routes the work through web, iOS, or macOS guidance, and builds the interface with Calm Precision principles and reusable component patterns.
+
+Auditing, visual validation, interaction testing, and iterative editing support that primary workflow. They measure the rendered result, expose gaps, and guide focused corrections after the design direction and build target are clear.
 
 Built on a custom CDP engine — no Playwright. Works from terminal, Codex, Claude Code slash commands, or code. Zero config.
 
@@ -295,20 +297,21 @@ See [docs/QUICK-START.md](docs/QUICK-START.md) for full usage guide.
 
 ## The Problem
 
-User says "make the buttons blue with 16px Inter font." You build it. But did it work?
+UI work fails when intent, platform patterns, implementation choices, and proof
+live in separate tools. A generic coding agent can produce a functional screen
+without resolving hierarchy, states, interaction behavior, or visual direction.
 
-- **Screenshots** — you're guessing hex codes from pixels
-- **Manual inspection** — slow, error-prone, not automatable
-- **IBR scan** — returns `backgroundColor: "rgb(59, 130, 246)"`, `fontSize: "16px"`, `fontFamily: "Inter"`. Done.
+- **IBR design contract** — defines the user goal, hierarchy, flows, states, and platform rules
+- **IBR build guidance** — applies archetype, component, and Calm Precision patterns during implementation
+- **IBR validation** — measures the rendered result and directs focused corrections
 
 ## How It Works
 
-```bash
-# User describes what they want -> you build it -> validate with IBR
-npx ibr scan http://localhost:3000/page --json
+```text
+User intent → /ibr:build → design contract → implementation → scan and refine
 ```
 
-IBR returns structured data per element:
+The supporting scan returns structured data per element:
 - **computedStyles** — backgroundColor, fontSize, fontFamily, padding, grid, flexbox, etc.
 - **bounds** — exact x, y, width, height
 - **interactive** — hasOnClick, hasHref, hasReactHandler, isDisabled
@@ -339,10 +342,18 @@ npm install @tyroneross/interface-built-right
 
 That's it. `.ibr/` is auto-added to your `.gitignore` on install.
 
-### Validate UI (primary workflow):
+### Design and build UI/UX (primary workflow)
+
+From a supported agent runtime:
+
+```text
+/ibr:build account settings with profile, security, and billing states
+```
+
+### Audit the rendered UI (supporting workflow)
 
 ```bash
-npx ibr scan http://localhost:3000 --json    # get structured data
+npx ibr scan http://localhost:3000 --json    # measure the rendered result
 ```
 
 ### Regression check:
