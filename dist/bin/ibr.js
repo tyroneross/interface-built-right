@@ -5592,8 +5592,7 @@ var init_driver = __esm({
       async find(name, options = {}) {
         const diag = await this.findWithDiagnostics(name, options);
         if (!diag.elementId) return null;
-        const elements = await this.freshSnapshot();
-        return elements.find((e) => e.id === diag.elementId) ?? null;
+        return this.resolveLiveElement(diag.elementId);
       }
       /**
        * Like find(), but returns rich diagnostics for agent error feedback.
@@ -5630,6 +5629,7 @@ var init_driver = __esm({
             label: el.label,
             confidence: 1
           });
+          this.recordDescriptors(queryResult);
           const allElements2 = await this.freshSnapshot();
           const interactive2 = allElements2.filter((e) => e.actions.length > 0);
           return {
@@ -5746,6 +5746,7 @@ var init_driver = __esm({
        *  used for stale-elementId re-resolution (see elementDescriptors). */
       recordDescriptors(elements) {
         for (const e of elements) {
+          this.elementDescriptors.delete(e.id);
           this.elementDescriptors.set(e.id, { label: e.label, role: e.role });
         }
         if (this.elementDescriptors.size > _EngineDriver.MAX_DESCRIPTOR_HISTORY) {
@@ -5808,6 +5809,22 @@ var init_driver = __esm({
         const elements = await this.freshSnapshot();
         const match = findExactLabel(label2, elements, role);
         return match ? match.id : null;
+      }
+      /**
+       * Resolve an elementId already produced by find()/findWithDiagnostics()
+       * against the LIVE page: a fresh snapshot may no longer contain that exact
+       * id even though the element is still present (e.g. a re-render replaced
+       * its backendNodeId between resolution and this call).
+       * Falls back to the last-known {label, role} in elementDescriptors before
+       * declaring the element gone.
+       */
+      async resolveLiveElement(elementId) {
+        const elements = await this.getSnapshot();
+        const direct = elements.find((e) => e.id === elementId);
+        if (direct) return direct;
+        const known = this.elementDescriptors.get(elementId);
+        if (!known) return null;
+        return findExactLabel(known.label, elements, known.role);
       }
       /**
        * Resolve an elementId to its {backendNodeId, sessionId} (E3-D). Frame-
@@ -51388,8 +51405,7 @@ async function handleToolCall(name, args) {
             }
             return { content: notFoundContent, isError: true };
           }
-          const allElements = await driver3.getSnapshot();
-          const element = allElements.find((e) => e.id === diag.elementId);
+          const element = await driver3.resolveLiveElement(diag.elementId);
           if (!element) {
             return errorResponse2(`Element "${target}" was resolved but disappeared from AX tree. Try again.`);
           }
@@ -52006,8 +52022,8 @@ ${meta3.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta3.
             }
             return { content: notFoundContent };
           }
-          const allElements = await driver3.getSnapshot();
-          const element = allElements.find((e) => e.id === diag.elementId);
+          const element = await driver3.resolveLiveElement(diag.elementId);
+          const targetId = element?.id ?? diag.elementId;
           const knownActions = ["click", "type", "fill", "hover", "press", "scroll", "select", "check"];
           if (!knownActions.includes(action)) {
             return errorResponse2(`Unknown action: ${action}`);
@@ -52016,16 +52032,16 @@ ${meta3.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta3.
           const captured = await driver3.actAndCapture(async () => {
             switch (action) {
               case "click":
-                await driver3.click(diag.elementId);
+                await driver3.click(targetId);
                 break;
               case "type":
-                await driver3.type(diag.elementId, value || "");
+                await driver3.type(targetId, value || "");
                 break;
               case "fill":
-                await driver3.fill(diag.elementId, value || "");
+                await driver3.fill(targetId, value || "");
                 break;
               case "hover":
-                await driver3.hover(diag.elementId);
+                await driver3.hover(targetId);
                 break;
               case "press":
                 await driver3.pressKey(value || "Enter");
@@ -52034,15 +52050,15 @@ ${meta3.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta3.
                 await driver3.scroll(Number(value) || 300);
                 break;
               case "select":
-                await driver3.select(diag.elementId, value || "");
+                await driver3.select(targetId, value || "");
                 break;
               case "check":
-                await driver3.check(diag.elementId);
+                await driver3.check(targetId);
                 break;
             }
           });
           const afterUrl = driver3.url;
-          const validator = validateWebAction({ action, value, targetElementId: diag.elementId, beforeUrl, afterUrl, captured });
+          const validator = validateWebAction({ action, value, targetElementId: targetId, beforeUrl, afterUrl, captured });
           const afterCount = captured.after.elements.filter((e) => e.actions.length > 0).length;
           entry.url = driver3.url;
           const actionResult = {
@@ -52050,7 +52066,7 @@ ${meta3.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta3.
             validator,
             provenance: { tier: diag.tierName, confidence: diag.confidence, waitResult: "tree-stable" },
             elementFound: {
-              id: diag.elementId,
+              id: targetId,
               role: element?.role ?? "unknown",
               label: element?.label ?? target,
               confidence: diag.confidence,
@@ -52068,7 +52084,7 @@ ${meta3.links.slice(0, 20).map((l) => `  \u2022 ${l.label}`).join("\n")}${meta3.
             };
           }
           if (!validator.passed) {
-            actionResult.evidence = buildFailureEvidence({ target, targetElementId: diag.elementId, beforeUrl, afterUrl, captured });
+            actionResult.evidence = buildFailureEvidence({ target, targetElementId: targetId, beforeUrl, afterUrl, captured });
           }
           if (wantScreenshot) {
             const base643 = captured.after.screenshot.toString("base64");

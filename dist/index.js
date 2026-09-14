@@ -3841,8 +3841,7 @@ var init_driver = __esm({
       async find(name, options = {}) {
         const diag = await this.findWithDiagnostics(name, options);
         if (!diag.elementId) return null;
-        const elements = await this.freshSnapshot();
-        return elements.find((e) => e.id === diag.elementId) ?? null;
+        return this.resolveLiveElement(diag.elementId);
       }
       /**
        * Like find(), but returns rich diagnostics for agent error feedback.
@@ -3879,6 +3878,7 @@ var init_driver = __esm({
             label: el.label,
             confidence: 1
           });
+          this.recordDescriptors(queryResult);
           const allElements2 = await this.freshSnapshot();
           const interactive2 = allElements2.filter((e) => e.actions.length > 0);
           return {
@@ -3995,6 +3995,7 @@ var init_driver = __esm({
        *  used for stale-elementId re-resolution (see elementDescriptors). */
       recordDescriptors(elements) {
         for (const e of elements) {
+          this.elementDescriptors.delete(e.id);
           this.elementDescriptors.set(e.id, { label: e.label, role: e.role });
         }
         if (this.elementDescriptors.size > _EngineDriver.MAX_DESCRIPTOR_HISTORY) {
@@ -4057,6 +4058,22 @@ var init_driver = __esm({
         const elements = await this.freshSnapshot();
         const match = findExactLabel(label, elements, role);
         return match ? match.id : null;
+      }
+      /**
+       * Resolve an elementId already produced by find()/findWithDiagnostics()
+       * against the LIVE page: a fresh snapshot may no longer contain that exact
+       * id even though the element is still present (e.g. a re-render replaced
+       * its backendNodeId between resolution and this call).
+       * Falls back to the last-known {label, role} in elementDescriptors before
+       * declaring the element gone.
+       */
+      async resolveLiveElement(elementId) {
+        const elements = await this.getSnapshot();
+        const direct = elements.find((e) => e.id === elementId);
+        if (direct) return direct;
+        const known = this.elementDescriptors.get(elementId);
+        if (!known) return null;
+        return findExactLabel(known.label, elements, known.role);
       }
       /**
        * Resolve an elementId to its {backendNodeId, sessionId} (E3-D). Frame-

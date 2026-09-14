@@ -3932,6 +3932,15 @@ declare class EngineDriver implements BrowserDriver {
      */
     private reResolveByLabelRole;
     /**
+     * Resolve an elementId already produced by find()/findWithDiagnostics()
+     * against the LIVE page: a fresh snapshot may no longer contain that exact
+     * id even though the element is still present (e.g. a re-render replaced
+     * its backendNodeId between resolution and this call).
+     * Falls back to the last-known {label, role} in elementDescriptors before
+     * declaring the element gone.
+     */
+    resolveLiveElement(elementId: string): Promise<Element | null>;
+    /**
      * Resolve an elementId to its {backendNodeId, sessionId} (E3-D). Frame-
      * sourced elements are checked first (this driver's own bookkeeping,
      * since AccessibilityDomain only ever knows about the main frame); falls
