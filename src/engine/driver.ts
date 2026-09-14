@@ -591,8 +591,7 @@ export class EngineDriver implements BrowserDriver {
     const diag = await this.findWithDiagnostics(name, options)
     if (!diag.elementId) return null
 
-    const elements = await this.freshSnapshot()
-    return elements.find((e) => e.id === diag.elementId) ?? null
+    return this.resolveLiveElement(diag.elementId)
   }
 
   /**
@@ -633,6 +632,10 @@ export class EngineDriver implements BrowserDriver {
       this.resolutionCache.set(cacheKey, el.id, {
         role: el.role, label: el.label, confidence: 1.0,
       })
+      // Record this tier's {label, role} so a later stale elementId can still
+      // be re-resolved (see elementDescriptors) — queryAXTree results were
+      // previously invisible to that history, unlike freshSnapshot() results.
+      this.recordDescriptors(queryResult)
       const allElements = await this.freshSnapshot()
       const interactive = allElements.filter((e) => e.actions.length > 0)
       return {
@@ -782,6 +785,11 @@ export class EngineDriver implements BrowserDriver {
    *  used for stale-elementId re-resolution (see elementDescriptors). */
   private recordDescriptors(elements: Element[]): void {
     for (const e of elements) {
+      // Delete before set: Map.set on an existing key keeps its original
+      // insertion position, so re-recording a seen id without first deleting
+      // it would leave it ordered as "old" and eligible for eviction below
+      // even though it was just re-seen — delete+set moves it to the end.
+      this.elementDescriptors.delete(e.id)
       this.elementDescriptors.set(e.id, { label: e.label, role: e.role })
     }
     if (this.elementDescriptors.size > EngineDriver.MAX_DESCRIPTOR_HISTORY) {
@@ -847,6 +855,24 @@ export class EngineDriver implements BrowserDriver {
     const elements = await this.freshSnapshot()
     const match = findExactLabel(label, elements, role)
     return match ? match.id : null
+  }
+
+  /**
+   * Resolve an elementId already produced by find()/findWithDiagnostics()
+   * against the LIVE page: a fresh snapshot may no longer contain that exact
+   * id even though the element is still present (e.g. a re-render replaced
+   * its backendNodeId between resolution and this call).
+   * Falls back to the last-known {label, role} in elementDescriptors before
+   * declaring the element gone.
+   */
+  async resolveLiveElement(elementId: string): Promise<Element | null> {
+    const elements = await this.getSnapshot()
+    const direct = elements.find((e) => e.id === elementId)
+    if (direct) return direct
+
+    const known = this.elementDescriptors.get(elementId)
+    if (!known) return null
+    return findExactLabel(known.label, elements, known.role)
   }
 
   /**

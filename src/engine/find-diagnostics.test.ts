@@ -556,3 +556,97 @@ describe('findWithDiagnostics', () => {
     expect(diag.autoResolved).toBeUndefined()
   })
 })
+
+// ── find() re-render between resolution and snapshot ───────────────────────
+//
+// find() resolves an elementId via findWithDiagnostics() and then re-checks
+// that id against a SECOND, later snapshot. If the underlying node re-rendered
+// between the two reads (same accessible name/role, new backendNodeId → new
+// elementId), a naive `elements.find(e => e.id === diag.elementId)` returns
+// null even though the element is still on the page. resolveLiveElement()
+// falls back to the last-known {label, role} recorded in elementDescriptors.
+
+describe('find() re-render between resolution and snapshot', () => {
+  let driver: EngineDriver
+  let axGetSnapshot: ReturnType<typeof vi.fn>
+  let axQueryAXTree: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    driver = new EngineDriver()
+
+    axGetSnapshot = vi.fn()
+    axQueryAXTree = vi.fn()
+
+    Object.defineProperty((driver as any), 'ax', {
+      value: {
+        getSnapshot: axGetSnapshot,
+        queryAXTree: axQueryAXTree,
+        getBackendNodeId: () => null,
+        enable: vi.fn(),
+      },
+      writable: true,
+      configurable: true,
+    })
+
+    ;(driver as any).resolutionCache.clear()
+  })
+
+  it('re-resolves to the new elementId when the node re-rendered with the same label+role', async () => {
+    // queryAXTree resolves e459 first...
+    axQueryAXTree.mockResolvedValueOnce([makeElement('e459', 'Rerender Button')])
+    // ...but by the time find() takes its second snapshot, the node has been
+    // replaced by e472 (same label/role, new backendNodeId).
+    axGetSnapshot.mockResolvedValue([makeElement('e472', 'Rerender Button')])
+
+    const result = await driver.find('Rerender Button', { role: 'button' })
+
+    expect(result).not.toBeNull()
+    expect(result!.id).toBe('e472')
+  })
+
+  it('returns null when the element is truly gone (no matching label+role in the later snapshot)', async () => {
+    axQueryAXTree.mockResolvedValueOnce([makeElement('e459', 'Rerender Button')])
+    axGetSnapshot.mockResolvedValue([makeElement('e9', 'Other')])
+
+    const result = await driver.find('Rerender Button', { role: 'button' })
+
+    expect(result).toBeNull()
+  })
+
+  it('does not cross-match a same-label element of a different role', async () => {
+    axQueryAXTree.mockResolvedValueOnce([makeElement('e459', 'Rerender Button', 'button')])
+    axGetSnapshot.mockResolvedValue([makeElement('e472', 'Rerender Button', 'link')])
+
+    const result = await driver.find('Rerender Button', { role: 'button' })
+
+    expect(result).toBeNull()
+  })
+
+  // recordDescriptors must treat re-recording a seen id as "touch" (moves it
+  // to the most-recently-seen end), not a no-op that leaves it in its
+  // original, earliest position — otherwise a trim can evict an id that was
+  // just re-seen a moment before find()/resolveLiveElement reads it.
+  it('re-recording an id shortly before a trim protects it from eviction', () => {
+    const driver2 = new EngineDriver()
+    const MAX = (EngineDriver as any).MAX_DESCRIPTOR_HISTORY as number
+    const TARGET = (EngineDriver as any).DESCRIPTOR_TRIM_TARGET as number
+    const record = (elements: Element[]) => (driver2 as any).recordDescriptors(elements)
+
+    // Seed the id under test, then fill up to exactly MAX total entries.
+    record([makeElement('old-id', 'Old')])
+    for (let i = 0; i < MAX - 1; i++) {
+      record([makeElement(`filler-${i}`, `Filler ${i}`)])
+    }
+    expect((driver2 as any).elementDescriptors.size).toBe(MAX)
+    expect(TARGET).toBeLessThan(MAX)
+
+    // Re-record old-id — a real find() re-resolution would do this the
+    // moment the same element is seen again in a later snapshot.
+    record([makeElement('old-id', 'Old')])
+
+    // One more filler pushes size past MAX and triggers the trim.
+    record([makeElement('filler-final', 'Filler Final')])
+
+    expect((driver2 as any).elementDescriptors.has('old-id')).toBe(true)
+  })
+})

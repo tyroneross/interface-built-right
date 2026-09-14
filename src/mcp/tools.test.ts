@@ -433,6 +433,10 @@ describe('E3-E: session_action verify-then-proceed (T-09)', () => {
         totalInteractive: 2,
       })),
       getSnapshot: vi.fn(async () => [target, other]),
+      // resolveLiveElement replaced the old inline getSnapshot()+find() —
+      // these tests aren't exercising re-render staleness, so a plain by-id
+      // lookup over the same fixture elements is the correct stub.
+      resolveLiveElement: vi.fn(async (id: string) => [target, other].find((e) => e.id === id) ?? null),
       // NO-OP: before and after are byte-identical — nothing added/removed,
       // zero pixel diff, same URL.
       actAndCapture: makeActAndCaptureStub({
@@ -496,6 +500,7 @@ describe('E3-E: session_action verify-then-proceed (T-09)', () => {
         totalInteractive: 1,
       })),
       getSnapshot: vi.fn(async () => [target]),
+      resolveLiveElement: vi.fn(async (id: string) => [target].find((e) => e.id === id) ?? null),
       actAndCapture: makeActAndCaptureStub({
         before: { elements: [target], screenshot },
         after: { elements: [target, newModal], screenshot },
@@ -539,6 +544,7 @@ describe('E3-E: session_action verify-then-proceed (T-09)', () => {
         autoResolved: { label: 'Submit', role: 'button', score: 0.83, margin: 0.2 },
       })),
       getSnapshot: vi.fn(async () => [target]),
+      resolveLiveElement: vi.fn(async (id: string) => [target].find((e) => e.id === id) ?? null),
       actAndCapture: makeActAndCaptureStub({
         before: { elements: [target], screenshot },
         after: { elements: [{ ...target, focused: true }], screenshot },

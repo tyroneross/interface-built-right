@@ -86,12 +86,16 @@
 
   <!-- 6. Stale elementId: original node replaced by a new node with the
        same accessible name+role (same backendNodeId identity is NOT
-       preserved — this is the re-render staleness case). -->
+       preserved — this is the re-render staleness case). Exposed as
+       window.ibrRerender() instead of a fixed-delay timer so the test can
+       trigger the swap AFTER it has resolved the element and BEFORE it
+       acts — that makes the id deterministically stale on every run,
+       instead of racing a load timer against find(). -->
   <div id="rerender-container">
     <button id="rerender-btn" onclick="ibrLog('rerender-clicked-original')">Rerender Button</button>
   </div>
   <script>
-    setTimeout(function () {
+    window.ibrRerender = function () {
       var container = document.getElementById('rerender-container');
       var fresh = document.createElement('button');
       fresh.id = 'rerender-btn';
@@ -100,7 +104,7 @@
       container.innerHTML = '';
       container.appendChild(fresh);
       ibrLog('rerender-swapped');
-    }, 90);
+    };
   </script>
 
   <!-- 7. Fill target: disabled input -> enabled -->

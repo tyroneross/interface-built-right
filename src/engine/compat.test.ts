@@ -271,9 +271,15 @@ describe('EngineDriver actionability (live Chrome fixture)', () => {
     await driver.navigate(fixtureUrl, { waitFor: 'none' })
     const el = await driver.find('Rerender Button', { role: 'button' })
     expect(el).not.toBeNull()
-    // The original elementId's backendNodeId goes stale ~120ms into the
-    // wait (the fixture replaces the DOM node). click() must re-resolve by
-    // name+role and act on the replacement instead of throwing.
+    // Trigger the swap ourselves, between find() and click(), so el!.id's
+    // backendNodeId is dead on every run — deterministic, not a race. (This
+    // used to be a fixture load-timer: a CDP trace showed find() sometimes
+    // returning null when the swap landed between its two AX reads, and on
+    // roughly half of warm runs find() completed AFTER the swap, so no stale
+    // id was ever exercised.)
+    await driver.evaluate('window.ibrRerender()')
+    // click() must re-resolve by name+role and act on the replacement
+    // instead of throwing.
     await driver.click(el!.id)
     const swappedAt = await eventTime('rerender-swapped')
     const all = await events()

@@ -1624,9 +1624,10 @@ export async function handleToolCall(
             return { content: notFoundContent, isError: true }
           }
 
-          // Resolve element object from id
-          const allElements = await driver.getSnapshot()
-          const element = allElements.find(e => e.id === diag.elementId)
+          // Resolve element object from id — re-render-safe: falls back to
+          // last-known {label, role} if the id itself went stale between
+          // resolution and this snapshot.
+          const element = await driver.resolveLiveElement(diag.elementId)
           if (!element) {
             return errorResponse(`Element "${target}" was resolved but disappeared from AX tree. Try again.`)
           }
@@ -2342,8 +2343,15 @@ export async function handleToolCall(
             return { content: notFoundContent }
           }
 
-          const allElements = await driver.getSnapshot() as EngineElement[]
-          const element = allElements.find((e) => e.id === diag.elementId)
+          // Re-render-safe: falls back to last-known {label, role} if the id
+          // itself went stale between resolution and this call.
+          const element = await driver.resolveLiveElement(diag.elementId) as EngineElement | null
+          // Act on the LIVE id, not the possibly-stale diag.elementId —
+          // mirrors the interact handler above, which already acts on
+          // element.id. Without this, hover (which has no re-resolution of
+          // its own) and every other action here would still target a
+          // backendNodeId that resolveLiveElement just proved was replaced.
+          const targetId = element?.id ?? diag.elementId
 
           const knownActions = ['click', 'type', 'fill', 'hover', 'press', 'scroll', 'select', 'check']
           if (!knownActions.includes(action)) {
@@ -2358,21 +2366,21 @@ export async function handleToolCall(
           // the return to CapturedAction so downstream diffing is typed.
           const captured = await driver.actAndCapture(async () => {
             switch (action) {
-              case 'click': await driver.click(diag.elementId); break
-              case 'type': await driver.type(diag.elementId, value || ''); break
-              case 'fill': await driver.fill(diag.elementId, value || ''); break
-              case 'hover': await driver.hover(diag.elementId); break
+              case 'click': await driver.click(targetId); break
+              case 'type': await driver.type(targetId, value || ''); break
+              case 'fill': await driver.fill(targetId, value || ''); break
+              case 'hover': await driver.hover(targetId); break
               case 'press': await driver.pressKey(value || 'Enter'); break
               case 'scroll': await driver.scroll(Number(value) || 300); break
-              case 'select': await driver.select(diag.elementId, value || ''); break
-              case 'check': await driver.check(diag.elementId); break
+              case 'select': await driver.select(targetId, value || ''); break
+              case 'check': await driver.check(targetId); break
             }
           }) as CapturedAction
           const afterUrl = driver.url
 
           // F-09 / T-09: success is true ONLY when the validator observes the
           // expected outcome — not merely because the action above didn't throw.
-          const validator = validateWebAction({ action, value, targetElementId: diag.elementId, beforeUrl, afterUrl, captured })
+          const validator = validateWebAction({ action, value, targetElementId: targetId, beforeUrl, afterUrl, captured })
 
           const afterCount = captured.after.elements.filter((e) => e.actions.length > 0).length
           entry.url = driver.url
@@ -2382,7 +2390,7 @@ export async function handleToolCall(
             validator,
             provenance: { tier: diag.tierName, confidence: diag.confidence, waitResult: 'tree-stable' } as ActionProvenance,
             elementFound: {
-              id: diag.elementId,
+              id: targetId,
               role: element?.role ?? 'unknown',
               label: element?.label ?? target,
               confidence: diag.confidence,
@@ -2403,7 +2411,7 @@ export async function handleToolCall(
             }
           }
           if (!validator.passed) {
-            actionResult.evidence = buildFailureEvidence({ target, targetElementId: diag.elementId, beforeUrl, afterUrl, captured })
+            actionResult.evidence = buildFailureEvidence({ target, targetElementId: targetId, beforeUrl, afterUrl, captured })
           }
 
           if (wantScreenshot) {
