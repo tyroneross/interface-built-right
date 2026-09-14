@@ -1593,6 +1593,7 @@ declare const InteractiveStateSchema: z.ZodObject<{
     isContentEditable: z.ZodOptional<z.ZodBoolean>;
     hasEventListener: z.ZodOptional<z.ZodBoolean>;
     hasDelegatedListener: z.ZodOptional<z.ZodBoolean>;
+    hasNativeActivation: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 /**
  * Accessibility attributes
@@ -1672,6 +1673,7 @@ declare const EnhancedElementSchema: z.ZodObject<{
         isContentEditable: z.ZodOptional<z.ZodBoolean>;
         hasEventListener: z.ZodOptional<z.ZodBoolean>;
         hasDelegatedListener: z.ZodOptional<z.ZodBoolean>;
+        hasNativeActivation: z.ZodOptional<z.ZodBoolean>;
     }, z.core.$strip>;
     inForm: z.ZodOptional<z.ZodBoolean>;
     buttonType: z.ZodOptional<z.ZodNullable<z.ZodString>>;

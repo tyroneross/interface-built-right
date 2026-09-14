@@ -264,7 +264,14 @@ var init_schemas = __esm({
       // — event delegation. Root-level listeners are deliberately excluded: a
       // document-level click listener (e.g. menu-dismissal) would otherwise
       // "rescue" every dead control on the page.
-      hasDelegatedListener: z.boolean().optional()
+      hasDelegatedListener: z.boolean().optional(),
+      // True when the browser activates this control with no author JS at all
+      // (a `<button type=submit>` whose form has an action/formaction, a
+      // `type=reset` button, or a popovertarget/commandfor invoker). Folded into
+      // hasOnClick in extract.ts's static pass, same as hasEventListener above,
+      // so every existing consumer (rules, analyzeElements' NO_HANDLER audit)
+      // agrees without per-consumer changes.
+      hasNativeActivation: z.boolean().optional()
     });
     A11yAttributesSchema = z.object({
       role: z.string().nullable(),
@@ -8442,6 +8449,21 @@ async function extractInteractiveElements(page) {
         hasAnyHandler: hasReactHandler || hasVueHandler || hasAngularHandler || hasVanillaHandler
       };
     };
+    const hasNativeActivation = (el) => {
+      const tag = el.tagName.toLowerCase();
+      if (tag !== "button" && tag !== "input") return false;
+      const control = el;
+      const type = (control.type || "").toLowerCase();
+      const form = control.form;
+      if (form && (type === "submit" || tag === "input" && type === "image")) {
+        const formMethod = (control.getAttribute("formmethod") || "").toLowerCase();
+        const method = (form.getAttribute("method") || "").toLowerCase();
+        if (control.getAttribute("formaction") || formMethod === "dialog" || form.getAttribute("action") || method === "dialog") return true;
+      }
+      if (form && type === "reset") return true;
+      if (el.hasAttribute("popovertarget") || el.hasAttribute("commandfor")) return true;
+      return false;
+    };
     const measureLabelTarget = (el) => {
       const labelled = el;
       let labels = labelled.labels ? Array.from(labelled.labels) : [];
@@ -8582,6 +8604,7 @@ async function extractInteractiveElements(page) {
           const rect = htmlEl.getBoundingClientRect();
           const computed = window.getComputedStyle(htmlEl);
           const handlers = detectHandlers(htmlEl);
+          const nativeActivation = hasNativeActivation(htmlEl);
           const href = htmlEl.getAttribute("href");
           const hasValidHref = href !== null && href !== "#" && href !== "" && !href.startsWith("javascript:");
           elements2.push({
@@ -8606,7 +8629,7 @@ async function extractInteractiveElements(page) {
               };
             })(),
             interactive: {
-              hasOnClick: handlers.hasAnyHandler,
+              hasOnClick: handlers.hasAnyHandler || nativeActivation,
               hasHref: hasValidHref,
               isDisabled: htmlEl.hasAttribute("disabled") || htmlEl.getAttribute("aria-disabled") === "true" || computed.pointerEvents === "none",
               tabIndex: parseInt(htmlEl.getAttribute("tabindex") || "0", 10),
@@ -8616,7 +8639,8 @@ async function extractInteractiveElements(page) {
               hasAngularHandler: handlers.hasAngularHandler || void 0,
               // .isContentEditable resolves inherited contenteditable
               // correctly, unlike a raw getAttribute('contenteditable') check.
-              isContentEditable: htmlEl.isContentEditable || void 0
+              isContentEditable: htmlEl.isContentEditable || void 0,
+              hasNativeActivation: nativeActivation || void 0
             },
             a11y: {
               role: htmlEl.getAttribute("role"),
@@ -12041,7 +12065,13 @@ function hasAnyHandler(element) {
   // it should not silently regress this rule back to the fake-interactive
   // false positives these fields exist to fix (addEventListener-wired
   // buttons like #rail-designer, #start-btn reported as having no handler).
-  element.interactive.hasEventListener || element.interactive.hasDelegatedListener);
+  element.interactive.hasEventListener || element.interactive.hasDelegatedListener || // hasOnClick already folds this in too (see extractInteractiveElements'
+  // hasNativeActivation), but listed explicitly for the same reason as the
+  // two fields above: a future refactor that stops folding native-
+  // activation detection into hasOnClick should not silently regress this
+  // rule back to flagging a working `<button type=submit>`/`type=reset>`/
+  // popovertarget control as fake-interactive.
+  element.interactive.hasNativeActivation);
 }
 function hasDisabledVisual(element) {
   const style = element.computedStyles;
