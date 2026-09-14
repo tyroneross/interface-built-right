@@ -60,7 +60,14 @@ function hasAnyHandler(element: EnhancedElement): boolean {
     // false positives these fields exist to fix (addEventListener-wired
     // buttons like #rail-designer, #start-btn reported as having no handler).
     element.interactive.hasEventListener ||
-    element.interactive.hasDelegatedListener
+    element.interactive.hasDelegatedListener ||
+    // hasOnClick already folds this in too (see extractInteractiveElements'
+    // hasNativeActivation), but listed explicitly for the same reason as the
+    // two fields above: a future refactor that stops folding native-
+    // activation detection into hasOnClick should not silently regress this
+    // rule back to flagging a working `<button type=submit>`/`type=reset>`/
+    // popovertarget control as fake-interactive.
+    element.interactive.hasNativeActivation
   );
 }
 

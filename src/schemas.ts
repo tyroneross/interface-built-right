@@ -328,6 +328,13 @@ export const InteractiveStateSchema = z.object({
   // document-level click listener (e.g. menu-dismissal) would otherwise
   // "rescue" every dead control on the page.
   hasDelegatedListener: z.boolean().optional(),
+  // True when the browser activates this control with no author JS at all
+  // (a `<button type=submit>` whose form has an action/formaction, a
+  // `type=reset` button, or a popovertarget/commandfor invoker). Folded into
+  // hasOnClick in extract.ts's static pass, same as hasEventListener above,
+  // so every existing consumer (rules, analyzeElements' NO_HANDLER audit)
+  // agrees without per-consumer changes.
+  hasNativeActivation: z.boolean().optional(),
 });
 
 /**

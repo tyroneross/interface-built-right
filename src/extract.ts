@@ -637,6 +637,34 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
       };
     };
 
+    // Helper: does the browser activate this control with no author JS at
+    // all? A `<button type=submit>` (or `<input type=submit|image>`) whose
+    // owning form has an action/formaction, or whose formmethod/method is
+    // "dialog", submits/closes purely via native form semantics; a
+    // `type=reset` button resets its form the same way; and the Popover API
+    // / Invoker Commands attributes (`popovertarget`, `commandfor`) drive
+    // native show/hide with zero script. None of these show up in
+    // detectHandlers() (no onclick, no framework props, no addEventListener)
+    // and would otherwise be reported dead by both the NO_HANDLER audit
+    // below and handler-integrity/fake-interactive.
+    const hasNativeActivation = (el: Element): boolean => {
+      const tag = el.tagName.toLowerCase();
+      if (tag !== 'button' && tag !== 'input') return false;
+      const control = el as HTMLButtonElement | HTMLInputElement;
+      const type = (control.type || '').toLowerCase();
+      const form = control.form;
+      if (form && (type === 'submit' || (tag === 'input' && type === 'image'))) {
+        // formaction/formmethod on the control override the form's action/method (HTML spec).
+        const formMethod = (control.getAttribute('formmethod') || '').toLowerCase();
+        const method = (form.getAttribute('method') || '').toLowerCase();
+        if (control.getAttribute('formaction') || formMethod === 'dialog' || form.getAttribute('action') || method === 'dialog') return true;
+      }
+      if (form && type === 'reset') return true;
+      // Popover API / Invoker Commands — only meaningful on button/input.
+      if (el.hasAttribute('popovertarget') || el.hasAttribute('commandfor')) return true;
+      return false;
+    };
+
     // Helper: bounds of the largest VISIBLE <label> that activates this
     // control. Clicking an associated label activates its control, so for a
     // visually-hidden input (`sr-only`, `clip-path: inset(50%)`, `opacity:0`)
@@ -882,6 +910,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
           const rect = htmlEl.getBoundingClientRect();
           const computed = window.getComputedStyle(htmlEl);
           const handlers = detectHandlers(htmlEl);
+          const nativeActivation = hasNativeActivation(htmlEl);
 
           // Check href for links
           const href = htmlEl.getAttribute('href');
@@ -910,7 +939,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               };
             })(),
             interactive: {
-              hasOnClick: handlers.hasAnyHandler,
+              hasOnClick: handlers.hasAnyHandler || nativeActivation,
               hasHref: hasValidHref,
               isDisabled: htmlEl.hasAttribute('disabled') ||
                           htmlEl.getAttribute('aria-disabled') === 'true' ||
@@ -923,6 +952,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
               // .isContentEditable resolves inherited contenteditable
               // correctly, unlike a raw getAttribute('contenteditable') check.
               isContentEditable: htmlEl.isContentEditable || undefined,
+              hasNativeActivation: nativeActivation || undefined,
             },
             a11y: {
               role: htmlEl.getAttribute('role'),

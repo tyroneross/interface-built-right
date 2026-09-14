@@ -83,6 +83,28 @@ describe('handler-integrity/fake-interactive — real listener detection', () =>
     expect(result).toBeNull();
   });
 
+  it('does not flag a button with hasNativeActivation true, even with hasOnClick false', () => {
+    // Regression for the native-activation false positive: a
+    // `<button type=submit>` in a form with an action, a `type=reset`
+    // button, or a popovertarget/commandfor invoker activates with zero
+    // author JS. extract.ts folds hasNativeActivation into hasOnClick, but
+    // this test pins hasAnyHandler()'s own fallback, same rationale as the
+    // hasEventListener/hasDelegatedListener tests above.
+    const el = makeElement({
+      tagName: 'button',
+      interactive: {
+        hasOnClick: false,
+        hasHref: false,
+        isDisabled: false,
+        tabIndex: 0,
+        cursor: 'pointer',
+        hasNativeActivation: true,
+      },
+    });
+    const result = fakeInteractiveRule.check(el, makeContext());
+    expect(result).toBeNull();
+  });
+
   it('still flags when hasEventListener/hasDelegatedListener are both explicitly false', () => {
     const el = makeElement({
       interactive: {

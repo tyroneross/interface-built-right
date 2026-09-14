@@ -14,6 +14,7 @@ const BROWSER_INTEGRATION = [
   'src/rules/breadcrumbs.integration.test.ts',
   'src/obsidian/obsidian.integration.test.ts',
   'src/live/live.integration.test.ts',
+  'src/native-activation.integration.test.ts',
 ];
 
 export default defineConfig({
