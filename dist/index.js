@@ -14468,6 +14468,18 @@ function isFileFresh(path2) {
     return false;
   }
 }
+async function requestAccessibilityPermission(deps) {
+  const binary = await (deps?.ensure ?? ensureExtractor)();
+  const run = deps?.run ?? ((bin, args) => execFileAsync3(bin, args, { timeout: 3e4 }));
+  try {
+    await run(binary, ["--request-permission"]);
+    return { trusted: true, message: "Accessibility permission is granted." };
+  } catch (err) {
+    const stderr = String(err.stderr ?? "").trim();
+    const message = err instanceof Error ? err.message : String(err);
+    return { trusted: false, message: stderr || message };
+  }
+}
 function isExtractorAvailable() {
   if (fs$1.existsSync(EXTRACTOR_PATH)) return true;
   return fs$1.existsSync(path.join(SWIFT_SOURCE_DIR, "Package.swift"));
@@ -21598,13 +21610,17 @@ function detectSimulatorChromeOnly(input) {
   }
   return null;
 }
+var ACCESSIBILITY_UNTRUSTED_EXIT_CODE = 77;
+var REQUEST_PERMISSION_COMMAND = "ibr native:request-permission";
 function classifyExtractorError(err) {
   const msg = err instanceof Error ? err.message : String(err);
-  if (/accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+  const code = err?.code;
+  if (code === ACCESSIBILITY_UNTRUSTED_EXIT_CODE || /accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+    const swiftLine = msg.split("\n").map((line) => line.trim()).find((line) => /^Error: Accessibility permission required\./.test(line) || /^Accessibility permission required\. IBR showed/.test(line));
     return {
       ok: false,
       reason: "ax-permission",
-      message: "macOS accessibility permission denied. Grant access in System Settings \u2192 Privacy & Security \u2192 Accessibility, then re-run the session_start call."
+      message: swiftLine ? swiftLine.replace(/^Error: /, "") : `macOS accessibility permission denied. Grant access to your terminal or IDE in System Settings \u2192 Privacy & Security \u2192 Accessibility, then quit and reopen it and re-run the session_start call. IBR does not re-open the permission prompt automatically; to show it once, run: ${REQUEST_PERMISSION_COMMAND}`
     };
   }
   return null;
@@ -22930,6 +22946,7 @@ exports.registerOperation = registerOperation;
 exports.removeGlobalPreference = removeGlobalPreference;
 exports.removePreference = removePreference;
 exports.reportElementSizes = reportElementSizes;
+exports.requestAccessibilityPermission = requestAccessibilityPermission;
 exports.resolveDevice = resolveDevice;
 exports.resolveVerdictPolicy = resolveVerdictPolicy;
 exports.resolvedPathCache = resolvedPathCache;
