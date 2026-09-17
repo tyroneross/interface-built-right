@@ -280,6 +280,24 @@ describe('R5: classifyExtractorError', () => {
     expect(out!.reason).toBe('ax-permission');
   });
 
+  it('classifies extractor exit code 77 even without permission wording', () => {
+    const err = Object.assign(new Error('Command failed: ibr-ax-extract --pid 1'), { code: 77 });
+    const out = preflight.classifyExtractorError(err);
+    expect(out?.reason).toBe('ax-permission');
+    expect(out!.message).toContain(preflight.REQUEST_PERMISSION_COMMAND);
+  });
+
+  it('passes through the extractor guidance when the prompt was already shown', () => {
+    const swift =
+      'Error: Accessibility permission required. IBR already showed the macOS permission prompt ' +
+      '(2026-09-17T00:00:00Z) and will not show it again. Grant Accessibility ... ' +
+      'To re-request the prompt explicitly: rm /Users/x/.ibr/permissions.json && ibr native:request-permission';
+    const out = preflight.classifyExtractorError(
+      Object.assign(new Error(`Command failed: ibr-ax-extract --pid 1\n${swift}\n`), { code: 77 }),
+    );
+    expect(out?.message).toBe(swift.replace(/^Error: /, ''));
+  });
+
   it('returns null for unrelated errors', () => {
     expect(preflight.classifyExtractorError(new Error('Network timeout'))).toBeNull();
     expect(preflight.classifyExtractorError('plain string error')).toBeNull();

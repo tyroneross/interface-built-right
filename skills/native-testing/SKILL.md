@@ -74,7 +74,7 @@ Use `ibr native:session:*` CLI commands (or the typed `NativeSessionController` 
    - If `waitFor` is omitted, the tool still performs a short post-action settle poll and returns `postAction` evidence.
 4. `native_session_close` when done
 
-These actions use Accessibility APIs (`AXPress`, `AXSetValue`, focus/menu actions, and — for `keystroke` — `CGEventPostToPid` chord synthesis) rather than pointer movement. They require macOS Accessibility permission for the terminal/IDE running IBR. Custom canvas controls or simulator guest controls that do not expose AX actions may still require the simulator HID/IDB path.
+These actions use Accessibility APIs (`AXPress`, `AXSetValue`, focus/menu actions, and — for `keystroke` — `CGEventPostToPid` chord synthesis) rather than pointer movement. They require macOS Accessibility permission for the terminal/IDE running IBR. IBR never opens the macOS permission prompt on its own: an untrusted run fails fast (extractor exit `77`) with the System Settings path. Run `ibr native:request-permission` to show the prompt once; it is recorded in `~/.ibr/permissions.json` and not shown again (delete that file to re-request). Custom canvas controls or simulator guest controls that do not expose AX actions may still require the simulator HID/IDB path.
 
 Use direct `pid` targeting when a sandboxed agent can learn the process ID from a desktop host but cannot enumerate processes with `pgrep` or `NSWorkspace`.
 

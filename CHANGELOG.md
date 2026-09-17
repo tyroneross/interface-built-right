@@ -27,6 +27,18 @@ increment before it is cut into a release.
 
 ### Fixed
 
+- **The macOS Accessibility prompt no longer reappears on every native call.**
+  `ibr-ax-extract` called `AXIsProcessTrustedWithOptions` with `prompt: true`
+  on every one-shot run, and an untrusted daemon falls back to that one-shot
+  binary per request, so the "Open System Settings" dialog kept reappearing
+  for the host terminal. Every trust check now uses `prompt: false`; an
+  untrusted run exits `77` with a stderr line naming System Settings >
+  Privacy & Security > Accessibility. The dialog is shown only by the explicit
+  `ibr native:request-permission` (extractor flag `--request-permission`),
+  and only if `~/.ibr/permissions.json` has no `accessibility.askedAt` record;
+  the record is written when prompting, so it is shown at most once per user.
+  To re-request: delete that file and run the command again.
+
 - **IBR-owned Chrome processes no longer accumulate after interrupted runs.**
   Local launches now reap orphaned IBR-profile Chrome main processes, old
   `SingletonLock` files recover after a Mac hostname change when no Chrome uses

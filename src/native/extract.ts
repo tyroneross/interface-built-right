@@ -108,6 +108,41 @@ function isFileFresh(path: string): boolean {
   }
 }
 
+export interface AccessibilityPermissionResult {
+  /** True when the host process is already trusted for Accessibility. */
+  trusted: boolean;
+  /** One-line, user-facing status (the extractor's own guidance when untrusted). */
+  message: string;
+}
+
+type ExtractorRunner = (
+  binary: string,
+  args: string[],
+) => Promise<{ stdout: string; stderr: string }>;
+
+/**
+ * Explicitly request macOS Accessibility permission for the host terminal/IDE.
+ *
+ * Runs the extractor once with `--request-permission`. The extractor shows the
+ * macOS prompt only if no prompt was ever recorded in ~/.ibr/permissions.json,
+ * records it, and never prompts again afterwards. Never retries.
+ */
+export async function requestAccessibilityPermission(deps?: {
+  ensure?: () => Promise<string>;
+  run?: ExtractorRunner;
+}): Promise<AccessibilityPermissionResult> {
+  const binary = await (deps?.ensure ?? ensureExtractor)();
+  const run: ExtractorRunner = deps?.run ?? ((bin, args) => execFileAsync(bin, args, { timeout: 30000 }));
+  try {
+    await run(binary, ['--request-permission']);
+    return { trusted: true, message: 'Accessibility permission is granted.' };
+  } catch (err) {
+    const stderr = String((err as { stderr?: unknown }).stderr ?? '').trim();
+    const message = err instanceof Error ? err.message : String(err);
+    return { trusted: false, message: stderr || message };
+  }
+}
+
 /**
  * Check if the Swift extractor is available (compiled or can be compiled)
  */
