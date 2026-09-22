@@ -1486,7 +1486,7 @@ program
     }
   });
 
-// Serve command (placeholder - will be implemented with web-ui)
+// Serve command: launches the comparison viewer from the repo's web-ui/ (not shipped in the npm package)
 program
   .command('serve')
   .description('Start the comparison viewer web UI')
