@@ -8123,17 +8123,11 @@ declare function formatNativeCandidate(candidate: NativeElementCandidate): Recor
  * whose signature has drifted; the stale entry is evicted instead. This invariant
  * is verified by resolved-path-cache.test.ts and is backend-agnostic.
  *
- * STATUS — STAGED FOR INCREMENT 2 (not yet wired into any action path). The
- * target-string -> index-path resolution it would accelerate happens only inside
- * NativeSessionController (resolveMacOSElement / resolveSimulatorElement), which
- * was FROZEN in chunk C0 of Increment 1. Wiring the cache at the DaemonBackend
- * layer is impossible without the controller's keys (sessionId + target string +
- * pre-resolution signature), so consumption is deferred to Increment 2 (the
- * capture->replay->escalate spine), which revises the controller resolve-site and
- * owns replay. Built + unit-tested now as a deliberate, honestly-labeled seam
- * (pay-it-forward), NOT an active feature. Criterion 4 (goal.md) is therefore
- * scored PARTIAL: per-action process-respawn eliminated on the opt-in daemon
- * path; per-action tree-walk reduction (this cache) deferred to Increment 2.
+ * STATUS — wired into record/replay (`src/native/replay.ts`, `ibr native:replay`).
+ * Replay seeds each recorded step's path with the signature captured at record
+ * time; a hit means the UI is unchanged and the step acts without resolution.
+ * NativeSessionController still resolves per action (it stays the frozen
+ * MCP/CLI contract); replay is the consumer.
  */
 interface ResolvedPathEntry {
     /** The `nativeStateSignature` at the time this path was resolved. */
