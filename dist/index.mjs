@@ -2638,13 +2638,17 @@ var init_fetch = __esm({
       sessionId;
       rules = [];
       enabled = false;
+      listening = false;
       async mock(pattern, response) {
         this.rules.unshift({ pattern, response });
         if (this.enabled) return;
         this.enabled = true;
-        this.conn.on("Fetch.requestPaused", (params) => {
-          void this.onPaused(params);
-        });
+        if (!this.listening) {
+          this.listening = true;
+          this.conn.on("Fetch.requestPaused", (params) => {
+            if (this.enabled) void this.onPaused(params);
+          });
+        }
         await this.conn.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }, this.sessionId);
       }
       async clear() {

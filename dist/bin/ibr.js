@@ -2110,13 +2110,17 @@ var init_fetch = __esm({
       sessionId;
       rules = [];
       enabled = false;
+      listening = false;
       async mock(pattern, response) {
         this.rules.unshift({ pattern, response });
         if (this.enabled) return;
         this.enabled = true;
-        this.conn.on("Fetch.requestPaused", (params) => {
-          void this.onPaused(params);
-        });
+        if (!this.listening) {
+          this.listening = true;
+          this.conn.on("Fetch.requestPaused", (params) => {
+            if (this.enabled) void this.onPaused(params);
+          });
+        }
         await this.conn.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }, this.sessionId);
       }
       async clear() {
@@ -57869,9 +57873,11 @@ var import_path27 = require("path");
 function keyOf(e) {
   return `${e.role}|${e.label ?? ""}|${e.identifier ?? ""}|${e.frame?.join(",") ?? ""}`;
 }
-function assignRefs(elements) {
+function assignRefs(elements, prior) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
+  const priorByKey = new Map((prior ?? []).map((e) => [keyOf(e), e.ref]));
+  let next = 1 + (prior ?? []).reduce((m, e) => Math.max(m, Number(e.ref.slice(1)) || 0), 0);
   for (const el of elements) {
     const f = el.frame;
     const entry = {
@@ -57884,7 +57890,7 @@ function assignRefs(elements) {
     const k = keyOf(entry);
     if (seen.has(k)) continue;
     seen.add(k);
-    entry.ref = `e${out.length + 1}`;
+    entry.ref = prior ? priorByKey.get(k) ?? `e${next++}` : `e${out.length + 1}`;
     out.push(entry);
   }
   return out;
@@ -58186,7 +58192,12 @@ function samePath(a, b) {
   return !!a && a.length === b.length && a.every((v, i) => v === b[i]);
 }
 function findByFingerprint(items, f) {
-  return items.find((c) => sameFingerprint(f, c));
+  const hits = items.filter((c) => sameFingerprint(f, c));
+  if (hits.length > 1) {
+    const frames = new Set(hits.map((h) => JSON.stringify(h.frame ?? null)));
+    if (frames.size > 1) return "ambiguous";
+  }
+  return hits[0];
 }
 var sleep6 = (ms) => new Promise((r) => setTimeout(r, ms));
 async function settled(read, sig, ms) {
@@ -58236,9 +58247,10 @@ async function replayMacOS(step, target, deps, cache, key, settleMs) {
     status = "verified";
     path3 = step.path;
   } else {
-    const name = step.fingerprint.identifier ?? step.fingerprint.label ?? "";
-    const exact = findByFingerprint(cur.candidates, step.fingerprint);
-    const resolved = exact?.path ? exact : name ? resolveMacOSElement(cur.ex.elements, name, { role: step.fingerprint.role })?.element : void 0;
+    const resolved = findByFingerprint(cur.candidates, step.fingerprint);
+    if (resolved === "ambiguous") {
+      return { status: "failed", fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} matches several elements` };
+    }
     if (!resolved?.path) {
       return { status: "failed", fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} not found` };
     }
@@ -58276,6 +58288,7 @@ async function replaySimulator(step, target, deps, cache, key, settleMs) {
       point = step.point;
     } else {
       const found = findByFingerprint(cur.els, step.fingerprint);
+      if (found === "ambiguous") return { status: "failed", fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} matches several elements` };
       if (!found?.frame) return { status: "failed", fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} not found` };
       const f = found.frame;
       point = [Math.round(f.x + f.width / 2), Math.round(f.y + f.height / 2)];
@@ -58422,7 +58435,7 @@ async function handleRead(opts, deps = defaultCliDeps()) {
   const requested = opts.what ?? "observe";
   const compact = requested === "refs";
   const what = compact ? "observe" : requested;
-  const limit = opts.limit ?? 50;
+  const limit = opts.what === "refs" ? Math.max(opts.limit ?? 200, 200) : opts.limit ?? 50;
   if (compact && entry.type !== "macos" && stored.device) {
     const readEls = deps.readSimulatorElements ?? readSimulatorElements;
     try {
@@ -58464,7 +58477,7 @@ function elementsOf(payload) {
   return Array.isArray(payload.elements) ? payload.elements : [];
 }
 function compactRead(sessionId, payload, dir) {
-  const refs = assignRefs(elementsOf(payload));
+  const refs = assignRefs(elementsOf(payload), loadRefs(dir, sessionId));
   saveRefs(dir, sessionId, refs);
   const full = writeFullPayload(dir, sessionId, "observe", payload);
   const lines = refs.map(formatRefLine);
@@ -58492,6 +58505,11 @@ async function handleAction(opts, deps = defaultCliDeps()) {
     }
     if (!refEntry.label && !refEntry.identifier) {
       return invalidTarget(`Ref ${opts.ref} (${refEntry.role}) has no accessible name or identifier to target.`, { sessionId: opts.sessionId });
+    }
+    const name = refEntry.label ?? refEntry.identifier;
+    const twins = beforeRefs.filter((r) => r.role === refEntry.role && (r.label ?? r.identifier) === name);
+    if (twins.length > 1) {
+      return invalidTarget(`Ref ${opts.ref} is ambiguous: ${twins.map((r) => r.ref).join(", ")} share role ${refEntry.role} and name ${JSON.stringify(name)}.`, { sessionId: opts.sessionId });
     }
   }
   const request = {
@@ -58542,25 +58560,31 @@ async function handleAction(opts, deps = defaultCliDeps()) {
     });
   }
   let recorded;
+  let recordError;
   if (opts.record && recordSignature) {
     const resolved = payload.resolved;
     if (resolved?.path) {
-      recorded = appendReplayStep(opts.record, {
-        platform: "macos",
-        action: opts.action,
-        value: opts.value,
-        fingerprint: fingerprintOf(resolved),
-        path: resolved.path,
-        signature: recordSignature
-      });
+      try {
+        recorded = appendReplayStep(opts.record, {
+          platform: "macos",
+          action: opts.action,
+          value: opts.value,
+          fingerprint: fingerprintOf(resolved),
+          path: resolved.path,
+          signature: recordSignature
+        });
+      } catch (err) {
+        recordError = err instanceof Error ? err.message : String(err);
+      }
     }
   }
   const recNote = recorded ? `
-recorded step ${recorded} -> ${opts.record}` : "";
+recorded step ${recorded} -> ${opts.record}` : recordError ? `
+not recorded: ${recordError}` : "";
   if (refEntry && beforeRefs) {
     const reread = entry.type === "macos" ? await controller.readMacOS(entry, "observe", 200) : await controller.readSimulator(entry, "observe", 200);
     if (reread.kind === "text" && !reread.isError) {
-      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)));
+      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)), beforeRefs);
       saveRefs(refsDir, opts.sessionId, afterRefs);
       const d = diffRefs(beforeRefs, afterRefs);
       const diff = formatDiff(d);
@@ -58606,9 +58630,18 @@ async function handleComputerUse(opts, deps = defaultCliDeps()) {
     recordStep = { platform: "simulator", action: "click", count: action.count, fingerprint: fingerprintOf(hit), point: [action.x, action.y], signature: treeSignature(els) };
   }
   const res = await exec3(udid, action, refsDir);
-  const recorded = res.success && recordStep && opts.record ? appendReplayStep(opts.record, recordStep) : void 0;
+  let recorded;
+  let recordError;
+  if (res.success && recordStep && opts.record) {
+    try {
+      recorded = appendReplayStep(opts.record, recordStep);
+    } catch (err) {
+      recordError = err instanceof Error ? err.message : String(err);
+    }
+  }
   const recNote = recorded ? `
-recorded step ${recorded} -> ${opts.record}` : "";
+recorded step ${recorded} -> ${opts.record}` : recordError ? `
+not recorded: ${recordError}` : "";
   if (!res.success) return actionFailed(res.error ?? `${action.kind} failed`, { sessionId: opts.sessionId, action: action.kind });
   if (res.screenshot) {
     return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: "screenshot", path: res.screenshot }, text: `screenshot: ${res.screenshot}` };
@@ -58616,10 +58649,10 @@ recorded step ${recorded} -> ${opts.record}` : "";
   if (!before) {
     return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind }, text: `\u2713 ${action.kind}` };
   }
-  let after = assignRefs(await readEls(udid));
+  let after = assignRefs(await readEls(udid), before);
   for (let i = 0; i < SETTLE_MAX_READS; i++) {
     await new Promise((r) => setTimeout(r, deps.settleIntervalMs ?? SETTLE_INTERVAL_MS));
-    const next = assignRefs(await readEls(udid));
+    const next = assignRefs(await readEls(udid), before);
     const same = diffRefs(after, next);
     after = next;
     if (same.added.length === 0 && same.removed.length === 0) break;
