@@ -303,3 +303,32 @@ describe('T-03 cross-process repro: start -> action -> close via the real file s
     expect(postCloseRes.exitCode).toBe(EXIT_SESSION_NOT_FOUND);
   });
 });
+
+describe('compact refs (--what refs / --ref)', () => {
+  it('reads numbered refs, then acts by ref and returns only the AX diff', async () => {
+    const { mkdtempSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'macos', elements: [macElement({ title: 'Save', path: [0] })], window: windowInfo };
+    const deps = { ...fakeDeps(backend, { s1: { type: 'macos', app: 'TextEdit', pid: 4242, createdAt: 1 } }), refsDir: mkdtempSync(join(tmpdir(), 'ibr-cli-refs-')) };
+
+    const read = await handleRead({ sessionId: 's1', what: 'refs' }, deps);
+    expect(read.exitCode).toBe(EXIT_OK);
+    expect(read.text).toMatch(/^e1 Button "Save"/);
+    expect(read.json.full).toMatch(/s1\.observe\.json$/);
+
+    backend.extractResult = {
+      kind: 'macos',
+      elements: [macElement({ title: 'Save', path: [0] }), macElement({ role: 'AXStaticText', title: 'Saved', path: [1] })],
+      window: windowInfo,
+    };
+    const act = await handleAction({ sessionId: 's1', action: 'press', ref: 'e1', waitTimeoutMs: 0 }, deps);
+    expect(act.exitCode).toBe(EXIT_OK);
+    expect(act.json.axChanged).toBe(true);
+    expect(act.text).toContain('+ e2 StaticText "Saved"');
+
+    const bad = await handleAction({ sessionId: 's1', action: 'press', ref: 'e99' }, deps);
+    expect(bad.exitCode).toBe(EXIT_INVALID_TARGET);
+  });
+});

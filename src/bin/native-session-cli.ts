@@ -19,6 +19,8 @@
  */
 
 import type { Command } from 'commander';
+import { assignRefs, diffRefs, formatDiff, formatRefLine, loadRefs, saveRefs, writeFullPayload, type RawElement, type RefEntry } from '../native/compact-refs.js';
+import { DEFAULT_SESSION_STORE_DIR } from '../native/session-store.js';
 import { randomUUID } from 'crypto';
 import {
   NativeSessionController,
@@ -63,6 +65,8 @@ export interface CliDeps {
   writeSession: typeof writeSession;
   readSession: typeof readSession;
   deleteSession: typeof deleteSession;
+  /** Directory for refs + file-out payloads; defaults to the session store dir. */
+  refsDir?: string;
 }
 
 export function defaultCliDeps(): CliDeps {
@@ -220,12 +224,18 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   const entry = toSessionEntry(stored);
   const store = new Map<string, SessionEntry>([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
-  const what = opts.what ?? 'observe';
+  const requested = opts.what ?? 'observe';
+  const compact = requested === 'refs';
+  const what = compact ? 'observe' : requested;
   const limit = opts.limit ?? 50;
 
   const result = entry.type === 'macos'
     ? await controller.readMacOS(entry, what, limit)
     : await controller.readSimulator(entry, what, limit);
+
+  if (compact && result.kind === 'text' && !result.isError) {
+    return compactRead(opts.sessionId, parsePayload(result.text), deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+  }
 
   if (result.kind === 'image') {
     const metadata = parsePayload(result.metadata);
@@ -254,6 +264,23 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   };
 }
 
+function elementsOf(payload: Record<string, unknown>): RawElement[] {
+  return Array.isArray(payload.elements) ? payload.elements as RawElement[] : [];
+}
+
+/** `--what refs`: numbered refs inline, full payload file-out, refs persisted for `--ref`. */
+function compactRead(sessionId: string, payload: Record<string, unknown>, dir: string): CliResult {
+  const refs = assignRefs(elementsOf(payload));
+  saveRefs(dir, sessionId, refs);
+  const full = writeFullPayload(dir, sessionId, 'observe', payload);
+  const lines = refs.map(formatRefLine);
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId, count: refs.length, refs: lines, full },
+    text: [...lines, `full: ${full}`].join('\n'),
+  };
+}
+
 // ─── action ────────────────────────────────────────────────────────────────
 
 export interface ActionOptions {
@@ -268,6 +295,8 @@ export interface ActionOptions {
   op?: AppLifecycleOp;
   app?: string;
   menuPath?: string[];
+  /** Short ref from a prior `--what refs` read, e.g. `e12`. Resolves target + role. */
+  ref?: string;
 }
 
 export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultCliDeps()): Promise<CliResult> {
@@ -277,12 +306,26 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
   const entry = toSessionEntry(stored);
   const store = new Map<string, SessionEntry>([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
+  const refsDir = deps.refsDir ?? DEFAULT_SESSION_STORE_DIR;
+
+  let refEntry: RefEntry | undefined;
+  let beforeRefs: RefEntry[] | null = null;
+  if (opts.ref) {
+    beforeRefs = loadRefs(refsDir, opts.sessionId);
+    refEntry = beforeRefs?.find((r) => r.ref === opts.ref);
+    if (!refEntry) {
+      return invalidTarget(`Unknown ref "${opts.ref}". Run: ibr native:session:read ${opts.sessionId} --what refs`, { sessionId: opts.sessionId });
+    }
+    if (!refEntry.label && !refEntry.identifier) {
+      return invalidTarget(`Ref ${opts.ref} (${refEntry.role}) has no accessible name or identifier to target.`, { sessionId: opts.sessionId });
+    }
+  }
 
   const request: NativeSessionActionRequest = {
     action: opts.action,
-    target: opts.target,
+    target: refEntry ? (refEntry.label ?? refEntry.identifier ?? undefined) : opts.target,
     value: opts.value,
-    role: opts.role,
+    role: refEntry ? refEntry.role : opts.role,
     waitFor: opts.waitFor,
     waitTimeoutMs: opts.waitTimeoutMs,
     chord: opts.chord,
@@ -325,6 +368,24 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
       sessionId: opts.sessionId,
       ...payload,
     });
+  }
+
+  if (refEntry && beforeRefs) {
+    // success:true is not actuation: re-read the AX tree and report only the delta.
+    const reread = entry.type === 'macos'
+      ? await controller.readMacOS(entry, 'observe', 200)
+      : await controller.readSimulator(entry, 'observe', 200);
+    if (reread.kind === 'text' && !reread.isError) {
+      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)));
+      saveRefs(refsDir, opts.sessionId, afterRefs);
+      const d = diffRefs(beforeRefs, afterRefs);
+      const diff = formatDiff(d);
+      return {
+        exitCode: EXIT_OK,
+        json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: opts.action, ref: opts.ref, axChanged: d.added.length + d.removed.length > 0, diff: diff.split('\n') },
+        text: `✓ ${opts.action} ${opts.ref}\n${diff}`,
+      };
+    }
   }
 
   return {
@@ -410,7 +471,7 @@ export function registerNativeSessionCommands(program: Command): void {
   program
     .command('native:session:read <sessionId>')
     .description('Read a native session — observe/extract/state/screenshot (CLI parity for native_session_read)')
-    .option('--what <mode>', 'observe | extract | screenshot | state', 'observe')
+    .option('--what <mode>', 'refs (compact numbered refs, full payload written to a file) | observe | extract | screenshot | state', 'observe')
     .option('--limit <n>', 'Maximum elements to return', '50')
     .option('--json', 'Emit structured JSON to stdout')
     .action(async (sessionId: string, opts: { what: string; limit: string; json?: boolean }) => {
@@ -423,6 +484,7 @@ export function registerNativeSessionCommands(program: Command): void {
     .description('Perform a native session action by accessible name (CLI parity for native_session_action)')
     .requiredOption('--action <kind>', 'click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|drag|keystroke|app|menuPath')
     .option('--target <name>', 'Accessible name / AX identifier / description / value to target')
+    .option('--ref <eN>', 'Short ref from `native:session:read --what refs`; prints only the AX diff after acting')
     .option('--value <text>', 'Text for fill/type actions')
     .option('--role <role>', 'Optional role filter')
     .option('--wait-for <name>', 'Expected post-action target to poll for; failing to settle is a non-zero exit')
@@ -443,6 +505,7 @@ export function registerNativeSessionCommands(program: Command): void {
       op?: string;
       app?: string;
       menuPath?: string;
+      ref?: string;
       json?: boolean;
     }) => {
       const result = await handleAction({
@@ -457,6 +520,7 @@ export function registerNativeSessionCommands(program: Command): void {
         op: opts.op as AppLifecycleOp | undefined,
         app: opts.app,
         menuPath: opts.menuPath ? opts.menuPath.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+        ref: opts.ref,
       });
       emit(result, opts.json);
     });
