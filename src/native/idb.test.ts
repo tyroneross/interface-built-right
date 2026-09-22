@@ -159,14 +159,17 @@ describe('idbTap', () => {
     expect(simDriver.simDriverTap).not.toHaveBeenCalled()
   })
 
-  it('fails clearly when native-hid is forced before it is implemented', async () => {
+  it('routes the native-hid preference to the headless idb backend', async () => {
     process.env[SIMULATOR_DRIVER_ENV] = 'native-hid'
+    mockExecFile
+      .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // which idb
+      .mockResolvedValueOnce({ stdout: '', stderr: '' })                   // idb ui tap
 
     const result = await idbTap(UDID, 10, 20)
 
-    expect(result.success).toBe(false)
-    expect(result.driver).toBe('native-hid')
-    expect(result.error).toMatch(/not implemented in this build/)
+    expect(result.success).toBe(true)
+    expect(result.driver).toBe('idb')
+    expect(simDriver.simDriverTap).not.toHaveBeenCalled()
   })
 
   it('returns clear install hint when neither native-window nor IDB is available', async () => {
@@ -294,7 +297,7 @@ describe('idbSwipe', () => {
 // ── driver status ─────────────────────────────────────────────────────────────
 
 describe('getSimulatorInteractionDriverStatus', () => {
-  it('reports native HID target separately from the native-window fallback', async () => {
+  it('reports idb as the headless HID backend, separate from the native-window fallback', async () => {
     vi.mocked(simDriver.isSimDriverAvailable).mockReturnValue(true)
     mockExecFile
       .mockResolvedValueOnce({ stdout: '/usr/local/bin/idb', stderr: '' }) // which idb
@@ -302,14 +305,12 @@ describe('getSimulatorInteractionDriverStatus', () => {
 
     const status = await getSimulatorInteractionDriverStatus()
 
-    const nativeHid = status.find(s => s.driver === 'native-hid')
     const nativeWindow = status.find(s => s.driver === 'native-window')
     const idb = status.find(s => s.driver === 'idb')
     const simctl = status.find(s => s.driver === 'simctl')
 
-    expect(nativeHid?.available).toBe(false)
-    expect(nativeHid?.headless).toBe(true)
-    expect(nativeHid?.reason).toMatch(/pending/)
+    expect(status.map(s => s.driver)).not.toContain('native-hid')
+    expect(idb?.headless).toBe(true)
     expect(nativeWindow?.available).toBe(true)
     expect(nativeWindow?.headless).toBe(false)
     expect(nativeWindow?.constraints.join(' ')).toMatch(/visible Simulator/)

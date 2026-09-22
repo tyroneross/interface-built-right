@@ -87,10 +87,11 @@ export interface ActionOutcome {
 }
 
 /**
- * Build an ActionOutcome for a capability the active backend does not yet
- * implement (keyboard/lifecycle/menu on RespawnBackend). Epic 2's DaemonBackend
- * replaces these with real outcomes; until then the controller surfaces a
- * structured, non-throwing "not implemented" result.
+ * Build an ActionOutcome for a capability a backend does not implement.
+ * No shipped backend produces this today: RespawnBackend and DaemonBackend
+ * implement keystroke, lifecycle and menu. It stays exported for third-party
+ * NativeBackend implementations and test fakes that need a structured,
+ * non-throwing "not implemented" result.
  */
 export function notImplementedOutcome(capability: string): ActionOutcome {
   return {
