@@ -236,6 +236,36 @@ describe('Calm Precision Principles', () => {
       }
       expect(rule.check(elements[0], mockContext(elements))).toBeNull();
     });
+
+    it('ignores hidden and zero-size controls in the same row', () => {
+      const elements: EnhancedElement[] = [];
+      for (let i = 0; i < 4; i++) {
+        elements.push(mockElement({
+          selector: `button.visible-${i}`,
+          bounds: { x: i * 100, y: 50, width: 80, height: 40 },
+          interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+        }));
+      }
+      for (let i = 0; i < 8; i++) {
+        const hiddenStyle: Record<string, string> | undefined = i < 2
+          ? { display: 'none' }
+          : i < 4
+            ? { visibility: 'hidden' }
+            : i < 6
+              ? { opacity: '0' }
+              : undefined;
+        elements.push(mockElement({
+          selector: `button.hidden-${i}`,
+          bounds: i < 6
+            ? { x: 400 + i * 90, y: 50, width: 80, height: 40 }
+            : { x: 0, y: 50, width: 0, height: 0 },
+          computedStyles: hiddenStyle,
+          interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+        }));
+      }
+
+      expect(rule.check(elements[0], mockContext(elements))).toBeNull();
+    });
   });
 
   describe('Content >= Chrome', () => {
@@ -313,6 +343,40 @@ describe('Calm Precision Principles', () => {
         children.push(mockElement({
           selector: `button.child-${i}`,
           bounds: { x: 10, y: 10, width: 50, height: 40 },
+          interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+        }));
+      }
+
+      expect(rule.check(container, mockContext(children))).toBeNull();
+    });
+
+    it('ignores controls retained in hidden panels', () => {
+      const container = mockElement({
+        selector: 'div.container',
+        bounds: { x: 0, y: 0, width: 800, height: 600 },
+      });
+      const children: EnhancedElement[] = [container];
+      for (let i = 0; i < 5; i++) {
+        children.push(mockElement({
+          selector: `button.visible-${i}`,
+          bounds: { x: 10 + i * 60, y: 10, width: 50, height: 40 },
+          interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
+        }));
+      }
+      for (let i = 0; i < 8; i++) {
+        const hiddenStyle: Record<string, string> | undefined = i < 2
+          ? { display: 'none' }
+          : i < 4
+            ? { visibility: 'hidden' }
+            : i < 6
+              ? { opacity: '0' }
+              : undefined;
+        children.push(mockElement({
+          selector: `button.hidden-${i}`,
+          bounds: i < 6
+            ? { x: 320 + i * 60, y: 10, width: 50, height: 40 }
+            : { x: 0, y: 0, width: 0, height: 0 },
+          computedStyles: hiddenStyle,
           interactive: { hasOnClick: true, hasHref: false, isDisabled: false, tabIndex: 0, cursor: 'pointer' },
         }));
       }

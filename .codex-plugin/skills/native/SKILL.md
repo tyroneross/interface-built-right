@@ -5,17 +5,19 @@ description: Use when validating iOS, watchOS, or macOS UI with IBR.
 
 # IBR Native
 
-Use IBR native tools when the UI runs in a simulator or a macOS app instead of a browser. Prefer runtime accessibility evidence over source-only assumptions.
+Use the IBR CLI when the UI runs in a simulator or a macOS app instead of a browser. The MCP server is dormant/opt-in in Codex, so do not assume `native_scan`, `scan_macos`, or `native_session_*` are callable. Prefer runtime accessibility evidence over source-only assumptions.
+
+Resolve `IBR_BIN` from this installed `SKILL.md`: move up three directories to the IBR plugin root, then append `dist/bin/ibr.js`. Verify it once with `node "$IBR_BIN" --version`. Do not use `npx ibr`; that unscoped package name can resolve a different npm package.
 
 ## iOS And watchOS
 
-1. Confirm the target simulator is booted with `native_devices`.
-2. Run `native_scan` for the visible screen.
-3. Use `native_session_start`, `native_session_action`, and `native_session_read` for multi-step flows. Pass `waitFor` on `native_session_action` when the action should open a new screen or async state; read `postAction` before assuming navigation succeeded.
-4. Use `native_session_read` with `what: "screenshot"` when AX data is not enough and visual evidence is needed.
-5. Use `sim_action` only when coordinate-level simulator interaction is needed.
-6. `native_session_action` also accepts `keystroke` (chord to the focused element, e.g. `chord: "Meta+n"`, `target` optional), `app` (lifecycle: `op: "launch"|"switch"|"quit"`), and `menuPath` (AXMenu traversal) — all three are live and fully implemented. Known limitation: `app`'s `quit` op can return `success: false` with an `osascript -128` evidence trail when the target machine has `NSCloseAlwaysConfirmsChanges=1` and the app has an unsaved document (no force-quit fallback — it will not discard unsaved work). Check `validator.passed` on the response, not just that the call returned — `success` is only `true` when the AX-state validator passed.
-7. The same lifecycle is available outside a session as `ibr native:session:{start,read,action,close}` for a shell-reproducible repro of anything `native_session_*` did (exit codes: `0` ok, `1` action failed, `2` session not found, `3` wait timed out, `4` invalid target). Full reference: `docs/native-session-cli-reference.md`.
+1. Confirm the target simulator is booted with `node "$IBR_BIN" native:devices`.
+2. Run `node "$IBR_BIN" native:scan [device] --json` for the visible screen.
+3. Use `node "$IBR_BIN" native:session:start ... --json`, `native:session:action <sessionId> ... --json`, and `native:session:read <sessionId> ... --json` for multi-step flows. JSON mode is required when inspecting `postAction` or `validator.passed`. Pass `--wait-for` when an action should open a new screen or async state; read `postAction` before assuming navigation succeeded.
+4. Use `node "$IBR_BIN" native:session:read <sessionId> --what screenshot --json` when AX data is not enough and visual evidence is needed.
+5. Use coordinate-level simulator interaction only when semantic action is impossible and the command explicitly supports it.
+6. `native:session:action` accepts `keystroke`, `app`, and `menuPath`. Known limitation: `app`'s `quit` op can return `success: false` with an `osascript -128` evidence trail when the target machine has `NSCloseAlwaysConfirmsChanges=1` and the app has an unsaved document; it does not force-quit or discard work. Check `validator.passed` on the response, not just that the command returned.
+7. Exit codes are `0` ok, `1` action failed, `2` session not found, `3` wait timed out, and `4` invalid target. Full reference: `docs/native-session-cli-reference.md`.
 
 Check for:
 
@@ -27,7 +29,7 @@ Check for:
 
 ## macOS
 
-Use `scan_macos` for a running app and validate the accessibility tree, window structure, menu/action affordances, and keyboard-reachable controls.
+Use `node "$IBR_BIN" scan:macos --pid <pid> --json` for a running app and validate the accessibility tree, window structure, menu/action affordances, and keyboard-reachable controls.
 
 ## External Computer Use
 
@@ -35,7 +37,7 @@ When Codex Computer Use performs the action, keep it as the single action owner 
 
 ## Source Correlation
 
-When native scan output needs a code fix, use `bridge_to_source` to map runtime accessibility elements back to Swift source where possible.
+When native scan output needs a code fix, correlate runtime identifiers and labels with Swift source. If MCP is explicitly enabled, `bridge_to_source` can perform that mapping.
 
 ## Reporting
 

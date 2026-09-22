@@ -1,5 +1,6 @@
 import type { Rule } from '../../rules/types.js';
 import type { EnhancedElement, Violation } from '../../schemas.js';
+import { isVisibleInteractive } from './visibility.js';
 
 export const hickRules: Rule[] = [
   {
@@ -8,13 +9,14 @@ export const hickRules: Rule[] = [
     description: 'Limit visible choices to reduce decision time',
     defaultSeverity: 'warn',
     check: (element: EnhancedElement, context): Violation | null => {
-      // Only check interactive elements
-      if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
+      // Hick's Law grades visible choices, not controls retained in hidden
+      // panels for later interaction.
+      if (!isVisibleInteractive(element)) return null;
 
       // Find interactive siblings at similar vertical position (within 20px band)
       const y = element.bounds?.y || 0;
       const siblings = context.allElements.filter(el => {
-        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+        if (!isVisibleInteractive(el)) return false;
         const elY = el.bounds?.y || 0;
         return Math.abs(elY - y) < 20;
       });

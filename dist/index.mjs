@@ -9763,10 +9763,30 @@ var init_fitts = __esm({
   }
 });
 
+// src/design-system/principles/visibility.ts
+function isVisibleInteractive(element) {
+  if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return false;
+  const bounds = element.bounds;
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return false;
+  const display = element.computedStyles?.display?.trim().toLowerCase();
+  const visibility = element.computedStyles?.visibility?.trim().toLowerCase();
+  const opacity = Number.parseFloat(element.computedStyles?.opacity ?? "1");
+  if (display === "none") return false;
+  if (visibility === "hidden" || visibility === "collapse") return false;
+  if (Number.isFinite(opacity) && opacity <= 0) return false;
+  if (element.ancestorOpacity !== void 0 && element.ancestorOpacity <= 0) return false;
+  return true;
+}
+var init_visibility = __esm({
+  "src/design-system/principles/visibility.ts"() {
+  }
+});
+
 // src/design-system/principles/hick.ts
 var hickRules;
 var init_hick = __esm({
   "src/design-system/principles/hick.ts"() {
+    init_visibility();
     hickRules = [
       {
         id: "calm-precision/hick-choice-count",
@@ -9774,10 +9794,10 @@ var init_hick = __esm({
         description: "Limit visible choices to reduce decision time",
         defaultSeverity: "warn",
         check: (element, context) => {
-          if (!element.interactive?.hasOnClick && !element.interactive?.hasHref) return null;
+          if (!isVisibleInteractive(element)) return null;
           const y = element.bounds?.y || 0;
           const siblings = context.allElements.filter((el) => {
-            if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
+            if (!isVisibleInteractive(el)) return false;
             const elY = el.bounds?.y || 0;
             return Math.abs(elY - y) < 20;
           });
@@ -9886,6 +9906,7 @@ var init_content_chrome = __esm({
 var cognitiveLoadRules;
 var init_cognitive_load = __esm({
   "src/design-system/principles/cognitive-load.ts"() {
+    init_visibility();
     cognitiveLoadRules = [
       {
         id: "calm-precision/cognitive-load-elements",
@@ -9900,8 +9921,7 @@ var init_cognitive_load = __esm({
           if (width <= 0 || height <= 0) return null;
           const children = context.allElements.filter((el) => {
             if (el.selector === element.selector) return false;
-            if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
-            if (!el.bounds) return false;
+            if (!isVisibleInteractive(el)) return false;
             return el.bounds.x >= x && el.bounds.y >= y && el.bounds.x + el.bounds.width <= x + width && el.bounds.y + el.bounds.height <= y + height;
           });
           if (children.length > 10) {

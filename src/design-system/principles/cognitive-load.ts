@@ -1,5 +1,6 @@
 import type { Rule } from '../../rules/types.js';
 import type { EnhancedElement, Violation } from '../../schemas.js';
+import { isVisibleInteractive } from './visibility.js';
 
 /*
  * THIS RULE RETURNED NULL ON EVERY ELEMENT OF EVERY SCAN.
@@ -38,8 +39,7 @@ export const cognitiveLoadRules: Rule[] = [
 
       const children = context.allElements.filter(el => {
         if (el.selector === element.selector) return false;
-        if (!el.interactive?.hasOnClick && !el.interactive?.hasHref) return false;
-        if (!el.bounds) return false;
+        if (!isVisibleInteractive(el)) return false;
         return el.bounds.x >= x && el.bounds.y >= y &&
                el.bounds.x + el.bounds.width <= x + width &&
                el.bounds.y + el.bounds.height <= y + height;

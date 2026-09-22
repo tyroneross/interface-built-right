@@ -16,7 +16,7 @@ Use IBR as the design planner before editing non-trivial UI. The output should b
 5. If visual exploration would help and no approved target exists, use imagegen only for concepts. User approval is required before a generated image becomes a `visual-target`.
 6. Write a compact plan before code. For page, flow, app, or dashboard work, create `.ibr/builds/<topic>/design-intent.json`.
 7. Implement only after the design intent is concrete enough to test.
-8. Validate with IBR MCP tools before calling the work done.
+8. Validate with IBR's CLI-first workflow before calling the work done. Use MCP equivalents only when this Codex session actually exposes them.
 
 ## Design Intent
 

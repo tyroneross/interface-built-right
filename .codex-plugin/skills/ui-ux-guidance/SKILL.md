@@ -119,13 +119,13 @@ Every chart needs an insight title, context line, visual, focal annotation when 
 
 ## Validation Contract
 
-Before calling UI work done, choose the narrowest proof:
+Before calling UI work done, choose the narrowest proof. CLI commands are the default in Codex because IBR's MCP server is dormant/opt-in. Resolve `IBR_BIN` from this installed `SKILL.md` by moving up three directories to the plugin root and appending `dist/bin/ibr.js`; verify it with `node "$IBR_BIN" --version`. Do not use the unrelated unscoped `npx ibr` package.
 
-- `scan` for layout, styles, semantic state, a11y, handlers, and console issues
-- `observe` for actionable controls
-- `interact` or `interact_and_verify` for specific UI behavior
-- `flow_search`, `flow_form`, or `flow_login` for task flows
-- `match` for approved `visual-target`
-- `native_scan` or `scan_macos` for native surfaces
+- `node "$IBR_BIN" scan <url> --json` for layout, styles, semantic state, a11y, handlers, and console issues
+- `node "$IBR_BIN" observe <url>` for actionable controls
+- `node "$IBR_BIN" interact <url> --action <action> --target <accessible-name>` for specific UI behavior
+- `node "$IBR_BIN" flow search <url>`, `flow form <url>`, or `flow login <url>` for task flows
+- `node "$IBR_BIN" match <mockup.png> <url>` for an approved `visual-target`
+- `node "$IBR_BIN" native:scan [device] --json` or `node "$IBR_BIN" scan:macos --pid <pid> --json` for native surfaces
 
-Report remaining gaps explicitly when a tool cannot run.
+If the session visibly exposes IBR MCP tools, the equivalent tools may be used. Report remaining gaps explicitly when a command cannot run.

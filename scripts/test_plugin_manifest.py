@@ -32,6 +32,9 @@ REPO_ROOT = HERE.parent
 PLUGIN_JSON = REPO_ROOT / ".claude-plugin" / "plugin.json"
 MARKETPLACE_JSON = REPO_ROOT / ".claude-plugin" / "marketplace.json"
 SKILLS_DIR = REPO_ROOT / "skills"
+CODEX_SKILLS_DIR = REPO_ROOT / ".codex-plugin" / "skills"
+CODEX_SETUP_DOC = REPO_ROOT / "docs" / "codex-plugin-setup.md"
+AGENT_GUIDE = REPO_ROOT / "AGENTS.md"
 COMMANDS_DIR = REPO_ROOT / "commands"
 CLI_DIST = REPO_ROOT / "dist" / "bin" / "ibr.js"
 
@@ -175,6 +178,54 @@ class SkillNameUniquenessTests(unittest.TestCase):
             names.setdefault(name, []).append(str(skill_md.relative_to(REPO_ROOT)))
         dupes = {n: paths for n, paths in names.items() if len(paths) > 1}
         self.assertEqual(dupes, {}, f"duplicate skill names: {dupes}")
+
+
+class CodexRuntimeSurfaceTests(unittest.TestCase):
+    """Compact Codex guidance must match the dormant-MCP runtime contract."""
+
+    REQUIRED_CLI_GUIDANCE = {
+        "design/SKILL.md": ("CLI-first",),
+        "validate/SKILL.md": (
+            "MCP server is dormant/opt-in",
+            'node "$IBR_BIN" scan',
+            'node "$IBR_BIN" start',
+            'node "$IBR_BIN" check',
+        ),
+        "native/SKILL.md": (
+            "MCP server is dormant/opt-in",
+            'node "$IBR_BIN" native:scan',
+            'node "$IBR_BIN" scan:macos',
+        ),
+        "ui-ux-guidance/SKILL.md": (
+            "MCP server is dormant/opt-in",
+            'node "$IBR_BIN" scan',
+            'node "$IBR_BIN" native:scan',
+        ),
+    }
+
+    def test_codex_skills_route_to_cli_without_mcp(self) -> None:
+        for relative_path, required_fragments in self.REQUIRED_CLI_GUIDANCE.items():
+            with self.subTest(skill=relative_path):
+                path = CODEX_SKILLS_DIR / relative_path
+                self.assertTrue(path.is_file(), f"missing Codex skill {relative_path}")
+                text = path.read_text(encoding="utf-8")
+                for fragment in required_fragments:
+                    self.assertIn(
+                        fragment,
+                        text,
+                        f"{relative_path} does not preserve CLI-first guidance: {fragment!r}",
+                    )
+
+    def test_codex_setup_and_agent_guide_match_runtime_contract(self) -> None:
+        required = {
+            CODEX_SETUP_DOC: ("skills plus the CLI", "optional-mcp/codex-mcp.json", 'node "$IBR_BIN" --version'),
+            AGENT_GUIDE: ("MCP server is dormant/opt-in", "CLI is the default Codex runtime surface", "Do not use the unrelated unscoped"),
+        }
+        for path, fragments in required.items():
+            with self.subTest(path=path.relative_to(REPO_ROOT)):
+                text = path.read_text(encoding="utf-8")
+                for fragment in fragments:
+                    self.assertIn(fragment, text)
 
 
 class CommandSchemaTests(unittest.TestCase):

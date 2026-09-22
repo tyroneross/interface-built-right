@@ -5,18 +5,21 @@ description: Use when scanning, auditing, comparing, or testing UI with IBR.
 
 # IBR Validate
 
-Use IBR MCP tools as evidence, not decoration. Validate the rendered interface against user intent, design intent, accessibility, interaction behavior, and console health.
+Use IBR's bundle-local CLI as the default evidence surface. The MCP server is dormant/opt-in in Codex, so never assume `scan`, `compare`, or the other MCP tools are callable. If MCP tools are visibly available, they may replace the equivalent CLI command; otherwise run the CLI directly. Validate the rendered interface against user intent, design intent, accessibility, interaction behavior, and console health.
+
+Resolve `IBR_BIN` from this installed `SKILL.md`: move up three directories to the IBR plugin root, then append `dist/bin/ibr.js`. Verify it once with `node "$IBR_BIN" --version`. Do not use `npx ibr`; that unscoped package name can resolve a different npm package.
 
 ## Tool Choice
 
-- `scan`: full web page scan for layout, styles, semantic state, accessibility, handlers, and console issues.
-- `snapshot`: capture a before state before risky UI edits.
-- `compare`: verify whether current UI changes are expected or regressions.
-- `screenshot`: capture visual evidence when layout, canvas, media, or design-match judgment needs pixels.
-- `observe`: list actionable elements by accessible role and name.
-- `interact` or `interact_and_verify`: click, type, select, and verify state changes. `success` on the response reflects a real expected-outcome validator, not just that the call didn't throw — a no-op click (target resolved, nothing changed) returns `success: false` with `validator`/`evidence` explaining what was expected vs. observed. Read `validator.passed`, don't assume `success` is always `true`.
-- `flow_search`, `flow_form`, `flow_login`: validate common task flows.
-- `match`: compare an approved visual target against a live page.
+- `node "$IBR_BIN" scan <url> --json`: full web page scan for layout, styles, semantic state, accessibility, handlers, and console issues.
+- `node "$IBR_BIN" start <url>`: capture a before state before risky UI edits.
+- `node "$IBR_BIN" check [sessionId]`: verify whether current UI changes are expected or regressions.
+- `node "$IBR_BIN" observe <url>`: list actionable elements by accessible role and name.
+- `node "$IBR_BIN" interact <url> --action <action> --target <accessible-name>`: click, type, fill, select, and verify state changes. Exit `0` means the expected change occurred; exit `1` reports a no-op or failure with human-readable `expected` and `observed` evidence.
+- `node "$IBR_BIN" extract <url>`: read headings, links, controls, and page state after an interaction.
+- `node "$IBR_BIN" flow search <url>`, `flow form <url>`, or `flow login <url>`: validate common task flows.
+- `node "$IBR_BIN" match <mockup.png> <url>`: compare an approved visual target against a live page.
+- Pixel evidence: `node "$IBR_BIN" start <url>` writes a baseline screenshot. The ad-hoc `screenshot` tool remains MCP-only; use it only when MCP is explicitly enabled.
 
 ## Audit Order
 

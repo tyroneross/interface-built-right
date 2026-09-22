@@ -150,9 +150,11 @@ Claude Code has one bundled Claude-style subagent:
 
 `agents/visual-iterator.md` — `design-validator`: scans live page, compares against user intent, fixes mismatches, re-scans. Max 5 iterations. Invoked for "check my UI", "verify the design", post-component builds.
 
-Codex uses compact `.codex-plugin/skills/` routing guidance plus MCP/session tools. The larger `skills/` library remains the detailed Claude/source guidance surface. Do not assume Claude-style agent frontmatter is loaded by Codex; use Codex-native subagents only as the host orchestration layer, with IBR skills and MCP tools as the shared contract.
+Codex uses compact `.codex-plugin/skills/` routing guidance plus the bundle-local `dist/bin/ibr.js` CLI. The MCP server is dormant/opt-in, so agents must not assume MCP tools are callable unless the current session actually exposes them. Do not use the unrelated unscoped `npx ibr` package. The larger `skills/` library remains the detailed Claude/source guidance surface. Do not assume Claude-style agent frontmatter is loaded by Codex; use Codex-native subagents only as the host orchestration layer, with IBR skills and CLI commands as the shared contract.
 
 ### MCP Tools
+
+These tools are available only when the optional MCP server is explicitly enabled. The CLI is the default Codex runtime surface.
 
 `scan` | `snapshot` | `compare` | `list_sessions` | `screenshot` | `references` | `native_scan` | `native_snapshot` | `native_compare` | `scan_macos` | `native_devices` | `native_session_start` | `native_session_read` | `native_session_action` | `native_session_close` | `validate_tokens` | `scan_static` | `scan_obsidian` | `bridge_to_source` | `interact` | `observe` | `extract` | `interact_and_verify` | `flow_search` | `flow_form` | `flow_login` | `plan_test` | `session_start` | `session_action` | `session_read` | `session_close` | `design_system` | `sim_action`
 

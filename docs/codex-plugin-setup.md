@@ -43,6 +43,15 @@ The installer creates:
 
 Restart Codex after installing so it reloads the local marketplace.
 
+The bundle owns its CLI; it does not install an unscoped npm package or global binary. Verify the deterministic bundle-local path:
+
+```bash
+IBR_BIN="$HOME/plugins/ibr/dist/bin/ibr.js"
+node "$IBR_BIN" --version
+```
+
+Codex skills resolve the equivalent path from their installed `SKILL.md` location. Do not use `npx ibr`: `ibr` is an unrelated unscoped npm package.
+
 If `~/plugins/ibr` or the marketplace entry already points somewhere else, re-run intentionally with:
 
 ```bash
@@ -85,11 +94,12 @@ $ibr Scan this UI with IBR.
 $ibr Validate this design intent.
 ```
 
-The primary Codex path is skills plus MCP tools:
+The primary Codex path is skills plus the CLI:
 
 - Start design and implementation work with `design`.
 - Use `ui-ux-guidance` for the current IBR UI/UX rules: Calm Precision, web archetypes, target roles, imagegen gates, states, mobile, and data visualization.
 - Validate web UI with `validate`.
 - Validate simulator or macOS UI with `native`.
 - Record structured evidence after a host Computer Use action with `ibr evidence:record <file|-> --json`; see `docs/external-action-evidence.md`.
-- Use MCP tools such as `scan`, `snapshot`, `compare`, `observe`, `interact`, `flow_search`, `flow_form`, `native_scan`, and `scan_macos` for live evidence.
+- Use `node "$IBR_BIN" scan`, `start`, `check`, `observe`, `interact`, `flow`, `native:scan`, and `scan:macos` for live evidence.
+- Use MCP tool equivalents only after explicitly enabling `optional-mcp/codex-mcp.json` and restarting Codex.
