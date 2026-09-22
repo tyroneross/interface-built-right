@@ -3547,6 +3547,12 @@ declare class ConsoleDomain {
     clear(): void;
 }
 
+interface MockResponse {
+    status?: number;
+    body?: string | object;
+    headers?: Record<string, string>;
+}
+
 /**
  * Observe — preview what actions are possible without executing.
  * Inspired by Stagehand's observe() primitive.
@@ -3835,6 +3841,7 @@ declare class EngineDriver implements BrowserDriver {
     private emulation;
     private network;
     private console;
+    private fetch;
     private targetId;
     private sessionId;
     private ownsTarget;
@@ -3883,6 +3890,10 @@ declare class EngineDriver implements BrowserDriver {
      * driver and is closed on disconnect. Does NOT call this.browser.close().
      */
     disconnect(): Promise<void>;
+    /** Fulfill requests whose URL matches `pattern` (glob or RegExp) with `response` via CDP Fetch. */
+    mock(pattern: string | RegExp, response: MockResponse): Promise<void>;
+    /** Remove all network mocks and disable request interception. */
+    clearMocks(): Promise<void>;
     get isLaunched(): boolean;
     navigate(url: string, options?: NavigateOptions): Promise<void>;
     get url(): string;
@@ -7309,8 +7320,13 @@ declare function formatMacOSScanResult(result: MacOSScanResult): string;
 declare function formatNativeScanResult(result: NativeScanResult): string;
 
 declare const SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
-type SimulatorInteractionDriver = 'native-hid' | 'native-window' | 'idb' | 'simctl';
-type SimulatorDriverPreference = 'auto' | SimulatorInteractionDriver;
+type SimulatorInteractionDriver = 'native-window' | 'idb' | 'simctl';
+/**
+ * `native-hid` is accepted as a preference alias for `idb`: idb_companion is the
+ * headless CoreSimulator HID-injection backend. IBR does not ship its own
+ * private-framework HID client (see .build-loop/research/native-possibilities.md).
+ */
+type SimulatorDriverPreference = 'auto' | 'native-hid' | SimulatorInteractionDriver;
 interface SimulatorInteractionDriverStatus {
     driver: SimulatorInteractionDriver;
     label: string;
@@ -7551,10 +7567,11 @@ interface ActionOutcome {
     evidence?: ActionEvidence;
 }
 /**
- * Build an ActionOutcome for a capability the active backend does not yet
- * implement (keyboard/lifecycle/menu on RespawnBackend). Epic 2's DaemonBackend
- * replaces these with real outcomes; until then the controller surfaces a
- * structured, non-throwing "not implemented" result.
+ * Build an ActionOutcome for a capability a backend does not implement.
+ * No shipped backend produces this today: RespawnBackend and DaemonBackend
+ * implement keystroke, lifecycle and menu. It stays exported for third-party
+ * NativeBackend implementations and test fakes that need a structured,
+ * non-throwing "not implemented" result.
  */
 declare function notImplementedOutcome(capability: string): ActionOutcome;
 
@@ -8564,15 +8581,17 @@ declare class IBRSession {
      */
     screenshot(path?: string): Promise<Buffer>;
     /**
-     * Mock a network request.
-     * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
-     * This is a placeholder that throws until CDP Fetch is added to the engine.
+     * Mock network requests whose URL matches `pattern` (a `*` glob, exact URL,
+     * or RegExp). Uses the CDP Fetch domain; the latest matching mock wins and
+     * unmatched requests continue unmodified. Object bodies are sent as JSON.
      */
-    mock(_pattern: string | RegExp, _response: {
+    mock(pattern: string | RegExp, response: {
         status?: number;
         body?: string | object;
         headers?: Record<string, string>;
     }): Promise<void>;
+    /** Remove all network mocks registered with mock(). */
+    clearMocks(): Promise<void>;
     /**
      * Built-in flows for common automation patterns
      */

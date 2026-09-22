@@ -2629,6 +2629,71 @@ var init_console = __esm({
   }
 });
 
+// src/engine/cdp/fetch.ts
+function globToRegExp(glob) {
+  const escaped = glob.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  return new RegExp(`^${escaped}$`);
+}
+function matchesPattern(pattern, url) {
+  if (pattern instanceof RegExp) return pattern.test(url);
+  return pattern.includes("*") ? globToRegExp(pattern).test(url) : url === pattern;
+}
+function fulfillParams(requestId, response) {
+  const isObject = response.body !== void 0 && typeof response.body !== "string";
+  const bodyText = response.body === void 0 ? "" : isObject ? JSON.stringify(response.body) : response.body;
+  const headers = { ...response.headers ?? {} };
+  const hasContentType = Object.keys(headers).some((k) => k.toLowerCase() === "content-type");
+  if (!hasContentType) headers["Content-Type"] = isObject ? "application/json" : "text/plain";
+  return {
+    requestId,
+    responseCode: response.status ?? 200,
+    responseHeaders: Object.entries(headers).map(([name, value]) => ({ name, value })),
+    body: Buffer.from(bodyText, "utf8").toString("base64")
+  };
+}
+var FetchDomain;
+var init_fetch = __esm({
+  "src/engine/cdp/fetch.ts"() {
+    FetchDomain = class {
+      constructor(conn, sessionId) {
+        this.conn = conn;
+        this.sessionId = sessionId;
+      }
+      conn;
+      sessionId;
+      rules = [];
+      enabled = false;
+      async mock(pattern, response) {
+        this.rules.unshift({ pattern, response });
+        if (this.enabled) return;
+        this.enabled = true;
+        this.conn.on("Fetch.requestPaused", (params) => {
+          void this.onPaused(params);
+        });
+        await this.conn.send("Fetch.enable", { patterns: [{ urlPattern: "*", requestStage: "Request" }] }, this.sessionId);
+      }
+      async clear() {
+        this.rules = [];
+        if (!this.enabled) return;
+        this.enabled = false;
+        await this.conn.send("Fetch.disable", {}, this.sessionId).catch(() => {
+        });
+      }
+      async onPaused(params) {
+        const rule = this.rules.find((r) => matchesPattern(r.pattern, params.request.url));
+        try {
+          if (rule) {
+            await this.conn.send("Fetch.fulfillRequest", fulfillParams(params.requestId, rule.response), this.sessionId);
+          } else {
+            await this.conn.send("Fetch.continueRequest", { requestId: params.requestId }, this.sessionId);
+          }
+        } catch {
+        }
+      }
+    };
+  }
+});
+
 // src/engine/cdp/wait.ts
 function buildFingerprint(elements) {
   return elements.filter((e) => e.actions.length > 0).map((e) => `${e.role}:${e.label}:${e.enabled}`).sort().join("|");
@@ -3567,6 +3632,7 @@ var init_driver = __esm({
     init_emulation();
     init_network();
     init_console();
+    init_fetch();
     init_wait();
     init_actionability();
     init_serialize();
@@ -3629,6 +3695,7 @@ var init_driver = __esm({
       emulation;
       network;
       console;
+      fetch;
       targetId = null;
       sessionId = null;
       ownsTarget = true;
@@ -3696,6 +3763,7 @@ var init_driver = __esm({
         this.emulation = new EmulationDomain(this.conn, this.sessionId);
         this.network = new NetworkDomain(this.conn, this.sessionId);
         this.console = new ConsoleDomain(this.conn, this.sessionId);
+        this.fetch = new FetchDomain(this.conn, this.sessionId);
         progress("enabling CDP domains");
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
@@ -3759,6 +3827,15 @@ var init_driver = __esm({
         await this.conn.close().catch(() => {
         });
         this.launched = false;
+      }
+      /** Fulfill requests whose URL matches `pattern` (glob or RegExp) with `response` via CDP Fetch. */
+      async mock(pattern, response) {
+        if (!this.launched) throw new Error("mock() requires a launched browser session");
+        await this.fetch.mock(pattern, response);
+      }
+      /** Remove all network mocks and disable request interception. */
+      async clearMocks() {
+        if (this.fetch) await this.fetch.clear();
       }
       get isLaunched() {
         return this.launched;
@@ -4909,6 +4986,7 @@ var init_driver = __esm({
         this.emulation = new EmulationDomain(this.conn, this.sessionId);
         this.network = new NetworkDomain(this.conn, this.sessionId);
         this.console = new ConsoleDomain(this.conn, this.sessionId);
+        this.fetch = new FetchDomain(this.conn, this.sessionId);
         await this._page.enableLifecycleEvents();
         await this.ax.enable();
         await this.console.enable();
@@ -19990,7 +20068,6 @@ function isSimDriverAvailable() {
 var execFileAsync6 = util.promisify(child_process.execFile);
 var SIMULATOR_DRIVER_ENV = "IBR_SIMULATOR_DRIVER";
 var DRIVER_LABELS = {
-  "native-hid": "IBR native HID",
   "native-window": "IBR native-window",
   idb: "Meta IDB",
   simctl: "simctl"
@@ -19999,7 +20076,8 @@ function configuredDriverPreference() {
   const raw = process.env[SIMULATOR_DRIVER_ENV]?.trim();
   if (!raw) return "auto";
   const allowed = ["auto", "native-hid", "native-window", "idb", "simctl"];
-  return allowed.includes(raw) ? raw : "auto";
+  if (!allowed.includes(raw)) return "auto";
+  return raw === "native-hid" ? "idb" : raw;
 }
 function formatSimulatorDriver(driver2) {
   return driver2 ? DRIVER_LABELS[driver2] : "unknown driver";
@@ -20026,20 +20104,6 @@ async function getSimulatorInteractionDriverStatus() {
   const idbAvailable = await isIdbCliAvailable();
   const simctlAvailable = await isSimctlAvailable();
   return [
-    {
-      driver: "native-hid",
-      label: DRIVER_LABELS["native-hid"],
-      available: false,
-      headless: true,
-      bundled: true,
-      actions: ["tap", "type", "swipe", "button", "accessibility"],
-      constraints: [
-        "Not implemented in this build.",
-        "Target backend uses CoreSimulator/SimulatorKit HID injection, matching IDB-class headless input."
-      ],
-      reason: "pending private-framework HID backend",
-      selected: preference === "native-hid"
-    },
     {
       driver: "native-window",
       label: DRIVER_LABELS["native-window"],
@@ -22680,14 +22744,16 @@ var IBRSession = class {
     });
   }
   /**
-   * Mock a network request.
-   * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
-   * This is a placeholder that throws until CDP Fetch is added to the engine.
+   * Mock network requests whose URL matches `pattern` (a `*` glob, exact URL,
+   * or RegExp). Uses the CDP Fetch domain; the latest matching mock wins and
+   * unmatched requests continue unmodified. Object bodies are sent as JSON.
    */
-  async mock(_pattern, _response) {
-    throw new Error(
-      "Network mocking not yet supported by CDP engine. This requires the CDP Fetch domain which is planned for a future update."
-    );
+  async mock(pattern, response) {
+    await this.driver.mock(pattern, response);
+  }
+  /** Remove all network mocks registered with mock(). */
+  async clearMocks() {
+    await this.driver.clearMocks();
   }
   /**
    * Built-in flows for common automation patterns
