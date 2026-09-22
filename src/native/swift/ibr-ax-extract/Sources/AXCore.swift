@@ -114,9 +114,29 @@ func getFrame(_ element: AXUIElement) -> LegacyElement.Frame {
 
 // MARK: - AX Tree Walkers
 
+/// Elements already emitted in one walk, compared with CFEqual. Some apps
+/// expose an AX child that points back at an ancestor (observed on System
+/// Settings: the root resolved to the application element and every level's
+/// child 0 led back to it, so the menu bar was emitted 13-14 times until
+/// maxDepth). Emitting each AX element at most once breaks that cycle at the
+/// source for every consumer; index paths are unaffected because they still use
+/// the element's real child index.
+final class VisitedElements {
+    private var buckets: [CFHashCode: [AXUIElement]] = [:]
+
+    /// Returns true the first time an element is seen, false on any repeat.
+    func insert(_ element: AXUIElement) -> Bool {
+        let h = CFHash(element)
+        if let seen = buckets[h], seen.contains(where: { CFEqual($0, element) }) { return false }
+        buckets[h, default: []].append(element)
+        return true
+    }
+}
+
 /// Walk element tree — new format with full AX attributes, tracking index path
-func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = []) -> AXExtractedElement? {
+func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = [], visited: VisitedElements = VisitedElements()) -> AXExtractedElement? {
     guard depth < maxDepth else { return nil }
+    guard visited.insert(element) else { return nil }
 
     let role = getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown"
     let subrole = getStringAttribute(element, kAXSubroleAttribute)
@@ -139,7 +159,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
     var childElements: [AXExtractedElement] = []
     for (index, child) in axChildren.enumerated() {
         let childPath = currentPath + [index]
-        if let childEl = walkElementFull(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath) {
+        if let childEl = walkElementFull(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath, visited: visited) {
             childElements.append(childEl)
         }
     }
@@ -162,8 +182,9 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
 }
 
 /// Walk element tree — legacy format for simulator compatibility
-func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = []) -> LegacyElement? {
+func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = [], visited: VisitedElements = VisitedElements()) -> LegacyElement? {
     guard depth < maxDepth else { return nil }
+    guard visited.insert(element) else { return nil }
 
     let role = getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown"
     let label = getStringAttribute(element, kAXTitleAttribute)
@@ -183,7 +204,7 @@ func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 1
     var childElements: [LegacyElement] = []
     for (index, child) in axChildren.enumerated() {
         let childPath = currentPath + [index]
-        if let childEl = walkElementLegacy(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath) {
+        if let childEl = walkElementLegacy(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath, visited: visited) {
             childElements.append(childEl)
         }
     }
@@ -306,10 +327,16 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
     let window: AXUIElement
     var mainWindow: AnyObject?
     let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindow)
-    if mainResult == .success, let mw = mainWindow {
+    // Only an AXWindow is a valid walk root. A main-window attribute that
+    // resolves to anything else (e.g. the application element) made the walk
+    // start above the window and re-enter the menu bar at every level.
+    let isWindow: (AXUIElement) -> Bool = { getStringAttribute($0, kAXRoleAttribute) == (kAXWindowRole as String) }
+    if mainResult == .success, let mw = mainWindow, CFGetTypeID(mw) == AXUIElementGetTypeID(), isWindow(mw as! AXUIElement) {
         window = (mw as! AXUIElement)
+    } else if let firstWindow = windows.first(where: isWindow) {
+        window = firstWindow
     } else {
-        window = windows[0]
+        return nil
     }
 
     let title = getStringAttribute(window, kAXTitleAttribute) ?? "Untitled"
