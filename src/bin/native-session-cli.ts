@@ -21,6 +21,7 @@
 import type { Command } from 'commander';
 import { assignRefs, diffRefs, formatDiff, formatRefLine, loadRefs, saveRefs, writeFullPayload, type RawElement, type RefEntry } from '../native/compact-refs.js';
 import { DEFAULT_SESSION_STORE_DIR } from '../native/session-store.js';
+import { executeOnSimulator, normalizeAction, readSimulatorElements, type CanonicalAction } from '../native/computer-use.js';
 import { randomUUID } from 'crypto';
 import {
   NativeSessionController,
@@ -67,6 +68,10 @@ export interface CliDeps {
   deleteSession: typeof deleteSession;
   /** Directory for refs + file-out payloads; defaults to the session store dir. */
   refsDir?: string;
+  /** Test seams for the simulator computer-use path. */
+  readSimulatorElements?: (udid: string) => Promise<RawElement[]>;
+  executeOnSimulator?: typeof executeOnSimulator;
+  settleIntervalMs?: number;
 }
 
 export function defaultCliDeps(): CliDeps {
@@ -228,6 +233,17 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   const compact = requested === 'refs';
   const what = compact ? 'observe' : requested;
   const limit = opts.limit ?? 50;
+
+  // Simulator guest AX is only reachable through idb; the host AX walk sees Simulator.app chrome.
+  if (compact && entry.type !== 'macos' && stored.device) {
+    const readEls = deps.readSimulatorElements ?? readSimulatorElements;
+    try {
+      const elements = await readEls(stored.device.udid);
+      return compactRead(opts.sessionId, { elements }, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+    } catch (err) {
+      return actionFailed(`idb describe-all failed: ${err instanceof Error ? err.message : String(err)}`, { sessionId: opts.sessionId });
+    }
+  }
 
   const result = entry.type === 'macos'
     ? await controller.readMacOS(entry, what, limit)
@@ -395,6 +411,65 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
   };
 }
 
+// ─── computer-use ──────────────────────────────────────────────────────────
+
+const SETTLE_MAX_READS = 5;
+const SETTLE_INTERVAL_MS = 250;
+
+export interface ComputerUseOptions {
+  sessionId: string;
+  /** Anthropic (`{"action":"left_click","coordinate":[x,y]}`), OpenAI (`{"type":"click","x":..,"y":..}`) or IBR JSON. */
+  actionJson: string;
+}
+
+export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps = defaultCliDeps()): Promise<CliResult> {
+  const stored = deps.readSession(opts.sessionId);
+  if (!stored) return sessionNotFound(opts.sessionId);
+  if (stored.type !== 'simulator' || !stored.device) {
+    return invalidTarget('native:cu drives simulator sessions. For macOS apps use --what refs + native:session:action --ref (cursor-free).', { sessionId: opts.sessionId });
+  }
+  let action: CanonicalAction;
+  try {
+    action = normalizeAction(JSON.parse(opts.actionJson) as Record<string, unknown>);
+  } catch (err) {
+    return invalidTarget(`Bad action: ${err instanceof Error ? err.message : String(err)}`, { sessionId: opts.sessionId });
+  }
+  const udid = stored.device.udid;
+  const refsDir = deps.refsDir ?? DEFAULT_SESSION_STORE_DIR;
+  const readEls = deps.readSimulatorElements ?? readSimulatorElements;
+  const exec = deps.executeOnSimulator ?? executeOnSimulator;
+
+  const before = action.kind === 'screenshot' || action.kind === 'wait'
+    ? null
+    : (loadRefs(refsDir, opts.sessionId) ?? assignRefs(await readEls(udid)));
+  const res = await exec(udid, action, refsDir);
+  if (!res.success) return actionFailed(res.error ?? `${action.kind} failed`, { sessionId: opts.sessionId, action: action.kind });
+  if (res.screenshot) {
+    return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: 'screenshot', path: res.screenshot }, text: `screenshot: ${res.screenshot}` };
+  }
+  if (!before) {
+    return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind }, text: `✓ ${action.kind}` };
+  }
+  // success:true is not actuation: re-read the AX tree and report the delta only.
+  // Poll until two consecutive reads agree so a mid-animation tree is not reported.
+  let after = assignRefs(await readEls(udid));
+  for (let i = 0; i < SETTLE_MAX_READS; i++) {
+    await new Promise((r) => setTimeout(r, deps.settleIntervalMs ?? SETTLE_INTERVAL_MS));
+    const next = assignRefs(await readEls(udid));
+    const same = diffRefs(after, next);
+    after = next;
+    if (same.added.length === 0 && same.removed.length === 0) break;
+  }
+  saveRefs(refsDir, opts.sessionId, after);
+  const d = diffRefs(before, after);
+  const diff = formatDiff(d);
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, axChanged: d.added.length + d.removed.length > 0, diff: diff.split('\n') },
+    text: `✓ ${action.kind}\n${diff}`,
+  };
+}
+
 // ─── close ─────────────────────────────────────────────────────────────────
 
 export interface CloseOptions {
@@ -523,6 +598,14 @@ export function registerNativeSessionCommands(program: Command): void {
         ref: opts.ref,
       });
       emit(result, opts.json);
+    });
+
+  program
+    .command('native:cu <sessionId> <actionJson>')
+    .description('Computer-use action on a simulator session. Accepts Anthropic ({"action":"left_click","coordinate":[x,y]}) or OpenAI ({"type":"click","x":1,"y":2}) JSON; prints the AX diff, screenshots as a file path')
+    .option('--json', 'Emit structured JSON to stdout')
+    .action(async (sessionId: string, actionJson: string, opts: { json?: boolean }) => {
+      emit(await handleComputerUse({ sessionId, actionJson }), opts.json);
     });
 
   program

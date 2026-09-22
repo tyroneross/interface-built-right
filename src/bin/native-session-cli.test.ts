@@ -38,6 +38,7 @@ import {
   handleRead,
   handleAction,
   handleClose,
+  handleComputerUse,
   defaultCliDeps,
   EXIT_OK,
   EXIT_ACTION_FAILED,
@@ -330,5 +331,37 @@ describe('compact refs (--what refs / --ref)', () => {
 
     const bad = await handleAction({ sessionId: 's1', action: 'press', ref: 'e99' }, deps);
     expect(bad.exitCode).toBe(EXIT_INVALID_TARGET);
+  });
+});
+
+describe('handleComputerUse', () => {
+  it('maps an Anthropic click, drives the simulator and returns the AX diff', async () => {
+    const { mkdtempSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    let reads = 0;
+    const executed: unknown[] = [];
+    const deps = {
+      ...fakeDeps(new FakeBackend(), { sim: { type: 'simulator', device: { udid: 'U1', name: 'iPhone' }, createdAt: 1 } }),
+      refsDir: mkdtempSync(join(tmpdir(), 'ibr-cu-')),
+      readSimulatorElements: async () => (reads++ === 0
+        ? [{ role: 'AXButton', label: 'General' }]
+        : [{ role: 'AXButton', label: 'General' }, { role: 'AXStaticText', label: 'About' }]),
+      executeOnSimulator: async (_u: string, a: unknown) => { executed.push(a); return { success: true }; },
+      settleIntervalMs: 0,
+    };
+    const res = await handleComputerUse({ sessionId: 'sim', actionJson: '{"action":"left_click","coordinate":[100,200]}' }, deps);
+    expect(executed).toEqual([{ kind: 'click', x: 100, y: 200, count: 1 }]);
+    expect(res.exitCode).toBe(EXIT_OK);
+    expect(res.text).toContain('+ e2 StaticText "About"');
+  });
+
+  it('rejects macOS sessions and malformed actions with EXIT_INVALID_TARGET', async () => {
+    const deps = fakeDeps(new FakeBackend(), {
+      mac: { type: 'macos', app: 'TextEdit', pid: 1, createdAt: 1 },
+      sim: { type: 'simulator', device: { udid: 'U1', name: 'iPhone' }, createdAt: 1 },
+    });
+    expect((await handleComputerUse({ sessionId: 'mac', actionJson: '{"type":"click","x":1,"y":1}' }, deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+    expect((await handleComputerUse({ sessionId: 'sim', actionJson: 'not json' }, deps)).exitCode).toBe(EXIT_INVALID_TARGET);
   });
 });
