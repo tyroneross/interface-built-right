@@ -829,19 +829,21 @@ export class IBRSession {
   }
 
   /**
-   * Mock a network request.
-   * NOTE: Network mocking requires CDP Fetch domain support (not yet implemented).
-   * This is a placeholder that throws until CDP Fetch is added to the engine.
+   * Mock network requests whose URL matches `pattern` (a `*` glob, exact URL,
+   * or RegExp). Uses the CDP Fetch domain; the latest matching mock wins and
+   * unmatched requests continue unmodified. Object bodies are sent as JSON.
    */
-  async mock(_pattern: string | RegExp, _response: {
+  async mock(pattern: string | RegExp, response: {
     status?: number;
     body?: string | object;
     headers?: Record<string, string>;
   }): Promise<void> {
-    throw new Error(
-      'Network mocking not yet supported by CDP engine. ' +
-      'This requires the CDP Fetch domain which is planned for a future update.'
-    );
+    await this.driver.mock(pattern, response);
+  }
+
+  /** Remove all network mocks registered with mock(). */
+  async clearMocks(): Promise<void> {
+    await this.driver.clearMocks();
   }
 
   /**
