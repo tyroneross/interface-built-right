@@ -51,6 +51,7 @@ export function fulfillParams(requestId: string, response: MockResponse) {
 export class FetchDomain {
   private rules: MockRule[] = []
   private enabled = false
+  private listening = false
 
   constructor(private conn: CdpConnection, private sessionId: string) {}
 
@@ -58,9 +59,14 @@ export class FetchDomain {
     this.rules.unshift({ pattern, response })
     if (this.enabled) return
     this.enabled = true
-    this.conn.on('Fetch.requestPaused', (params: unknown) => {
-      void this.onPaused(params as RequestPausedParams)
-    })
+    // Register once: clear() only disables Fetch, so re-adding the listener on each
+    // mock() after a clear() would answer every paused request N times.
+    if (!this.listening) {
+      this.listening = true
+      this.conn.on('Fetch.requestPaused', (params: unknown) => {
+        if (this.enabled) void this.onPaused(params as RequestPausedParams)
+      })
+    }
     await this.conn.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] }, this.sessionId)
   }
 

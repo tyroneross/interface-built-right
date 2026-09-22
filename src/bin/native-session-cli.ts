@@ -244,7 +244,9 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   const requested = opts.what ?? 'observe';
   const compact = requested === 'refs';
   const what = compact ? 'observe' : requested;
-  const limit = opts.limit ?? 50;
+  // refs reads must cover the same element window as the 200-element post-action
+  // re-read, or the first diff reports every element past the limit as added.
+  const limit = opts.what === 'refs' ? Math.max(opts.limit ?? 200, 200) : (opts.limit ?? 50);
 
   // Simulator guest AX is only reachable through idb; the host AX walk sees Simulator.app chrome.
   if (compact && entry.type !== 'macos' && stored.device) {
@@ -298,7 +300,7 @@ function elementsOf(payload: Record<string, unknown>): RawElement[] {
 
 /** `--what refs`: numbered refs inline, full payload file-out, refs persisted for `--ref`. */
 function compactRead(sessionId: string, payload: Record<string, unknown>, dir: string): CliResult {
-  const refs = assignRefs(elementsOf(payload));
+  const refs = assignRefs(elementsOf(payload), loadRefs(dir, sessionId));
   saveRefs(dir, sessionId, refs);
   const full = writeFullPayload(dir, sessionId, 'observe', payload);
   const lines = refs.map(formatRefLine);
@@ -350,6 +352,13 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     }
     if (!refEntry.label && !refEntry.identifier) {
       return invalidTarget(`Ref ${opts.ref} (${refEntry.role}) has no accessible name or identifier to target.`, { sessionId: opts.sessionId });
+    }
+    // The controller resolves by name + role, so a ref whose name+role is shared by
+    // another element could act on the wrong one. Refuse rather than guess.
+    const name = refEntry.label ?? refEntry.identifier;
+    const twins = beforeRefs!.filter((r) => r.role === refEntry!.role && (r.label ?? r.identifier) === name);
+    if (twins.length > 1) {
+      return invalidTarget(`Ref ${opts.ref} is ambiguous: ${twins.map((r) => r.ref).join(', ')} share role ${refEntry.role} and name ${JSON.stringify(name)}.`, { sessionId: opts.sessionId });
     }
   }
 
@@ -416,20 +425,23 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
   }
 
   let recorded: number | undefined;
+  let recordError: string | undefined;
   if (opts.record && recordSignature) {
     const resolved = payload.resolved as { role?: string; label?: string | null; identifier?: string | null; path?: number[] } | undefined;
     if (resolved?.path) {
-      recorded = appendReplayStep(opts.record, {
+      try { recorded = appendReplayStep(opts.record, {
         platform: 'macos',
         action: opts.action,
         value: opts.value,
         fingerprint: fingerprintOf(resolved),
         path: resolved.path,
         signature: recordSignature,
-      });
+      }); } catch (err) {
+        recordError = err instanceof Error ? err.message : String(err);
+      }
     }
   }
-  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : '';
+  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : recordError ? `\nnot recorded: ${recordError}` : '';
 
   if (refEntry && beforeRefs) {
     // success:true is not actuation: re-read the AX tree and report only the delta.
@@ -437,7 +449,7 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
       ? await controller.readMacOS(entry, 'observe', 200)
       : await controller.readSimulator(entry, 'observe', 200);
     if (reread.kind === 'text' && !reread.isError) {
-      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)));
+      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)), beforeRefs);
       saveRefs(refsDir, opts.sessionId, afterRefs);
       const d = diffRefs(beforeRefs, afterRefs);
       const diff = formatDiff(d);
@@ -499,8 +511,12 @@ export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps 
     recordStep = { platform: 'simulator', action: 'click', count: action.count, fingerprint: fingerprintOf(hit), point: [action.x, action.y], signature: treeSignature(els) };
   }
   const res = await exec(udid, action, refsDir);
-  const recorded = res.success && recordStep && opts.record ? appendReplayStep(opts.record, recordStep) : undefined;
-  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : '';
+  let recorded: number | undefined;
+  let recordError: string | undefined;
+  if (res.success && recordStep && opts.record) {
+    try { recorded = appendReplayStep(opts.record, recordStep); } catch (err) { recordError = err instanceof Error ? err.message : String(err); }
+  }
+  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : recordError ? `\nnot recorded: ${recordError}` : '';
   if (!res.success) return actionFailed(res.error ?? `${action.kind} failed`, { sessionId: opts.sessionId, action: action.kind });
   if (res.screenshot) {
     return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: 'screenshot', path: res.screenshot }, text: `screenshot: ${res.screenshot}` };
@@ -510,10 +526,10 @@ export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps 
   }
   // success:true is not actuation: re-read the AX tree and report the delta only.
   // Poll until two consecutive reads agree so a mid-animation tree is not reported.
-  let after = assignRefs(await readEls(udid));
+  let after = assignRefs(await readEls(udid), before);
   for (let i = 0; i < SETTLE_MAX_READS; i++) {
     await new Promise((r) => setTimeout(r, deps.settleIntervalMs ?? SETTLE_INTERVAL_MS));
-    const next = assignRefs(await readEls(udid));
+    const next = assignRefs(await readEls(udid), before);
     const same = diffRefs(after, next);
     after = next;
     if (same.added.length === 0 && same.removed.length === 0) break;

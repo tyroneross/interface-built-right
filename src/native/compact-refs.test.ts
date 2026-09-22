@@ -35,3 +35,15 @@ describe('compact refs', () => {
     expect(loadRefs(dir, 'missing')).toBeNull();
   });
 });
+
+describe('assignRefs with prior refs', () => {
+  it('keeps existing numbers stable when an element is inserted above them', async () => {
+    const { assignRefs } = await import('./compact-refs.js');
+    const a = { role: 'AXButton', label: 'A', frame: { x: 0, y: 10, width: 5, height: 5 } };
+    const b = { role: 'AXButton', label: 'B', frame: { x: 0, y: 20, width: 5, height: 5 } };
+    const n = { role: 'AXButton', label: 'New', frame: { x: 0, y: 0, width: 5, height: 5 } };
+    const before = assignRefs([a, b]);
+    const after = assignRefs([n, a, b], before);
+    expect(after.map((r) => `${r.ref}:${r.label}`)).toEqual(['e3:New', 'e1:A', 'e2:B']);
+  });
+});

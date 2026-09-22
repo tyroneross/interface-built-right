@@ -21,7 +21,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 import { createHash } from 'crypto';
-import { flattenMacOSElements, resolveMacOSElement, type NativeElementCandidate } from './actions.js';
+import { flattenMacOSElements } from './actions.js';
 import { mapSessionActionToNative } from './session-controller.js';
 import { ResolvedPathCache } from './resolved-path-cache.js';
 import type { NativeBackend } from './backend.js';
@@ -130,8 +130,15 @@ function samePath(a: number[] | undefined, b: number[]): boolean {
   return !!a && a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-function findByFingerprint<T extends SigItem>(items: T[], f: Fingerprint): T | undefined {
-  return items.find((c) => sameFingerprint(f, c));
+/** The unique element with this fingerprint; `ambiguous` when several match (never guess). */
+function findByFingerprint<T extends SigItem>(items: T[], f: Fingerprint): T | 'ambiguous' | undefined {
+  const hits = items.filter((c) => sameFingerprint(f, c));
+  if (hits.length > 1) {
+    // Identical duplicates (same frame) are one element seen twice; distinct frames are ambiguous.
+    const frames = new Set(hits.map((h) => JSON.stringify(h.frame ?? null)));
+    if (frames.size > 1) return 'ambiguous';
+  }
+  return hits[0];
 }
 
 // ─── replay ─────────────────────────────────────────────────────────────────
@@ -211,11 +218,12 @@ async function replayMacOS(
     status = 'verified';
     path = step.path;
   } else {
-    const name = step.fingerprint.identifier ?? step.fingerprint.label ?? '';
-    const exact = findByFingerprint(cur.candidates, step.fingerprint) as NativeElementCandidate | undefined;
-    const resolved = exact?.path
-      ? exact
-      : name ? resolveMacOSElement(cur.ex.elements, name, { role: step.fingerprint.role })?.element : undefined;
+    // Heal only to an exact, unique fingerprint match: fuzzy name resolution could
+    // land on a different element and report it as healed.
+    const resolved = findByFingerprint(cur.candidates, step.fingerprint);
+    if (resolved === 'ambiguous') {
+      return { status: 'failed', fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} matches several elements` };
+    }
     if (!resolved?.path) {
       return { status: 'failed', fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} not found` };
     }
@@ -258,6 +266,7 @@ async function replaySimulator(
       point = step.point;
     } else {
       const found = findByFingerprint(cur.els, step.fingerprint);
+      if (found === 'ambiguous') return { status: 'failed', fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} matches several elements` };
       if (!found?.frame) return { status: 'failed', fingerprint: step.fingerprint, error: `${fpText(step.fingerprint)} not found` };
       const f = found.frame;
       point = [Math.round(f.x + f.width / 2), Math.round(f.y + f.height / 2)];

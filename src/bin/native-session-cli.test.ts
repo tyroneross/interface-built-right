@@ -39,6 +39,7 @@ import {
   handleAction,
   handleClose,
   handleComputerUse,
+  handleReplay,
   defaultCliDeps,
   EXIT_OK,
   EXIT_ACTION_FAILED,
@@ -363,5 +364,37 @@ describe('handleComputerUse', () => {
     });
     expect((await handleComputerUse({ sessionId: 'mac', actionJson: '{"type":"click","x":1,"y":1}' }, deps)).exitCode).toBe(EXIT_INVALID_TARGET);
     expect((await handleComputerUse({ sessionId: 'sim', actionJson: 'not json' }, deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+  });
+});
+
+describe('record -> replay round trip and ref safety', () => {
+  const seed = { s1: { type: 'macos' as const, app: 'Calc', pid: 4242, createdAt: 1 } };
+  const tree = [macElement({ path: [0], title: 'Seven', position: { x: 0, y: 0 } }), macElement({ path: [1], title: 'Add', position: { x: 0, y: 50 } })];
+
+  it('records through handleAction and replays the same tree as a cache hit', async () => {
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'macos', elements: tree, window: windowInfo };
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-rr-'));
+    const file = join(dir, 'flow.json');
+    const deps = { ...fakeDeps(backend, seed), refsDir: dir };
+    const rec = await handleAction({ sessionId: 's1', action: 'press', target: 'Seven', record: file, waitTimeoutMs: 0 }, deps);
+    expect(rec.exitCode).toBe(EXIT_OK);
+    expect(rec.json.recorded).toBe(1);
+    const rep = await handleReplay({ sessionId: 's1', file }, deps, { backend, settleMs: 0 });
+    expect(rep.exitCode).toBe(EXIT_OK);
+    expect((rep.json.reports as Array<{ status: string }>)[0].status).toBe('cached');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('refuses a ref whose role+name is shared by another element', async () => {
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'macos', elements: [macElement({ path: [0], title: 'Delete' }), macElement({ path: [1], title: 'Delete', position: { x: 0, y: 90 } })], window: windowInfo };
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-amb-'));
+    const deps = { ...fakeDeps(backend, seed), refsDir: dir };
+    await handleRead({ sessionId: 's1', what: 'refs' }, deps);
+    const res = await handleAction({ sessionId: 's1', action: 'press', ref: 'e2', waitTimeoutMs: 0 }, deps);
+    expect(res.exitCode).toBe(EXIT_INVALID_TARGET);
+    expect(String(res.json.error)).toContain('ambiguous');
+    rmSync(dir, { recursive: true, force: true });
   });
 });

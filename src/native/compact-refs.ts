@@ -33,10 +33,17 @@ function keyOf(e: RefEntry): string {
   return `${e.role}|${e.label ?? ''}|${e.identifier ?? ''}|${e.frame?.join(',') ?? ''}`;
 }
 
-/** Collapse duplicates and assign sequential refs in document order. */
-export function assignRefs(elements: RawElement[]): RefEntry[] {
+/**
+ * Collapse duplicates and assign refs in document order. Pass the previous read's
+ * refs as `prior` to keep numbering stable: an element that was `e12` stays `e12`
+ * and only new elements get fresh numbers, so a model's cached ref never silently
+ * points at a different element after an action.
+ */
+export function assignRefs(elements: RawElement[], prior?: RefEntry[] | null): RefEntry[] {
   const seen = new Set<string>();
   const out: RefEntry[] = [];
+  const priorByKey = new Map((prior ?? []).map((e) => [keyOf(e), e.ref]));
+  let next = 1 + (prior ?? []).reduce((m, e) => Math.max(m, Number(e.ref.slice(1)) || 0), 0);
   for (const el of elements) {
     const f = el.frame;
     const entry: RefEntry = {
@@ -49,7 +56,7 @@ export function assignRefs(elements: RawElement[]): RefEntry[] {
     const k = keyOf(entry);
     if (seen.has(k)) continue;
     seen.add(k);
-    entry.ref = `e${out.length + 1}`;
+    entry.ref = prior ? (priorByKey.get(k) ?? `e${next++}`) : `e${out.length + 1}`;
     out.push(entry);
   }
   return out;

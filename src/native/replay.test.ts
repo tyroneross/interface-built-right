@@ -57,6 +57,14 @@ describe('replay (macOS)', () => {
     expect(formatReplayReport(r, 1)).toContain('healed #1 Button "7" 0 -> 3');
   });
 
+  it('fails instead of guessing when the fingerprint matches two distinct elements', async () => {
+    const twins = [btn('AC', [0], 0), btn('7', [2], 40), btn('7', [3], 60)];
+    const { backend, pressed } = fakeBackend([twins]);
+    const r = await replay(file, target, { backend, settleMs: 0 });
+    expect(r[0].status).toBe('failed');
+    expect(pressed).toEqual([]);
+  });
+
   it('fails (never acts on a stale path) when the element is gone', async () => {
     const { backend, pressed } = fakeBackend([[btn('AC', [0], 0)]]);
     const r = await replay(file, target, { backend, settleMs: 0 });
