@@ -421,6 +421,8 @@ export const EnhancedElementSchema = z.object({
   id: z.string().optional(),
   className: z.string().optional(),
   text: z.string().optional(),
+  /** Raw link destination for design-spec navigation checks. */
+  href: z.string().nullable().optional(),
 
   // Position
   bounds: BoundsSchema,

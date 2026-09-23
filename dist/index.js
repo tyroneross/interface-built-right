@@ -361,6 +361,8 @@ var init_schemas = __esm({
       id: zod.z.string().optional(),
       className: zod.z.string().optional(),
       text: zod.z.string().optional(),
+      /** Raw link destination for design-spec navigation checks. */
+      href: zod.z.string().nullable().optional(),
       // Position
       bounds: exports.BoundsSchema,
       // Styles (subset)
@@ -7146,7 +7148,7 @@ async function testInteractivity(page) {
       if (classes) return `${tag}.${classes}`;
       return tag;
     }
-    function isVisible(el) {
+    function isVisible2(el) {
       const style = window.getComputedStyle(el);
       const rect = el.getBoundingClientRect();
       return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0" && rect.width > 0 && rect.height > 0;
@@ -7161,7 +7163,7 @@ async function testInteractivity(page) {
         text: el.textContent?.trim() || el.value || void 0,
         hasHandler: hasEventHandler(el),
         isDisabled: el.disabled || el.getAttribute("aria-disabled") === "true",
-        isVisible: isVisible(el),
+        isVisible: isVisible2(el),
         a11y: {
           role: el.getAttribute("role") || void 0,
           ariaLabel: el.getAttribute("aria-label") || void 0,
@@ -7182,7 +7184,7 @@ async function testInteractivity(page) {
         text: el.textContent?.trim() || void 0,
         hasHandler: hasEventHandler(el) || !isPlaceholder,
         isDisabled: el.getAttribute("aria-disabled") === "true",
-        isVisible: isVisible(el),
+        isVisible: isVisible2(el),
         a11y: {
           role: el.getAttribute("role") || void 0,
           ariaLabel: el.getAttribute("aria-label") || void 0,
@@ -7224,7 +7226,7 @@ async function testInteractivity(page) {
           text: btn.textContent?.trim() || ("value" in btn ? btn.value : void 0),
           hasHandler: hasEventHandler(btn),
           isDisabled: btn.disabled,
-          isVisible: isVisible(btn),
+          isVisible: isVisible2(btn),
           a11y: {
             role: btn.getAttribute("role") || void 0,
             ariaLabel: btn.getAttribute("aria-label") || void 0
@@ -7744,14 +7746,14 @@ async function listPreferences(outputDir, filter) {
   }
   return prefs.sort((a, b) => b.confidence - a.confidence);
 }
-async function learnFromSession(outputDir, session, observations) {
+async function learnFromSession(outputDir, session, observations2) {
   await initMemory(outputDir);
   const route = new URL(session.url).pathname;
   const learned = {
     id: `${LEARN_PREFIX}${nanoid.nanoid(8)}`,
     sessionId: session.id,
     route,
-    observations,
+    observations: observations2,
     approved: true,
     createdAt: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -8231,6 +8233,7 @@ var init_style_read = __esm({
       // Paint — the contrast lane (src/rules/contrast-measure.ts).
       "color",
       "backgroundColor",
+      "backgroundImage",
       // Presence — visibility guards across touch-targets and contrast.
       "display",
       "visibility",
@@ -8424,8 +8427,8 @@ async function enrichWithEventListeners(page, elements) {
     if (result.hasEventListener || result.hasDelegatedListener) el.interactive.hasOnClick = true;
   }
 }
-async function extractInteractiveElements(page) {
-  const elements = await page.evaluate(({ selectors, styleKeys }) => {
+async function extractInteractiveElements(page, fullText = false) {
+  const elements = await page.evaluate(({ selectors, styleKeys, fullText: fullText2 }) => {
     const seen = /* @__PURE__ */ new Set();
     const elements2 = [];
     const captureStyles = (computed) => {
@@ -8654,12 +8657,13 @@ async function extractInteractiveElements(page) {
             tagName: htmlEl.tagName.toLowerCase(),
             id: htmlEl.id || void 0,
             className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
-            text: (htmlEl.textContent || "").trim().slice(0, 100) || void 0,
+            text: fullText2 ? (htmlEl.textContent || "").trim() || void 0 : (htmlEl.textContent || "").trim().slice(0, 100) || void 0,
+            href,
             bounds: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height)
+              x: fullText2 ? rect.x : Math.round(rect.x),
+              y: fullText2 ? rect.y : Math.round(rect.y),
+              width: fullText2 ? rect.width : Math.round(rect.width),
+              height: fullText2 ? rect.height : Math.round(rect.height)
             },
             computedStyles: captureStyles(computed),
             ...(() => {
@@ -8721,7 +8725,7 @@ async function extractInteractiveElements(page) {
       }
     }
     return elements2;
-  }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
+  }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS], fullText });
   await enrichWithEventListeners(page, elements);
   return elements;
 }
@@ -8786,8 +8790,38 @@ function analyzeElements(elements, isMobile = false) {
     issues
   };
 }
-async function extractContentElements(page) {
-  return page.evaluate(({ selectors, inlineSelectors, styleKeys }) => {
+async function extractNamedRegions(page) {
+  return page.evaluate((styleKeys) => {
+    const result = [];
+    document.querySelectorAll('header, nav, main, aside, footer, section, [role="region"]').forEach((el) => {
+      const labelledBy = (el.getAttribute("aria-labelledby") || "").split(/\s+/).filter(Boolean).map((id) => document.getElementById(id)?.textContent?.trim() || "").filter(Boolean).join(" ");
+      const name = (el.getAttribute("aria-label") || labelledBy).trim();
+      if (!name) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const computed = getComputedStyle(el);
+      let ancestorOpacity = 1;
+      for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        ancestorOpacity *= Number(getComputedStyle(ancestor).opacity || "1");
+      }
+      const styles = {};
+      for (const key of styleKeys) {
+        const value = computed[key];
+        if (typeof value === "string" && value !== "") styles[key] = value;
+      }
+      result.push({
+        name,
+        bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        computedStyles: styles,
+        ariaHidden: !!el.closest('[aria-hidden="true"]') || void 0,
+        ...ancestorOpacity < 1 ? { ancestorOpacity } : {}
+      });
+    });
+    return result;
+  }, [...CAPTURED_STYLE_KEYS]);
+}
+async function extractContentElements(page, fullText = false) {
+  return page.evaluate(({ selectors, inlineSelectors, styleKeys, fullText: fullText2 }) => {
     const seen = /* @__PURE__ */ new Set();
     const results = [];
     const captureStyles = (computed) => {
@@ -8884,12 +8918,12 @@ async function extractContentElements(page) {
             tagName: tag,
             id: htmlEl.id || void 0,
             className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
-            text: (htmlEl.textContent || "").trim().slice(0, 300) || void 0,
+            text: fullText2 ? (htmlEl.textContent || "").trim() || void 0 : (htmlEl.textContent || "").trim().slice(0, 300) || void 0,
             bounds: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height)
+              x: fullText2 ? rect.x : Math.round(rect.x),
+              y: fullText2 ? rect.y : Math.round(rect.y),
+              width: fullText2 ? rect.width : Math.round(rect.width),
+              height: fullText2 ? rect.height : Math.round(rect.height)
             },
             computedStyles: captureStyles(computed),
             contentKind: kind,
@@ -8948,12 +8982,12 @@ async function extractContentElements(page) {
             tagName: htmlEl.tagName.toLowerCase(),
             id: htmlEl.id || void 0,
             className: typeof htmlEl.className === "string" ? htmlEl.className : void 0,
-            text: text.slice(0, 300),
+            text: fullText2 ? text : text.slice(0, 300),
             bounds: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height)
+              x: fullText2 ? rect.x : Math.round(rect.x),
+              y: fullText2 ? rect.y : Math.round(rect.y),
+              width: fullText2 ? rect.width : Math.round(rect.width),
+              height: fullText2 ? rect.height : Math.round(rect.height)
             },
             computedStyles: captureStyles(computed),
             contentKind: "inline",
@@ -8975,7 +9009,8 @@ async function extractContentElements(page) {
   }, {
     selectors: CONTENT_SELECTORS,
     inlineSelectors: INLINE_TEXT_SELECTORS,
-    styleKeys: [...CAPTURED_STYLE_KEYS]
+    styleKeys: [...CAPTURED_STYLE_KEYS],
+    fullText
   });
 }
 async function extractPageMetadata(page) {
@@ -10400,9 +10435,9 @@ function parseColor2(color) {
   const [, name, body] = fn;
   const { parts, alpha } = splitArgs(body);
   if (alpha === 0) return { kind: "none", reason: "alpha-0" };
-  const finite = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
+  const finite2 = (r) => r.kind === "rgb" && (!r.rgb.every(Number.isFinite) || !Number.isFinite(r.alpha)) ? { kind: "unsupported", raw } : r;
   try {
-    return finite(parseColorBody(name, parts, alpha, raw));
+    return finite2(parseColorBody(name, parts, alpha, raw));
   } catch {
     return { kind: "unsupported", raw };
   }
@@ -13519,7 +13554,7 @@ async function scan(url, options = {}) {
       );
     }
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
-      extractAndAudit(page, resolvedViewport),
+      extractAndAudit(page, resolvedViewport, options.fullText),
       testInteractivity(page),
       getSemanticOutput(page),
       driver2.getCoverage().catch(() => void 0),
@@ -13582,6 +13617,16 @@ async function scan(url, options = {}) {
     const resolvedRules = await resolveRulesConfig(options.projectDir ?? process.cwd(), rulePresets);
     const activeRuleIds = new Set(getActiveRules(resolvedRules.config).map((r) => r.id));
     const gradesContent = configHasContentRules(resolvedRules.config);
+    let visibleText;
+    let regions;
+    if (options.fullText) {
+      const [copy, namedRegions] = await Promise.allSettled([
+        page.evaluate(() => document.body.innerText),
+        extractNamedRegions(page)
+      ]);
+      if (copy.status === "fulfilled") visibleText = copy.value;
+      if (namedRegions.status === "fulfilled") regions = namedRegions.value;
+    }
     let contentResult;
     let metadataResult;
     let contentElements = [];
@@ -13589,7 +13634,7 @@ async function scan(url, options = {}) {
     if (options.content || gradesContent) {
       try {
         const [extractedContent, pageMetadata] = await Promise.all([
-          extractContentElements(page),
+          extractContentElements(page, options.fullText),
           extractPageMetadata(page)
         ]);
         contentElements = extractedContent;
@@ -13706,6 +13751,9 @@ async function scan(url, options = {}) {
       // both fields entirely ABSENT from the result (not present with value
       // `undefined`) so existing callers and their token cost are unchanged.
       ...contentResult ? { content: contentResult, metadata: metadataResult } : {},
+      ...options.fullText ? { textCapture: "full" } : {},
+      ...visibleText !== void 0 ? { visibleText } : {},
+      ...regions !== void 0 ? { regions } : {},
       verdict,
       issues,
       summary
@@ -13749,9 +13797,9 @@ async function detectSPAFramework(driver2) {
     return false;
   }
 }
-async function extractAndAudit(page, viewport) {
+async function extractAndAudit(page, viewport, fullText = false) {
   const isMobile = viewport.width < 768;
-  const elements = await extractInteractiveElements(page);
+  const elements = await extractInteractiveElements(page, fullText);
   const audit = analyzeElements(elements, isMobile);
   return { all: elements, audit };
 }
@@ -19499,6 +19547,476 @@ async function isCompactContextOversize(outputDir) {
 
 // src/index.ts
 init_scan();
+var finite = zod.z.number().finite();
+var NumberRuleSchema = zod.z.discriminatedUnion("mode", [
+  zod.z.object({ mode: zod.z.literal("exact"), value: finite, tolerance: finite.nonnegative().default(0) }),
+  zod.z.object({ mode: zod.z.literal("bounded"), min: finite, max: finite }).refine((v) => v.min <= v.max, "min must be <= max"),
+  zod.z.object({ mode: zod.z.literal("free"), guidance: zod.z.string().optional() })
+]);
+var TextRuleSchema = zod.z.discriminatedUnion("mode", [
+  zod.z.object({ mode: zod.z.literal("exact"), value: zod.z.string() }),
+  zod.z.object({ mode: zod.z.literal("bounded"), oneOf: zod.z.array(zod.z.string()).min(1) }),
+  zod.z.object({ mode: zod.z.literal("free"), guidance: zod.z.string().optional() })
+]);
+var StyleRulesSchema = zod.z.object({
+  fontFamily: TextRuleSchema.optional(),
+  fontSize: NumberRuleSchema.optional(),
+  fontWeight: TextRuleSchema.optional(),
+  color: TextRuleSchema.optional(),
+  backgroundColor: TextRuleSchema.optional(),
+  backgroundImage: TextRuleSchema.optional(),
+  borderRadius: NumberRuleSchema.optional()
+}).strict();
+var DesignElementSchema = zod.z.object({
+  id: zod.z.string().min(1),
+  sourceNode: zod.z.object({
+    id: zod.z.string(),
+    name: zod.z.string(),
+    type: zod.z.string(),
+    fillTypes: zod.z.array(zod.z.string()).optional(),
+    imageRefs: zod.z.array(zod.z.string()).optional(),
+    prototypeDestinationId: zod.z.string().optional()
+  }).strict().optional(),
+  /** Semantic identity. Duplicate matches are a coverage failure, never a guessed first match. */
+  match: zod.z.object({
+    role: zod.z.enum(["heading", "paragraph", "link", "button", "image", "caption", "quote", "region"]),
+    name: zod.z.string().min(1),
+    level: zod.z.number().int().min(1).max(6).optional(),
+    /** One-based DOM order among elements with this semantic role and name. */
+    occurrence: zod.z.number().int().positive().optional()
+  }).strict().optional(),
+  text: TextRuleSchema.optional(),
+  href: TextRuleSchema.optional(),
+  src: TextRuleSchema.optional(),
+  geometry: zod.z.object({
+    x: NumberRuleSchema.optional(),
+    y: NumberRuleSchema.optional(),
+    width: NumberRuleSchema.optional(),
+    height: NumberRuleSchema.optional(),
+    /** Only measurable for a square with a circular CSS border radius. CSS pixels. */
+    circumference: NumberRuleSchema.optional()
+  }).strict().optional(),
+  style: StyleRulesSchema.optional()
+}).strict();
+var DesignSpecSchema = zod.z.object({
+  version: zod.z.literal(1),
+  title: zod.z.string().min(1),
+  source: zod.z.object({
+    kind: zod.z.enum(["authored", "figma"]),
+    ref: zod.z.string().optional(),
+    coverage: zod.z.object({
+      considered: zod.z.number().int().nonnegative(),
+      imported: zod.z.number().int().nonnegative(),
+      skipped: zod.z.array(zod.z.object({ id: zod.z.string(), reason: zod.z.string() }).strict())
+    }).strict().optional()
+  }).strict(),
+  /** Shared rules apply to every element of a role. Element rules override them. */
+  sharedStyle: zod.z.object({ heading: StyleRulesSchema.optional() }).strict().optional(),
+  views: zod.z.array(zod.z.object({
+    id: zod.z.string().min(1),
+    route: zod.z.string().startsWith("/"),
+    viewport: zod.z.object({ width: finite.positive(), height: finite.positive() }).strict(),
+    /** listed checks named elements; all-scanned also rejects unlisted semantic elements. */
+    coverage: zod.z.enum(["listed", "all-scanned"]).default("listed"),
+    /** Full rendered body copy, including labels and text outside semantic blocks. */
+    visibleText: TextRuleSchema.optional(),
+    navigation: zod.z.array(zod.z.object({
+      label: zod.z.string().min(1),
+      occurrence: zod.z.number().int().positive().optional(),
+      destination: TextRuleSchema
+    }).strict()).default([]),
+    elements: zod.z.array(DesignElementSchema),
+    /** Whole areas intentionally left to the builder; bounds exempt their contents from all-scanned coverage. */
+    freeRegions: zod.z.array(zod.z.object({
+      name: zod.z.string().min(1),
+      bounds: zod.z.object({ x: finite, y: finite, width: finite.positive(), height: finite.positive() }).strict().optional()
+    }).strict()).default([])
+  }).strict()).min(1)
+}).strict().superRefine((spec, ctx) => {
+  const views = /* @__PURE__ */ new Set();
+  for (const [viewIndex, view] of spec.views.entries()) {
+    if (views.has(view.id)) ctx.addIssue({ code: "custom", path: ["views", viewIndex, "id"], message: "duplicate view id" });
+    views.add(view.id);
+    const elements = /* @__PURE__ */ new Set();
+    for (const [elementIndex, element] of view.elements.entries()) {
+      if (elements.has(element.id)) ctx.addIssue({ code: "custom", path: ["views", viewIndex, "elements", elementIndex, "id"], message: "duplicate element id" });
+      elements.add(element.id);
+    }
+  }
+});
+
+// src/design-spec/check.ts
+function normalizeName(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+function observations(scan2) {
+  const out = [];
+  for (const el of scan2.elements.all) {
+    if (!isVisible(el.bounds, el.computedStyles, el.a11y.ariaHidden, el.ancestorOpacity)) continue;
+    const role = interactiveRole(el);
+    if (!role) continue;
+    out.push({
+      role,
+      name: normalizeName(el.a11y.ariaLabel || el.text || ""),
+      text: el.text,
+      href: el.href,
+      bounds: el.bounds,
+      styles: el.computedStyles ?? {}
+    });
+  }
+  for (const el of scan2.content?.elements ?? []) {
+    if (!isVisible(el.bounds, el.computedStyles, el.ariaHidden, el.ancestorOpacity)) continue;
+    const role = contentRole(el);
+    if (!role) continue;
+    out.push({
+      role,
+      name: normalizeName(role === "image" ? el.alt || el.ariaLabel || "" : el.ariaLabel || el.text || ""),
+      level: el.headingLevel,
+      text: el.text,
+      src: el.src,
+      bounds: el.bounds,
+      styles: el.computedStyles
+    });
+  }
+  for (const region of scan2.regions ?? []) {
+    if (!isVisible(region.bounds, region.computedStyles, region.ariaHidden, region.ancestorOpacity)) continue;
+    out.push({ role: "region", name: normalizeName(region.name), bounds: region.bounds, styles: region.computedStyles });
+  }
+  return out;
+}
+function isVisible(bounds, styles, ariaHidden, ancestorOpacity) {
+  if (ariaHidden || bounds.width <= 0 || bounds.height <= 0) return false;
+  if (styles?.display === "none" || styles?.visibility === "hidden" || styles?.visibility === "collapse") return false;
+  if (Number(styles?.opacity ?? "1") <= 0 || ancestorOpacity !== void 0 && ancestorOpacity <= 0) return false;
+  return true;
+}
+function interactiveRole(el) {
+  const role = el.a11y.role;
+  if (role === "link" || el.tagName === "a") return "link";
+  if (role === "button" || el.tagName === "button") return "button";
+  return void 0;
+}
+function contentRole(el) {
+  switch (el.contentKind) {
+    case "heading":
+      return "heading";
+    case "paragraph":
+      return "paragraph";
+    case "image":
+      return "image";
+    case "caption":
+      return "caption";
+    case "quote":
+      return "quote";
+    default:
+      return void 0;
+  }
+}
+function numericStyle(value) {
+  if (!value) return void 0;
+  const match = value.match(/^(-?\d+(?:\.\d+)?)px$/);
+  return match ? Number(match[1]) : void 0;
+}
+function circumference(observation) {
+  const { width, height } = observation.bounds;
+  if (Math.abs(width - height) > 1 || width <= 0) return void 0;
+  const radius = observation.styles.borderRadius?.trim();
+  if (!radius) return void 0;
+  const [horizontalRaw, verticalRaw] = radius.split("/").map((part) => part.trim());
+  const expand = (raw) => {
+    const tokens = raw.split(/\s+/).filter(Boolean);
+    if (tokens.length === 1) return [tokens[0], tokens[0], tokens[0], tokens[0]];
+    if (tokens.length === 2) return [tokens[0], tokens[1], tokens[0], tokens[1]];
+    if (tokens.length === 3) return [tokens[0], tokens[1], tokens[2], tokens[1]];
+    return tokens;
+  };
+  const radiusPx = (raw, size) => {
+    if (raw.endsWith("%")) {
+      const value = Number(raw.slice(0, -1));
+      return Number.isFinite(value) ? value * size / 100 : void 0;
+    }
+    if (raw === "0") return 0;
+    return numericStyle(raw);
+  };
+  const horizontal = expand(horizontalRaw);
+  const vertical = expand(verticalRaw || horizontalRaw);
+  const circular = horizontal.length === 4 && vertical.length === 4 && horizontal.every((value) => (radiusPx(value, width) ?? -1) >= width / 2) && vertical.every((value) => (radiusPx(value, height) ?? -1) >= height / 2);
+  return circular ? Math.PI * width : void 0;
+}
+function checkText(rule, value) {
+  if (rule.mode === "free") return { status: "free" };
+  if (value === void 0) return { status: "unmeasurable", reason: "property was not captured" };
+  if (rule.mode === "exact") return { status: value === rule.value ? "pass" : "fail" };
+  return { status: rule.oneOf.includes(value) ? "pass" : "fail" };
+}
+function checkNumber(rule, value) {
+  if (rule.mode === "free") return { status: "free" };
+  if (value === void 0 || !Number.isFinite(value)) return { status: "unmeasurable", reason: "property was not captured" };
+  if (rule.mode === "exact") return { status: Math.abs(value - rule.value) <= rule.tolerance ? "pass" : "fail" };
+  return { status: value >= rule.min && value <= rule.max ? "pass" : "fail" };
+}
+function checkDesignSpec(input, viewId, scan2) {
+  const spec = DesignSpecSchema.parse(input);
+  const view = spec.views.find((v) => v.id === viewId);
+  if (!view) throw new Error(`Unknown design view: ${viewId}`);
+  const findings = [];
+  const add = (property, status, element, expected, observed, reason) => {
+    findings.push({ view: viewId, element, property, status, expected, observed, reason });
+  };
+  add("route", scan2.route === view.route ? "pass" : "fail", void 0, view.route, scan2.route);
+  add("viewport.width", scan2.viewport.width === view.viewport.width ? "pass" : "fail", void 0, view.viewport.width, scan2.viewport.width);
+  add("viewport.height", scan2.viewport.height === view.viewport.height ? "pass" : "fail", void 0, view.viewport.height, scan2.viewport.height);
+  if (spec.source.coverage?.skipped.length) {
+    add(
+      "source.coverage",
+      "unmeasurable",
+      void 0,
+      0,
+      spec.source.coverage.skipped,
+      "source import skipped visible nodes"
+    );
+  }
+  if (scan2.verdict === "PARTIAL") add("scan", "unmeasurable", void 0, void 0, scan2.partialReason, "source scan is partial");
+  if (view.visibleText) {
+    const result = checkText(view.visibleText, scan2.visibleText);
+    add("visibleText", result.status, void 0, view.visibleText, scan2.visibleText, result.reason);
+  }
+  const measured = observations(scan2);
+  const matched = /* @__PURE__ */ new Set();
+  const boundElements = /* @__PURE__ */ new Set();
+  for (const [index, link2] of view.navigation.entries()) {
+    const allCandidates = measured.filter((o) => o.role === "link" && o.name === normalizeName(link2.label));
+    const candidates = link2.occurrence === void 0 ? allCandidates : allCandidates.slice(link2.occurrence - 1, link2.occurrence);
+    if (candidates.length !== 1) {
+      add(
+        `navigation.${index}`,
+        candidates.length ? "unmeasurable" : "fail",
+        void 0,
+        link2.label,
+        candidates.length,
+        candidates.length ? "link label matched multiple links" : "required link was not found"
+      );
+      continue;
+    }
+    matched.add(candidates[0]);
+    const result = checkText(link2.destination, candidates[0].href ?? void 0);
+    add(`navigation.${index}`, result.status, void 0, link2.destination, candidates[0].href, result.reason);
+  }
+  for (const element of view.elements) {
+    if (!element.match) {
+      add("match", "unmeasurable", element.id, void 0, void 0, "element needs a semantic binding");
+      continue;
+    }
+    const match = element.match;
+    const allowedNames = /* @__PURE__ */ new Set([normalizeName(match.name)]);
+    if (element.text?.mode === "bounded") {
+      for (const allowed of element.text.oneOf) allowedNames.add(normalizeName(allowed));
+    }
+    const sameRole = measured.filter((o) => o.role === match.role && (match.level === void 0 || o.level === match.level));
+    let candidates = sameRole.filter((o) => allowedNames.has(o.name));
+    if (candidates.length === 0 && element.text?.mode === "free" && sameRole.length === 1) candidates = sameRole;
+    if (match.occurrence !== void 0) candidates = candidates.slice(match.occurrence - 1, match.occurrence);
+    if (candidates.length !== 1) {
+      const needsContent = match.role !== "link" && match.role !== "button" && match.role !== "region";
+      const status = candidates.length || needsContent && !scan2.content || match.role === "region" && !scan2.regions ? "unmeasurable" : "fail";
+      add(
+        "match",
+        status,
+        element.id,
+        match,
+        candidates.length,
+        candidates.length ? "semantic identity matched multiple elements" : status === "fail" ? "required element was not found" : "content or regions were not captured"
+      );
+      continue;
+    }
+    const found = candidates[0];
+    if (boundElements.has(found)) {
+      add("match", "fail", element.id, match, found.name, "required elements cannot share one rendered element");
+      continue;
+    }
+    boundElements.add(found);
+    matched.add(found);
+    const textRule = (key, rule, value) => {
+      if (!rule) return;
+      if (key === "text" && scan2.textCapture !== "full" && value && value.length >= (found.role === "link" || found.role === "button" ? 100 : 300)) {
+        add(key, "unmeasurable", element.id, rule, value, "source scan capped text; rescan with fullText");
+        return;
+      }
+      const result = checkText(rule, value);
+      add(key, result.status, element.id, rule, value, result.reason);
+    };
+    const numberRule = (key, rule, value) => {
+      if (!rule) return;
+      const result = checkNumber(rule, value);
+      add(key, result.status, element.id, rule, value, result.reason);
+    };
+    textRule("text", element.text, found.text);
+    textRule("href", element.href, found.href ?? void 0);
+    textRule("src", element.src, found.src);
+    for (const key of ["x", "y", "width", "height"]) numberRule(`geometry.${key}`, element.geometry?.[key], found.bounds[key]);
+    numberRule("geometry.circumference", element.geometry?.circumference, circumference(found));
+    const style = { ...found.role === "heading" ? spec.sharedStyle?.heading : {}, ...element.style };
+    const primaryFont = found.styles.fontFamily?.split(",")[0]?.trim().replace(/^['"]|['"]$/g, "");
+    textRule("style.fontFamily", style.fontFamily, primaryFont);
+    numberRule("style.fontSize", style.fontSize, numericStyle(found.styles.fontSize));
+    textRule("style.fontWeight", style.fontWeight, found.styles.fontWeight);
+    textRule("style.color", style.color, found.styles.color);
+    textRule("style.backgroundColor", style.backgroundColor, found.styles.backgroundColor);
+    textRule("style.backgroundImage", style.backgroundImage, found.styles.backgroundImage);
+    numberRule("style.borderRadius", style.borderRadius, numericStyle(found.styles.borderRadius));
+  }
+  for (const [index, region] of view.freeRegions.entries()) {
+    add(`freeRegions.${index}`, "free", void 0, void 0, void 0, region.name);
+    if (view.coverage === "all-scanned" && !region.bounds) {
+      add(
+        `freeRegions.${index}.bounds`,
+        "unmeasurable",
+        void 0,
+        void 0,
+        void 0,
+        "all-scanned coverage needs bounds to locate this free region"
+      );
+    }
+  }
+  if (view.coverage === "all-scanned") {
+    const hasUnboundedFreeRegion = view.freeRegions.some((region) => !region.bounds);
+    if (!scan2.content) add("coverage.content", "unmeasurable", void 0, void 0, void 0, "content extraction did not run");
+    if (!scan2.regions) add("coverage.regions", "unmeasurable", void 0, void 0, void 0, "named region extraction did not run");
+    for (const observed of measured) {
+      if (matched.has(observed)) continue;
+      const inFreeRegion = view.freeRegions.some((region) => region.bounds && observed.bounds.x >= region.bounds.x && observed.bounds.y >= region.bounds.y && observed.bounds.x + observed.bounds.width <= region.bounds.x + region.bounds.width && observed.bounds.y + observed.bounds.height <= region.bounds.y + region.bounds.height);
+      if (inFreeRegion) {
+        add("coverage.freeRegion", "free", void 0, void 0, { role: observed.role, name: observed.name });
+        continue;
+      }
+      const status = !observed.name || hasUnboundedFreeRegion ? "unmeasurable" : "fail";
+      add(
+        "coverage.unlisted",
+        status,
+        void 0,
+        void 0,
+        { role: observed.role, name: observed.name },
+        !observed.name ? "element has no semantic name" : hasUnboundedFreeRegion ? "unbounded free region prevents locating this extra element" : "semantic element is absent from the spec"
+      );
+    }
+  }
+  const counts = { pass: 0, fail: 0, free: 0, unmeasurable: 0 };
+  for (const finding of findings) counts[finding.status]++;
+  return {
+    verdict: counts.fail ? "FAIL" : counts.unmeasurable ? "PARTIAL" : "PASS",
+    coverage: view.coverage,
+    counts,
+    findings
+  };
+}
+
+// src/design-spec/figma.ts
+var exactNumber = (value) => ({ mode: "exact", value, tolerance: 0 });
+var exactText = (value) => ({ mode: "exact", value });
+function findNode(node, id) {
+  if (node.id === id) return node;
+  for (const child of node.children ?? []) {
+    const match = findNode(child, id);
+    if (match) return match;
+  }
+  return void 0;
+}
+function solidColor(node, ancestorsOpaque) {
+  if (!ancestorsOpaque || node.opacity !== void 0 && node.opacity !== 1) return void 0;
+  const visible = node.fills?.filter((f) => f.visible !== false) ?? [];
+  if (visible.length !== 1 || visible[0].type !== "SOLID") return void 0;
+  const fill = visible[0];
+  if (!fill?.color) return void 0;
+  const { r, g, b } = fill.color;
+  if (![r, g, b].every((v) => Number.isFinite(v) && v >= 0 && v <= 1)) return void 0;
+  if ((fill.color.a ?? 1) * (fill.opacity ?? 1) !== 1) return void 0;
+  return `rgb(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)})`;
+}
+function designSpecFromFigmaFile(input, frameId, route, ref, routeMap = {}) {
+  for (const [destination, path2] of Object.entries(routeMap)) {
+    if (typeof path2 !== "string" || !path2.startsWith("/")) throw new Error(`Invalid application route for Figma node ${destination}`);
+  }
+  if (!input || typeof input !== "object" || !("document" in input)) throw new Error("Expected a Figma file JSON object with document");
+  const document2 = input.document;
+  const frame = findNode(document2, frameId);
+  if (!frame) throw new Error(`Figma frame ${frameId} was not found`);
+  const origin = frame.absoluteBoundingBox;
+  if (!origin || origin.width <= 0 || origin.height <= 0) throw new Error("Selected frame has no measurable absoluteBoundingBox");
+  const elements = [];
+  const skipped = [];
+  let considered = 0;
+  const walk = (node, ancestorsOpaque) => {
+    if (node.visible === false) return;
+    considered++;
+    const box = node.absoluteBoundingBox;
+    if (node.id && box && box.width > 0 && box.height > 0) {
+      const geometry = {
+        x: exactNumber(box.x - origin.x),
+        y: exactNumber(box.y - origin.y),
+        width: exactNumber(box.width),
+        height: exactNumber(box.height)
+      };
+      if (node.type === "ELLIPSE") {
+        if (node.size && Math.abs(node.size.x - node.size.y) < 0.01) {
+          geometry.circumference = exactNumber(Math.PI * node.size.x);
+        } else {
+          geometry.circumference = { mode: "free", guidance: "Confirm native circle dimensions; an axis-aligned bounding box alone cannot prove an ellipse is circular" };
+        }
+      }
+      const style = {};
+      const visibleFills = node.fills?.filter((fill) => fill.visible !== false) ?? [];
+      if (node.type === "TEXT") {
+        if (node.style?.fontFamily) style.fontFamily = exactText(node.style.fontFamily);
+        if (node.style?.fontSize !== void 0) style.fontSize = exactNumber(node.style.fontSize);
+        if (node.style?.fontWeight !== void 0) style.fontWeight = exactText(String(node.style.fontWeight));
+        const color = solidColor(node, ancestorsOpaque);
+        if (color) style.color = exactText(color);
+        else if (visibleFills.length) style.color = { mode: "free", guidance: `Review Figma text paint on node ${node.id}; non-opaque or layered fills need an authored CSS rule` };
+      } else {
+        const color = solidColor(node, ancestorsOpaque);
+        if (color) style.backgroundColor = exactText(color);
+        else if (visibleFills.length) style.backgroundColor = { mode: "free", guidance: `Review Figma paint on node ${node.id}; non-opaque or layered fills need an authored CSS rule` };
+      }
+      const hasGradient = node.fills?.some((fill) => fill.visible !== false && fill.type?.startsWith("GRADIENT_"));
+      if (hasGradient) style.backgroundImage = { mode: "free", guidance: `Gradient from Figma node ${node.id}; set an exact or bounded rule if needed` };
+      const destination = node.reactions?.map((r) => r.action?.destinationId).find(Boolean);
+      const mappedRoute = destination ? routeMap[destination] : void 0;
+      elements.push({
+        id: node.id,
+        sourceNode: {
+          id: node.id,
+          name: node.name || "",
+          type: node.type || "",
+          fillTypes: (node.fills ?? []).filter((fill) => fill.visible !== false).map((fill) => fill.type || "UNKNOWN"),
+          imageRefs: (node.fills ?? []).filter((fill) => fill.visible !== false && fill.imageRef).map((fill) => fill.imageRef),
+          ...destination ? { prototypeDestinationId: destination } : {}
+        },
+        ...node.type === "TEXT" && node.characters !== void 0 ? { text: exactText(node.characters) } : {},
+        ...destination ? { href: mappedRoute ? exactText(mappedRoute) : { mode: "free", guidance: `Map Figma prototype destination ${destination} to a route` } } : {},
+        geometry,
+        ...Object.keys(style).length ? { style } : {}
+      });
+    } else {
+      skipped.push({ id: node.id || "(missing id)", reason: "missing id or positive absoluteBoundingBox" });
+    }
+    const childrenOpaque = ancestorsOpaque && (node.opacity ?? 1) === 1;
+    for (const child of node.children ?? []) walk(child, childrenOpaque);
+  };
+  for (const child of frame.children ?? []) walk(child, (frame.opacity ?? 1) === 1);
+  if (!elements.length) throw new Error("Selected frame has no measurable visible leaf nodes");
+  return DesignSpecSchema.parse({
+    version: 1,
+    title: frame.name || frame.id || "Figma design",
+    source: { kind: "figma", ...ref ? { ref } : {}, coverage: { considered, imported: elements.length, skipped } },
+    views: [{
+      id: frame.id || frameId,
+      route,
+      viewport: { width: origin.width, height: origin.height },
+      elements,
+      freeRegions: []
+    }]
+  });
+}
 
 // src/ask.ts
 init_scan();
@@ -22777,6 +23295,8 @@ exports.DecisionTypeSchema = DecisionTypeSchema;
 exports.DesignChangeSchema = DesignChangeSchema;
 exports.DesignCheckOperatorSchema = DesignCheckOperatorSchema;
 exports.DesignCheckSchema = DesignCheckSchema;
+exports.DesignElementSchema = DesignElementSchema;
+exports.DesignSpecSchema = DesignSpecSchema;
 exports.ExternalActionEvidenceInputSchema = ExternalActionEvidenceInputSchema;
 exports.ExternalActionReceiptSchema = ExternalActionReceiptSchema;
 exports.IBRSession = IBRSession;
@@ -22785,9 +23305,11 @@ exports.MAX_EXTERNAL_ACTION_ARTIFACT_BYTES = MAX_EXTERNAL_ACTION_ARTIFACT_BYTES;
 exports.NATIVE_REGIONS = NATIVE_REGIONS;
 exports.NATIVE_VERDICT_POLICY = NATIVE_VERDICT_POLICY;
 exports.NativeSessionController = NativeSessionController;
+exports.NumberRuleSchema = NumberRuleSchema;
 exports.ResolvedPathCache = ResolvedPathCache;
 exports.RespawnBackend = RespawnBackend;
 exports.SIMULATOR_DRIVER_ENV = SIMULATOR_DRIVER_ENV;
+exports.TextRuleSchema = TextRuleSchema;
 exports.VERDICT_POLICY_KEYS = VERDICT_POLICY_KEYS;
 exports.WEB_VERDICT_POLICY = WEB_VERDICT_POLICY;
 exports.__setNativeBackend = __setNativeBackend;
@@ -22812,6 +23334,7 @@ exports.captureNativeScreenshot = captureNativeScreenshot;
 exports.captureScreenshot = captureScreenshot;
 exports.captureWithDiagnostics = captureWithDiagnostics;
 exports.checkConsistency = checkConsistency;
+exports.checkDesignSpec = checkDesignSpec;
 exports.classifyPageIntent = classifyPageIntent;
 exports.cleanSessions = cleanSessions;
 exports.closeBrowser = closeBrowser;
@@ -22826,6 +23349,7 @@ exports.createExternalActionReceipt = createExternalActionReceipt;
 exports.createMemoryPreset = createMemoryPreset;
 exports.createSession = createSession;
 exports.deleteSession = deleteSession;
+exports.designSpecFromFigmaFile = designSpecFromFigmaFile;
 exports.detectAuthState = detectAuthState;
 exports.detectChangedRegions = detectChangedRegions;
 exports.detectErrorState = detectErrorState;

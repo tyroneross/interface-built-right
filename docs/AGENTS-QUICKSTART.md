@@ -5,6 +5,15 @@ Copy-paste invocations and the real field names. `AGENTS.md` explains what IBR
 verified against a live scan — the field names are the ones the code emits, not
 the ones you would guess.
 
+## Check a measured design specification
+
+```bash
+ibr spec:from-figma figma-file.json --frame '12:34' --route /report --out design-spec.json
+ibr spec:check design-spec.json 12:34 --url http://localhost:3000/report --json
+```
+
+The Figma command produces an unbound draft. Add semantic `match` fields and assign each property `exact`, `bounded`, or `free` before treating it as a build contract. See [design-spec.md](design-spec.md) for the schema and coverage limits.
+
 ## Scan a page, keep the output on disk
 
 ```bash

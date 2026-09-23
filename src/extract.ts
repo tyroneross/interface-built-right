@@ -531,8 +531,8 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
 /**
  * Extract enhanced interactive elements with handler detection
  */
-export async function extractInteractiveElements(page: PageLike): Promise<EnhancedElement[]> {
-  const elements = await page.evaluate(({ selectors, styleKeys }: { selectors: string[]; styleKeys: string[] }) => {
+export async function extractInteractiveElements(page: PageLike, fullText = false): Promise<EnhancedElement[]> {
+  const elements = await page.evaluate(({ selectors, styleKeys, fullText }: { selectors: string[]; styleKeys: string[]; fullText: boolean }) => {
     const seen = new Set<Element>();
     const elements: EnhancedElement[] = [];
 
@@ -922,12 +922,13 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
             tagName: htmlEl.tagName.toLowerCase(),
             id: htmlEl.id || undefined,
             className: typeof htmlEl.className === 'string' ? htmlEl.className : undefined,
-            text: (htmlEl.textContent || '').trim().slice(0, 100) || undefined,
+            text: fullText ? ((htmlEl.textContent || '').trim() || undefined) : ((htmlEl.textContent || '').trim().slice(0, 100) || undefined),
+            href,
             bounds: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height),
+              x: fullText ? rect.x : Math.round(rect.x),
+              y: fullText ? rect.y : Math.round(rect.y),
+              width: fullText ? rect.width : Math.round(rect.width),
+              height: fullText ? rect.height : Math.round(rect.height),
             },
             computedStyles: captureStyles(computed),
             ...(() => {
@@ -997,7 +998,7 @@ export async function extractInteractiveElements(page: PageLike): Promise<Enhanc
     }
 
     return elements;
-  }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS] });
+  }, { selectors: INTERACTIVE_SELECTORS, styleKeys: [...CAPTURED_STYLE_KEYS], fullText });
 
   // Enrichment is best-effort and additive only — on any failure (missing
   // capability, evaluate error, malformed result) `elements` is returned
@@ -1224,6 +1225,47 @@ export interface ContentElement {
   src?: string;
 }
 
+/** Named landmarks and regions available for design-spec container binding. */
+export interface NamedRegion {
+  name: string;
+  bounds: { x: number; y: number; width: number; height: number };
+  computedStyles: Record<string, string>;
+  ariaHidden?: boolean;
+  ancestorOpacity?: number;
+}
+
+export async function extractNamedRegions(page: PageLike): Promise<NamedRegion[]> {
+  return page.evaluate((styleKeys: string[]) => {
+    const result: NamedRegion[] = [];
+    document.querySelectorAll<HTMLElement>('header, nav, main, aside, footer, section, [role="region"]').forEach(el => {
+      const labelledBy = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean)
+        .map(id => document.getElementById(id)?.textContent?.trim() || '').filter(Boolean).join(' ');
+      const name = (el.getAttribute('aria-label') || labelledBy).trim();
+      if (!name) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const computed = getComputedStyle(el);
+      let ancestorOpacity = 1;
+      for (let ancestor = el.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        ancestorOpacity *= Number(getComputedStyle(ancestor).opacity || '1');
+      }
+      const styles: Record<string, string> = {};
+      for (const key of styleKeys) {
+        const value = (computed as unknown as Record<string, string>)[key];
+        if (typeof value === 'string' && value !== '') styles[key] = value;
+      }
+      result.push({
+        name,
+        bounds: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        computedStyles: styles,
+        ariaHidden: !!el.closest('[aria-hidden="true"]') || undefined,
+        ...(ancestorOpacity < 1 ? { ancestorOpacity } : {}),
+      });
+    });
+    return result;
+  }, [...CAPTURED_STYLE_KEYS]);
+}
+
 /**
  * Extract CONTENT elements (headings/paragraphs/images/captions/quotes)
  * with real bounds and computed styles — today's scan only sees interactive
@@ -1233,8 +1275,8 @@ export interface ContentElement {
  * entirely so the interactive lane feeding the touch-target rules is
  * untouched.
  */
-export async function extractContentElements(page: PageLike): Promise<ContentElement[]> {
-  return page.evaluate(({ selectors, inlineSelectors, styleKeys }: { selectors: string[]; inlineSelectors: string[]; styleKeys: string[] }) => {
+export async function extractContentElements(page: PageLike, fullText = false): Promise<ContentElement[]> {
+  return page.evaluate(({ selectors, inlineSelectors, styleKeys, fullText }: { selectors: string[]; inlineSelectors: string[]; styleKeys: string[]; fullText: boolean }) => {
     const seen = new Set<Element>();
     const results: ContentElement[] = [];
 
@@ -1393,12 +1435,12 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
             tagName: tag,
             id: htmlEl.id || undefined,
             className: typeof htmlEl.className === 'string' ? htmlEl.className : undefined,
-            text: (htmlEl.textContent || '').trim().slice(0, 300) || undefined,
+            text: fullText ? ((htmlEl.textContent || '').trim() || undefined) : ((htmlEl.textContent || '').trim().slice(0, 300) || undefined),
             bounds: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height),
+              x: fullText ? rect.x : Math.round(rect.x),
+              y: fullText ? rect.y : Math.round(rect.y),
+              width: fullText ? rect.width : Math.round(rect.width),
+              height: fullText ? rect.height : Math.round(rect.height),
             },
             computedStyles: captureStyles(computed),
             contentKind: kind,
@@ -1479,12 +1521,12 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
             tagName: htmlEl.tagName.toLowerCase(),
             id: htmlEl.id || undefined,
             className: typeof htmlEl.className === 'string' ? htmlEl.className : undefined,
-            text: text.slice(0, 300),
+            text: fullText ? text : text.slice(0, 300),
             bounds: {
-              x: Math.round(rect.x),
-              y: Math.round(rect.y),
-              width: Math.round(rect.width),
-              height: Math.round(rect.height),
+              x: fullText ? rect.x : Math.round(rect.x),
+              y: fullText ? rect.y : Math.round(rect.y),
+              width: fullText ? rect.width : Math.round(rect.width),
+              height: fullText ? rect.height : Math.round(rect.height),
             },
             computedStyles: captureStyles(computed),
             contentKind: 'inline',
@@ -1511,6 +1553,7 @@ export async function extractContentElements(page: PageLike): Promise<ContentEle
     selectors: CONTENT_SELECTORS,
     inlineSelectors: INLINE_TEXT_SELECTORS,
     styleKeys: [...CAPTURED_STYLE_KEYS],
+    fullText,
   });
 }
 

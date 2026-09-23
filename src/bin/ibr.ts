@@ -41,6 +41,7 @@ import { mergeCliConfig, normalizeFileConfig } from './cli-config.js';
 import { formatUserActionRequired } from '../session-hard-wall.js';
 import { configuredSessionIdleMs } from '../session-idle.js';
 import { registerExternalActionEvidenceCommand } from './external-action-evidence-cli.js';
+import { registerDesignSpecCommands } from './design-spec-cli.js';
 
 function readPackageVersion(): string {
   try {
@@ -1047,7 +1048,8 @@ program
   .option('--no-rules', 'Run no preset rules — restores the pre-default silent behavior')
   .option('--output <mode>', 'Output mode: full (default), summary (sensor summaries + verdict only, ~60% fewer tokens), raw (no sensors)', 'full')
   .option('--content', 'Also extract content elements (headings/paragraphs/images/captions/quotes) and page metadata — adds scan.content.elements and scan.metadata')
-  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean }) => {
+  .option('--full-text', 'Capture uncapped element text and complete rendered body text for design-spec checks')
+  .action(async (url: string, options: { viewport: string; device?: string; waitFor?: string; screenshot?: string; json?: boolean; timeout: string; patience?: string; networkIdleTimeout?: string; rules?: string | boolean; output: string; content?: boolean; fullText?: boolean }) => {
     try {
       const { scan, formatScanResult } = await import('../scan.js');
       const resolvedUrl = await resolveBaseUrl(url);
@@ -1099,7 +1101,8 @@ program
         networkIdleTimeout: options.networkIdleTimeout ? parseInt(options.networkIdleTimeout, 10) : undefined,
         screenshot: options.screenshot ? { path: options.screenshot } : undefined,
         rules: rulePresets,
-        content: options.content,
+        content: options.content || options.fullText,
+        fullText: options.fullText,
         ...getBrowserConnectionOptions(),
       });
 
@@ -5460,5 +5463,6 @@ program
 // src/bin/native-session-cli.ts / src/native/session-store.ts.
 registerNativeSessionCommands(program);
 registerExternalActionEvidenceCommand(program);
+registerDesignSpecCommands(program);
 
 program.parse();

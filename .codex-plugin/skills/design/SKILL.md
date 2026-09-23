@@ -18,6 +18,8 @@ Use IBR as the design planner before editing non-trivial UI. The output should b
 7. Implement only after the design intent is concrete enough to test.
 8. Validate with IBR's CLI-first workflow before calling the work done. Use MCP equivalents only when this Codex session actually exposes them.
 
+When a `design-spec.json` is supplied, read `docs/design-spec.md` and treat each rule according to its `exact`, `bounded`, or `free` mode. Build the full text and navigation map, then run `ibr spec:check <file> <view> --url <rendered-page> --json` for each specified view. A `PARTIAL` result needs a semantic binding or missing measurement resolved before claiming that the page matches the spec.
+
 ## Design Intent
 
 For substantial UI work, record:

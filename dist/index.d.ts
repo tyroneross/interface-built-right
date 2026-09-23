@@ -1651,6 +1651,7 @@ declare const EnhancedElementSchema: z.ZodObject<{
     id: z.ZodOptional<z.ZodString>;
     className: z.ZodOptional<z.ZodString>;
     text: z.ZodOptional<z.ZodString>;
+    href: z.ZodOptional<z.ZodNullable<z.ZodString>>;
     bounds: z.ZodObject<{
         x: z.ZodNumber;
         y: z.ZodNumber;
@@ -5909,6 +5910,19 @@ interface ContentElement {
     /** <img> only. */
     src?: string;
 }
+/** Named landmarks and regions available for design-spec container binding. */
+interface NamedRegion {
+    name: string;
+    bounds: {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    computedStyles: Record<string, string>;
+    ariaHidden?: boolean;
+    ancestorOpacity?: number;
+}
 /**
  * <head> metadata for SEO/social-share checks — today's scan captures none
  * of this. Every field is optional/empty-safe: a page with no metadata
@@ -6356,6 +6370,12 @@ interface ScanResult {
     content?: {
         elements: ContentElement[];
     };
+    /** Named landmark/region geometry, opt-in with fullText. */
+    regions?: NamedRegion[];
+    /** Present only when uncapped copy was explicitly requested. */
+    textCapture?: 'full';
+    /** Uncapped rendered body text, opt-in with fullText. */
+    visibleText?: string;
     /**
      * <head> SEO/social metadata — opt-in via `ScanOptions.content`, same
      * absence contract as `content` above.
@@ -6518,6 +6538,8 @@ interface ScanOptions extends BrowserLaunchOptions {
      * absent from the result (not present-and-undefined).
      */
     content?: boolean;
+    /** Opt in to uncapped element text for exact design-spec copy checks. */
+    fullText?: boolean;
     /**
      * Directory searched for `.ibr/rules.json` when resolving which rule presets
      * to run. Defaults to `process.cwd()`.
@@ -6615,6 +6637,590 @@ interface ContrastCoverage {
  * Format scan result for console output
  */
 declare function formatScanResult(result: ScanResult): string;
+
+/** A property is either fixed, constrained to an allowed interval/set, or deliberately unconstrained. */
+declare const NumberRuleSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+    mode: z.ZodLiteral<"exact">;
+    value: z.ZodNumber;
+    tolerance: z.ZodDefault<z.ZodNumber>;
+}, z.core.$strip>, z.ZodObject<{
+    mode: z.ZodLiteral<"bounded">;
+    min: z.ZodNumber;
+    max: z.ZodNumber;
+}, z.core.$strip>, z.ZodObject<{
+    mode: z.ZodLiteral<"free">;
+    guidance: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>], "mode">;
+declare const TextRuleSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
+    mode: z.ZodLiteral<"exact">;
+    value: z.ZodString;
+}, z.core.$strip>, z.ZodObject<{
+    mode: z.ZodLiteral<"bounded">;
+    oneOf: z.ZodArray<z.ZodString>;
+}, z.core.$strip>, z.ZodObject<{
+    mode: z.ZodLiteral<"free">;
+    guidance: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>], "mode">;
+declare const DesignElementSchema: z.ZodObject<{
+    id: z.ZodString;
+    sourceNode: z.ZodOptional<z.ZodObject<{
+        id: z.ZodString;
+        name: z.ZodString;
+        type: z.ZodString;
+        fillTypes: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        imageRefs: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        prototypeDestinationId: z.ZodOptional<z.ZodString>;
+    }, z.core.$strict>>;
+    match: z.ZodOptional<z.ZodObject<{
+        role: z.ZodEnum<{
+            button: "button";
+            link: "link";
+            heading: "heading";
+            image: "image";
+            region: "region";
+            caption: "caption";
+            paragraph: "paragraph";
+            quote: "quote";
+        }>;
+        name: z.ZodString;
+        level: z.ZodOptional<z.ZodNumber>;
+        occurrence: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strict>>;
+    text: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+        mode: z.ZodLiteral<"exact">;
+        value: z.ZodString;
+    }, z.core.$strip>, z.ZodObject<{
+        mode: z.ZodLiteral<"bounded">;
+        oneOf: z.ZodArray<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        mode: z.ZodLiteral<"free">;
+        guidance: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>], "mode">>;
+    href: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+        mode: z.ZodLiteral<"exact">;
+        value: z.ZodString;
+    }, z.core.$strip>, z.ZodObject<{
+        mode: z.ZodLiteral<"bounded">;
+        oneOf: z.ZodArray<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        mode: z.ZodLiteral<"free">;
+        guidance: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>], "mode">>;
+    src: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+        mode: z.ZodLiteral<"exact">;
+        value: z.ZodString;
+    }, z.core.$strip>, z.ZodObject<{
+        mode: z.ZodLiteral<"bounded">;
+        oneOf: z.ZodArray<z.ZodString>;
+    }, z.core.$strip>, z.ZodObject<{
+        mode: z.ZodLiteral<"free">;
+        guidance: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>], "mode">>;
+    geometry: z.ZodOptional<z.ZodObject<{
+        x: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodNumber;
+            tolerance: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        y: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodNumber;
+            tolerance: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        width: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodNumber;
+            tolerance: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        height: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodNumber;
+            tolerance: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        circumference: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodNumber;
+            tolerance: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+    }, z.core.$strict>>;
+    style: z.ZodOptional<z.ZodObject<{
+        fontFamily: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            oneOf: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        fontSize: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodNumber;
+            tolerance: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        fontWeight: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            oneOf: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        color: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            oneOf: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        backgroundColor: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            oneOf: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        backgroundImage: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            oneOf: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        borderRadius: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodNumber;
+            tolerance: z.ZodDefault<z.ZodNumber>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            min: z.ZodNumber;
+            max: z.ZodNumber;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+    }, z.core.$strict>>;
+}, z.core.$strict>;
+declare const DesignSpecSchema: z.ZodObject<{
+    version: z.ZodLiteral<1>;
+    title: z.ZodString;
+    source: z.ZodObject<{
+        kind: z.ZodEnum<{
+            authored: "authored";
+            figma: "figma";
+        }>;
+        ref: z.ZodOptional<z.ZodString>;
+        coverage: z.ZodOptional<z.ZodObject<{
+            considered: z.ZodNumber;
+            imported: z.ZodNumber;
+            skipped: z.ZodArray<z.ZodObject<{
+                id: z.ZodString;
+                reason: z.ZodString;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>;
+    sharedStyle: z.ZodOptional<z.ZodObject<{
+        heading: z.ZodOptional<z.ZodObject<{
+            fontFamily: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            fontSize: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodNumber;
+                tolerance: z.ZodDefault<z.ZodNumber>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                min: z.ZodNumber;
+                max: z.ZodNumber;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            fontWeight: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            color: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            backgroundColor: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            backgroundImage: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            borderRadius: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodNumber;
+                tolerance: z.ZodDefault<z.ZodNumber>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                min: z.ZodNumber;
+                max: z.ZodNumber;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+        }, z.core.$strict>>;
+    }, z.core.$strict>>;
+    views: z.ZodArray<z.ZodObject<{
+        id: z.ZodString;
+        route: z.ZodString;
+        viewport: z.ZodObject<{
+            width: z.ZodNumber;
+            height: z.ZodNumber;
+        }, z.core.$strict>;
+        coverage: z.ZodDefault<z.ZodEnum<{
+            listed: "listed";
+            "all-scanned": "all-scanned";
+        }>>;
+        visibleText: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+            mode: z.ZodLiteral<"exact">;
+            value: z.ZodString;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"bounded">;
+            oneOf: z.ZodArray<z.ZodString>;
+        }, z.core.$strip>, z.ZodObject<{
+            mode: z.ZodLiteral<"free">;
+            guidance: z.ZodOptional<z.ZodString>;
+        }, z.core.$strip>], "mode">>;
+        navigation: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            label: z.ZodString;
+            occurrence: z.ZodOptional<z.ZodNumber>;
+            destination: z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">;
+        }, z.core.$strict>>>;
+        elements: z.ZodArray<z.ZodObject<{
+            id: z.ZodString;
+            sourceNode: z.ZodOptional<z.ZodObject<{
+                id: z.ZodString;
+                name: z.ZodString;
+                type: z.ZodString;
+                fillTypes: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                imageRefs: z.ZodOptional<z.ZodArray<z.ZodString>>;
+                prototypeDestinationId: z.ZodOptional<z.ZodString>;
+            }, z.core.$strict>>;
+            match: z.ZodOptional<z.ZodObject<{
+                role: z.ZodEnum<{
+                    button: "button";
+                    link: "link";
+                    heading: "heading";
+                    image: "image";
+                    region: "region";
+                    caption: "caption";
+                    paragraph: "paragraph";
+                    quote: "quote";
+                }>;
+                name: z.ZodString;
+                level: z.ZodOptional<z.ZodNumber>;
+                occurrence: z.ZodOptional<z.ZodNumber>;
+            }, z.core.$strict>>;
+            text: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            href: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            src: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                mode: z.ZodLiteral<"exact">;
+                value: z.ZodString;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"bounded">;
+                oneOf: z.ZodArray<z.ZodString>;
+            }, z.core.$strip>, z.ZodObject<{
+                mode: z.ZodLiteral<"free">;
+                guidance: z.ZodOptional<z.ZodString>;
+            }, z.core.$strip>], "mode">>;
+            geometry: z.ZodOptional<z.ZodObject<{
+                x: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodNumber;
+                    tolerance: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                y: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodNumber;
+                    tolerance: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                width: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodNumber;
+                    tolerance: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                height: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodNumber;
+                    tolerance: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                circumference: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodNumber;
+                    tolerance: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+            }, z.core.$strict>>;
+            style: z.ZodOptional<z.ZodObject<{
+                fontFamily: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodString;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    oneOf: z.ZodArray<z.ZodString>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                fontSize: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodNumber;
+                    tolerance: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                fontWeight: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodString;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    oneOf: z.ZodArray<z.ZodString>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                color: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodString;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    oneOf: z.ZodArray<z.ZodString>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                backgroundColor: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodString;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    oneOf: z.ZodArray<z.ZodString>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                backgroundImage: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodString;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    oneOf: z.ZodArray<z.ZodString>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+                borderRadius: z.ZodOptional<z.ZodDiscriminatedUnion<[z.ZodObject<{
+                    mode: z.ZodLiteral<"exact">;
+                    value: z.ZodNumber;
+                    tolerance: z.ZodDefault<z.ZodNumber>;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"bounded">;
+                    min: z.ZodNumber;
+                    max: z.ZodNumber;
+                }, z.core.$strip>, z.ZodObject<{
+                    mode: z.ZodLiteral<"free">;
+                    guidance: z.ZodOptional<z.ZodString>;
+                }, z.core.$strip>], "mode">>;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>;
+        freeRegions: z.ZodDefault<z.ZodArray<z.ZodObject<{
+            name: z.ZodString;
+            bounds: z.ZodOptional<z.ZodObject<{
+                x: z.ZodNumber;
+                y: z.ZodNumber;
+                width: z.ZodNumber;
+                height: z.ZodNumber;
+            }, z.core.$strict>>;
+        }, z.core.$strict>>>;
+    }, z.core.$strict>>;
+}, z.core.$strict>;
+type DesignSpec = z.infer<typeof DesignSpecSchema>;
+type DesignElement = z.infer<typeof DesignElementSchema>;
+type NumberRule = z.infer<typeof NumberRuleSchema>;
+type TextRule = z.infer<typeof TextRuleSchema>;
+
+type Status = 'pass' | 'fail' | 'free' | 'unmeasurable';
+interface DesignSpecFinding {
+    view: string;
+    element?: string;
+    property: string;
+    status: Status;
+    expected?: unknown;
+    observed?: unknown;
+    reason?: string;
+}
+interface DesignSpecReport {
+    verdict: 'PASS' | 'FAIL' | 'PARTIAL';
+    coverage: 'listed' | 'all-scanned';
+    counts: Record<Status, number>;
+    findings: DesignSpecFinding[];
+}
+/** Compare one specified view with a scan taken at that view's route and viewport. */
+declare function checkDesignSpec(input: DesignSpec, viewId: string, scan: ScanResult): DesignSpecReport;
+
+/**
+ * Import measurements from a saved Figma GET-file response. The result is a
+ * draft: layer names do not establish accessible names or routes. Each node
+ * remains unbound until an author adds `match` and maps prototype links.
+ */
+declare function designSpecFromFigmaFile(input: unknown, frameId: string, route: string, ref?: string, routeMap?: Record<string, string>): DesignSpec;
 
 /**
  * Design Token Validation
@@ -8636,4 +9242,4 @@ declare class IBRSession {
     close(): Promise<void>;
 }
 
-export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BreadcrumbContext, BreadcrumbContextSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CreateExternalActionReceiptOptions, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExternalActionArtifactKind, type ExternalActionArtifactReceipt, type ExternalActionEvidenceInput, ExternalActionEvidenceInputSchema, type ExternalActionObservationReceipt, type ExternalActionPrivacyMode, type ExternalActionReceipt, ExternalActionReceiptSchema, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type ProvenancedThreshold, ProvenancedThresholdSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecordedExternalActionReceipt, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TargetContext, TargetContextSchema, type TextIssue, type ThresholdBasis, ThresholdBasisSchema, type ThresholdOverride, ThresholdOverrideSchema, type TokenViolation, type TouchTargetIssue, VERDICT_POLICY_KEYS, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, type VerdictPolicy, type VerdictPolicyOverride, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, WEB_VERDICT_POLICY, type WebVitals, type WriteExternalActionReceiptOptions, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };
+export { type A11yAttributes, A11yAttributesSchema, type AISearchOptions, type AISearchResult, ANDROID_CHROME_UA, AXDaemon, type AXDaemonOptions, type ActionEvidence, type ActionOutcome, type ActionProvenance, type ActionValidator, type ActivePreference, ActivePreferenceSchema, type Analysis, AnalysisSchema, type ApiCall, type ApiRequestTiming, type ApiRoute, type ApiTimingOptions, type ApiTimingResult, type AppLifecycleActionRequest, type AppLifecycleOp, type AskOptions, type AskResponse, type AskStreamEvent, type AuditResult, AuditResultSchema, type AuthOptions, type AuthState, type AvailableAction, type Bounds, BoundsSchema, type BreadcrumbContext, BreadcrumbContextSchema, type BrowserConnectionOptions, type BrowserLaunchOptions, type BrowserMode, type BrowserOptions, BrowserPool, type BrowserPoolOptions, type ButtonInfo, type CaptureOptions, type CaptureResult, type ChangedRegion, ChangedRegionSchema, type CleanOptions, type CompactContext, CompactContextSchema, type CompactionRequest, CompactionRequestSchema, type CompactionResult, CompactionResultSchema, type CompareAllInput, type CompareInput, type CompareOptions, type CompareResult, type ComparisonReport, ComparisonReportSchema, type ComparisonResult, ComparisonResultSchema, type Config, ConfigSchema, type ConsistencyOptions, type ConsistencyResult, type CrawlOptions, type CrawlResult, type CreateExternalActionReceiptOptions, type CurrentUIState, CurrentUIStateSchema, DEFAULT_DYNAMIC_SELECTORS, DEFAULT_REGIONS, DEFAULT_RETENTION, DEVICES, DEVICE_NAMES, DaemonBackend, DaemonError, type DaemonRequest, type DaemonResponse, type DaemonTarget, type DecisionEntry, DecisionEntrySchema, type DecisionEntryWithChecks, DecisionEntryWithChecksSchema, type DecisionState, DecisionStateSchema, type DecisionSummary, DecisionSummarySchema, type DecisionType, DecisionTypeSchema, type DesignChange, DesignChangeSchema, type DesignCheck, type DesignCheckOperator, DesignCheckOperatorSchema, DesignCheckSchema, type DesignElement, DesignElementSchema, type DesignSpec, type DesignSpecFinding, type DesignSpecReport, DesignSpecSchema, type DesignSystemConfig, type DesignSystemResult, DesignSystemResultSchema, type DesignSystemViolation, DesignSystemViolationSchema, type DesignTokenSpec, type DeviceName, type DeviceProfile, type DiscoveredPage, type ElementActionKind, type ElementActionRequest, type ElementIssue, ElementIssueSchema, type ElementSizeReport, type EnhancedElement, EnhancedElementSchema, type ErrorInfo, type ErrorState, type Expectation, type ExpectationOperator, ExpectationOperatorSchema, ExpectationSchema, type ExtendedComparisonResult, type ExternalActionArtifactKind, type ExternalActionArtifactReceipt, type ExternalActionEvidenceInput, ExternalActionEvidenceInputSchema, type ExternalActionObservationReceipt, type ExternalActionPrivacyMode, type ExternalActionReceipt, ExternalActionReceiptSchema, type ExtractedResult, type Finding, type FixGuide, type FixableIssue, type FlowFormOptions, type FlowLoginOptions, type FlowName, type FlowOptions, type FlowResult, type FlowSearchOptions, type FlowStep, type FormField, type FormFieldInfo, type FormInfo, type FormResult, IBRSession, type Inconsistency, type InteractiveElement, type InteractiveState, InteractiveStateSchema, type InteractivityIssue, type InteractivityResult, InterfaceBuiltRight, type KeystrokeActionRequest, type KeystrokeSpec, LANDMARK_SELECTORS, type LandmarkElement, LandmarkElementSchema, type LandmarkType, type LayoutFillFinding, type LayoutFillOptions, type LayoutIssue, type LearnedExpectation, LearnedExpectationSchema, type LifecycleSpec, type LinkInfo, type LoadingState, type LoginOptions, type LoginResult, MAX_EXTERNAL_ACTION_ARTIFACT_BYTES, MOBILE_SAFARI_UA, type MacOSAXElement, type MacOSScanOptions, type MacOSScanResult, type MacOSWindowInfo, type MaskOptions, type MemorySource, MemorySourceSchema, type MemorySummary, MemorySummarySchema, type MenuActionRequest, type MenuSpec, NATIVE_REGIONS, NATIVE_VERDICT_POLICY, NATIVE_VIEWPORTS, type NativeActionKind, type NativeActionRequest, type NativeBackend, type NativeCaptureOptions, type NativeCaptureResult, type NativeElement, type NativeExtraction, type NativePerformInput, type NativeScanOptions, type NativeScanResult, type NativeScreenshotCapture, type NativeSessionActionRequest, NativeSessionController, type NativeSessionTarget, type NativeToolResult, type NumberRule, NumberRuleSchema, type Observation, ObservationSchema, type OperationState, type OperationType, type OutputFormat, PERFORMANCE_THRESHOLDS, type PageIntent, type PageIntentResult, type PageMetrics, type PageState, type PendingOperation, type PerformanceRating, type PerformanceResult, type Preference, type PreferenceCategory, PreferenceCategorySchema, PreferenceSchema, type ProvenancedThreshold, ProvenancedThresholdSchema, type QueryDecisionsOptions, type RankedCandidate, type RatedMetric, type RecordDecisionOptions, type RecordedExternalActionReceipt, type RecoveryHint, type RegionConfig, ResolvedPathCache, type ResolvedPathEntry, RespawnBackend, type ResponsiveResult, type ResponsiveTestOptions, type RetentionConfig, type RetentionResult, type RuleAuditResult, RuleAuditResultSchema, type RuleEngineResult, type RuleSetting, RuleSettingSchema, type RuleSeverity, RuleSeveritySchema, type RulesConfig, RulesConfigSchema, SIMULATOR_DRIVER_ENV, type ScanIssue, type ScanOptions, type ScanResult, type ScanSummary, type SearchResult, type SearchTiming, type SemanticIssue, type SemanticResult, type SemanticVerdict, type ServeOptions, type Session, type SessionListItem, type SessionPaths, type SessionQuery, SessionQuerySchema, SessionSchema, type SessionStatus, SessionStatusSchema, type SimulatorDevice, type SimulatorDriverPreference, type SimulatorInteractionDriver, type SimulatorInteractionDriverStatus, type StartSessionOptions, type StartSessionResult, type StepScreenshot, TABLET_SAFARI_UA, type TargetContext, TargetContextSchema, type TextIssue, type TextRule, TextRuleSchema, type ThresholdBasis, ThresholdBasisSchema, type ThresholdOverride, ThresholdOverrideSchema, type TokenViolation, type TouchTargetIssue, VERDICT_POLICY_KEYS, VIEWPORTS, type ValidationContext, type ValidationIssue, type ValidationResult, type Verdict, type VerdictPolicy, type VerdictPolicyOverride, VerdictPolicyOverrideSchema, VerdictPolicySchema, VerdictSchema, type Viewport, type ViewportConfig, type ViewportResult, ViewportSchema, type Violation, ViolationSchema, WEB_VERDICT_POLICY, type WebVitals, type WriteExternalActionReceiptOptions, __setNativeBackend, addKnownIssue, addPreference, aiSearchFlow, allCalmPrecisionRules, analyzeComparison, analyzeForObviousIssues, analyzeLayoutFill, annotateScreenshot, applyDesignSystemCheck, archiveSummary, ask, askStream, auditNativeElements, bootDevice, buildNativeInteractivity, buildNativeSemantic, calculateComplianceScore, captureMacOSScreenshot, captureNativeScreenshot, captureScreenshot, captureWithDiagnostics, checkConsistency, checkDesignSpec, classifyPageIntent, cleanSessions, closeBrowser, compactContext, compare, compareAll, compareImages, compareLandmarks, completeOperation, corePrincipleIds, createApiTracker, createExternalActionReceipt, createMemoryPreset, createSession, deleteSession, designSpecFromFigmaFile, detectAuthState, detectChangedRegions, detectErrorState, detectLandmarks, detectLoadingState, detectPageState, deviceToViewport, discoverApiRoutes, discoverPages, enforceRetentionPolicy, ensureExtractor, extractApiCalls, extractMacOSElements, extractNativeElements, filePathToRoute, filterByEndpoint, filterByMethod, findButton, findDevice, findFieldByLabel, findOrphanEndpoints, findProcess, findSessions, flows, formFlow, formatApiTimingResult, formatConsistencyReport, formatDevice, formatGlobalMemory, formatInteractivityResult, formatLandmarkComparison, formatMacOSScanResult, formatMemorySummary, formatNativeCandidate, formatNativeScanResult, formatPendingOperations, formatPerformanceResult, formatPreference, formatReportJson, formatReportMinimal, formatReportText, formatResponsiveResult, formatRetentionStatus, formatScanResult, formatSemanticJson, formatSemanticText, formatSessionSummary, formatSimulatorDriver, formatValidationResult, generateDevModePrompt, generateFixGuide, generateQuickSummary, generateReport, generateSessionId, generateValidationContext, generateValidationPrompt, getBootedDevices, getDecision, getDecisionStats, getDecisionsByRoute, getDecisionsSize, getDeviceViewport, getExpectedLandmarksForIntent, getExpectedLandmarksFromContext, getIntentDescription, getMostRecentSession, getNativeBackend, getNavigationLinks, getPendingOperations, getPreference, getRetentionStatus, getSemanticOutput, getSession, getSessionPaths, getSessionStats, getSessionsByRoute, getSimulatorInteractionDriverStatus, getTimeline, getTrackedRoutes, getVerdictDescription, getViewport, groupByEndpoint, groupByFile, initMemory, isCompactContextOversize, isDiffMarker, isExtractorAvailable, learnFromSession, listDevices, listGlobalPreferences, listLearned, listPreferences, listSessions, loadCompactContext, loadDesignSystemConfig, loadRetentionConfig, loadSummary, loadTokenSpec, loginFlow, mapMacOSToEnhancedElements, mapSessionActionToNative, mapToEnhancedElements, markSessionCompared, maybeAutoClean, measureApiTiming, measurePerformance, measureWebVitals, nativeSessionController, nativeStateSignature, normalizeColor, notImplementedOutcome, preferencesToRules, promoteToGlobal, promoteToPreference, queryDecisions, queryMemory, rebuildSummary, recordDecision, recordExternalActionEvidence, regionalDiffCounts, registerOperation, removeGlobalPreference, removePreference, reportElementSizes, resolveDevice, resolveVerdictPolicy, resolvedPathCache, runAllRules, runDesignSystemCheck, safeFilePart, saveCompactContext, saveSummary, scan, scanDirectoryForApiCalls, scanMacOS, scanNative, searchFlow, seedFromGlobal, setActiveRoute, stylisticPrincipleIds, summarizeScan, testInteractivity, testResponsive, updateCompactContext, updateSession, validateAgainstTokens, validateExtendedTokens, viewportToConfig, waitForCompletion, waitForNavigation, waitForPageReady, withOperationTracking, writeExternalActionReceipt };

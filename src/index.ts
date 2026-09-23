@@ -1120,6 +1120,11 @@ export * from './context/types.js';
 // Comprehensive scan exports
 export { scan, formatScanResult, applyDesignSystemCheck } from './scan.js';
 export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
+export { DesignSpecSchema, DesignElementSchema, NumberRuleSchema, TextRuleSchema } from './design-spec/schema.js';
+export type { DesignSpec, DesignElement, NumberRule, TextRule } from './design-spec/schema.js';
+export { checkDesignSpec } from './design-spec/check.js';
+export type { DesignSpecReport, DesignSpecFinding } from './design-spec/check.js';
+export { designSpecFromFigmaFile } from './design-spec/figma.js';
 
 // Verdict-engine surface (v3 thesis M1 + B1 streaming)
 export { ask, askStream } from './ask.js';

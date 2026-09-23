@@ -9,10 +9,12 @@ import {
   extractInteractiveElements,
   analyzeElements,
   extractContentElements,
+  extractNamedRegions,
   CONTENT_ELEMENT_TAGS,
   INLINE_TEXT_TAGS,
   extractPageMetadata,
   type ContentElement,
+  type NamedRegion,
   type PageMetadata,
 } from './extract.js';
 import { testInteractivity, type InteractivityResult } from './interactivity.js';
@@ -93,6 +95,12 @@ export interface ScanResult {
    * requested, so existing callers pay no extra token cost.
    */
   content?: { elements: ContentElement[] };
+  /** Named landmark/region geometry, opt-in with fullText. */
+  regions?: NamedRegion[];
+  /** Present only when uncapped copy was explicitly requested. */
+  textCapture?: 'full';
+  /** Uncapped rendered body text, opt-in with fullText. */
+  visibleText?: string;
 
   /**
    * <head> SEO/social metadata — opt-in via `ScanOptions.content`, same
@@ -355,6 +363,8 @@ export interface ScanOptions extends BrowserLaunchOptions {
    * absent from the result (not present-and-undefined).
    */
   content?: boolean;
+  /** Opt in to uncapped element text for exact design-spec copy checks. */
+  fullText?: boolean;
 
   /**
    * Directory searched for `.ibr/rules.json` when resolving which rule presets
@@ -600,7 +610,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
 
     // Run all analyses in parallel where possible
     const [elements, interactivity, semantic, coverage, themeAnalysis] = await Promise.all([
-      extractAndAudit(page, resolvedViewport),
+      extractAndAudit(page, resolvedViewport, options.fullText),
       testInteractivity(page),
       getSemanticOutput(page),
       driver.getCoverage().catch(() => undefined),
@@ -739,6 +749,17 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     // readability defects live, and they were never reaching the rule engine.
     // Best-effort like cssExtract above: a broken extraction must not take
     // down the scan that requested it.
+    let visibleText: string | undefined;
+    let regions: NamedRegion[] | undefined;
+    if (options.fullText) {
+      const [copy, namedRegions] = await Promise.allSettled([
+        page.evaluate(() => document.body.innerText),
+        extractNamedRegions(page),
+      ]);
+      if (copy.status === 'fulfilled') visibleText = copy.value;
+      if (namedRegions.status === 'fulfilled') regions = namedRegions.value;
+      // The design-spec checker reports either failed extraction as unmeasurable.
+    }
     let contentResult: { elements: ContentElement[] } | undefined;
     let metadataResult: PageMetadata | undefined;
     let contentElements: ContentElement[] = [];
@@ -746,7 +767,7 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
     if (options.content || gradesContent) {
       try {
         const [extractedContent, pageMetadata] = await Promise.all([
-          extractContentElements(page),
+          extractContentElements(page, options.fullText),
           extractPageMetadata(page),
         ]);
         contentElements = extractedContent;
@@ -939,6 +960,9 @@ export async function scan(url: string, options: ScanOptions = {}): Promise<Scan
       // both fields entirely ABSENT from the result (not present with value
       // `undefined`) so existing callers and their token cost are unchanged.
       ...(contentResult ? { content: contentResult, metadata: metadataResult } : {}),
+      ...(options.fullText ? { textCapture: 'full' as const } : {}),
+      ...(visibleText !== undefined ? { visibleText } : {}),
+      ...(regions !== undefined ? { regions } : {}),
       verdict,
       issues,
       summary,
@@ -1002,10 +1026,11 @@ async function detectSPAFramework(driver: EngineDriver): Promise<boolean> {
  */
 export async function extractAndAudit(
   page: PageLike,
-  viewport: Viewport
+  viewport: Viewport,
+  fullText = false,
 ): Promise<{ all: EnhancedElement[]; audit: AuditResult }> {
   const isMobile = viewport.width < 768;
-  const elements = await extractInteractiveElements(page);
+  const elements = await extractInteractiveElements(page, fullText);
   const audit = analyzeElements(elements, isMobile);
   return { all: elements, audit };
 }

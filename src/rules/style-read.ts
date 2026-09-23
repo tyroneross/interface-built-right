@@ -50,6 +50,7 @@ export const CAPTURED_STYLE_KEYS = [
   // Paint — the contrast lane (src/rules/contrast-measure.ts).
   'color',
   'backgroundColor',
+  'backgroundImage',
   // Presence — visibility guards across touch-targets and contrast.
   'display',
   'visibility',

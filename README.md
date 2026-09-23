@@ -328,6 +328,17 @@ npx ibr check                          # see what changed
 
 Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
 
+### Measured design specifications
+
+IBR can import a saved Figma file response as a design-spec draft and check a rendered page against `exact`, `bounded`, and `free` rules. The draft keeps text, geometry, image references, and prototype destinations; you bind source nodes to semantic page elements before verification.
+
+```bash
+ibr spec:from-figma figma-file.json --frame '12:34' --route /report --out design-spec.json
+ibr spec:check design-spec.json '12:34' --url http://localhost:3000/report --json
+```
+
+See [design specifications](docs/design-spec.md) for the schema, build workflow, and measurement limits.
+
 <details>
 <summary>See terminal output</summary>
 <br>
