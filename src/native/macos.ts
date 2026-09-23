@@ -196,18 +196,34 @@ export function mapMacOSToEnhancedElements(
   // AppKit owns these traffic-light controls. They are intentionally 16pt and
   // expose their meaning through AXSubrole rather than an app-provided label,
   // so grading them as application content creates false accessibility and
-  // target-size failures.
+  // target-size failures. AXZoomButton is the green "zoom" traffic light;
+  // AXFullScreenButton is the separate full-screen toggle some windows show
+  // instead of / alongside it — both are system-owned, not app content.
   const systemWindowControlSubroles = new Set([
     'AXCloseButton',
     'AXMinimizeButton',
+    'AXZoomButton',
     'AXFullScreenButton',
   ]);
 
-  function flatten(elements: MacOSAXElement[], path: string, depth: number): void {
+  function flatten(elements: MacOSAXElement[], path: string, depth: number, insideScrollBar = false): void {
     const roleCounts: Record<string, number> = {};
 
     for (const el of elements) {
       if (el.subrole && systemWindowControlSubroles.has(el.subrole)) {
+        continue;
+      }
+      // AppKit's NSScroller draws its own page-increment/decrement buttons and
+      // the thumb/track as child AX elements of AXScrollBar. They carry no
+      // app-supplied label and are frequently a thin sliver (e.g. 6x631px for
+      // a vertical track) — both are properties of the system scroll widget,
+      // not something app code can label or resize. Exclude the whole
+      // AXScrollBar subtree from a11y/touch-target/interactivity grading.
+      const isScrollBar = insideScrollBar || el.role === 'AXScrollBar';
+      if (isScrollBar) {
+        if (el.children.length > 0) {
+          flatten(el.children, path, depth + 1, true);
+        }
         continue;
       }
       // Build unique path-based selector

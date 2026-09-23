@@ -204,7 +204,14 @@ export function analyzeLayoutFill(
     if (depth >= maxDepth) return;
 
     const r = rectOf(el);
-    if (r) {
+    // AXToolbar containers use flexible/trailing space by design (the
+    // traffic-light/title-bar area, search fields, and sidebar toggles don't
+    // fill the bar the way a content container should). Grading their empty
+    // space as a layout-fill defect is a false positive app code can't fix —
+    // skip emitting findings for the toolbar itself, but still recurse into
+    // its children in case a real content container is nested inside one.
+    const isToolbar = el.role === 'AXToolbar';
+    if (r && !isToolbar) {
       // Only consider children with frames (laid-out elements).
       const laidOutKids = el.children.filter((k) => rectOf(k) !== null);
 

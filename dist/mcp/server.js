@@ -31918,12 +31918,20 @@ function mapMacOSToEnhancedElements(nativeElements, parentPath = "") {
   const systemWindowControlSubroles = /* @__PURE__ */ new Set([
     "AXCloseButton",
     "AXMinimizeButton",
+    "AXZoomButton",
     "AXFullScreenButton"
   ]);
-  function flatten2(elements, path, depth) {
+  function flatten2(elements, path, depth, insideScrollBar = false) {
     const roleCounts = {};
     for (const el of elements) {
       if (el.subrole && systemWindowControlSubroles.has(el.subrole)) {
+        continue;
+      }
+      const isScrollBar = insideScrollBar || el.role === "AXScrollBar";
+      if (isScrollBar) {
+        if (el.children.length > 0) {
+          flatten2(el.children, path, depth + 1, true);
+        }
         continue;
       }
       const roleCount = roleCounts[el.role] || 0;
@@ -32297,7 +32305,8 @@ function analyzeLayoutFill(roots, options = {}) {
   function visit(el, depth) {
     if (depth >= maxDepth) return;
     const r = rectOf(el);
-    if (r) {
+    const isToolbar = el.role === "AXToolbar";
+    if (r && !isToolbar) {
       const laidOutKids = el.children.filter((k) => rectOf(k) !== null);
       if (laidOutKids.length >= 1) {
         if (r.width >= minContainerPx) {

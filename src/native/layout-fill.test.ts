@@ -355,6 +355,81 @@ describe('reportElementSizes', () => {
 });
 
 // ---------------------------------------------------------------------------
+// AXToolbar exclusion — toolbars use flexible/trailing space by design
+// ---------------------------------------------------------------------------
+
+describe('analyzeLayoutFill — AXToolbar exclusion', () => {
+  it('does not emit a finding for an AXToolbar with a large trailing empty band', () => {
+    // 1176px-wide toolbar with a 412px leading cluster of buttons and 764px
+    // (65%) of trailing empty band — this is the exact shape from the real
+    // scan evidence (AXToolbar: trailing empty band 764px = 65%). Toolbars
+    // use flexible space by design; this must NOT be reported.
+    const tree: MacOSAXElement[] = [
+      el({
+        role: 'AXToolbar',
+        title: 'Main Toolbar',
+        x: 0,
+        y: 0,
+        w: 1176,
+        h: 52,
+        children: [el({ role: 'AXButton', x: 0, y: 0, w: 412, h: 52 })],
+      }),
+    ];
+    const findings = analyzeLayoutFill(tree);
+    expect(findings.filter((f) => f.containerRole === 'AXToolbar')).toEqual([]);
+  });
+
+  it('still analyzes a non-toolbar container nested inside an AXToolbar', () => {
+    // Regression guard: excluding AXToolbar itself must not blind the
+    // analyzer to a real layout-fill bug in a content container the toolbar
+    // happens to wrap.
+    const tree: MacOSAXElement[] = [
+      el({
+        role: 'AXToolbar',
+        x: 0,
+        y: 0,
+        w: 1000,
+        h: 52,
+        children: [
+          el({
+            role: 'AXGroup',
+            title: 'Search Field Wrapper',
+            x: 0,
+            y: 0,
+            w: 1000,
+            h: 52,
+            children: [el({ role: 'AXTextField', x: 900, y: 0, w: 60, h: 52 })],
+          }),
+        ],
+      }),
+    ];
+    const findings = analyzeLayoutFill(tree);
+    const nested = findings.find((f) => f.containerRole === 'AXGroup');
+    expect(nested).toBeDefined();
+  });
+
+  it('a non-toolbar container with the same 65% empty band IS still flagged', () => {
+    // Same shape as the excluded AXToolbar case above, but role AXGroup —
+    // proves the exclusion is role-specific, not a threshold change.
+    const tree: MacOSAXElement[] = [
+      el({
+        role: 'AXGroup',
+        title: 'Content Row',
+        x: 0,
+        y: 0,
+        w: 1176,
+        h: 52,
+        children: [el({ role: 'AXButton', x: 0, y: 0, w: 412, h: 52 })],
+      }),
+    ];
+    const findings = analyzeLayoutFill(tree);
+    const horiz = findings.find((f) => f.axis === 'horizontal' && f.containerRole === 'AXGroup');
+    expect(horiz).toBeDefined();
+    expect(horiz!.position).toBe('trailing');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Smoke types — ensure exported types are usable
 // ---------------------------------------------------------------------------
 

@@ -11,6 +11,7 @@ vi.mock('./extract.js', () => ({
 }));
 
 import { extractMacOSElements, mapMacOSToEnhancedElements } from './macos.js';
+import { buildNativeInteractivity } from './interactivity.js';
 import type { MacOSAXElement } from './types.js';
 
 const execFileMock = vi.mocked(execFile);
@@ -96,7 +97,11 @@ describe('extractMacOSElements', () => {
 });
 
 describe('mapMacOSToEnhancedElements', () => {
-  function button(subrole: string | null, title: string | null): MacOSAXElement {
+  function button(
+    subrole: string | null,
+    title: string | null,
+    overrides: Partial<MacOSAXElement> = {}
+  ): MacOSAXElement {
     return {
       role: 'AXButton',
       subrole,
@@ -111,6 +116,26 @@ describe('mapMacOSToEnhancedElements', () => {
       size: { width: 16, height: 16 },
       children: [],
       path: [0],
+      ...overrides,
+    };
+  }
+
+  function group(overrides: Partial<MacOSAXElement> = {}): MacOSAXElement {
+    return {
+      role: 'AXGroup',
+      subrole: null,
+      title: null,
+      description: null,
+      identifier: null,
+      value: null,
+      enabled: true,
+      focused: false,
+      actions: [],
+      position: { x: 0, y: 0 },
+      size: { width: 100, height: 100 },
+      children: [],
+      path: [0],
+      ...overrides,
     };
   }
 
@@ -124,5 +149,80 @@ describe('mapMacOSToEnhancedElements', () => {
 
     expect(mapped).toHaveLength(1);
     expect(mapped[0].text).toBe('Save');
+  });
+
+  it('excludes the AXZoomButton traffic light (the standard-button subrole the exclusion list previously missed)', () => {
+    const mapped = mapMacOSToEnhancedElements([
+      button('AXZoomButton', null),
+      button(null, 'Save'),
+    ]);
+
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0].text).toBe('Save');
+  });
+
+  it('excludes an entire AXScrollBar subtree (NSScroller page-increment buttons), even nested', () => {
+    const mapped = mapMacOSToEnhancedElements([
+      group({
+        role: 'AXScrollArea',
+        children: [
+          group({
+            role: 'AXScrollBar',
+            size: { width: 15, height: 631.5 },
+            children: [
+              button(null, null, { size: { width: 6, height: 631.5 } }),
+              button(null, null, { size: { width: 6, height: 631.5 } }),
+            ],
+          }),
+        ],
+      }),
+      button(null, 'Save'),
+    ]);
+
+    // Only the AXScrollArea container (which has substance via its bounds)
+    // and the app's own "Save" button survive — the scroll bar and its two
+    // unlabeled page-increment buttons are gone entirely.
+    const roles = mapped.map((m) => m.selector);
+    expect(mapped.some((m) => m.text === 'Save')).toBe(true);
+    expect(roles.some((r) => r.includes('AXScrollBar'))).toBe(false);
+    expect(mapped.filter((m) => m.tagName === 'button' && !m.text)).toHaveLength(0);
+  });
+
+  it('does NOT exclude an app-authored unlabeled button outside any scroll bar or window-control subrole', () => {
+    // Regression guard: the chrome exclusions must not become a general
+    // "unlabeled button" suppressor. A real accessibility bug in app content
+    // has to keep showing up.
+    const mapped = mapMacOSToEnhancedElements([
+      button(null, null), // app content, no title, no subrole — a real bug
+    ]);
+
+    expect(mapped).toHaveLength(1);
+    expect(mapped[0].text).toBeUndefined();
+  });
+
+  describe('end-to-end into the a11y-label rule (buildNativeInteractivity)', () => {
+    it('reports no MISSING_LABEL for the traffic lights or the scroll bar buttons', () => {
+      const mapped = mapMacOSToEnhancedElements([
+        button('AXCloseButton', null),
+        button('AXZoomButton', null),
+        group({
+          role: 'AXScrollArea',
+          children: [
+            group({
+              role: 'AXScrollBar',
+              children: [button(null, null, { size: { width: 6, height: 631.5 } })],
+            }),
+          ],
+        }),
+      ]);
+      const { issues } = buildNativeInteractivity(mapped);
+      expect(issues.filter((i) => i.type === 'MISSING_LABEL')).toEqual([]);
+    });
+
+    it('still reports MISSING_LABEL for an unlabeled button in app content', () => {
+      const mapped = mapMacOSToEnhancedElements([button(null, null)]);
+      const { issues } = buildNativeInteractivity(mapped);
+      expect(issues.filter((i) => i.type === 'MISSING_LABEL')).toHaveLength(1);
+    });
   });
 });
