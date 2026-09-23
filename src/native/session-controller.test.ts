@@ -45,7 +45,7 @@ const windowInfo: MacOSWindowInfo = { windowId: 7, width: 400, height: 300, titl
 function macElement(overrides: Partial<MacOSAXElement> & { path: number[] }): MacOSAXElement {
   return {
     role: 'AXButton', subrole: null, title: null, description: null, identifier: null,
-    value: null, enabled: true, focused: false, actions: ['AXPress'],
+    value: null, placeholder: null, enabled: true, focused: false, actions: ['AXPress'],
     position: { x: 0, y: 0 }, size: { width: 100, height: 40 }, children: [], ...overrides,
   };
 }

@@ -19,6 +19,7 @@ import {
   findElementPath,
   resolveMacOSElement,
   resolveSimulatorElement,
+  flattenMacOSElements,
 } from './actions.js';
 import { execFile } from 'child_process';
 
@@ -201,6 +202,7 @@ function makeElement(
     description: null,
     identifier: null,
     value: null,
+    placeholder: null,
     enabled: true,
     focused: false,
     actions: ['AXPress'],
@@ -331,6 +333,116 @@ describe('resolveMacOSElement', () => {
     ];
 
     expect(resolveMacOSElement(elements, 'Save', { role: 'textbox' })).toBeNull();
+  });
+});
+
+// ─── Sheet / dialog targeting (Ops Center live-driving gap) ────────────────
+//
+// A SwiftUI .confirmationDialog surfaces as an AXSheet nested under the
+// session window. Its buttons commonly report no AXTitle at all (System
+// Events shows "title=missing value") and carry only an AXDescription
+// ("Close as won't fix"). flattenMacOSElements/findElementPath must reach
+// into the AXSheet subtree and match on description when title is absent —
+// this fixture reproduces that shape exactly, without needing a live dialog.
+
+describe('resolveMacOSElement — nested AXSheet targeting', () => {
+  function sheetTree(): MacOSAXElement[] {
+    return [
+      // Ordinary app content — must keep resolving normally alongside a sheet.
+      makeElement({ role: 'AXButton', title: 'Refresh', path: [0] }),
+      makeElement({
+        role: 'AXSheet',
+        title: null,
+        identifier: null,
+        path: [1],
+        children: [
+          makeElement({
+            role: 'AXButton',
+            title: null, // AppleScript: "title=missing value"
+            description: "Close as won't fix",
+            path: [1, 0],
+          }),
+          makeElement({ role: 'AXButton', title: 'Cancel', path: [1, 1] }),
+        ],
+      }),
+    ];
+  }
+
+  it('finds a description-only sheet button (no title) by its AXDescription', () => {
+    const result = resolveMacOSElement(sheetTree(), "Close as won't fix");
+    expect(result?.element.path).toEqual([1, 0]);
+    expect(result?.tier).toBe('label'); // label falls back to description when title is null
+  });
+
+  it('finds a titled sheet button by title', () => {
+    const result = resolveMacOSElement(sheetTree(), 'Cancel');
+    expect(result?.element.path).toEqual([1, 1]);
+  });
+
+  it('does not break resolution of ordinary app content alongside an open sheet', () => {
+    const result = resolveMacOSElement(sheetTree(), 'Refresh');
+    expect(result?.element.path).toEqual([0]);
+  });
+
+  it('flattenMacOSElements surfaces both sheet buttons as candidates (reachability, not just resolution)', () => {
+    const candidates = flattenMacOSElements(sheetTree());
+    const labels = candidates.map((c) => c.label);
+    expect(labels).toContain("Close as won't fix");
+    expect(labels).toContain('Cancel');
+  });
+});
+
+// ─── Placeholder-only field targeting (Ops Center live-driving gap) ────────
+//
+// SwiftUI's `.searchable(prompt: "...")` exposes an AXTextField with NO
+// title/description/value/identifier — only AXPlaceholderValue carries the
+// visible prompt text. Target resolution must fall back to it so `fill`
+// can find the field; see macos.test.ts for the companion assertion that
+// this must NOT satisfy the a11y label check (WCAG: placeholder != label).
+
+describe('resolveMacOSElement — placeholder-only field targeting', () => {
+  it('resolves a field with no title/description/value/identifier by its placeholder', () => {
+    const elements: MacOSAXElement[] = [
+      makeElement({
+        role: 'AXTextField',
+        title: null,
+        description: null,
+        value: null,
+        identifier: null,
+        placeholder: 'Search title, repo, or id',
+        path: [0, 0, 1, 0],
+      }),
+    ];
+
+    const result = resolveMacOSElement(elements, 'Search title, repo, or id');
+    expect(result?.element.path).toEqual([0, 0, 1, 0]);
+  });
+
+  it('flattenMacOSElements reports the placeholder as the label when nothing else is present', () => {
+    const elements: MacOSAXElement[] = [
+      makeElement({
+        role: 'AXTextField',
+        title: null,
+        description: null,
+        value: null,
+        identifier: null,
+        placeholder: 'Search title, repo, or id',
+        path: [0],
+      }),
+    ];
+    expect(flattenMacOSElements(elements)[0].label).toBe('Search title, repo, or id');
+  });
+
+  it('prefers title over placeholder when both are present (precedence unchanged)', () => {
+    const elements: MacOSAXElement[] = [
+      makeElement({
+        role: 'AXTextField',
+        title: 'Repo name',
+        placeholder: 'e.g. interface-built-right',
+        path: [0],
+      }),
+    ];
+    expect(flattenMacOSElements(elements)[0].label).toBe('Repo name');
   });
 });
 

@@ -15,6 +15,12 @@ struct AXExtractedElement: Codable {
     let description: String?
     let identifier: String?
     let value: String?
+    /// AXPlaceholderValue — the prompt shown inside an empty field (e.g.
+    /// SwiftUI's `.searchable(prompt:)`). Not an accessible label (WCAG
+    /// treats placeholder distinctly) — see the TS-side MacOSAXElement.placeholder
+    /// doc comment for how each consumer is expected to use (or deliberately
+    /// not use) this field.
+    let placeholder: String?
     let enabled: Bool
     let focused: Bool
     let actions: [String]
@@ -124,6 +130,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
     let descriptionAttr = getStringAttribute(element, kAXDescriptionAttribute)
     let identifier = getStringAttribute(element, "AXIdentifier")
     let value = getStringAttribute(element, kAXValueAttribute as String)
+    let placeholder = getStringAttribute(element, "AXPlaceholderValue")
     let enabled = getBoolAttribute(element, kAXEnabledAttribute)
     let focused = getBoolAttribute(element, kAXFocusedAttribute)
     let position = getPosition(element)
@@ -151,6 +158,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
         description: descriptionAttr,
         identifier: identifier,
         value: value,
+        placeholder: placeholder,
         enabled: enabled,
         focused: focused,
         actions: actions,
@@ -302,14 +310,40 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
         return nil
     }
 
-    // Use the frontmost/main window
+    // A .sheet/.confirmationDialog/.alert presented over the main window makes
+    // the main window inert (the user — and extraction/action-targeting — can
+    // only interact with the modal surface until it's dismissed). Some
+    // SwiftUI presentations attach as a genuine child of the parent window
+    // (already reachable via the normal getChildren() walk below, no special
+    // handling needed), but others surface as their OWN top-level AXWindow in
+    // kAXWindowsAttribute — role AXSheet, or role AXWindow with subrole
+    // AXDialog/AXSystemDialog — which kAXMainWindowAttribute does NOT point
+    // to. Prefer any such modal window over the main/first window so
+    // extract/observe and target resolution see the dialog's controls
+    // instead of (or in addition to, via normal recursion) the content
+    // beneath it.
+    let modalSubroles: Set<String> = ["AXDialog", "AXSystemDialog"]
+    let modalWindow = windows.first { win in
+        let role = getStringAttribute(win, kAXRoleAttribute)
+        if role == "AXSheet" { return true }
+        if let sub = getStringAttribute(win, kAXSubroleAttribute), modalSubroles.contains(sub) {
+            return true
+        }
+        return false
+    }
+
+    // Use the modal window if one is showing, else the frontmost/main window.
     let window: AXUIElement
-    var mainWindow: AnyObject?
-    let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindow)
-    if mainResult == .success, let mw = mainWindow {
-        window = (mw as! AXUIElement)
+    if let modal = modalWindow {
+        window = modal
     } else {
-        window = windows[0]
+        var mainWindow: AnyObject?
+        let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindow)
+        if mainResult == .success, let mw = mainWindow {
+            window = (mw as! AXUIElement)
+        } else {
+            window = windows[0]
+        }
     }
 
     let title = getStringAttribute(window, kAXTitleAttribute) ?? "Untitled"

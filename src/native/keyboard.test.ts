@@ -55,6 +55,7 @@ function macElement(overrides: Partial<MacOSAXElement> = {}): MacOSAXElement {
     description: null,
     identifier: null,
     value: null,
+    placeholder: null,
     enabled: true,
     focused: false,
     actions: ['AXPress'],

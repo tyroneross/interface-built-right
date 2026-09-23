@@ -236,6 +236,16 @@ export function mapMacOSToEnhancedElements(
       const tagName = mapRoleToTag(el.role);
       const isInteractive = isInteractiveRole(el.role) && el.enabled;
       const hasPress = el.actions.includes('AXPress');
+      // Deliberately does NOT fall back to el.placeholder here (or in a11y.ariaLabel
+      // below). WCAG 2.5.3/1.3.1 treats placeholder text as distinct from a label —
+      // it disappears once the field is filled and isn't read as a label by all
+      // assistive tech. A placeholder-only field (e.g. SwiftUI's
+      // `.searchable(prompt:)`) must keep tripping the MISSING_ARIA_LABEL warning
+      // in analyzeElements (src/extract.ts) so a real accessibility gap stays
+      // visible. Placeholder is used ONLY for session-action target resolution
+      // (flattenMacOSElements in actions.ts), a separate consumer answering a
+      // separate question ("can a human/agent find this control by its visible
+      // prompt text" vs "does this control have an accessible label").
       const text = el.title || el.description || el.value || undefined;
 
       // Build bounds from position + size

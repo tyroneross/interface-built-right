@@ -40411,7 +40411,7 @@ function flattenMacOSElements(elements) {
   const candidates = [];
   function visit(nodes) {
     for (const el of nodes) {
-      const label2 = el.title || el.description || el.value || el.identifier || "";
+      const label2 = el.title || el.description || el.value || el.identifier || el.placeholder || "";
       candidates.push({
         path: el.path,
         role: el.role,

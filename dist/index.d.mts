@@ -8183,6 +8183,16 @@ interface MacOSAXElement {
     description: string | null;
     identifier: string | null;
     value: string | null;
+    /**
+     * AXPlaceholderValue — the prompt text shown inside an empty field (e.g. a
+     * SwiftUI `.searchable(prompt:)` search box). This is NOT an accessible
+     * label: WCAG treats placeholder text as distinct from a label, so it must
+     * never be folded into `title`/`description`-derived a11y label checks.
+     * It exists here only so session-action target resolution (actions.ts)
+     * has something to match against when a field has no title, description,
+     * value, or identifier — see flattenMacOSElements.
+     */
+    placeholder: string | null;
     enabled: boolean;
     focused: boolean;
     actions: string[];

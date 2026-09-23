@@ -12,6 +12,7 @@ vi.mock('./extract.js', () => ({
 
 import { extractMacOSElements, mapMacOSToEnhancedElements } from './macos.js';
 import { buildNativeInteractivity } from './interactivity.js';
+import { analyzeElements } from '../extract.js';
 import type { MacOSAXElement } from './types.js';
 
 const execFileMock = vi.mocked(execFile);
@@ -109,6 +110,7 @@ describe('mapMacOSToEnhancedElements', () => {
       description: null,
       identifier: null,
       value: null,
+      placeholder: null,
       enabled: true,
       focused: false,
       actions: ['AXPress'],
@@ -128,6 +130,7 @@ describe('mapMacOSToEnhancedElements', () => {
       description: null,
       identifier: null,
       value: null,
+      placeholder: null,
       enabled: true,
       focused: false,
       actions: [],
@@ -223,6 +226,36 @@ describe('mapMacOSToEnhancedElements', () => {
       const mapped = mapMacOSToEnhancedElements([button(null, null)]);
       const { issues } = buildNativeInteractivity(mapped);
       expect(issues.filter((i) => i.type === 'MISSING_LABEL')).toHaveLength(1);
+    });
+  });
+
+  // WCAG 2.5.3/1.3.1: placeholder text is not a label. Session-action target
+  // resolution (actions.ts's flattenMacOSElements) DOES fall back to
+  // AXPlaceholderValue so `fill` can find a field like SwiftUI's
+  // `.searchable(prompt: "Search title, repo, or id")` — see actions.test.ts.
+  // The a11y-grading pipeline (this file + src/extract.ts's analyzeElements)
+  // must stay honest about that gap and keep flagging it.
+  describe('placeholder text is NOT treated as an accessible label (WCAG)', () => {
+    function placeholderOnlyField(): MacOSAXElement {
+      return button(null, null, {
+        role: 'AXTextField',
+        actions: [],
+        placeholder: 'Search title, repo, or id',
+      });
+    }
+
+    it('does not surface the placeholder as .text or a11y.ariaLabel', () => {
+      const [mapped] = mapMacOSToEnhancedElements([placeholderOnlyField()]);
+      expect(mapped.text).toBeUndefined();
+      expect(mapped.a11y.ariaLabel).toBeNull();
+    });
+
+    it('still trips MISSING_ARIA_LABEL in analyzeElements (the real a11y gate for scan:macos)', () => {
+      const mapped = mapMacOSToEnhancedElements([placeholderOnlyField()]);
+      const audit = analyzeElements(mapped, false);
+      expect(
+        audit.issues.filter((i) => i.type === 'MISSING_ARIA_LABEL' && i.severity === 'warning')
+      ).toHaveLength(1);
     });
   });
 });

@@ -174,7 +174,17 @@ export function flattenMacOSElements(elements: MacOSAXElement[]): NativeElementC
 
   function visit(nodes: MacOSAXElement[]): void {
     for (const el of nodes) {
-      const label = el.title || el.description || el.value || el.identifier || '';
+      // Placeholder is the last resort — a field with a real title,
+      // description, value, or identifier is matched on that first. This
+      // ONLY feeds session-action target resolution (so
+      // `fill --target "<placeholder prompt>"` can find an otherwise
+      // unlabeled field, e.g. SwiftUI's `.searchable(prompt:)`). It must
+      // NOT be mirrored into the a11y-label pipeline (mapMacOSToEnhancedElements
+      // in macos.ts deliberately excludes it) — WCAG treats placeholder text
+      // as distinct from an accessible label, so scan:macos still reports a
+      // MISSING_ARIA_LABEL warning on a placeholder-only field. Targeting and
+      // a11y grading are different questions with different correct answers here.
+      const label = el.title || el.description || el.value || el.identifier || el.placeholder || '';
       candidates.push({
         path: el.path,
         role: el.role,

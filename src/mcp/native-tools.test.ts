@@ -124,6 +124,7 @@ function macElement(overrides: Partial<MacOSAXElement> & { path: number[] }): Ma
     description: null,
     identifier: null,
     value: null,
+    placeholder: null,
     enabled: true,
     focused: false,
     actions: ['AXPress'],
