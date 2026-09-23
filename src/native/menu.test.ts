@@ -252,6 +252,33 @@ describe('runMenuCapability', () => {
     expect(outcome.evidence?.beforeSignature).toMatch(/^error:/);
   }, 10_000);
 
+  it('succeeds on a row reorder that leaves window/count/focus unchanged (labels hash catches it)', async () => {
+    const cardA = macElement({ role: 'AXRow', title: 'Card A', path: [0] });
+    const cardB = macElement({ role: 'AXRow', title: 'Card B', path: [1] });
+    const before = macExtraction({ windowId: 1, title: 'Untitled', elements: [cardA, cardB] });
+    const after = macExtraction({
+      windowId: 1,
+      title: 'Untitled',
+      elements: [
+        macElement({ role: 'AXRow', title: 'Card B', path: [0] }),
+        macElement({ role: 'AXRow', title: 'Card A', path: [1] }),
+      ],
+    });
+    const extract = vi.fn().mockResolvedValueOnce(before).mockResolvedValueOnce(after);
+    const deliver = vi.fn(async (): Promise<MenuDeliveryResult> => ({ success: true, matchedVia: 'context-menu' }));
+
+    const outcome = await runMenuCapability({
+      target: { kind: 'macos', pid: 1 },
+      spec: { menuPath: ['Move Up'] },
+      resolvePid: async () => 1,
+      extract,
+      deliver,
+    });
+
+    expect(outcome.success).toBe(true);
+    expect(outcome.validator.passed).toBe(true);
+  }, 10_000);
+
   it('reflects a context-menu match in provenance', async () => {
     const before = macExtraction({ windowId: 1, title: 'Untitled', elements: [macElement({ focused: false })] });
     const after = macExtraction({ windowId: 1, title: 'Untitled', elements: [macElement({ focused: true })] });

@@ -31,6 +31,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { ensureExtractor } from './extract.js';
 import { findProcess } from './index.js';
+import { axSignature } from './ax-signature.js';
 import type { ActionOutcome } from '../action-outcome.js';
 import type { KeystrokeSpec, NativeExtraction, NativeSessionTarget } from './backend.js';
 
@@ -86,51 +87,6 @@ export const deliverKeystrokeOneShot: KeystrokeDeliverFn = async (pid, chord, fo
     return { success: false, error: message };
   }
 };
-
-function countElements<T extends { children: T[] }>(elements: T[]): number {
-  let total = 0;
-  for (const el of elements) {
-    total += 1;
-    total += countElements(el.children);
-  }
-  return total;
-}
-
-function findFocusedPathMacOS(
-  elements: Array<{ focused: boolean; path: number[]; children: unknown[] }>,
-): number[] | null {
-  for (const el of elements) {
-    if (el.focused) return el.path;
-    if (el.children.length > 0) {
-      const found = findFocusedPathMacOS(
-        el.children as Array<{ focused: boolean; path: number[]; children: unknown[] }>,
-      );
-      if (found) return found;
-    }
-  }
-  return null;
-}
-
-/**
- * A compact signature of observable AX state — window identity, focused
- * element, and element count. Two extractions with an identical signature
- * are treated as "no observable effect" by the capability's validator.
- */
-function axSignature(extraction: NativeExtraction): string {
-  if (extraction.kind === 'not-found') return `not-found:${extraction.message}`;
-  if (extraction.kind === 'macos') {
-    const focused = findFocusedPathMacOS(extraction.elements);
-    return [
-      `window=${extraction.window.windowId}`,
-      `title=${extraction.window.title}`,
-      `count=${countElements(extraction.elements)}`,
-      `focused=${focused ? focused.join('.') : 'none'}`,
-    ].join('|');
-  }
-  // Simulator's legacy element shape exposes no `focused` flag today, so
-  // element count is the best-effort signal for this target kind.
-  return `count=${countElements(extraction.elements)}`;
-}
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
