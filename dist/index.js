@@ -21449,6 +21449,69 @@ var AXDaemon = class {
 
 // src/native/keyboard.ts
 init_extract3();
+function countElements(elements) {
+  let total = 0;
+  for (const el of elements) {
+    total += 1;
+    total += countElements(el.children);
+  }
+  return total;
+}
+function findFocusedPathMacOS(elements) {
+  for (const el of elements) {
+    if (el.focused) return el.path;
+    if (el.children.length > 0) {
+      const found = findFocusedPathMacOS(
+        el.children
+      );
+      if (found) return found;
+    }
+  }
+  return null;
+}
+function firstNonEmpty(...candidates) {
+  for (const c of candidates) {
+    if (c) return c;
+  }
+  return "";
+}
+function macOSLabelTokens(elements, out) {
+  for (const el of elements) {
+    const label = firstNonEmpty(el.title, el.description, el.value);
+    out.push(`${el.role}:${label}`);
+    if (el.children.length > 0) macOSLabelTokens(el.children, out);
+  }
+}
+function simulatorLabelTokens(elements, out) {
+  for (const el of elements) {
+    const label = firstNonEmpty(el.label, el.value);
+    out.push(`${el.role}:${label}`);
+    if (el.children.length > 0) simulatorLabelTokens(el.children, out);
+  }
+}
+function labelsHash(tokens) {
+  return crypto.createHash("sha256").update(tokens.join("\n")).digest("hex").slice(0, 12);
+}
+function axSignature(extraction) {
+  if (extraction.kind === "not-found") return `not-found:${extraction.message}`;
+  if (extraction.kind === "macos") {
+    const focused = findFocusedPathMacOS(extraction.elements);
+    const tokens2 = [];
+    macOSLabelTokens(extraction.elements, tokens2);
+    return [
+      `window=${extraction.window.windowId}`,
+      `title=${extraction.window.title}`,
+      `count=${countElements(extraction.elements)}`,
+      `focused=${focused ? focused.join(".") : "none"}`,
+      `labels=${labelsHash(tokens2)}`
+    ].join("|");
+  }
+  const tokens = [];
+  simulatorLabelTokens(extraction.elements, tokens);
+  return [`count=${countElements(extraction.elements)}`, `labels=${labelsHash(tokens)}`].join("|");
+}
+
+// src/native/keyboard.ts
 var execFileAsync8 = util.promisify(child_process.execFile);
 var SETTLE_MS = 220;
 async function resolveKeystrokeTargetPid(target) {
@@ -21477,39 +21540,6 @@ var deliverKeystrokeOneShot = async (pid, chord, foreground) => {
     return { success: false, error: message };
   }
 };
-function countElements(elements) {
-  let total = 0;
-  for (const el of elements) {
-    total += 1;
-    total += countElements(el.children);
-  }
-  return total;
-}
-function findFocusedPathMacOS(elements) {
-  for (const el of elements) {
-    if (el.focused) return el.path;
-    if (el.children.length > 0) {
-      const found = findFocusedPathMacOS(
-        el.children
-      );
-      if (found) return found;
-    }
-  }
-  return null;
-}
-function axSignature(extraction) {
-  if (extraction.kind === "not-found") return `not-found:${extraction.message}`;
-  if (extraction.kind === "macos") {
-    const focused = findFocusedPathMacOS(extraction.elements);
-    return [
-      `window=${extraction.window.windowId}`,
-      `title=${extraction.window.title}`,
-      `count=${countElements(extraction.elements)}`,
-      `focused=${focused ? focused.join(".") : "none"}`
-    ].join("|");
-  }
-  return `count=${countElements(extraction.elements)}`;
-}
 function sleep2(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
@@ -21834,39 +21864,6 @@ var deliverMenuOneShot = async (pid, menuPath) => {
     return { success: false, error: message };
   }
 };
-function countElements2(elements) {
-  let total = 0;
-  for (const el of elements) {
-    total += 1;
-    total += countElements2(el.children);
-  }
-  return total;
-}
-function findFocusedPathMacOS2(elements) {
-  for (const el of elements) {
-    if (el.focused) return el.path;
-    if (el.children.length > 0) {
-      const found = findFocusedPathMacOS2(
-        el.children
-      );
-      if (found) return found;
-    }
-  }
-  return null;
-}
-function axSignature2(extraction) {
-  if (extraction.kind === "not-found") return `not-found:${extraction.message}`;
-  if (extraction.kind === "macos") {
-    const focused = findFocusedPathMacOS2(extraction.elements);
-    return [
-      `window=${extraction.window.windowId}`,
-      `title=${extraction.window.title}`,
-      `count=${countElements2(extraction.elements)}`,
-      `focused=${focused ? focused.join(".") : "none"}`
-    ].join("|");
-  }
-  return `count=${countElements2(extraction.elements)}`;
-}
 function sleep4(ms) {
   return new Promise((resolve4) => setTimeout(resolve4, ms));
 }
@@ -21909,7 +21906,7 @@ async function runMenuCapability(opts) {
   }
   const safeSignature = async () => {
     try {
-      return axSignature2(await extract());
+      return axSignature(await extract());
     } catch (err) {
       return `error:${err instanceof Error ? err.message : String(err)}`;
     }
