@@ -8,11 +8,19 @@ the ones you would guess.
 ## Check a measured design specification
 
 ```bash
+ibr spec:new --title 'Report' --view report-desktop --route /report --width 1200 --height 800 --out design-spec.json
+ibr spec:capture --url http://localhost:3000/report --title 'Report' --view report-desktop --route /report --width 1200 --height 800 --out captured-spec.json
+ibr spec:check design-spec.json report-desktop --url http://localhost:3000/report --json
+```
+
+Figma import is optional:
+
+```bash
 ibr spec:from-figma figma-file.json --frame '12:34' --route /report --out design-spec.json
 ibr spec:check design-spec.json 12:34 --url http://localhost:3000/report --json
 ```
 
-The Figma command produces an unbound draft. Add semantic `match` fields and assign each property `exact`, `bounded`, or `free` before treating it as a build contract. See [design-spec.md](design-spec.md) for the schema and coverage limits.
+Generated IBR specs start with `source.reviewed: false`; edit the rules before setting it to `true`. The Figma command produces an unbound draft. Add semantic `match` fields and assign each property `exact`, `bounded`, or `free` before treating it as a build contract. See [design-spec.md](design-spec.md) for the schema and coverage limits.
 
 ## Scan a page, keep the output on disk
 

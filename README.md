@@ -330,11 +330,18 @@ Verdicts: `MATCH`, `EXPECTED_CHANGE`, `UNEXPECTED_CHANGE`, `LAYOUT_BROKEN`
 
 ### Measured design specifications
 
-IBR can import a saved Figma file response as a design-spec draft and check a rendered page against `exact`, `bounded`, and `free` rules. The draft keeps text, geometry, image references, and prototype destinations; you bind source nodes to semantic page elements before verification.
+IBR can create an authored design spec without Figma, capture a local HTML prototype as a measured draft, and check a rendered page against `exact`, `bounded`, and `free` rules. Review generated drafts before treating them as a build contract.
+
+```bash
+ibr spec:new --title 'Report' --view report-desktop --route /report --width 1200 --height 800 --out design-spec.json
+ibr spec:capture --url http://localhost:3000/report --title 'Report' --view report-desktop --route /report --width 1200 --height 800 --out captured-spec.json
+ibr spec:check design-spec.json report-desktop --url http://localhost:3000/report --json
+```
+
+Figma import remains optional. Its draft keeps text, geometry, image references, and prototype destinations; bind source nodes to semantic page elements before verification.
 
 ```bash
 ibr spec:from-figma figma-file.json --frame '12:34' --route /report --out design-spec.json
-ibr spec:check design-spec.json '12:34' --url http://localhost:3000/report --json
 ```
 
 See [design specifications](docs/design-spec.md) for the schema, build workflow, and measurement limits.

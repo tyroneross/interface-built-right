@@ -1,6 +1,6 @@
 # Design specifications
 
-IBR can turn a saved Figma file API response into a draft design specification, then compare a bound specification with a rendered web page. The specification separates three kinds of authority:
+IBR can author its own design specification without Figma, capture a local HTML prototype as a measured draft, and compare a reviewed specification with a rendered web page. The specification separates three kinds of authority:
 
 | Mode | Meaning | Checker behavior |
 |---|---|---|
@@ -10,7 +10,28 @@ IBR can turn a saved Figma file API response into a draft design specification, 
 
 An omitted property has no rule. A `free` property makes the design decision explicit to the coding agent. `freeRegions` names whole areas where the agent may design without a measured constraint. Give a free region `bounds` when using `all-scanned` coverage, so the checker can exempt semantic elements inside it.
 
-## Import and bind a Figma frame
+## Start inside IBR
+
+Create an authored contract, then add the real screens, text, routes, semantic elements, and visual rules. The generated starter is deliberately unreviewed. It cannot earn a `PASS` until the rules reflect the intended design and `source.reviewed` is set to `true`.
+
+```bash
+ibr spec:new --title 'Report' --view report-desktop --route /report \
+  --width 1200 --height 800 --out design-spec.json
+```
+
+If you have a local HTML prototype, capture its rendered evidence into a bound draft:
+
+```bash
+ibr spec:capture --url http://localhost:3000/report --title 'Report' \
+  --view report-desktop --route /report --width 1200 --height 800 \
+  --out captured-spec.json
+```
+
+The capture command needs no external design service. It records full rendered text, navigation destinations, semantic identities, named regions, viewport, and measured bounds. By default, geometry remains `free` with its observed CSS-pixel value in guidance. Use `--geometry exact --tolerance 1` or `--geometry bounded --range 4` only when those measured constraints are intentional. Use `--copy free` when prototype body text is illustrative. This binds repeated elements by semantic role, heading level, and one-based order, so the text can change while the structure remains stable. Review the binding if elements are added or reordered. A saved `ibr scan <url> --content --full-text --json` result can be passed with `--scan scan.json` instead of `--url`.
+
+Before setting `source.reviewed` to `true`, decide which captured text, geometry, and heading styles must be exact, may vary within bounds, or are free. Resolve any `source.coverage.skipped` entries after inspecting the missing elements. A capture is evidence of what the prototype rendered; review turns it into a design contract. The coding agent builds the app from that contract and checks each web view with `spec:check`.
+
+## Optional: import and bind a Figma frame
 
 Use a saved JSON response from Figma's [GET file endpoint](https://developers.figma.com/docs/rest-api/file-endpoints/). The importer reads visible descendants, including painted containers, with `absoluteBoundingBox`, full `TEXT` content, text styles, solid fills, image references, and prototype destination IDs where present. Figma documents these fields in its [node types](https://developers.figma.com/docs/rest-api/file-node-types/). The draft records how many visible descendants it considered, imported, and skipped; skipped nodes keep the check `PARTIAL`.
 
@@ -61,7 +82,7 @@ The following excerpt keeps heading typography fixed, gives geometry a two-pixel
 
 `sharedStyle.heading` applies to each heading listed in `elements`; an element's `style` overrides it. `coverage: "all-scanned"` also flags scanned headings, paragraphs, images, links, and buttons that were not named by the spec. `coverage: "listed"` checks only listed elements and navigation. Neither mode claims coverage of decorative DOM, canvas, SVG internals, or content hidden in the current state.
 
-Bindings use semantic role and accessible name. Named HTML landmarks and `<section role="region" aria-label="…">` can bind Figma container frames as `role: "region"`. Decorative containers without a semantic name remain unbound; do not add accessibility labels solely for a visual test. If the page repeats the same role and name, set a one-based `occurrence` on the element `match` or navigation entry. An unnumbered duplicate remains `PARTIAL` instead of choosing one silently.
+Bindings normally use semantic role and accessible name. Named HTML landmarks and `<section role="region" aria-label="…">` can bind Figma container frames as `role: "region"`. Decorative containers without a semantic name remain unbound; do not add accessibility labels solely for a visual test. If the page repeats the same role and name, set a one-based `occurrence` on the element `match` or navigation entry. An unnumbered duplicate remains `PARTIAL` instead of choosing one silently. For illustrative copy, `binding: "role-order"` with `occurrence` binds by role and order; heading level also applies. Order is part of that contract, so review it after structural changes.
 
 ## Build and verify
 

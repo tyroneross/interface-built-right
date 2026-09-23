@@ -22,7 +22,20 @@ export const StyleRulesSchema = z.object({
   color: TextRuleSchema.optional(),
   backgroundColor: TextRuleSchema.optional(),
   backgroundImage: TextRuleSchema.optional(),
+  borderColor: TextRuleSchema.optional(),
+  borderWidth: NumberRuleSchema.optional(),
+  borderTopColor: TextRuleSchema.optional(),
+  borderRightColor: TextRuleSchema.optional(),
+  borderBottomColor: TextRuleSchema.optional(),
+  borderLeftColor: TextRuleSchema.optional(),
+  borderTopWidth: NumberRuleSchema.optional(),
+  borderRightWidth: NumberRuleSchema.optional(),
+  borderBottomWidth: NumberRuleSchema.optional(),
+  borderLeftWidth: NumberRuleSchema.optional(),
   borderRadius: NumberRuleSchema.optional(),
+  boxShadow: TextRuleSchema.optional(),
+  outlineColor: TextRuleSchema.optional(),
+  outlineWidth: NumberRuleSchema.optional(),
 }).strict();
 
 export const DesignElementSchema = z.object({
@@ -40,9 +53,12 @@ export const DesignElementSchema = z.object({
     role: z.enum(['heading', 'paragraph', 'link', 'button', 'image', 'caption', 'quote', 'region']),
     name: z.string().min(1),
     level: z.number().int().min(1).max(6).optional(),
-    /** One-based DOM order among elements with this semantic role and name. */
+    /** role-order binds by role (and heading level) when illustrative names may change. */
+    binding: z.enum(['name', 'role-order']).optional(),
+    /** One-based DOM order among matching elements for the chosen binding. */
     occurrence: z.number().int().positive().optional(),
-  }).strict().optional(),
+  }).strict().refine(v => v.binding !== 'role-order' || v.occurrence !== undefined,
+    'role-order binding requires occurrence').optional(),
   text: TextRuleSchema.optional(),
   href: TextRuleSchema.optional(),
   src: TextRuleSchema.optional(),
@@ -63,6 +79,8 @@ export const DesignSpecSchema = z.object({
   source: z.object({
     kind: z.enum(['authored', 'figma']),
     ref: z.string().optional(),
+    /** Generated drafts require a deliberate review of exact, bounded, and free rules. */
+    reviewed: z.boolean().optional(),
     coverage: z.object({
       considered: z.number().int().nonnegative(),
       imported: z.number().int().nonnegative(),
@@ -81,9 +99,11 @@ export const DesignSpecSchema = z.object({
     visibleText: TextRuleSchema.optional(),
     navigation: z.array(z.object({
       label: z.string().min(1),
+      binding: z.enum(['name', 'role-order']).optional(),
       occurrence: z.number().int().positive().optional(),
       destination: TextRuleSchema,
-    }).strict()).default([]),
+    }).strict().refine(v => v.binding !== 'role-order' || v.occurrence !== undefined,
+      'role-order binding requires occurrence')).default([]),
     elements: z.array(DesignElementSchema),
     /** Whole areas intentionally left to the builder; bounds exempt their contents from all-scanned coverage. */
     freeRegions: z.array(z.object({

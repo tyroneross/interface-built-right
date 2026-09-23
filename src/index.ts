@@ -1121,6 +1121,8 @@ export * from './context/types.js';
 export { scan, formatScanResult, applyDesignSystemCheck } from './scan.js';
 export type { ScanResult, ScanIssue, ScanOptions } from './scan.js';
 export { DesignSpecSchema, DesignElementSchema, NumberRuleSchema, TextRuleSchema } from './design-spec/schema.js';
+export { newDesignSpec, captureDesignSpec } from './design-spec/capture.js';
+export type { CaptureOptions } from './design-spec/capture.js';
 export type { DesignSpec, DesignElement, NumberRule, TextRule } from './design-spec/schema.js';
 export { checkDesignSpec } from './design-spec/check.js';
 export type { DesignSpecReport, DesignSpecFinding } from './design-spec/check.js';

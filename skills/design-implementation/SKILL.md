@@ -25,7 +25,7 @@ For page, flow, app, dashboard, or reference-heavy work, read `.ibr/builds/<topi
 
 If the design intent conflicts with current implementation, update the implementation or surface the conflict. Do not silently ignore the design contract.
 
-When a versioned design specification is provided, use `docs/design-spec.md` as the contract for exact, bounded, and free choices. Carry full copy and the navigation map into the build plan. For every view, implement the rules, render the page at the specified viewport, and run `ibr spec:check <spec.json> <view-id> --url <page-url> --json`. Resolve `FAIL` and `PARTIAL` results before claiming spec fidelity; `PARTIAL` means a node lacks a semantic binding or a measurement was unavailable.
+When a versioned design specification is provided, use `docs/design-spec.md` as the contract for exact, bounded, and free choices. If no design file exists, start with `ibr spec:new`; use `ibr spec:capture` only when a local prototype is an accepted reference. Review generated drafts before setting `source.reviewed` to true. Carry full copy and the navigation map into the build plan. For every web view, implement the rules, render the page at the specified viewport, and run `ibr spec:check <spec.json> <view-id> --url <page-url> --json`. Resolve `FAIL` and `PARTIAL` results before claiming spec fidelity; `PARTIAL` may mean an unreviewed draft, an unbound node, or a missing measurement. Native UI still requires IBR native AX and screenshot evidence.
 
 ### Validating Against User Intent
 

@@ -22,7 +22,7 @@ export interface DesignSpecReport {
   findings: DesignSpecFinding[];
 }
 
-interface Observation {
+export interface DesignObservation {
   role: NonNullable<DesignElement['match']>['role'];
   name: string;
   level?: number;
@@ -37,8 +37,9 @@ function normalizeName(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-function observations(scan: ScanResult): Observation[] {
-  const out: Observation[] = [];
+/** The same visible semantic population drives capture and verification. */
+export function designObservations(scan: ScanResult): DesignObservation[] {
+  const out: DesignObservation[] = [];
   for (const el of scan.elements.all) {
     if (!isVisible(el.bounds, el.computedStyles, el.a11y.ariaHidden, el.ancestorOpacity)) continue;
     const role = interactiveRole(el);
@@ -85,14 +86,14 @@ function isVisible(
   return true;
 }
 
-function interactiveRole(el: EnhancedElement): Observation['role'] | undefined {
+function interactiveRole(el: EnhancedElement): DesignObservation['role'] | undefined {
   const role = el.a11y.role;
   if (role === 'link' || el.tagName === 'a') return 'link';
   if (role === 'button' || el.tagName === 'button') return 'button';
   return undefined;
 }
 
-function contentRole(el: ContentElement): Observation['role'] | undefined {
+function contentRole(el: ContentElement): DesignObservation['role'] | undefined {
   switch (el.contentKind) {
     case 'heading': return 'heading';
     case 'paragraph': return 'paragraph';
@@ -109,7 +110,7 @@ function numericStyle(value: string | undefined): number | undefined {
   return match ? Number(match[1]) : undefined;
 }
 
-function circumference(observation: Observation): number | undefined {
+function circumference(observation: DesignObservation): number | undefined {
   const { width, height } = observation.bounds;
   if (Math.abs(width - height) > 1 || width <= 0) return undefined;
   const radius = observation.styles.borderRadius?.trim();
@@ -165,6 +166,10 @@ export function checkDesignSpec(input: DesignSpec, viewId: string, scan: ScanRes
   add('route', scan.route === view.route ? 'pass' : 'fail', undefined, view.route, scan.route);
   add('viewport.width', scan.viewport.width === view.viewport.width ? 'pass' : 'fail', undefined, view.viewport.width, scan.viewport.width);
   add('viewport.height', scan.viewport.height === view.viewport.height ? 'pass' : 'fail', undefined, view.viewport.height, scan.viewport.height);
+  if (spec.source.reviewed === false) {
+    add('source.reviewed', 'unmeasurable', undefined, true, false,
+      'generated draft needs review of exact, bounded, and free rules');
+  }
   if (spec.source.coverage?.skipped.length) {
     add('source.coverage', 'unmeasurable', undefined, 0, spec.source.coverage.skipped,
       'source import skipped visible nodes');
@@ -175,11 +180,12 @@ export function checkDesignSpec(input: DesignSpec, viewId: string, scan: ScanRes
     add('visibleText', result.status, undefined, view.visibleText, scan.visibleText, result.reason);
   }
 
-  const measured = observations(scan);
-  const matched = new Set<Observation>();
-  const boundElements = new Set<Observation>();
+  const measured = designObservations(scan);
+  const matched = new Set<DesignObservation>();
+  const boundElements = new Set<DesignObservation>();
   for (const [index, link] of view.navigation.entries()) {
-    const allCandidates = measured.filter(o => o.role === 'link' && o.name === normalizeName(link.label));
+    const allCandidates = measured.filter(o => o.role === 'link' &&
+      (link.binding === 'role-order' || o.name === normalizeName(link.label)));
     const candidates = link.occurrence === undefined ? allCandidates : allCandidates.slice(link.occurrence - 1, link.occurrence);
     if (candidates.length !== 1) {
       add(`navigation.${index}`, candidates.length ? 'unmeasurable' : 'fail', undefined, link.label, candidates.length,
@@ -201,7 +207,7 @@ export function checkDesignSpec(input: DesignSpec, viewId: string, scan: ScanRes
       for (const allowed of element.text.oneOf) allowedNames.add(normalizeName(allowed));
     }
     const sameRole = measured.filter(o => o.role === match.role && (match.level === undefined || o.level === match.level));
-    let candidates = sameRole.filter(o => allowedNames.has(o.name));
+    let candidates = match.binding === 'role-order' ? sameRole : sameRole.filter(o => allowedNames.has(o.name));
     if (candidates.length === 0 && element.text?.mode === 'free' && sameRole.length === 1) candidates = sameRole;
     if (match.occurrence !== undefined) candidates = candidates.slice(match.occurrence - 1, match.occurrence);
     if (candidates.length !== 1) {
@@ -248,7 +254,22 @@ export function checkDesignSpec(input: DesignSpec, viewId: string, scan: ScanRes
     textRule('style.color', style.color, found.styles.color);
     textRule('style.backgroundColor', style.backgroundColor, found.styles.backgroundColor);
     textRule('style.backgroundImage', style.backgroundImage, found.styles.backgroundImage);
+    textRule('style.borderColor', style.borderColor, found.styles.borderColor);
+    for (const side of ['Top', 'Right', 'Bottom', 'Left'] as const) {
+      const colorKey = `border${side}Color` as const;
+      const widthKey = `border${side}Width` as const;
+      textRule(`style.${colorKey}`, style[colorKey], found.styles[colorKey]);
+      numberRule(`style.${widthKey}`, style[widthKey], numericStyle(found.styles[widthKey]));
+    }
+    const widths = ['borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth']
+      .map(key => numericStyle(found.styles[key]));
+    const uniformBorderWidth = widths.every(width => width !== undefined && width === widths[0]) ? widths[0] : undefined;
+    numberRule('style.borderWidth', style.borderWidth, uniformBorderWidth);
     numberRule('style.borderRadius', style.borderRadius, numericStyle(found.styles.borderRadius));
+    textRule('style.boxShadow', style.boxShadow, found.styles.boxShadow);
+    const visibleOutline = found.styles.outlineStyle !== 'none';
+    textRule('style.outlineColor', style.outlineColor, visibleOutline ? found.styles.outlineColor : undefined);
+    numberRule('style.outlineWidth', style.outlineWidth, visibleOutline ? numericStyle(found.styles.outlineWidth) : 0);
   }
 
   for (const [index, region] of view.freeRegions.entries()) {

@@ -70,6 +70,40 @@ describe('design-spec checks', () => {
     expect(report.findings.find(f => f.property === 'style.color')?.status).toBe('free');
   });
 
+  it('checks a visible outline and inset shadow separately from free fill', () => {
+    const draft = structuredClone(spec);
+    draft.views[0].elements[0].style = {
+      borderColor: { mode: 'exact', value: 'rgb(57, 66, 84)' },
+      borderWidth: { mode: 'exact', value: 1, tolerance: 0 },
+      boxShadow: { mode: 'exact', value: 'rgb(145, 155, 255) 2px 0px 0px 0px inset' },
+      backgroundColor: { mode: 'free' },
+    };
+    const scan = scanFixture();
+    scan.content!.elements[0].computedStyles = {
+      ...scan.content!.elements[0].computedStyles,
+      borderColor: 'rgb(57, 66, 84)',
+      borderTopWidth: '1px', borderRightWidth: '1px', borderBottomWidth: '1px', borderLeftWidth: '1px',
+      boxShadow: 'rgb(145, 155, 255) 2px 0px 0px 0px inset',
+    };
+    expect(checkDesignSpec(draft, 'report-desktop', scan).verdict).toBe('PASS');
+    scan.content!.elements[0].computedStyles.boxShadow = 'none';
+    expect(checkDesignSpec(draft, 'report-desktop', scan).findings.find(f => f.property === 'style.boxShadow')?.status).toBe('fail');
+  });
+
+  it('checks a single-sided pane outline', () => {
+    const draft = structuredClone(spec);
+    draft.views[0].elements[0].style = {
+      borderLeftColor: { mode: 'exact', value: 'rgb(48, 55, 71)' },
+      borderLeftWidth: { mode: 'exact', value: 1, tolerance: 0 },
+    };
+    const scan = scanFixture();
+    scan.content!.elements[0].computedStyles.borderLeftColor = 'rgb(48, 55, 71)';
+    scan.content!.elements[0].computedStyles.borderLeftWidth = '1px';
+    expect(checkDesignSpec(draft, 'report-desktop', scan).verdict).toBe('PASS');
+    scan.content!.elements[0].computedStyles.borderLeftWidth = '0px';
+    expect(checkDesignSpec(draft, 'report-desktop', scan).findings.find(f => f.property === 'style.borderLeftWidth')?.status).toBe('fail');
+  });
+
   it('reports missing and ambiguous evidence as partial rather than passing', () => {
     const scan = scanFixture();
     scan.content = undefined;
