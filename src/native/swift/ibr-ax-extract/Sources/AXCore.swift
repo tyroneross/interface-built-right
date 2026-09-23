@@ -310,41 +310,48 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
         return nil
     }
 
-    // A .sheet/.confirmationDialog/.alert presented over the main window makes
-    // the main window inert (the user — and extraction/action-targeting — can
-    // only interact with the modal surface until it's dismissed). Some
-    // SwiftUI presentations attach as a genuine child of the parent window
-    // (already reachable via the normal getChildren() walk below, no special
-    // handling needed), but others surface as their OWN top-level AXWindow in
-    // kAXWindowsAttribute — role AXSheet, or role AXWindow with subrole
-    // AXDialog/AXSystemDialog — which kAXMainWindowAttribute does NOT point
-    // to. Prefer any such modal window over the main/first window so
-    // extract/observe and target resolution see the dialog's controls
-    // instead of (or in addition to, via normal recursion) the content
-    // beneath it.
-    let modalSubroles: Set<String> = ["AXDialog", "AXSystemDialog"]
-    let modalWindow = windows.first { win in
-        let role = getStringAttribute(win, kAXRoleAttribute)
-        if role == "AXSheet" { return true }
-        if let sub = getStringAttribute(win, kAXSubroleAttribute), modalSubroles.contains(sub) {
-            return true
-        }
-        return false
+    // Resolve the standard app window first (kAXMainWindowAttribute, else the
+    // first AXStandardWindow, else windows[0]). A SwiftUI .sheet/
+    // .confirmationDialog/.alert that attaches to THIS window shows up as an
+    // AXSheet in its own kAXChildrenAttribute — already reachable by the
+    // normal getChildren() walk below with zero special-casing, so it needs
+    // no separate root-selection logic here.
+    var mainWindowRef: AnyObject?
+    let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindowRef)
+    let standardWindow: AXUIElement
+    if mainResult == .success, let mw = mainWindowRef {
+        standardWindow = (mw as! AXUIElement)
+    } else if let std = windows.first(where: { getStringAttribute($0, kAXSubroleAttribute) == "AXStandardWindow" }) {
+        standardWindow = std
+    } else {
+        standardWindow = windows[0]
     }
 
-    // Use the modal window if one is showing, else the frontmost/main window.
-    let window: AXUIElement
-    if let modal = modalWindow {
-        window = modal
-    } else {
-        var mainWindow: AnyObject?
-        let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindow)
-        if mainResult == .success, let mw = mainWindow {
-            window = (mw as! AXUIElement)
-        } else {
-            window = windows[0]
+    // A REAL modal (.alert / a system dialog) can also surface as its OWN
+    // top-level AXWindow in kAXWindowsAttribute — role AXWindow, subrole
+    // AXDialog/AXSystemDialog — that kAXMainWindowAttribute does not point
+    // to. But NOT every AXDialog-subrole top-level window is a modal the
+    // user is looking at: background system overlays (e.g. the in-process
+    // dictation/Siri "waveform orb" panel) can carry the same subrole while
+    // sitting unfocused behind the real window, and blindly preferring any
+    // AXDialog/AXSystemDialog window made the actual app unreachable
+    // (fill/select on the real window returned "not found" — 2026-09-23
+    // regression). Only prefer such a window when it is itself focused or
+    // flagged as the app's main window — i.e. something the user is
+    // actually looking at right now, not a passive overlay.
+    let modalSubroles: Set<String> = ["AXDialog", "AXSystemDialog"]
+    let modalWindow = windows.first { win in
+        guard let sub = getStringAttribute(win, kAXSubroleAttribute), modalSubroles.contains(sub) else {
+            return false
         }
+        let isFocused = getBoolAttribute(win, kAXFocusedAttribute)
+        let isMain = getBoolAttribute(win, "AXMain")
+        return isFocused || isMain
     }
+
+    // Prefer a genuinely-focused/main modal window; otherwise fall back to
+    // the standard app window resolved above (never a passive overlay).
+    let window = modalWindow ?? standardWindow
 
     let title = getStringAttribute(window, kAXTitleAttribute) ?? "Untitled"
     let sz = getSize(window) ?? AXExtractedElement.Size(width: 800, height: 600)
