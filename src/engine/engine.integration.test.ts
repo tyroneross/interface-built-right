@@ -5,6 +5,12 @@
 
 import { describe, it, expect, afterAll } from 'vitest'
 import { EngineDriver } from './driver.js'
+import { BROWSER_SPAWN_TIMEOUT_MS } from './net-timeout.js'
+
+// The first test in this file pays for the Chrome launch, so its deadline
+// must exceed the engine's own spawn budget — otherwise vitest kills it
+// before the engine can report a real ConnectTimeoutError.
+const LAUNCH_TEST_TIMEOUT_MS = BROWSER_SPAWN_TIMEOUT_MS + 30_000
 
 // Single driver instance shared across tests
 const driver = new EngineDriver()
@@ -27,7 +33,7 @@ describe('EngineDriver integration', () => {
   it('launches Chrome and connects via CDP', async () => {
     await ensureLaunched()
     expect(driver.isLaunched).toBe(true)
-  }, 15000)
+  }, LAUNCH_TEST_TIMEOUT_MS)
 
   it('navigates to a data URL', async () => {
     await ensureLaunched()

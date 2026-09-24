@@ -15,6 +15,12 @@ import {
   buildFunctionDeclaration,
   needsEvaluateNameHelper,
 } from './compat.js'
+import { BROWSER_SPAWN_TIMEOUT_MS } from './net-timeout.js'
+
+// The first test in this file pays for the Chrome launch, so its deadline
+// must exceed the engine's own spawn budget — otherwise vitest kills it
+// before the engine can report a real ConnectTimeoutError.
+const LAUNCH_TEST_TIMEOUT_MS = BROWSER_SPAWN_TIMEOUT_MS + 30_000
 
 const driver = new EngineDriver()
 let page: CompatPage
@@ -54,7 +60,7 @@ describe('CompatPage', () => {
     await page.goto('data:text/html,<h1>Compat Test</h1><button id="btn">Click</button><input id="inp" value="hello">')
     const title = await page.content()
     expect(title).toContain('Compat Test')
-  }, 15000)
+  }, LAUNCH_TEST_TIMEOUT_MS)
 
   it('evaluates string expressions', async () => {
     const result = await page.evaluate<number>('1 + 1')
@@ -420,9 +426,15 @@ describe('CompatPage / NetworkDomain — real network events (live Chrome fixtur
   it('waitForResponse resolves with the matched response once it actually arrives', async () => {
     await ensureLaunched()
     await driver.navigate(baseUrl, { waitFor: 'none' })
-    const start = Date.now()
+    // Measuring from Date.now() taken after navigate() returns is racy: under
+    // CPU load navigate() can return late, after the fetch is already in
+    // flight, shrinking the measured elapsed time below the fetch's real
+    // duration. Measure from the page's own clock instead — the server
+    // holds the response FETCH_DELAY_MS after receiving the request, and the
+    // request is sent after __ibrNet.startedAt, so load can only make this
+    // elapsed value larger, never smaller.
     const response = await page.waitForResponse((url) => url.includes('/slow-endpoint'), { timeout: 5000 })
-    const elapsed = Date.now() - start
+    const elapsed = (await driver.evaluate('performance.now() - window.__ibrNet.startedAt')) as number
     expect(response.status).toBe(200)
     expect(response.url).toContain('/slow-endpoint')
     expect(elapsed).toBeGreaterThanOrEqual(FETCH_DELAY_MS - 50)

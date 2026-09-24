@@ -27,6 +27,12 @@
 import { describe, it, expect, afterAll } from 'vitest'
 import { BrowserPool } from './browser-pool.js'
 import { scan } from '../scan.js'
+import { BROWSER_SPAWN_TIMEOUT_MS } from './net-timeout.js'
+
+// The first test in this file pays for the pool's lazy Chrome launch, so its
+// deadline must exceed the engine's own spawn budget — otherwise vitest
+// kills it before the engine can report a real ConnectTimeoutError.
+const LAUNCH_TEST_TIMEOUT_MS = BROWSER_SPAWN_TIMEOUT_MS + 30_000
 
 // Minimal stand-in for the reported page: a nav link hidden by default
 // (mobile-first, matching Tailwind's `hidden` utility) and shown at >=768px
@@ -89,7 +95,7 @@ describe('BrowserPool + scan(): per-call viewport correctness (mobile-viewport t
     )
     const flaggedTheNavLink = touchTargetFindings.some((f) => f.element.includes('nav-link'))
     expect(flaggedTheNavLink).toBe(false)
-  }, 20000)
+  }, LAUNCH_TEST_TIMEOUT_MS)
 
   it('a SUBSEQUENT desktop scan on the SAME pooled driver sees the link at desktop width (no sticky mobile emulation)', async () => {
     const result = await scan(TEST_URL, { viewport: 'desktop', pool })
