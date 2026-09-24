@@ -15,8 +15,13 @@ const INSTALL_HINT =
   'Install IDB: brew tap facebook/fb && brew install idb-companion && pipx install fb-idb. ' +
   'IBR also ships a bundled native-window fallback (requires Accessibility permission and a visible Simulator window).'
 
-export type SimulatorInteractionDriver = 'native-hid' | 'native-window' | 'idb' | 'simctl'
-export type SimulatorDriverPreference = 'auto' | SimulatorInteractionDriver
+export type SimulatorInteractionDriver = 'native-window' | 'idb' | 'simctl'
+/**
+ * `native-hid` is accepted as a preference alias for `idb`: idb_companion is the
+ * headless CoreSimulator HID-injection backend. IBR does not ship its own
+ * private-framework HID client (see .build-loop/research/native-possibilities.md).
+ */
+export type SimulatorDriverPreference = 'auto' | 'native-hid' | SimulatorInteractionDriver
 
 export interface SimulatorInteractionDriverStatus {
   driver: SimulatorInteractionDriver
@@ -31,7 +36,6 @@ export interface SimulatorInteractionDriverStatus {
 }
 
 const DRIVER_LABELS: Record<SimulatorInteractionDriver, string> = {
-  'native-hid': 'IBR native HID',
   'native-window': 'IBR native-window',
   idb: 'Meta IDB',
   simctl: 'simctl',
@@ -42,7 +46,8 @@ function configuredDriverPreference(): SimulatorDriverPreference {
   if (!raw) return 'auto'
 
   const allowed: SimulatorDriverPreference[] = ['auto', 'native-hid', 'native-window', 'idb', 'simctl']
-  return allowed.includes(raw as SimulatorDriverPreference) ? raw as SimulatorDriverPreference : 'auto'
+  if (!allowed.includes(raw as SimulatorDriverPreference)) return 'auto'
+  return raw === 'native-hid' ? 'idb' : raw as SimulatorDriverPreference
 }
 
 function shouldTryDriver(driver: SimulatorInteractionDriver, preference: SimulatorDriverPreference): boolean {
@@ -60,14 +65,6 @@ function forcedDriverFailure(
     driver,
     error: `${SIMULATOR_DRIVER_ENV}=${driver}: ${message}`,
   }
-}
-
-function nativeHidUnavailable(action: string): IdbActionResult {
-  return forcedDriverFailure(
-    action,
-    'native-hid',
-    'headless CoreSimulator/SimulatorKit HID injection is the IDB-parity target, but it is not implemented in this build.',
-  )
 }
 
 function simDriverSuffix(error?: string): string {
@@ -128,20 +125,6 @@ export async function getSimulatorInteractionDriverStatus(): Promise<SimulatorIn
   const simctlAvailable = await isSimctlAvailable()
 
   return [
-    {
-      driver: 'native-hid',
-      label: DRIVER_LABELS['native-hid'],
-      available: false,
-      headless: true,
-      bundled: true,
-      actions: ['tap', 'type', 'swipe', 'button', 'accessibility'],
-      constraints: [
-        'Not implemented in this build.',
-        'Target backend uses CoreSimulator/SimulatorKit HID injection, matching IDB-class headless input.',
-      ],
-      reason: 'pending private-framework HID backend',
-      selected: preference === 'native-hid',
-    },
     {
       driver: 'native-window',
       label: DRIVER_LABELS['native-window'],
@@ -211,10 +194,6 @@ export async function idbTap(udid: string, x: number, y: number): Promise<IdbAct
   const preference = configuredDriverPreference()
   let simDriverError: string | undefined
 
-  if (preference === 'native-hid') {
-    return nativeHidUnavailable('tap')
-  }
-
   if (shouldTryDriver('native-window', preference)) {
     if (!isSimDriverAvailable()) {
       if (preference === 'native-window') {
@@ -265,10 +244,6 @@ export async function idbTap(udid: string, x: number, y: number): Promise<IdbAct
 export async function idbType(udid: string, text: string): Promise<IdbActionResult> {
   const preference = configuredDriverPreference()
   let simDriverError: string | undefined
-
-  if (preference === 'native-hid') {
-    return nativeHidUnavailable('type')
-  }
 
   if (shouldTryDriver('native-window', preference)) {
     if (!isSimDriverAvailable()) {
@@ -331,10 +306,6 @@ export async function idbSwipe(
   const preference = configuredDriverPreference()
   let simDriverError: string | undefined
 
-  if (preference === 'native-hid') {
-    return nativeHidUnavailable('swipe')
-  }
-
   if (shouldTryDriver('native-window', preference)) {
     if (!isSimDriverAvailable()) {
       if (preference === 'native-window') {
@@ -388,10 +359,6 @@ export async function idbButton(
 ): Promise<IdbActionResult> {
   const preference = configuredDriverPreference()
   const action = `button:${button}`
-
-  if (preference === 'native-hid') {
-    return nativeHidUnavailable(action)
-  }
 
   if (preference === 'native-window') {
     return forcedDriverFailure(action, 'native-window', 'native-window does not support hardware buttons.')

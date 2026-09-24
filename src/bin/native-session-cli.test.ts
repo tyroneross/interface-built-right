@@ -38,6 +38,8 @@ import {
   handleRead,
   handleAction,
   handleClose,
+  handleComputerUse,
+  handleReplay,
   defaultCliDeps,
   EXIT_OK,
   EXIT_ACTION_FAILED,
@@ -301,5 +303,98 @@ describe('T-03 cross-process repro: start -> action -> close via the real file s
       realDepsWithBackend(backend),
     );
     expect(postCloseRes.exitCode).toBe(EXIT_SESSION_NOT_FOUND);
+  });
+});
+
+describe('compact refs (--what refs / --ref)', () => {
+  it('reads numbered refs, then acts by ref and returns only the AX diff', async () => {
+    const { mkdtempSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'macos', elements: [macElement({ title: 'Save', path: [0] })], window: windowInfo };
+    const deps = { ...fakeDeps(backend, { s1: { type: 'macos', app: 'TextEdit', pid: 4242, createdAt: 1 } }), refsDir: mkdtempSync(join(tmpdir(), 'ibr-cli-refs-')) };
+
+    const read = await handleRead({ sessionId: 's1', what: 'refs' }, deps);
+    expect(read.exitCode).toBe(EXIT_OK);
+    expect(read.text).toMatch(/^e1 Button "Save"/);
+    expect(read.json.full).toMatch(/s1\.observe\.json$/);
+
+    backend.extractResult = {
+      kind: 'macos',
+      elements: [macElement({ title: 'Save', path: [0] }), macElement({ role: 'AXStaticText', title: 'Saved', path: [1] })],
+      window: windowInfo,
+    };
+    const act = await handleAction({ sessionId: 's1', action: 'press', ref: 'e1', waitTimeoutMs: 0 }, deps);
+    expect(act.exitCode).toBe(EXIT_OK);
+    expect(act.json.axChanged).toBe(true);
+    expect(act.text).toContain('+ e2 StaticText "Saved"');
+
+    const bad = await handleAction({ sessionId: 's1', action: 'press', ref: 'e99' }, deps);
+    expect(bad.exitCode).toBe(EXIT_INVALID_TARGET);
+  });
+});
+
+describe('handleComputerUse', () => {
+  it('maps an Anthropic click, drives the simulator and returns the AX diff', async () => {
+    const { mkdtempSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+    let reads = 0;
+    const executed: unknown[] = [];
+    const deps = {
+      ...fakeDeps(new FakeBackend(), { sim: { type: 'simulator', device: { udid: 'U1', name: 'iPhone' }, createdAt: 1 } }),
+      refsDir: mkdtempSync(join(tmpdir(), 'ibr-cu-')),
+      readSimulatorElements: async () => (reads++ === 0
+        ? [{ role: 'AXButton', label: 'General' }]
+        : [{ role: 'AXButton', label: 'General' }, { role: 'AXStaticText', label: 'About' }]),
+      executeOnSimulator: async (_u: string, a: unknown) => { executed.push(a); return { success: true }; },
+      settleIntervalMs: 0,
+    };
+    const res = await handleComputerUse({ sessionId: 'sim', actionJson: '{"action":"left_click","coordinate":[100,200]}' }, deps);
+    expect(executed).toEqual([{ kind: 'click', x: 100, y: 200, count: 1 }]);
+    expect(res.exitCode).toBe(EXIT_OK);
+    expect(res.text).toContain('+ e2 StaticText "About"');
+  });
+
+  it('rejects macOS sessions and malformed actions with EXIT_INVALID_TARGET', async () => {
+    const deps = fakeDeps(new FakeBackend(), {
+      mac: { type: 'macos', app: 'TextEdit', pid: 1, createdAt: 1 },
+      sim: { type: 'simulator', device: { udid: 'U1', name: 'iPhone' }, createdAt: 1 },
+    });
+    expect((await handleComputerUse({ sessionId: 'mac', actionJson: '{"type":"click","x":1,"y":1}' }, deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+    expect((await handleComputerUse({ sessionId: 'sim', actionJson: 'not json' }, deps)).exitCode).toBe(EXIT_INVALID_TARGET);
+  });
+});
+
+describe('record -> replay round trip and ref safety', () => {
+  const seed = { s1: { type: 'macos' as const, app: 'Calc', pid: 4242, createdAt: 1 } };
+  const tree = [macElement({ path: [0], title: 'Seven', position: { x: 0, y: 0 } }), macElement({ path: [1], title: 'Add', position: { x: 0, y: 50 } })];
+
+  it('records through handleAction and replays the same tree as a cache hit', async () => {
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'macos', elements: tree, window: windowInfo };
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-rr-'));
+    const file = join(dir, 'flow.json');
+    const deps = { ...fakeDeps(backend, seed), refsDir: dir };
+    const rec = await handleAction({ sessionId: 's1', action: 'press', target: 'Seven', record: file, waitTimeoutMs: 0 }, deps);
+    expect(rec.exitCode).toBe(EXIT_OK);
+    expect(rec.json.recorded).toBe(1);
+    const rep = await handleReplay({ sessionId: 's1', file }, deps, { backend, settleMs: 0 });
+    expect(rep.exitCode).toBe(EXIT_OK);
+    expect((rep.json.reports as Array<{ status: string }>)[0].status).toBe('cached');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('refuses a ref whose role+name is shared by another element', async () => {
+    const backend = new FakeBackend();
+    backend.extractResult = { kind: 'macos', elements: [macElement({ path: [0], title: 'Delete' }), macElement({ path: [1], title: 'Delete', position: { x: 0, y: 90 } })], window: windowInfo };
+    const dir = mkdtempSync(join(tmpdir(), 'ibr-amb-'));
+    const deps = { ...fakeDeps(backend, seed), refsDir: dir };
+    await handleRead({ sessionId: 's1', what: 'refs' }, deps);
+    const res = await handleAction({ sessionId: 's1', action: 'press', ref: 'e2', waitTimeoutMs: 0 }, deps);
+    expect(res.exitCode).toBe(EXIT_INVALID_TARGET);
+    expect(String(res.json.error)).toContain('ambiguous');
+    rmSync(dir, { recursive: true, force: true });
   });
 });

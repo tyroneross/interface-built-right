@@ -16,6 +16,7 @@ import { SnapshotDomain, type CaptureSnapshotResult } from './cdp/snapshot.js'
 import { EmulationDomain, type ViewportConfig } from './cdp/emulation.js'
 import { NetworkDomain, type Cookie, type SetCookieParams } from './cdp/network.js'
 import { ConsoleDomain, type ConsoleMessage } from './cdp/console.js'
+import { FetchDomain, type MockResponse } from './cdp/fetch.js'
 import { waitForStableTree, waitForStable } from './cdp/wait.js'
 import {
   waitForActionable,
@@ -337,6 +338,7 @@ export class EngineDriver implements BrowserDriver {
   private emulation!: EmulationDomain
   private network!: NetworkDomain
   private console!: ConsoleDomain
+  private fetch!: FetchDomain
 
   private targetId: string | null = null
   private sessionId: string | null = null
@@ -411,6 +413,7 @@ export class EngineDriver implements BrowserDriver {
     this.emulation = new EmulationDomain(this.conn, this.sessionId)
     this.network = new NetworkDomain(this.conn, this.sessionId)
     this.console = new ConsoleDomain(this.conn, this.sessionId)
+    this.fetch = new FetchDomain(this.conn, this.sessionId)
 
     // Enable required domains
     progress('enabling CDP domains')
@@ -482,6 +485,17 @@ export class EngineDriver implements BrowserDriver {
     }
     await this.conn.close().catch(() => {})
     this.launched = false
+  }
+
+  /** Fulfill requests whose URL matches `pattern` (glob or RegExp) with `response` via CDP Fetch. */
+  async mock(pattern: string | RegExp, response: MockResponse): Promise<void> {
+    if (!this.launched) throw new Error('mock() requires a launched browser session')
+    await this.fetch.mock(pattern, response)
+  }
+
+  /** Remove all network mocks and disable request interception. */
+  async clearMocks(): Promise<void> {
+    if (this.fetch) await this.fetch.clear()
   }
 
   get isLaunched(): boolean {
@@ -1871,6 +1885,7 @@ export class EngineDriver implements BrowserDriver {
     this.emulation = new EmulationDomain(this.conn, this.sessionId)
     this.network = new NetworkDomain(this.conn, this.sessionId)
     this.console = new ConsoleDomain(this.conn, this.sessionId)
+    this.fetch = new FetchDomain(this.conn, this.sessionId)
 
     await this._page.enableLifecycleEvents()
     await this.ax.enable()

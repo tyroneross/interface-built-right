@@ -120,9 +120,29 @@ func getFrame(_ element: AXUIElement) -> LegacyElement.Frame {
 
 // MARK: - AX Tree Walkers
 
+/// Elements already emitted in one walk, compared with CFEqual. Some apps
+/// expose an AX child that points back at an ancestor (observed on System
+/// Settings: the root resolved to the application element and every level's
+/// child 0 led back to it, so the menu bar was emitted 13-14 times until
+/// maxDepth). Emitting each AX element at most once breaks that cycle at the
+/// source for every consumer; index paths are unaffected because they still use
+/// the element's real child index.
+final class VisitedElements {
+    private var buckets: [CFHashCode: [AXUIElement]] = [:]
+
+    /// Returns true the first time an element is seen, false on any repeat.
+    func insert(_ element: AXUIElement) -> Bool {
+        let h = CFHash(element)
+        if let seen = buckets[h], seen.contains(where: { CFEqual($0, element) }) { return false }
+        buckets[h, default: []].append(element)
+        return true
+    }
+}
+
 /// Walk element tree — new format with full AX attributes, tracking index path
-func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = []) -> AXExtractedElement? {
+func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = [], visited: VisitedElements = VisitedElements()) -> AXExtractedElement? {
     guard depth < maxDepth else { return nil }
+    guard visited.insert(element) else { return nil }
 
     let role = getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown"
     let subrole = getStringAttribute(element, kAXSubroleAttribute)
@@ -146,7 +166,7 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
     var childElements: [AXExtractedElement] = []
     for (index, child) in axChildren.enumerated() {
         let childPath = currentPath + [index]
-        if let childEl = walkElementFull(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath) {
+        if let childEl = walkElementFull(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath, visited: visited) {
             childElements.append(childEl)
         }
     }
@@ -170,8 +190,9 @@ func walkElementFull(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15,
 }
 
 /// Walk element tree — legacy format for simulator compatibility
-func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = []) -> LegacyElement? {
+func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 15, currentPath: [Int] = [], visited: VisitedElements = VisitedElements()) -> LegacyElement? {
     guard depth < maxDepth else { return nil }
+    guard visited.insert(element) else { return nil }
 
     let role = getStringAttribute(element, kAXRoleAttribute) ?? "AXUnknown"
     let label = getStringAttribute(element, kAXTitleAttribute)
@@ -191,7 +212,7 @@ func walkElementLegacy(_ element: AXUIElement, depth: Int = 0, maxDepth: Int = 1
     var childElements: [LegacyElement] = []
     for (index, child) in axChildren.enumerated() {
         let childPath = currentPath + [index]
-        if let childEl = walkElementLegacy(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath) {
+        if let childEl = walkElementLegacy(child, depth: depth + 1, maxDepth: maxDepth, currentPath: childPath, visited: visited) {
             childElements.append(childEl)
         }
     }
@@ -310,8 +331,14 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
         return nil
     }
 
+    // Only an AXWindow is a valid walk root. A main-window attribute that
+    // resolves to anything else (e.g. the application element) made the walk
+    // start above the window and re-enter the menu bar at every level. This
+    // guard applies to every candidate below, the modal window included.
+    let isWindow: (AXUIElement) -> Bool = { getStringAttribute($0, kAXRoleAttribute) == (kAXWindowRole as String) }
+
     // Resolve the standard app window first (kAXMainWindowAttribute, else the
-    // first AXStandardWindow, else windows[0]). A SwiftUI .sheet/
+    // first AXStandardWindow, else the first AXWindow). A SwiftUI .sheet/
     // .confirmationDialog/.alert that attaches to THIS window shows up as an
     // AXSheet in its own kAXChildrenAttribute — already reachable by the
     // normal getChildren() walk below with zero special-casing, so it needs
@@ -319,12 +346,14 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
     var mainWindowRef: AnyObject?
     let mainResult = AXUIElementCopyAttributeValue(appElement, kAXMainWindowAttribute as CFString, &mainWindowRef)
     let standardWindow: AXUIElement
-    if mainResult == .success, let mw = mainWindowRef {
+    if mainResult == .success, let mw = mainWindowRef, CFGetTypeID(mw) == AXUIElementGetTypeID(), isWindow(mw as! AXUIElement) {
         standardWindow = (mw as! AXUIElement)
-    } else if let std = windows.first(where: { getStringAttribute($0, kAXSubroleAttribute) == "AXStandardWindow" }) {
+    } else if let std = windows.first(where: { isWindow($0) && getStringAttribute($0, kAXSubroleAttribute) == "AXStandardWindow" }) {
         standardWindow = std
+    } else if let firstWindow = windows.first(where: isWindow) {
+        standardWindow = firstWindow
     } else {
-        standardWindow = windows[0]
+        return nil
     }
 
     // A REAL modal (.alert / a system dialog) can also surface as its OWN
@@ -341,7 +370,7 @@ func findMainWindow(pid: pid_t) -> (window: AXUIElement, id: CGWindowID, title: 
     // actually looking at right now, not a passive overlay.
     let modalSubroles: Set<String> = ["AXDialog", "AXSystemDialog"]
     let modalWindow = windows.first { win in
-        guard let sub = getStringAttribute(win, kAXSubroleAttribute), modalSubroles.contains(sub) else {
+        guard isWindow(win), let sub = getStringAttribute(win, kAXSubroleAttribute), modalSubroles.contains(sub) else {
             return false
         }
         let isFocused = getBoolAttribute(win, kAXFocusedAttribute)

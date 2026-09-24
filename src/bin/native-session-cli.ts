@@ -19,7 +19,22 @@
  */
 
 import type { Command } from 'commander';
+import { assignRefs, diffRefs, formatDiff, formatRefLine, loadRefs, saveRefs, writeFullPayload, type RawElement, type RefEntry } from '../native/compact-refs.js';
+import { DEFAULT_SESSION_STORE_DIR } from '../native/session-store.js';
+import { executeOnSimulator, normalizeAction, readSimulatorElements, type CanonicalAction } from '../native/computer-use.js';
 import { randomUUID } from 'crypto';
+import { idbTap } from '../native/idb.js';
+import { getNativeBackend } from '../native/backend.js';
+import {
+  appendReplayStep,
+  elementAtPoint,
+  fingerprintOf,
+  formatReplayReport,
+  loadReplayFile,
+  replay,
+  treeSignature,
+  type ReplayDeps,
+} from '../native/replay.js';
 import {
   NativeSessionController,
   type NativeToolResult,
@@ -63,6 +78,12 @@ export interface CliDeps {
   writeSession: typeof writeSession;
   readSession: typeof readSession;
   deleteSession: typeof deleteSession;
+  /** Directory for refs + file-out payloads; defaults to the session store dir. */
+  refsDir?: string;
+  /** Test seams for the simulator computer-use path. */
+  readSimulatorElements?: (udid: string) => Promise<RawElement[]>;
+  executeOnSimulator?: typeof executeOnSimulator;
+  settleIntervalMs?: number;
 }
 
 export function defaultCliDeps(): CliDeps {
@@ -220,12 +241,31 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   const entry = toSessionEntry(stored);
   const store = new Map<string, SessionEntry>([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
-  const what = opts.what ?? 'observe';
-  const limit = opts.limit ?? 50;
+  const requested = opts.what ?? 'observe';
+  const compact = requested === 'refs';
+  const what = compact ? 'observe' : requested;
+  // refs reads must cover the same element window as the 200-element post-action
+  // re-read, or the first diff reports every element past the limit as added.
+  const limit = opts.what === 'refs' ? Math.max(opts.limit ?? 200, 200) : (opts.limit ?? 50);
+
+  // Simulator guest AX is only reachable through idb; the host AX walk sees Simulator.app chrome.
+  if (compact && entry.type !== 'macos' && stored.device) {
+    const readEls = deps.readSimulatorElements ?? readSimulatorElements;
+    try {
+      const elements = await readEls(stored.device.udid);
+      return compactRead(opts.sessionId, { elements }, deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+    } catch (err) {
+      return actionFailed(`idb describe-all failed: ${err instanceof Error ? err.message : String(err)}`, { sessionId: opts.sessionId });
+    }
+  }
 
   const result = entry.type === 'macos'
     ? await controller.readMacOS(entry, what, limit)
     : await controller.readSimulator(entry, what, limit);
+
+  if (compact && result.kind === 'text' && !result.isError) {
+    return compactRead(opts.sessionId, parsePayload(result.text), deps.refsDir ?? DEFAULT_SESSION_STORE_DIR);
+  }
 
   if (result.kind === 'image') {
     const metadata = parsePayload(result.metadata);
@@ -254,6 +294,23 @@ export async function handleRead(opts: ReadOptions, deps: CliDeps = defaultCliDe
   };
 }
 
+function elementsOf(payload: Record<string, unknown>): RawElement[] {
+  return Array.isArray(payload.elements) ? payload.elements as RawElement[] : [];
+}
+
+/** `--what refs`: numbered refs inline, full payload file-out, refs persisted for `--ref`. */
+function compactRead(sessionId: string, payload: Record<string, unknown>, dir: string): CliResult {
+  const refs = assignRefs(elementsOf(payload), loadRefs(dir, sessionId));
+  saveRefs(dir, sessionId, refs);
+  const full = writeFullPayload(dir, sessionId, 'observe', payload);
+  const lines = refs.map(formatRefLine);
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId, count: refs.length, refs: lines, full },
+    text: [...lines, `full: ${full}`].join('\n'),
+  };
+}
+
 // ─── action ────────────────────────────────────────────────────────────────
 
 export interface ActionOptions {
@@ -268,7 +325,13 @@ export interface ActionOptions {
   op?: AppLifecycleOp;
   app?: string;
   menuPath?: string[];
+  /** Short ref from a prior `--what refs` read, e.g. `e12`. Resolves target + role. */
+  ref?: string;
+  /** Append the resolved step to this replay file (macOS element actions). */
+  record?: string;
 }
+
+const ELEMENT_ACTIONS = new Set(['click', 'press', 'fill', 'type', 'focus', 'showMenu', 'increment', 'decrement', 'confirm', 'cancel', 'scroll', 'scrollToVisible', 'check', 'select']);
 
 export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultCliDeps()): Promise<CliResult> {
   const stored = deps.readSession(opts.sessionId);
@@ -277,12 +340,33 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
   const entry = toSessionEntry(stored);
   const store = new Map<string, SessionEntry>([[opts.sessionId, entry]]);
   const controller = deps.makeController(store);
+  const refsDir = deps.refsDir ?? DEFAULT_SESSION_STORE_DIR;
+
+  let refEntry: RefEntry | undefined;
+  let beforeRefs: RefEntry[] | null = null;
+  if (opts.ref) {
+    beforeRefs = loadRefs(refsDir, opts.sessionId);
+    refEntry = beforeRefs?.find((r) => r.ref === opts.ref);
+    if (!refEntry) {
+      return invalidTarget(`Unknown ref "${opts.ref}". Run: ibr native:session:read ${opts.sessionId} --what refs`, { sessionId: opts.sessionId });
+    }
+    if (!refEntry.label && !refEntry.identifier) {
+      return invalidTarget(`Ref ${opts.ref} (${refEntry.role}) has no accessible name or identifier to target.`, { sessionId: opts.sessionId });
+    }
+    // The controller resolves by name + role, so a ref whose name+role is shared by
+    // another element could act on the wrong one. Refuse rather than guess.
+    const name = refEntry.label ?? refEntry.identifier;
+    const twins = beforeRefs!.filter((r) => r.role === refEntry!.role && (r.label ?? r.identifier) === name);
+    if (twins.length > 1) {
+      return invalidTarget(`Ref ${opts.ref} is ambiguous: ${twins.map((r) => r.ref).join(', ')} share role ${refEntry.role} and name ${JSON.stringify(name)}.`, { sessionId: opts.sessionId });
+    }
+  }
 
   const request: NativeSessionActionRequest = {
     action: opts.action,
-    target: opts.target,
+    target: refEntry ? (refEntry.label ?? refEntry.identifier ?? undefined) : opts.target,
     value: opts.value,
-    role: opts.role,
+    role: refEntry ? refEntry.role : opts.role,
     waitFor: opts.waitFor,
     waitTimeoutMs: opts.waitTimeoutMs,
     chord: opts.chord,
@@ -290,6 +374,19 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     app: opts.app,
     menuPath: opts.menuPath,
   };
+
+  // Recording needs the pre-action tree signature so replay can tell "same UI" from "changed UI".
+  let recordSignature: string | undefined;
+  if (opts.record) {
+    if (entry.type !== 'macos' || !ELEMENT_ACTIONS.has(opts.action)) {
+      return invalidTarget('--record captures macOS element actions; record simulator taps with native:cu --record.', { sessionId: opts.sessionId });
+    }
+    const pre = await controller.readMacOS(entry, 'extract', 100000);
+    if (pre.kind === 'text' && !pre.isError) {
+      const p = parsePayload(pre.text);
+      recordSignature = treeSignature(elementsOf(p), p.window);
+    }
+  }
 
   const result = entry.type === 'macos'
     ? await controller.actionMacOS(entry, request)
@@ -327,10 +424,163 @@ export async function handleAction(opts: ActionOptions, deps: CliDeps = defaultC
     });
   }
 
+  let recorded: number | undefined;
+  let recordError: string | undefined;
+  if (opts.record && recordSignature) {
+    const resolved = payload.resolved as { role?: string; label?: string | null; identifier?: string | null; path?: number[] } | undefined;
+    if (resolved?.path) {
+      try { recorded = appendReplayStep(opts.record, {
+        platform: 'macos',
+        action: opts.action,
+        value: opts.value,
+        fingerprint: fingerprintOf(resolved),
+        path: resolved.path,
+        signature: recordSignature,
+      }); } catch (err) {
+        recordError = err instanceof Error ? err.message : String(err);
+      }
+    }
+  }
+  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : recordError ? `\nnot recorded: ${recordError}` : '';
+
+  if (refEntry && beforeRefs) {
+    // success:true is not actuation: re-read the AX tree and report only the delta.
+    const reread = entry.type === 'macos'
+      ? await controller.readMacOS(entry, 'observe', 200)
+      : await controller.readSimulator(entry, 'observe', 200);
+    if (reread.kind === 'text' && !reread.isError) {
+      const afterRefs = assignRefs(elementsOf(parsePayload(reread.text)), beforeRefs);
+      saveRefs(refsDir, opts.sessionId, afterRefs);
+      const d = diffRefs(beforeRefs, afterRefs);
+      const diff = formatDiff(d);
+      return {
+        exitCode: EXIT_OK,
+        json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: opts.action, ref: opts.ref, axChanged: d.added.length + d.removed.length > 0, diff: diff.split('\n'), recorded },
+        text: `✓ ${opts.action} ${opts.ref}\n${diff}${recNote}`,
+      };
+    }
+  }
+
   return {
     exitCode: EXIT_OK,
-    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...payload },
-    text: `✓ ${opts.action}${opts.target ? ` on "${opts.target}"` : ''} succeeded`,
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, ...payload, recorded },
+    text: `✓ ${opts.action}${opts.target ? ` on "${opts.target}"` : ''} succeeded${recNote}`,
+  };
+}
+
+// ─── computer-use ──────────────────────────────────────────────────────────
+
+const SETTLE_MAX_READS = 5;
+const SETTLE_INTERVAL_MS = 250;
+
+export interface ComputerUseOptions {
+  sessionId: string;
+  /** Anthropic (`{"action":"left_click","coordinate":[x,y]}`), OpenAI (`{"type":"click","x":..,"y":..}`) or IBR JSON. */
+  actionJson: string;
+  /** Append click steps (with the tapped element's fingerprint) to this replay file. */
+  record?: string;
+}
+
+export async function handleComputerUse(opts: ComputerUseOptions, deps: CliDeps = defaultCliDeps()): Promise<CliResult> {
+  const stored = deps.readSession(opts.sessionId);
+  if (!stored) return sessionNotFound(opts.sessionId);
+  if (stored.type !== 'simulator' || !stored.device) {
+    return invalidTarget('native:cu drives simulator sessions. For macOS apps use --what refs + native:session:action --ref (cursor-free).', { sessionId: opts.sessionId });
+  }
+  let action: CanonicalAction;
+  try {
+    action = normalizeAction(JSON.parse(opts.actionJson) as Record<string, unknown>);
+  } catch (err) {
+    return invalidTarget(`Bad action: ${err instanceof Error ? err.message : String(err)}`, { sessionId: opts.sessionId });
+  }
+  const udid = stored.device.udid;
+  const refsDir = deps.refsDir ?? DEFAULT_SESSION_STORE_DIR;
+  const readEls = deps.readSimulatorElements ?? readSimulatorElements;
+  const exec = deps.executeOnSimulator ?? executeOnSimulator;
+
+  const before = action.kind === 'screenshot' || action.kind === 'wait'
+    ? null
+    : (loadRefs(refsDir, opts.sessionId) ?? assignRefs(await readEls(udid)));
+  // Recording reads the live tree (not persisted refs) so the signature matches what replay will see.
+  let recordStep: Parameters<typeof appendReplayStep>[1] | undefined;
+  if (opts.record) {
+    if (action.kind !== 'click') return invalidTarget('native:cu --record captures click actions only.', { sessionId: opts.sessionId });
+    const els = await readEls(udid);
+    const hit = elementAtPoint(els, action.x, action.y);
+    if (!hit) return invalidTarget(`No AX element at ${action.x},${action.y} to record.`, { sessionId: opts.sessionId });
+    recordStep = { platform: 'simulator', action: 'click', count: action.count, fingerprint: fingerprintOf(hit), point: [action.x, action.y], signature: treeSignature(els) };
+  }
+  const res = await exec(udid, action, refsDir);
+  let recorded: number | undefined;
+  let recordError: string | undefined;
+  if (res.success && recordStep && opts.record) {
+    try { recorded = appendReplayStep(opts.record, recordStep); } catch (err) { recordError = err instanceof Error ? err.message : String(err); }
+  }
+  const recNote = recorded ? `\nrecorded step ${recorded} -> ${opts.record}` : recordError ? `\nnot recorded: ${recordError}` : '';
+  if (!res.success) return actionFailed(res.error ?? `${action.kind} failed`, { sessionId: opts.sessionId, action: action.kind });
+  if (res.screenshot) {
+    return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: 'screenshot', path: res.screenshot }, text: `screenshot: ${res.screenshot}` };
+  }
+  if (!before) {
+    return { exitCode: EXIT_OK, json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind }, text: `✓ ${action.kind}` };
+  }
+  // success:true is not actuation: re-read the AX tree and report the delta only.
+  // Poll until two consecutive reads agree so a mid-animation tree is not reported.
+  let after = assignRefs(await readEls(udid), before);
+  for (let i = 0; i < SETTLE_MAX_READS; i++) {
+    await new Promise((r) => setTimeout(r, deps.settleIntervalMs ?? SETTLE_INTERVAL_MS));
+    const next = assignRefs(await readEls(udid), before);
+    const same = diffRefs(after, next);
+    after = next;
+    if (same.added.length === 0 && same.removed.length === 0) break;
+  }
+  saveRefs(refsDir, opts.sessionId, after);
+  const d = diffRefs(before, after);
+  const diff = formatDiff(d);
+  return {
+    exitCode: EXIT_OK,
+    json: { ok: true, exitCode: EXIT_OK, sessionId: opts.sessionId, action: action.kind, axChanged: d.added.length + d.removed.length > 0, diff: diff.split('\n'), recorded },
+    text: `✓ ${action.kind}\n${diff}${recNote}`,
+  };
+}
+
+// ─── replay ────────────────────────────────────────────────────────────────
+
+export interface ReplayOptions {
+  sessionId: string;
+  file: string;
+}
+
+export async function handleReplay(opts: ReplayOptions, deps: CliDeps = defaultCliDeps(), replayDeps?: Partial<ReplayDeps>): Promise<CliResult> {
+  const stored = deps.readSession(opts.sessionId);
+  if (!stored) return sessionNotFound(opts.sessionId);
+  let file;
+  try {
+    file = loadReplayFile(opts.file);
+  } catch (err) {
+    return invalidTarget(err instanceof Error ? err.message : String(err));
+  }
+  if (file.steps.length === 0) return invalidTarget(`${opts.file} has no recorded steps.`);
+  const reports = await replay(file, {
+    sessionId: opts.sessionId,
+    kind: stored.type,
+    pid: stored.pid,
+    app: stored.app,
+    udid: stored.device?.udid,
+    deviceName: stored.device?.name,
+  }, {
+    backend: replayDeps?.backend ?? getNativeBackend(),
+    readSimulatorElements: replayDeps?.readSimulatorElements ?? deps.readSimulatorElements ?? readSimulatorElements,
+    tapSimulator: replayDeps?.tapSimulator ?? idbTap,
+    settleMs: replayDeps?.settleMs,
+  });
+  const failed = reports.some((r) => r.status === 'failed');
+  const code = failed ? EXIT_ACTION_FAILED : EXIT_OK;
+  const healed = reports.filter((r) => r.status === 'healed').map((r) => ({ step: r.index, from: r.from, to: r.to }));
+  return {
+    exitCode: code,
+    json: { ok: !failed, exitCode: code, sessionId: opts.sessionId, steps: file.steps.length, reports, healed, reResolves: healed.length },
+    text: formatReplayReport(reports, file.steps.length),
   };
 }
 
@@ -410,7 +660,7 @@ export function registerNativeSessionCommands(program: Command): void {
   program
     .command('native:session:read <sessionId>')
     .description('Read a native session — observe/extract/state/screenshot (CLI parity for native_session_read)')
-    .option('--what <mode>', 'observe | extract | screenshot | state', 'observe')
+    .option('--what <mode>', 'refs (compact numbered refs, full payload written to a file) | observe | extract | screenshot | state', 'observe')
     .option('--limit <n>', 'Maximum elements to return', '50')
     .option('--json', 'Emit structured JSON to stdout')
     .action(async (sessionId: string, opts: { what: string; limit: string; json?: boolean }) => {
@@ -423,6 +673,7 @@ export function registerNativeSessionCommands(program: Command): void {
     .description('Perform a native session action by accessible name (CLI parity for native_session_action)')
     .requiredOption('--action <kind>', 'click|press|fill|type|focus|showMenu|increment|decrement|confirm|cancel|scroll|scrollToVisible|check|select|drag|keystroke|app|menuPath')
     .option('--target <name>', 'Accessible name / AX identifier / description / value to target')
+    .option('--ref <eN>', 'Short ref from `native:session:read --what refs`; prints only the AX diff after acting')
     .option('--value <text>', 'Text for fill/type actions')
     .option('--role <role>', 'Optional role filter')
     .option('--wait-for <name>', 'Expected post-action target to poll for; failing to settle is a non-zero exit')
@@ -431,6 +682,7 @@ export function registerNativeSessionCommands(program: Command): void {
     .option('--op <op>', "App lifecycle op for the 'app' action: launch|switch|quit")
     .option('--app <name>', "App name/bundle id for the 'app' action's lifecycle op")
     .option('--menu-path <items>', "Comma-separated AXMenu titles for the 'menuPath' action, e.g. 'File,New Window'")
+    .option('--record <file>', 'Append the resolved step to a replay file (macOS element actions); re-run with native:replay')
     .option('--json', 'Emit structured JSON to stdout')
     .action(async (sessionId: string, opts: {
       action: string;
@@ -443,6 +695,8 @@ export function registerNativeSessionCommands(program: Command): void {
       op?: string;
       app?: string;
       menuPath?: string;
+      ref?: string;
+      record?: string;
       json?: boolean;
     }) => {
       const result = await handleAction({
@@ -457,8 +711,28 @@ export function registerNativeSessionCommands(program: Command): void {
         op: opts.op as AppLifecycleOp | undefined,
         app: opts.app,
         menuPath: opts.menuPath ? opts.menuPath.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+        ref: opts.ref,
+        record: opts.record,
       });
       emit(result, opts.json);
+    });
+
+  program
+    .command('native:cu <sessionId> <actionJson>')
+    .description('Computer-use action on a simulator session. Accepts Anthropic ({"action":"left_click","coordinate":[x,y]}) or OpenAI ({"type":"click","x":1,"y":2}) JSON; prints the AX diff, screenshots as a file path')
+    .option('--record <file>', 'Append click steps to a replay file; re-run with native:replay')
+    .option('--json', 'Emit structured JSON to stdout')
+    .action(async (sessionId: string, actionJson: string, opts: { json?: boolean; record?: string }) => {
+      emit(await handleComputerUse({ sessionId, actionJson, record: opts.record }), opts.json);
+    });
+
+  program
+    .command('native:replay <file>')
+    .description('Replay a recorded native flow without a model: acts on recorded paths/points, re-resolves only steps whose target moved, and reports which steps healed')
+    .requiredOption('--session <id>', 'Native session to replay against (native:session:start)')
+    .option('--json', 'Emit structured JSON to stdout')
+    .action(async (file: string, opts: { session: string; json?: boolean }) => {
+      emit(await handleReplay({ sessionId: opts.session, file }), opts.json);
     });
 
   program
