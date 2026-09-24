@@ -249,6 +249,14 @@ export function collectInteractionStates(ctx: SensorContext): InteractionStatesR
   // after the fact without re-associating declarations back to rules.
   const hasFocus = new Map<string, boolean>();
 
+  // Union of `focusMatchOrdinals` from every non-removal-only focus rule —
+  // the per-ELEMENT counterpart to `focusCoveredSelectors`. Needed because
+  // `buildStructuralSelector`/`generateSelector` truncate at 200 chars and
+  // drop the TAIL (the element's own segment), so two distinct sibling
+  // controls deep in an id-less DOM can share one truncated selector string.
+  // `focusCoveredSelectors` alone can't tell them apart; ordinals can.
+  const coveredOrdinals = new Set<number>();
+
   walkRules(rules, (style, walkCtx) => {
     const parsed = parseStateSelectors(style.selector);
     // Computed once per rule and shared by the legacy hasFocus map and the
@@ -270,6 +278,9 @@ export function collectInteractionStates(ctx: SensorContext): InteractionStatesR
     }
     if (style.focusMatches && !removalOnly) {
       for (const sel of style.focusMatches) focusCoveredSelectors.add(sel);
+    }
+    if (style.focusMatchOrdinals && !removalOnly) {
+      for (const ord of style.focusMatchOrdinals) coveredOrdinals.add(ord);
     }
   });
 
@@ -301,7 +312,18 @@ export function collectInteractionStates(ctx: SensorContext): InteractionStatesR
       hasFocus.get(el.selector) === true ||
       hasFocus.get(tag) === true ||
       classes.some((c) => hasFocus.get(`.${c}`) === true);
-    const structurallyCovered = focusCoveredSelectors.has(el.selector);
+    // `focusSelectorGroups[el.selector]` is only populated when this
+    // selector string is a truncation collision shared by 2+ real elements —
+    // in that case trust the ordinal-based union (`coveredOrdinals`) over
+    // the collided string, and require EVERY member of the group to be
+    // covered before crediting any one of them (a mixed group would
+    // otherwise silently clear an uncovered sibling, which is the exact bug
+    // this replaces). Absent for non-colliding selectors and for contexts
+    // with no live-scan documentMeta, where the legacy string check applies.
+    const group = ctx.documentMeta?.focusSelectorGroups?.[el.selector];
+    const structurallyCovered = group
+      ? group.every((ord) => coveredOrdinals.has(ord))
+      : focusCoveredSelectors.has(el.selector);
 
     if (legacyCovered || structurallyCovered) continue;
 

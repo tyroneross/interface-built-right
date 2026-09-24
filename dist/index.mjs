@@ -8246,15 +8246,61 @@ async function enrichWithEventListeners(page, elements) {
     (function () {
       const selectors = ${JSON.stringify(selectors)};
       const activationTypes = ${JSON.stringify(ACTIVATION_EVENT_TYPES)};
+      // Svelte 5 stores a delegated handler ON THE ELEMENT ITSELF rather than
+      // attaching a native listener anywhere near it (see file header
+      // comment above): svelte@5.0 uses an own property named '__' + type
+      // (a function, or an array whose [0] is the function); svelte@5.57+
+      // uses an own Symbol property whose .description is 'events', holding
+      // an object keyed by event type in the same function-or-array shape.
+      // Checked directly on a node -- both the candidate element itself
+      // (own check) and each ancestor during the delegation walk.
+      const svelteHandlerFn = (bagOrProp) => {
+        const fn = Array.isArray(bagOrProp) ? bagOrProp[0] : bagOrProp;
+        return typeof fn === 'function';
+      };
+      // Resolves the svelte@5.57+ Symbol('events') bag ONCE per node --
+      // Object.getOwnPropertySymbols is a real allocation, and
+      // hasActivationListener below checks every ACTIVATION_EVENT_TYPES
+      // entry against the same node, so resolving per-type would repeat it
+      // 9x for no behavioral gain (the bag doesn't change between checks).
+      const svelteEventBag = (node) => {
+        const symbols = Object.getOwnPropertySymbols(node);
+        for (const sym of symbols) {
+          if (sym.description === 'events') return node[sym];
+        }
+        return null;
+      };
+      const svelteDelegatedHandlerWithBag = (node, type, bag) => {
+        if (svelteHandlerFn(node['__' + type])) return true;
+        return !!(bag && svelteHandlerFn(bag[type]));
+      };
+      const svelteDelegatedHandler = (node, type) => svelteDelegatedHandlerWithBag(node, type, svelteEventBag(node));
+      // Svelte's root-mirror listener (see file header comment above) is the
+      // SAME function object registered via addEventListener on both the
+      // mount target and document -- capture document's click listeners
+      // once per evaluate() call so the ancestor walk below can recognize
+      // and exclude that mirrored function wherever it appears, without
+      // depending on its (minifiable) name.
+      let documentClickFns;
+      try {
+        const docListeners = getEventListeners(document);
+        documentClickFns = new Set(
+          (docListeners && Array.isArray(docListeners.click) ? docListeners.click : []).map((l) => l.listener)
+        );
+      } catch (e) {
+        documentClickFns = new Set();
+      }
       const hasActivationListener = (node) => {
         let listeners;
         try {
           listeners = getEventListeners(node);
         } catch (e) {
-          return false;
+          listeners = null;
         }
-        if (!listeners) return false;
-        return activationTypes.some((type) => Array.isArray(listeners[type]) && listeners[type].length > 0);
+        const hasNative = !!listeners && activationTypes.some((type) => Array.isArray(listeners[type]) && listeners[type].length > 0);
+        if (hasNative) return true;
+        const bag = svelteEventBag(node);
+        return activationTypes.some((type) => svelteDelegatedHandlerWithBag(node, type, bag));
       };
       const hasClickListener = (node) => {
         let listeners;
@@ -8263,7 +8309,13 @@ async function enrichWithEventListeners(page, elements) {
         } catch (e) {
           return false;
         }
-        return !!(listeners && Array.isArray(listeners.click) && listeners.click.length > 0);
+        if (!listeners || !Array.isArray(listeners.click)) return false;
+        // Exclude any click listener function that is ALSO registered on
+        // document -- that is framework root-dispatch plumbing mirrored onto
+        // the mount target (Svelte 5), never author-written delegation for
+        // whatever happens to render under it. Do not stop the walk here;
+        // the caller keeps climbing past this ancestor.
+        return listeners.click.some((l) => !documentClickFns.has(l.listener));
       };
       // Ancestor chains overlap heavily across candidates (siblings under the
       // same list/table share most of their parent chain), and
@@ -8342,7 +8394,7 @@ async function enrichWithEventListeners(page, elements) {
         let ancestor = el.parentElement;
         while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
           if (isFrameworkRoot(ancestor)) break;
-          if (hasClickListenerCached(ancestor) || hasReactPropsOnClick(ancestor)) {
+          if (hasClickListenerCached(ancestor) || hasReactPropsOnClick(ancestor) || svelteDelegatedHandler(ancestor, 'click')) {
             hasDelegatedListener = true;
             break;
           }
@@ -10962,32 +11014,152 @@ function tokenizeTransitionPart(part) {
   if (buf) tokens.push(buf);
   return tokens;
 }
-function parseTransitionEntry(part) {
-  const tokens = tokenizeTransitionPart(part);
-  let property = "all";
-  let duration_ms = 0;
-  let delay_ms = 0;
-  let easing = "ease";
-  let seenTime = 0;
-  for (const tok of tokens) {
-    const isTime = /^[\d.]+(ms|s)$/i.test(tok);
-    if (isTime) {
-      if (seenTime === 0) duration_ms = parseTimeMs(tok);
-      else if (seenTime === 1) delay_ms = parseTimeMs(tok);
-      seenTime++;
-    } else if (/^(ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|cubic-bezier|steps)/i.test(tok)) {
-      easing = tok;
-    } else {
-      if (property === "all" || property === "") property = tok;
+function isRootIshSelector(selectorText) {
+  return selectorText.split(",").map((s) => s.trim()).some((part) => ROOT_ISH_SELECTORS.has(part) || part.toLowerCase() === "html");
+}
+function buildCustomPropertyIndex(rules) {
+  const rootValues = /* @__PURE__ */ new Map();
+  const allValues = /* @__PURE__ */ new Map();
+  function visitStyle(rule) {
+    for (const [prop, value] of Object.entries(rule.declarations)) {
+      if (!prop.startsWith("--")) continue;
+      const set = allValues.get(prop) ?? /* @__PURE__ */ new Set();
+      set.add(value);
+      allValues.set(prop, set);
+      if (isRootIshSelector(rule.selector) && !rootValues.has(prop)) {
+        rootValues.set(prop, value);
+      }
     }
   }
-  return { property, duration_ms, easing, delay_ms };
+  function visit(rs) {
+    for (const r of rs) {
+      if (r.kind === "style") {
+        visitStyle(r);
+      } else if (r.kind === "media") {
+        if (isReducedMotionMedia(r.conditionText)) continue;
+        visit(r.rules);
+      } else if (r.kind === "container" || r.kind === "supports") {
+        visit(r.rules);
+      }
+    }
+  }
+  visit(rules);
+  return { rootValues, allValues };
+}
+function resolveCustomProp(name, rule, index, hasFallback) {
+  const own = rule.declarations[name];
+  if (own !== void 0) return own;
+  const root = index.rootValues.get(name);
+  if (root !== void 0) return root;
+  if (hasFallback) return void 0;
+  const all = index.allValues.get(name);
+  if (all && all.size === 1) return [...all][0];
+  return void 0;
+}
+function findVarCalls(value) {
+  const calls = [];
+  let i = 0;
+  while (i < value.length) {
+    const idx = value.indexOf("var(", i);
+    if (idx === -1) break;
+    let depth = 1;
+    let j = idx + 4;
+    while (j < value.length && depth > 0) {
+      if (value[j] === "(") depth++;
+      else if (value[j] === ")") depth--;
+      j++;
+    }
+    const inner = value.slice(idx + 4, depth === 0 ? j - 1 : j);
+    let commaIdx = -1;
+    let innerDepth = 0;
+    for (let k = 0; k < inner.length; k++) {
+      if (inner[k] === "(") innerDepth++;
+      else if (inner[k] === ")") innerDepth--;
+      else if (inner[k] === "," && innerDepth === 0) {
+        commaIdx = k;
+        break;
+      }
+    }
+    const name = (commaIdx === -1 ? inner : inner.slice(0, commaIdx)).trim();
+    const fallback = commaIdx === -1 ? void 0 : inner.slice(commaIdx + 1).trim();
+    calls.push({ start: idx, end: j, name, fallback });
+    i = j;
+  }
+  return calls;
+}
+function resolveVars(value, rule, index, depth = 0) {
+  if (depth >= MAX_VAR_DEPTH || !value.includes("var(")) return value;
+  const calls = findVarCalls(value);
+  if (calls.length === 0) return value;
+  let result = "";
+  let last = 0;
+  for (const call of calls) {
+    result += value.slice(last, call.start);
+    const resolved = resolveCustomProp(call.name, rule, index, call.fallback !== void 0);
+    if (resolved !== void 0) {
+      result += resolveVars(resolved, rule, index, depth + 1);
+    } else if (call.fallback !== void 0) {
+      result += resolveVars(call.fallback, rule, index, depth + 1);
+    } else {
+      result += value.slice(call.start, call.end);
+    }
+    last = call.end;
+  }
+  result += value.slice(last);
+  return result;
+}
+function parseTransitionEntry(part) {
+  const tokens = tokenizeTransitionPart(part);
+  const isVarTok = (tok) => tok.startsWith("var(");
+  const isTimeTok = (tok) => /^[\d.]+(ms|s)$/i.test(tok);
+  const isEasingTok = (tok) => /^(ease|ease-in|ease-out|ease-in-out|linear|step-start|step-end|cubic-bezier|steps)/i.test(tok);
+  let property = "all";
+  let easing = "ease";
+  let propertyIndex;
+  const literalTimeIndices = [];
+  const varIndices = [];
+  tokens.forEach((tok, idx) => {
+    if (isVarTok(tok)) {
+      varIndices.push(idx);
+      return;
+    }
+    if (isTimeTok(tok)) {
+      literalTimeIndices.push(idx);
+      return;
+    }
+    if (isEasingTok(tok)) {
+      if (easing === "ease") easing = tok;
+    } else if (property === "all") {
+      property = tok;
+      propertyIndex = idx;
+    }
+  });
+  const literalTimes = literalTimeIndices.map((idx) => parseTimeMs(tokens[idx]));
+  const firstLiteralTimeIndex = literalTimeIndices[0];
+  let duration_ms = 0;
+  let delay_ms = 0;
+  let unresolved;
+  if (literalTimes.length > 0) {
+    const durationVarIndex = propertyIndex !== void 0 && firstLiteralTimeIndex !== void 0 ? varIndices.find((i) => i > propertyIndex && i < firstLiteralTimeIndex) : void 0;
+    if (durationVarIndex !== void 0) {
+      unresolved = [tokens[durationVarIndex]];
+      delay_ms = literalTimes[0] ?? 0;
+    } else {
+      duration_ms = literalTimes[0] ?? 0;
+      delay_ms = literalTimes[1] ?? 0;
+    }
+  } else if (varIndices.length > 0) {
+    const hasIdentifier = property !== "all";
+    const durationVarIndex = hasIdentifier ? varIndices[0] : varIndices.length >= 2 ? varIndices[1] : varIndices[0];
+    if (durationVarIndex !== void 0) unresolved = [tokens[durationVarIndex]];
+  }
+  return { property, duration_ms, easing, delay_ms, ...unresolved ? { unresolved } : {} };
 }
 function transitionFromLonghands(decls) {
   const props = decls["transition-property"];
   if (!props || props === "none") return void 0;
-  const list = (key) => (decls[key] ?? "").split(",").map((v) => v.trim()).filter(Boolean);
-  const properties = props.split(",").map((v) => v.trim()).filter(Boolean);
+  const list = (key) => splitTransitionValue(decls[key] ?? "");
+  const properties = splitTransitionValue(props);
   const durations = list("transition-duration");
   const easings = list("transition-timing-function");
   const delays = list("transition-delay");
@@ -10996,12 +11168,13 @@ function transitionFromLonghands(decls) {
     (prop, i) => [prop, at(durations, i, "0s"), at(easings, i, "ease"), at(delays, i, "0s")].join(" ")
   ).join(", ");
 }
-function collectTransitionsFromStyle(rule) {
+function collectTransitionsFromStyle(rule, varIndex) {
   const decls = rule.declarations;
-  const transitionValue = decls.transition ?? transitionFromLonghands(decls);
-  if (!transitionValue || transitionValue === "none") return [];
+  const rawTransitionValue = decls.transition ?? transitionFromLonghands(decls);
+  if (!rawTransitionValue || rawTransitionValue === "none") return [];
+  const transitionValue = resolveVars(rawTransitionValue, rule, varIndex);
   const parts = splitTransitionValue(transitionValue);
-  return parts.map((p) => ({ selector: rule.selector, ...parseTransitionEntry(p) })).filter((t) => t.duration_ms > 0 || t.delay_ms > 0);
+  return parts.map((p) => ({ selector: rule.selector, ...parseTransitionEntry(p) })).filter((t) => t.duration_ms > 0 || t.delay_ms > 0 || t.unresolved && t.unresolved.length > 0);
 }
 function isReducedMotionMedia(conditionText) {
   return /prefers-reduced-motion\s*:\s*reduce/i.test(conditionText);
@@ -11064,12 +11237,13 @@ function collectMotion(ctx) {
   }
   const transitions = [];
   const reducedOverrides = [];
+  const varIndex = buildCustomPropertyIndex(rules);
   walkRules(rules, (style, insideReducedMotion) => {
     if (insideReducedMotion) {
       const override = collectReducedMotionOverridesFromRule(style);
       if (override) reducedOverrides.push(override);
     } else {
-      transitions.push(...collectTransitionsFromStyle(style));
+      transitions.push(...collectTransitionsFromStyle(style, varIndex));
     }
   });
   const keyframes = [];
@@ -11090,8 +11264,11 @@ function collectMotion(ctx) {
   visitKeyframes(rules);
   return { transitions, keyframes, reduced_motion_overrides: reducedOverrides };
 }
+var MAX_VAR_DEPTH, ROOT_ISH_SELECTORS;
 var init_motion = __esm({
   "src/sensors/motion.ts"() {
+    MAX_VAR_DEPTH = 8;
+    ROOT_ISH_SELECTORS = /* @__PURE__ */ new Set(["*", ":root", ":host"]);
   }
 });
 
@@ -11291,6 +11468,7 @@ function collectInteractionStates(ctx) {
   const states = [];
   const focusCoveredSelectors = /* @__PURE__ */ new Set();
   const hasFocus = /* @__PURE__ */ new Map();
+  const coveredOrdinals = /* @__PURE__ */ new Set();
   walkRules2(rules, (style, walkCtx) => {
     const parsed = parseStateSelectors(style.selector);
     const removalOnly = isFocusRemovalOnly(style.declarations);
@@ -11309,6 +11487,9 @@ function collectInteractionStates(ctx) {
     if (style.focusMatches && !removalOnly) {
       for (const sel of style.focusMatches) focusCoveredSelectors.add(sel);
     }
+    if (style.focusMatchOrdinals && !removalOnly) {
+      for (const ord of style.focusMatchOrdinals) coveredOrdinals.add(ord);
+    }
   });
   const findings = [];
   const seen = /* @__PURE__ */ new Set();
@@ -11318,7 +11499,8 @@ function collectInteractionStates(ctx) {
     const tag = el.tagName.toLowerCase();
     const classes = typeof el.className === "string" ? el.className.split(/\s+/).filter((c) => c && !c.includes(":")) : [];
     const legacyCovered = hasFocus.get(el.selector) === true || hasFocus.get(tag) === true || classes.some((c) => hasFocus.get(`.${c}`) === true);
-    const structurallyCovered = focusCoveredSelectors.has(el.selector);
+    const group = ctx.documentMeta?.focusSelectorGroups?.[el.selector];
+    const structurallyCovered = group ? group.every((ord) => coveredOrdinals.has(ord)) : focusCoveredSelectors.has(el.selector);
     if (legacyCovered || structurallyCovered) continue;
     seen.add(el.selector);
     findings.push({ selector: el.selector, missing: "focus_indicator" });
@@ -11527,6 +11709,27 @@ async function extractCssRulesAndMeta(page) {
       structuralSelectorCache.set(el, built);
       return built;
     }
+    const elementOrdinals = /* @__PURE__ */ new Map();
+    let nextOrdinal = 0;
+    function getOrdinal(el) {
+      let ordinal = elementOrdinals.get(el);
+      if (ordinal === void 0) {
+        ordinal = nextOrdinal++;
+        elementOrdinals.set(el, ordinal);
+      }
+      return ordinal;
+    }
+    const keyToCandidates = /* @__PURE__ */ new Map();
+    function addToKeyMap(map, key, el) {
+      let set = map.get(key);
+      if (!set) {
+        set = /* @__PURE__ */ new Set();
+        map.set(key, set);
+      }
+      set.add(el);
+    }
+    const allFocusMatchedKeys = /* @__PURE__ */ new Set();
+    let anyFocusMatchCapped = false;
     function stripStatePseudos(part) {
       let stripped = part.replace(STATE_RE2, "");
       stripped = stripped.replace(EMPTY_FUNCTIONAL_PSEUDO_RE, "");
@@ -11535,7 +11738,8 @@ async function extractCssRulesAndMeta(page) {
       return stripped || "*";
     }
     function computeFocusMatches(selectorText) {
-      const matched = /* @__PURE__ */ new Set();
+      const matchedSelectors = /* @__PURE__ */ new Set();
+      const matchedOrdinals = /* @__PURE__ */ new Set();
       const parts = splitTopLevelCommas2(selectorText);
       for (const part of parts) {
         if (!FOCUS_PSEUDO_RE.test(part)) continue;
@@ -11555,23 +11759,35 @@ async function extractCssRulesAndMeta(page) {
           }
         }
         for (let i = 0; i < found.length; i++) {
-          if (matched.size >= 1e3) break;
-          matched.add(cachedStructuralSelector(found[i]));
+          if (matchedSelectors.size >= 1e3) {
+            anyFocusMatchCapped = true;
+            break;
+          }
+          const el = found[i];
+          const sel = cachedStructuralSelector(el);
+          matchedSelectors.add(sel);
+          matchedOrdinals.add(getOrdinal(el));
         }
-        if (matched.size >= 1e3) break;
+        if (matchedSelectors.size >= 1e3) {
+          anyFocusMatchCapped = true;
+          break;
+        }
       }
-      return Array.from(matched);
+      return { selectors: Array.from(matchedSelectors), ordinals: Array.from(matchedOrdinals) };
     }
     function convertRule(rule, sourceUrl) {
       if (rule instanceof CSSStyleRule) {
         const selector = rule.selectorText;
-        const focusMatches = FOCUS_PSEUDO_RE.test(selector) ? computeFocusMatches(selector) : void 0;
+        const focusResult = FOCUS_PSEUDO_RE.test(selector) ? computeFocusMatches(selector) : void 0;
+        if (focusResult) {
+          for (const sel of focusResult.selectors) allFocusMatchedKeys.add(sel);
+        }
         return {
           kind: "style",
           selector,
           declarations: declarationsFromStyle(rule.style),
           ...sourceUrl ? { sourceUrl } : {},
-          ...focusMatches ? { focusMatches } : {}
+          ...focusResult ? { focusMatches: focusResult.selectors, focusMatchOrdinals: focusResult.ordinals } : {}
         };
       }
       if (rule instanceof CSSMediaRule) {
@@ -11656,6 +11872,36 @@ async function extractCssRulesAndMeta(page) {
       const sourceUrl = sheet.href ?? void 0;
       for (let i = 0; i < rules.length; i++) {
         allRules2.push(...expandRule(rules[i], sourceUrl));
+      }
+    }
+    const FOCUS_CANDIDATE_SELECTOR = 'button, a, [role="button"], [role="link"], [onclick]';
+    const XHTML_NS = "http://www.w3.org/1999/xhtml";
+    function canCollide(key) {
+      return key.length >= 200 || key.startsWith("#");
+    }
+    const anyCollidableFocusMatch = Array.from(allFocusMatchedKeys).some(canCollide);
+    const focusSelectorGroups = {};
+    if (anyCollidableFocusMatch) {
+      let candidateElements = [];
+      try {
+        candidateElements = Array.from(document.querySelectorAll(FOCUS_CANDIDATE_SELECTOR)).filter(
+          (el) => el.namespaceURI === XHTML_NS
+        );
+      } catch {
+        candidateElements = [];
+      }
+      for (const el of candidateElements) {
+        const key = cachedStructuralSelector(el);
+        getOrdinal(el);
+        addToKeyMap(keyToCandidates, key, el);
+      }
+      if (!anyFocusMatchCapped) {
+        for (const [key, candidates] of keyToCandidates) {
+          if (candidates.size < 2) continue;
+          if (!allFocusMatchedKeys.has(key)) continue;
+          if (!canCollide(key)) continue;
+          focusSelectorGroups[key] = Array.from(candidates).map((el) => getOrdinal(el));
+        }
       }
     }
     const rootFontSize = parseFloat(
@@ -11806,7 +12052,8 @@ async function extractCssRulesAndMeta(page) {
       cssRules: allRules2,
       documentMeta: {
         rootFontSizePx: Number.isFinite(rootFontSize) ? rootFontSize : 16,
-        fontsStatus
+        fontsStatus,
+        ...Object.keys(focusSelectorGroups).length > 0 ? { focusSelectorGroups } : {}
       },
       structuralElements,
       sheetsSeen: sheets.length,

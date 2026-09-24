@@ -73,6 +73,78 @@ import { collectInteractionStates } from './interaction-states.js';
 import type { SensorContext } from './types.js';
 import type { InteractionStatesReport } from './interaction-states.js';
 
+/**
+ * D5 (truncation-collision false negative) — `buildStructuralSelector`
+ * (css-extract.ts) and `generateSelector` (extract.ts) build a root-first
+ * ancestor path and `.slice(0, 200)` it. Truncation drops the TAIL — the
+ * element's own segment — so two sibling id-less controls under one long
+ * ancestor chain (>200 chars of ancestor path alone) collide onto the exact
+ * same selector string. `focusCoveredSelectors` (a plain string Set) cannot
+ * tell them apart: crediting the real match for the covered sibling also
+ * silently clears the UNCOVERED one, which never gets its own finding.
+ * `nestDeep` below builds two such chains, each >200 chars of ancestor path
+ * before either sibling's own segment is even reached, guaranteeing the
+ * collision this fix targets.
+ */
+function nestDeep(prefix: string, depth: number, innerHtml: string): string {
+  let html = innerHtml;
+  for (let i = depth; i >= 1; i--) {
+    html = `<div class="${prefix}-${i}">${html}</div>`;
+  }
+  return html;
+}
+
+// "mix": one sibling covered by a compound focus rule, the other with no
+// focus rule at all — proves the false negative (uncovered sibling must
+// still get its own finding). Uses <a href> rather than <button> so the
+// page's PRE-EXISTING universal `button:focus-visible` rule (which covers
+// every <button> regardless of class, real coverage, unrelated to this
+// defect) can't accidentally cover these too.
+const DEEP_MIX = nestDeep(
+  'chain-mix',
+  15,
+  '<a href="#mix-covered" class="btn-mix-covered">MixCovered</a><a href="#mix-uncovered" class="btn-mix-uncovered">MixUncovered</a>',
+);
+// "both": both siblings covered by their own compound focus rules — proves
+// no false positive is introduced by the group-coverage check.
+const DEEP_BOTH = nestDeep(
+  'chain-both',
+  15,
+  '<a href="#both-a" class="btn-both-a">BothA</a><a href="#both-b" class="btn-both-b">BothB</a>',
+);
+// "input-mix": a focus-covered <button> collides on the truncated key with
+// an uncovered <input> — an <input> is a candidate in the wider
+// `INTERACTIVE_SELECTORS` list but is NEVER a finding candidate per
+// `isInteractiveElement` (no onclick/href, not button/a/role tag). The
+// candidate set used to build `focusSelectorGroups` must mirror
+// `isInteractiveElement`, not the wider list, or this uncoverable <input>
+// drags a genuinely-covered <button> into the group and produces a false
+// positive on the button.
+// Uses <a href> rather than <button> for the covered sibling — a bare
+// `button:focus-visible` rule already covers EVERY <button> via the legacy
+// tag-name check (`hasFocus.get(tag)`), independent of the group logic this
+// test targets. <a> has no such page-wide rule, so its only path to
+// coverage is the class-scoped rule below plus (before the fix) the buggy
+// group check.
+const DEEP_INPUT_MIX = nestDeep(
+  'chain-input',
+  15,
+  '<a href="#input-covered" class="btn-input-covered">InputCovered</a><input type="text" class="input-uncovered" />',
+);
+// "svg-icon": a real, focus-covered <a class="nav-link"> wraps an SVG icon
+// using `<use href="#i">`. `<use>` (and `<link>`) also carry an `href`
+// attribute, so a candidate selector including `[href]` matches it too —
+// and since `<use>` is nested INSIDE the link, its full path is a superset
+// of the link's, so both truncate to the byte-identical key once the link
+// itself is already >200 chars deep. `<use>` has no focus rule and never
+// will (SVG icons aren't focusable), so it must never be treated as a
+// coverage-group candidate at all.
+const DEEP_SVG_ICON = nestDeep(
+  'chain-svg',
+  15,
+  '<a href="#svg-link" class="nav-link"><svg viewBox="0 0 24 24"><use href="#i"></use></svg></a>',
+);
+
 const TEST_PAGE = `<!doctype html><html><head><style>
   :root { --accent: #06c; }
   button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -90,6 +162,15 @@ const TEST_PAGE = `<!doctype html><html><head><style>
   .guarded:not(:disabled):focus-visible { outline: 2px solid var(--accent); }
   /* Non-blocking 4: "drop the middle segment" shorthand recovery. */
   .recover-btn:focus-visible { border-color: var(--accent); }
+  /* D5: only ONE sibling of the deep "mix" chain gets a real focus rule. */
+  .chain-mix-1 .btn-mix-covered:focus-visible { outline: 2px solid var(--accent); }
+  /* D5: BOTH siblings of the deep "both" chain get real focus rules. */
+  .chain-both-1 .btn-both-a:focus-visible { outline: 2px solid var(--accent); }
+  .chain-both-1 .btn-both-b:focus-visible { outline: 2px solid var(--accent); }
+  /* D6: the button is covered; the colliding <input> sibling has no rule. */
+  .chain-input-1 .btn-input-covered:focus-visible { outline: 2px solid var(--accent); }
+  /* f1: the link is covered; the <use> icon inside it never can be. */
+  .chain-svg-1 .nav-link:focus-visible { outline: 2px solid var(--accent); }
 </style></head><body>
   <button id="start-btn" class="btn-primary">Start</button>
   <div class="actions"><button class="btn-primary">Go</button></div>
@@ -100,6 +181,10 @@ const TEST_PAGE = `<!doctype html><html><head><style>
   <a href="/where" id="where-link" class="where-target-b">Where link</a>
   <div role="button" tabindex="0" id="guarded-btn" class="guarded">Guarded</div>
   <button id="recover-btn" class="recover-btn">Recover</button>
+  ${DEEP_MIX}
+  ${DEEP_BOTH}
+  ${DEEP_INPUT_MIX}
+  ${DEEP_SVG_ICON}
 </body></html>`;
 
 const TEST_URL = 'data:text/html,' + encodeURIComponent(TEST_PAGE);
@@ -185,5 +270,39 @@ describe('interaction-states integration — real browser', () => {
     expect(focusVisible?.properties['border-color']).toBeDefined();
     expect(focusVisible?.properties['border-color']).toContain('var(--accent)');
     expect(result.findings.some((f) => f.selector === '#recover-btn')).toBe(false);
+  });
+
+  // D5 — the two siblings collide onto the same >200-char truncated
+  // selector (a plain ancestor `div` path with no "btn-mix"/"btn-both"
+  // reference at all, since truncation drops the buttons' own segment
+  // entirely). Before the fix, `focusCoveredSelectors` credited the covered
+  // sibling's real match to that shared string and BOTH siblings were
+  // silently cleared — no finding for either, which is the false negative.
+  it('D5: an uncovered sibling deep in an id-less DOM still gets its own finding, even though its truncated selector is identical to a covered sibling\'s', () => {
+    expect(result.findings.some((f) => f.selector.startsWith('div.chain-mix-1'))).toBe(true);
+  });
+
+  it('D5: no false positive — when BOTH colliding siblings are genuinely covered, neither is reported', () => {
+    expect(result.findings.some((f) => f.selector.startsWith('div.chain-both-1'))).toBe(false);
+  });
+
+  // D6 — the candidate set for `focusSelectorGroups` must mirror
+  // `isInteractiveElement` (button/a/role-button/role-link/onclick/href),
+  // not the wider `INTERACTIVE_SELECTORS` list that also covers
+  // input/select/textarea/[tabindex]. An <input> is never a findings
+  // candidate, so it must not be able to drag a genuinely-covered <button>
+  // it collides with into an unsatisfiable coverage group.
+  it('D6: an uncovered <input> colliding with a covered <button> does not produce a false positive on the button', () => {
+    expect(result.findings.some((f) => f.selector.startsWith('div.chain-input-1'))).toBe(false);
+  });
+
+  // `[href]` also matches SVG `<use href>`/`<link href>`, and since the
+  // <use> icon is nested INSIDE the covered <a>, both truncate to the SAME
+  // key once the link is already >200 chars deep. The candidate set must
+  // exclude non-XHTML-namespace elements (and drop bare `[href]`) so the
+  // <use> can never join the coverage group and drag the real link down
+  // with it.
+  it('f1: an SVG <use href> icon nested inside a covered deep <a> does not produce a false positive on the link', () => {
+    expect(result.findings.some((f) => f.selector.startsWith('div.chain-svg-1'))).toBe(false);
   });
 });

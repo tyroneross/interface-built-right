@@ -30,6 +30,16 @@ export type ExtractedCSSRule =
        * SensorContexts built without a live browser still typecheck.
        */
       focusMatches?: string[];
+      /**
+       * Ordinal ids (see `DocumentMeta.focusSelectorGroups`) of every LIVE
+       * element this rule's focus pseudo actually matched — same population
+       * as `focusMatches`, but keyed by a per-scan integer rather than the
+       * (possibly truncated-and-collided) structural selector string. Lets
+       * interaction-states.ts union coverage across ordinals, which stays
+       * precise even when two distinct elements share one truncated
+       * `focusMatches` string. Present exactly when `focusMatches` is.
+       */
+      focusMatchOrdinals?: number[];
     }
   | {
       kind: 'media';
@@ -68,6 +78,28 @@ export interface DocumentMeta {
   fontsStatus?: 'loading' | 'loaded' | 'unsupported';
   /** Selector → original/spec values that getComputedStyle resolves away (e.g. `line-height: normal`). */
   rawSpecValues?: Record<string, Record<string, string>>;
+  /**
+   * `buildStructuralSelector`/`generateSelector` build a root-first ancestor
+   * path and `.slice(0, 200)` it — truncation drops the TAIL (the element's
+   * own segment), so two sibling interactive controls deep in an id-less DOM
+   * can end up with the byte-identical selector string. Keyed by that
+   * collided selector string, each entry lists the ordinal ids (assigned at
+   * scan time, see `ExtractedCSSRule.focusMatchOrdinals`) of every
+   * INTERACTIVE-CANDIDATE element sharing the key — never a matched-but-
+   * non-candidate element, even one some focus rule genuinely matched. A
+   * page-wide reset like `*:focus { outline: none }` matches every ancestor
+   * DOM node too, and those ancestors share the SAME truncated key as the
+   * real controls beneath them once the path exceeds 200 chars; folding
+   * them in would make `group.every(covered)` unsatisfiable on any page
+   * with such a reset (verified live — it turned a genuinely-covered pair
+   * of controls into a false positive). Only real candidates can ever
+   * become a FINDING, so only real candidates belong in the group.
+   * interaction-states.ts requires the WHOLE group to be covered before
+   * crediting any one member. Only populated for keys that (a) some declared
+   * focus rule actually matched and (b) 2+ distinct candidate elements share.
+   * Omitted entirely when empty; absent for static/fixture contexts.
+   */
+  focusSelectorGroups?: Record<string, number[]>;
 }
 
 export interface SensorContext {

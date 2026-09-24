@@ -38,6 +38,8 @@ export async function extractCssRulesAndMeta(
       selector: string;
       declarations: Record<string, string>;
       sourceUrl?: string;
+      focusMatches?: string[];
+      focusMatchOrdinals?: number[];
     }
     interface InlineMediaRule {
       kind: 'media';
@@ -190,6 +192,54 @@ export async function extractCssRulesAndMeta(
     }
 
     /**
+     * `buildStructuralSelector` truncates to 200 chars and drops the TAIL —
+     * the element's own segment — so two sibling interactive controls deep
+     * in an id-less DOM can produce the byte-identical selector string. This
+     * per-scan ordinal (never sent as-is, only via `focusMatchOrdinals` /
+     * `focusSelectorGroups`) gives interaction-states.ts a way to reason
+     * about coverage per ELEMENT even when their string keys collide.
+     */
+    const elementOrdinals = new Map<Element, number>();
+    let nextOrdinal = 0;
+    function getOrdinal(el: Element): number {
+      let ordinal = elementOrdinals.get(el);
+      if (ordinal === undefined) {
+        ordinal = nextOrdinal++;
+        elementOrdinals.set(el, ordinal);
+      }
+      return ordinal;
+    }
+
+    // Interactive candidate elements seen so far, keyed by their (possibly
+    // collided) structural selector. Deliberately candidates-ONLY, not every
+    // element some focus rule matched: a page-wide reset like `*:focus
+    // { outline: none }` (see D4) matches every ancestor DOM node too, and
+    // those nodes share the SAME truncated key as the real controls below
+    // them once the path exceeds 200 chars. Folding them into the group
+    // would make `group.every(covered)` unsatisfiable on any page with such
+    // a reset — verified live: it turned a genuinely-covered pair of
+    // controls into a false positive. Only real candidates can ever be
+    // FINDINGS, so only real candidates belong in the coverage group.
+    const keyToCandidates = new Map<string, Set<Element>>();
+    function addToKeyMap(map: Map<string, Set<Element>>, key: string, el: Element): void {
+      let set = map.get(key);
+      if (!set) {
+        set = new Set();
+        map.set(key, set);
+      }
+      set.add(el);
+    }
+
+    // Union of every focus rule's `focusMatches` strings across the whole
+    // page — gates `focusSelectorGroups` to keys some declared focus rule
+    // actually named, rather than every collided key on the page.
+    const allFocusMatchedKeys = new Set<string>();
+    // Set when ANY single rule's `computeFocusMatches` hits its
+    // 1000-match cap. See the long comment at `focusSelectorGroups` below
+    // for why that makes the whole feature unsafe to emit for this scan.
+    let anyFocusMatchCapped = false;
+
+    /**
      * For a style rule whose `selectorText` declares a focus pseudo, resolve
      * which LIVE elements it actually matches right now, so
      * interaction-states.ts can ask "did a declared focus rule really cover
@@ -231,8 +281,9 @@ export async function extractCssRulesAndMeta(
       return stripped || '*';
     }
 
-    function computeFocusMatches(selectorText: string): string[] {
-      const matched = new Set<string>();
+    function computeFocusMatches(selectorText: string): { selectors: string[]; ordinals: number[] } {
+      const matchedSelectors = new Set<string>();
+      const matchedOrdinals = new Set<number>();
       const parts = splitTopLevelCommas(selectorText);
       for (const part of parts) {
         if (!FOCUS_PSEUDO_RE.test(part)) continue;
@@ -252,27 +303,48 @@ export async function extractCssRulesAndMeta(
           }
         }
         for (let i = 0; i < found.length; i++) {
-          if (matched.size >= 1000) break;
-          matched.add(cachedStructuralSelector(found[i]!));
+          if (matchedSelectors.size >= 1000) {
+            // This rule matched MORE than the cap; its ordinals are an
+            // arbitrary truncation, not "every element it really covers".
+            anyFocusMatchCapped = true;
+            break;
+          }
+          const el = found[i]!;
+          const sel = cachedStructuralSelector(el);
+          matchedSelectors.add(sel);
+          matchedOrdinals.add(getOrdinal(el));
         }
-        if (matched.size >= 1000) break;
+        if (matchedSelectors.size >= 1000) {
+          // The cap can also be reached exactly on the LAST element of
+          // one comma-separated part, so the inner loop's own cap check
+          // above never re-fires for this part — but any REMAINING parts of
+          // this selector are dropped entirely here, which is just as much
+          // a truncation as the inner-loop case.
+          anyFocusMatchCapped = true;
+          break;
+        }
       }
-      return Array.from(matched);
+      return { selectors: Array.from(matchedSelectors), ordinals: Array.from(matchedOrdinals) };
     }
 
     function convertRule(rule: CSSRule, sourceUrl?: string): InlineExtractedRule | null {
       // CSSStyleRule
       if (rule instanceof CSSStyleRule) {
         const selector = rule.selectorText;
-        const focusMatches = FOCUS_PSEUDO_RE.test(selector)
+        const focusResult = FOCUS_PSEUDO_RE.test(selector)
           ? computeFocusMatches(selector)
           : undefined;
+        if (focusResult) {
+          for (const sel of focusResult.selectors) allFocusMatchedKeys.add(sel);
+        }
         return {
           kind: 'style',
           selector,
           declarations: declarationsFromStyle(rule.style),
           ...(sourceUrl ? { sourceUrl } : {}),
-          ...(focusMatches ? { focusMatches } : {}),
+          ...(focusResult
+            ? { focusMatches: focusResult.selectors, focusMatchOrdinals: focusResult.ordinals }
+            : {}),
         };
       }
       // CSSMediaRule
@@ -395,6 +467,110 @@ export async function extractCssRulesAndMeta(
       const sourceUrl = sheet.href ?? undefined;
       for (let i = 0; i < rules.length; i++) {
         allRules.push(...expandRule(rules[i]!, sourceUrl));
+      }
+    }
+
+    // ---- focus-selector collision groups ----
+    // Candidate elements for `focusSelectorGroups` membership. MUST mirror
+    // `isInteractiveElement` in interaction-states.ts (tag button/a, role
+    // button/link, or an onclick/href attribute) byte-for-byte in INTENT —
+    // that function decides which elements can ever produce a
+    // missing-focus-indicator FINDING, so the candidate set here must match
+    // its criteria exactly, not the broader `INTERACTIVE_SELECTORS` list
+    // used elsewhere in the codebase (which also covers
+    // input/select/textarea/[tabindex]). Using the wider list here was a
+    // real bug: an uncovered <input> sharing a truncated key with a covered
+    // <button> made `group.every(...)` fail and wrongly reported the
+    // button, even though `<input>` never reaches the findings loop at all.
+    // Keep the two in sync by hand — this runs inside `page.evaluate()` and
+    // cannot import the sibling module's function.
+    //
+    // No `[href]` here (unlike `isInteractiveElement`'s `hasHref` check),
+    // and MDN/w3.org: SVG `<use href>` and `<link href>` also carry an
+    // `href` attribute — `[href]` matched them too, and an SVG `<use>` icon
+    // nested inside a real, covered `<a>` deep in an id-less DOM shares the
+    // SAME truncated key as its ancestor link. That `<use>`'s ordinal is
+    // never covered by anything (nothing declares a focus rule for it), so
+    // `group.every(covered)` failed and wrongly reported the covered link —
+    // verified live. Restricting to `namespaceURI === xhtml` below excludes
+    // `<use>`/`<link>`/any other SVG or foreign-namespace node outright.
+    // RESIDUAL: an element whose only interactivity signal is a live
+    // `hasOnClick` LISTENER (attached via `addEventListener`, no `onclick=`
+    // markup attribute) cannot be selected by `[onclick]` — CSS has no way
+    // to query "has an event listener". Such an element falls back to the
+    // pre-existing legacy string-key coverage check
+    // (`focusCoveredSelectors`/`hasFocus`) ONLY when its truncated selector
+    // has no `focusSelectorGroups` entry at all; if it happens to share a
+    // truncated key with a real candidate group, that group's (possibly
+    // negative) coverage verdict applies to it instead — a rare residual
+    // false negative, since the listener-only element itself never enters
+    // `keyToCandidates` and so can never be the reason a group is judged
+    // uncovered, only a bystander to one.
+    const FOCUS_CANDIDATE_SELECTOR = 'button, a, [role="button"], [role="link"], [onclick]';
+    const XHTML_NS = 'http://www.w3.org/1999/xhtml';
+
+    // A structural-selector key can only ever be a truncation COLLISION
+    // (two distinct elements sharing one string) two ways:
+    // `buildStructuralSelector` either (1) hit its `.slice(0, 200)` cap —
+    // key.length is then exactly 200 — or (2) short-circuited on a
+    // duplicate `id` (`path.unshift('#'+id); break`), which collides when
+    // the SAME id appears more than once in the DOM (invalid HTML, but
+    // real pages ship it). Any other key is that element's unique,
+    // un-truncated path. `allFocusMatchedKeys` is already fully populated
+    // by this point (built during the stylesheet walk above), so this can
+    // gate the whole feature BEFORE doing any candidate work.
+    function canCollide(key: string): boolean {
+      return key.length >= 200 || key.startsWith('#');
+    }
+    const anyCollidableFocusMatch = Array.from(allFocusMatchedKeys).some(canCollide);
+
+    const focusSelectorGroups: Record<string, number[]> = {};
+    // Skip the candidate `querySelectorAll` + per-candidate ordinal
+    // walk entirely on the (vast majority of) pages where no declared focus
+    // rule ever produced a collidable key — there is nothing for
+    // `focusSelectorGroups` to ever record. The grouping loop below also
+    // re-checks `canCollide(key)` per key so a same-length coincidence that
+    // isn't truncation (a key just under 200 chars, no `#id` prefix) can't
+    // slip in as a false "collision".
+    if (anyCollidableFocusMatch) {
+      let candidateElements: Element[] = [];
+      try {
+        candidateElements = Array.from(document.querySelectorAll(FOCUS_CANDIDATE_SELECTOR)).filter(
+          (el) => el.namespaceURI === XHTML_NS,
+        );
+      } catch {
+        candidateElements = [];
+      }
+      for (const el of candidateElements) {
+        const key = cachedStructuralSelector(el);
+        getOrdinal(el);
+        addToKeyMap(keyToCandidates, key, el);
+      }
+
+      // `computeFocusMatches` caps each rule at 1000 distinct matched
+      // selectors/ordinals (see the `matchedSelectors.size >= 1000` breaks
+      // above, which set `anyFocusMatchCapped`). When a rule hits that cap,
+      // its `focusMatchOrdinals` is an ARBITRARY TRUNCATION of "every
+      // element it really matches" — some covered elements silently have
+      // no ordinal recorded at all. A collision group built while that's
+      // true can never be judged fully covered (`group.every(...)` sees
+      // phantom gaps), so a capped scan suppresses `focusSelectorGroups`
+      // entirely and lets the legacy string-key check
+      // (`focusCoveredSelectors`) — unaffected by ordinal completeness —
+      // apply instead. A 1000-match cap on ONE rule is an extreme edge case
+      // (a `*`-style selector matching most of a huge page); no live
+      // integration fixture exercises it, hence the comment-only
+      // requirement.
+      if (!anyFocusMatchCapped) {
+        for (const [key, candidates] of keyToCandidates) {
+          // (b) shared by 2+ distinct candidate elements
+          if (candidates.size < 2) continue;
+          // (a) appears in some rule's focusMatches
+          if (!allFocusMatchedKeys.has(key)) continue;
+          // Only keys that could genuinely be a truncation collision
+          if (!canCollide(key)) continue;
+          focusSelectorGroups[key] = Array.from(candidates).map((el) => getOrdinal(el));
+        }
       }
     }
 
@@ -592,6 +768,7 @@ export async function extractCssRulesAndMeta(
       documentMeta: {
         rootFontSizePx: Number.isFinite(rootFontSize) ? rootFontSize : 16,
         fontsStatus,
+        ...(Object.keys(focusSelectorGroups).length > 0 ? { focusSelectorGroups } : {}),
       } as DocumentMeta,
       structuralElements,
       sheetsSeen: sheets.length,

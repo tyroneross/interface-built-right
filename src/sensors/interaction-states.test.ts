@@ -393,3 +393,101 @@ describe('collectInteractionStates — parseStateSelectors splits on top-level c
     expect(result.states[0]).toMatchObject({ selector: ':where(a, .btn)', state: 'focus-visible' });
   });
 });
+
+/**
+ * `buildStructuralSelector`/`generateSelector` truncate at 200 chars and drop
+ * the TAIL — the element's own segment — so two distinct sibling controls
+ * deep in an id-less DOM can collide onto the byte-identical selector
+ * string. `focusSelectorGroups`/`focusMatchOrdinals` let
+ * `collectInteractionStates` reason about coverage per ELEMENT (via ordinal)
+ * even when the string keys collide. These fixtures hand-construct that
+ * collision (both elements given the SAME `selector`) rather than building a
+ * real 200+ char DOM path — the live-browser proof of the actual truncation
+ * lives in interaction-states.integration.test.ts (D5).
+ */
+describe('collectInteractionStates — focusSelectorGroups (ordinal-based collision coverage)', () => {
+  const COLLIDED = 'div.deep > div.a > div.b'; // stands in for a real >200-char truncated path
+
+  it('a mixed group (one covered ordinal, one not) still reports the uncovered element — the false negative this fix targets', () => {
+    const coveringRule = {
+      ...makeStyleRule('.deep .btn-covered:focus-visible', { outline: '2px solid blue' }),
+      focusMatchOrdinals: [0],
+    };
+    const result = collectInteractionStates(
+      makeCtx(
+        [
+          makeElement({ selector: COLLIDED, tagName: 'button', a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null } }),
+          makeElement({ selector: COLLIDED, tagName: 'button', a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null } }),
+        ],
+        1920,
+        1080,
+        {
+          cssRules: [coveringRule],
+          documentMeta: { focusSelectorGroups: { [COLLIDED]: [0, 1] } },
+        },
+      ),
+    );
+    // Both elements share `selector`, so `seen` dedup means exactly one
+    // finding is possible for the shared key — its presence proves the
+    // group was correctly treated as NOT fully covered.
+    expect(result.findings).toContainEqual({ selector: COLLIDED, missing: 'focus_indicator' });
+  });
+
+  it('a fully-covered group (every ordinal covered) reports nothing — no false positive from the grouping itself', () => {
+    const coveringRuleA = {
+      ...makeStyleRule('.deep .btn-a:focus-visible', { outline: '2px solid blue' }),
+      focusMatchOrdinals: [0],
+    };
+    const coveringRuleB = {
+      ...makeStyleRule('.deep .btn-b:focus-visible', { outline: '2px solid blue' }),
+      focusMatchOrdinals: [1],
+    };
+    const result = collectInteractionStates(
+      makeCtx(
+        [
+          makeElement({ selector: COLLIDED, tagName: 'button', a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null } }),
+          makeElement({ selector: COLLIDED, tagName: 'button', a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null } }),
+        ],
+        1920,
+        1080,
+        {
+          cssRules: [coveringRuleA, coveringRuleB],
+          documentMeta: { focusSelectorGroups: { [COLLIDED]: [0, 1] } },
+        },
+      ),
+    );
+    expect(result.findings).toEqual([]);
+  });
+
+  it('a removal-only rule\'s ordinal does not count as coverage even when it is the only rule matching the group', () => {
+    const removalOnlyRule = {
+      ...makeStyleRule('*:focus', { outline: 'none' }),
+      focusMatchOrdinals: [0, 1],
+    };
+    const result = collectInteractionStates(
+      makeCtx(
+        [
+          makeElement({ selector: COLLIDED, tagName: 'button', a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null } }),
+          makeElement({ selector: COLLIDED, tagName: 'button', a11y: { role: 'button', ariaLabel: null, ariaDescribedBy: null } }),
+        ],
+        1920,
+        1080,
+        {
+          cssRules: [removalOnlyRule],
+          documentMeta: { focusSelectorGroups: { [COLLIDED]: [0, 1] } },
+        },
+      ),
+    );
+    expect(result.findings).toContainEqual({ selector: COLLIDED, missing: 'focus_indicator' });
+  });
+
+  it('a non-colliding selector with no focusSelectorGroups entry falls back to the legacy focusCoveredSelectors check unchanged', () => {
+    const result = collectInteractionStates(
+      makeCtx([makeButton('Save', { selector: '#unique-btn', className: undefined })], 1920, 1080, {
+        cssRules: [makeStyleRule('[data-x]:focus-visible', { outline: '2px solid blue' }, undefined, ['#unique-btn'])],
+        documentMeta: {}, // no focusSelectorGroups at all
+      }),
+    );
+    expect(result.findings).toEqual([]);
+  });
+});

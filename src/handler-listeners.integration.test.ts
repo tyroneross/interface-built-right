@@ -86,6 +86,38 @@
  * click listener got `hasOnClick` newly flipped true. `#tracked-input` pins
  * the exclusion: it carries a real click listener, but must come out of
  * extraction exactly as `detectHandlers()` left it.
+ *
+ * Svelte 5 (both blocking directions) — Svelte's own event system never
+ * attaches a native per-element listener for a delegated activation type;
+ * it stores the handler ON THE ELEMENT (svelte@5.0: `el['__' + type]`,
+ * a function or an array whose [0] is the function; svelte@5.57+:
+ * `el[Symbol('events')][type]`, same function-or-array shape) and dispatches
+ * via ONE shared function registered with `addEventListener` on BOTH the
+ * mount target (`#app`, or `document.body` for a body-mounted app) AND
+ * `document` — the identical function object in both places.
+ *   - Under-report: the ancestor walk, seeing that shared function on the
+ *     mount target, previously credited it as author delegation — rescuing
+ *     every dead control under the mount target, handler or not.
+ *     `#svelte-dead` (inside `#app`, no handler of its own) pins that this
+ *     must NOT happen: the walk excludes an ancestor's click listener when
+ *     that exact function is ALSO registered on `document` (the root-mirror
+ *     guard, name-independent so it survives minification of Svelte's
+ *     internal dispatcher name) — it does not `break` there, it keeps
+ *     walking past that ancestor.
+ *   - Over-report: with the mount-target listener now (correctly) excluded
+ *     from ancestor credit, a genuinely wired Svelte button has NO native
+ *     listener the ancestor walk (or `getEventListeners` on the element)
+ *     can see — the handler lives in `el['__click']` or
+ *     `el[Symbol('events')].click`. `#svelte-live` (symbol form) and
+ *     `#svelte-legacy` (legacy `__click` form) pin that the element's OWN
+ *     check now also recognizes these shapes directly, independent of any
+ *     ancestor. `#svelte-body-live` pins the case where the mount target is
+ *     `document.body` itself — the ancestor walk stops BEFORE reaching
+ *     `document.body`, so only the own-element check can ever rescue it.
+ *   - `#delegated-btn` / `.toolbar` (existing fixture above) proves the
+ *     guard is scoped to mirrored functions only: `.toolbar`'s click
+ *     listener is a distinct function never registered on `document`, so it
+ *     is still credited as real author delegation after this fix.
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -111,6 +143,12 @@ const TEST_PAGE = `<!doctype html><html><head><style>
   <div id="clicky"><button id="react-onclick-child" type="button">React onclick child</button></div>
   <div id="form-root"><form id="react-form"><button id="react-submit-in-form" type="submit">React submit in form</button></form></div>
   <div id="no-onclick-wrap"><button id="dead-under-props-ancestor" type="button">Dead under props ancestor</button></div>
+  <div id="app">
+    <button id="svelte-dead" type="button">Svelte dead</button>
+    <button id="svelte-live" type="button">Svelte live</button>
+    <button id="svelte-legacy" type="button">Svelte legacy</button>
+  </div>
+  <button id="svelte-body-live" type="button">Svelte body live</button>
 <script>
   document.getElementById('listener-btn').addEventListener('click', function () {});
   document.querySelector('.toolbar').addEventListener('click', function () {});
@@ -154,6 +192,52 @@ const TEST_PAGE = `<!doctype html><html><head><style>
   // onClick function (just unrelated props) -- must NOT rescue. Proves a
   // props object alone isn't enough; it must carry a function handler.
   document.getElementById('no-onclick-wrap')['__reactProps$k'] = { className: 'x' };
+
+  // Svelte 5 simulation -- see file header. ONE shared dispatcher function,
+  // faithfully mirroring svelte@5.x's events.js: registered via
+  // addEventListener on BOTH the mount target and document (same function
+  // object in both places), and reading the handler off the target element
+  // via composedPath() -- either the svelte@5.0 legacy '__<type>' property
+  // or the svelte@5.57+ Symbol('events') bag.
+  function handle_event_propagation(e) {
+    var path = e.composedPath ? e.composedPath() : [];
+    for (var i = 0; i < path.length; i++) {
+      var node = path[i];
+      if (!node || node.nodeType !== 1) continue;
+      var symKeys = Object.getOwnPropertySymbols(node);
+      for (var s = 0; s < symKeys.length; s++) {
+        if (symKeys[s].description !== 'events') continue;
+        var bag = node[symKeys[s]];
+        var h = bag ? bag[e.type] : undefined;
+        if (Array.isArray(h)) h = h[0];
+        if (typeof h === 'function') { h.call(node, e); return; }
+      }
+      var legacy = node['__' + e.type];
+      if (Array.isArray(legacy)) legacy = legacy[0];
+      if (typeof legacy === 'function') { legacy.call(node, e); return; }
+    }
+  }
+
+  // Mount target #app, below body -- the shape that previously let the
+  // ancestor walk wrongly rescue every dead control inside it.
+  var svelteApp = document.getElementById('app');
+  svelteApp.addEventListener('click', handle_event_propagation, { passive: true });
+  document.addEventListener('click', handle_event_propagation, { passive: true });
+
+  // (b) svelte@5.57+ symbol-keyed own handler. Must rescue #svelte-live via
+  // the OWN-element check, independent of the (now-excluded) #app mirror.
+  document.getElementById('svelte-live')[Symbol('events')] = { click: function () {} };
+
+  // (c) svelte@5.0 legacy own-property handler. Must rescue #svelte-legacy
+  // via the OWN-element check.
+  document.getElementById('svelte-legacy').__click = function () {};
+
+  // (d) body-mounted variant: the SAME shared dispatcher also registered on
+  // document.body (mirroring document again) -- the ancestor walk stops
+  // BEFORE reaching document.body, so only the own-element check can ever
+  // rescue #svelte-body-live.
+  document.body.addEventListener('click', handle_event_propagation, { passive: true });
+  document.getElementById('svelte-body-live')[Symbol('events')] = { click: function () {} };
 </script>
 </body></html>`;
 
@@ -292,6 +376,26 @@ describe('handler-integrity + NO_HANDLER audit — real listener detection (fixe
   it('Non-blocking 6: still flags a dead button under an ancestor whose React props object carries no onClick function', () => {
     expect(fakeInteractiveWithEnrichment.has('Dead under props ancestor')).toBe(true);
     expect(noHandlerWithEnrichment).toContain('Dead under props ancestor');
+  });
+
+  it('Svelte 5: still flags a genuinely dead button under the Svelte mount target, even though the mount target carries the shared root-mirrored click dispatcher', () => {
+    expect(fakeInteractiveWithEnrichment.has('Svelte dead')).toBe(true);
+    expect(noHandlerWithEnrichment).toContain('Svelte dead');
+  });
+
+  it('Svelte 5: does not flag a button with a svelte@5.57+ Symbol("events") own handler', () => {
+    expect(fakeInteractiveWithEnrichment.has('Svelte live')).toBe(false);
+    expect(noHandlerWithEnrichment).not.toContain('Svelte live');
+  });
+
+  it('Svelte 5: does not flag a button with a svelte@5.0 legacy __click own handler', () => {
+    expect(fakeInteractiveWithEnrichment.has('Svelte legacy')).toBe(false);
+    expect(noHandlerWithEnrichment).not.toContain('Svelte legacy');
+  });
+
+  it('Svelte 5: does not flag a body-mounted app\'s button (own Symbol("events") handler), even though the ancestor walk never reaches document.body', () => {
+    expect(fakeInteractiveWithEnrichment.has('Svelte body live')).toBe(false);
+    expect(noHandlerWithEnrichment).not.toContain('Svelte body live');
   });
 });
 

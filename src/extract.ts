@@ -356,6 +356,44 @@ const ACTIVATION_EVENT_TYPES = [
  * The element's OWN listener check (`hasActivationListener`) is unaffected
  * by any of the above — a framework-managed node with a genuine
  * addEventListener of its own is still detected.
+ *
+ * Svelte 5 is a THIRD shape, distinct from both React/Vue (props-on-fiber,
+ * no native listener at all) and plain addEventListener (a native listener
+ * directly on the interactive element). Svelte's compiler stores a
+ * delegated handler ON THE ELEMENT ITSELF — svelte@5.0: `el['__' + type]`
+ * (a function, or an array whose `[0]` is the function); svelte@5.57+:
+ * `el[Symbol('events')][type]`, same function-or-array shape — and
+ * dispatches via ONE shared function registered with `addEventListener` on
+ * BOTH the mount target (`#app`, or `document.body` for a body-mounted app)
+ * AND `document`, the identical function object in both places. Two defects
+ * follow from that shape, in opposite directions:
+ *   1. UNDER-report: the ancestor walk, seeing that shared function
+ *      attached to the mount target, previously credited it as author
+ *      delegation — rescuing every dead control under the mount target
+ *      whether or not it actually had a handler. Fixed by a root-mirror
+ *      guard: capture `getEventListeners(document).click` once per
+ *      `evaluate()` call, and when checking an ancestor's click listeners,
+ *      exclude any listener function that is ALSO registered on `document`
+ *      — that is framework root-dispatch plumbing, never author delegation,
+ *      by construction (name-independent, so it survives minification of
+ *      Svelte's internal dispatcher). The walk does not `break` at such an
+ *      ancestor; it keeps climbing past it.
+ *   2. OVER-report: with the mount-target listener now correctly excluded,
+ *      a genuinely wired Svelte button has no NATIVE listener anywhere in
+ *      the tree for `getEventListeners` to find — the handler lives on the
+ *      element itself in one of the two shapes above. `svelteDelegatedHandler`
+ *      recognizes both shapes directly on a node; the element's OWN check
+ *      (`hasActivationListener`) now also credits it for any
+ *      `ACTIVATION_EVENT_TYPES` type, independent of any ancestor — this is
+ *      the only path that can ever rescue a body-mounted app's button,
+ *      since the ancestor walk stops before reaching `document.body`. The
+ *      ancestor walk also checks for a Svelte delegated `click` handler at
+ *      each ancestor, mirroring the existing React-props-on-ancestor check.
+ *      Known limitation (INFERRED from Svelte's compiler design, not
+ *      verified against compiled output): a dynamic `onclick={maybeHandler}`
+ *      compiles to a wrapper function stored in this same shape even when
+ *      `maybeHandler` is `undefined` at runtime, so a control whose handler
+ *      is conditionally absent is still credited as wired.
  */
 async function enrichWithEventListeners(page: PageLike, elements: EnhancedElement[]): Promise<void> {
   const evaluateWithCommandLineAPI = page.evaluateWithCommandLineAPI?.bind(page);
@@ -392,15 +430,61 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
     (function () {
       const selectors = ${JSON.stringify(selectors)};
       const activationTypes = ${JSON.stringify(ACTIVATION_EVENT_TYPES)};
+      // Svelte 5 stores a delegated handler ON THE ELEMENT ITSELF rather than
+      // attaching a native listener anywhere near it (see file header
+      // comment above): svelte@5.0 uses an own property named '__' + type
+      // (a function, or an array whose [0] is the function); svelte@5.57+
+      // uses an own Symbol property whose .description is 'events', holding
+      // an object keyed by event type in the same function-or-array shape.
+      // Checked directly on a node -- both the candidate element itself
+      // (own check) and each ancestor during the delegation walk.
+      const svelteHandlerFn = (bagOrProp) => {
+        const fn = Array.isArray(bagOrProp) ? bagOrProp[0] : bagOrProp;
+        return typeof fn === 'function';
+      };
+      // Resolves the svelte@5.57+ Symbol('events') bag ONCE per node --
+      // Object.getOwnPropertySymbols is a real allocation, and
+      // hasActivationListener below checks every ACTIVATION_EVENT_TYPES
+      // entry against the same node, so resolving per-type would repeat it
+      // 9x for no behavioral gain (the bag doesn't change between checks).
+      const svelteEventBag = (node) => {
+        const symbols = Object.getOwnPropertySymbols(node);
+        for (const sym of symbols) {
+          if (sym.description === 'events') return node[sym];
+        }
+        return null;
+      };
+      const svelteDelegatedHandlerWithBag = (node, type, bag) => {
+        if (svelteHandlerFn(node['__' + type])) return true;
+        return !!(bag && svelteHandlerFn(bag[type]));
+      };
+      const svelteDelegatedHandler = (node, type) => svelteDelegatedHandlerWithBag(node, type, svelteEventBag(node));
+      // Svelte's root-mirror listener (see file header comment above) is the
+      // SAME function object registered via addEventListener on both the
+      // mount target and document -- capture document's click listeners
+      // once per evaluate() call so the ancestor walk below can recognize
+      // and exclude that mirrored function wherever it appears, without
+      // depending on its (minifiable) name.
+      let documentClickFns;
+      try {
+        const docListeners = getEventListeners(document);
+        documentClickFns = new Set(
+          (docListeners && Array.isArray(docListeners.click) ? docListeners.click : []).map((l) => l.listener)
+        );
+      } catch (e) {
+        documentClickFns = new Set();
+      }
       const hasActivationListener = (node) => {
         let listeners;
         try {
           listeners = getEventListeners(node);
         } catch (e) {
-          return false;
+          listeners = null;
         }
-        if (!listeners) return false;
-        return activationTypes.some((type) => Array.isArray(listeners[type]) && listeners[type].length > 0);
+        const hasNative = !!listeners && activationTypes.some((type) => Array.isArray(listeners[type]) && listeners[type].length > 0);
+        if (hasNative) return true;
+        const bag = svelteEventBag(node);
+        return activationTypes.some((type) => svelteDelegatedHandlerWithBag(node, type, bag));
       };
       const hasClickListener = (node) => {
         let listeners;
@@ -409,7 +493,13 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
         } catch (e) {
           return false;
         }
-        return !!(listeners && Array.isArray(listeners.click) && listeners.click.length > 0);
+        if (!listeners || !Array.isArray(listeners.click)) return false;
+        // Exclude any click listener function that is ALSO registered on
+        // document -- that is framework root-dispatch plumbing mirrored onto
+        // the mount target (Svelte 5), never author-written delegation for
+        // whatever happens to render under it. Do not stop the walk here;
+        // the caller keeps climbing past this ancestor.
+        return listeners.click.some((l) => !documentClickFns.has(l.listener));
       };
       // Ancestor chains overlap heavily across candidates (siblings under the
       // same list/table share most of their parent chain), and
@@ -488,7 +578,7 @@ async function enrichWithEventListeners(page: PageLike, elements: EnhancedElemen
         let ancestor = el.parentElement;
         while (ancestor && ancestor !== document.body && ancestor !== document.documentElement) {
           if (isFrameworkRoot(ancestor)) break;
-          if (hasClickListenerCached(ancestor) || hasReactPropsOnClick(ancestor)) {
+          if (hasClickListenerCached(ancestor) || hasReactPropsOnClick(ancestor) || svelteDelegatedHandler(ancestor, 'click')) {
             hasDelegatedListener = true;
             break;
           }
