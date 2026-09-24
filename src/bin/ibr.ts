@@ -3958,6 +3958,25 @@ program
   });
 
 program
+  .command('native:request-permission')
+  .description('Show the macOS Accessibility permission prompt for this terminal (at most once per user)')
+  .action(async () => {
+    try {
+      const { requestAccessibilityPermission } = await import('../native/index.js');
+      const result = await requestAccessibilityPermission();
+      if (result.trusted) {
+        console.log(result.message);
+        return;
+      }
+      console.error(result.message);
+      process.exit(77);
+    } catch (error) {
+      console.error('Error:', error instanceof Error ? error.message : error);
+      process.exit(1);
+    }
+  });
+
+program
   .command('native:scan [device]')
   .description('Scan a running simulator for accessibility and design issues')
   .option('--no-screenshot', 'Skip screenshot capture')

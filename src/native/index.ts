@@ -17,7 +17,8 @@ export type {
 export { NATIVE_VIEWPORTS, getDeviceViewport } from './viewports.js';
 export { listDevices, findDevice, getBootedDevices, bootDevice, formatDevice } from './simulator.js';
 export { captureNativeScreenshot } from './capture.js';
-export { extractNativeElements, mapToEnhancedElements, isExtractorAvailable, ensureExtractor } from './extract.js';
+export { extractNativeElements, mapToEnhancedElements, isExtractorAvailable, ensureExtractor, requestAccessibilityPermission } from './extract.js';
+export type { AccessibilityPermissionResult } from './extract.js';
 export { auditNativeElements } from './rules.js';
 export { scanNative, formatNativeScanResult, scanMacOS, formatMacOSScanResult } from './scan.js';
 export {

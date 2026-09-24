@@ -290,23 +290,47 @@ export function detectSimulatorChromeOnly(
 }
 
 /**
+ * Exit code the Swift extractor uses when Accessibility is not granted (EX_NOPERM).
+ * Mirrors `accessibilityUntrustedExitCode` in swift/ibr-ax-extract/Sources/Permission.swift.
+ */
+export const ACCESSIBILITY_UNTRUSTED_EXIT_CODE = 77;
+
+/** CLI command that shows the macOS Accessibility prompt — at most once per user. */
+export const REQUEST_PERMISSION_COMMAND = 'ibr native:request-permission';
+
+/**
  * Map a raw extractor / Swift error message back to a preflight verdict.
  * Used by callers that already attempted the AX extraction and want to
  * re-classify the failure as a one-liner.
+ *
+ * Passive by design: this never spawns the extractor and never retries. The
+ * extractor itself only shows the macOS Accessibility prompt when invoked with
+ * `--request-permission` and no prompt was ever recorded in
+ * ~/.ibr/permissions.json, so callers must surface this message rather than
+ * re-running the extraction.
  *
  * Currently handles: AX permission denied. Extend as new failure modes
  * surface in the transcript audit.
  */
 export function classifyExtractorError(err: unknown): PreflightFail | null {
   const msg = err instanceof Error ? err.message : String(err);
-  if (/accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === ACCESSIBILITY_UNTRUSTED_EXIT_CODE || /accessibility|AX(Is)?ProcessTrusted|permission/i.test(msg)) {
+    // Prefer the extractor's own guidance: it knows whether the prompt was
+    // already shown and names the exact re-request step.
+    const swiftLine = msg
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => /^Error: Accessibility permission required\./.test(line) || /^Accessibility permission required\. IBR showed/.test(line));
     return {
       ok: false,
       reason: 'ax-permission',
-      message:
-        'macOS accessibility permission denied. ' +
-        'Grant access in System Settings → Privacy & Security → Accessibility, ' +
-        'then re-run the session_start call.',
+      message: swiftLine
+        ? swiftLine.replace(/^Error: /, '')
+        : 'macOS accessibility permission denied. ' +
+          'Grant access to your terminal or IDE in System Settings → Privacy & Security → Accessibility, ' +
+          'then quit and reopen it and re-run the session_start call. ' +
+          `IBR does not re-open the permission prompt automatically; to show it once, run: ${REQUEST_PERMISSION_COMMAND}`,
     };
   }
   return null;
